@@ -100,6 +100,35 @@ export async function deleteScenario(id) {
   return localDelete(id);
 }
 
+/* ─────── расписание напоминаний ───────
+   Планировщик живёт на сервере, поэтому задачи нужно ему отдать. Отправляем
+   только когда бэкенд есть и напоминания у него включены: на статике или без
+   токена бота слать некуда. */
+
+let remindersOk = null;
+async function remindersAvailable() {
+  if (remindersOk !== null) return remindersOk;
+  try {
+    const r = await fetch("/api/health", { headers: { Accept: "application/json" } });
+    const j = r.ok ? await r.json() : null;
+    remindersOk = Boolean(j && j.ok && j.reminders);
+  } catch {
+    remindersOk = false;
+  }
+  return remindersOk;
+}
+
+export async function syncSchedule(tasks) {
+  if (!(await remindersAvailable())) return false;
+  const r = await fetch("/api/schedule", {
+    method: "PUT",
+    headers: apiHeaders(),
+    // Часовой пояс нужен серверу: в задачах время «настенное», без зоны.
+    body: JSON.stringify({ tzOffset: new Date().getTimezoneOffset(), tasks }),
+  });
+  return r.ok;
+}
+
 /* ─────── 1. сервер ─────── */
 
 const apiHeaders = () => ({

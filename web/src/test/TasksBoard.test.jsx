@@ -151,6 +151,18 @@ describe("параметры задачи", () => {
     expect(screen.getByDisplayValue("способ заработка")).toBeInTheDocument();
   });
 
+  it("«Предупредить» выбирается и запоминается", () => {
+    renderOpen();
+    // По умолчанию — за 10 минут.
+    expect(screen.getByDisplayValue("за 10 минут")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("за 10 минут"), { target: { value: "50" } });
+    expect(screen.getByDisplayValue("за 50 минут")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("за 50 минут"), { target: { value: "" } });
+    expect(screen.getByDisplayValue("не предупреждать")).toBeInTheDocument();
+  });
+
   it("комментарии добавляются и удаляются", () => {
     renderOpen();
     expect(screen.getByText("Пока нет.")).toBeInTheDocument();
@@ -197,16 +209,43 @@ describe("«Взять в работу» во вкладке «Цели»", () =
     render(<SystemModel />);
 
     const take = screen.getAllByRole("button", { name: "Взять в работу" });
-    expect(take.length).toBeGreaterThan(0);
+    const before = take.length;
+    expect(before).toBeGreaterThan(0);
     fireEvent.click(take[0]);
 
-    // Кнопка сменилась на отметку — рекомендацию нельзя взять дважды.
-    expect(screen.getAllByText(/взято в работу/).length).toBeGreaterThan(0);
+    // Рычаг применён к модели, поэтому набор рекомендаций пересчитался:
+    // взятую в работу больше не предлагают.
+    expect(screen.queryAllByRole("button", { name: "Взять в работу" }).length)
+      .toBeLessThan(before);
 
     fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
     expect(screen.getAllByText("KR").length).toBeGreaterThan(0);
     // Задача появилась на доске и привязана к цели.
     expect(screen.getAllByText("активные пользователи").length).toBeGreaterThan(0);
+  });
+
+  it("применяет рекомендованное значение к модели — прогноз пересчитывается", () => {
+    const { container } = render(<SystemModel />);
+
+    // Снимок прогноза до принятия решения.
+    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
+    const before = JSON.parse(container.querySelector("textarea").value);
+
+    fireEvent.click(screen.getByRole("button", { name: "Цели" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
+
+    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
+    const after = JSON.parse(container.querySelector("textarea").value);
+
+    // Рычаг сдвинут: либо стартовое значение ресурса, либо интенсивность стрелки.
+    const kr = after.okrs[0];
+    const value = (m) => kr.type === "seed"
+      ? m.traits.find((t) => t.id === kr.refId).have
+      : m.edges.find((e) => e.id === kr.refId).gives;
+    expect(value(after)).not.toBe(value(before));
+    expect(value(after)).toBeCloseTo(kr.to, 2);
   });
 
   it("задачи и KR уезжают в JSON вместе с моделью", () => {

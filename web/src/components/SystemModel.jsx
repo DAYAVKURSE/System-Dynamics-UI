@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
-  deleteScenario } from "../storage.js";
+  deleteScenario, syncSchedule } from "../storage.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
 
@@ -568,6 +568,14 @@ export default function SystemModel(){
     setSel(p=>p===id?(entities.find(e=>e.id!==id)?.id??null):p);
   };
 
+  // Планировщик напоминаний живёт на сервере, поэтому после каждой правки
+  // задач отдаём ему актуальный список. Пауза гасит поток промежуточных
+  // состояний, пока пользователь ещё правит поля.
+  useEffect(()=>{
+    const id=setTimeout(()=>{ syncSchedule(tasks).catch(()=>{}); },1200);
+    return ()=>clearTimeout(id);
+  },[tasks]);
+
   // ─── OKR: рекомендация → ключевой результат + задача ───
   const recRef=(r)=>r.type==="seed"?r.tid:r.eid;
   const isTaken=(goalId,r)=>okrs.some(o=>o.goalId===goalId&&o.refId===recRef(r));
@@ -577,6 +585,11 @@ export default function SystemModel(){
     ? Number(traits.find(t=>t.id===o.refId)?.have??0)
     : Number(edges.find(e=>e.id===o.refId)?.gives??0);
   const takeToWork=(goalId,r)=>{
+    // Приложение — инструмент прогноза, поэтому взятый в работу рычаг сразу
+    // применяется к модели: прогноз должен показывать, куда система пойдёт с
+    // учётом принятого решения. Плюс заводятся KR и задача под него.
+    const val=Math.round(r.to*100)/100;
+    if(r.type==="seed") upT(r.tid,"have",val); else upA(r.eid,"gives",val);
     const o=okrFromRec(goalId,r);
     setOkrs(p=>[...p,o]);
     setTasks(p=>[...p,newTask({goalId,okrId:o.id,title:r.label,
@@ -874,7 +887,8 @@ export default function SystemModel(){
                       </div>
                       {isTaken(g.id,r)
                         ? <div style={{fontSize:11.5,color:OK,marginTop:6}}>
-                            ✓ взято в работу — задача во вкладке «Задачи»</div>
+                            ✓ взято в работу — прогноз пересчитан, задача во
+                            вкладке «Задачи»</div>
                         : <button style={{...btn(false),marginTop:6,color:OK,
                             borderColor:OK+"66"}}
                             onClick={()=>takeToWork(g.id,r)}>Взять в работу</button>}

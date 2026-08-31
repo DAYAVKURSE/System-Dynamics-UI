@@ -188,6 +188,7 @@ jobs:
           NODE_ENV=production
           PORT=3000
           SCENARIOS_DIR=${DEPLOY_PATH_R}/data/scenarios
+          SCHEDULES_DIR=${DEPLOY_PATH_R}/data/schedules
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF
 

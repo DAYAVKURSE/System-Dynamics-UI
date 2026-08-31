@@ -26,6 +26,20 @@ export const REPEATS=[
 ];
 const DAYS=["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
 
+// За сколько минут до начала предупредить. null — не предупреждать.
+export const WARNS=[
+  {v:null,name:"не предупреждать"},
+  {v:0,name:"в момент начала"},
+  {v:5,name:"за 5 минут"},
+  {v:10,name:"за 10 минут"},
+  {v:20,name:"за 20 минут"},
+  {v:30,name:"за 30 минут"},
+  {v:50,name:"за 50 минут"},
+  {v:60,name:"за час"},
+  {v:120,name:"за 2 часа"},
+  {v:1440,name:"за сутки"},
+];
+
 // Формат, который понимает <input type="datetime-local">: без секунд и без
 // часового пояса, в локальном времени пользователя.
 export function nowLocal(d=new Date()){
@@ -43,7 +57,7 @@ const uid=(p)=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
 export function newTask({goalId,okrId=null,title="Новая задача",body=""}){
   return {id:uid("tk"),goalId,okrId,title,body,status:"backlog",
-    start:nowLocal(),end:"",repeat:"once",days:[],time:"",comments:[]};
+    start:nowLocal(),end:"",repeat:"once",days:[],time:"",warn:10,comments:[]};
 }
 
 // Ключевой результат из рекомендации вкладки «Цели».
@@ -265,6 +279,19 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
             <input type="time" style={{...S.inp,marginBottom:8}} value={open.time||""}
               onChange={e=>upT(open.id,"time",e.target.value)}/>
           </>)}
+
+          <div style={S.lbl}>предупредить</div>
+          <select style={{...S.inp,marginBottom:4}}
+            value={open.warn==null?"":String(open.warn)}
+            onChange={e=>upT(open.id,"warn",
+              e.target.value===""?null:Number(e.target.value))}>
+            {WARNS.map(w=>(<option key={String(w.v)} value={w.v==null?"":String(w.v)}>
+              {w.name}</option>))}
+          </select>
+          <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
+            Напоминание придёт обычным сообщением от бота. Чтобы оно дошло,
+            у бота должен быть начат диалог — откройте его и нажмите «Начать».
+          </div>
 
           <div style={S.lbl}>комментарии</div>
           <div style={{margin:"6px 0"}}>

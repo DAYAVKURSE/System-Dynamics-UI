@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import scenariosRouter from "./routes/scenarios.js";
+import scheduleRouter from "./routes/schedule.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,9 +16,15 @@ export function createApp() {
   // TELEGRAM_BOT_TOKEN — значит, нечем проверить подпись, и открывать API
   // всем подряд нельзя). Фронтенд по этому флагу уходит в облако Telegram.
   app.get("/api/health", (_req, res) =>
-    res.json({ ok: true, scenarios: Boolean(process.env.TELEGRAM_BOT_TOKEN) }),
+    res.json({
+      ok: true,
+      scenarios: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      // Напоминания шлёт бот, поэтому без токена планировщик бесполезен.
+      reminders: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+    }),
   );
   app.use("/api/scenarios", scenariosRouter);
+  app.use("/api/schedule", scheduleRouter);
 
   // Собранный фронтенд (web build) кладётся сюда шагом деплоя — см. docs/DEPLOYMENT.md.
   // Локально в dev-режиме этой папки обычно нет: фронтенд поднимается отдельно
