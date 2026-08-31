@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario } from "../storage.js";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v8
    Поля с локальным черновиком: значение уходит в модель по расфокусу
    или по Enter, поэтому пересчёт не дёргает ввод.
    ════════════════════════════════════════════════════════════════ */
-
-const C={ink:"#0E1420",panel:"#161F2E",panel2:"#1D2839",line:"#2A3852",
-  text:"#E6EDF7",muted:"#8FA0BC"};
-const OK="#3DDC97",WARN="#FFB13D",BAD="#FF5C7A",NEU="#5A6B85",ACC="#7CE0FF";
 
 // Классификации ресурсов. Это только начальный набор: список редактируется
 // во вкладке «Типы», живёт в состоянии и сохраняется вместе с моделью.
@@ -31,41 +29,7 @@ const kindLookup=(kinds)=>(id)=>kinds.find(k=>k.id===id)||NOKIND;
 const PER={"час":730,"день":30,"нед":4.33,"мес":1,"квартал":1/3,"год":1/12};
 const NW=208,NH=112;
 
-const nm=(n)=>!isFinite(n)?"—":
-  (Math.abs(n)>=100?Math.round(n):Math.round(n*100)/100).toLocaleString("ru-RU");
 const isFlow=(t)=>t.flow!=null?!!t.flow:/\//.test(t.unit||"");
-
-const S={
-  inp:{background:C.ink,border:`1px solid ${C.line}`,color:C.text,borderRadius:5,
-    padding:"7px 8px",fontSize:13,width:"100%",fontFamily:"Inter, system-ui, sans-serif"},
-  lbl:{color:C.muted,fontSize:10,letterSpacing:"0.09em",textTransform:"uppercase",
-    fontFamily:"ui-monospace, Menlo, monospace"},
-  card:{background:C.panel,border:`1px solid ${C.line}`,borderRadius:10,padding:12},
-};
-const btn=(on,col)=>({background:on?(col||ACC)+"22":C.panel2,
-  border:`1px solid ${on?(col||ACC):C.line}`,color:on?(col||ACC):C.muted,borderRadius:6,
-  padding:"6px 10px",fontSize:12,cursor:"pointer",whiteSpace:"nowrap"});
-
-/* ─────── ПОЛЯ С ЧЕРНОВИКОМ ─────── */
-function NumField({value,onCommit,placeholder,style}){
-  const [d,setD]=useState(value==null?"":String(value));
-  const [f,setF]=useState(false);
-  useEffect(()=>{ if(!f) setD(value==null?"":String(value)); },[value,f]);
-  const commit=()=>{ const s=String(d).trim().replace(",",".");
-    onCommit(s===""?null:(isFinite(Number(s))?Number(s):null)); };
-  return <input inputMode="decimal" placeholder={placeholder} value={d}
-    style={{...S.inp,...style}} onFocus={()=>setF(true)} onChange={e=>setD(e.target.value)}
-    onBlur={()=>{setF(false);commit();}}
-    onKeyDown={e=>{if(e.key==="Enter") e.currentTarget.blur();}}/>;
-}
-function TxtField({value,onCommit,placeholder,style,area}){
-  const [d,setD]=useState(value??"");
-  const [f,setF]=useState(false);
-  useEffect(()=>{ if(!f) setD(value??""); },[value,f]);
-  const p={value:d,placeholder,style:{...S.inp,...style},onFocus:()=>setF(true),
-    onChange:e=>setD(e.target.value),onBlur:()=>{setF(false);onCommit(d);}};
-  return area ? <textarea {...p}/> : <input {...p}/>;
-}
 
 /* ─────── ДАННЫЕ ─────── */
 const ENTITIES0=[
@@ -534,6 +498,8 @@ export default function SystemModel(){
   const [edges,setEdges]=useState(EDGES0);
   const [kinds,setKinds]=useState(KINDS0);
   const [kindMsg,setKindMsg]=useState("");
+  const [okrs,setOkrs]=useState([]);
+  const [tasks,setTasks]=useState([]);
   const [tab,setTab]=useState("goals");
   const [sel,setSel]=useState("usr");
   const [selTrait,setSelTrait]=useState(null);
@@ -602,6 +568,23 @@ export default function SystemModel(){
     setSel(p=>p===id?(entities.find(e=>e.id!==id)?.id??null):p);
   };
 
+  // ─── OKR: рекомендация → ключевой результат + задача ───
+  const recRef=(r)=>r.type==="seed"?r.tid:r.eid;
+  const isTaken=(goalId,r)=>okrs.some(o=>o.goalId===goalId&&o.refId===recRef(r));
+  // Прогресс ключевого результата берётся из модели, а не отмечается руками:
+  // KR закрыт тогда, когда рычаг реально выведен на нужное значение.
+  const okrValue=(o)=>o.type==="seed"
+    ? Number(traits.find(t=>t.id===o.refId)?.have??0)
+    : Number(edges.find(e=>e.id===o.refId)?.gives??0);
+  const takeToWork=(goalId,r)=>{
+    const o=okrFromRec(goalId,r);
+    setOkrs(p=>[...p,o]);
+    setTasks(p=>[...p,newTask({goalId,okrId:o.id,title:r.label,
+      body:r.type==="seed"
+        ?`Завести ${nm(r.to)} ${r.unit||""} — «${r.label}».`
+        :`Поднять «${r.label}» с ${nm(r.from)} до ${nm(r.to)} ${r.unit||""} за ${r.per}.`})]);
+  };
+
   // ─── классификации ресурсов ───
   const upK=(id,f,v)=>setKinds(p=>p.map(k=>k.id===id?{...k,[f]:v}:k));
   const addKind=()=>setKinds(p=>[...p,{id:"k"+Date.now(),sign:"•",
@@ -632,7 +615,7 @@ export default function SystemModel(){
     try{
       const isUpdate=savedSel&&savedList.some(s=>s.id===savedSel);
       const saved=await saveScenario({id:isUpdate?savedSel:null,name:saveName,
-        data:{entities,traits,edges,kinds}});
+        data:{entities,traits,edges,kinds,okrs,tasks}});
       setSavedMsg(`Сохранено: «${saved.name}».`);
       setSavedSel(saved.id);
       await refreshSavedList();
@@ -649,6 +632,8 @@ export default function SystemModel(){
       if(s.data?.traits) setTraits(s.data.traits);
       if(s.data?.edges) setEdges(s.data.edges);
       if(Array.isArray(s.data?.kinds)&&s.data.kinds.length) setKinds(s.data.kinds);
+      if(Array.isArray(s.data?.okrs)) setOkrs(s.data.okrs);
+      if(Array.isArray(s.data?.tasks)) setTasks(s.data.tasks);
       setSaveName(s.name);
       setSavedMsg(`Загружено: «${s.name}».`);
     }catch(e){ setSavedMsg(e.message||"Не удалось загрузить сценарий."); }
@@ -711,8 +696,8 @@ export default function SystemModel(){
       </div>
 
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {[["goals","Цели"],["scheme","Схема"],["sim","Симуляция"],["kinds","Типы"],
-          ["json","JSON"]].map(([k,t])=>(
+        {[["goals","Цели"],["tasks","Задачи"],["scheme","Схема"],
+          ["sim","Симуляция"],["kinds","Типы"],["json","JSON"]].map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 
@@ -887,10 +872,12 @@ export default function SystemModel(){
                           ?`опирается ещё на ${otherHypo.length} гипотез${otherHypo.length===1?"у":otherHypo.length<5?"ы":""} из списка выше`
                           :"больше ни одной гипотезы не требуется"}
                       </div>
-                      <button style={{...btn(false),marginTop:6,color:OK,borderColor:OK+"66"}}
-                        onClick={()=>r.type==="seed"
-                          ?upT(r.tid,"have",Math.round(r.to*100)/100)
-                          :upA(r.eid,"gives",Math.round(r.to*100)/100)}>применить</button>
+                      {isTaken(g.id,r)
+                        ? <div style={{fontSize:11.5,color:OK,marginTop:6}}>
+                            ✓ взято в работу — задача во вкладке «Задачи»</div>
+                        : <button style={{...btn(false),marginTop:6,color:OK,
+                            borderColor:OK+"66"}}
+                            onClick={()=>takeToWork(g.id,r)}>Взять в работу</button>}
                     </div>);})}
                 </div>
                 <div style={{fontSize:11.5,color:C.muted,marginTop:4,lineHeight:1.6}}>
@@ -903,6 +890,12 @@ export default function SystemModel(){
                 либо все условия замкнуты сами на себя. Открой её на схеме.</div>}
             </div>);})}
       </div>)}
+
+      {/* ═══ ЗАДАЧИ (OKR + канбан) ═══ */}
+      {tab==="tasks" && (
+        <TasksBoard goals={goals} okrs={okrs} setOkrs={setOkrs}
+          tasks={tasks} setTasks={setTasks} okrValue={okrValue}
+          entityName={id=>ent(id)?.name||"—"}/>)}
 
       {/* ═══ СХЕМА ═══ */}
       {tab==="scheme" && (<>
@@ -1252,7 +1245,7 @@ export default function SystemModel(){
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <button style={btn(true)} onClick={()=>{
-              setJson(JSON.stringify({entities,traits,edges,kinds},null,2));
+              setJson(JSON.stringify({entities,traits,edges,kinds,okrs,tasks},null,2));
               setJsonMsg("Выгружено.");}}>
               Выгрузить</button>
             <button style={btn(false)} onClick={()=>{try{const d=JSON.parse(json);
@@ -1262,6 +1255,8 @@ export default function SystemModel(){
               // Сценарии, сохранённые до появления редактируемых классификаций,
               // поля kinds не содержат — оставляем текущий набор.
               if(Array.isArray(d.kinds)&&d.kinds.length)setKinds(d.kinds);
+              if(Array.isArray(d.okrs))setOkrs(d.okrs);
+              if(Array.isArray(d.tasks))setTasks(d.tasks);
               setJsonMsg("Загружено.");}
               catch{setJsonMsg("Не разобрал JSON.");}}}>Загрузить</button>
             {jsonMsg&&<span style={{fontSize:12,color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}
