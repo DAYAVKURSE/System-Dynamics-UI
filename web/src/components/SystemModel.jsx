@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario } from "../storage.js";
 
@@ -12,15 +12,22 @@ const C={ink:"#0E1420",panel:"#161F2E",panel2:"#1D2839",line:"#2A3852",
   text:"#E6EDF7",muted:"#8FA0BC"};
 const OK="#3DDC97",WARN="#FFB13D",BAD="#FF5C7A",NEU="#5A6B85",ACC="#7CE0FF";
 
-const KIND={
-  growth:{sign:"↑",name:"рост",color:"#3DDC97",dir:"up"},
-  res:{sign:"◆",name:"производимый ресурс",color:"#4EA8FF",dir:"up"},
-  cost:{sign:"−",name:"затраты",color:"#FFB13D",dir:"down"},
-  destroy:{sign:"↓",name:"разрушение",color:"#FF5C7A",dir:"down"},
-  repro:{sign:"∞",name:"воспроизводимость",color:"#C792EA",dir:"up"},
-  payback:{sign:"₽",name:"окупаемость",color:"#FFD166",dir:"up"},
-};
-const KO=["growth","res","cost","destroy","repro","payback"];
+// Классификации ресурсов. Это только начальный набор: список редактируется
+// во вкладке «Типы», живёт в состоянии и сохраняется вместе с моделью.
+// dir — в какую сторону изменение считается хорошим: "up" рост это хорошо,
+// "down" хорошо, когда величина падает (затраты, разрушение).
+const KINDS0=[
+  {id:"growth",sign:"↑",name:"рост",color:"#3DDC97",dir:"up"},
+  {id:"res",sign:"◆",name:"производимый ресурс",color:"#4EA8FF",dir:"up"},
+  {id:"cost",sign:"−",name:"затраты",color:"#FFB13D",dir:"down"},
+  {id:"destroy",sign:"↓",name:"разрушение",color:"#FF5C7A",dir:"down"},
+  {id:"repro",sign:"∞",name:"воспроизводимость",color:"#C792EA",dir:"up"},
+  {id:"payback",sign:"₽",name:"окупаемость",color:"#FFD166",dir:"up"},
+];
+// Ресурс может ссылаться на классификацию, которой больше нет (например, в
+// сценарии, сохранённом до её удаления) — показываем заглушку, а не падаем.
+const NOKIND={id:"",sign:"?",name:"без типа",color:NEU,dir:"up"};
+const kindLookup=(kinds)=>(id)=>kinds.find(k=>k.id===id)||NOKIND;
 const PER={"час":730,"день":30,"нед":4.33,"мес":1,"квартал":1/3,"год":1/12};
 const NW=208,NH=112;
 
@@ -314,7 +321,7 @@ function Chart({lines,months,goalLine,goalMonth,cursorMonth}){
 }
 
 /* ─────── СТРОКА СТРЕЛКИ ─────── */
-function ArrowRow({ed,traits,entities,live,onEdit,onDelete}){
+function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
   const t=traits.find(x=>x.id===ed.to); if(!t) return null;
   const en=(id)=>entities.find(e=>e.id===id);
   const conds=ed.conds||[];
@@ -331,7 +338,7 @@ function ArrowRow({ed,traits,entities,live,onEdit,onDelete}){
       <div className="flex items-center gap-2" style={{fontSize:12.5,marginBottom:8}}>
         <span style={{color:en(ed.from)?.color,fontWeight:600}}>{en(ed.from)?.name}</span>
         <span style={{color:C.muted}}>→</span>
-        <span style={{color:KIND[t.k].color}}>{KIND[t.k].sign}</span>
+        <span style={{color:kindOf(t.k).color}}>{kindOf(t.k).sign}</span>
         <span style={{flex:1}}>{t.l}</span>
         <button onClick={()=>onDelete(ed.id)} style={{...btn(false),padding:"3px 7px"}}>✕</button>
       </div>
@@ -364,7 +371,7 @@ function ArrowRow({ed,traits,entities,live,onEdit,onDelete}){
                 {entities.map(en2=>(
                   <optgroup key={en2.id} label={en2.name}>
                     {traits.filter(x=>x.e===en2.id).map(x=>(
-                      <option key={x.id} value={x.id}>{KIND[x.k].sign} {x.l}</option>))}
+                      <option key={x.id} value={x.id}>{kindOf(x.k).sign} {x.l}</option>))}
                   </optgroup>))}
               </select>
               <select style={{...S.inp,flex:"1 1 108px"}} value={c.mode}
@@ -408,7 +415,29 @@ function ArrowRow({ed,traits,entities,live,onEdit,onDelete}){
 
 /* ─────── СХЕМА (переиспользуемая для «сейчас» и для снимка симуляции) ─────── */
 function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesForFact,
-  onSelectEntity,onSelectPair}){
+  onSelectEntity,onSelectPair,onMoveEntity}){
+  // Перетаскивание активов. Тап и перетаскивание различаем по порогу сдвига:
+  // пока палец/курсор не ушёл дальше DRAG_MIN пикселей, это ещё выбор блока.
+  const DRAG_MIN=4;
+  const drag=useRef(null);
+  const down=(ev,e)=>{
+    if(!onMoveEntity) return;
+    try{ev.currentTarget.setPointerCapture(ev.pointerId);}catch{/* не критично */}
+    drag.current={id:e.id,sx:ev.clientX,sy:ev.clientY,ox:e.x,oy:e.y,moved:false};
+  };
+  const move=(ev)=>{
+    const d=drag.current; if(!d) return;
+    const dx=ev.clientX-d.sx, dy=ev.clientY-d.sy;
+    if(!d.moved&&Math.hypot(dx,dy)<DRAG_MIN) return;
+    d.moved=true;
+    // Экранные пиксели → единицы viewBox: масштаб задан zoom.
+    onMoveEntity(d.id,d.ox+dx/zoom,d.oy+dy/zoom);
+  };
+  const up=(ev,e)=>{
+    const d=drag.current; drag.current=null;
+    try{ev.currentTarget.releasePointerCapture(ev.pointerId);}catch{/* не критично */}
+    if(!d||!d.moved) onSelectEntity(e.id);
+  };
   const anchor=(a,b)=>{const ax=a.x+NW/2,ay=a.y+NH/2,bx=b.x+NW/2,by=b.y+NH/2;
     const dx=bx-ax,dy=by-ay;
     const s=Math.min(dx===0?1e9:NW/2/Math.abs(dx),dy===0?1e9:NH/2/Math.abs(dy));
@@ -425,9 +454,13 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
     });
     return {hypo:sh/pts.length,fact:sf/pts.length};
   };
+  // Холст растёт под перетащенные блоки, чтобы их не срезало по краю.
+  const CW=Math.max(1000,...entities.map(e=>e.x+NW+24));
+  const CH=Math.max(740,...entities.map(e=>e.y+NH+24));
   return (
     <div style={{overflow:"auto",WebkitOverflowScrolling:"touch"}}>
-      <svg viewBox="0 0 1000 740" width={1000*zoom} height={740*zoom} style={{display:"block"}}>
+      <svg viewBox={`0 0 ${CW} ${CH}`} width={CW*zoom} height={CH*zoom}
+        style={{display:"block"}}>
         <defs>{[OK,WARN,NEU].map((c,i)=>(
           <marker key={i} id={"a"+i} markerWidth="9" markerHeight="9" refX="8" refY="3"
             orient="auto"><path d="M0,0 L8,3 L0,6 z" fill={c}/></marker>))}</defs>
@@ -466,7 +499,10 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
           const ts=traits.filter(t=>t.e===e.id);
           const gs=ts.filter(t=>t.want!=null).length;
           const gv=gaugeFor(e.id);
-          return (<g key={e.id} onClick={()=>onSelectEntity(e.id)} style={{cursor:"pointer"}}>
+          return (<g key={e.id}
+            onPointerDown={ev=>down(ev,e)} onPointerMove={move}
+            onPointerUp={ev=>up(ev,e)} onPointerCancel={()=>{drag.current=null;}}
+            style={{cursor:onMoveEntity?"grab":"pointer",touchAction:"none"}}>
             <rect x={e.x} y={e.y} width={NW} height={NH} rx="12" fill={C.panel}
               stroke={sel===e.id?ACC:C.line} strokeWidth={sel===e.id?2.6:1.6}/>
             <rect x={e.x} y={e.y} width="5" height={NH} rx="2.5" fill={e.color}/>
@@ -496,6 +532,8 @@ export default function SystemModel(){
   const [entities,setEntities]=useState(ENTITIES0);
   const [traits,setTraits]=useState(TRAITS0);
   const [edges,setEdges]=useState(EDGES0);
+  const [kinds,setKinds]=useState(KINDS0);
+  const [kindMsg,setKindMsg]=useState("");
   const [tab,setTab]=useState("goals");
   const [sel,setSel]=useState("usr");
   const [selTrait,setSelTrait]=useState(null);
@@ -525,6 +563,60 @@ export default function SystemModel(){
   const upT=(id,f,v)=>setTraits(p=>p.map(t=>t.id===id?{...t,[f]:v}:t));
   const upA=(id,f,v)=>setEdges(p=>p.map(e=>e.id===id?{...e,[f]:v}:e));
   const delA=(id)=>setEdges(p=>p.filter(e=>e.id!==id));
+  const kindOf=useMemo(()=>kindLookup(kinds),[kinds]);
+
+  // После загрузки другой модели прежний выбор может указывать на актив,
+  // которого в ней нет — тогда панель осталась бы пустой без объяснений.
+  const adoptSelection=(list)=>{
+    setSelTrait(null); setPair(null);
+    setSel(s=>list.some(e=>e.id===s)?s:(list[0]?.id??null));
+    setSimEnt(s=>list.some(e=>e.id===s)?s:(list[0]?.id??null));
+  };
+
+  // ─── активы: добавить, подвинуть по схеме, удалить ───
+  const moveE=(id,x,y)=>{
+    // Нечисловые координаты недопустимы: они не просто ломают отрисовку —
+    // NaN уедет в сохранённый сценарий и актив пропадёт со схемы навсегда.
+    if(!Number.isFinite(x)||!Number.isFinite(y)) return;
+    setEntities(p=>p.map(e=>e.id===id
+      ?{...e,x:Math.max(0,Math.round(x)),y:Math.max(0,Math.round(y))}:e));
+  };
+  const addEntity=()=>{
+    const id="en"+Date.now();
+    // Кладём новый актив под самым нижним, чтобы он не лёг поверх existing.
+    const y=entities.length?Math.max(...entities.map(e=>e.y))+NH+40:24;
+    const palette=["#7CE0FF","#C792EA","#FFD166","#3DDC97","#FF9E64","#FF5C7A","#8B9DFF"];
+    setEntities(p=>[...p,{id,name:"Новый актив",color:palette[p.length%palette.length],
+      x:24,y}]);
+    setSel(id); setSelTrait(null); setPair(null);
+  };
+  const delEntity=(id)=>{
+    const own=new Set(traits.filter(t=>t.e===id).map(t=>t.id));
+    // Уносим за собой всё, что на актив ссылалось: его ресурсы, входящие в них
+    // стрелки, стрелки из него самого и условия, завязанные на его ресурсы.
+    setEdges(p=>p.filter(x=>x.from!==id&&!own.has(x.to))
+      .map(x=>({...x,conds:(x.conds||[]).filter(c=>!own.has(c.trait))})));
+    setTraits(p=>p.filter(t=>t.e!==id));
+    setEntities(p=>p.filter(e=>e.id!==id));
+    setSelTrait(null); setPair(null);
+    setSel(p=>p===id?(entities.find(e=>e.id!==id)?.id??null):p);
+  };
+
+  // ─── классификации ресурсов ───
+  const upK=(id,f,v)=>setKinds(p=>p.map(k=>k.id===id?{...k,[f]:v}:k));
+  const addKind=()=>setKinds(p=>[...p,{id:"k"+Date.now(),sign:"•",
+    name:"новая классификация",color:ACC,dir:"up"}]);
+  const delKind=(id)=>{
+    if(kinds.length<=1) return "Нельзя удалить последнюю классификацию.";
+    const rest=kinds.filter(k=>k.id!==id);
+    const used=traits.filter(t=>t.k===id);
+    // Ресурсы не бросаем без типа — переводим в первую оставшуюся классификацию.
+    if(used.length) setTraits(p=>p.map(t=>t.k===id?{...t,k:rest[0].id}:t));
+    setKinds(rest);
+    return used.length
+      ?`Удалено. ${used.length} ресурс(ов) переведено в «${rest[0].name}».`
+      :"Удалено.";
+  };
 
   // ─── сохранение сценариев: сервер / облако Telegram / браузер (см. storage.js) ───
   const refreshSavedList=async()=>{
@@ -540,7 +632,7 @@ export default function SystemModel(){
     try{
       const isUpdate=savedSel&&savedList.some(s=>s.id===savedSel);
       const saved=await saveScenario({id:isUpdate?savedSel:null,name:saveName,
-        data:{entities,traits,edges}});
+        data:{entities,traits,edges,kinds}});
       setSavedMsg(`Сохранено: «${saved.name}».`);
       setSavedSel(saved.id);
       await refreshSavedList();
@@ -553,9 +645,10 @@ export default function SystemModel(){
     try{
       const s=await getScenario(savedSel);
       if(!s) throw new Error("Сценарий не найден.");
-      if(s.data?.entities) setEntities(s.data.entities);
+      if(s.data?.entities){ setEntities(s.data.entities); adoptSelection(s.data.entities); }
       if(s.data?.traits) setTraits(s.data.traits);
       if(s.data?.edges) setEdges(s.data.edges);
+      if(Array.isArray(s.data?.kinds)&&s.data.kinds.length) setKinds(s.data.kinds);
       setSaveName(s.name);
       setSavedMsg(`Загружено: «${s.name}».`);
     }catch(e){ setSavedMsg(e.message||"Не удалось загрузить сценарий."); }
@@ -618,7 +711,8 @@ export default function SystemModel(){
       </div>
 
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {[["goals","Цели"],["scheme","Схема"],["sim","Симуляция"],["json","JSON"]].map(([k,t])=>(
+        {[["goals","Цели"],["scheme","Схема"],["sim","Симуляция"],["kinds","Типы"],
+          ["json","JSON"]].map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 
@@ -633,7 +727,7 @@ export default function SystemModel(){
               {entities.map(en=>(
                 <optgroup key={en.id} label={en.name}>
                   {traits.filter(t=>t.e===en.id&&t.want==null).map(t=>(
-                    <option key={t.id} value={t.id}>{KIND[t.k].sign} {t.l}</option>))}
+                    <option key={t.id} value={t.id}>{kindOf(t.k).sign} {t.l}</option>))}
                 </optgroup>))}
             </select>
             <button style={btn(true)} disabled={!newGoal} onClick={()=>{
@@ -666,8 +760,8 @@ export default function SystemModel(){
           return (
             <div key={g.id} style={{...S.card,marginBottom:12}}>
               <div className="flex items-center gap-2" style={{marginBottom:4}}>
-                <span style={{color:KIND[g.k].color,fontFamily:"ui-monospace, monospace",
-                  fontWeight:700}}>{KIND[g.k].sign}</span>
+                <span style={{color:kindOf(g.k).color,fontFamily:"ui-monospace, monospace",
+                  fontWeight:700}}>{kindOf(g.k).sign}</span>
                 <span style={{fontSize:14,fontWeight:700,flex:1}}>{g.l}</span>
                 <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
                   onClick={()=>{upT(g.id,"want",null);upT(g.id,"by",null);}}>убрать</button>
@@ -739,15 +833,15 @@ export default function SystemModel(){
                   const delta=end-start;
                   const eps=Math.max(1e-6,Math.abs(start)*0.001);
                   const dir=delta>eps?"up":delta<-eps?"down":"flat";
-                  const good=dir==="flat"?null:dir===KIND[t.k].dir;
+                  const good=dir==="flat"?null:dir===kindOf(t.k).dir;
                   const col=dir==="flat"?C.muted:(good?OK:BAD);
                   const arrow=dir==="up"?"↑":dir==="down"?"↓":"→";
                   const pct=Math.abs(start)>1e-9?(delta/Math.abs(start)*100):(end!==0?100:0);
                   return (
                     <div key={tid} className="flex items-center gap-2" style={{fontSize:12,
                       padding:"5px 2px",borderBottom:`1px solid ${C.line}`}}>
-                      <span style={{color:KIND[t.k].color,fontFamily:"ui-monospace, monospace"}}>
-                        {KIND[t.k].sign}</span>
+                      <span style={{color:kindOf(t.k).color,fontFamily:"ui-monospace, monospace"}}>
+                        {kindOf(t.k).sign}</span>
                       <span style={{flex:1}}>{t.l}
                         <span style={{color:C.muted}}> · {ent(t.e)?.name}</span></span>
                       <span style={{color:col,fontWeight:700,whiteSpace:"nowrap"}}>
@@ -813,18 +907,23 @@ export default function SystemModel(){
       {/* ═══ СХЕМА ═══ */}
       {tab==="scheme" && (<>
         <div style={{...S.card,padding:6,marginBottom:10}}>
-          <div className="flex items-center gap-2" style={{marginBottom:4}}>
+          <div className="flex items-center gap-2 flex-wrap" style={{marginBottom:4}}>
             <span style={S.lbl}>масштаб</span>
             <button style={btn(false)} onClick={()=>setZoom(z=>Math.max(.32,z-.12))}>−</button>
             <button style={btn(false)} onClick={()=>setZoom(z=>Math.min(1.6,z+.12))}>+</button>
-            <span style={{fontSize:11,color:C.muted}}>тап по блоку или по стрелке</span>
+            <button style={btn(true)} onClick={addEntity}>+ актив</button>
+          </div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:4}}>
+            Тап по блоку или стрелке — открыть. Блок можно перетащить — схема
+            запомнит новое положение.
           </div>
           <div style={{overflow:"auto",WebkitOverflowScrolling:"touch"}}>
             <SchemeSVG entities={entities} traits={traits} edges={edges} groups={groups}
               zoom={zoom} sel={sel} pair={pair}
               valuesFor={tid=>live[tid]??0} valuesForFact={tid=>liveFact[tid]??0}
               onSelectEntity={id=>{setSel(id);setSelTrait(null);setPair(null);}}
-              onSelectPair={key=>{setPair(key);setSelTrait(null);}}/>
+              onSelectPair={key=>{setPair(key);setSelTrait(null);}}
+              onMoveEntity={moveE}/>
           </div>
         </div>
 
@@ -837,16 +936,27 @@ export default function SystemModel(){
                 <span style={{color:ent(pairG.to)?.color}}>{ent(pairG.to)?.name}</span></div>
               <button style={btn(false)} onClick={()=>setPair(null)}>✕</button></div>
             {pairG.list.map(ed=>(
-              <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities} live={live}
+              <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities} live={live} kindOf={kindOf}
                 onEdit={upA} onDelete={delA}/>))}
           </div>)}
 
         {selE && (
           <div style={{...S.card,marginBottom:10}}>
-            <div className="flex items-center gap-2" style={{marginBottom:10}}>
+            <div className="flex items-center gap-2" style={{marginBottom:6}}>
               <span style={{width:9,height:9,borderRadius:2,background:selE.color}}/>
               <TxtField value={selE.name} style={{fontWeight:700,fontSize:14}}
                 onCommit={v=>upE(selE.id,"name",v)}/></div>
+            <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:10}}>
+              <span style={S.lbl}>цвет</span>
+              <input type="color" value={selE.color} onChange={e=>upE(selE.id,"color",e.target.value)}
+                style={{width:36,height:26,background:C.ink,border:`1px solid ${C.line}`,
+                  borderRadius:5,padding:1,cursor:"pointer"}}/>
+              <span style={{flex:1}}/>
+              <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
+                onClick={()=>delEntity(selE.id)}
+                title="Удалит актив вместе с его ресурсами и стрелками">
+                Удалить актив</button>
+            </div>
             <div style={S.lbl}>ресурсы актива</div>
             <div style={{margin:"6px 0 10px"}}>
               {traits.filter(t=>t.e===selE.id).map(t=>{
@@ -863,8 +973,8 @@ export default function SystemModel(){
                     background:selTrait===t.id?C.panel2:"transparent",
                     border:`1px solid ${selTrait===t.id?C.line:"transparent"}`}}>
                   <div className="flex items-center gap-2" style={{fontSize:12.5}}>
-                    <span style={{color:KIND[t.k].color,fontFamily:"ui-monospace, monospace",
-                      fontWeight:700}}>{KIND[t.k].sign}</span>
+                    <span style={{color:kindOf(t.k).color,fontFamily:"ui-monospace, monospace",
+                      fontWeight:700}}>{kindOf(t.k).sign}</span>
                     <span style={{flex:1}}>{t.l}</span>
                     {t.want!=null&&<span style={{fontSize:9.5,color:ACC,
                       border:`1px solid ${ACC}66`,borderRadius:3,padding:"1px 4px"}}>цель</span>}
@@ -889,8 +999,13 @@ export default function SystemModel(){
             {selT&&selT.e===selE.id&&(
               <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
                 padding:10,marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>
-                  {KIND[selT.k].sign} {selT.l}</div>
+                <div className="flex items-center gap-2" style={{marginBottom:8}}>
+                  <span style={{color:kindOf(selT.k).color,fontFamily:"ui-monospace, monospace",
+                    fontWeight:700}}>{kindOf(selT.k).sign}</span>
+                  <TxtField value={selT.l} placeholder="название ресурса"
+                    style={{fontWeight:700,fontSize:13}}
+                    onCommit={v=>upT(selT.id,"l",v)}/>
+                </div>
                 {(()=>{
                   const w=selT.want!=null?Number(selT.want):null;
                   const hv=live[selT.id]??0, fv=liveFact[selT.id]??0;
@@ -932,15 +1047,15 @@ export default function SystemModel(){
                   процента от известной суммы (зелёное — дотягивает, красное — нет).
                 </div></>);})()}
                 <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
-                  {KO.map(k=>(<button key={k} style={btn(selT.k===k,KIND[k].color)}
-                    onClick={()=>upT(selT.id,"k",k)}>{KIND[k].sign} {KIND[k].name}</button>))}
+                  {kinds.map(k=>(<button key={k.id} style={btn(selT.k===k.id,k.color)}
+                    onClick={()=>upT(selT.id,"k",k.id)}>{k.sign} {k.name}</button>))}
                 </div>
                 <div style={S.lbl}>что в неё приходит</div>
                 <div style={{margin:"6px 0 10px"}}>
                   {!into(selT.id).length&&<div style={{fontSize:12,color:BAD}}>
                     Ни одной стрелки — эту величину никто не производит.</div>}
                   {into(selT.id).map(ed=>(
-                    <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities} live={live}
+                    <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities} live={live} kindOf={kindOf}
                       onEdit={upA} onDelete={delA}/>))}
                 </div>
                 <div style={S.lbl}>добавить стрелку сюда</div>
@@ -961,12 +1076,12 @@ export default function SystemModel(){
             <TxtField value={draft} placeholder="текст нового ресурса"
               style={{marginBottom:6}} onCommit={setDraft}/>
             <div className="flex flex-wrap gap-2">
-              {KO.map(k=>(<button key={k}
-                style={{...btn(false),borderColor:KIND[k].color,color:KIND[k].color}}
+              {kinds.map(k=>(<button key={k.id}
+                style={{...btn(false),borderColor:k.color,color:k.color}}
                 onClick={()=>{if(!draft.trim())return;
-                  setTraits(p=>[...p,{id:"t"+Date.now(),e:sel,k,l:draft.trim(),
+                  setTraits(p=>[...p,{id:"t"+Date.now(),e:sel,k:k.id,l:draft.trim(),
                     unit:"ед./мес",have:null,want:null,by:null}]);setDraft("");}}>
-                + {KIND[k].sign} {KIND[k].name}</button>))}
+                + {k.sign} {k.name}</button>))}
             </div>
           </div>)}
       </>)}
@@ -994,7 +1109,7 @@ export default function SystemModel(){
                   {entities.map(en=>(
                     <optgroup key={en.id} label={en.name}>
                       {traits.filter(x=>x.e===en.id).map(x=>(
-                        <option key={x.id} value={x.id}>{KIND[x.k].sign} {x.l}</option>))}
+                        <option key={x.id} value={x.id}>{kindOf(x.k).sign} {x.l}</option>))}
                     </optgroup>))}
                 </select>
                 <NumField value={o.val} placeholder={t?String(t.have??0):"0"}
@@ -1037,7 +1152,8 @@ export default function SystemModel(){
               zoom={zoom} sel={simEnt} pair={null}
               valuesFor={tid=>simRun.base[tid]?.[simMonth]??0}
               valuesForFact={tid=>simRun.baseFact[tid]?.[simMonth]??0}
-              onSelectEntity={id=>setSimEnt(id)} onSelectPair={()=>{}}/>
+              onSelectEntity={id=>setSimEnt(id)} onSelectPair={()=>{}}
+              onMoveEntity={moveE}/>
           </div>
 
           <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
@@ -1059,8 +1175,8 @@ export default function SystemModel(){
                 return (
                   <div key={t.id} style={{...S.card,marginBottom:10}}>
                     <div className="flex items-center gap-2" style={{marginBottom:4}}>
-                      <span style={{color:KIND[t.k].color,fontFamily:"ui-monospace, monospace",
-                        fontWeight:700}}>{KIND[t.k].sign}</span>
+                      <span style={{color:kindOf(t.k).color,fontFamily:"ui-monospace, monospace",
+                        fontWeight:700}}>{kindOf(t.k).sign}</span>
                       <span style={{fontSize:13,fontWeight:700,flex:1}}>{t.l}</span>
                       <span style={{fontSize:11,color:C.muted}}>
                         {isFlow(t)?"поток":"запас"} · {t.unit}</span>
@@ -1083,16 +1199,70 @@ export default function SystemModel(){
         </>)}
       </div>)}
 
+      {/* ═══ ТИПЫ (классификации ресурсов) ═══ */}
+      {tab==="kinds" && (<div>
+        <div style={{...S.card,marginBottom:10}}>
+          <div style={S.lbl}>классификации ресурсов</div>
+          <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
+            Каждый ресурс относится к одной классификации: она задаёт значок,
+            цвет и то, в какую сторону изменение считается хорошим. При удалении
+            затронутые ресурсы переводятся в первую оставшуюся классификацию —
+            без типа они не остаются.
+          </div>
+        </div>
+
+        {kinds.map(k=>{
+          const used=traits.filter(t=>t.k===k.id).length;
+          return (
+          <div key={k.id} style={{...S.card,marginBottom:8}}>
+            <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:8}}>
+              <TxtField value={k.sign} onCommit={v=>upK(k.id,"sign",(v||"").trim()||"•")}
+                style={{flex:"0 1 54px",textAlign:"center",fontWeight:700,color:k.color,
+                  fontFamily:"ui-monospace, Menlo, monospace"}}/>
+              <TxtField value={k.name} placeholder="название классификации"
+                style={{flex:"2 1 160px",fontWeight:600}}
+                onCommit={v=>upK(k.id,"name",v)}/>
+              <input type="color" value={k.color}
+                onChange={e=>upK(k.id,"color",e.target.value)}
+                style={{width:36,height:32,background:C.ink,border:`1px solid ${C.line}`,
+                  borderRadius:5,padding:1,cursor:"pointer"}}/>
+            </div>
+            <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+              <button style={btn(true,k.dir==="up"?OK:BAD)}
+                onClick={()=>upK(k.id,"dir",k.dir==="up"?"down":"up")}
+                title="Куда должен двигаться показатель, чтобы это считалось хорошим">
+                {k.dir==="up"?"↑ рост — это хорошо":"↓ снижение — это хорошо"}</button>
+              <span style={{fontSize:11,color:C.muted,flex:1}}>
+                ресурсов с этим типом: {used}</span>
+              <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
+                disabled={kinds.length<=1}
+                onClick={()=>setKindMsg(delKind(k.id))}>Удалить</button>
+            </div>
+          </div>);})}
+
+        <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+          <button style={btn(true)} onClick={()=>{addKind();setKindMsg("");}}>
+            + добавить классификацию</button>
+          {kindMsg&&<span style={{fontSize:12,color:C.muted}}>{kindMsg}</span>}
+        </div>
+      </div>)}
+
       {/* ═══ JSON ═══ */}
       {tab==="json"&&(
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <button style={btn(true)} onClick={()=>{
-              setJson(JSON.stringify({entities,traits,edges},null,2));setJsonMsg("Выгружено.");}}>
+              setJson(JSON.stringify({entities,traits,edges,kinds},null,2));
+              setJsonMsg("Выгружено.");}}>
               Выгрузить</button>
             <button style={btn(false)} onClick={()=>{try{const d=JSON.parse(json);
-              if(d.entities)setEntities(d.entities);if(d.traits)setTraits(d.traits);
-              if(d.edges)setEdges(d.edges);setJsonMsg("Загружено.");}
+              if(d.entities){setEntities(d.entities);adoptSelection(d.entities);}
+              if(d.traits)setTraits(d.traits);
+              if(d.edges)setEdges(d.edges);
+              // Сценарии, сохранённые до появления редактируемых классификаций,
+              // поля kinds не содержат — оставляем текущий набор.
+              if(Array.isArray(d.kinds)&&d.kinds.length)setKinds(d.kinds);
+              setJsonMsg("Загружено.");}
               catch{setJsonMsg("Не разобрал JSON.");}}}>Загрузить</button>
             {jsonMsg&&<span style={{fontSize:12,color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}
           </div>
