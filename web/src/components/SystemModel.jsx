@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { getInitData } from "../telegram.js";
+import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
+  deleteScenario } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v8
@@ -510,6 +511,7 @@ export default function SystemModel(){
   const [saveName,setSaveName]=useState("");
   const [savedMsg,setSavedMsg]=useState("");
   const [savedBusy,setSavedBusy]=useState(false);
+  const [savedWhere,setSavedWhere]=useState("");
   const [simSpan,setSimSpan]=useState(24);
   const [simOv,setSimOv]=useState([]); // [{trait,val}] — стартовые условия сценария
   const [simEnt,setSimEnt]=useState(ENTITIES0[0]?.id);
@@ -524,58 +526,49 @@ export default function SystemModel(){
   const upA=(id,f,v)=>setEdges(p=>p.map(e=>e.id===id?{...e,[f]:v}:e));
   const delA=(id)=>setEdges(p=>p.filter(e=>e.id!==id));
 
-  // ─── диск: список/сохранение/загрузка/удаление сценариев через бэкенд ───
-  const apiHeaders=()=>({"Content-Type":"application/json","X-Telegram-Init-Data":getInitData()});
+  // ─── сохранение сценариев: сервер / облако Telegram / браузер (см. storage.js) ───
   const refreshSavedList=async()=>{
-    try{
-      const r=await fetch("/api/scenarios",{headers:apiHeaders()});
-      if(!r.ok) throw new Error();
-      setSavedList(await r.json());
-    }catch{ setSavedMsg("Не удалось получить список сценариев с сервера."); }
+    try{ setSavedList(await listScenarios()); }
+    catch{ setSavedMsg("Не удалось получить список сохранённых сценариев."); }
   };
-  useEffect(()=>{ if(tab==="json") refreshSavedList(); },[tab]);
+  useEffect(()=>{ if(tab!=="json") return;
+    refreshSavedList();
+    detectStorage().then(k=>setSavedWhere(STORAGE_LABEL[k]||"")).catch(()=>{});
+  },[tab]);
   const saveToDisk=async()=>{
-    if(!saveName.trim()){ setSavedMsg("Впиши имя сценария."); return; }
     setSavedBusy(true);
     try{
       const isUpdate=savedSel&&savedList.some(s=>s.id===savedSel);
-      const r=await fetch(isUpdate?`/api/scenarios/${savedSel}`:"/api/scenarios",{
-        method:isUpdate?"PUT":"POST",
-        headers:apiHeaders(),
-        body:JSON.stringify({name:saveName.trim(),data:{entities,traits,edges}}),
-      });
-      if(!r.ok) throw new Error();
-      const saved=await r.json();
-      setSavedMsg(`Сохранено на сервере: «${saved.name}».`);
+      const saved=await saveScenario({id:isUpdate?savedSel:null,name:saveName,
+        data:{entities,traits,edges}});
+      setSavedMsg(`Сохранено: «${saved.name}».`);
       setSavedSel(saved.id);
       await refreshSavedList();
-    }catch{ setSavedMsg("Не удалось сохранить на сервере."); }
+    }catch(e){ setSavedMsg(e.message||"Не удалось сохранить."); }
     setSavedBusy(false);
   };
   const loadFromDisk=async()=>{
     if(!savedSel){ setSavedMsg("Выбери сохранённый сценарий."); return; }
     setSavedBusy(true);
     try{
-      const r=await fetch(`/api/scenarios/${savedSel}`,{headers:apiHeaders()});
-      if(!r.ok) throw new Error();
-      const s=await r.json();
+      const s=await getScenario(savedSel);
+      if(!s) throw new Error("Сценарий не найден.");
       if(s.data?.entities) setEntities(s.data.entities);
       if(s.data?.traits) setTraits(s.data.traits);
       if(s.data?.edges) setEdges(s.data.edges);
       setSaveName(s.name);
-      setSavedMsg(`Загружено с сервера: «${s.name}».`);
-    }catch{ setSavedMsg("Не удалось загрузить сценарий."); }
+      setSavedMsg(`Загружено: «${s.name}».`);
+    }catch(e){ setSavedMsg(e.message||"Не удалось загрузить сценарий."); }
     setSavedBusy(false);
   };
   const deleteFromDisk=async()=>{
     if(!savedSel) return;
     setSavedBusy(true);
     try{
-      const r=await fetch(`/api/scenarios/${savedSel}`,{method:"DELETE",headers:apiHeaders()});
-      if(!r.ok&&r.status!==404) throw new Error();
-      setSavedSel(""); setSavedMsg("Удалено с сервера.");
+      await deleteScenario(savedSel);
+      setSavedSel(""); setSavedMsg("Удалено.");
       await refreshSavedList();
-    }catch{ setSavedMsg("Не удалось удалить сценарий."); }
+    }catch(e){ setSavedMsg(e.message||"Не удалось удалить сценарий."); }
     setSavedBusy(false);
   };
 
@@ -1112,12 +1105,12 @@ export default function SystemModel(){
           разметки выше не тронуто — это только I/O к бэкенду для дисковых сценариев. */}
       {tab==="json"&&(
         <div style={{...S.card,marginTop:10}}>
-          <div style={S.lbl}>сценарии, сохранённые на диске сервера</div>
+          <div style={S.lbl}>сохранённые сценарии{savedWhere?` · ${savedWhere}`:""}</div>
           <div className="flex flex-wrap gap-2" style={{margin:"6px 0 8px",alignItems:"center"}}>
             <TxtField value={saveName} placeholder="имя сценария" style={{flex:"2 1 180px"}}
               onCommit={setSaveName}/>
             <button style={btn(true)} disabled={savedBusy} onClick={saveToDisk}>
-              {savedSel?"Сохранить (обновить)":"Сохранить на диск"}</button>
+              {savedSel?"Сохранить (обновить)":"Сохранить"}</button>
           </div>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8,alignItems:"center"}}>
             <select style={{...S.inp,flex:"2 1 220px"}} value={savedSel}
