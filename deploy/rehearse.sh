@@ -41,6 +41,16 @@ rehearse_as() {
   stub pm2
   stub chown     # в песочнице менять владельца не нужно и нельзя
 
+  # curl тянет установщик nodesource и результат уходит в bash — отдаём no-op.
+  printf '#!/usr/bin/env bash\necho "curl $*" >> "$CALLS_FILE"\necho ":"\n' > "$bin/curl"
+  chmod +x "$bin/curl"
+
+  # Старый Node на «сервере»: заставляет пройти ветку установки Node.js 20.
+  # Без этого ветка не выполнялась бы вовсе (на машине с репетицией Node свежий),
+  # и ошибки внутри неё оставались бы незамеченными.
+  printf '#!/usr/bin/env bash\n[ "${1:-}" = "-v" ] && echo "v16.20.0"\nexit 0\n' > "$bin/node"
+  chmod +x "$bin/node"
+
   # id: изображает нужного пользователя. bootstrap.sh зовёт id -u и id -g.
   printf '#!/usr/bin/env bash\necho %s\n' "$fake_uid" > "$bin/id"
   chmod +x "$bin/id"
@@ -76,10 +86,11 @@ for arg in "$@"; do
       if [ "$mode" = install ]; then
         case "$arg" in
           python3-*) ;;  # не даёт одноимённой команды
-          nodejs) for c in node npm; do
-                    printf '#!/usr/bin/env bash\necho "%s $*" >> "$CALLS_FILE"\n' "$c" > "$STUB_BIN/$c"
-                    chmod +x "$STUB_BIN/$c"
-                  done ;;
+          nodejs) # «установленный» Node уже свежий — на повторном проходе
+                  # ветка установки не должна срабатывать снова.
+                  printf '#!/usr/bin/env bash\necho "node $*" >> "$CALLS_FILE"\n[ "${1:-}" = "-v" ] && echo "v20.11.0"\nexit 0\n' > "$STUB_BIN/node"
+                  printf '#!/usr/bin/env bash\necho "npm $*" >> "$CALLS_FILE"\n' > "$STUB_BIN/npm"
+                  chmod +x "$STUB_BIN/node" "$STUB_BIN/npm" ;;
           *) printf '#!/usr/bin/env bash\necho "%s $*" >> "$CALLS_FILE"\n' "$arg" > "$STUB_BIN/$arg"
              chmod +x "$STUB_BIN/$arg" ;;
         esac
@@ -130,6 +141,11 @@ STUB
   [ -L "$NGINX_ENABLED_DIR/system-dynamics-ui" ] || fail "[$label] сайт не включён симлинком"
   grep -q "certbot --nginx -d $APP_DOMAIN" "$calls" || fail "[$label] не вызван выпуск сертификата"
   grep -q "^nginx -t" "$calls" || fail "[$label] конфиг nginx не проверен через nginx -t"
+  # Ветка обновления Node должна была отработать целиком: и скачивание
+  # установщика nodesource, и установка пакета.
+  grep -q "curl .*deb.nodesource.com" "$calls" || fail "[$label] не скачан установщик Node"
+  grep -q "apt-get install.*nodejs" "$calls" || fail "[$label] Node.js не установлен"
+  grep -q "Node.js 20" "$sandbox/pass1.log" || fail "[$label] ветка установки Node не выполнялась"
   if [ "$fake_uid" != "0" ]; then
     grep -q "^sudo " "$calls" || fail "[$label] привилегированные команды шли без sudo"
   fi

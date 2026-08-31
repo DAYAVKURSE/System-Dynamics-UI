@@ -17,10 +17,14 @@ APP_PORT="${APP_PORT:-3000}"
 NGINX_CONF="${NGINX_CONF:-/etc/nginx/sites-available/system-dynamics-ui}"
 NGINX_ENABLED_DIR="${NGINX_ENABLED_DIR:-/etc/nginx/sites-enabled}"
 
+# SUDO_E — отдельная переменная для команд, которым нужен sudo -E (сохранить
+# окружение). Под root обе пустые: иначе одинокий "-E" стал бы именем команды.
 if [ "$(id -u)" -eq 0 ]; then
   SUDO=""
+  SUDO_E=""
 elif sudo -n true 2>/dev/null; then
   SUDO="sudo -n"
+  SUDO_E="sudo -n -E"
 else
   echo "ОШИБКА: нужен root или passwordless sudo для пользователя $(whoami)." >&2
   echo "Либо укажите в секрете SSH_USER пользователя root, либо разрешите этому" >&2
@@ -52,7 +56,7 @@ if command -v node >/dev/null 2>&1; then
 fi
 if [ -z "$node_major" ] || [ "$node_major" -lt 18 ]; then
   echo "ставлю Node.js 20 (было: ${node_major:-нет})"
-  curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO -E bash - >/dev/null
+  curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO_E bash - >/dev/null
   $SUDO apt-get install -y -qq nodejs
 else
   echo "Node.js $(node -v) подходит"
