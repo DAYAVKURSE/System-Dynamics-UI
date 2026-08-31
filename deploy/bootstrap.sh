@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Приводит чистый VPS в состояние, готовое принять приложение:
+# пакеты, Node, pm2, каталоги, nginx-прокси и HTTPS-сертификат.
+#
+# Запускается с раннера GitHub через `ssh ... bash -s < bootstrap.sh`,
+# поэтому не требует, чтобы на сервере уже что-то стояло (даже rsync).
+# Идемпотентен: безопасно выполнять на каждый деплой.
+#
+# Ожидает переменные окружения: DEPLOY_PATH, APP_DOMAIN, APP_PORT
+set -euo pipefail
+
+DEPLOY_PATH="${DEPLOY_PATH:?DEPLOY_PATH не задан}"
+APP_DOMAIN="${APP_DOMAIN:?APP_DOMAIN не задан}"
+APP_PORT="${APP_PORT:-3000}"
+# Пути nginx вынесены в переменные, чтобы скрипт можно было прогнать
+# целиком в песочнице, не трогая настоящий /etc (см. deploy/rehearse.sh).
+NGINX_CONF="${NGINX_CONF:-/etc/nginx/sites-available/system-dynamics-ui}"
+NGINX_ENABLED_DIR="${NGINX_ENABLED_DIR:-/etc/nginx/sites-enabled}"
+
+if [ "$(id -u)" -eq 0 ]; then
+  SUDO=""
+elif sudo -n true 2>/dev/null; then
+  SUDO="sudo -n"
+else
+  echo "ОШИБКА: нужен root или passwordless sudo для пользователя $(whoami)." >&2
+  echo "Либо укажите в секрете SSH_USER пользователя root, либо разрешите этому" >&2
+  echo "пользователю sudo без пароля." >&2
+  exit 1
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+
+echo "── проверяю пакеты ──"
+missing=()
+command -v rsync >/dev/null 2>&1 || missing+=(rsync)
+command -v curl >/dev/null 2>&1 || missing+=(curl)
+command -v nginx >/dev/null 2>&1 || missing+=(nginx)
+command -v certbot >/dev/null 2>&1 || missing+=(certbot python3-certbot-nginx)
+
+if [ ${#missing[@]} -gt 0 ]; then
+  echo "ставлю: ${missing[*]}"
+  $SUDO apt-get update -qq
+  $SUDO apt-get install -y -qq "${missing[@]}"
+else
+  echo "все пакеты уже стоят"
+fi
+
+echo "── проверяю Node.js ──"
+node_major=""
+if command -v node >/dev/null 2>&1; then
+  node_major="$(node -v | sed 's/^v\([0-9]*\).*/\1/')"
+fi
+if [ -z "$node_major" ] || [ "$node_major" -lt 18 ]; then
+  echo "ставлю Node.js 20 (было: ${node_major:-нет})"
+  curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO -E bash - >/dev/null
+  $SUDO apt-get install -y -qq nodejs
+else
+  echo "Node.js $(node -v) подходит"
+fi
+
+command -v pm2 >/dev/null 2>&1 || { echo "ставлю pm2"; $SUDO npm install -g pm2 --silent; }
+
+echo "── каталоги ──"
+# app/ перезаписывается каждым деплоем, data/ — никогда.
+$SUDO mkdir -p "$DEPLOY_PATH/app" "$DEPLOY_PATH/data/scenarios"
+$SUDO chown -R "$(id -u):$(id -g)" "$DEPLOY_PATH"
+
+echo "── nginx ──"
+# Конфиг пишем только если его нет или он про другой домен: certbot
+# дописывает в этот же файл секцию с 443, и перезапись стёрла бы её.
+if ! [ -f "$NGINX_CONF" ] || ! grep -q "server_name $APP_DOMAIN;" "$NGINX_CONF"; then
+  echo "пишу конфиг для $APP_DOMAIN"
+  $SUDO tee "$NGINX_CONF" >/dev/null <<NGINX
+server {
+    listen 80;
+    server_name $APP_DOMAIN;
+
+    location / {
+        proxy_pass http://127.0.0.1:$APP_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+NGINX
+  $SUDO mkdir -p "$NGINX_ENABLED_DIR"
+  $SUDO ln -sf "$NGINX_CONF" "$NGINX_ENABLED_DIR/system-dynamics-ui"
+  $SUDO rm -f "$NGINX_ENABLED_DIR/default"
+else
+  echo "конфиг для $APP_DOMAIN уже на месте"
+fi
+
+$SUDO nginx -t
+$SUDO systemctl reload nginx || $SUDO systemctl restart nginx
+
+echo "── HTTPS-сертификат ──"
+if $SUDO certbot certificates 2>/dev/null | grep -q "$APP_DOMAIN"; then
+  echo "сертификат для $APP_DOMAIN уже выпущен (продление certbot делает сам)"
+elif $SUDO certbot --nginx -d "$APP_DOMAIN" \
+      --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+  echo "сертификат выпущен"
+else
+  echo "ПРЕДУПРЕЖДЕНИЕ: не удалось выпустить сертификат для $APP_DOMAIN." >&2
+  echo "Чаще всего причина — закрыт порт 80 снаружи (firewall хостера)." >&2
+  echo "Приложение будет работать по HTTP, но Telegram требует HTTPS." >&2
+fi
+
+# Чтобы приложение поднималось после перезагрузки сервера.
+$SUDO env PATH="$PATH" pm2 startup systemd -u "$(whoami)" --hp "$HOME" >/dev/null 2>&1 || true
+
+echo "── сервер готов ──"

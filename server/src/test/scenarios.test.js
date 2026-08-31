@@ -20,10 +20,23 @@ afterAll(async () => {
 });
 
 describe("scenarios API (dev-режим, без Telegram initData)", () => {
-  it("отвечает на /api/health", async () => {
+  it("отвечает на /api/health и сообщает, включено ли серверное хранилище", async () => {
     const res = await request(app).get("/api/health");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body.ok).toBe(true);
+    // Без TELEGRAM_BOT_TOKEN серверное хранилище выключено — фронтенд по
+    // этому флагу уходит в облако Telegram.
+    expect(res.body.scenarios).toBe(false);
+  });
+
+  it("при заданном токене бота health сообщает scenarios: true", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "123456:TEST";
+    try {
+      const res = await request(app).get("/api/health");
+      expect(res.body.scenarios).toBe(true);
+    } finally {
+      delete process.env.TELEGRAM_BOT_TOKEN;
+    }
   });
 
   it("начинает с пустого списка", async () => {

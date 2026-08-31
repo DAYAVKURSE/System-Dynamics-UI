@@ -11,7 +11,12 @@ export function createApp() {
   app.disable("x-powered-by");
   app.use(express.json({ limit: "2mb" }));
 
-  app.get("/api/health", (_req, res) => res.json({ ok: true }));
+  // scenarios: false означает, что серверное хранилище выключено (нет
+  // TELEGRAM_BOT_TOKEN — значит, нечем проверить подпись, и открывать API
+  // всем подряд нельзя). Фронтенд по этому флагу уходит в облако Telegram.
+  app.get("/api/health", (_req, res) =>
+    res.json({ ok: true, scenarios: Boolean(process.env.TELEGRAM_BOT_TOKEN) }),
+  );
   app.use("/api/scenarios", scenariosRouter);
 
   // Собранный фронтенд (web build) кладётся сюда шагом деплоя — см. docs/DEPLOYMENT.md.

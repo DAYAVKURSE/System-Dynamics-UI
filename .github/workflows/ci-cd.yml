@@ -4,8 +4,8 @@ on:
   push:
     branches: ["**"]
   pull_request:
-  # Позволяет запустить деплой вручную из вкладки Actions — например, сразу
-  # после того, как секреты добавлены, не делая для этого пустой коммит.
+  # Ручной запуск — например, сразу после добавления секретов,
+  # чтобы не делать пустой коммит.
   workflow_dispatch:
 
 permissions:
@@ -48,6 +48,14 @@ jobs:
         working-directory: server
         run: npm test
 
+      # Прогоняет bootstrap.sh в песочнице с подменёнными apt/nginx/certbot:
+      # проверяет чистый сервер, идемпотентность повторного деплоя и понятную
+      # ошибку при нехватке прав — до того, как скрипт попадёт на живой сервер.
+      - name: Репетиция скриптов деплоя
+        run: |
+          bash -n deploy/release.sh
+          bash deploy/rehearse.sh
+
       - name: Build web
         working-directory: web
         run: npm run build
@@ -65,20 +73,17 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
-      # Пока секреты не добавлены, деплой не падает с красным крестом,
-      # а аккуратно пропускается и пишет в summary, чего не хватает.
+      # Обязательных секретов всего два: адрес сервера и ключ. Всё остальное
+      # имеет разумные значения по умолчанию (см. шаг «Параметры деплоя»).
       - name: Проверить, настроены ли секреты деплоя
         id: secrets
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           set -euo pipefail
           missing=""
-          for name in SSH_HOST SSH_USER SSH_PRIVATE_KEY DEPLOY_PATH TELEGRAM_BOT_TOKEN; do
+          for name in SSH_HOST SSH_PRIVATE_KEY; do
             if [ -z "${!name:-}" ]; then missing="$missing $name"; fi
           done
           if [ -n "$missing" ]; then
@@ -88,17 +93,51 @@ jobs:
               echo ""
               echo "Отсутствуют: **${missing# }**"
               echo ""
-              echo "Добавить: Settings → Secrets and variables → Actions → New repository secret."
-              echo "Пошаговая инструкция — в \`docs/DEPLOYMENT.md\`."
-              echo "После добавления: Actions → CI/CD → Run workflow (ветка \`main\`)."
+              echo "Settings → Secrets and variables → Actions → New repository secret."
+              echo "Подробности — в \`docs/DEPLOYMENT.md\`."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "Секреты не настроены (${missing# }) — деплой пропущен, см. summary."
+            echo "Секреты не настроены (${missing# }) — деплой пропущен."
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v4
         if: steps.secrets.outputs.ready == 'true'
+
+      - name: Параметры деплоя (домен, пользователь, пути)
+        id: cfg
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+        run: |
+          set -euo pipefail
+          user="${SSH_USER:-root}"
+          port="${SSH_PORT:-22}"
+          path="${DEPLOY_PATH:-/opt/system-dynamics-ui}"
+
+          # Домена может не быть вовсе: если SSH_HOST — это IP, берём
+          # sslip.io (публичный DNS, который резолвит <ip>.sslip.io в этот IP).
+          # Let's Encrypt на такое имя сертификат выдаёт, покупать ничего не надо.
+          domain="${APP_DOMAIN:-}"
+          if [ -z "$domain" ]; then
+            if [[ "$SSH_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              domain="${SSH_HOST//./-}.sslip.io"
+            else
+              domain="$SSH_HOST"
+            fi
+          fi
+
+          {
+            echo "user=$user"
+            echo "port=$port"
+            echo "path=$path"
+            echo "domain=$domain"
+          } >> "$GITHUB_OUTPUT"
+          echo "Деплой: $user@***:$port → $path, домен $domain"
 
       - name: Download web build artifact
         if: steps.secrets.outputs.ready == 'true'
@@ -121,7 +160,7 @@ jobs:
         if: steps.secrets.outputs.ready == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_PATH: ${{ steps.cfg.outputs.path }}
         run: |
           set -euo pipefail
           umask 077
@@ -142,92 +181,120 @@ jobs:
         if: steps.secrets.outputs.ready == 'true'
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PORT: ${{ steps.cfg.outputs.port }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-keyscan -p "${SSH_PORT:-22}" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      # Ловим отсутствие rsync/node/pm2 на сервере до того, как начнём что-то менять,
-      # чтобы вместо невнятной ошибки транспорта была понятная подсказка.
-      - name: Pre-flight проверка окружения сервера
+      # Ставит на сервере всё, чего не хватает: пакеты, Node, pm2, nginx,
+      # HTTPS-сертификат. Скрипт уходит по stdin, поэтому на сервере заранее
+      # не нужно вообще ничего (даже rsync).
+      - name: Подготовить сервер (пакеты, Node, pm2, nginx, HTTPS)
         if: steps.secrets.outputs.ready == 'true'
         env:
-          SSH_USER: ${{ secrets.SSH_USER }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SSH_USER: ${{ steps.cfg.outputs.user }}
+          SSH_PORT: ${{ steps.cfg.outputs.port }}
+          DEPLOY_PATH: ${{ steps.cfg.outputs.path }}
+          APP_DOMAIN: ${{ steps.cfg.outputs.domain }}
         run: |
           set -euo pipefail
-          ssh -p "${SSH_PORT:-22}" "${SSH_USER}@${SSH_HOST}" \
-            "DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH") bash -s" <<'REMOTE'
-          set -u
-          export PATH="$PATH:/usr/local/bin:/usr/bin"
-          missing=""
-          for c in rsync node npm pm2 curl; do
-            command -v "$c" >/dev/null 2>&1 || missing="$missing $c"
-          done
-          if [ -n "$missing" ]; then
-            echo "ОШИБКА: на сервере не хватает команд:$missing" >&2
-            echo "Установите их — см. docs/DEPLOYMENT.md, шаг 3." >&2
-            exit 1
-          fi
-          mkdir -p "$DEPLOY_PATH/app" "$DEPLOY_PATH/data/scenarios"
-          if [ ! -w "$DEPLOY_PATH" ]; then
-            echo "ОШИБКА: нет прав на запись в $DEPLOY_PATH (проверьте chown из шага 3.3)" >&2
-            exit 1
-          fi
-          echo "Сервер готов: node $(node -v), npm $(npm -v), pm2 есть, $DEPLOY_PATH доступен на запись."
-          REMOTE
+          ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" \
+            "DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH") APP_DOMAIN=$(printf '%q' "$APP_DOMAIN") APP_PORT=3000 bash -s" \
+            < deploy/bootstrap.sh
 
       - name: Rsync app to server (данные сценариев не трогаются — они вне app/)
         if: steps.secrets.outputs.ready == 'true'
         env:
-          SSH_USER: ${{ secrets.SSH_USER }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SSH_USER: ${{ steps.cfg.outputs.user }}
+          SSH_PORT: ${{ steps.cfg.outputs.port }}
+          DEPLOY_PATH: ${{ steps.cfg.outputs.path }}
         run: |
           set -euo pipefail
-          rsync -az --delete \
-            -e "ssh -p ${SSH_PORT:-22}" \
+          rsync -az --delete -e "ssh -p ${SSH_PORT}" \
             deploy_pkg/ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/app/"
 
-      - name: Install prod deps, restart via PM2, health-check
+      - name: Установить зависимости, перезапустить, health-check
         if: steps.secrets.outputs.ready == 'true'
         env:
-          SSH_USER: ${{ secrets.SSH_USER }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SSH_USER: ${{ steps.cfg.outputs.user }}
+          SSH_PORT: ${{ steps.cfg.outputs.port }}
+          DEPLOY_PATH: ${{ steps.cfg.outputs.path }}
         run: |
           set -euo pipefail
-          ssh -p "${SSH_PORT:-22}" "${SSH_USER}@${SSH_HOST}" \
-            "DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH") bash -s" <<'REMOTE'
+          ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" \
+            "DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH") APP_PORT=3000 bash -s" \
+            < deploy/release.sh
+
+      - name: Проверить приложение снаружи по HTTPS
+        id: verify
+        if: steps.secrets.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          APP_DOMAIN: ${{ steps.cfg.outputs.domain }}
+        run: |
           set -euo pipefail
-          export PATH="$PATH:/usr/local/bin:/usr/bin"
-
-          cd "$DEPLOY_PATH/app"
-          mkdir -p "$DEPLOY_PATH/data/scenarios"
-          chmod 600 .env
-
-          npm ci --omit=dev
-          pm2 startOrReload ecosystem.config.cjs --update-env
-          pm2 save
-
-          # Убеждаемся, что процесс реально поднялся, а не упал сразу после старта.
-          for _ in $(seq 1 15); do
-            if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
-              echo "Деплой успешен: /api/health отвечает."
+          for _ in $(seq 1 10); do
+            if curl -fsS --max-time 10 "https://${APP_DOMAIN}/api/health" >/dev/null 2>&1; then
+              echo "https=true" >> "$GITHUB_OUTPUT"
+              echo "HTTPS работает: https://${APP_DOMAIN}"
               exit 0
             fi
-            sleep 2
+            sleep 3
           done
-          echo "ОШИБКА: /api/health не ответил в течение 30 секунд после перезапуска." >&2
-          pm2 logs system-dynamics-ui --lines 50 --nostream || true
+          echo "https=false" >> "$GITHUB_OUTPUT"
+          echo "HTTPS снаружи не отвечает (вероятно, закрыт порт 443 или не выпущен сертификат)." >&2
           exit 1
-          REMOTE
+
+      # Привязывает WebApp к боту, чтобы не ходить в @BotFather руками.
+      - name: Настроить кнопку бота в Telegram
+        if: steps.secrets.outputs.ready == 'true' && steps.verify.outputs.https == 'true'
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          APP_DOMAIN: ${{ steps.cfg.outputs.domain }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+            echo "Токен бота не задан — кнопку не настраиваю (это необязательный секрет)."
+            exit 0
+          fi
+          response="$(curl -sS -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton" \
+            -H 'Content-Type: application/json' \
+            -d "{\"menu_button\":{\"type\":\"web_app\",\"text\":\"Открыть модель\",\"web_app\":{\"url\":\"https://${APP_DOMAIN}\"}}}")"
+          # В лог не печатаем ответ целиком: там может быть эхо запроса с URL.
+          if echo "$response" | grep -q '"ok":true'; then
+            echo "Кнопка бота настроена на https://${APP_DOMAIN}"
+          else
+            echo "Не удалось настроить кнопку бота (проверьте токен)." >&2
+            exit 1
+          fi
+
+      - name: Итог
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          APP_DOMAIN: ${{ steps.cfg.outputs.domain }}
+          HTTPS_OK: ${{ steps.verify.outputs.https }}
+        run: |
+          {
+            echo "### Деплой завершён"
+            echo ""
+            if [ "${HTTPS_OK:-false}" = "true" ]; then
+              echo "Приложение: **https://${APP_DOMAIN}**"
+              echo ""
+              echo "Кнопка бота настроена автоматически, если задан \`TELEGRAM_BOT_TOKEN\`."
+            else
+              echo "Приложение развёрнуто, но снаружи по HTTPS не ответило."
+              echo ""
+              echo "Обычная причина — закрыты порты 80/443 в firewall хостера."
+              echo "Откройте их, и повторите: Actions → CI/CD → Run workflow."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Итог, если деплой пропущен
         if: steps.secrets.outputs.ready != 'true'

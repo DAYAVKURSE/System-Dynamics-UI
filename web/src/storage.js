@@ -42,7 +42,9 @@ async function probeStorage() {
     const r = await fetch("/api/health", { headers: { Accept: "application/json" } });
     if (r.ok && (r.headers.get("content-type") || "").includes("application/json")) {
       const j = await r.json();
-      if (j && j.ok) return "server";
+      // Сервер может быть жив, но с выключенным хранилищем сценариев
+      // (не задан токен бота) — тогда пишем в облако Telegram.
+      if (j && j.ok && j.scenarios) return "server";
     }
   } catch {
     /* бэкенда нет — идём дальше */

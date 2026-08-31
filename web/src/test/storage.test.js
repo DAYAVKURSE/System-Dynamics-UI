@@ -68,20 +68,27 @@ describe("выбор хранилища", () => {
     expect(await s.detectStorage()).toBe("cloud");
   });
 
-  it("при живом /api/health выбирает сервер", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve({
-          ok: true,
-          status: 200,
-          headers: { get: () => "application/json" },
-          json: () => Promise.resolve({ ok: true }),
-        }),
-      ),
+  const healthStub = (body) =>
+    vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        json: () => Promise.resolve(body),
+      }),
     );
+
+  it("при живом сервере с включённым хранилищем выбирает сервер", async () => {
+    vi.stubGlobal("fetch", healthStub({ ok: true, scenarios: true }));
     const s = await freshStorage();
     expect(await s.detectStorage()).toBe("server");
+  });
+
+  it("сервер жив, но хранилище выключено (нет токена бота) — уходим в облако", async () => {
+    vi.stubGlobal("fetch", healthStub({ ok: true, scenarios: false }));
+    window.Telegram = { WebApp: { CloudStorage: makeCloudStorage() } };
+    const s = await freshStorage();
+    expect(await s.detectStorage()).toBe("cloud");
   });
 
   it("старый клиент Telegram без CloudStorage откатывается на localStorage", async () => {
