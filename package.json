@@ -1,0 +1,15 @@
+{
+  "name": "system-dynamics-ui",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Схема жизнеспособности — Telegram Mini App поверх System Dynamics модели",
+  "scripts": {
+    "dev:web": "npm --prefix web run dev",
+    "dev:server": "npm --prefix server run dev",
+    "install:all": "npm --prefix web install && npm --prefix server install",
+    "build": "npm --prefix web run build",
+    "test:web": "npm --prefix web test",
+    "test:server": "npm --prefix server test",
+    "test": "npm run test:web && npm run test:server"
+  }
+}

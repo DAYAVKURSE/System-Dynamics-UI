@@ -1,0 +1,131 @@
+name: CI/CD
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Не даём двум деплоям на одну и ту же ветку конкурировать друг с другом.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Тесты и сборка
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      - name: Test web (vitest)
+        working-directory: web
+        run: npm test
+
+      - name: Test server (vitest)
+        working-directory: server
+        run: npm test
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: Upload web build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  deploy:
+    name: Деплой на сервер
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download web build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Assemble deploy package (server + собранный фронтенд)
+        run: |
+          set -euo pipefail
+          rm -rf deploy_pkg
+          mkdir -p deploy_pkg
+          cp -r server/src deploy_pkg/src
+          cp server/package.json server/package-lock.json server/ecosystem.config.cjs deploy_pkg/
+          mkdir -p deploy_pkg/public
+          cp -r web/dist/. deploy_pkg/public/
+
+      - name: Write production .env for the server
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          cat > deploy_pkg/.env <<EOF
+          NODE_ENV=production
+          PORT=3000
+          SCENARIOS_DIR=${DEPLOY_PATH}/data/scenarios
+          TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+          EOF
+
+      - name: Install SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Trust server host key
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${SSH_PORT:-22}" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Rsync app to server (код деплоя, данные сценариев не трогаются)
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          rsync -az --delete \
+            -e "ssh -p ${SSH_PORT:-22}" \
+            deploy_pkg/ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/app/"
+
+      - name: Install prod deps and restart via PM2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          envs: DEPLOY_PATH
+          script: |
+            set -euo pipefail
+            cd "$DEPLOY_PATH/app"
+            mkdir -p "$DEPLOY_PATH/data/scenarios"
+            npm ci --omit=dev
+            command -v pm2 >/dev/null 2>&1 || npm install -g pm2
+            pm2 startOrReload ecosystem.config.cjs --update-env
+            pm2 save
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
