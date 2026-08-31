@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule } from "../storage.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import { evaluate, toDisplay, toStorage, refsOf } from "../lib/expr.js";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
 
 /* ════════════════════════════════════════════════════════════════
@@ -101,11 +102,24 @@ const TRAITS0=[
   T("s5","set","repro","доля функций, понятных без объяснений","коэф."),
   T("s6","set","payback","часов пользователям на 1 час разработки","ч"),
 ];
-// условие: {trait, mode, amt}. mode "min" — «не меньше»: чем больше показатель
-// относительно порога, тем сильнее эффект (линейно, без потолка). mode "max" —
-// «не больше»: пока показатель не выше порога, эффект полный; выше — насыщение,
-// эффект слабеет обратно пропорционально (модель 7 млрд пользователей из примера).
-const Cond=(trait,mode,amt)=>({trait,mode,amt});
+// Условие: {left, mode, right} — сравнение двух величин, и каждая может быть
+// формулой со ссылками на ресурсы ("{r5} * 2", "{u9} / 100 + 5").
+// mode "min" — «не меньше»: чем больше левая часть относительно правой, тем
+// сильнее эффект (линейно, без потолка). mode "max" — «не больше»: пока левая
+// не выше правой, эффект полный; выше — насыщение, эффект слабеет обратно
+// пропорционально (модель 7 млрд пользователей из примера).
+const Cond=(trait,mode,amt)=>({left:`{${trait}}`,mode,right:String(amt)});
+
+// Условия из сценариев, сохранённых до появления выражений, имеют вид
+// {trait, mode, amt}. Читаем их как частный случай: слева ресурс, справа число.
+const condSides=(c)=>({
+  left: c.left!=null?c.left:(c.trait?`{${c.trait}}`:""),
+  right: c.right!=null?c.right:String(c.amt??""),
+  mode: c.mode||"min",
+});
+// Все ресурсы, от которых зависит условие — по ним строится граф зависимостей
+// цели и чистятся ссылки при удалении ресурса.
+const condRefs=(c)=>{const s=condSides(c);return [...refsOf(s.left),...refsOf(s.right)];};
 const E=(id,from,to,carrier,gives,per,sign,conds,note,basis)=>
   ({id,from,to,carrier,gives,per,sign,conds:conds||[],note,basis:basis||"hypo"});
 const EDGES0=[
@@ -172,11 +186,15 @@ const EDGES0=[
 // max — насыщение: пока показатель не выше порога множитель = 1, выше — падает
 // обратно пропорционально (чем сильнее превышен потолок, тем слабее эффект)
 function condK(c,valueOf){
-  const amt=Number(c.amt)||0;
-  if(!c.trait||amt<=0) return 1;
-  const v=valueOf(c.trait)??0;
-  if(c.mode==="max") return v>amt?amt/v:1;
-  return v/amt;
+  const {left,right,mode}=condSides(c);
+  const L=evaluate(left,valueOf), R=evaluate(right,valueOf);
+  // Незаполненное или сломанное условие не душит стрелку: множитель 1,
+  // то есть «не ограничивает». Обнулять было бы хуже — прогноз схлопнулся бы
+  // без объяснения; сама ошибка показывается рядом с полем в интерфейсе.
+  if(L.error||R.error) return 1;
+  if(R.value<=0) return 1;
+  if(mode==="max") return L.value>R.value?R.value/L.value:1;
+  return L.value/R.value;
 }
 // общий множитель стрелки — произведение множителей всех её условий
 // (если условий несколько, каждое ограничивает независимо)
@@ -220,7 +238,7 @@ const depsOf=(edges,tid)=>{
   const seen=new Set(),arr=new Set();
   const go=(id,d)=>{if(seen.has(id)||d>6)return;seen.add(id);
     edges.filter(e=>e.to===id).forEach(ed=>{arr.add(ed.id);
-      (ed.conds||[]).forEach(c=>{if(c.trait) go(c.trait,d+1);});});};
+      (ed.conds||[]).forEach(c=>{condRefs(c).forEach(r=>go(r,d+1));});});};
   go(tid,0);return{traits:[...seen],edges:[...arr]};
 };
 function adviseFor(traits,edges,g,span){
@@ -284,6 +302,40 @@ function Chart({lines,months,goalLine,goalMonth,cursorMonth}){
     </svg>);
 }
 
+/* ─────── ПОЛЕ ЧИСЛОВОГО ВЫРАЖЕНИЯ ───────
+   Хранится выражение со ссылками по id, показывается — с именами ресурсов.
+   Список под полем вставляет ресурс, чтобы не набирать название руками и
+   не промахиваться мимо него. */
+function ExprField({value,onCommit,traits,scope,entities,kindOf,placeholder}){
+  const nameOf=(id)=>traits.find(t=>t.id===id)?.l;
+  const idOf=(name)=>{
+    const norm=(x)=>String(x||"").trim().toLowerCase();
+    // Сначала ищем среди ресурсов, доступных этому полю: если имена в разных
+    // активах совпадают, предпочтение своей области видимости.
+    return scope.find(t=>norm(t.l)===norm(name))?.id
+      ?? traits.find(t=>norm(t.l)===norm(name))?.id ?? null;
+  };
+  const byEntity=entities
+    .map(en=>({en,list:scope.filter(t=>t.e===en.id)}))
+    .filter(g=>g.list.length);
+  return (
+    <div>
+      <TxtField value={toDisplay(value,nameOf)} placeholder={placeholder}
+        style={{fontFamily:"ui-monospace, Menlo, monospace",fontSize:12}}
+        onCommit={v=>onCommit(toStorage(v,idOf))}/>
+      <select style={{...S.inp,marginTop:4,fontSize:11.5}} value=""
+        onChange={e=>{ if(e.target.value)
+          onCommit(`${value?value+" ":""}{${e.target.value}}`); }}>
+        <option value="">+ вставить ресурс</option>
+        {byEntity.map(({en,list})=>(
+          <optgroup key={en.id} label={en.name}>
+            {list.map(t=>(<option key={t.id} value={t.id}>
+              {kindOf(t.k).sign} {t.l}</option>))}
+          </optgroup>))}
+      </select>
+    </div>);
+}
+
 /* ─────── СТРОКА СТРЕЛКИ ─────── */
 function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
   const t=traits.find(x=>x.id===ed.to); if(!t) return null;
@@ -291,10 +343,17 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
   const conds=ed.conds||[];
   const k=edgeK(ed,tid=>live[tid]??0);
   const fact=isFact(ed);
+  // «Текущий актив» для условия — источник стрелки: именно его ресурсы
+  // определяют, сколько он отдаёт. Левое поле предлагает только их.
+  const own=en(ed.from);
+  const ownTraits=traits.filter(x=>x.e===ed.from);
   const setConds=(next)=>onEdit(ed.id,"conds",next);
-  const updCond=(i,f,v)=>setConds(conds.map((c,ci)=>ci===i?{...c,[f]:v}:c));
+  // Правку условия сразу приводим к новой форме: иначе у старого условия
+  // остались бы и trait/amt, и left/right, и было бы непонятно, что считать.
+  const updCond=(i,f,v)=>setConds(conds.map((c,ci)=>
+    ci===i?{...condSides(c),[f]:v}:c));
   const delCond=(i)=>setConds(conds.filter((_,ci)=>ci!==i));
-  const addCond=()=>setConds([...conds,{trait:"",mode:"min",amt:0}]);
+  const addCond=()=>setConds([...conds,{left:"",mode:"min",right:""}]);
   return (
     <div style={{background:C.panel2,
       border:`1px solid ${k>0?(fact?OK+"55":WARN+"55"):BAD+"55"}`,borderRadius:8,
@@ -323,35 +382,52 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
       <div style={S.lbl}>условия перетекания</div>
       <div style={{margin:"5px 0 7px"}}>
         {conds.map((c,i)=>{
-          const ct=traits.find(x=>x.id===c.trait);
-          const kk=condK(c,tid=>live[tid]??0);
+          const {left,right,mode}=condSides(c);
+          const valueOf=(tid)=>live[tid]??0;
+          const L=evaluate(left,valueOf), R=evaluate(right,valueOf);
+          const kk=condK(c,valueOf);
+          const bad=L.error||R.error;
           return (
-          <div key={i} style={{background:C.ink,border:`1px solid ${C.line}`,borderRadius:6,
-            padding:7,marginBottom:6}}>
-            <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-              <select style={{...S.inp,flex:"2 1 150px"}} value={c.trait}
-                onChange={e=>updCond(i,"trait",e.target.value)}>
-                <option value="">— выбери ресурс —</option>
-                {entities.map(en2=>(
-                  <optgroup key={en2.id} label={en2.name}>
-                    {traits.filter(x=>x.e===en2.id).map(x=>(
-                      <option key={x.id} value={x.id}>{kindOf(x.k).sign} {x.l}</option>))}
-                  </optgroup>))}
-              </select>
-              <select style={{...S.inp,flex:"1 1 108px"}} value={c.mode}
-                onChange={e=>updCond(i,"mode",e.target.value)}>
-                <option value="min">не меньше</option>
-                <option value="max">не больше</option>
-              </select>
-              <NumField value={c.amt} style={{flex:"0 1 76px"}}
-                onCommit={v=>updCond(i,"amt",v??0)}/>
-              <button onClick={()=>delCond(i)} style={{...btn(false),padding:"3px 7px"}}>✕</button>
+          <div key={i} style={{background:C.ink,border:`1px solid ${bad?BAD+"66":C.line}`,
+            borderRadius:6,padding:8,marginBottom:6}}>
+            <div className="flex items-center gap-2" style={{marginBottom:6}}>
+              <span style={{...S.lbl,flex:1}}>условие {i+1}</span>
+              <button onClick={()=>delCond(i)}
+                style={{...btn(false),padding:"3px 7px"}}>✕</button>
             </div>
-            {ct&&<div style={{fontSize:10.5,color:C.muted,marginTop:4}}>
-              {c.mode==="min"
-                ?`чем больше «${ct.l}» относительно порога, тем сильнее эффект (сейчас ${nm(live[ct.id]??0)}, это ${Math.round(kk*100)}%)`
-                :`пока «${ct.l}» не выше порога — эффект полный; выше — насыщение (сейчас ${nm(live[ct.id]??0)}, эффект ${Math.round(kk*100)}%)`}
-            </div>}
+
+            <div style={S.lbl}>у «{own?.name||"актива-источника"}»</div>
+            <div style={{margin:"4px 0 8px"}}>
+              <ExprField value={left} traits={traits} scope={ownTraits} entities={entities}
+                kindOf={kindOf} placeholder="число или формула"
+                onCommit={v=>updCond(i,"left",v)}/>
+            </div>
+
+            <select style={{...S.inp,marginBottom:8}} value={mode}
+              onChange={e=>updCond(i,"mode",e.target.value)}>
+              <option value="min">не меньше, чем</option>
+              <option value="max">не больше, чем</option>
+            </select>
+
+            <div style={S.lbl}>любой ресурс или число</div>
+            <div style={{margin:"4px 0 6px"}}>
+              <ExprField value={right} traits={traits} scope={traits} entities={entities}
+                kindOf={kindOf} placeholder="число или формула"
+                onCommit={v=>updCond(i,"right",v)}/>
+            </div>
+
+            {bad
+              ? <div style={{fontSize:10.5,color:BAD,lineHeight:1.5}}>
+                  {L.error?`слева: ${L.error}`:""}{L.error&&R.error?" · ":""}
+                  {R.error?`справа: ${R.error}`:""}
+                  {" — условие не учитывается, пока не исправлено"}
+                </div>
+              : <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5}}>
+                  сейчас {nm(L.value)} {mode==="min"?"против":"при потолке"} {nm(R.value)} —
+                  {mode==="min"
+                    ? ` чем больше слева относительно правой части, тем сильнее эффект: ${Math.round(kk*100)}%`
+                    : ` пока слева не выше правой — эффект полный; выше — насыщение: ${Math.round(kk*100)}%`}
+                </div>}
           </div>);})}
         <button style={btn(false)} onClick={addCond}>+ добавить условие</button>
       </div>
@@ -561,7 +637,7 @@ export default function SystemModel(){
     // Уносим за собой всё, что на актив ссылалось: его ресурсы, входящие в них
     // стрелки, стрелки из него самого и условия, завязанные на его ресурсы.
     setEdges(p=>p.filter(x=>x.from!==id&&!own.has(x.to))
-      .map(x=>({...x,conds:(x.conds||[]).filter(c=>!own.has(c.trait))})));
+      .map(x=>({...x,conds:(x.conds||[]).filter(c=>!condRefs(c).some(r=>own.has(r)))})));
     setTraits(p=>p.filter(t=>t.e!==id));
     setEntities(p=>p.filter(e=>e.id!==id));
     setSelTrait(null); setPair(null);
@@ -1076,7 +1152,7 @@ export default function SystemModel(){
                 <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
                   onClick={()=>{setTraits(p=>p.filter(x=>x.id!==selT.id));
                     setEdges(p=>p.filter(x=>x.to!==selT.id&&
-                      !(x.conds||[]).some(c=>c.trait===selT.id)));
+                      !(x.conds||[]).some(c=>condRefs(c).includes(selT.id))));
                     setSelTrait(null);}}>Удалить ресурс</button>
               </div>)}
 
