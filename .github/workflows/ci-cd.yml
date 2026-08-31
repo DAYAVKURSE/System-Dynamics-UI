@@ -49,8 +49,8 @@ jobs:
         run: npm test
 
       # Прогоняет bootstrap.sh в песочнице с подменёнными apt/nginx/certbot:
-      # проверяет чистый сервер, идемпотентность повторного деплоя и понятную
-      # ошибку при нехватке прав — до того, как скрипт попадёт на живой сервер.
+      # чистый сервер, идемпотентность повторного деплоя и понятная ошибка при
+      # нехватке прав — до того, как скрипт попадёт на живой сервер.
       - name: Репетиция скриптов деплоя
         run: |
           bash -n deploy/release.sh
@@ -72,31 +72,38 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    # Вся конфигурация деплоя — здесь, из секретов репозитория.
+    # Ничего не задаётся внутри кода или файлов в репозитории.
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
     steps:
-      # Обязательных секретов всего два: адрес сервера и ключ. Всё остальное
-      # имеет разумные значения по умолчанию (см. шаг «Параметры деплоя»).
-      - name: Проверить, настроены ли секреты деплоя
+      - name: Проверить секреты
         id: secrets
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           missing=""
-          for name in SSH_HOST SSH_PRIVATE_KEY; do
-            if [ -z "${!name:-}" ]; then missing="$missing $name"; fi
-          done
+          [ -z "${SSH_HOST:-}" ] && missing="$missing SSH_HOST"
+          if [ -z "${SSH_PASSWORD:-}" ] && [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            missing="$missing SSH_PASSWORD(или SSH_PRIVATE_KEY)"
+          fi
           if [ -n "$missing" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             {
-              echo "### Деплой пропущен — не настроены секреты"
+              echo "### Деплой пропущен — не заданы секреты"
               echo ""
-              echo "Отсутствуют: **${missing# }**"
+              echo "Не хватает: **${missing# }**"
               echo ""
               echo "Settings → Secrets and variables → Actions → New repository secret."
-              echo "Подробности — в \`docs/DEPLOYMENT.md\`."
+              echo "Полный список — в \`docs/DEPLOYMENT.md\`."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "Секреты не настроены (${missing# }) — деплой пропущен."
+            echo "Не заданы секреты: ${missing# } — деплой пропущен."
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
@@ -107,21 +114,15 @@ jobs:
       - name: Параметры деплоя (домен, пользователь, пути)
         id: cfg
         if: steps.secrets.outputs.ready == 'true'
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
         run: |
           set -euo pipefail
           user="${SSH_USER:-root}"
           port="${SSH_PORT:-22}"
           path="${DEPLOY_PATH:-/opt/system-dynamics-ui}"
 
-          # Домена может не быть вовсе: если SSH_HOST — это IP, берём
-          # sslip.io (публичный DNS, который резолвит <ip>.sslip.io в этот IP).
-          # Let's Encrypt на такое имя сертификат выдаёт, покупать ничего не надо.
+          # Домена может не быть вовсе: если SSH_HOST — это IP, берём sslip.io
+          # (публичный DNS, резолвящий <ip>.sslip.io в этот IP). Let's Encrypt
+          # на такое имя сертификат выдаёт, покупать домен не надо.
           domain="${APP_DOMAIN:-}"
           if [ -z "$domain" ]; then
             if [[ "$SSH_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -131,13 +132,34 @@ jobs:
             fi
           fi
 
-          {
-            echo "user=$user"
-            echo "port=$port"
-            echo "path=$path"
-            echo "domain=$domain"
-          } >> "$GITHUB_OUTPUT"
+          { echo "user=$user"; echo "port=$port"; echo "path=$path"; echo "domain=$domain"; } >> "$GITHUB_OUTPUT"
           echo "Деплой: $user@***:$port → $path, домен $domain"
+
+      # Поддерживаются оба способа входа: пароль (sshpass) и приватный ключ.
+      # Что задано в секретах, то и используется; пароль имеет приоритет.
+      - name: Настроить SSH-доступ
+        id: ssh
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          SSH_PORT_R: ${{ steps.cfg.outputs.port }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$SSH_PORT_R" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          if [ -n "${SSH_PASSWORD:-}" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq sshpass
+            # Пароль передаём sshpass через переменную окружения SSHPASS (-e),
+            # а не аргументом -p: аргументы видны в списке процессов.
+            echo 'cmd=sshpass -e ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no -p '"$SSH_PORT_R" >> "$GITHUB_OUTPUT"
+            echo "Вход по паролю."
+          else
+            printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+            chmod 600 ~/.ssh/id_deploy
+            echo "cmd=ssh -i $HOME/.ssh/id_deploy -o IdentitiesOnly=yes -p $SSH_PORT_R" >> "$GITHUB_OUTPUT"
+            echo "Вход по ключу."
+          fi
 
       - name: Download web build artifact
         if: steps.secrets.outputs.ready == 'true'
@@ -148,6 +170,8 @@ jobs:
 
       - name: Assemble deploy package (server + собранный фронтенд)
         if: steps.secrets.outputs.ready == 'true'
+        env:
+          DEPLOY_PATH_R: ${{ steps.cfg.outputs.path }}
         run: |
           set -euo pipefail
           rm -rf deploy_pkg
@@ -156,92 +180,71 @@ jobs:
           cp server/package.json server/package-lock.json server/ecosystem.config.cjs deploy_pkg/
           cp -r web/dist/. deploy_pkg/public/
 
-      - name: Write production .env for the server
-        if: steps.secrets.outputs.ready == 'true'
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          DEPLOY_PATH: ${{ steps.cfg.outputs.path }}
-        run: |
-          set -euo pipefail
+          # .env для сервера собирается здесь, из секретов Actions. В репозитории
+          # никаких значений нет — server/.env.example нужен только для локальной
+          # разработки и на сервер не попадает.
           umask 077
           cat > deploy_pkg/.env <<EOF
           NODE_ENV=production
           PORT=3000
-          SCENARIOS_DIR=${DEPLOY_PATH}/data/scenarios
+          SCENARIOS_DIR=${DEPLOY_PATH_R}/data/scenarios
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF
 
-      - name: Install SSH key
-        if: steps.secrets.outputs.ready == 'true'
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Trust server host key
-        if: steps.secrets.outputs.ready == 'true'
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ steps.cfg.outputs.port }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
-
       # Ставит на сервере всё, чего не хватает: пакеты, Node, pm2, nginx,
-      # HTTPS-сертификат. Скрипт уходит по stdin, поэтому на сервере заранее
-      # не нужно вообще ничего (даже rsync).
+      # HTTPS-сертификат. Скрипт передаётся в base64 в самой команде, поэтому
+      # не зависит ни от stdin, ни от наличия rsync на сервере.
       - name: Подготовить сервер (пакеты, Node, pm2, nginx, HTTPS)
         if: steps.secrets.outputs.ready == 'true'
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ steps.cfg.outputs.user }}
-          SSH_PORT: ${{ steps.cfg.outputs.port }}
-          DEPLOY_PATH: ${{ steps.cfg.outputs.path }}
-          APP_DOMAIN: ${{ steps.cfg.outputs.domain }}
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+          SSH_CMD: ${{ steps.ssh.outputs.cmd }}
+          SSH_USER_R: ${{ steps.cfg.outputs.user }}
+          DEPLOY_PATH_R: ${{ steps.cfg.outputs.path }}
+          APP_DOMAIN_R: ${{ steps.cfg.outputs.domain }}
         run: |
           set -euo pipefail
-          ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" \
-            "DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH") APP_DOMAIN=$(printf '%q' "$APP_DOMAIN") APP_PORT=3000 bash -s" \
-            < deploy/bootstrap.sh
+          payload="$(base64 -w0 deploy/bootstrap.sh)"
+          $SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
+            "echo $payload | base64 -d | DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_DOMAIN=$(printf '%q' "$APP_DOMAIN_R") APP_PORT=3000 bash"
 
-      - name: Rsync app to server (данные сценариев не трогаются — они вне app/)
+      - name: Скопировать приложение (данные сценариев не трогаются — они вне app/)
         if: steps.secrets.outputs.ready == 'true'
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ steps.cfg.outputs.user }}
-          SSH_PORT: ${{ steps.cfg.outputs.port }}
-          DEPLOY_PATH: ${{ steps.cfg.outputs.path }}
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+          SSH_CMD: ${{ steps.ssh.outputs.cmd }}
+          SSH_USER_R: ${{ steps.cfg.outputs.user }}
+          DEPLOY_PATH_R: ${{ steps.cfg.outputs.path }}
         run: |
           set -euo pipefail
-          rsync -az --delete -e "ssh -p ${SSH_PORT}" \
-            deploy_pkg/ "${SSH_USER}@${SSH_HOST}:${DEPLOY_PATH}/app/"
+          rsync -az --delete -e "$SSH_CMD" \
+            deploy_pkg/ "${SSH_USER_R}@${SSH_HOST}:${DEPLOY_PATH_R}/app/"
 
       - name: Установить зависимости, перезапустить, health-check
         if: steps.secrets.outputs.ready == 'true'
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ steps.cfg.outputs.user }}
-          SSH_PORT: ${{ steps.cfg.outputs.port }}
-          DEPLOY_PATH: ${{ steps.cfg.outputs.path }}
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+          SSH_CMD: ${{ steps.ssh.outputs.cmd }}
+          SSH_USER_R: ${{ steps.cfg.outputs.user }}
+          DEPLOY_PATH_R: ${{ steps.cfg.outputs.path }}
         run: |
           set -euo pipefail
-          ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" \
-            "DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH") APP_PORT=3000 bash -s" \
-            < deploy/release.sh
+          payload="$(base64 -w0 deploy/release.sh)"
+          $SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
+            "echo $payload | base64 -d | DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_PORT=3000 bash"
 
       - name: Проверить приложение снаружи по HTTPS
         id: verify
         if: steps.secrets.outputs.ready == 'true'
         continue-on-error: true
         env:
-          APP_DOMAIN: ${{ steps.cfg.outputs.domain }}
+          APP_DOMAIN_R: ${{ steps.cfg.outputs.domain }}
         run: |
           set -euo pipefail
           for _ in $(seq 1 10); do
-            if curl -fsS --max-time 10 "https://${APP_DOMAIN}/api/health" >/dev/null 2>&1; then
+            if curl -fsS --max-time 10 "https://${APP_DOMAIN_R}/api/health" >/dev/null 2>&1; then
               echo "https=true" >> "$GITHUB_OUTPUT"
-              echo "HTTPS работает: https://${APP_DOMAIN}"
+              echo "HTTPS работает: https://${APP_DOMAIN_R}"
               exit 0
             fi
             sleep 3
@@ -255,44 +258,49 @@ jobs:
         if: steps.secrets.outputs.ready == 'true' && steps.verify.outputs.https == 'true'
         continue-on-error: true
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          APP_DOMAIN: ${{ steps.cfg.outputs.domain }}
+          APP_DOMAIN_R: ${{ steps.cfg.outputs.domain }}
         run: |
           set -euo pipefail
           if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
-            echo "Токен бота не задан — кнопку не настраиваю (это необязательный секрет)."
+            echo "TELEGRAM_BOT_TOKEN не задан — кнопку бота не настраиваю."
             exit 0
           fi
           response="$(curl -sS -X POST \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton" \
             -H 'Content-Type: application/json' \
-            -d "{\"menu_button\":{\"type\":\"web_app\",\"text\":\"Открыть модель\",\"web_app\":{\"url\":\"https://${APP_DOMAIN}\"}}}")"
-          # В лог не печатаем ответ целиком: там может быть эхо запроса с URL.
+            -d "{\"menu_button\":{\"type\":\"web_app\",\"text\":\"Открыть модель\",\"web_app\":{\"url\":\"https://${APP_DOMAIN_R}\"}}}")"
+          # Ответ целиком не печатаем: он содержит эхо запроса.
           if echo "$response" | grep -q '"ok":true'; then
-            echo "Кнопка бота настроена на https://${APP_DOMAIN}"
+            echo "Кнопка бота настроена на https://${APP_DOMAIN_R}"
           else
-            echo "Не удалось настроить кнопку бота (проверьте токен)." >&2
+            echo "Не удалось настроить кнопку бота (проверьте TELEGRAM_BOT_TOKEN)." >&2
             exit 1
           fi
 
       - name: Итог
         if: steps.secrets.outputs.ready == 'true'
         env:
-          APP_DOMAIN: ${{ steps.cfg.outputs.domain }}
+          APP_DOMAIN_R: ${{ steps.cfg.outputs.domain }}
           HTTPS_OK: ${{ steps.verify.outputs.https }}
         run: |
           {
             echo "### Деплой завершён"
             echo ""
             if [ "${HTTPS_OK:-false}" = "true" ]; then
-              echo "Приложение: **https://${APP_DOMAIN}**"
-              echo ""
-              echo "Кнопка бота настроена автоматически, если задан \`TELEGRAM_BOT_TOKEN\`."
+              echo "Приложение: **https://${APP_DOMAIN_R}**"
+              if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+                echo ""
+                echo "Кнопка бота привязана к этому адресу автоматически."
+              else
+                echo ""
+                echo "\`TELEGRAM_BOT_TOKEN\` не задан: сценарии сохраняются в облако"
+                echo "Telegram, кнопку бота нужно назначить вручную."
+              fi
             else
               echo "Приложение развёрнуто, но снаружи по HTTPS не ответило."
               echo ""
               echo "Обычная причина — закрыты порты 80/443 в firewall хостера."
-              echo "Откройте их, и повторите: Actions → CI/CD → Run workflow."
+              echo "Откройте их и повторите: Actions → CI/CD → Run workflow."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -300,4 +308,4 @@ jobs:
         if: steps.secrets.outputs.ready != 'true'
         run: |
           echo "Код собран и протестирован, но деплой пропущен: не заданы секреты."
-          echo "Инструкция: docs/DEPLOYMENT.md"
+          echo "Список секретов: docs/DEPLOYMENT.md"
