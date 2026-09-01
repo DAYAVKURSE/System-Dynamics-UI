@@ -1,0 +1,66 @@
+/* ═══════════════ ЧЕРНОВИК: страховка от внезапного закрытия ═══════════════
+   Telegram на телефоне убивает WebView без предупреждения — при переключении
+   на другое приложение или когда системе не хватает памяти. Всё, что не
+   уехало на диск кнопкой «Сохранить», пропадает вместе с вкладкой.
+
+   Черновик пишется в localStorage: он синхронный (успевает записаться в
+   обработчике «страница уходит»), не требует сети и переживает убийство
+   вкладки. Облако Telegram и диск сервера для этого не годятся — оба
+   асинхронные и сетевые, а запись туда на каждую правку ещё и гонялась бы
+   с осознанным сохранением.
+
+   Черновик — не версия сценария: он один, безымянный и живёт до тех пор,
+   пока работа не сохранена или не отброшена. */
+import { getTelegram } from "../telegram.js";
+
+export const DRAFT_V = 1;
+const BASE_KEY = "sd_draft";
+
+/* На одном телефоне могут быть два аккаунта Telegram. Черновик одного не
+   должен всплывать у другого, поэтому ключ разделён по пользователю. */
+export function draftKey() {
+  const id = getTelegram()?.initDataUnsafe?.user?.id;
+  return id ? `${BASE_KEY}:${id}` : BASE_KEY;
+}
+
+export function saveDraft(doc, meta = {}) {
+  try {
+    localStorage.setItem(draftKey(), JSON.stringify({
+      v: DRAFT_V,
+      savedAt: new Date().toISOString(),
+      name: meta.name || "",
+      doc,
+    }));
+    return true;
+  } catch {
+    // Приватный режим, запрещённое хранилище, кончилось место. Приложение
+    // из-за этого падать не должно — но и молчать нельзя, поэтому наверх
+    // уходит false: интерфейс скажет, что страховки нет.
+    return false;
+  }
+}
+
+export function readDraft() {
+  try {
+    const raw = localStorage.getItem(draftKey());
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || p.v !== DRAFT_V) return null;
+    const d = p.doc;
+    // Половина документа хуже, чем его отсутствие: восстановление собрало бы
+    // модель, которой у пользователя никогда не было.
+    const parts = ["entities", "traits", "edges", "kinds", "okrs", "tasks"];
+    if (!d || parts.some((k) => !Array.isArray(d[k])) || !d.kinds.length) return null;
+    return { savedAt: p.savedAt, name: p.name || "", doc: d };
+  } catch {
+    return null;
+  }
+}
+
+export function clearDraft() {
+  try {
+    localStorage.removeItem(draftKey());
+  } catch {
+    /* нечего чистить — хранилище недоступно */
+  }
+}

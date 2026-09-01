@@ -4,7 +4,8 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { evaluate, toDisplay, toStorage, refsOf } from "../lib/expr.js";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
-import { useHistory } from "../lib/history.js";
+import { useHistory, sameDoc } from "../lib/history.js";
+import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v8
@@ -571,6 +572,17 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
     </div>);
 }
 
+/* Время черновика — человеку, а не машине: «сегодня, 14:05» вместо ISO. */
+function whenText(iso){
+  const d=new Date(iso);
+  if(Number.isNaN(d.getTime())) return "прошлого раза";
+  const time=d.toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"});
+  const today=new Date();
+  const sameDay=d.toDateString()===today.toDateString();
+  if(sameDay) return `сегодня, ${time}`;
+  return `${d.toLocaleDateString("ru-RU",{day:"numeric",month:"long"})}, ${time}`;
+}
+
 /* ════════════════ ГЛАВНОЕ ════════════════ */
 export default function SystemModel(){
   const [entities,setEntities]=useState(ENTITIES0);
@@ -637,6 +649,32 @@ export default function SystemModel(){
     setSimEnt(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
+
+  // ─── черновик: страховка от внезапного закрытия вкладки ───
+  // Черновик пишется, только пока работа расходится с тем, что лежит на
+  // диске: иначе после каждой загрузки сценария приложение предлагало бы
+  // «восстановить» ровно то, что и так сохранено.
+  const [recovery,setRecovery]=useState(()=>readDraft());
+  const [draftBlocked,setDraftBlocked]=useState(false);
+  const savedDoc=useRef(doc);   // документ, совпадающий с сохранённым
+  const docRef=useRef(doc); docRef.current=doc;
+  const saveNameRef=useRef(saveName); saveNameRef.current=saveName;
+  const writeDraft=useCallback(()=>{
+    if(sameDoc(docRef.current,savedDoc.current)){ clearDraft(); setDraftBlocked(false); return; }
+    setDraftBlocked(!saveDraft(docRef.current,{name:saveNameRef.current}));
+  },[]);
+  // Пауза гасит поток промежуточных состояний, пока пользователь ещё правит.
+  useEffect(()=>{ const id=setTimeout(writeDraft,800); return ()=>clearTimeout(id); },
+    [doc,writeDraft]);
+  useEffect(()=>{
+    // Telegram убивает WebView без предупреждения, и последние секунды работы
+    // не дожили бы до конца паузы. localStorage синхронный — успевает.
+    const onHide=()=>{ if(document.visibilityState==="hidden") writeDraft(); };
+    window.addEventListener("pagehide",writeDraft);
+    document.addEventListener("visibilitychange",onHide);
+    return ()=>{ window.removeEventListener("pagehide",writeDraft);
+      document.removeEventListener("visibilitychange",onHide); };
+  },[writeDraft]);
 
   // ─── активы: добавить, подвинуть по схеме, удалить ───
   const moveE=(id,x,y)=>{
@@ -726,8 +764,11 @@ export default function SystemModel(){
     setSavedBusy(true);
     try{
       const isUpdate=savedSel&&savedList.some(s=>s.id===savedSel);
+      const snapshot=doc;
       const saved=await saveScenario({id:isUpdate?savedSel:null,name:saveName,
-        data:{entities,traits,edges,kinds,okrs,tasks}});
+        data:snapshot});
+      // Ровно этот документ теперь лежит на диске — черновик про него молчит.
+      savedDoc.current=snapshot; clearDraft(); setRecovery(null);
       setSavedMsg(`Сохранено: «${saved.name}».`);
       setSavedSel(saved.id);
       await refreshSavedList();
@@ -740,12 +781,16 @@ export default function SystemModel(){
     try{
       const s=await getScenario(savedSel);
       if(!s) throw new Error("Сценарий не найден.");
-      if(s.data?.entities){ setEntities(s.data.entities); adoptSelection(s.data.entities); }
-      if(s.data?.traits) setTraits(s.data.traits);
-      if(s.data?.edges) setEdges(s.data.edges);
-      if(Array.isArray(s.data?.kinds)&&s.data.kinds.length) setKinds(s.data.kinds);
-      if(Array.isArray(s.data?.okrs)) setOkrs(s.data.okrs);
-      if(Array.isArray(s.data?.tasks)) setTasks(s.data.tasks);
+      // Старые сценарии могут не знать про часть документа — недостающее
+      // остаётся текущим, а не превращается в пустоту.
+      const arr=(v,cur,need)=>Array.isArray(v)&&(!need||v.length)?v:cur;
+      const loaded={
+        entities:arr(s.data?.entities,entities,true), traits:arr(s.data?.traits,traits),
+        edges:arr(s.data?.edges,edges), kinds:arr(s.data?.kinds,kinds,true),
+        okrs:arr(s.data?.okrs,okrs), tasks:arr(s.data?.tasks,tasks),
+      };
+      restoreDoc(loaded);
+      savedDoc.current=loaded; clearDraft(); setRecovery(null);
       setSaveName(s.name);
       setSavedMsg(`Загружено: «${s.name}».`);
     }catch(e){ setSavedMsg(e.message||"Не удалось загрузить сценарий."); }
@@ -813,6 +858,28 @@ export default function SystemModel(){
             onCommit={v=>setHorizon(Math.max(3,Math.min(120,v||24)))}/>
           <span style={{fontSize:11,color:C.muted}}>мес</span></div>
       </div>
+
+      {recovery && (
+        <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
+          <div style={{fontSize:12.5,lineHeight:1.6,marginBottom:8}}>
+            Остались правки от {whenText(recovery.savedAt)}
+            {recovery.name?` (сценарий «${recovery.name}»)`:""} — вкладка
+            закрылась раньше, чем они уехали на диск. Восстановить?
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button style={btn(true)}
+              onClick={()=>{ restoreDoc(recovery.doc); setRecovery(null); }}>
+              Восстановить</button>
+            <button style={btn(false)}
+              onClick={()=>{ clearDraft(); setRecovery(null); }}>Отбросить</button>
+          </div>
+        </div>)}
+
+      {draftBlocked && (
+        <div style={{fontSize:11.5,color:WARN,marginBottom:10,lineHeight:1.6}}>
+          Браузер не даёт сохранить черновик — правки не переживут закрытия
+          вкладки. Сохраняй сценарий на диск во вкладке «JSON».
+        </div>)}
 
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
         {[["goals","Цели"],["tasks","Задачи"],["scheme","Схема"],

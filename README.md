@@ -22,6 +22,7 @@ web/                    React + Vite фронтенд (сама модель + T
   src/components/TasksBoard.jsx   OKR и канбан-доска задач
   src/lib/expr.js        Разбор числовых выражений в условиях (без eval)
   src/lib/history.js     История правок модели: отмена и возврат
+  src/lib/draft.js       Черновик: страховка от закрытия вкладки
   src/storage.js         Хранилище сценариев: сервер → облако Telegram → браузер
 server/                 Express-бэкенд: отдаёт фронтенд + API /api/scenarios
 deploy/
