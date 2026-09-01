@@ -7,15 +7,21 @@
 обратной связи, сценарное моделирование), упакованная как Telegram Mini App
 с сохранением сценариев на диск сервера.
 
-Сама модель (`web/src/components/SystemModel.jsx`) — это загруженный
-исходник `systemmodelv8.jsx` без единой смысловой правки. Вокруг неё —
-только обвязка: Telegram SDK, бэкенд для дискового хранения сценариев,
-CI/CD.
+Ядро — модель `web/src/components/SystemModel.jsx`, выросшая из исходника
+`systemmodelv8.jsx`. Расчёты (`simulate`, `adviseFor`, `condK`) остались теми
+же по смыслу; сверх них появилось редактирование структуры, OKR с задачами,
+условия-выражения и отмена правок — каждое с разбором в
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md). Вокруг модели — обвязка: Telegram
+SDK, бэкенд для дискового хранения сценариев и напоминаний, CI/CD.
 
 ## Структура репозитория
 
 ```
 web/                    React + Vite фронтенд (сама модель + Telegram-обвязка)
+  src/components/SystemModel.jsx  Модель: расчёты, схема, цели, симуляция
+  src/components/TasksBoard.jsx   OKR и канбан-доска задач
+  src/lib/expr.js        Разбор числовых выражений в условиях (без eval)
+  src/lib/history.js     История правок модели: отмена и возврат
   src/storage.js         Хранилище сценариев: сервер → облако Telegram → браузер
 server/                 Express-бэкенд: отдаёт фронтенд + API /api/scenarios
 deploy/

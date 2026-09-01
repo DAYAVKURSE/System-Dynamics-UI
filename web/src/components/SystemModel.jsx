@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule } from "../storage.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { evaluate, toDisplay, toStorage, refsOf } from "../lib/expr.js";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
+import { useHistory } from "../lib/history.js";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v8
@@ -455,7 +456,7 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
 
 /* ─────── СХЕМА (переиспользуемая для «сейчас» и для снимка симуляции) ─────── */
 function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesForFact,
-  onSelectEntity,onSelectPair,onMoveEntity}){
+  onSelectEntity,onSelectPair,onMoveEntity,onMoveStart,onMoveEnd}){
   // Перетаскивание активов. Тап и перетаскивание различаем по порогу сдвига:
   // пока палец/курсор не ушёл дальше DRAG_MIN пикселей, это ещё выбор блока.
   const DRAG_MIN=4;
@@ -464,6 +465,8 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
     if(!onMoveEntity) return;
     try{ev.currentTarget.setPointerCapture(ev.pointerId);}catch{/* не критично */}
     drag.current={id:e.id,sx:ev.clientX,sy:ev.clientY,ox:e.x,oy:e.y,moved:false};
+    // Весь жест — один шаг истории, а не полсотни промежуточных положений.
+    onMoveStart?.();
   };
   const move=(ev)=>{
     const d=drag.current; if(!d) return;
@@ -476,6 +479,7 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
   const up=(ev,e)=>{
     const d=drag.current; drag.current=null;
     try{ev.currentTarget.releasePointerCapture(ev.pointerId);}catch{/* не критично */}
+    onMoveEnd?.();
     if(!d||!d.moved) onSelectEntity(e.id);
   };
   const anchor=(a,b)=>{const ax=a.x+NW/2,ay=a.y+NH/2,bx=b.x+NW/2,by=b.y+NH/2;
@@ -541,7 +545,7 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
           const gv=gaugeFor(e.id);
           return (<g key={e.id}
             onPointerDown={ev=>down(ev,e)} onPointerMove={move}
-            onPointerUp={ev=>up(ev,e)} onPointerCancel={()=>{drag.current=null;}}
+            onPointerUp={ev=>up(ev,e)} onPointerCancel={()=>{drag.current=null;onMoveEnd?.();}}
             style={{cursor:onMoveEntity?"grab":"pointer",touchAction:"none"}}>
             <rect x={e.x} y={e.y} width={NW} height={NH} rx="12" fill={C.panel}
               stroke={sel===e.id?ACC:C.line} strokeWidth={sel===e.id?2.6:1.6}/>
@@ -614,6 +618,25 @@ export default function SystemModel(){
     setSel(s=>list.some(e=>e.id===s)?s:(list[0]?.id??null));
     setSimEnt(s=>list.some(e=>e.id===s)?s:(list[0]?.id??null));
   };
+
+  // ─── история правок: отмена и возврат ───
+  // История следит за документом модели — ровно за тем, что уезжает в
+  // сохранённый сценарий. Вкладка, зум и выбранный блок в неё не попадают:
+  // отменять «переключение вкладки» пользователь не просил, а вот потерять
+  // каскадное удаление актива — реальная беда.
+  const doc=useMemo(()=>({entities,traits,edges,kinds,okrs,tasks}),
+    [entities,traits,edges,kinds,okrs,tasks]);
+  const restoreDoc=useCallback((d)=>{
+    setEntities(d.entities); setTraits(d.traits); setEdges(d.edges);
+    setKinds(d.kinds); setOkrs(d.okrs); setTasks(d.tasks);
+    // Шаг назад может убрать актив, на который сейчас смотрит панель, —
+    // тогда выбор надо перевести, иначе панель опустеет без объяснения.
+    setPair(null);
+    setSelTrait(t=>d.traits.some(x=>x.id===t)?t:null);
+    setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
+    setSimEnt(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
+  },[]);
+  const hist=useHistory(doc,restoreDoc);
 
   // ─── активы: добавить, подвинуть по схеме, удалить ───
   const moveE=(id,x,y)=>{
@@ -777,7 +800,14 @@ export default function SystemModel(){
       <div className="flex items-start justify-between gap-3" style={{marginBottom:10}}>
         <div><div style={S.lbl}>жизнеспособность · v8</div>
           <div style={{fontSize:19,fontWeight:700}}>Активы и движение ресурсов</div></div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2"
+          style={{flexWrap:"wrap",justifyContent:"flex-end"}}>
+          <button style={{...btn(false),opacity:hist.canUndo?1:0.45}}
+            disabled={!hist.canUndo} onClick={hist.undo}
+            title="Отменить последнее изменение модели (Ctrl+Z)">↶ отменить</button>
+          <button style={{...btn(false),opacity:hist.canRedo?1:0.45}}
+            disabled={!hist.canRedo} onClick={hist.redo}
+            title="Вернуть отменённое (Ctrl+Shift+Z)">↷ вернуть</button>
           <span style={S.lbl}>горизонт</span>
           <NumField value={horizon} style={{width:58}}
             onCommit={v=>setHorizon(Math.max(3,Math.min(120,v||24)))}/>
@@ -1006,7 +1036,7 @@ export default function SystemModel(){
               valuesFor={tid=>live[tid]??0} valuesForFact={tid=>liveFact[tid]??0}
               onSelectEntity={id=>{setSel(id);setSelTrait(null);setPair(null);}}
               onSelectPair={key=>{setPair(key);setSelTrait(null);}}
-              onMoveEntity={moveE}/>
+              onMoveEntity={moveE} onMoveStart={hist.hold} onMoveEnd={hist.release}/>
           </div>
         </div>
 
@@ -1236,7 +1266,7 @@ export default function SystemModel(){
               valuesFor={tid=>simRun.base[tid]?.[simMonth]??0}
               valuesForFact={tid=>simRun.baseFact[tid]?.[simMonth]??0}
               onSelectEntity={id=>setSimEnt(id)} onSelectPair={()=>{}}
-              onMoveEntity={moveE}/>
+              onMoveEntity={moveE} onMoveStart={hist.hold} onMoveEnd={hist.release}/>
           </div>
 
           <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>

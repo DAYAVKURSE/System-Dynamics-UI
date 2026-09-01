@@ -17,7 +17,6 @@ export const STATUSES=[
   {id:"review",name:"Проверка",color:WARN},
   {id:"done",name:"Готово",color:OK},
 ];
-const statusOf=(id)=>STATUSES.find(s=>s.id===id)||STATUSES[0];
 
 export const REPEATS=[
   {id:"once",name:"один раз"},
