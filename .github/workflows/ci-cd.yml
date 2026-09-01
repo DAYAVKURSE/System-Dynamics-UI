@@ -83,6 +83,8 @@ jobs:
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
       APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      # Необязателен: без него владельцем станет первый вошедший.
+      OWNER_TELEGRAM_ID: ${{ secrets.OWNER_TELEGRAM_ID }}
     steps:
       - name: Проверить секреты
         id: secrets
@@ -192,7 +194,7 @@ jobs:
           REPORTS_DIR=${DEPLOY_PATH_R}/data/reports
           ORG_DIR=${DEPLOY_PATH_R}/data/org
           WORKSPACE_DIR=${DEPLOY_PATH_R}/data/workspace
-          OWNER_TELEGRAM_ID=${OWNER_TELEGRAM_ID}
+          OWNER_TELEGRAM_ID=${OWNER_TELEGRAM_ID:-}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF
 
