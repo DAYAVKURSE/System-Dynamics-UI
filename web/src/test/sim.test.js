@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Cond, asGate, asRatio, condKind, condRefs, depsOf, isFlow, simulate }
-  from "../lib/sim.js";
+import { Cond, asGate, asRatio, condKind, condRefs, depsOf, isFlow, normalizeTrait,
+  normalizeTraits, shown, simulate, stored, unitOf } from "../lib/sim.js";
 
 /* Движок: расход ресурса и дележ между теми, кто на него претендует.
    Числа здесь проверяются напрямую — на отрисованные значения полагаться
@@ -249,5 +249,69 @@ describe("вид условия", () => {
 
   it("зависимости условия-сравнения видны графу целей", () => {
     expect(condRefs({ expr: "10 - {a} > {b} + {c}" })).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("период ресурса", () => {
+  const flow = (per) => ({ id: "w", e: "me", k: "res", l: "время", unit: "ч", flow: true, per });
+  const stock = { id: "m", e: "co", k: "res", l: "деньги", unit: "₽", flow: false };
+
+  it("внутри модели поток живёт в месяц, человеку показывается в его периоде", () => {
+    expect(shown(flow("день"), 300)).toBe(10);
+    expect(shown(flow("мес"), 300)).toBe(300);
+    expect(shown(flow("квартал"), 300)).toBe(900);
+  });
+
+  it("ввод переводится обратно — туда и назад без потерь", () => {
+    expect(stored(flow("день"), 10)).toBe(300);
+    expect(shown(flow("день"), stored(flow("день"), 7))).toBe(7);
+  });
+
+  it("запас не переводится ничем — он не скорость", () => {
+    expect(shown(stock, 1000)).toBe(1000);
+    expect(stored(stock, 1000)).toBe(1000);
+  });
+
+  it("единица собирается из части и периода", () => {
+    expect(unitOf(flow("день"))).toBe("ч/день");
+    expect(unitOf(stock)).toBe("₽");
+  });
+});
+
+describe("разбор старой записи единицы", () => {
+  it("«чел./мес» распадается на единицу и период", () => {
+    expect(normalizeTrait({ id: "a", unit: "чел./мес" }))
+      .toMatchObject({ unit: "чел.", per: "мес", flow: true });
+  });
+
+  it("хвост, который не период, остаётся частью единицы", () => {
+    // «₽/ч» — это «рублей на час труда», а не скорость: разрезав, мы потеряли
+    // бы смысл единицы.
+    expect(normalizeTrait({ id: "a", unit: "₽/ч" }))
+      .toMatchObject({ unit: "₽/ч", flow: true });
+  });
+
+  it("единица без слэша — запас", () => {
+    expect(normalizeTrait({ id: "a", unit: "шт." })).toMatchObject({ unit: "шт.", flow: false });
+  });
+
+  it("уже разобранное не трогается", () => {
+    const t = { id: "a", unit: "ч", flow: true, per: "день" };
+    expect(normalizeTrait(t)).toBe(t);
+    expect(normalizeTrait(normalizeTrait({ id: "b", unit: "чел./мес" })))
+      .toMatchObject({ unit: "чел.", per: "мес" });
+  });
+
+  it("разбор не меняет расчёт — числа те же", () => {
+    // Единственное, что меняется, — как значение подписано и показано.
+    const raw = [
+      { id: "a", e: "x", k: "res", l: "поток", unit: "чел./мес" },
+      { id: "b", e: "x", k: "res", l: "запас", unit: "шт.", have: 5 },
+    ];
+    const edges = [{ id: "e", from: "x", to: "a", gives: 7, per: "мес", sign: 1, conds: [] }];
+    const before = simulate(raw, edges, 2);
+    const after = simulate(normalizeTraits(raw), edges, 2);
+    expect(after.a).toEqual(before.a);
+    expect(after.b).toEqual(before.b);
   });
 });

@@ -7,9 +7,34 @@ import { evaluate, refsOf, splitComparison } from "./expr.js";
 
 export const PER = { "час": 730, "день": 30, "нед": 4.33, "мес": 1, "квартал": 1 / 3, "год": 1 / 12 };
 
-// Тип величины задаётся единицей измерения: слэш делает поток («ч/день»),
-// без слэша — запас («шт.»).
+// Тип величины задаётся явно. Слэш в единице — путь совместимости для
+// сценариев, сохранённых до того, как появился отдельный переключатель.
 export const isFlow = (t) => (t.flow != null ? !!t.flow : /\//.test(t.unit || ""));
+
+/* Внутри модели все потоки живут в одной размерности — в месяц: иначе
+   складывать приходящее по разным стрелкам было бы нельзя. Человеку же
+   показываем в том периоде, который он выбрал у ресурса: «10 ч/день»
+   понятнее, чем «300 ч/мес», хотя это одно и то же. */
+export const perOf = (t) => (isFlow(t) ? (t.per || "мес") : null);
+export const shown = (t, v) => (isFlow(t) ? Number(v) / (PER[t.per] ?? 1) : Number(v));
+export const stored = (t, v) => (isFlow(t) ? Number(v) * (PER[t.per] ?? 1) : Number(v));
+export const unitOf = (t) => (isFlow(t) && t.per ? `${t.unit}/${t.per}` : t.unit);
+
+/* Разбор старой записи «чел./мес»: до слэша — единица, после — период.
+   Хвост, которого нет среди периодов, не трогаем: «₽/ч» это «рублей на час
+   труда», а не скорость, и разрезав такую единицу мы потеряли бы её смысл. */
+export const normalizeTrait = (t) => {
+  if (t.per || t.flow != null) return t;
+  const s = String(t.unit ?? "");
+  const i = s.indexOf("/");
+  if (i === -1) return { ...t, flow: false };
+  const head = s.slice(0, i).trim(), tail = s.slice(i + 1).trim();
+  return PER[tail] != null
+    ? { ...t, unit: head, per: tail, flow: true }
+    : { ...t, flow: true };
+};
+export const normalizeTraits = (list) =>
+  (Array.isArray(list) ? list.map(normalizeTrait) : list);
 
 /* ─────── условия ─────── */
 // Условие: {left, mode, right} — сравнение двух величин, и каждая может быть
@@ -222,7 +247,7 @@ export function adviseFor(traits, edges, g, span) {
     const t = traits.find((x) => x.id === tid); if (!t || isFlow(t)) return;
     const cur = Number(t.have ?? 0), v = search((x) => [{ [tid]: x }, null], cur);
     if (v != null && v > cur + 1e-6) recs.push({ type: "seed", tid, from: cur, to: v,
-      month: test({ [tid]: v }, null), label: t.l, unit: t.unit, e: t.e });
+      month: test({ [tid]: v }, null), label: t.l, unit: unitOf(t), e: t.e });
   });
   d.edges.forEach((eid) => {
     const ed = edges.find((x) => x.id === eid); if (!ed) return;

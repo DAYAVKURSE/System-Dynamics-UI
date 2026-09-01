@@ -74,7 +74,9 @@ const pctOf=(o,current)=>{
 };
 
 export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
-  okrValue,entityName}){
+  okrValue,okrShown,entityName}){
+  // Прогресс считается по модельным числам, показываются — по человеческим.
+  const show=okrShown||((o,v)=>Number(v));
   const [openId,setOpenId]=useState(null);
   const [filter,setFilter]=useState("all");
   const [draft,setDraft]=useState("");
@@ -160,8 +162,8 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
                       onClick={()=>delOkr(o.id)}>✕</button>
                   </div>
                   <div style={{fontSize:11.5,color:C.muted,marginBottom:5}}>
-                    {nm(o.from)} → <b style={{color:C.text}}>{nm(o.to)}</b> {o.unit}
-                    {o.per?` за ${o.per}`:""} · сейчас {nm(cur)}
+                    {nm(show(o,o.from))} → <b style={{color:C.text}}>{nm(show(o,o.to))}</b>
+                    {" "}{o.unit}{o.per?` за ${o.per}`:""} · сейчас {nm(show(o,cur))}
                   </div>
                   <div style={{height:6,borderRadius:3,background:C.ink,overflow:"hidden"}}>
                     <div style={{height:"100%",width:`${Math.round(p*100)}%`,

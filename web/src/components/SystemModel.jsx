@@ -3,9 +3,9 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule } from "../storage.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { evaluate, toDisplay, toStorage, refsOf, splitComparison } from "../lib/expr.js";
-import { PER, isFlow, Cond, condSides, condRefs, condKind, condK, asGate, asRatio,
-  edgeK, sourceTrait, simulate, reachMonth, isFact, factEdges, frac, depsOf,
-  adviseFor } from "../lib/sim.js";
+import { PER, isFlow, perOf, shown, stored, unitOf, normalizeTraits, Cond,
+  condSides, condRefs, condKind, condK, asGate, asRatio, edgeK, sourceTrait,
+  simulate, reachMonth, isFact, factEdges, frac, depsOf, adviseFor } from "../lib/sim.js";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
@@ -46,7 +46,7 @@ const ENTITIES0=[
 ];
 const T=(id,e,k,l,unit,have,want,by)=>
   ({id,e,k,l,unit,have:have??null,want:want??null,by:by??null});
-const TRAITS0=[
+const TRAITS0=normalizeTraits([
   T("u9","usr","res","активные пользователи","чел./мес",null,10,6),
   T("u1","usr","growth","получение рекомендаций","реком./мес"),
   T("u2","usr","growth","автоматизация своих задач","задач/мес"),
@@ -103,7 +103,8 @@ const TRAITS0=[
   T("s4","set","destroy","неиспользование","% неоткрытых функций"),
   T("s5","set","repro","доля функций, понятных без объяснений","коэф."),
   T("s6","set","payback","часов пользователям на 1 час разработки","ч"),
-];
+]);
+
 const E=(id,from,to,carrier,gives,per,sign,conds,note,basis)=>
   ({id,from,to,carrier,gives,per,sign,conds:conds||[],note,basis:basis||"hypo"});
 const EDGES0=[
@@ -287,7 +288,7 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
           onChange={e=>onEdit(ed.id,"fromTrait",e.target.value||null)}>
           <option value="">— ниоткуда: величина появляется —</option>
           {ownTraits.filter(x=>x.id!==ed.to).map(x=>(
-            <option key={x.id} value={x.id}>{x.l} · {x.unit}</option>))}
+            <option key={x.id} value={x.id}>{x.l} · {unitOf(x)}</option>))}
         </select>
         <div style={{fontSize:11.5,color:src?C.muted:WARN,marginTop:4,lineHeight:1.5}}>
           {src
@@ -307,9 +308,9 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
         </div>
         <div style={{fontSize:11.5,color:k>=1?OK:k>0?WARN:BAD,lineHeight:1.5,marginTop:7}}>
           {!conds.length
-            ?`Условий нет — попытки удаются всегда: ${nm(ed.gives*(PER[ed.per]??1))} ${t.unit} в месяц.`
+            ?`Условий нет — попытки удаются всегда: ${nm(shown(t,ed.gives*(PER[ed.per]??1)))} ${unitOf(t)}.`
             :k>0
-              ?`Условия сейчас пропускают ${Math.round(k*100)}% — значит переносится ${nm(ed.gives*(PER[ed.per]??1)*k)} ${t.unit} в месяц.`
+              ?`Условия сейчас пропускают ${Math.round(k*100)}% — значит переносится ${nm(shown(t,ed.gives*(PER[ed.per]??1)*k))} ${unitOf(t)}.`
               :"Условия сейчас не выполняются — перенос не идёт."}
         </div>
       </div>
@@ -608,6 +609,9 @@ export default function SystemModel(){
 
   const ent=(id)=>entities.find(e=>e.id===id);
   const trait=(id)=>traits.find(t=>t.id===id);
+  // Пустое значение — это «не задано», и превращать его в 0 нельзя.
+  const asShown=(t,v)=>(v==null||v===""?v:shown(t,v));
+  const asStored=(t,v)=>(v==null?v:stored(t,v));
   const into=(tid)=>edges.filter(e=>e.to===tid);
   const upE=(id,f,v)=>setEntities(p=>p.map(e=>e.id===id?{...e,[f]:v}:e));
   const upT=(id,f,v)=>setTraits(p=>p.map(t=>t.id===id?{...t,[f]:v}:t));
@@ -631,7 +635,7 @@ export default function SystemModel(){
   const doc=useMemo(()=>({entities,traits,edges,kinds,okrs,tasks}),
     [entities,traits,edges,kinds,okrs,tasks]);
   const restoreDoc=useCallback((d)=>{
-    setEntities(d.entities); setTraits(d.traits); setEdges(d.edges);
+    setEntities(d.entities); setTraits(normalizeTraits(d.traits)); setEdges(d.edges);
     setKinds(d.kinds); setOkrs(d.okrs); setTasks(d.tasks);
     // Шаг назад может убрать актив, на который сейчас смотрит панель, —
     // тогда выбор надо перевести, иначе панель опустеет без объяснения.
@@ -734,6 +738,12 @@ export default function SystemModel(){
   const okrValue=(o)=>o.type==="seed"
     ? Number(traits.find(t=>t.id===o.refId)?.have??0)
     : Number(edges.find(e=>e.id===o.refId)?.gives??0);
+  // Ключевой результат по ресурсу показывается в его периоде — так же, как
+  // всё остальное про этот ресурс. Внутри KR числа остаются модельными,
+  // иначе прогресс считался бы по разным меркам.
+  const okrShown=(o,v)=>o.type==="seed"
+    ? shown(traits.find(t=>t.id===o.refId)||{},v)
+    : Number(v);
   const takeToWork=(goalId,r)=>{
     // Приложение — инструмент прогноза, поэтому взятый в работу рычаг сразу
     // применяется к модели: прогноз должен показывать, куда система пойдёт с
@@ -798,7 +808,11 @@ export default function SystemModel(){
       // остаётся текущим, а не превращается в пустоту.
       const arr=(v,cur,need)=>Array.isArray(v)&&(!need||v.length)?v:cur;
       const loaded={
-        entities:arr(s.data?.entities,entities,true), traits:arr(s.data?.traits,traits),
+        entities:arr(s.data?.entities,entities,true),
+        // Приводим к текущей записи здесь же: иначе «что лежит на диске»
+        // разошлось бы с тем, что попало в модель, и черновик решил бы,
+        // что появились несохранённые правки.
+        traits:normalizeTraits(arr(s.data?.traits,traits)),
         edges:arr(s.data?.edges,edges), kinds:arr(s.data?.kinds,kinds,true),
         okrs:arr(s.data?.okrs,okrs), tasks:arr(s.data?.tasks,tasks),
       };
@@ -940,7 +954,10 @@ export default function SystemModel(){
           const factInTime=nowFact!=null&&nowFact<=by;
           const lines=[g.id,...d.traits.filter(x=>x!==g.id)].slice(0,5).map((id,i)=>({
             id,color:[ACC,"#C792EA",OK,WARN,"#FF9E64"][i],
-            name:trait(id)?.l,data:base[id]||[]}));
+            name:trait(id)?.l,
+            // График цели рисуется в том же периоде, что и числа над ним,
+            // иначе кривая и подпись под ней противоречили бы друг другу.
+            data:(base[id]||[]).map(v=>shown(trait(id)||{},v))}));
           return (
             <div key={g.id} style={{...S.card,marginBottom:12}}>
               <div className="flex items-center gap-2" style={{marginBottom:4}}>
@@ -951,11 +968,12 @@ export default function SystemModel(){
                   onClick={()=>{upT(g.id,"want",null);upT(g.id,"by",null);}}>убрать</button>
               </div>
               <div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
-                {ent(g.e)?.name} · {g.unit} · {isFlow(g)?"поток":"запас"}</div>
+                {ent(g.e)?.name} · {unitOf(g)} · {isFlow(g)?"поток":"запас"}</div>
 
               <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
                 <div style={{flex:"1 1 80px"}}><div style={S.lbl}>нужно</div>
-                  <NumField value={g.want} onCommit={v=>upT(g.id,"want",v)}/></div>
+                  <NumField value={asShown(g,g.want)}
+                    onCommit={v=>upT(g.id,"want",asStored(g,v))}/></div>
                 <div style={{flex:"1 1 80px"}}><div style={S.lbl}>к месяцу</div>
                   <NumField value={g.by} placeholder={String(span)}
                     onCommit={v=>upT(g.id,"by",v)}/></div>
@@ -963,13 +981,14 @@ export default function SystemModel(){
                   <div style={S.lbl}>гипотетически (все стрелки)</div>
                   <div style={{...S.inp,color:hCol,borderColor:hCol,
                     background:C.panel2,display:"flex",alignItems:"center"}}
-                    title="Прогноз с учётом поведенческих допущений">{nm(hv)}</div>
+                    title="Прогноз с учётом поведенческих допущений">
+                    {nm(shown(g,hv))}</div>
                 </div>
                 <div style={{flex:"1 1 100px"}}>
                   <div style={S.lbl}>фактически (только факты)</div>
                   <div style={{...S.inp,color:fCol,borderColor:fCol,
                     background:C.panel2,display:"flex",alignItems:"center"}}
-                    title="Прогноз только по стрелкам-фактам">{nm(fv)}</div>
+                    title="Прогноз только по стрелкам-фактам">{nm(shown(g,fv))}</div>
                 </div>
               </div>
 
@@ -1059,7 +1078,7 @@ export default function SystemModel(){
                       <div style={{fontSize:12.5,lineHeight:1.6}}>
                         <span style={{color:WARN}}>◆ </span>
                         {r.type==="seed"
-                          ?<>Завести руками <b>{nm(r.to)} {r.unit}</b> — «{r.label}»
+                          ?<>Завести руками <b>{nm(shown(trait(r.tid)||{},r.to))} {r.unit}</b> — «{r.label}»
                             <span style={{color:C.muted}}> ({ent(r.e)?.name})</span></>
                           :<>Поднять «{r.label}»<span style={{color:C.muted}}> ({ent(r.e)?.name})</span>
                             {" "}с {nm(r.from)} до <b>{nm(r.to)} {r.unit}</b> за {r.per}</>}
@@ -1094,7 +1113,7 @@ export default function SystemModel(){
       {/* ═══ ЗАДАЧИ (OKR + канбан) ═══ */}
       {tab==="tasks" && (
         <TasksBoard goals={goals} okrs={okrs} setOkrs={setOkrs}
-          tasks={tasks} setTasks={setTasks} okrValue={okrValue}
+          tasks={tasks} setTasks={setTasks} okrValue={okrValue} okrShown={okrShown}
           entityName={id=>ent(id)?.name||"—"}/>)}
 
       {/* ═══ СХЕМА ═══ */}
@@ -1177,9 +1196,9 @@ export default function SystemModel(){
                       border:`1px solid ${ACC}66`,borderRadius:3,padding:"1px 4px"}}>цель</span>}
                   </div>
                   <div style={{fontSize:11,color:C.muted,marginTop:3}}>
-                    {isFlow(t)?"поток":"запас"} · {t.unit}
-                    <span style={{color:hCol}}> · гип. {nm(hv)}</span>
-                    <span style={{color:fCol}}> · факт {nm(fv)}</span>
+                    {isFlow(t)?"поток":"запас"} · {unitOf(t)}
+                    <span style={{color:hCol}}> · гип. {nm(shown(t,hv))}</span>
+                    <span style={{color:fCol}}> · факт {nm(shown(t,fv))}</span>
                   </div>
                   <div style={{height:5,borderRadius:3,background:C.ink,marginTop:5,
                     overflow:"hidden",position:"relative"}}>
@@ -1189,7 +1208,7 @@ export default function SystemModel(){
                       width:factPct+"%",background:w?OK:"transparent"}}/>
                   </div>
                   {w!=null&&<div style={{fontSize:9.5,color:C.muted,marginTop:2}}>
-                    цель {nm(w)} {t.unit}</div>}
+                    цель {nm(shown(t,w))} {unitOf(t)}</div>}
                 </div>);})}
             </div>
 
@@ -1212,28 +1231,54 @@ export default function SystemModel(){
                   return (<>
                 <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
                   <div style={{flex:"1 1 76px"}}><div style={S.lbl}>нужно</div>
-                    <NumField value={selT.want} placeholder="нет цели"
-                      onCommit={v=>upT(selT.id,"want",v)}/></div>
+                    <NumField value={asShown(selT,selT.want)} placeholder="нет цели"
+                      onCommit={v=>upT(selT.id,"want",asStored(selT,v))}/></div>
                   <div style={{flex:"1 1 76px"}}><div style={S.lbl}>к месяцу</div>
                     <NumField value={selT.by} placeholder={String(span)}
                       onCommit={v=>upT(selT.id,"by",v)}/></div>
                   <div style={{flex:"1 1 76px"}}><div style={S.lbl}>есть сейчас (старт)</div>
-                    <NumField value={selT.have} placeholder="0"
-                      onCommit={v=>upT(selT.id,"have",v)}/></div>
+                    <NumField value={asShown(selT,selT.have)} placeholder="0"
+                      onCommit={v=>upT(selT.id,"have",asStored(selT,v))}/></div>
                   <div style={{flex:"1 1 96px"}}><div style={S.lbl}>единица</div>
-                    <TxtField value={selT.unit} onCommit={v=>upT(selT.id,"unit",v)}/></div>
+                    <TxtField value={selT.unit} placeholder="ч, ₽, чел."
+                      onCommit={v=>upT(selT.id,"unit",v)}/></div>
+                </div>
+                <div className="flex flex-wrap gap-2"
+                  style={{marginBottom:8,alignItems:"center"}}>
+                  <span style={S.lbl}>это</span>
+                  <button style={btn(!isFlow(selT))}
+                    onClick={()=>upT(selT.id,"flow",false)}
+                    title="Копится по месяцам: деньги, люди, накопленные часы">
+                    запас</button>
+                  <button style={btn(isFlow(selT))}
+                    onClick={()=>upT(selT.id,"flow",true)}
+                    title="Скорость: столько-то за период, не копится">
+                    поток</button>
+                  {isFlow(selT)&&(<>
+                    <span style={S.lbl}>за</span>
+                    <select style={{...S.inp,flex:"0 1 104px"}} value={perOf(selT)}
+                      onChange={e=>upT(selT.id,"per",e.target.value)}>
+                      {Object.keys(PER).map(p=><option key={p} value={p}>{p}</option>)}
+                    </select>
+                    <span style={{fontSize:11.5,color:C.muted,flex:"1 1 100%"}}>
+                      Все значения ниже — за выбранный период. Смена периода
+                      пересчитывает показ, саму модель не меняет.
+                    </span>
+                  </>)}
                 </div>
                 <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
                   <div style={{flex:"1 1 100px"}}>
                     <div style={S.lbl}>гипотетически (все стрелки)</div>
                     <div style={{...S.inp,color:hCol,borderColor:hCol,
                       background:C.panel2,display:"flex",alignItems:"center"}}
-                      title="Прогноз с учётом поведенческих допущений">{nm(hv)}</div></div>
+                      title="Прогноз с учётом поведенческих допущений">
+                      {nm(shown(selT,hv))}</div></div>
                   <div style={{flex:"1 1 100px"}}>
                     <div style={S.lbl}>фактически (только факты)</div>
                     <div style={{...S.inp,color:fCol,borderColor:fCol,
                       background:C.panel2,display:"flex",alignItems:"center"}}
-                      title="Прогноз только по стрелкам-фактам — без гипотез">{nm(fv)}</div></div>
+                      title="Прогноз только по стрелкам-фактам — без гипотез">
+                      {nm(shown(selT,fv))}</div></div>
                 </div>
                 {fv===0&&into(selT.id).length>0&&!into(selT.id).some(isFact)&&(
                   <div style={{fontSize:11.5,color:WARN,marginBottom:10,lineHeight:1.5}}>
@@ -1242,8 +1287,8 @@ export default function SystemModel(){
                     поведении, переключите её на «◆ факт» ниже.
                   </div>)}
                 <div style={{fontSize:11.5,color:C.muted,marginBottom:10}}>
-                  {isFlow(selT)?"Поток: значение равно текущей скорости."
-                    :"Запас: копится по месяцам."} Тип берётся из единицы — слэш делает поток.
+                  {isFlow(selT)?`Поток: значение равно скорости за ${perOf(selT)}.`
+                    :"Запас: копится по месяцам."}
                   {" "}«Гипотетически» считает по всем стрелкам, включая допущения о
                   поведении (жёлтое — если дотягивает до цели, серое — нет). «Фактически»
                   считает только по стрелкам, помеченным как факт — точным расчётам вроде
@@ -1315,10 +1360,10 @@ export default function SystemModel(){
                         <option key={x.id} value={x.id}>{kindOf(x.k).sign} {x.l}</option>))}
                     </optgroup>))}
                 </select>
-                <NumField value={o.val} placeholder={t?String(t.have??0):"0"}
+                <NumField value={o.val} placeholder={t?String(asShown(t,t.have)??0):"0"}
                   style={{flex:"0 1 90px"}}
                   onCommit={v=>setSimOv(p=>p.map((x,xi)=>xi===i?{...x,val:v??0}:x))}/>
-                {t&&<span style={{fontSize:11,color:C.muted}}>{t.unit}</span>}
+                {t&&<span style={{fontSize:11,color:C.muted}}>{unitOf(t)}</span>}
                 <button style={{...btn(false),padding:"3px 7px"}}
                   onClick={()=>setSimOv(p=>p.filter((_,xi)=>xi!==i))}>✕</button>
               </div>);})}
@@ -1382,7 +1427,7 @@ export default function SystemModel(){
                         fontWeight:700}}>{kindOf(t.k).sign}</span>
                       <span style={{fontSize:13,fontWeight:700,flex:1}}>{t.l}</span>
                       <span style={{fontSize:11,color:C.muted}}>
-                        {isFlow(t)?"поток":"запас"} · {t.unit}</span>
+                        {isFlow(t)?"поток":"запас"} · {unitOf(t)}</span>
                     </div>
                     <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
                       padding:8,marginBottom:6}}>
@@ -1460,7 +1505,7 @@ export default function SystemModel(){
               Выгрузить</button>
             <button style={btn(false)} onClick={()=>{try{const d=JSON.parse(json);
               if(d.entities){setEntities(d.entities);adoptSelection(d.entities);}
-              if(d.traits)setTraits(d.traits);
+              if(d.traits)setTraits(normalizeTraits(d.traits));
               if(d.edges)setEdges(d.edges);
               // Сценарии, сохранённые до появления редактируемых классификаций,
               // поля kinds не содержат — оставляем текущий набор.
