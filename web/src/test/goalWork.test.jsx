@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 
-/* Работа по цели живёт во вкладке «Цели»; задача открывается под своей целью;
+/* Работа по цели живёт во вкладке «Прогноз»; задача открывается под своей целью;
    метрика задачи становится движением в модели. */
 
 let container;
 beforeEach(() => { ({ container } = render(<SystemModel />)); });
 
 const goalCard = (name) => {
+  // Цели живут на «Прогнозе», а стартовая вкладка — «Задачи».
+  fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
   const label = [...container.querySelectorAll("span")]
     .find((sp) => sp.textContent === name);
   if (!label) throw new Error(`цель «${name}» не найдена`);
@@ -18,13 +20,13 @@ const dump = () => {
   fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
   fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
   const m = JSON.parse(container.querySelector("textarea").value);
-  fireEvent.click(screen.getByRole("button", { name: "Цели" }));
+  fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
   return m;
 };
 
 describe("порядок и названия вкладок", () => {
-  it("цели, задачи, типы, схема, прогноз, выгрузить", () => {
-    const names = ["Цели", "Задачи", "Типы", "Схема", "Прогноз", "Выгрузить"];
+  it("задачи, отчёты, схема, прогноз, выгрузить", () => {
+    const names = ["Задачи", "Отчёты", "Схема", "Прогноз", "Выгрузить"];
     const tabs = names.map((n) => screen.getAllByRole("button", { name: n })[0]);
     // Порядок в разметке — это и есть порядок на экране.
     const pos = tabs.map((b) => [...container.querySelectorAll("button")].indexOf(b));
@@ -32,7 +34,7 @@ describe("порядок и названия вкладок", () => {
   });
 });
 
-describe("работа по цели — во вкладке «Цели»", () => {
+describe("работа по цели — во вкладке «Прогноз»", () => {
   it("у цели есть «+ задача», и задача открывается под этой же целью", () => {
     const card = goalCard("активные пользователи");
     const add = within(card).getByRole("button", { name: "+ задача" });
@@ -40,7 +42,7 @@ describe("работа по цели — во вкладке «Цели»", () =
 
     // Редактор открылся внутри карточки этой цели, а не внизу страницы.
     expect(within(card).getByDisplayValue("Новая задача")).toBeTruthy();
-    expect(within(card).getByText(/какое движение выполняет эта задача/)).toBeTruthy();
+    expect(within(card).getByText(/движение, которое выполняет задача/)).toBeTruthy();
   });
 
   it("задача второй цели не открывается под первой", () => {

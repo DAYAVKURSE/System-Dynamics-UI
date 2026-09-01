@@ -23,7 +23,7 @@ function Harness({ tasks: t0 = [], okrs: o0 = [], goals = GOALS, okrValue = () =
   );
 }
 
-// Работа по цели (KR + задачи цели) переехала во вкладку «Цели» — рендерим
+// Работа по цели (KR + задачи цели) переехала во вкладку «Прогноз» — рендерим
 // её тем же способом, каким это делает SystemModel.
 function GoalHarness({ tasks: t0 = [], okrs: o0 = [], goals = GOALS, okrValue = () => 5 }) {
   const [tasks, setTasks] = React.useState(t0);
@@ -113,7 +113,7 @@ describe("параметры задачи", () => {
       .toBeTruthy();
     expect(screen.getAllByText(/активные пользователи/).length).toBeGreaterThan(0);
     // Движения нет — так и сказано, а не подставлено молча.
-    expect(screen.getByText(/движение не выбрано/)).toBeTruthy();
+    expect(screen.getByText(/на чём стоит цель, не сказано/)).toBeTruthy();
   });
 
   it("статус, название и содержимое меняются", () => {
@@ -188,9 +188,11 @@ describe("OKR", () => {
   });
 });
 
-describe("«Взять в работу» во вкладке «Цели»", () => {
+describe("«Взять в работу» во вкладке «Прогноз»", () => {
   it("создаёт ключевой результат и задачу, привязанные к цели", () => {
     render(<SystemModel />);
+    // Рекомендации живут на «Прогнозе», а стартовая вкладка — «Задачи».
+    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
 
     const take = screen.getAllByRole("button", { name: "Взять в работу" });
     const before = take.length;
@@ -224,7 +226,7 @@ describe("«Взять в работу» во вкладке «Цели»", () =
     };
     const before = dump();
 
-    fireEvent.click(screen.getByRole("button", { name: "Цели" }));
+    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
@@ -242,6 +244,7 @@ describe("«Взять в работу» во вкладке «Цели»", () =
 
   it("задачи и KR уезжают в JSON вместе с моделью", () => {
     const { container } = render(<SystemModel />);
+    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);

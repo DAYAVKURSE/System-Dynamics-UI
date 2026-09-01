@@ -46,7 +46,7 @@ describe("кнопки истории", () => {
   });
 
   it("видны с любой вкладки — правки есть везде", () => {
-    for (const tab of ["Цели", "Задачи", "Типы", "Схема", "Прогноз", "Выгрузить"]) {
+    for (const tab of ["Задачи", "Отчёты", "Схема", "Прогноз", "Выгрузить"]) {
       fireEvent.click(screen.getByRole("button", { name: tab }));
       expect(undoBtn()).toBeTruthy();
     }
@@ -101,7 +101,7 @@ describe("отмена структурных правок", () => {
   });
 
   it("возвращает удалённую классификацию и прежний тип ресурса", () => {
-    fireEvent.click(screen.getByRole("button", { name: "Типы" }));
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     const before = screen.getAllByDisplayValue("рост").length;
     const card = screen.getByDisplayValue("рост").closest("div").parentElement;
     fireEvent.click(within(card).getByRole("button", { name: /удалить/i }));
@@ -162,6 +162,8 @@ describe("клавиши", () => {
 
 describe("прогноз после отмены", () => {
   it("отмена «взять в работу» возвращает и рекомендацию, и прогноз", () => {
+    // Рекомендации живут на «Прогнозе», а стартовая вкладка — «Задачи».
+    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
     const recs = () => screen.queryAllByRole("button", { name: "Взять в работу" });
     const before = recs().length;
     fireEvent.click(recs()[0]);
@@ -176,7 +178,7 @@ describe("прогноз после отмены", () => {
     // Пустая колонка канбана подписана «Пусто.» — считаем по ним, не завися
     // от текста конкретной рекомендации.
     const tasks = () => fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
-    const goals = () => fireEvent.click(screen.getByRole("button", { name: "Цели" }));
+    const goals = () => fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
     const emptyCols = () => screen.queryAllByText("Пусто.").length;
 
     tasks();

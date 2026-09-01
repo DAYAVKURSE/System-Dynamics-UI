@@ -102,7 +102,7 @@ describe("переименование ресурса", () => {
 
 describe("классификации ресурсов", () => {
   it("переименовываются", () => {
-    openTab("Типы");
+    openTab("Схема");
     typeAndCommit(screen.getByDisplayValue("воспроизводимость"), "тиражируемость");
 
     expect(screen.getByDisplayValue("тиражируемость")).toBeInTheDocument();
@@ -115,7 +115,7 @@ describe("классификации ресурсов", () => {
   });
 
   it("добавляются", () => {
-    openTab("Типы");
+    openTab("Схема");
     const before = screen.getAllByRole("button", { name: "Удалить" }).length;
 
     fireEvent.click(screen.getByRole("button", { name: /добавить классификацию/ }));
@@ -125,7 +125,7 @@ describe("классификации ресурсов", () => {
   });
 
   it("удаляются, а их ресурсы переезжают в оставшуюся классификацию", () => {
-    openTab("Типы");
+    openTab("Схема");
     // «рост» — первая классификация, ресурсы на ней есть.
     const row = screen.getByDisplayValue("рост").closest("div").parentElement;
     fireEvent.click(within(row).getByRole("button", { name: "Удалить" }));
@@ -136,7 +136,7 @@ describe("классификации ресурсов", () => {
   });
 
   it("последнюю классификацию удалить нельзя", () => {
-    openTab("Типы");
+    openTab("Схема");
     // Удаляем все, кроме одной.
     for (let i = 0; i < 5; i++) {
       const buttons = screen.getAllByRole("button", { name: "Удалить" });

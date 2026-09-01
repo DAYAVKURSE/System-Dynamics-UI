@@ -308,11 +308,19 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
                   {ed.carrier?` · ${ed.carrier}`:""}</option>))}
               </optgroup>);})}
           </select>
-          <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-            Что переходит, сколько и как часто — свойства самого движения; они
-            настраиваются на стрелке, во вкладке «Схема». Здесь только сказано,
-            какое движение эта задача делает.
-          </div>
+          {move&&target
+            ? <div style={{fontSize:11,color:C.muted,marginBottom:8,lineHeight:1.55}}>
+                Гипотетически это движение {Number(move.sign)<0?"уменьшает":"приносит"}
+                {" "}<b style={{color:Number(move.sign)<0?BAD:OK}}>
+                  {nm(Math.abs(Number(move.gives)||0))} {unitOf(target).split("/")[0]}
+                  {" "}за {move.per}</b> в «{target.l}». Сколько перешло на самом
+                деле — записывается при сдаче, ниже. Что переходит, сколько и как
+                часто, когда начинается и заканчивается — свойства движения; они
+                настраиваются на стрелке, во вкладке «Схема».
+              </div>
+            : <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
+                Пока движение не выбрано, непонятно, что задача меняет в модели.
+              </div>}
 
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <div style={{flex:"1 1 130px"}}>
@@ -336,31 +344,6 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
             Напоминание придёт обычным сообщением от бота. Чтобы оно дошло,
             у бота должен быть начат диалог — откройте его и нажмите «Начать».
           </div>
-
-          <div style={S.lbl}>какое движение выполняет эта задача</div>
-          <select style={{...S.inp,marginBottom:6}} value={task.edgeId||""}
-            onChange={e=>up("edgeId",e.target.value||null)}>
-            <option value="">— не привязана к движению —</option>
-            {entities.map(en=>{
-              const own=edges.filter(ed=>ed.from===en.id&&!ed.task);
-              if(!own.length) return null;
-              return (<optgroup key={en.id} label={en.name}>
-                {own.map(ed=>(<option key={ed.id} value={ed.id}>
-                  {moveLabel(ed,traits,entities)}
-                  {ed.carrier?` · ${ed.carrier}`:""}</option>))}
-              </optgroup>);})}
-          </select>
-          {move&&target&&(
-            <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-              По плану движение даёт {nm(Math.abs(Number(move.gives)||0))}
-              {" "}{unitOf(target).split("/")[0]} за {move.per}. Сколько перешло
-              на самом деле — записывается при сдаче, ниже.
-            </div>)}
-          {!move&&<div style={{fontSize:10.5,color:C.muted,marginBottom:8,
-            lineHeight:1.5}}>
-            Задача без движения ничего не пополняет — она останется просто
-            напоминанием. Движения берутся со схемы: это стрелки между активами.
-          </div>}
 
           <div style={S.lbl}>сдача</div>
           <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,

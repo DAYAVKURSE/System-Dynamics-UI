@@ -270,7 +270,7 @@ describe("черновик и диск", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[1]);
     await waitFor(() => expect(screen.getByText(/Загружено/)).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "Типы" }));
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     expect(screen.getAllByDisplayValue("рост").length).toBeGreaterThan(0);
   });
 });

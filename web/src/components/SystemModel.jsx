@@ -665,7 +665,7 @@ export default function SystemModel(){
   const [kindMsg,setKindMsg]=useState("");
   const [okrs,setOkrs]=useState([]);
   const [tasks,setTasks]=useState([]);
-  const [tab,setTab]=useState("goals");
+  const [tab,setTab]=useState("tasks");
   const [sel,setSel]=useState("usr");
   const [selTrait,setSelTrait]=useState(null);
   const [pair,setPair]=useState(null);
@@ -695,6 +695,13 @@ export default function SystemModel(){
   const into=(tid)=>edges.filter(e=>e.to===tid);
   const upE=(id,f,v)=>setEntities(p=>p.map(e=>e.id===id?{...e,[f]:v}:e));
   const upT=(id,f,v)=>setTraits(p=>p.map(t=>t.id===id?{...t,[f]:v}:t));
+  // Целевым может стать любой ресурс: цель — это не отдельная сущность, а два
+  // поля на нём (планка и срок). Ставим их одной правкой, иначе два upT подряд
+  // считали бы от одного и того же прежнего состояния и второй затёр бы первый.
+  const makeGoal=(id)=>setTraits(p=>p.map(t=>
+    t.id===id?{...t,want:t.want==null?stored(t,1):t.want,by:t.by??horizon}:t));
+  const dropGoal=(id)=>setTraits(p=>p.map(t=>
+    t.id===id?{...t,want:null,by:null}:t));
   const upA=(id,f,v)=>setEdges(p=>p.map(e=>e.id===id?{...e,[f]:v}:e));
   const delA=(id)=>setEdges(p=>p.filter(e=>e.id!==id));
   const kindOf=useMemo(()=>kindLookup(kinds),[kinds]);
@@ -1014,220 +1021,12 @@ export default function SystemModel(){
         </div>)}
 
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {[["goals","Цели"],["tasks","Задачи"],["reports","Отчёты"],["kinds","Типы"],
-          ["scheme","Схема"],["sim","Прогноз"],["json","Выгрузить"]].map(([k,t])=>(
+        {[["tasks","Задачи"],["reports","Отчёты"],["scheme","Схема"],
+          ["sim","Прогноз"],["json","Выгрузить"]].map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 
-      {/* ═══ ЦЕЛИ ═══ */}
-      {tab==="goals" && (<div>
-        <div style={{...S.card,marginBottom:10}}>
-          <div style={S.lbl}>поставить цель</div>
-          <div className="flex flex-wrap gap-2" style={{marginTop:6}}>
-            <select style={{...S.inp,flex:"2 1 200px"}} value={newGoal}
-              onChange={e=>setNewGoal(e.target.value)}>
-              <option value="">— выбери ресурс —</option>
-              {entities.map(en=>(
-                <optgroup key={en.id} label={en.name}>
-                  {traits.filter(t=>t.e===en.id&&t.want==null).map(t=>(
-                    <option key={t.id} value={t.id}>{kindOf(t.k).sign} {t.l}</option>))}
-                </optgroup>))}
-            </select>
-            <button style={btn(true)} disabled={!newGoal} onClick={()=>{
-              if(!newGoal) return;
-              const t=trait(newGoal);
-              upT(newGoal,"want",1); upT(newGoal,"by",horizon);
-              setNewGoal(""); }}>Добавить</button>
-          </div>
-          <div style={{fontSize:11.5,color:C.muted,marginTop:6}}>
-            Цель добавится со значением 1 — впиши нужное число прямо в карточке ниже.
-          </div>
-        </div>
-
-        {!goals.length && <div style={S.card}>Целей пока нет.</div>}
-
-        {advice.map(({g,now,recs})=>{
-          const by=g.by??span, inTime=now!=null&&now<=by;
-          const d=depsOf(edges,g.id);
-          const hypoChain=d.edges.map(id=>edges.find(e=>e.id===id)).filter(e=>e&&!isFact(e));
-          const w=g.want!=null?Number(g.want):null;
-          const hv=live[g.id]??0, fv=liveFact[g.id]??0;
-          const hFrac=frac(hv,w), fFrac=frac(fv,w);
-          const hCol=hFrac==null?C.muted:(hFrac>=1?WARN:NEU);
-          const fCol=fFrac==null?C.muted:(fFrac>=1?OK:BAD);
-          const nowFact=reachMonth(baseFact[g.id],w);
-          const factInTime=nowFact!=null&&nowFact<=by;
-          const lines=[g.id,...d.traits.filter(x=>x!==g.id)].slice(0,5).map((id,i)=>({
-            id,color:[ACC,"#C792EA",OK,WARN,"#FF9E64"][i],
-            name:trait(id)?.l,
-            // График цели рисуется в том же периоде, что и числа над ним,
-            // иначе кривая и подпись под ней противоречили бы друг другу.
-            data:(base[id]||[]).map(v=>shown(trait(id)||{},v))}));
-          return (
-            <div key={g.id} style={{...S.card,marginBottom:12}}>
-              <div className="flex items-center gap-2" style={{marginBottom:4}}>
-                <span style={{color:kindOf(g.k).color,fontFamily:"ui-monospace, monospace",
-                  fontWeight:700}}>{kindOf(g.k).sign}</span>
-                <span style={{fontSize:14,fontWeight:700,flex:1}}>{g.l}</span>
-                <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
-                  onClick={()=>{upT(g.id,"want",null);upT(g.id,"by",null);}}>убрать</button>
-              </div>
-              <div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
-                {ent(g.e)?.name} · {unitOf(g)} · {isFlow(g)?"поток":"запас"}</div>
-
-              <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
-                <div style={{flex:"1 1 80px"}}><div style={S.lbl}>нужно</div>
-                  <NumField value={asShown(g,g.want)}
-                    onCommit={v=>upT(g.id,"want",asStored(g,v))}/></div>
-                <div style={{flex:"1 1 80px"}}><div style={S.lbl}>к месяцу</div>
-                  <NumField value={g.by} placeholder={String(span)}
-                    onCommit={v=>upT(g.id,"by",v)}/></div>
-                <div style={{flex:"1 1 100px"}}>
-                  <div style={S.lbl}>гипотетически (все стрелки)</div>
-                  <div style={{...S.inp,color:hCol,borderColor:hCol,
-                    background:C.panel2,display:"flex",alignItems:"center"}}
-                    title="Прогноз с учётом поведенческих допущений">
-                    {nm(shown(g,hv))}</div>
-                </div>
-                <div style={{flex:"1 1 100px"}}>
-                  <div style={S.lbl}>фактически (только факты)</div>
-                  <div style={{...S.inp,color:fCol,borderColor:fCol,
-                    background:C.panel2,display:"flex",alignItems:"center"}}
-                    title="Прогноз только по стрелкам-фактам">{nm(shown(g,fv))}</div>
-                </div>
-              </div>
-
-              <div style={{fontSize:13,fontWeight:600,color:inTime?WARN:BAD,marginBottom:4}}>
-                {now==null?`Гипотетически (с учётом допущений) цель за ${span} мес. не достигается.`
-                  :inTime?`Гипотетически цель выходит на ${now}-м месяце — успеваешь, если сбудутся допущения.`
-                  :`Гипотетически цель выходит только на ${now}-м месяце, это позже срока.`}
-              </div>
-              <div style={{fontSize:13,fontWeight:600,color:factInTime?OK:BAD,marginBottom:10}}>
-                {nowFact==null?`Гарантированно (без гипотез) цель за ${span} мес. не достигается.`
-                  :factInTime?`Гарантированно цель выходит на ${nowFact}-м месяце — это уже без всяких допущений.`
-                  :`Гарантированно цель выходит только на ${nowFact}-м месяце, это позже срока.`}
-              </div>
-
-              <div style={S.lbl}>на каких гипотезах строится прогноз</div>
-              <div style={{margin:"6px 0 10px"}}>
-                {hypoChain.length
-                  ? hypoChain.map(ed=>{
-                      const tt=trait(ed.to);
-                      return (
-                      <div key={ed.id} className="flex items-center gap-2" style={{fontSize:12,
-                        padding:"5px 2px",borderBottom:`1px solid ${C.line}`}}>
-                        <span style={{color:WARN}}>◇</span>
-                        <span style={{flex:1}}>{ed.carrier||tt?.l}
-                          <span style={{color:C.muted}}>
-                            {" "}· {ent(ed.from)?.name} → {ent(tt?.e)?.name}</span></span>
-                      </div>);})
-                  : <div style={{fontSize:12,color:OK}}>
-                      Весь путь до цели держится на фактах — ни одной гипотезы.</div>}
-              </div>
-
-              <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-                padding:8,marginBottom:10}}>
-                <Chart lines={lines} months={span} goalLine={Number(g.want)} goalMonth={now}/>
-                <div className="flex flex-wrap gap-3" style={{marginTop:6,fontSize:11}}>
-                  {lines.map(l=><span key={l.id} style={{color:l.color}}>■ {l.name}</span>)}</div>
-              </div>
-
-              <div style={S.lbl}>рост/упадок влияющих ресурсов</div>
-              <div style={{margin:"6px 0 10px"}}>
-                {d.traits.map(tid=>{
-                  const t=trait(tid); if(!t) return null;
-                  const s=base[tid]||[];
-                  const start=s[0]??0, end=s[s.length-1]??0;
-                  const delta=end-start;
-                  const eps=Math.max(1e-6,Math.abs(start)*0.001);
-                  const dir=delta>eps?"up":delta<-eps?"down":"flat";
-                  const good=dir==="flat"?null:dir===kindOf(t.k).dir;
-                  const col=dir==="flat"?C.muted:(good?OK:BAD);
-                  const arrow=dir==="up"?"↑":dir==="down"?"↓":"→";
-                  const pct=Math.abs(start)>1e-9?(delta/Math.abs(start)*100):(end!==0?100:0);
-                  return (
-                    <div key={tid} className="flex items-center gap-2" style={{fontSize:12,
-                      padding:"5px 2px",borderBottom:`1px solid ${C.line}`}}>
-                      <span style={{color:kindOf(t.k).color,fontFamily:"ui-monospace, monospace"}}>
-                        {kindOf(t.k).sign}</span>
-                      <span style={{flex:1}}>{t.l}
-                        <span style={{color:C.muted}}> · {ent(t.e)?.name}</span></span>
-                      <span style={{color:col,fontWeight:700,whiteSpace:"nowrap"}}>
-                        {arrow} {nm(start)}→{nm(end)}</span>
-                      <span style={{color:col,fontSize:10.5,width:56,textAlign:"right"}}>
-                        {delta>=0?"+":""}{nm(pct)}%</span>
-                    </div>);
-                })}
-                {!d.traits.length&&<div style={{fontSize:12,color:C.muted}}>
-                  Влияющих ресурсов нет.</div>}
-              </div>
-
-              {!!recs.length&&(<>
-                <div style={S.lbl}>что поднять, чтобы успеть</div>
-                <div style={{marginTop:6}}>
-                  {recs.map((r,i)=>{
-                    const ed=r.type==="edge"?edges.find(x=>x.id===r.eid):null;
-                    const lev=r.type==="seed"
-                      ?{label:"стартовое значение",color:ACC}
-                      :ed?(isFact(ed)?{label:"◆ факт",color:OK}:{label:"◇ гипотеза",color:WARN})
-                      :null;
-                    const otherHypo=hypoChain.filter(e=>!(ed&&e.id===ed.id));
-                    return (
-                    <div key={i} style={{background:C.panel2,border:`1px solid ${C.line}`,
-                      borderRadius:8,padding:9,marginBottom:6}}>
-                      <div className="flex items-center gap-2" style={{marginBottom:2}}>
-                        {lev&&<span style={{fontSize:9.5,color:lev.color,
-                          border:`1px solid ${lev.color}66`,borderRadius:3,
-                          padding:"1px 4px"}}>{lev.label}</span>}
-                      </div>
-                      <div style={{fontSize:12.5,lineHeight:1.6}}>
-                        <span style={{color:WARN}}>◆ </span>
-                        {r.type==="seed"
-                          ?<>Завести руками <b>{nm(shown(trait(r.tid)||{},r.to))} {r.unit}</b> — «{r.label}»
-                            <span style={{color:C.muted}}> ({ent(r.e)?.name})</span></>
-                          :<>Поднять «{r.label}»<span style={{color:C.muted}}> ({ent(r.e)?.name})</span>
-                            {" "}с {nm(r.from)} до <b>{nm(r.to)} {r.unit}</b> за {r.per}</>}
-                      </div>
-                      <div style={{fontSize:11.5,color:OK,marginTop:3}}>
-                        тогда цель на {r.month}-м месяце</div>
-                      <div style={{fontSize:10.5,color:otherHypo.length?WARN:OK,marginTop:3}}>
-                        {otherHypo.length
-                          ?`опирается ещё на ${otherHypo.length} гипотез${otherHypo.length===1?"у":otherHypo.length<5?"ы":""} из списка выше`
-                          :"больше ни одной гипотезы не требуется"}
-                      </div>
-                      {isTaken(g.id,r)
-                        ? <div style={{fontSize:11.5,color:OK,marginTop:6}}>
-                            ✓ взято в работу — прогноз пересчитан, задача во
-                            вкладке «Задачи»</div>
-                        : <button style={{...btn(false),marginTop:6,color:OK,
-                            borderColor:OK+"66"}}
-                            onClick={()=>takeToWork(g.id,r)}>Взять в работу</button>}
-                    </div>);})}
-                </div>
-                <div style={{fontSize:11.5,color:C.muted,marginTop:4,lineHeight:1.6}}>
-                  Варианты взаимозаменяемы, хватит одного. Каждый рычаг считался отдельно.
-                </div></>)}
-              {!recs.length&&now!=null&&<div style={{fontSize:12,color:C.muted}}>
-                Поднимать ничего не нужно — цель берётся на текущих значениях.</div>}
-              {!recs.length&&now==null&&<div style={{fontSize:12,color:BAD,lineHeight:1.6}}>
-                Ни один рычаг не выводит на цель: в ресурс не входит ни одной стрелки,
-                либо все условия замкнуты сами на себя. Открой её на схеме.</div>}
-
-              {/* Работа по цели — здесь же: ключевые результаты, задачи и их
-                  создание. Между целью и работой по ней не должно стоять
-                  переключение вкладки. */}
-              <div style={{marginTop:12,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
-                <GoalWork g={g} okrs={okrs} setOkrs={setOkrs} tasks={tasks}
-                  setTasks={setTasks} traits={traits} entities={entities}
-                  edges={edges}
-                  okrValue={okrValue} okrShown={okrShown}
-                  entityName={id=>ent(id)?.name||"—"}
-                  openId={openTask} setOpenId={setOpenTask}/>
-              </div>
-            </div>);})}
-      </div>)}
-
-      {/* ═══ ЗАДАЧИ (OKR + канбан) ═══ */}
+      {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && (
         <TasksBoard goals={goals} okrs={okrs} setOkrs={setOkrs}
           tasks={tasks} setTasks={setTasks} traits={traits} entities={entities}
@@ -1289,8 +1088,9 @@ export default function SystemModel(){
                 <span style={{color:ent(pairG.to)?.color}}>{ent(pairG.to)?.name}</span></div>
               <button style={btn(false)} onClick={()=>setPair(null)}>✕</button></div>
             {pairG.list.map(ed=>(
-              <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities} live={live} kindOf={kindOf}
-                onEdit={upA} onDelete={delA}/>))}
+              <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities}
+                valueOf={id=>step0.state[id]??0}
+                kindOf={kindOf} now={flowNow[ed.id]} onEdit={upA} onDelete={delA}/>))}
           </div>)}
 
         {selE && (
@@ -1472,9 +1272,60 @@ export default function SystemModel(){
                 + {k.sign} {k.name}</button>))}
             </div>
           </div>)}
+
+        {/* Классификации ресурсов — здесь же, под добавлением ресурса:
+            тип задаётся ресурсу при создании, поэтому набор типов должен
+            быть под рукой на той же вкладке, а не за переключением. */}
+        <div style={{marginTop:10}}>
+          <div style={{...S.card,marginBottom:10}}>
+            <div style={S.lbl}>классификации ресурсов</div>
+            <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
+              Каждый ресурс относится к одной классификации: она задаёт значок,
+              цвет и то, в какую сторону изменение считается хорошим. При удалении
+              затронутые ресурсы переводятся в первую оставшуюся классификацию —
+              без типа они не остаются.
+            </div>
+          </div>
+
+          {kinds.map(k=>{
+            const used=traits.filter(t=>t.k===k.id).length;
+            return (
+            <div key={k.id} style={{...S.card,marginBottom:8}}>
+              <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:8}}>
+                <TxtField value={k.sign} onCommit={v=>upK(k.id,"sign",(v||"").trim()||"•")}
+                  style={{flex:"0 1 54px",textAlign:"center",fontWeight:700,color:k.color,
+                    fontFamily:"ui-monospace, Menlo, monospace"}}/>
+                <TxtField value={k.name} placeholder="название классификации"
+                  style={{flex:"2 1 160px",fontWeight:600}}
+                  onCommit={v=>upK(k.id,"name",v)}/>
+                <input type="color" value={k.color}
+                  onChange={e=>upK(k.id,"color",e.target.value)}
+                  style={{width:36,height:32,background:C.ink,border:`1px solid ${C.line}`,
+                    borderRadius:5,padding:1,cursor:"pointer"}}/>
+              </div>
+              <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+                <button style={btn(true,k.dir==="up"?OK:BAD)}
+                  onClick={()=>upK(k.id,"dir",k.dir==="up"?"down":"up")}
+                  title="Куда должен двигаться показатель, чтобы это считалось хорошим">
+                  {k.dir==="up"?"↑ рост — это хорошо":"↓ снижение — это хорошо"}</button>
+                <span style={{fontSize:11,color:C.muted,flex:1}}>
+                  ресурсов с этим типом: {used}</span>
+                <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
+                  disabled={kinds.length<=1}
+                  onClick={()=>setKindMsg(delKind(k.id))}>Удалить</button>
+              </div>
+            </div>);})}
+
+          <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+            <button style={btn(true)} onClick={()=>{addKind();setKindMsg("");}}>
+              + добавить классификацию</button>
+            {kindMsg&&<span style={{fontSize:12,color:C.muted}}>{kindMsg}</span>}
+          </div>
+        </div>
+
       </>)}
 
-      {/* ═══ СИМУЛЯЦИЯ ═══ */}
+      {/* ═══ ПРОГНОЗ (цели + остальные ресурсы) ═══ */}
       {tab==="sim" && (<div>
         <div style={{...S.card,marginBottom:10}}>
           <div style={S.lbl}>срок прогона</div>
@@ -1517,17 +1368,233 @@ export default function SystemModel(){
           </div>
         </div>
 
-        {(<>
-          <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
+        {/* Цели — здесь же, на «Прогнозе»: цель это тот же прогноз ресурса,
+            только с планкой и сроком. Разводить их по вкладкам значило бы
+            смотреть на одну кривую в двух местах. */}
+        <div style={{...S.card,marginBottom:10}}>
+          <div style={S.lbl}>поставить цель</div>
+          <div className="flex flex-wrap gap-2" style={{marginTop:6}}>
+            <select style={{...S.inp,flex:"2 1 200px"}} value={newGoal}
+              onChange={e=>setNewGoal(e.target.value)}>
+              <option value="">— выбери ресурс —</option>
+              {entities.map(en=>(
+                <optgroup key={en.id} label={en.name}>
+                  {traits.filter(t=>t.e===en.id&&t.want==null).map(t=>(
+                    <option key={t.id} value={t.id}>{kindOf(t.k).sign} {t.l}</option>))}
+                </optgroup>))}
+            </select>
+            <button style={btn(true)} disabled={!newGoal} onClick={()=>{
+              if(!newGoal) return;
+              makeGoal(newGoal); setNewGoal(""); }}>Добавить</button>
+          </div>
+          <div style={{fontSize:11.5,color:C.muted,marginTop:6}}>
+            Целевым можно сделать любой ресурс — хоть отсюда, хоть кнопкой
+            «сделать целью» на его карточке ниже. Цель добавится со значением 1 —
+            впиши нужное число прямо в карточке.
+          </div>
+        </div>
+
+        {!goals.length && <div style={{...S.card,marginBottom:10}}>
+          Целевых ресурсов пока нет — ниже прогноз по всем остальным.</div>}
+
+        {advice.map(({g,now,recs})=>{
+          const by=g.by??span, inTime=now!=null&&now<=by;
+          const d=depsOf(edges,g.id);
+          const hypoChain=d.edges.map(id=>edges.find(e=>e.id===id)).filter(e=>e&&!isFact(e));
+          const w=g.want!=null?Number(g.want):null;
+          const hv=live[g.id]??0, fv=liveFact[g.id]??0;
+          const hFrac=frac(hv,w), fFrac=frac(fv,w);
+          const hCol=hFrac==null?C.muted:(hFrac>=1?WARN:NEU);
+          const fCol=fFrac==null?C.muted:(fFrac>=1?OK:BAD);
+          const nowFact=reachMonth(baseFact[g.id],w);
+          const factInTime=nowFact!=null&&nowFact<=by;
+          const lines=[g.id,...d.traits.filter(x=>x!==g.id)].slice(0,5).map((id,i)=>({
+            id,color:[ACC,"#C792EA",OK,WARN,"#FF9E64"][i],
+            name:trait(id)?.l,
+            // График цели рисуется в том же периоде, что и числа над ним,
+            // иначе кривая и подпись под ней противоречили бы друг другу.
+            data:(base[id]||[]).map(v=>shown(trait(id)||{},v))}));
+          return (
+            <div key={g.id} style={{...S.card,marginBottom:12}}>
+              <div className="flex items-center gap-2" style={{marginBottom:4}}>
+                <span style={{color:kindOf(g.k).color,fontFamily:"ui-monospace, monospace",
+                  fontWeight:700}}>{kindOf(g.k).sign}</span>
+                <span style={{fontSize:14,fontWeight:700,flex:1}}>{g.l}</span>
+                <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
+                  onClick={()=>dropGoal(g.id)}>убрать из целей</button>
+              </div>
+              <div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
+                {ent(g.e)?.name} · {unitOf(g)} · {isFlow(g)?"поток":"запас"}</div>
+
+              <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
+                <div style={{flex:"1 1 80px"}}><div style={S.lbl}>нужно</div>
+                  <NumField value={asShown(g,g.want)}
+                    onCommit={v=>upT(g.id,"want",asStored(g,v))}/></div>
+                <div style={{flex:"1 1 80px"}}><div style={S.lbl}>к месяцу</div>
+                  <NumField value={g.by} placeholder={String(span)}
+                    onCommit={v=>upT(g.id,"by",v)}/></div>
+                <div style={{flex:"1 1 100px"}}>
+                  <div style={S.lbl}>гипотетически (все стрелки)</div>
+                  <div style={{...S.inp,color:hCol,borderColor:hCol,
+                    background:C.panel2,display:"flex",alignItems:"center"}}
+                    title="Прогноз с учётом поведенческих допущений">
+                    {nm(shown(g,hv))}</div>
+                </div>
+                <div style={{flex:"1 1 100px"}}>
+                  <div style={S.lbl}>фактически (только факты)</div>
+                  <div style={{...S.inp,color:fCol,borderColor:fCol,
+                    background:C.panel2,display:"flex",alignItems:"center"}}
+                    title="Прогноз только по стрелкам-фактам">{nm(shown(g,fv))}</div>
+                </div>
+              </div>
+
+              <div style={{fontSize:13,fontWeight:600,color:inTime?WARN:BAD,marginBottom:4}}>
+                {now==null?`Гипотетически (с учётом допущений) цель за ${span} мес. не достигается.`
+                  :inTime?`Гипотетически цель выходит на ${now}-м месяце — успеваешь, если сбудутся допущения.`
+                  :`Гипотетически цель выходит только на ${now}-м месяце, это позже срока.`}
+              </div>
+              <div style={{fontSize:13,fontWeight:600,color:factInTime?OK:BAD,marginBottom:10}}>
+                {nowFact==null?`Гарантированно (без гипотез) цель за ${span} мес. не достигается.`
+                  :factInTime?`Гарантированно цель выходит на ${nowFact}-м месяце — это уже без всяких допущений.`
+                  :`Гарантированно цель выходит только на ${nowFact}-м месяце, это позже срока.`}
+              </div>
+
+              <div style={S.lbl}>на каких гипотезах строится прогноз</div>
+              <div style={{margin:"6px 0 10px"}}>
+                {hypoChain.length
+                  ? hypoChain.map(ed=>{
+                      const tt=trait(ed.to);
+                      return (
+                      <div key={ed.id} className="flex items-center gap-2" style={{fontSize:12,
+                        padding:"5px 2px",borderBottom:`1px solid ${C.line}`}}>
+                        <span style={{color:WARN}}>◇</span>
+                        <span style={{flex:1}}>{ed.carrier||tt?.l}
+                          <span style={{color:C.muted}}>
+                            {" "}· {ent(ed.from)?.name} → {ent(tt?.e)?.name}</span></span>
+                      </div>);})
+                  : <div style={{fontSize:12,color:OK}}>
+                      Весь путь до цели держится на фактах — ни одной гипотезы.</div>}
+              </div>
+
+              <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+                padding:8,marginBottom:10}}>
+                <Chart lines={lines} months={span} goalLine={Number(g.want)} goalMonth={now}
+                  cursorMonth={simMonth}/>
+                <div className="flex flex-wrap gap-3" style={{marginTop:6,fontSize:11}}>
+                  {lines.map(l=><span key={l.id} style={{color:l.color}}>■ {l.name}</span>)}</div>
+              </div>
+
+              <div style={S.lbl}>рост/упадок влияющих ресурсов</div>
+              <div style={{margin:"6px 0 10px"}}>
+                {d.traits.map(tid=>{
+                  const t=trait(tid); if(!t) return null;
+                  const s=base[tid]||[];
+                  const start=s[0]??0, end=s[s.length-1]??0;
+                  const delta=end-start;
+                  const eps=Math.max(1e-6,Math.abs(start)*0.001);
+                  const dir=delta>eps?"up":delta<-eps?"down":"flat";
+                  const good=dir==="flat"?null:dir===kindOf(t.k).dir;
+                  const col=dir==="flat"?C.muted:(good?OK:BAD);
+                  const arrow=dir==="up"?"↑":dir==="down"?"↓":"→";
+                  const pct=Math.abs(start)>1e-9?(delta/Math.abs(start)*100):(end!==0?100:0);
+                  return (
+                    <div key={tid} className="flex items-center gap-2" style={{fontSize:12,
+                      padding:"5px 2px",borderBottom:`1px solid ${C.line}`}}>
+                      <span style={{color:kindOf(t.k).color,fontFamily:"ui-monospace, monospace"}}>
+                        {kindOf(t.k).sign}</span>
+                      <span style={{flex:1}}>{t.l}
+                        <span style={{color:C.muted}}> · {ent(t.e)?.name}</span></span>
+                      <span style={{color:col,fontWeight:700,whiteSpace:"nowrap"}}>
+                        {arrow} {nm(start)}→{nm(end)}</span>
+                      <span style={{color:col,fontSize:10.5,width:56,textAlign:"right"}}>
+                        {delta>=0?"+":""}{nm(pct)}%</span>
+                    </div>);
+                })}
+                {!d.traits.length&&<div style={{fontSize:12,color:C.muted}}>
+                  Влияющих ресурсов нет.</div>}
+              </div>
+
+              {!!recs.length&&(<>
+                <div style={S.lbl}>что поднять, чтобы успеть</div>
+                <div style={{marginTop:6}}>
+                  {recs.map((r,i)=>{
+                    const ed=r.type==="edge"?edges.find(x=>x.id===r.eid):null;
+                    const lev=r.type==="seed"
+                      ?{label:"стартовое значение",color:ACC}
+                      :ed?(isFact(ed)?{label:"◆ факт",color:OK}:{label:"◇ гипотеза",color:WARN})
+                      :null;
+                    const otherHypo=hypoChain.filter(e=>!(ed&&e.id===ed.id));
+                    return (
+                    <div key={i} style={{background:C.panel2,border:`1px solid ${C.line}`,
+                      borderRadius:8,padding:9,marginBottom:6}}>
+                      <div className="flex items-center gap-2" style={{marginBottom:2}}>
+                        {lev&&<span style={{fontSize:9.5,color:lev.color,
+                          border:`1px solid ${lev.color}66`,borderRadius:3,
+                          padding:"1px 4px"}}>{lev.label}</span>}
+                      </div>
+                      <div style={{fontSize:12.5,lineHeight:1.6}}>
+                        <span style={{color:WARN}}>◆ </span>
+                        {r.type==="seed"
+                          ?<>Завести руками <b>{nm(shown(trait(r.tid)||{},r.to))} {r.unit}</b> — «{r.label}»
+                            <span style={{color:C.muted}}> ({ent(r.e)?.name})</span></>
+                          :<>Поднять «{r.label}»<span style={{color:C.muted}}> ({ent(r.e)?.name})</span>
+                            {" "}с {nm(r.from)} до <b>{nm(r.to)} {r.unit}</b> за {r.per}</>}
+                      </div>
+                      <div style={{fontSize:11.5,color:OK,marginTop:3}}>
+                        тогда цель на {r.month}-м месяце</div>
+                      <div style={{fontSize:10.5,color:otherHypo.length?WARN:OK,marginTop:3}}>
+                        {otherHypo.length
+                          ?`опирается ещё на ${otherHypo.length} гипотез${otherHypo.length===1?"у":otherHypo.length<5?"ы":""} из списка выше`
+                          :"больше ни одной гипотезы не требуется"}
+                      </div>
+                      {isTaken(g.id,r)
+                        ? <div style={{fontSize:11.5,color:OK,marginTop:6}}>
+                            ✓ взято в работу — прогноз пересчитан, задача во
+                            вкладке «Задачи»</div>
+                        : <button style={{...btn(false),marginTop:6,color:OK,
+                            borderColor:OK+"66"}}
+                            onClick={()=>takeToWork(g.id,r)}>Взять в работу</button>}
+                    </div>);})}
+                </div>
+                <div style={{fontSize:11.5,color:C.muted,marginTop:4,lineHeight:1.6}}>
+                  Варианты взаимозаменяемы, хватит одного. Каждый рычаг считался отдельно.
+                </div></>)}
+              {!recs.length&&now!=null&&<div style={{fontSize:12,color:C.muted}}>
+                Поднимать ничего не нужно — цель берётся на текущих значениях.</div>}
+              {!recs.length&&now==null&&<div style={{fontSize:12,color:BAD,lineHeight:1.6}}>
+                Ни один рычаг не выводит на цель: в ресурс не входит ни одной стрелки,
+                либо все условия замкнуты сами на себя. Открой её на схеме.</div>}
+
+              {/* Работа по цели — здесь же: ключевые результаты, задачи и их
+                  создание. Между целью и работой по ней не должно стоять
+                  переключение вкладки. */}
+              <div style={{marginTop:12,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+                <GoalWork g={g} okrs={okrs} setOkrs={setOkrs} tasks={tasks}
+                  setTasks={setTasks} traits={traits} entities={entities}
+                  edges={edges}
+                  okrValue={okrValue} okrShown={okrShown}
+                  entityName={id=>ent(id)?.name||"—"}
+                  openId={openTask} setOpenId={setOpenTask}/>
+              </div>
+            </div>);})}
+
+        {/* Нецелевые ресурсы — прежние карточки прогноза: график и два числа,
+            без планки и без разбора рычагов, потому что планки у них нет. */}
+        <div style={{...S.card,marginBottom:10}}>
+          <div style={S.lbl}>остальные ресурсы — по активам</div>
+          <div className="flex flex-wrap gap-2" style={{marginTop:6}}>
             {entities.map(en=>(<button key={en.id}
               style={{...btn(simEnt===en.id),borderColor:en.color,
                 color:simEnt===en.id?C.ink:en.color,
                 background:simEnt===en.id?en.color:C.panel2}}
               onClick={()=>setSimEnt(en.id)}>{en.name}</button>))}
           </div>
-          {entities.filter(en=>en.id===simEnt).map(en=>(
+        </div>
+        {entities.filter(en=>en.id===simEnt).map(en=>{
+          const plain=traits.filter(t=>t.e===en.id&&t.want==null);
+          return (
             <div key={en.id}>
-              {traits.filter(t=>t.e===en.id).map(t=>{
+              {plain.map(t=>{
                 const hs=simRun.base[t.id]||[], fs=simRun.baseFact[t.id]||[];
                 const hEnd=hs[hs.length-1]??0, fEnd=fs[fs.length-1]??0;
                 const lines=[
@@ -1545,71 +1612,28 @@ export default function SystemModel(){
                     </div>
                     <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
                       padding:8,marginBottom:6}}>
-                      <Chart lines={lines} months={simRun.span}
-                        goalLine={t.want!=null?Number(t.want):null} cursorMonth={simMonth}/>
+                      <Chart lines={lines} months={simRun.span} cursorMonth={simMonth}/>
                     </div>
-                    <div className="flex flex-wrap gap-3" style={{fontSize:11}}>
+                    <div className="flex flex-wrap gap-3" style={{fontSize:11,
+                      alignItems:"center"}}>
                       <span style={{color:ACC}}>■ на {simMonth}-м мес.: гип. {nm(hs[simMonth]??0)}
                         {" "}· факт {nm(fs[simMonth]??0)}</span>
                       <span style={{color:WARN}}>■ гипотетически: {nm(hEnd)} к {simRun.span}-му мес.</span>
                       <span style={{color:OK}}>■ фактически: {nm(fEnd)} к {simRun.span}-му мес.</span>
+                      <span style={{flex:1}}/>
+                      <button style={{...btn(false),color:ACC,borderColor:ACC+"66"}}
+                        onClick={()=>makeGoal(t.id)}>сделать целью</button>
                     </div>
                   </div>);})}
-              {!traits.filter(t=>t.e===en.id).length&&
-                <div style={S.card}>У этого актива пока нет ресурсов.</div>}
-            </div>))}
-        </>)}
+              {!plain.length&&
+                <div style={S.card}>
+                  {traits.some(t=>t.e===en.id)
+                    ?"Все ресурсы этого актива уже целевые — их карточки выше."
+                    :"У этого актива пока нет ресурсов."}</div>}
+            </div>);})}
       </div>)}
 
-      {/* ═══ ТИПЫ (классификации ресурсов) ═══ */}
-      {tab==="kinds" && (<div>
-        <div style={{...S.card,marginBottom:10}}>
-          <div style={S.lbl}>классификации ресурсов</div>
-          <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
-            Каждый ресурс относится к одной классификации: она задаёт значок,
-            цвет и то, в какую сторону изменение считается хорошим. При удалении
-            затронутые ресурсы переводятся в первую оставшуюся классификацию —
-            без типа они не остаются.
-          </div>
-        </div>
-
-        {kinds.map(k=>{
-          const used=traits.filter(t=>t.k===k.id).length;
-          return (
-          <div key={k.id} style={{...S.card,marginBottom:8}}>
-            <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:8}}>
-              <TxtField value={k.sign} onCommit={v=>upK(k.id,"sign",(v||"").trim()||"•")}
-                style={{flex:"0 1 54px",textAlign:"center",fontWeight:700,color:k.color,
-                  fontFamily:"ui-monospace, Menlo, monospace"}}/>
-              <TxtField value={k.name} placeholder="название классификации"
-                style={{flex:"2 1 160px",fontWeight:600}}
-                onCommit={v=>upK(k.id,"name",v)}/>
-              <input type="color" value={k.color}
-                onChange={e=>upK(k.id,"color",e.target.value)}
-                style={{width:36,height:32,background:C.ink,border:`1px solid ${C.line}`,
-                  borderRadius:5,padding:1,cursor:"pointer"}}/>
-            </div>
-            <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-              <button style={btn(true,k.dir==="up"?OK:BAD)}
-                onClick={()=>upK(k.id,"dir",k.dir==="up"?"down":"up")}
-                title="Куда должен двигаться показатель, чтобы это считалось хорошим">
-                {k.dir==="up"?"↑ рост — это хорошо":"↓ снижение — это хорошо"}</button>
-              <span style={{fontSize:11,color:C.muted,flex:1}}>
-                ресурсов с этим типом: {used}</span>
-              <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
-                disabled={kinds.length<=1}
-                onClick={()=>setKindMsg(delKind(k.id))}>Удалить</button>
-            </div>
-          </div>);})}
-
-        <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-          <button style={btn(true)} onClick={()=>{addKind();setKindMsg("");}}>
-            + добавить классификацию</button>
-          {kindMsg&&<span style={{fontSize:12,color:C.muted}}>{kindMsg}</span>}
-        </div>
-      </div>)}
-
-      {/* ═══ JSON ═══ */}
+      {/* ═══ ВЫГРУЗИТЬ ═══ */}
       {tab==="json"&&(
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
