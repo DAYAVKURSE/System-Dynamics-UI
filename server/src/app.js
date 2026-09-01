@@ -8,6 +8,7 @@ import reportsRouter from "./routes/reports.js";
 import orgRouter from "./routes/org.js";
 import workspaceRouter from "./routes/workspace.js";
 import callsRouter from "./routes/calls.js";
+import bridgeRouter from "./routes/bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +34,8 @@ export function createApp() {
       org: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Звонки идут напрямую между собеседниками; сервер только сводит их.
       calls: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      // Мост включён, только когда задан общий секрет с воркером.
+      bridge: Boolean(process.env.BRIDGE_TOKEN),
     }),
   );
   app.use("/api/scenarios", scenariosRouter);
@@ -43,6 +46,8 @@ export function createApp() {
   app.use("/api/org", orgRouter);
   app.use("/api/workspace", workspaceRouter);
   app.use("/api/calls", callsRouter);
+  // Мост к Claude Code: очередь для воркера на машине владельца.
+  app.use("/api/bridge", bridgeRouter);
 
   // Собранный фронтенд (web build) кладётся сюда шагом деплоя — см. docs/DEPLOYMENT.md.
   // Локально в dev-режиме этой папки обычно нет: фронтенд поднимается отдельно

@@ -93,6 +93,8 @@ jobs:
       TURN_URL: ${{ secrets.TURN_URL }}
       TURN_USER: ${{ secrets.TURN_USER }}
       TURN_PASS: ${{ secrets.TURN_PASS }}
+      # Общий секрет с воркером моста к Claude Code. Пусто — мост выключен.
+      BRIDGE_TOKEN: ${{ secrets.BRIDGE_TOKEN }}
     steps:
       - name: Проверить секреты
         id: secrets
@@ -207,6 +209,7 @@ jobs:
           TURN_URL=${TURN_URL:-}
           TURN_USER=${TURN_USER:-}
           TURN_PASS=${TURN_PASS:-}
+          BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
           OWNER_TELEGRAM_ID=${OWNER_TELEGRAM_ID:-}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF

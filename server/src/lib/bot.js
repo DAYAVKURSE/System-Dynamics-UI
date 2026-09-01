@@ -83,6 +83,14 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
   }], { cache_time: 0, is_personal: true });
 }
 
+/* ─────── мост к Claude Code ───────
+   Только владельцу и только явной командой: «/claude вопрос» либо режим
+   «/claude» без текста, когда каждое следующее сообщение уходит в мост.
+   Явность здесь не формальность — иначе обычная переписка с ботом начала
+   бы уезжать в чужой процесс. */
+
+const bridgeMode = new Set();
+
 const HELP = [
   "Я умею одно: добавлять людей в модель.",
   "",
@@ -92,6 +100,10 @@ const HELP = [
   "Если пересылка не сработает (у человека закрыт перенос в настройках",
   "приватности), попросите его прислать мне /id и пришлите этот номер",
   "сообщением вида: id 123456789 Имя",
+  "",
+  "Ещё умею передавать вопрос в ваш Claude Code: «/claude вопрос».",
+  "«/claude» без текста включает режим, когда туда уходит каждое",
+  "следующее сообщение; «/stop» его выключает.",
 ].join("\n");
 
 const rolesKeyboard = (roles) => ({
@@ -134,8 +146,32 @@ export async function handleUpdate(update, deps) {
   return onMessage(msg, from, deps);
 }
 
-async function onMessage(msg, from, { org, send }) {
+async function onMessage(msg, from, deps) {
+  const { org, send, bridge } = deps;
   const text = String(msg.text || "").trim();
+
+  // 0. Мост к Claude Code — раньше всего остального: в режиме моста
+  //    сообщение уходит туда целиком, включая то, что похоже на команду.
+  if (bridge) {
+    const cmd = text.match(/^\/claude\b\s*([\s\S]*)$/i);
+    if (cmd) {
+      const rest = cmd[1].trim();
+      if (!rest) {
+        bridgeMode.add(String(from.id));
+        await send(from.id, "Режим Claude Code включён: пишите вопрос обычным сообщением. «/stop» — выйти.");
+        return { bridgeMode: "on" };
+      }
+      return askBridge(rest, from, deps);
+    }
+    if (/^\/stop\b/i.test(text) && bridgeMode.has(String(from.id))) {
+      bridgeMode.delete(String(from.id));
+      await send(from.id, "Режим Claude Code выключен.");
+      return { bridgeMode: "off" };
+    }
+    if (bridgeMode.has(String(from.id)) && text && !msg.forward_from) {
+      return askBridge(text, from, deps);
+    }
+  }
 
   // 1. Пересланное сообщение — основной путь.
   const fwd = msg.forward_from;
@@ -195,6 +231,19 @@ async function onMessage(msg, from, { org, send }) {
   await send(from.id, HELP);
   return { helped: true };
 }
+
+async function askBridge(text, from, { send, bridge }) {
+  try {
+    const item = bridge.ask({ text, from: from.id, chatId: from.id });
+    await send(from.id, "Передал в Claude Code, жду ответ…");
+    return { asked: item.id };
+  } catch (e) {
+    await send(from.id, `Не вышло: ${e.message}`);
+    return { error: e.message };
+  }
+}
+
+export function resetBridgeMode() { bridgeMode.clear(); }
 
 async function onCallback(cb, from, { org, send, answer }) {
   const data = String(cb.data || "");
