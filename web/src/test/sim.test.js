@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Cond, asGate, asRatio, condKind, condRefs, depsOf, isFlow, normalizeTrait,
-  initialState, normalizeTraits, shown, simulate, stored, transfers, unitOf }
+  normalizeTraits, resolveStep, shown, simulate, stored, unitOf }
   from "../lib/sim.js";
 
 /* Движок: расход ресурса и дележ между теми, кто на него претендует.
@@ -39,7 +39,10 @@ describe("расход ресурса", () => {
     const s = run(time("work"));
     expect(at(s.cv)).toBe(150);
     expect(at(s.bid)).toBe(150);
-    expect(at(s.work)).toBe(0); // всё распределено, свободного времени не осталось
+    // Значение потока — фонд месяца, а не остаток: сколько времени приходит,
+    // а не сколько не потрачено. Остаток как значение делал осмысленные
+    // условия ложными в начале месяца и качал модель.
+    expect(at(s.work)).toBe(300);
   });
 
   it("одному желающему достаётся всё, что есть", () => {
@@ -47,7 +50,7 @@ describe("расход ресурса", () => {
     m.edges = m.edges.filter((e) => e.id !== "e2");
     const s = run(m);
     expect(at(s.cv)).toBe(300);
-    expect(at(s.work)).toBe(0);
+    expect(at(s.work)).toBe(300); // фонд месяца не убывает от трат — убывает запас
   });
 
   it("когда хватает на всех, никто не урезан", () => {
@@ -57,7 +60,7 @@ describe("расход ресурса", () => {
     const s = run(m);
     expect(at(s.cv)).toBe(90);
     expect(at(s.bid)).toBe(120);
-    expect(at(s.work)).toBe(90); // 300 − 90 − 120 осталось свободным
+    expect(at(s.work)).toBe(300); // фонд месяца; кто сколько взял — видно у получателей
   });
 
   it("делится по величине запроса, а не поровну", () => {
@@ -216,7 +219,7 @@ describe("условие-сравнение: пропускает или нет"
     m.edges[1].gives = 20;
     const s = simulate(m.traits, m.edges, 1);
     expect(at(s.bid)).toBe(300);  // просит 600, есть 300
-    expect(at(s.work)).toBe(0);
+    expect(at(s.work)).toBe(300); // фонд месяца
   });
 
   it("закрытое условие ничего не тратит у источника", () => {
@@ -331,13 +334,13 @@ describe("что стрелка передаёт на самом деле", () =
       { id: "bid", from: "me", to: "bid", gives: 2, per: "час", sign: 1, conds: [], fromTrait: "work" },
     ],
   };
-  const now = (m = rush, state = { work: 0 }) => {
+  const now = (m = rush) => {
     const by = {};
-    transfers(m.traits, m.edges, {
-      valueAt: (id) => state[id] ?? 0,
+    resolveStep(m.traits, m.edges, {
+      stockAt: (id) => Number(m.traits.find((t) => t.id === id)?.have ?? 0),
       seedAt: (t) => Number(t.have ?? 0),
       giveAt: (ed) => Number(ed.gives) || 0,
-    }).forEach((f) => { by[f.ed.id] = f; });
+    }).moves.forEach((f) => { by[f.ed.id] = f; });
     return by;
   };
 
@@ -372,34 +375,35 @@ describe("что стрелка передаёт на самом деле", () =
   });
 
   it("карточка объясняет ровно месяц 0 прогноза — числа сходятся", () => {
-    // Карточка считает от того же состояния, с которого начинается месяц 0.
-    // Если разойдутся, пользователь увидит в карточке одно, а в прогнозе
-    // другое — ровно та ошибка, что уже была.
+    // Карточка и симуляция разрешают шаг одной функцией. Если разойдутся,
+    // пользователь увидит в карточке одно, а в прогнозе другое — ровно та
+    // ошибка, что уже была, причём дважды.
     const s = simulate(rush.traits, rush.edges, 2);
-    const f = now(rush, initialState(rush.traits));
+    const f = now(rush);
     expect(at(s.cv, 0)).toBe(Math.round(f.cv.moved * 100) / 100);
   });
 
-  it("условие на остаток источника делает мёртвым первый месяц и качает модель", () => {
-    // Документируем ловушку: значение потока — остаток. В начале месяца 0
-    // времени ещё нет → условие ложно → никто не берёт → остаток 300 →
-    // в месяце 1 берут всё → остаток 0 → месяц 2 снова мёртвый.
+  it("условие на собственный источник видит фонд месяца и не качает модель", () => {
+    // Раньше поток в условии был остатком: в начале месяца 0 времени «ещё
+    // нет» → мёртвый месяц, дальше качание 0/150/0. Теперь условие видит,
+    // сколько времени приходит в этом месяце, и модель ровная с месяца 0.
     const m = JSON.parse(JSON.stringify(rush));
     m.edges[1].conds = [{ expr: "{work} >= 1" }];
     m.edges[2].conds = [{ expr: "{work} >= 1" }];
     const s = simulate(m.traits, m.edges, 4);
-    expect(s.cv.map(Math.round)).toEqual([0, 150, 0, 150, 0]);
-    // И карточка говорит то же самое про месяц 0, а не противоположное.
-    const f = now(m, initialState(m.traits));
-    expect(f.cv.k).toBe(0);
-    expect(f.cv.moved).toBe(0);
+    expect(s.cv.map(Math.round)).toEqual([150, 150, 150, 150, 150]);
+    expect(s.work.map(Math.round)).toEqual([300, 300, 300, 300, 300]);
+    const f = now(m);
+    expect(f.cv.k).toBe(1);
+    expect(f.cv.moved).toBe(150);
   });
 
-  it("без такого условия дележ источника делает то же самое, но ровно", () => {
-    // Правильная запись «бери, пока есть»: никакого условия — нехватку
-    // режет сам источник, и модель стоит на 150/150 с первого месяца.
-    const s = simulate(rush.traits, rush.edges, 4);
-    expect(s.cv.map(Math.round)).toEqual([150, 150, 150, 150, 150]);
-    expect(s.bid.map(Math.round)).toEqual([150, 150, 150, 150, 150]);
+  it("цепочка потоков разогревается внутри шага, а не по месяцу на звено", () => {
+    // А наполняет Б, В заперт условием на Б: месяц 0 уже должен быть живым.
+    const m = JSON.parse(JSON.stringify(rush));
+    m.edges[2].conds = [{ expr: "{cv} >= 100" }]; // bid заперт на другой поток
+    const s = simulate(m.traits, m.edges, 2);
+    expect(at(s.cv, 0)).toBeGreaterThan(0);
+    expect(at(s.bid, 0)).toBeGreaterThan(0);
   });
 });

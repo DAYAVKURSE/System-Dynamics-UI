@@ -5,7 +5,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui
 import { evaluate, toDisplay, toStorage, refsOf, splitComparison } from "../lib/expr.js";
 import { PER, isFlow, perOf, shown, stored, unitOf, normalizeTraits, Cond,
   condSides, condRefs, condKind, condK, asGate, asRatio, edgeK, sourceTrait,
-  simulate, transfers, initialState, reachMonth, isFact, factEdges, frac, depsOf,
+  simulate, resolveStep, reachMonth, isFact, factEdges, frac, depsOf,
   adviseFor } from "../lib/sim.js";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
@@ -337,19 +337,17 @@ function ArrowRow({ed,traits,entities,valueOf,kindOf,now,onEdit,onDelete}){
         {conds.map((c,i)=>{
           const kind=condKind(c);
           const kk=condK(c,valueOf);
-          // Условие на остаток собственного источника — ловушка: нехватку и
-          // так режет дележ источника, а такое условие качает модель через
-          // месяц. Значение потока — это остаток; потратил всё → остаток 0 →
-          // месяц простоя → остаток вернулся → снова трата.
+          // Условие «бери, пока есть» на собственный источник не нужно:
+          // нехватку и так режет дележ источника. Вреда от него теперь тоже
+          // нет (поток в условии — это фонд месяца, а не остаток), поэтому
+          // только подсказка, без жёлтой тревоги.
           const selfGate=ed.fromTrait&&condRefs(c).includes(ed.fromTrait);
           const selfWarn=selfGate&&(
-            <div style={{fontSize:10.5,color:WARN,lineHeight:1.5,marginTop:6}}>
-              Условие смотрит на «{src?.l||"источник"}» — остаток того самого
-              ресурса, из которого стрелка берёт. Обычно оно не нужно: когда
-              источника не хватает, перенос урезается сам. А такое условие
-              раскачивает прогноз через месяц: потратили всё → остаток 0 →
-              месяц простоя. Если смысл был «бери, пока есть», условие можно
-              просто удалить.
+            <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginTop:6}}>
+              Условие смотрит на «{src?.l||"источник"}» — ресурс, из которого
+              стрелка и так берёт. «Бери, пока есть» уже встроено: когда
+              источника не хватает, перенос урезается сам. Условие имеет
+              смысл только как порог — например «не трогай, пока меньше 100».
             </div>);
           if(kind==="gate"){
             const R=evaluate(c.expr,valueOf);
@@ -873,20 +871,18 @@ export default function SystemModel(){
   const baseFact=useMemo(()=>simulate(traits,factEdges(edges),span),[traits,edges,span]);
   const liveFact=useMemo(()=>{const o={};traits.forEach(t=>o[t.id]=baseFact[t.id]?.[0]??0);
     return o;},[baseFact,traits]);
-  // Тем же расчётом и от того же состояния, что и месяц 0 симуляции.
-  // Считать «сейчас» от значений конца месяца (live) нельзя: для потоков это
-  // уже итоги шага, и карточка говорила бы «переносится 150», пока прогноз
-  // честно показывает ноль — два «сейчас» из разных моментов на одном экране.
-  const state0=useMemo(()=>initialState(traits),[traits]);
+  // Тот же расчёт и то же состояние, что у месяца 0 симуляции: карточка
+  // стрелки обязана объяснять ровно те числа, которые показывает прогноз.
+  const step0=useMemo(()=>resolveStep(traits,edges,{
+    stockAt:(id)=>Number(traits.find(t=>t.id===id)?.have??0),
+    seedAt:(t)=>Number(t.have??0),
+    giveAt:(ed)=>Number(ed.gives)||0,
+  }),[traits,edges]);
   const flowNow=useMemo(()=>{
     const by={};
-    transfers(traits,edges,{
-      valueAt:(id)=>state0[id]??0,
-      seedAt:(t)=>Number(t.have??0),
-      giveAt:(ed)=>Number(ed.gives)||0,
-    }).forEach(f=>{by[f.ed.id]=f;});
+    step0.moves.forEach(f=>{by[f.ed.id]=f;});
     return by;
-  },[traits,edges,state0]);
+  },[step0]);
 
   const advice=useMemo(()=>goals.map(g=>({g,...adviseFor(traits,edges,g,span)})),
     [traits,edges,span,goals.length]);
@@ -1348,7 +1344,7 @@ export default function SystemModel(){
                     Ни одной стрелки — эту величину никто не производит.</div>}
                   {into(selT.id).map(ed=>(
                     <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities}
-                      valueOf={id=>state0[id]??0}
+                      valueOf={id=>step0.state[id]??0}
                       kindOf={kindOf} now={flowNow[ed.id]} onEdit={upA} onDelete={delA}/>))}
                 </div>
                 <div style={S.lbl}>добавить стрелку сюда</div>

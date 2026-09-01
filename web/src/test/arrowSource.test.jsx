@@ -76,18 +76,29 @@ describe("выбор ресурса-источника", () => {
     expect(within(picker).queryByText(/время на резюме/)).toBeNull();
   });
 
-  it("выбранный источник и вправду тратится — прогноз меняется", () => {
+  it("выбранный источник и вправду ограничивает — прогноз меняется", () => {
+    // Просим больше, чем источник может дать: 20 ч/день при фонде 10 ч/день.
+    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    const area = container.querySelector("textarea");
+    fireEvent.change(area, { target: { value: JSON.stringify({
+      ...MODEL,
+      edges: [MODEL.edges[0], { ...MODEL.edges[1], gives: 20 }],
+    }) } });
+    fireEvent.blur(area);
+    fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     openCv();
-    // Значение показывается в периоде ресурса: единица «ч/день», значит 10
-    // часов в день, а не 300 в месяц — внутри модели это одно и то же.
-    expect(hypoOf("время на резюме")).toBe(10);
+
+    // Без источника величина берётся из ниоткуда — все 20 приходят.
+    expect(hypoOf("время на резюме")).toBe(20);
 
     fireEvent.change(sourcePicker(), { target: { value: "work" } });
 
-    // Резюме забрало всё время, свободного не осталось.
+    // С источником приходит только то, что у него есть: 10 в день.
     expect(hypoOf("время на резюме")).toBe(10);
+    // Сам источник показывает фонд месяца — он не «кончается» от трат.
     selectEntity("Моё время");
-    expect(hypoOf("рабочее время")).toBe(0);
+    expect(hypoOf("рабочее время")).toBe(10);
   });
 
   it("сказано, что будет при нехватке", () => {
