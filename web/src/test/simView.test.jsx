@@ -63,9 +63,25 @@ describe("вкладка «Симуляция» — только активы и
   });
 
   it("графики по активам показываются сразу, без запуска", () => {
-    // Кнопки активов и карточки ресурсов с графиками уже на месте.
+    // Кнопки активов и карточки ресурсов с графиками уже на месте. Карточка
+    // свёрнута — но график в ней виден и свёрнутой: он и есть её содержимое.
     fireEvent.click(screen.getAllByRole("button", { name: "Пользователи" })[0]);
+    expect(container.querySelectorAll("svg polyline").length).toBeGreaterThan(0);
+  });
+
+  it("числа и гипотезы прячутся под заголовок и открываются нажатием", () => {
+    fireEvent.click(screen.getAllByRole("button", { name: "Пользователи" })[0]);
+    expect(screen.queryByText(/гипотезы движения — что сюда втекает/)).toBeNull();
+
+    // Раскрываем все карточки: первой в списке идёт цель, а «гипотезы
+    // движения» — заголовок нецелевой карточки.
+    [...container.querySelectorAll("span")]
+      .filter((s) => s.textContent === "\u25b8")
+      .forEach((s) => fireEvent.click(s.parentElement));
     expect(screen.getAllByText(/гипотетически/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/гипотезы движения — что сюда втекает/).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText(/задачи по этим движениям/).length).toBeGreaterThan(0);
   });
 });
 

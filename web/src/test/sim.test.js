@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Cond, asGate, asRatio, condKind, condRefs, depsOf, factEdges, factGives,
   isFlow, lastSubmission, normalizeTrait, normalizeTraits, resolveStep,
   scheduleOf, shown, simulate, stored, unitOf } from "../lib/sim.js";
-import { barOf } from "../components/ReportsGantt.jsx";
+import { barOf } from "../components/Timeline.jsx";
 
 /* Движок: расход ресурса и дележ между теми, кто на него претендует.
    Числа здесь проверяются напрямую — на отрисованные значения полагаться

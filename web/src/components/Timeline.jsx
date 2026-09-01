@@ -5,11 +5,17 @@ import { unitOf } from "../lib/sim.js";
 import { reportSrc } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
-   ОТЧЁТЫ · что делалось, когда, ради какой цели и с каким результатом.
+   TIMELINE · вся работа во времени — и прошлая, и будущая.
 
    Таймлайн Ганта, а не список: у работы есть протяжённость, и главное, что
    нужно увидеть, — как задачи ложатся во времени относительно друг друга.
    Список этого не показывает, а календарь показывает только один месяц.
+
+   Показываются ВСЕ задачи, а не только сданные: бэклог и запланированное
+   на будущее — такая же часть картины, как сделанное. Задача, у которой
+   времени нет вовсе (ни окна дат у движения, ни единой сдачи), на ось не
+   ставится — придумывать ей дату нельзя, — но и не пропадает: она в
+   списке под осью, и там видно, что срок ей не задан.
    ════════════════════════════════════════════════════════════════ */
 
 const DAY = 86400000;
@@ -34,29 +40,54 @@ export function barOf(task, edge) {
   return { from, to: Math.max(to, from + DAY / 4) };
 }
 
-export default function ReportsGantt({ tasks, edges, traits, goals, entityName }) {
+export default function Timeline({ tasks, edges, traits, goals, entityName, nameOf }) {
   const [openId, setOpenId] = useState(null);
+  const [only, setOnly] = useState("all");
   const edgeById = useMemo(() =>
     Object.fromEntries((edges || []).map((e) => [e.id, e])), [edges]);
   const goalById = useMemo(() =>
     Object.fromEntries((goals || []).map((g) => [g.id, g])), [goals]);
 
-  const rows = useMemo(() => (tasks || [])
-    .map((t) => ({ t, edge: edgeById[t.edgeId], bar: barOf(t, edgeById[t.edgeId]) }))
-    .filter((r) => r.bar)
-    .sort((a, b) => a.bar.from - b.bar.from), [tasks, edgeById]);
+  const all = useMemo(() => (tasks || [])
+    .filter((t) => only === "all" || t.status === only)
+    .map((t) => ({ t, edge: edgeById[t.edgeId], bar: barOf(t, edgeById[t.edgeId]) })),
+  [tasks, edgeById, only]);
+  const rows = useMemo(() => all.filter((r) => r.bar)
+    .sort((a, b) => a.bar.from - b.bar.from), [all]);
+  const undated = useMemo(() => all.filter((r) => !r.bar), [all]);
 
-  if (!rows.length) {
-    return (<div style={S.card}>
-      Пока нечего показать. Отчёт появляется здесь, когда задачу сдают:
-      во вкладке «Задачи» откройте задачу и нажмите «СДАТЬ» — можно приложить
-      текст, файл или фотографию.
+  const filterBar = (
+    <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={S.lbl}>timeline · вся работа во времени</div>
+      <div className="flex flex-wrap gap-2" style={{ margin: "6px 0 0" }}>
+        <button style={btn(only === "all")} onClick={() => setOnly("all")}>все</button>
+        {STATUSES.map((s) => (
+          <button key={s.id} style={btn(only === s.id, s.color)}
+            onClick={() => setOnly(s.id)}>{s.name}</button>))}
+      </div>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+        Полоса — срок движения задачи; чёрточки на ней — сдачи; пунктир —
+        сегодня. Слева от него прошлое, справа запланированное.
+      </div>
+    </div>);
+
+  if (!rows.length && !undated.length) {
+    return (<div>
+      {filterBar}
+      <div style={S.card}>
+        {only === "all"
+          ? "Задач пока нет. Заведите их во вкладке «Задачи» — здесь они лягут во времени."
+          : "В этом состоянии задач нет."}
+      </div>
     </div>);
   }
 
   // Общее окно таймлайна с полями по краям, чтобы полосы не липли к границе.
-  const min = Math.min(...rows.map((r) => r.bar.from));
-  const max = Math.max(...rows.map((r) => r.bar.to), Date.now());
+  // «Сегодня» входит в окно всегда: без него не видно, где кончается
+  // сделанное и начинается запланированное.
+  const now = Date.now();
+  const min = Math.min(...rows.map((r) => r.bar.from), now);
+  const max = Math.max(...rows.map((r) => r.bar.to), now);
   const pad = Math.max(DAY, (max - min) * 0.04);
   const A = min - pad, B = max + pad, W = B - A;
   const pct = (v) => ((v - A) / W) * 100;
@@ -66,22 +97,11 @@ export default function ReportsGantt({ tasks, edges, traits, goals, entityName }
   const step = (B - A) / 6;
   for (let i = 0; i <= 6; i++) ticks.push(A + step * i);
 
-  const open = rows.find((r) => r.t.id === openId) || null;
+  const open = all.find((r) => r.t.id === openId) || null;
 
   return (
     <div>
-      <div style={{ ...S.card, marginBottom: 10 }}>
-        <div style={S.lbl}>отчёты · что делалось и когда</div>
-        <div className="flex flex-wrap gap-2" style={{ margin: "8px 0 0" }}>
-          {STATUSES.map((s) => (
-            <span key={s.id} className="flex items-center gap-2"
-              style={{ fontSize: 11, color: C.muted }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color,
-                display: "inline-block" }} />
-              {s.name}
-            </span>))}
-        </div>
-      </div>
+      {filterBar}
 
       <div style={{ ...S.card, marginBottom: 10, overflowX: "auto",
         WebkitOverflowScrolling: "touch" }}>
@@ -94,6 +114,9 @@ export default function ReportsGantt({ tasks, edges, traits, goals, entityName }
                 <span key={i} style={{ position: "absolute", left: `${pct(t)}%`,
                   transform: "translateX(-50%)", fontSize: 9.5, color: C.muted,
                   whiteSpace: "nowrap" }}>{fmtD(t)}</span>))}
+              <span style={{ position: "absolute", left: `${pct(now)}%`, bottom: -2,
+                transform: "translateX(-50%)", fontSize: 9, color: ACC,
+                whiteSpace: "nowrap" }}>сегодня</span>
             </div>
           </div>
 
@@ -115,6 +138,9 @@ export default function ReportsGantt({ tasks, edges, traits, goals, entityName }
                 <div style={{ flex: 1, position: "relative", height: 26,
                   background: C.ink, borderRadius: 6,
                   border: `1px solid ${on ? ACC : C.line}` }}>
+                  <span style={{ position: "absolute", top: 0, bottom: 0,
+                    left: `${pct(now)}%`, width: 0,
+                    borderLeft: `1px dashed ${ACC}99` }} />
                   <div style={{ position: "absolute", top: 4, bottom: 4,
                     left: `${pct(bar.from)}%`,
                     width: `${Math.max(1.5, pct(bar.to) - pct(bar.from))}%`,
@@ -134,6 +160,27 @@ export default function ReportsGantt({ tasks, edges, traits, goals, entityName }
         </div>
       </div>
 
+      {!!undated.length && (
+        <div style={{ ...S.card, marginBottom: 10 }}>
+          <div style={S.lbl}>без сроков — на оси им не место</div>
+          <div style={{ fontSize: 10.5, color: C.muted, margin: "5px 0 7px",
+            lineHeight: 1.5 }}>
+            У движения не задано окно дат, и сдач ещё не было. Поставить их
+            на ось значило бы придумать дату.
+          </div>
+          {undated.map(({ t }) => {
+            const st = STATUSES.find((x) => x.id === t.status) || { color: NEU, name: "—" };
+            return (
+              <div key={t.id} className="flex items-center gap-2"
+                style={{ padding: "5px 0", borderTop: `1px solid ${C.line}`,
+                  cursor: "pointer" }}
+                onClick={() => setOpenId(t.id === openId ? null : t.id)}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: st.color }} />
+                <span style={{ fontSize: 11.5, flex: 1 }}>{t.title}</span>
+                <span style={{ fontSize: 10, color: C.muted }}>{st.name}</span>
+              </div>);})}
+        </div>)}
+
       {open && (() => {
         const { t, edge } = open;
         const target = traits.find((x) => x.id === edge?.to);
@@ -150,6 +197,8 @@ export default function ReportsGantt({ tasks, edges, traits, goals, entityName }
             <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6,
               marginBottom: 8 }}>
               Статус: {st?.name || "—"} · цель: {goal ? goal.l : "удалена"}
+              {t.assignee ? <> · исполнитель: {nameOf ? nameOf(t.assignee) : t.assignee}</> : null}
+              {t.reviewer ? <> · проверяет: {nameOf ? nameOf(t.reviewer) : t.reviewer}</> : null}
               {edge ? <> · движение: {entityName ? entityName(edge.from) : ""} →
                 {" "}{target?.l || "?"}{edge.carrier ? ` (${edge.carrier})` : ""}</> : null}
               {edge?.start ? <> · начало {fmtDT(edge.start)}</> : null}

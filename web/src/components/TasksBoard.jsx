@@ -64,13 +64,15 @@ const uid=(p)=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 export const MAX_REPORT_BYTES=MAX_UPLOAD_REPORT_BYTES;
 
 export function newTask({goalId,okrId=null,edgeId=null,title="Новая задача",
-  body=""}){
+  body="",assignee=null,reviewer=null}){
   // Что задача пополняет и тратит, когда и как часто происходит — всё это
   // свойства движения, а не задачи: иначе одно и то же описывалось бы дважды
   // и разъезжалось. У задачи остаётся имя, описание, к чему она относится,
   // за сколько предупредить — и записи о сдаче.
+  // Исполнитель и проверяющий — часть постановки задачи, а не её хода:
+  // без них непонятно, кому она видна и кто принимает отчёт.
   return {id:uid("tk"),goalId,okrId,edgeId,title,body,status:"backlog",
-    warn:10,submissions:[],comments:[]};
+    assignee,reviewer,warn:10,submissions:[],comments:[]};
 }
 
 // Одна сдача задачи: сколько реально перешло, чем отчитались.
@@ -101,7 +103,7 @@ export function okrFromRec(goalId,r){
    делается — в одном месте. Раньше это было на «Задачах», и между целью и
    работой по ней стояла лишняя вкладка. */
 export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],edges=[],
-  okrValue,okrShown,entityName,openId,setOpenId}){
+  okrValue,okrShown,entityName,openId,setOpenId,people=[],canAssign=true}){
   const show=okrShown||((o,v)=>Number(v));
   const krs=okrs.filter(o=>o.goalId===g.id);
   const gt=tasks.filter(t=>t.goalId===g.id);
@@ -236,6 +238,7 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
                   {on&&<div style={{marginTop:8}}>
                     <TaskEditor task={t} goals={[g]} traits={traits}
                       entities={entities} edges={edges} entityName={entityName}
+                      people={people} canAssign={canAssign}
                       setTasks={setTasks}
                       onClose={()=>setOpenId(null)}
                       onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==t.id));
@@ -251,7 +254,7 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
    целью во вкладке «Цели» и над доской во вкладке «Задачи». Копия того же
    JSX в двух местах разъехалась бы на первой же правке. */
 export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
-  entityName,setTasks,onClose,onDelete}){
+  entityName,setTasks,onClose,onDelete,people=[],canAssign=true}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
@@ -362,6 +365,31 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
                 Задача ни к какому движению не привязана — в модели она ничего
                 не меняет. Заведите её заново под движением цели.
               </div>}
+
+          <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
+            <div style={{flex:"1 1 150px"}}>
+              <div style={S.lbl}>исполнитель</div>
+              <select style={S.inp} value={task.assignee||""} disabled={!canAssign}
+                onChange={e=>up("assignee",e.target.value||null)}>
+                <option value="">— не назначен —</option>
+                {people.map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+              </select>
+            </div>
+            <div style={{flex:"1 1 150px"}}>
+              <div style={S.lbl}>проверяющий</div>
+              <select style={S.inp} value={task.reviewer||""} disabled={!canAssign}
+                onChange={e=>up("reviewer",e.target.value||null)}>
+                <option value="">— не назначен —</option>
+                {people.map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+              </select>
+            </div>
+          </div>
+          <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
+            {canAssign
+              ? "Исполнителю задача видна во вкладке «Задачи», проверяющему — во вкладке «Проверка». Больше её не видит никто, кроме владельца."
+              : "Кого назначить, решает владелец."}
+            {!people.length&&" Пока в модели один человек — добавьте людей через бота."}
+          </div>
 
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <div style={{flex:"1 1 130px"}}>
@@ -485,7 +513,7 @@ const pctOf=(o,current)=>{
 
 export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
   traits=[],entities=[],edges=[],okrValue,okrShown,entityName,
-  openId:openIdProp,setOpenId:setOpenIdProp}){
+  openId:openIdProp,setOpenId:setOpenIdProp,people=[],canAssign=true}){
   // Прогресс считается по модельным числам, показываются — по человеческим.
   const show=okrShown||((o,v)=>Number(v));
   const [ownOpen,setOwnOpen]=useState(null);
@@ -597,7 +625,7 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
       </div>
 
 {open&&<TaskEditor task={open} goals={goals} traits={traits} entities={entities} edges={edges}
-        entityName={entityName}
+        entityName={entityName} people={people} canAssign={canAssign}
         setTasks={setTasks} onClose={()=>setOpenId(null)} onDelete={()=>delT(open.id)}/>}
 
       {/* ─── Добавление задач: под доской ─── */}

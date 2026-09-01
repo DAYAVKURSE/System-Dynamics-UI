@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule } from "../storage.js";
+import { SOLO, whoAmI, getWorkspace, putWorkspace, reviewTaskRemote }
+  from "../identity.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { evaluate, toDisplay, toStorage, refsOf, splitComparison } from "../lib/expr.js";
 import { PER, isFlow, perOf, shown, stored, unitOf, normalizeTraits, Cond,
@@ -9,8 +11,11 @@ import { PER, isFlow, perOf, shown, stored, unitOf, normalizeTraits, Cond,
   factEdges, frac, depsOf,
   adviseFor } from "../lib/sim.js";
 import HypothesisBuilder from "./HypothesisBuilder.jsx";
-import TasksBoard, { GoalWork, newTask, nowLocal, okrFromRec } from "./TasksBoard.jsx";
-import ReportsGantt from "./ReportsGantt.jsx";
+import TasksBoard, { GoalWork, STATUSES, TaskEditor, newTask, nowLocal, okrFromRec }
+  from "./TasksBoard.jsx";
+import Timeline from "./Timeline.jsx";
+import ReviewBoard from "./ReviewBoard.jsx";
+import PeoplePanel from "./PeoplePanel.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 
@@ -657,6 +662,13 @@ function whenText(iso){
   return `${d.toLocaleDateString("ru-RU",{day:"numeric",month:"long"})}, ${time}`;
 }
 
+/* Порядок вкладок один на всех: роль решает, какие из них показать, но не
+   в каком порядке — иначе у двух людей приложение выглядело бы по-разному
+   не только составом, но и расположением. */
+export const TAB_LIST=[["tasks","Задачи"],["review","Проверка"],
+  ["timeline","Timeline"],["scheme","Схема"],["sim","Прогноз"],
+  ["json","Выгрузить"]];
+
 /* ════════════════ ГЛАВНОЕ ════════════════ */
 export default function SystemModel(){
   const [entities,setEntities]=useState(ENTITIES0);
@@ -688,6 +700,17 @@ export default function SystemModel(){
   const [simEnt,setSimEnt]=useState(ENTITIES0[0]?.id);
   const [openTask,setOpenTask]=useState(null); // задача, открытая в редакторе
   const [simMonth,setSimMonth]=useState(0); // месяц на ползунке времени главной схемы
+  // Кто смотрит. Пока ответа нет — считаем себя владельцем: иначе на долю
+  // секунды исчезали бы все вкладки, и это выглядело бы как поломка.
+  const [me,setMe]=useState(SOLO);
+  // Развёрнутые карточки прогноза. Множество, а не одна: сравнивать два
+  // ресурса, схлопывая один при раскрытии другого, невозможно.
+  const [openCards,setOpenCards]=useState(()=>new Set());
+  const [people,setPeople]=useState([]);
+  useEffect(()=>{ let live=true;
+    whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
+    return ()=>{ live=false; };
+  },[]);
 
   const ent=(id)=>entities.find(e=>e.id===id);
   const trait=(id)=>traits.find(t=>t.id===id);
@@ -828,6 +851,35 @@ export default function SystemModel(){
     return ()=>clearTimeout(id);
   },[scheduled]);
 
+  /* ─── общая модель ───
+     Владелец пишет модель на сервер, остальные её оттуда читают: только так
+     исполнитель вообще увидит поставленную ему задачу. В одиночном режиме
+     (нет сервера или выключены роли) ничего не происходит — модель живёт в
+     браузере, как и раньше. */
+  const pulled=useRef(false);
+  useEffect(()=>{
+    if(me.solo) return;
+    if(pulled.current) return;
+    pulled.current=true;
+    getWorkspace().then(w=>{
+      // Владельцу подставлять серверную модель поверх открытой нельзя: он
+      // мог начать править до того, как ответ пришёл. Остальным подставлять
+      // обязательно — своей модели у них нет вовсе.
+      if(me.isOwner) return;
+      restoreDoc({
+        entities:w.entities||[], traits:normalizeTraits(w.traits||[]),
+        edges:w.edges||[], kinds:(w.kinds&&w.kinds.length)?w.kinds:KINDS0,
+        okrs:w.okrs||[], tasks:w.tasks||[], hypos:[],
+      });
+    }).catch(()=>{});
+  },[me.solo,me.isOwner,restoreDoc]);
+
+  useEffect(()=>{
+    if(me.solo||!me.isOwner) return;
+    const id=setTimeout(()=>{ putWorkspace(doc).catch(()=>{}); },1500);
+    return ()=>clearTimeout(id);
+  },[doc,me.solo,me.isOwner]);
+
   // ─── OKR: рекомендация → ключевой результат + задача ───
   const recRef=(r)=>r.type==="seed"?r.tid:r.eid;
   const isTaken=(goalId,r)=>okrs.some(o=>o.goalId===goalId&&o.refId===recRef(r));
@@ -933,6 +985,35 @@ export default function SystemModel(){
     setSavedBusy(false);
   };
 
+  // Кому какие задачи видны. Владельцу — все; остальным только свои: те,
+  // где он исполнитель или проверяющий. Настоящий отбор делает сервер, здесь
+  // то же правило повторено, чтобы интерфейс не показывал лишнего в
+  // одиночном режиме и до ответа сервера.
+  const myTasks=useMemo(()=>(me.isOwner?tasks:tasks.filter(t=>
+    String(t.assignee||"")===String(me.id)||String(t.reviewer||"")===String(me.id))),
+  [tasks,me.isOwner,me.id]);
+  const personName=useCallback((id)=>{
+    if(id==null||id==="") return "не назначен";
+    return people.find(p=>String(p.id)===String(id))?.name||String(id);
+  },[people]);
+  // Решение проверяющего меняет статус и добавляет комментарий одной
+  // правкой: два setTasks подряд считали бы от одного прежнего состояния.
+  const decide=useCallback((task,accept,note)=>{
+    setTasks(p=>p.map(t=>t.id===task.id?{...t,
+      status:accept?"done":"progress",
+      comments:note?[...(t.comments||[]),
+        {id:"c"+Date.now().toString(36),text:note,at:new Date().toISOString()}]
+        :(t.comments||[]),
+    }:t));
+    // На сервере то же решение проводится своим маршрутом: он проверяет,
+    // что решает именно назначенный проверяющий.
+    reviewTaskRemote(task.id,{accept,comment:note}).catch(()=>{});
+  },[setTasks]);
+
+  const toggleCard=useCallback((id)=>setOpenCards(p=>{
+    const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n;
+  }),[]);
+
   const goals=traits.filter(t=>t.want!=null);
   const span=useMemo(()=>Math.max(horizon,...goals.map(g=>g.by??0),6),[horizon,goals]);
   // гипотетический прогноз — по всем стрелкам, включая поведенческие допущения
@@ -1025,28 +1106,57 @@ export default function SystemModel(){
           вкладки. Сохраняй сценарий на диск во вкладке «JSON».
         </div>)}
 
+      {/* Вкладки даёт роль. Владельцу — все; остальным — то, что открыто
+          его ролью. Настоящая проверка стоит на сервере: спрятать вкладку
+          кнопкой значит не спрятать данные. */}
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {[["tasks","Задачи"],["reports","Отчёты"],["scheme","Схема"],
-          ["sim","Прогноз"],["json","Выгрузить"]].map(([k,t])=>(
+        {TAB_LIST.filter(([k])=>me.tabs.includes(k)).map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 
+      {!me.known && !me.solo && (
+        <div style={{...S.card,marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Вас ещё не позвали</div>
+          <div style={{fontSize:11.5,color:C.muted,lineHeight:1.6}}>
+            Модель принадлежит владельцу, и доступ выдаёт он. Попросите его
+            добавить вас: пусть перешлёт боту ваше сообщение. Если у вас
+            закрыт перенос сообщений, отправьте боту «/id» и передайте номер
+            владельцу.
+          </div>
+        </div>)}
+
+      {me.known && !me.tabs.length && (
+        <div style={{...S.card,marginBottom:10,fontSize:11.5,color:C.muted,
+          lineHeight:1.6}}>
+          Ваша роль ничего не открывает — возможно, её удалили. Попросите
+          владельца назначить роль заново.
+        </div>)}
+
       {/* ═══ ЗАДАЧИ ═══ */}
-      {tab==="tasks" && (
+      {tab==="tasks" && me.tabs.includes("tasks") && (
         <TasksBoard goals={goals} okrs={okrs} setOkrs={setOkrs}
-          tasks={tasks} setTasks={setTasks} traits={traits} entities={entities}
+          tasks={myTasks} setTasks={setTasks} traits={traits} entities={entities}
           edges={edges}
           okrValue={okrValue} okrShown={okrShown}
           openId={openTask} setOpenId={setOpenTask}
+          people={people} canAssign={me.isOwner}
           entityName={id=>ent(id)?.name||"—"}/>)}
 
-      {/* ═══ ОТЧЁТЫ ═══ */}
-      {tab==="reports" && (
-        <ReportsGantt tasks={tasks} edges={edges} traits={traits} goals={goals}
+      {/* ═══ ПРОВЕРКА ═══ */}
+      {tab==="review" && me.tabs.includes("review") && (
+        <ReviewBoard tasks={tasks} traits={traits} entities={entities} edges={edges}
+          goals={goals} meId={me.id} isOwner={me.isOwner} nameOf={personName}
+          onAccept={(t,note)=>decide(t,true,note)}
+          onReturn={(t,note)=>decide(t,false,note)}/>)}
+
+      {/* ═══ TIMELINE ═══ */}
+      {tab==="timeline" && me.tabs.includes("timeline") && (
+        <Timeline tasks={myTasks} edges={edges} traits={traits} goals={goals}
+          nameOf={personName}
           entityName={id=>ent(id)?.name||"—"}/>)}
 
       {/* ═══ СХЕМА ═══ */}
-      {tab==="scheme" && (<>
+      {tab==="scheme" && me.tabs.includes("scheme") && (<>
         <div style={{...S.card,padding:6,marginBottom:10}}>
           <div className="flex items-center gap-2 flex-wrap" style={{marginBottom:4}}>
             <span style={S.lbl}>масштаб</span>
@@ -1340,7 +1450,7 @@ export default function SystemModel(){
       </>)}
 
       {/* ═══ ПРОГНОЗ (цели + остальные ресурсы) ═══ */}
-      {tab==="sim" && (<div>
+      {tab==="sim" && me.tabs.includes("sim") && (<div>
         <div style={{...S.card,marginBottom:10}}>
           <div style={S.lbl}>срок прогона</div>
           <div className="flex items-center gap-2" style={{margin:"6px 0 12px"}}>
@@ -1428,17 +1538,38 @@ export default function SystemModel(){
             // График цели рисуется в том же периоде, что и числа над ним,
             // иначе кривая и подпись под ней противоречили бы друг другу.
             data:(base[id]||[]).map(v=>shown(trait(id)||{},v))}));
+          const shownCard=openCards.has(g.id);
           return (
             <div key={g.id} style={{...S.card,marginBottom:12}}>
-              <div className="flex items-center gap-2" style={{marginBottom:4}}>
+              {/* Свёрнутая карточка — имя и график: этого хватает, чтобы
+                  окинуть взглядом десяток ресурсов. Всё остальное
+                  разворачивается нажатием. */}
+              <div className="flex items-center gap-2" style={{marginBottom:4,
+                cursor:"pointer"}} onClick={()=>toggleCard(g.id)}>
                 <span style={{color:kindOf(g.k).color,fontFamily:"ui-monospace, monospace",
                   fontWeight:700}}>{kindOf(g.k).sign}</span>
                 <span style={{fontSize:14,fontWeight:700,flex:1}}>{g.l}</span>
+                <span style={{fontSize:10.5,color:inTime?WARN:BAD,whiteSpace:"nowrap"}}>
+                  {now==null?"цель не берётся":`цель на ${now}-м мес.`}</span>
+                <span style={{fontSize:12,color:C.muted}}>{shownCard?"▾":"▸"}</span>
+              </div>
+              <div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
+                {ent(g.e)?.name} · {unitOf(g)} · {isFlow(g)?"поток":"запас"} · цель</div>
+
+              <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+                padding:8,marginBottom:shownCard?10:0}}>
+                <Chart lines={lines} months={span} goalLine={Number(g.want)} goalMonth={now}
+                  cursorMonth={simMonth}/>
+                <div className="flex flex-wrap gap-3" style={{marginTop:6,fontSize:11}}>
+                  {lines.map(l=><span key={l.id} style={{color:l.color}}>■ {l.name}</span>)}</div>
+              </div>
+
+              {shownCard&&(<>
+              <div className="flex items-center gap-2" style={{margin:"10px 0 6px"}}>
+                <span style={{flex:1}}/>
                 <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
                   onClick={()=>dropGoal(g.id)}>убрать из целей</button>
               </div>
-              <div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
-                {ent(g.e)?.name} · {unitOf(g)} · {isFlow(g)?"поток":"запас"}</div>
 
               <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
                 <div style={{flex:"1 1 80px"}}><div style={S.lbl}>нужно</div>
@@ -1488,14 +1619,6 @@ export default function SystemModel(){
                       </div>);})
                   : <div style={{fontSize:12,color:OK}}>
                       Весь путь до цели держится на фактах — ни одной гипотезы.</div>}
-              </div>
-
-              <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-                padding:8,marginBottom:10}}>
-                <Chart lines={lines} months={span} goalLine={Number(g.want)} goalMonth={now}
-                  cursorMonth={simMonth}/>
-                <div className="flex flex-wrap gap-3" style={{marginTop:6,fontSize:11}}>
-                  {lines.map(l=><span key={l.id} style={{color:l.color}}>■ {l.name}</span>)}</div>
               </div>
 
               <div style={S.lbl}>рост/упадок влияющих ресурсов</div>
@@ -1583,13 +1706,15 @@ export default function SystemModel(){
                   создание. Между целью и работой по ней не должно стоять
                   переключение вкладки. */}
               <div style={{marginTop:12,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
-                <GoalWork g={g} okrs={okrs} setOkrs={setOkrs} tasks={tasks}
+                <GoalWork g={g} okrs={okrs} setOkrs={setOkrs} tasks={myTasks}
                   setTasks={setTasks} traits={traits} entities={entities}
                   edges={edges}
                   okrValue={okrValue} okrShown={okrShown}
+                  people={people} canAssign={me.isOwner}
                   entityName={id=>ent(id)?.name||"—"}
                   openId={openTask} setOpenId={setOpenTask}/>
               </div>
+              </>)}
             </div>);})}
 
         {/* Нецелевые ресурсы — прежние карточки прогноза: график и два числа,
@@ -1615,21 +1740,28 @@ export default function SystemModel(){
                   {id:"h",color:WARN,name:"гипотетически",data:hs},
                   {id:"f",color:OK,name:"фактически",data:fs},
                 ];
+                const shownCard=openCards.has(t.id);
+                const feeds=into(t.id);
+                const own=myTasks.filter(tk=>feeds.some(e=>e.id===tk.edgeId));
                 return (
                   <div key={t.id} style={{...S.card,marginBottom:10}}>
-                    <div className="flex items-center gap-2" style={{marginBottom:4}}>
+                    <div className="flex items-center gap-2" style={{marginBottom:4,
+                      cursor:"pointer"}} onClick={()=>toggleCard(t.id)}>
                       <span style={{color:kindOf(t.k).color,fontFamily:"ui-monospace, monospace",
                         fontWeight:700}}>{kindOf(t.k).sign}</span>
                       <span style={{fontSize:13,fontWeight:700,flex:1}}>{t.l}</span>
                       <span style={{fontSize:11,color:C.muted}}>
                         {isFlow(t)?"поток":"запас"} · {unitOf(t)}</span>
+                      <span style={{fontSize:12,color:C.muted}}>{shownCard?"▾":"▸"}</span>
                     </div>
                     <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-                      padding:8,marginBottom:6}}>
+                      padding:8,marginBottom:shownCard?8:0}}>
                       <Chart lines={lines} months={simRun.span} cursorMonth={simMonth}/>
                     </div>
+
+                    {shownCard&&(<>
                     <div className="flex flex-wrap gap-3" style={{fontSize:11,
-                      alignItems:"center"}}>
+                      alignItems:"center",marginBottom:10}}>
                       <span style={{color:ACC}}>■ на {simMonth}-м мес.: гип. {nm(hs[simMonth]??0)}
                         {" "}· факт {nm(fs[simMonth]??0)}</span>
                       <span style={{color:WARN}}>■ гипотетически: {nm(hEnd)} к {simRun.span}-му мес.</span>
@@ -1638,6 +1770,58 @@ export default function SystemModel(){
                       <button style={{...btn(false),color:ACC,borderColor:ACC+"66"}}
                         onClick={()=>makeGoal(t.id)}>сделать целью</button>
                     </div>
+
+                    <div style={S.lbl}>гипотезы движения — что сюда втекает</div>
+                    <div style={{margin:"6px 0 10px"}}>
+                      {!feeds.length&&<div style={{fontSize:11.5,color:C.muted}}>
+                        Ни одной стрелки — эту величину никто не производит.</div>}
+                      {feeds.map(ed=>(
+                        <div key={ed.id} className="flex flex-wrap gap-2"
+                          style={{alignItems:"center",fontSize:11.5,padding:"5px 0",
+                            borderBottom:`1px solid ${C.line}`}}>
+                          <span style={{color:isFact(ed)?OK:WARN}}>
+                            {isFact(ed)?"◆":"◇"}</span>
+                          <span style={{flex:"1 1 140px"}}>
+                            {ed.carrier||`${ent(ed.from)?.name||"?"} → ${t.l}`}</span>
+                          <span style={{color:C.muted}}>
+                            {nm(Math.abs(Number(ed.gives)||0))} за {ed.per}</span>
+                        </div>))}
+                    </div>
+
+                    <div style={S.lbl}>задачи по этим движениям</div>
+                    <div style={{margin:"6px 0 2px"}}>
+                      {!own.length&&<div style={{fontSize:11.5,color:C.muted}}>
+                        Задач нет — движение никто не выполняет.</div>}
+                      {own.map(tk=>{
+                        const st=STATUSES.find(x=>x.id===tk.status);
+                        const on=openTask===tk.id;
+                        return (
+                        <div key={tk.id} style={{background:C.panel2,
+                          border:`1px solid ${on?ACC:C.line}`,borderRadius:8,
+                          padding:8,marginBottom:6}}>
+                          {/* Задача свёрнута: строка и статус. Разворачивается
+                              нажатием — иначе десять задач под ресурсом
+                              превращают карточку в простыню. */}
+                          <div className="flex items-center gap-2" style={{cursor:"pointer"}}
+                            onClick={()=>setOpenTask(on?null:tk.id)}>
+                            <span style={{width:8,height:8,borderRadius:2,
+                              background:st?.color||C.muted}}/>
+                            <span style={{fontSize:12,flex:1}}>{tk.title}</span>
+                            <span style={{fontSize:10.5,color:C.muted}}>{st?.name}</span>
+                            <span style={{fontSize:11,color:C.muted}}>{on?"▾":"▸"}</span>
+                          </div>
+                          {on&&<div style={{marginTop:6}}>
+                            <TaskEditor task={tk} goals={goals} traits={traits}
+                              entities={entities} edges={edges}
+                              people={people} canAssign={me.isOwner}
+                              entityName={id=>ent(id)?.name||"—"}
+                              setTasks={setTasks} onClose={()=>setOpenTask(null)}
+                              onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==tk.id));
+                                setOpenTask(null);}}/>
+                          </div>}
+                        </div>);})}
+                    </div>
+                    </>)}
                   </div>);})}
               {!plain.length&&
                 <div style={S.card}>
@@ -1648,7 +1832,10 @@ export default function SystemModel(){
       </div>)}
 
       {/* ═══ ВЫГРУЗИТЬ ═══ */}
-      {tab==="json"&&(
+      {tab==="json" && me.isOwner && !me.solo && (
+        <PeoplePanel onPeople={setPeople}/>)}
+
+      {tab==="json" && me.tabs.includes("json") && (
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <button style={btn(true)} onClick={()=>{
@@ -1676,7 +1863,7 @@ export default function SystemModel(){
       {/* ═══ СОХРАНЕНИЕ НА ДИСКЕ СЕРВЕРА ═══
           Отдельный блок поверх существующей вкладки JSON: ничего из логики/расчётов/
           разметки выше не тронуто — это только I/O к бэкенду для дисковых сценариев. */}
-      {tab==="json"&&(
+      {tab==="json" && me.tabs.includes("json") && (
         <div style={{...S.card,marginTop:10}}>
           <div style={S.lbl}>сохранённые сценарии{savedWhere?` · ${savedWhere}`:""}</div>
           <div className="flex flex-wrap gap-2" style={{margin:"6px 0 8px",alignItems:"center"}}>

@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+
+// Карточки прогноза свёрнуты: имя и график. Рычаги, гипотезы и задачи
+// разворачиваются нажатием на заголовок, поэтому тесты сначала раскрывают всё.
+const expandCards = (container) => {
+  [...container.querySelectorAll("span")]
+    .filter((s) => s.textContent === "\u25b8")
+    .forEach((s) => fireEvent.click(s.parentElement));
+};
+
 import { sameDoc } from "../lib/history.js";
 
 /* Отмена и возврат правок модели.
@@ -46,7 +55,8 @@ describe("кнопки истории", () => {
   });
 
   it("видны с любой вкладки — правки есть везде", () => {
-    for (const tab of ["Задачи", "Отчёты", "Схема", "Прогноз", "Выгрузить"]) {
+    for (const tab of ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
+      "Выгрузить"]) {
       fireEvent.click(screen.getByRole("button", { name: tab }));
       expect(undoBtn()).toBeTruthy();
     }
@@ -164,6 +174,7 @@ describe("прогноз после отмены", () => {
   it("отмена «взять в работу» возвращает и рекомендацию, и прогноз", () => {
     // Рекомендации живут на «Прогнозе», а стартовая вкладка — «Задачи».
     fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
+    expandCards(container);
     const recs = () => screen.queryAllByRole("button", { name: "Взять в работу" });
     const before = recs().length;
     fireEvent.click(recs()[0]);
@@ -186,6 +197,7 @@ describe("прогноз после отмены", () => {
     expect(allEmpty).toBeGreaterThan(0);
 
     goals();
+    expandCards(container);
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
     tasks();
     expect(emptyCols()).toBeLessThan(allEmpty);

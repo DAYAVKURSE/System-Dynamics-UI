@@ -4,6 +4,15 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import TasksBoard, { GoalWork, newTask } from "../components/TasksBoard.jsx";
 import SystemModel from "../components/SystemModel.jsx";
 
+// Карточки прогноза свёрнуты: имя и график. Рычаги, гипотезы и задачи
+// разворачиваются нажатием на заголовок, поэтому тесты сначала раскрывают всё.
+const expandCards = (container) => {
+  [...container.querySelectorAll("span")]
+    .filter((s) => s.textContent === "\u25b8")
+    .forEach((s) => fireEvent.click(s.parentElement));
+};
+
+
 const GOALS = [
   { id: "u9", e: "usr", l: "активные пользователи", unit: "чел./мес", want: 10, by: 6 },
   { id: "m2", e: "mkt", l: "способ заработка", unit: "₽/мес", want: 50000, by: 12 },
@@ -192,9 +201,10 @@ describe("OKR", () => {
 
 describe("«Взять в работу» во вкладке «Прогноз»", () => {
   it("создаёт ключевой результат и задачу, привязанные к цели", () => {
-    render(<SystemModel />);
+    const { container } = render(<SystemModel />);
     // Рекомендации живут на «Прогнозе», а стартовая вкладка — «Задачи».
     fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
+    expandCards(container);
 
     const take = screen.getAllByRole("button", { name: "Взять в работу" });
     const before = take.length;
@@ -229,6 +239,7 @@ describe("«Взять в работу» во вкладке «Прогноз»"
     const before = dump();
 
     fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
+    expandCards(container);
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
@@ -247,6 +258,7 @@ describe("«Взять в работу» во вкладке «Прогноз»"
   it("задачи и KR уезжают в JSON вместе с моделью", () => {
     const { container } = render(<SystemModel />);
     fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
+    expandCards(container);
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);

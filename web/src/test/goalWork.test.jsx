@@ -8,9 +8,16 @@ import SystemModel from "../components/SystemModel.jsx";
 let container;
 beforeEach(() => { ({ container } = render(<SystemModel />)); });
 
+const expandCards = () => {
+  [...container.querySelectorAll("span")]
+    .filter((s) => s.textContent === "\u25b8")
+    .forEach((s) => fireEvent.click(s.parentElement));
+};
 const goalCard = (name) => {
-  // Цели живут на «Прогнозе», а стартовая вкладка — «Задачи».
+  // Цели живут на «Прогнозе», а стартовая вкладка — «Задачи». Карточки
+  // свёрнуты — раскрываем, иначе внутри только имя и график.
   fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
+  expandCards();
   const label = [...container.querySelectorAll("span")]
     .find((sp) => sp.textContent === name);
   if (!label) throw new Error(`цель «${name}» не найдена`);
@@ -25,8 +32,9 @@ const dump = () => {
 };
 
 describe("порядок и названия вкладок", () => {
-  it("задачи, отчёты, схема, прогноз, выгрузить", () => {
-    const names = ["Задачи", "Отчёты", "Схема", "Прогноз", "Выгрузить"];
+  it("задачи, проверка, timeline, схема, прогноз, выгрузить", () => {
+    const names = ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
+      "Выгрузить"];
     const tabs = names.map((n) => screen.getAllByRole("button", { name: n })[0]);
     // Порядок в разметке — это и есть порядок на экране.
     const pos = tabs.map((b) => [...container.querySelectorAll("button")].indexOf(b));
@@ -121,8 +129,8 @@ describe("задача от движения", () => {
     fireEvent.blur(amount);
     fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
 
-    // Отчёт появился на своей вкладке — там видно, что и когда делалось.
-    fireEvent.click(screen.getByRole("button", { name: "Отчёты" }));
+    // Отчёт появился на Timeline — там видно, что и когда делалось.
+    fireEvent.click(screen.getByRole("button", { name: "Timeline" }));
     // Строка таймлайна — та, где написано название задачи.
     const row = [...container.querySelectorAll("div")]
       .find((d) => d.style.cursor === "pointer");
