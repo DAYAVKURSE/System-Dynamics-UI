@@ -67,8 +67,10 @@ describe("перенос и условие — разные блоки", () => {
     expect(screen.getByText(/условия — когда перенос вообще происходит/)).toBeTruthy();
   });
 
-  it("без условий сказано, что попытки удаются всегда", () => {
-    expect(screen.getByText(/Условий нет — попытки удаются всегда/)).toBeTruthy();
+  it("без условий переносится всё запрошенное, и расчёт запроса виден", () => {
+    // 10 за попытку × 30 попыток (каждый день) = 300 ч/мес = 10 ч/день.
+    expect(screen.getByText(/Переносится 10 из 10 ч\/день/)).toBeTruthy();
+    expect(screen.getByText(/10 за попытку × 30 попыток за месяц/)).toBeTruthy();
   });
 });
 
@@ -93,13 +95,49 @@ describe("сводка стрелки говорит правду про нех�
 
     // Внутри модели: 300 ч/мес на двоих, каждый просит 1460, получает 150.
     // На экране всё в периоде ресурса — в днях, то есть делённое на 30.
-    expect(screen.getByText(/Просит 48,67, получает 5 ч\/день/)).toBeTruthy();
+    expect(screen.getByText(/Переносится 5 из 48,67 ч\/день/)).toBeTruthy();
     expect(screen.getByText(/есть 10, просят 97,33 ч\/день/)).toBeTruthy();
   });
 
   it("когда источника хватает, про нехватку не говорится", () => {
     expect(screen.queryByText(/на всех не хватает/)).toBeNull();
     expect(screen.getByText(/Переносится/)).toBeTruthy();
+  });
+});
+
+describe("условие на остаток собственного источника", () => {
+  const selfGated = () => {
+    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    const area = container.querySelector("textarea");
+    commit(area, JSON.stringify({
+      ...MODEL,
+      edges: [MODEL.edges[0],
+        { ...MODEL.edges[1], fromTrait: "work", conds: [{ expr: "{work} >= 1" }] }],
+    }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    fireEvent.click(screen.getAllByText("время на резюме")[0]);
+  };
+
+  it("прямо предупреждает, что это ловушка", () => {
+    selfGated();
+    expect(screen.getByText(/остаток того самого\s+ресурса/)).toBeTruthy();
+    expect(screen.getByText(/условие можно\s+просто удалить/)).toBeTruthy();
+  });
+
+  it("карточка и прогноз говорят одно и то же, а не противоположное", () => {
+    // Раньше карточка считала по итогам месяца 0 (время уже натекло → условие
+    // верно → «переносится»), а прогноз показывал сам месяц 0 — нули.
+    // Теперь оба считают от начала месяца 0.
+    selfGated();
+    expect(screen.getByText(/сейчас 0 >= 1 — неверно, переноса нет/)).toBeTruthy();
+    expect(screen.getByText(/Перенос сейчас не идёт: условия не выполняются/)).toBeTruthy();
+  });
+
+  it("на чужой ресурс предупреждения нет", () => {
+    addCond();
+    commit(exprField(), "[остаток квоты] >= 1");
+    expect(screen.queryByText(/остаток того самого/)).toBeNull();
   });
 });
 
@@ -122,7 +160,7 @@ describe("условие как целое выражение", () => {
     addCond();
     commit(exprField(), "10 - [остаток квоты] > 6 + 1");
     expect(screen.getByText(/неверно, переноса нет/)).toBeTruthy();
-    expect(screen.getByText(/Условия сейчас не выполняются/)).toBeTruthy();
+    expect(screen.getByText(/Перенос сейчас не идёт: условия не выполняются/)).toBeTruthy();
   });
 
   it("ресурсы вставляются из списка, а не набираются руками", () => {
@@ -141,7 +179,8 @@ describe("условие как целое выражение", () => {
     addCond();
     commit(exprField(), "((((");
     expect(screen.getByText(/не учитывается, пока не исправлено/)).toBeTruthy();
-    expect(screen.getByText(/Условия сейчас пропускают 100%/)).toBeTruthy();
+    // Битое условие не душит: переносится всё, что источник может дать.
+    expect(screen.getByText(/Переносится 10 из 10 ч\/день/)).toBeTruthy();
   });
 });
 

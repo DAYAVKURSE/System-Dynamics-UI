@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Cond, asGate, asRatio, condKind, condRefs, depsOf, isFlow, normalizeTrait,
-  normalizeTraits, shown, simulate, stored, transfers, unitOf } from "../lib/sim.js";
+  initialState, normalizeTraits, shown, simulate, stored, transfers, unitOf }
+  from "../lib/sim.js";
 
 /* Движок: расход ресурса и дележ между теми, кто на него претендует.
    Числа здесь проверяются напрямую — на отрисованные значения полагаться
@@ -370,11 +371,35 @@ describe("что стрелка передаёт на самом деле", () =
     expect(f.bid.share).toBe(1);
   });
 
-  it("карточка и симуляция считают одним и тем же — числа сходятся", () => {
-    // Если разойдутся, пользователь снова увидит в карточке одно, а в
-    // прогнозе другое; поэтому проверяем совпадение прямо.
+  it("карточка объясняет ровно месяц 0 прогноза — числа сходятся", () => {
+    // Карточка считает от того же состояния, с которого начинается месяц 0.
+    // Если разойдутся, пользователь увидит в карточке одно, а в прогнозе
+    // другое — ровно та ошибка, что уже была.
     const s = simulate(rush.traits, rush.edges, 2);
-    const f = now(rush, { work: s.work[0] });
-    expect(at(s.cv, 1)).toBe(Math.round(f.cv.moved * 100) / 100);
+    const f = now(rush, initialState(rush.traits));
+    expect(at(s.cv, 0)).toBe(Math.round(f.cv.moved * 100) / 100);
+  });
+
+  it("условие на остаток источника делает мёртвым первый месяц и качает модель", () => {
+    // Документируем ловушку: значение потока — остаток. В начале месяца 0
+    // времени ещё нет → условие ложно → никто не берёт → остаток 300 →
+    // в месяце 1 берут всё → остаток 0 → месяц 2 снова мёртвый.
+    const m = JSON.parse(JSON.stringify(rush));
+    m.edges[1].conds = [{ expr: "{work} >= 1" }];
+    m.edges[2].conds = [{ expr: "{work} >= 1" }];
+    const s = simulate(m.traits, m.edges, 4);
+    expect(s.cv.map(Math.round)).toEqual([0, 150, 0, 150, 0]);
+    // И карточка говорит то же самое про месяц 0, а не противоположное.
+    const f = now(m, initialState(m.traits));
+    expect(f.cv.k).toBe(0);
+    expect(f.cv.moved).toBe(0);
+  });
+
+  it("без такого условия дележ источника делает то же самое, но ровно", () => {
+    // Правильная запись «бери, пока есть»: никакого условия — нехватку
+    // режет сам источник, и модель стоит на 150/150 с первого месяца.
+    const s = simulate(rush.traits, rush.edges, 4);
+    expect(s.cv.map(Math.round)).toEqual([150, 150, 150, 150, 150]);
+    expect(s.bid.map(Math.round)).toEqual([150, 150, 150, 150, 150]);
   });
 });

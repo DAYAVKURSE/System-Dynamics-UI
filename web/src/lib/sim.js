@@ -186,6 +186,19 @@ export function transfers(traits, edges, { valueAt, seedAt, giveAt }) {
   return moves;
 }
 
+/* Состояние, с которого начинается месяц 0: запасы — со стартовых значений,
+   потоки — с нуля (их значение появляется по ходу шага). Функция одна на
+   симуляцию и интерфейс: карточка стрелки обязана объяснять ровно те числа,
+   которые показывает прогноз, а для этого считать надо от того же состояния. */
+export const initialState = (traits, seedMod) => {
+  const st = {};
+  traits.forEach((t) => {
+    const seed = Number((seedMod && seedMod[t.id] != null) ? seedMod[t.id] : (t.have ?? 0));
+    st[t.id] = isFlow(t) ? 0 : seed;
+  });
+  return st;
+};
+
 /* ─────── симуляция ─────── */
 /**
  * Метод Эйлера, шаг — месяц. Внутри шага порядок такой:
@@ -197,8 +210,8 @@ export function transfers(traits, edges, { valueAt, seedAt, giveAt }) {
  */
 export function simulate(traits, edges, months, seedMod, giveMod) {
   const seed = (t) => Number((seedMod && seedMod[t.id] != null) ? seedMod[t.id] : (t.have ?? 0));
-  const st = {}, series = {};
-  traits.forEach((t) => { st[t.id] = isFlow(t) ? 0 : seed(t); series[t.id] = []; });
+  const st = initialState(traits, seedMod), series = {};
+  traits.forEach((t) => { series[t.id] = []; });
 
   const giveAt = (ed) =>
     Number((giveMod && giveMod[ed.id] != null) ? giveMod[ed.id] : ed.gives) || 0;
