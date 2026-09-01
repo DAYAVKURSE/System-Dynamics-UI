@@ -199,15 +199,27 @@ function walk(node, valueOf) {
 /* Вычисляет выражение в форме хранения. valueOf(id) отдаёт текущее значение
    ресурса. Возвращает {value} либо {error} — исключения не бросает: битое
    выражение не должно ронять пересчёт всей модели. */
+// Разбор кэшируется по тексту: условия проверяются на каждой попытке внутри
+// месяца, и разбирать одну и ту же строку тысячи раз за пересчёт нельзя.
+const AST_CACHE = new Map();
+const AST_CACHE_MAX = 500;
+
+function astOf(text) {
+  const hit = AST_CACHE.get(text);
+  if (hit) return hit;
+  const lexed = tokenize(text);
+  const ast = lexed.error ? { error: lexed.error }
+    : (!lexed.tokens.length ? { error: "пусто" } : parse(lexed.tokens));
+  if (AST_CACHE.size >= AST_CACHE_MAX) AST_CACHE.clear();
+  AST_CACHE.set(text, ast);
+  return ast;
+}
+
 export function evaluate(src, valueOf) {
   const text = String(src ?? "").trim();
   if (!text) return { error: "пусто" };
 
-  const lexed = tokenize(text);
-  if (lexed.error) return { error: lexed.error };
-  if (!lexed.tokens.length) return { error: "пусто" };
-
-  const ast = parse(lexed.tokens);
+  const ast = astOf(text);
   if (ast.error) return { error: ast.error };
 
   const out = walk(ast, valueOf);

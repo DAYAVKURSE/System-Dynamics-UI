@@ -168,41 +168,96 @@ export const initialState = (traits, seedMod) => {
 
 const MAX_PASSES = 12;
 
+/* Месяц состоит из попыток. Стрелка с периодом «день» делает 30 попыток, и
+   условие проверяется НА КАЖДОЙ — по значениям на момент попытки, где
+   ресурсы-источники уже убыли от предыдущих попыток. Одна проверка на месяц
+   («сейчас 300 >= 5 — верно, значит переносим всё») была неправильной:
+   она не замечала, что к середине месяца источник уже выбран и условие
+   давно ложно.
+
+   Разрешение попыток — не чаще суточного: попытки «каждый час» идут пачками
+   по суткам. Иначе пересчёт (а рекомендации гоняют его сотнями) не влезал бы
+   в интерактивное время, а точность внутри суток модели с шагом «месяц»
+   ничего не даёт. */
+const MAX_TICKS = 30;
+
 function planOnce(traits, edges, byId, st, giveAt) {
-  // 1. Намерения стрелок при текущих значениях.
+  // Ресурсы, из которых кто-то берёт: их «осталось» убывает внутри месяца,
+  // и условия видят именно остаток на момент попытки.
+  const sourced = new Set();
+  edges.forEach((ed) => {
+    const src = sourceTrait(ed, (id) => byId[id] !== undefined);
+    if (src) sourced.add(src);
+  });
+  const left = {};
+  sourced.forEach((tid) => { left[tid] = Math.max(0, st[tid]); });
+  const valueAt = (tid) => (sourced.has(tid) ? left[tid] : st[tid]);
+
+  // Попытки нужны стрелке, только если внутри месяца для неё что-то меняется:
+  // она сама берёт из источника или её условия смотрят на убывающий ресурс.
+  // Остальным хватает одного расчёта — это и быстрее, и ровно прежний итог.
   const moves = [];
+  const ticking = [];
   for (const ed of edges) {
     if (!byId[ed.to]) continue;
-    // линейная пропорция по каждому условию: если 1 в месяц даёт 1, то 5 дают 5,
-    // без потолка в 100% (для условий-«не меньше»)
-    const k = edgeK(ed, (tid) => st[tid]);
-    moves.push({
-      ed, to: ed.to,
-      src: sourceTrait(ed, (id) => byId[id] !== undefined),
-      k,
-      want: Number(ed.sign) * giveAt(ed) * (PER[ed.per] ?? 1) * k,
+    const src = sourceTrait(ed, (id) => byId[id] !== undefined);
+    const per = PER[ed.per] ?? 1;
+    const f = { ed, to: ed.to, src, want: 0, moved: 0, asked: Math.abs(giveAt(ed)) * per,
+      supply: src ? left[src] : null, demand: null };
+    moves.push(f);
+    const dynamic = src || (ed.conds || []).some((c) => condRefs(c).some((r) => sourced.has(r)));
+    if (dynamic && per > 1) {
+      const ticks = Math.min(MAX_TICKS, Math.ceil(per));
+      ticking.push({ f, ticks, amount: giveAt(ed) * per / ticks, sign: Number(ed.sign) });
+    } else {
+      ticking.push({ f, ticks: 1, amount: giveAt(ed) * per, sign: Number(ed.sign) });
+    }
+  }
+
+  // Идём по месяцу: на каждом шаге делают попытку те, чья очередь подошла.
+  // Одновременные попытки делят остаток пропорционально запросу: порядок
+  // стрелок в файле не значит приоритета.
+  const maxTicks = Math.max(1, ...ticking.map((t) => t.ticks));
+  for (let step = 0; step < maxTicks; step++) {
+    const acting = [];
+    for (const tk of ticking) {
+      // Попытки стрелки распределены по месяцу равномерно.
+      const due = Math.floor((step + 1) * tk.ticks / maxTicks)
+        - Math.floor(step * tk.ticks / maxTicks);
+      if (due <= 0) continue;
+      const k = edgeK(tk.f.ed, valueAt);
+      const want = tk.sign * tk.amount * due * k;
+      acting.push({ tk, want });
+      tk.f.want += want;
+      if (tk.f.src && want > 0) tk.f.demand = (tk.f.demand || 0) + 0; // заполняется ниже
+    }
+    // Дележ остатка между одновременными попытками.
+    const ask = {};
+    acting.forEach((a) => { if (a.tk.f.src && a.want > 0) ask[a.tk.f.src] = (ask[a.tk.f.src] || 0) + a.want; });
+    const share = {};
+    Object.keys(ask).forEach((tid) => {
+      const have = Math.max(0, left[tid]);
+      share[tid] = ask[tid] > have ? have / ask[tid] : 1;
+    });
+    acting.forEach((a) => {
+      const f = a.tk.f;
+      const moved = a.want * ((f.src && a.want > 0) ? (share[f.src] ?? 1) : 1);
+      f.moved += moved;
+      if (f.src) left[f.src] = Math.max(0, left[f.src] - moved);
     });
   }
 
-  // 2. Сколько у источника просят и сколько он может отдать. Просят больше —
-  //    каждый получает свою долю запроса: делить поровну было бы неверно
-  //    (кто просил вдвое больше, вдвое больше и получит), а обслуживать по
-  //    порядку — тем более: порядок стрелок в файле не значит приоритета.
+  moves.forEach((f) => {
+    if (f.src) {
+      f.demand = null; // суммарный запрос по источнику — считаем разом ниже
+    }
+    f.k = f.asked > 0 ? Math.abs(f.want) / f.asked : 1;
+    f.share = f.want !== 0 ? f.moved / f.want : 1;
+  });
+  // Сколько всего просили у каждого источника за месяц — для сводки в карточке.
   const demand = {};
   moves.forEach((f) => { if (f.src && f.want > 0) demand[f.src] = (demand[f.src] || 0) + f.want; });
-  const share = {};
-  Object.keys(demand).forEach((tid) => {
-    const have = Math.max(0, st[tid]);
-    share[tid] = demand[tid] > have ? have / demand[tid] : 1;
-  });
-
-  // 3. Итог: сколько уходит на самом деле.
-  moves.forEach((f) => {
-    f.share = (f.src && f.want > 0) ? (share[f.src] ?? 1) : 1;
-    f.moved = f.want * f.share;
-    f.demand = f.src ? demand[f.src] : null;
-    f.supply = f.src ? Math.max(0, st[f.src]) : null;
-  });
+  moves.forEach((f) => { if (f.src) f.demand = demand[f.src] || 0; });
   return moves;
 }
 

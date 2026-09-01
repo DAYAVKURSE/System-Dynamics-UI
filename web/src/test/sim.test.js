@@ -347,16 +347,16 @@ describe("что стрелка передаёт на самом деле", () =
   it("запрос и полученное — разные числа, и видно оба", () => {
     // Ровно то, из-за чего карточка врала: она показывала запрос как факт.
     const f = now();
-    expect(f.cv.want).toBe(1460);
-    expect(f.cv.moved).toBe(150);
-    expect(f.bid.moved).toBe(150);
+    expect(f.cv.want).toBeCloseTo(1460, 6);
+    expect(f.cv.moved).toBeCloseTo(150, 6);
+    expect(f.bid.moved).toBeCloseTo(150, 6);
   });
 
   it("сумма выданного не больше того, что есть у источника", () => {
     const f = now();
-    expect(f.cv.moved + f.bid.moved).toBe(300);
+    expect(f.cv.moved + f.bid.moved).toBeCloseTo(300, 6);
     expect(f.cv.supply).toBe(300);
-    expect(f.cv.demand).toBe(2920);
+    expect(f.cv.demand).toBeCloseTo(2920, 6);
   });
 
   it("доля показывает, насколько урезали", () => {
@@ -394,8 +394,12 @@ describe("что стрелка передаёт на самом деле", () =
     expect(s.cv.map(Math.round)).toEqual([150, 150, 150, 150, 150]);
     expect(s.work.map(Math.round)).toEqual([300, 300, 300, 300, 300]);
     const f = now(m);
-    expect(f.cv.k).toBe(1);
-    expect(f.cv.moved).toBe(150);
+    // Условие проверяется на каждой попытке: как только фонд выбран,
+    // попытки перестают проходить — поэтому итоговая пропускная доля
+    // условий меньше единицы, а не «верно весь месяц».
+    expect(f.cv.k).toBeGreaterThan(0);
+    expect(f.cv.k).toBeLessThan(1);
+    expect(f.cv.moved).toBeCloseTo(150, 6);
   });
 
   it("цепочка потоков разогревается внутри шага, а не по месяцу на звено", () => {
@@ -405,5 +409,70 @@ describe("что стрелка передаёт на самом деле", () =
     const s = simulate(m.traits, m.edges, 2);
     expect(at(s.cv, 0)).toBeGreaterThan(0);
     expect(at(s.bid, 0)).toBeGreaterThan(0);
+  });
+});
+
+describe("расчёт по попыткам внутри месяца", () => {
+  // Фонд 300 ч/мес; стрелка берёт по 5 в день, но только пока времени
+  // не меньше 200 — «не трогай последние 200 часов».
+  const threshold = (right) => ({
+    traits: [
+      { id: "work", e: "me", k: "res", l: "время", unit: "часов", flow: true, per: "мес" },
+      { id: "cv", e: "job", k: "res", l: "резюме", unit: "часов", flow: true, per: "мес" },
+    ],
+    edges: [
+      { id: "in", from: "me", to: "work", gives: 10, per: "день", sign: 1, conds: [] },
+      { id: "cv", from: "me", to: "cv", gives: 5, per: "день", sign: 1,
+        conds: [{ expr: `{work} >= ${right}` }], fromTrait: "work" },
+    ],
+  });
+
+  it("условие проверяется на каждой попытке, а не раз в месяц", () => {
+    // Одна проверка в месяц сказала бы «300 >= 200 — верно» и отдала все 150.
+    // По попыткам: берём по 5, пока остаток не меньше 200 — это 21 попытка
+    // (300, 295, … 200), итого 105, и на 195 стрелка останавливается.
+    const s = simulate(threshold(200).traits, threshold(200).edges, 1);
+    expect(at(s.cv, 0)).toBe(105);
+  });
+
+  it("порог ноль — берётся всё, что просилось", () => {
+    const s = simulate(threshold(0).traits, threshold(0).edges, 1);
+    expect(at(s.cv, 0)).toBe(150);
+  });
+
+  it("двое пьют из одного фонда — кто чаще просит, тому больше", () => {
+    // Рассылка просит по часу (пачками по суткам: 24,33/день), оставление —
+    // по 5 в день. Оба идут, пока фонд не выбран: ~10 дней, дальше пусто.
+    const m = threshold(1);
+    m.traits.push({ id: "bid", e: "ord", k: "res", l: "отклики", unit: "часов", flow: true, per: "мес" });
+    m.edges[1] = { id: "cv", from: "me", to: "cv", gives: 1, per: "час", sign: 1,
+      conds: [{ expr: "{work} >= 1" }], fromTrait: "work" };
+    m.edges.push({ id: "bid", from: "me", to: "bid", gives: 5, per: "день", sign: 1,
+      conds: [{ expr: "{work} >= 1" }], fromTrait: "work" });
+    const s = simulate(m.traits, m.edges, 1);
+    expect(at(s.cv, 0)).toBeCloseTo(248.86, 1);
+    expect(at(s.bid, 0)).toBeCloseTo(51.14, 1);
+    expect(s.cv[0] + s.bid[0]).toBeCloseTo(300, 6);
+  });
+
+  it("стрелки без источника и без условий считаются как раньше, одним махом", () => {
+    const m = {
+      traits: [{ id: "u", e: "x", k: "res", l: "юзеры", unit: "чел.", flow: true, per: "мес" }],
+      edges: [{ id: "e", from: "x", to: "u", gives: 7, per: "день", sign: 1, conds: [] }],
+    };
+    expect(at(simulate(m.traits, m.edges, 1).u, 0)).toBe(210);
+  });
+
+  it("условие на чужой убывающий ресурс тоже видит попытки", () => {
+    // Стрелка ничего не берёт сама, но заперта на остаток чужого фонда:
+    // как только его выбрали, её попытки перестают проходить.
+    const m = threshold(1);
+    m.traits.push({ id: "flag", e: "ord", k: "res", l: "флаг", unit: "ед.", flow: true, per: "мес" });
+    m.edges[1].conds = [];   // потребитель пьёт без условий: 150 из 300
+    m.edges.push({ id: "fl", from: "ord", to: "flag", gives: 1, per: "день", sign: 1,
+      conds: [{ expr: "{work} >= 280" }] });
+    const s = simulate(m.traits, m.edges, 1);
+    // Остаток падает по 5 в день с 300: не меньше 280 он только 5 первых попыток.
+    expect(at(s.flag, 0)).toBe(5);
   });
 });

@@ -86,11 +86,17 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
 
   const upT=(id,f,v)=>setTasks(p=>p.map(t=>t.id===id?{...t,[f]:v}:t));
   const delT=(id)=>{setTasks(p=>p.filter(t=>t.id!==id));setOpenId(null);};
+  // Задача создаётся и из карточки цели: нажал на цель — получил задачу,
+  // уже привязанную к ней, и сразу открытую для заполнения.
+  const addTaskFor=(goalId,title)=>{
+    const t=newTask({goalId,title:title||"Новая задача"});
+    setTasks(p=>[...p,t]); setOpenId(t.id);
+    return t;
+  };
   const addTask=()=>{
     if(!goals.length) return;
     const goalId=filter!=="all"&&goalById[filter]?filter:goals[0].id;
-    const t=newTask({goalId,title:draft.trim()||"Новая задача"});
-    setTasks(p=>[...p,t]); setDraft(""); setOpenId(t.id);
+    addTaskFor(goalId,draft.trim()); setDraft("");
   };
   const addComment=(id,text)=>{
     if(!text.trim()) return;
@@ -137,6 +143,8 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
               <span style={{fontSize:13.5,fontWeight:700,flex:1}}>{g.l}</span>
               <span style={{fontSize:11,color:C.muted}}>
                 задач: {done}/{gt.length}</span>
+              <button style={btn(true)} title="Создать задачу к этой цели"
+                onClick={()=>addTaskFor(g.id)}>+ задача</button>
             </div>
             <div style={{fontSize:11,color:C.muted,marginBottom:8}}>
               {entityName(g.e)} · нужно {nm(Number(g.want))} {g.unit}

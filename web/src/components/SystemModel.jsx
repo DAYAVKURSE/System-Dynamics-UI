@@ -381,8 +381,8 @@ function ArrowRow({ed,traits,entities,valueOf,kindOf,now,onEdit,onDelete}){
                 {bad
                   ? `${R.error} — условие не учитывается, пока не исправлено`
                   : parts&&!L1.error&&!L2.error
-                    ? `сейчас ${nm(L1.value)} ${parts.op} ${nm(L2.value)} — ${kk>0?"верно, перенос идёт":"неверно, переноса нет"}`
-                    : `сейчас ${kk>0?"верно, перенос идёт":"неверно, переноса нет"}`}
+                    ? `в начале месяца ${nm(L1.value)} ${parts.op} ${nm(L2.value)} — ${kk>0?"верно":"неверно"}${selfGate?"; дальше проверяется на каждой попытке: источник убывает, и как только условие перестаёт выполняться, попытки останавливаются":kk>0?", перенос идёт":", переноса нет"}`
+                    : `в начале месяца ${kk>0?"верно, перенос идёт":"неверно, переноса нет"}`}
               </div>
               {selfWarn}
             </div>);
@@ -631,8 +631,7 @@ export default function SystemModel(){
   const [simSpan,setSimSpan]=useState(24);
   const [simOv,setSimOv]=useState([]); // [{trait,val}] — стартовые условия сценария
   const [simEnt,setSimEnt]=useState(ENTITIES0[0]?.id);
-  const [simRun,setSimRun]=useState(null); // {base, baseFact, span} — снимок после запуска
-  const [simMonth,setSimMonth]=useState(0); // текущий месяц на ползунке времени
+  const [simMonth,setSimMonth]=useState(0); // месяц на ползунке времени главной схемы
 
   const ent=(id)=>entities.find(e=>e.id===id);
   const trait=(id)=>traits.find(t=>t.id===id);
@@ -895,16 +894,20 @@ export default function SystemModel(){
   const selE=ent(sel),selT=selTrait?trait(selTrait):null;
   const pairG=pair?groups.find(g=>g.key===pair):null;
 
-  const runSim=()=>{
+  // Симуляция пересчитывается сама при каждой правке модели — кнопка
+  // «запустить» заставляла помнить о ней и показывала устаревший снимок.
+  const simRun=useMemo(()=>{
     const seedMod={};
-    simOv.forEach(o=>{if(o.trait) seedMod[o.trait]=Number(o.val)||0;});
-    setSimRun({
+    simOv.forEach(o=>{if(o.trait){
+      const t=trait(o.trait);
+      seedMod[o.trait]=t?asStored(t,Number(o.val)||0):Number(o.val)||0;
+    }});
+    return {
       base:simulate(traits,edges,simSpan,seedMod),
       baseFact:simulate(traits,factEdges(edges),simSpan,seedMod),
       span:simSpan,
-    });
-    setSimMonth(0);
-  };
+    };
+  },[traits,edges,simSpan,simOv]);
 
   return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
@@ -1168,15 +1171,27 @@ export default function SystemModel(){
               title="Расставит блоки по сетке, сохранив расстановку по рядам">
               ⌗ выровнять</button>
           </div>
+          <div className="flex items-center gap-2" style={{marginBottom:4,flexWrap:"wrap"}}>
+            <span style={S.lbl}>время</span>
+            <input type="range" min={0} max={span} step={1}
+              value={Math.min(simMonth,span)}
+              onChange={e=>setSimMonth(Number(e.target.value))}
+              style={{flex:"1 1 140px",accentColor:ACC}}/>
+            <span style={{fontSize:12.5,fontWeight:700,color:ACC,minWidth:86,
+              textAlign:"right"}}>
+              {Math.min(simMonth,span)===0?"сейчас":`+${Math.min(simMonth,span)} мес.`}
+            </span>
+          </div>
           <div style={{fontSize:11,color:C.muted,marginBottom:4}}>
-            Тап по блоку или стрелке — открыть. Блок можно перетащить — схема
-            запомнит новое положение. «Выровнять» расставит блоки по сетке;
-            не понравится — «отменить» в шапке.
+            Тап по блоку или стрелке — открыть, перетащить — переставить.
+            Ползунок времени показывает схему в будущем: числа и проценты на
+            ней — прогноз на выбранный месяц; правки всегда меняют «сейчас».
           </div>
           <div style={{overflow:"auto",WebkitOverflowScrolling:"touch"}}>
             <SchemeSVG entities={entities} traits={traits} edges={edges} groups={groups}
               zoom={zoom} sel={sel} pair={pair}
-              valuesFor={tid=>live[tid]??0} valuesForFact={tid=>liveFact[tid]??0}
+              valuesFor={tid=>base[tid]?.[Math.min(simMonth,span)]??0}
+              valuesForFact={tid=>baseFact[tid]?.[Math.min(simMonth,span)]??0}
               onSelectEntity={id=>{setSel(id);setSelTrait(null);setPair(null);}}
               onSelectPair={key=>{setPair(key);setSelTrait(null);}}
               onMoveEntity={moveE}/>
@@ -1412,39 +1427,13 @@ export default function SystemModel(){
               + добавить исходное условие</button>
           </div>
 
-          <button style={btn(true,ACC)} onClick={runSim}>▶ запустить симуляцию</button>
-          {simRun&&<span style={{fontSize:11.5,color:C.muted,marginLeft:10}}>
-            последний прогон: {simRun.span} мес.</span>}
+          <div style={{fontSize:11.5,color:C.muted}}>
+            Пересчитывается сама при каждой правке модели. Схема с ползунком
+            времени — на вкладке «Схема»; здесь — активы и графики.
+          </div>
         </div>
 
-        {!simRun&&<div style={S.card}>Настрой срок и, если нужно, стартовые условия —
-          затем нажми «запустить симуляцию», чтобы увидеть, что будет происходить со всеми
-          ресурсами каждого актива за это время.</div>}
-
-        {simRun&&(<>
-          <div style={{...S.card,padding:6,marginBottom:10}}>
-            <div className="flex items-center gap-2" style={{marginBottom:8,flexWrap:"wrap"}}>
-              <span style={S.lbl}>месяц</span>
-              <input type="range" min={0} max={simRun.span} step={1} value={simMonth}
-                onChange={e=>setSimMonth(Number(e.target.value))}
-                style={{flex:"1 1 160px",accentColor:ACC}}/>
-              <span style={{fontSize:13,fontWeight:700,color:ACC,minWidth:64,textAlign:"right"}}>
-                {simMonth} / {simRun.span} мес.</span>
-              <button style={btn(false)} onClick={()=>setZoom(z=>Math.max(.32,z-.12))}>−</button>
-              <button style={btn(false)} onClick={()=>setZoom(z=>Math.min(1.6,z+.12))}>+</button>
-            </div>
-            <div style={{fontSize:11,color:C.muted,marginBottom:6}}>
-              Схема показывает состояние на выбранный месяц прогона — двигай ползунок,
-              чтобы посмотреть, как менялись активы во времени.
-            </div>
-            <SchemeSVG entities={entities} traits={traits} edges={edges} groups={groups}
-              zoom={zoom} sel={simEnt} pair={null}
-              valuesFor={tid=>simRun.base[tid]?.[simMonth]??0}
-              valuesForFact={tid=>simRun.baseFact[tid]?.[simMonth]??0}
-              onSelectEntity={id=>setSimEnt(id)} onSelectPair={()=>{}}
-              onMoveEntity={moveE}/>
-          </div>
-
+        {(<>
           <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
             {entities.map(en=>(<button key={en.id}
               style={{...btn(simEnt===en.id),borderColor:en.color,
