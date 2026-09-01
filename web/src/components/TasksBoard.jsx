@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { PER, unitOf, shown, lastSubmission } from "../lib/sim.js";
+import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · OKR + канбан-доска
@@ -57,7 +58,10 @@ const uid=(p)=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
 // Потолок на файл отчёта: он едет в хранилище вместе с остальными отчётами,
 // и мегабайтные фотографии там ни к чему.
-export const MAX_REPORT_BYTES=2*1024*1024;
+// Предел зависит от того, есть ли куда класть файл: на диск сервера влезает
+// 20 МБ, внутрь сценария — 2 МБ. Оба живут в storage.js; здесь оставлен
+// только реэкспорт для кода, читавшего старое имя.
+export const MAX_REPORT_BYTES=MAX_UPLOAD_REPORT_BYTES;
 
 export function newTask({goalId,okrId=null,edgeId=null,title="Новая задача",
   body=""}){
@@ -231,22 +235,22 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
   const [draftText,setDraftText]=useState("");
   const [draftFile,setDraftFile]=useState(null);
   const [fileErr,setFileErr]=useState("");
+  const [fileBusy,setFileBusy]=useState(false);
   const move=edges.find(e=>e.id===task.edgeId)||null;
   const subs=task.submissions||[];
   const goal=goals.find(g=>g.id===task.goalId)||null;
-  // Файл отчёта храним как данные: он должен пережить перезагрузку и уехать
-  // вместе с отчётами, а не остаться ссылкой на исчезнувший файл на диске.
-  const pickFile=(f)=>{
+  // Файл отчёта уезжает на диск сервера, а в сценарий попадает ссылка. Без
+  // сервера — обратно в data:-URL внутри сценария: потерять отчёт хуже, чем
+  // раздуть документ. Куда именно легло, решает storage.js.
+  const pickFile=async(f)=>{
     setFileErr("");
     if(!f) return;
-    if(f.size>MAX_REPORT_BYTES){
-      setFileErr(`файл больше ${Math.round(MAX_REPORT_BYTES/1024/1024)} МБ — не поместится`);
-      return;
-    }
-    const r=new FileReader();
-    r.onload=()=>setDraftFile({name:f.name,type:f.type,size:f.size,data:String(r.result)});
-    r.onerror=()=>setFileErr("не удалось прочитать файл");
-    r.readAsDataURL(f);
+    // Предел не проверяем здесь: он разный у диска и у инлайна, а какой из
+    // них сейчас работает, знает только storage.js — он и откажет словами.
+    setFileBusy(true);
+    try{ setDraftFile(await putReportFile(f)); }
+    catch(e){ setFileErr(e.message||"не удалось сохранить файл"); }
+    setFileBusy(false);
   };
   const submit=()=>{
     upMany({submissions:[...subs,newSubmission({amount:Number(draftAmount)||0,
@@ -397,9 +401,10 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
                     style={{minHeight:56,marginBottom:6,lineHeight:1.5}}
                     onCommit={setDraftText}/>
                   <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-                    <label style={{...btn(false),cursor:"pointer"}}>
-                      Загрузить отчёт
-                      <input type="file" style={{display:"none"}}
+                    <label style={{...btn(false),cursor:fileBusy?"default":"pointer",
+                      opacity:fileBusy?0.6:1}}>
+                      {fileBusy?"Загружаю…":"Загрузить отчёт"}
+                      <input type="file" style={{display:"none"}} disabled={fileBusy}
                         onChange={e=>pickFile(e.target.files?.[0])}/>
                     </label>
                     {draftFile&&<span style={{fontSize:10.5,color:ACC}}>
@@ -408,7 +413,8 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
                     <span style={{flex:1}}/>
                     <button style={btn(false)} onClick={()=>{setHanding(false);
                       setDraftFile(null);setFileErr("");}}>Отмена</button>
-                    <button style={btn(true,OK)} onClick={submit}>Сдать</button>
+                    <button style={btn(true,OK)} disabled={fileBusy}
+                      onClick={submit}>Сдать</button>
                   </div>
                 </div>}
           </div>

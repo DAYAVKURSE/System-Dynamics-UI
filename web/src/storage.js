@@ -129,6 +129,71 @@ export async function syncSchedule(tasks) {
   return r.ok;
 }
 
+/* ─────── файлы отчётов ───────
+   Файл сдачи хранится на диске сервера, а в сценарий уезжает ссылка. Когда
+   сервера нет (статичный хостинг, приложение открыто вне Telegram), падаем
+   обратно на data:-URL внутри сценария: потерять отчёт хуже, чем раздуть
+   документ. Поэтому у файла в сценарии два возможных вида — `url` и `data`, —
+   и показывать надо тот, который есть. */
+
+// Инлайн переживает выгрузку сценария целиком, поэтому лимит здесь жёстче:
+// это то, что ляжет в одну ячейку хранилища вместе со всей моделью.
+export const MAX_INLINE_REPORT_BYTES = 2 * 1024 * 1024;
+export const MAX_UPLOAD_REPORT_BYTES = 20 * 1024 * 1024;
+
+let reportsOk = null;
+export async function reportsAvailable() {
+  if (reportsOk !== null) return reportsOk;
+  try {
+    const r = await fetch("/api/health", { headers: { Accept: "application/json" } });
+    const j = r.ok ? await r.json() : null;
+    reportsOk = Boolean(j && j.ok && j.reports);
+  } catch {
+    reportsOk = false;
+  }
+  return reportsOk;
+}
+
+const readAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result));
+  r.onerror = () => reject(new Error("не удалось прочитать файл"));
+  r.readAsDataURL(file);
+});
+
+/** Кладёт файл отчёта туда, где он переживёт перезагрузку, и возвращает
+ *  запись для сдачи: `{name, type, size, url}` либо `{name, type, size, data}`. */
+export async function putReportFile(file) {
+  const meta = { name: file.name, type: file.type, size: file.size };
+  if (await reportsAvailable()) {
+    if (file.size > MAX_UPLOAD_REPORT_BYTES) {
+      throw new Error(`файл больше ${Math.round(MAX_UPLOAD_REPORT_BYTES / 1024 / 1024)} МБ — не поместится`);
+    }
+    // Имя едет в заголовке, а заголовки latin-1: кириллицу шлём base64.
+    const nameB64 = btoa(String.fromCharCode(...new TextEncoder().encode(file.name)));
+    const r = await fetch("/api/reports", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Report-Name": nameB64,
+        "X-Report-Type": file.type || "application/octet-stream",
+        "X-Telegram-Init-Data": getInitData(),
+      },
+      body: file,
+    });
+    if (!r.ok) throw new Error(`не удалось загрузить файл (сервер ответил ${r.status})`);
+    const saved = await r.json();
+    return { ...meta, name: saved.name || meta.name, id: saved.id, url: saved.url };
+  }
+  if (file.size > MAX_INLINE_REPORT_BYTES) {
+    throw new Error(`без сервера файл хранится внутри сценария — не больше ${Math.round(MAX_INLINE_REPORT_BYTES / 1024 / 1024)} МБ`);
+  }
+  return { ...meta, data: await readAsDataUrl(file) };
+}
+
+/** Куда смотреть за содержимым файла — ссылка на диск или инлайн. */
+export const reportSrc = (f) => (f ? (f.url || f.data || "") : "");
+
 /* ─────── 1. сервер ─────── */
 
 const apiHeaders = () => ({

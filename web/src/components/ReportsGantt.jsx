@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
 import { STATUSES } from "./TasksBoard.jsx";
 import { unitOf } from "../lib/sim.js";
+import { reportSrc } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОТЧЁТЫ · что делалось, когда, ради какой цели и с каким результатом.
@@ -179,12 +180,20 @@ export default function ReportsGantt({ tasks, edges, traits, goals, entityName }
                   {sb.file && (
                     <div style={{ marginTop: 6 }}>
                       {/^image\//.test(sb.file.type || "")
-                        ? <img src={sb.file.data} alt={sb.file.name}
+                        ? <img src={reportSrc(sb.file)} alt={sb.file.name}
                             style={{ maxWidth: "100%", borderRadius: 6,
                               border: `1px solid ${C.line}` }} />
-                        : <div style={{ fontSize: 11, color: ACC }}>
-                            📎 {sb.file.name} · {Math.round((sb.file.size || 0) / 1024)} КБ
-                          </div>}
+                        : sb.file.url
+                          // Файл на диске можно открыть; инлайн в Telegram
+                          // WebView всё равно не скачивается, поэтому там
+                          // остаётся просто подпись.
+                          ? <a href={sb.file.url} target="_blank" rel="noreferrer"
+                              style={{ fontSize: 11, color: ACC }}>
+                              📎 {sb.file.name} · {Math.round((sb.file.size || 0) / 1024)} КБ
+                            </a>
+                          : <div style={{ fontSize: 11, color: ACC }}>
+                              📎 {sb.file.name} · {Math.round((sb.file.size || 0) / 1024)} КБ
+                            </div>}
                     </div>)}
                 </div>))}
             </div>

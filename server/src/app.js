@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import scenariosRouter from "./routes/scenarios.js";
 import scheduleRouter from "./routes/schedule.js";
+import reportsRouter from "./routes/reports.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,10 +22,15 @@ export function createApp() {
       scenarios: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Напоминания шлёт бот, поэтому без токена планировщик бесполезен.
       reminders: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      // Файлы отчётов — то же хранилище на диске, что и сценарии: без
+      // проверки подписи открывать загрузку всем подряд нельзя.
+      reports: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     }),
   );
   app.use("/api/scenarios", scenariosRouter);
   app.use("/api/schedule", scheduleRouter);
+  // Файлы отчётов: сырые байты, поэтому свой парсер тела внутри маршрута.
+  app.use("/api/reports", reportsRouter);
 
   // Собранный фронтенд (web build) кладётся сюда шагом деплоя — см. docs/DEPLOYMENT.md.
   // Локально в dev-режиме этой папки обычно нет: фронтенд поднимается отдельно

@@ -189,6 +189,7 @@ jobs:
           PORT=3000
           SCENARIOS_DIR=${DEPLOY_PATH_R}/data/scenarios
           SCHEDULES_DIR=${DEPLOY_PATH_R}/data/schedules
+          REPORTS_DIR=${DEPLOY_PATH_R}/data/reports
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF
 
