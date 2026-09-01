@@ -130,83 +130,47 @@ export const sourceTrait = (ed, hasTrait) => {
   return (s && s !== ed.to && hasTrait(s)) ? s : null;
 };
 
-/* ─────── метрики задач как движение ─────── */
-/* Задача говорит, что она тратит и что приносит. В модели это не отдельная
-   бухгалтерия, а обычные стрелки: иначе появился бы второй механизм расчёта
-   рядом с edges/conds, и «почему цифра такая» пришлось бы искать в двух
-   местах. Стрелки не хранятся в сценарии — они выводятся из задач при
-   каждом расчёте: так задача не может оставить после себя осиротевшую
-   стрелку, а правка метрики не требует чинить edges.
+/* Расписание движения — когда оно происходит: окно дат и периодичность.
+   Периодичность — это `per` самой стрелки («попытка каждый день»): второго
+   поля частоты быть не должно, иначе они противоречат друг другу. Отсюда же
+   берутся напоминания по задачам этого движения. */
+export const REPEAT_BY_PER = { "день": "daily", "нед": "weekly" };
+export const scheduleOf = (ed) => ({
+  start: ed.start || "",
+  end: ed.end || "",
+  repeat: REPEAT_BY_PER[ed.per] || "once",
+  days: ed.days || [],
+  time: ed.time || "",
+});
 
-   Часы не превращаются в рубли: «тратит 2 ч/день» и «приносит 5000 ₽/мес» —
-   это две разные стрелки к двум разным ресурсам, а не одна. Связь между
-   ними — сама задача. */
-export const isTaskEdge = (ed) => !!(ed && ed.task);
+/* ─────── задачи: план и факт одного движения ─────── */
+/* Задача не добавляет в модель собственного движения — она исполняет то,
+   которое уже нарисовано стрелкой. Отсюда разделение чисел:
+   · гипотеза — интенсивность самой стрелки («сколько должно переходить»);
+   · факт     — сколько реально перешло, записывается при сдаче задачи.
+   Раньше задача несла свои «тратит/приносит», и работа с моделью разъезжались:
+   одно и то же движение описывалось дважды, в стрелке и в задаче. */
 
-// Метрика считается, пока задача не «готово»: доделанная разовая работа
-// больше ничего не тратит и не приносит.
-export const taskCounts = (t) => !!t && t.status !== "done";
-
-/* Сколько раз задача выполняется за месяц — из её периодичности. Разовая
-   считается одним выполнением в месяц, пока не переведена в «Готово»: шаг
-   модели — месяц, и точнее в нём разовое событие не разместить. */
-export function repeatsPerMonth(t) {
-  if (!t) return 0;
-  if (t.repeat === "daily") return 30;
-  if (t.repeat === "weekly") return Math.max(1, (t.days || []).length) * 4.33;
-  return 1;
+// Сдачи задачи, сложенные по движению: последняя сдача и есть текущий факт.
+export function lastSubmission(task) {
+  const subs = (task && task.submissions) || [];
+  if (!subs.length) return null;
+  return subs.reduce((a, b) =>
+    (String(b.at || "") > String(a.at || "") ? b : a));
 }
 
-export function taskEdges(tasks, traits, edges) {
-  const byId = {};
-  (traits || []).forEach((t) => { byId[t.id] = t; });
-  const edgeById = {};
-  (edges || []).forEach((e) => { edgeById[e.id] = e; });
-  const out = [];
-  (tasks || []).forEach((task) => {
-    if (!taskCounts(task)) return;
-
-    // Задача выполняет движение: каждое выполнение пополняет ресурс, в
-    // который движение ведёт. Сколько раз за месяц — из периодичности задачи.
-    const move = edgeById[task.edgeId];
-    const amount = Number(task.amount);
-    const target = move && byId[move.to];
-    if (target && amount) {
-      out.push({
-        id: `task:${task.id}:move`,
-        from: target.e, to: target.id,
-        carrier: task.title,
-        gives: Math.abs(amount) * repeatsPerMonth(task),
-        per: "мес",
-        sign: amount >= 0 ? 1 : -1,
-        conds: [], note: "", basis: task.basis === "fact" ? "fact" : "hypo",
-        task: task.id, forEdge: move.id,
-      });
-    }
-    (task.effects || []).forEach((ef, i) => {
-      const t = byId[ef.trait];
-      const amount = Number(ef.amount);
-      if (!t || !amount) return;
-      out.push({
-        id: `task:${task.id}:${ef.id || i}`,
-        // Стрелка идёт от актива ресурса к нему же: задача меняет актив
-        // изнутри, а не переносит величину откуда-то ещё.
-        from: t.e, to: t.id,
-        carrier: task.title,
-        gives: Math.abs(amount),
-        per: ef.per || "мес",
-        sign: ef.dir === "spend" ? -1 : 1,
-        conds: [], note: "", basis: ef.basis === "fact" ? "fact" : "hypo",
-        task: task.id, effect: ef.id || String(i),
-      });
-    });
+/* Фактическая интенсивность движения: сколько перешло в последнюю сдачу.
+   Берём последнюю, а не среднее: среднее пришлось бы считать за какой-то
+   период, и любой выбор периода был бы произволом, который не объяснить. */
+export function factGives(ed, tasks) {
+  const mine = (tasks || []).filter((t) => t.edgeId === ed.id);
+  let best = null;
+  mine.forEach((t) => {
+    const s = lastSubmission(t);
+    if (s && s.amount != null && (!best || String(s.at) > String(best.at))) best = s;
   });
-  return out;
+  return best ? Number(best.amount) : null;
 }
-
-/** Полный набор стрелок модели: нарисованные плюс выведенные из задач. */
-export const modelEdges = (edges, tasks, traits) =>
-  [...(edges || []), ...taskEdges(tasks, traits, edges)];
 
 /* ─────── шаг модели: что стрелки реально передают ─────── */
 /**
@@ -401,7 +365,18 @@ export const reachMonth = (s, w) => {
 // (точный расчёт). Поэтому считаем модель дважды: по всем стрелкам (гипотетический
 // прогноз, оптимистичный) и только по стрелкам-фактам (гарантированный прогноз).
 export const isFact = (e) => e.basis === "fact";
-export const factEdges = (edges) => edges.filter(isFact);
+
+/* Фактический прогноз: точные стрелки как были, плюс движения, по которым
+   есть сдачи — с фактическим количеством вместо запланированного. */
+export function factEdges(edges, tasks) {
+  const out = [];
+  (edges || []).forEach((ed) => {
+    const actual = tasks ? factGives(ed, tasks) : null;
+    if (actual != null) out.push({ ...ed, gives: actual, basis: "fact" });
+    else if (isFact(ed)) out.push(ed);
+  });
+  return out;
+}
 export const frac = (v, w) => (w ? Math.max(0, Number(v) / Number(w)) : null);
 
 // Граф зависимостей цели: от чего вообще может измениться её значение.
@@ -446,7 +421,7 @@ export function adviseFor(traits, edges, g, span) {
     const ed = edges.find((x) => x.id === eid);
     // Стрелку задачи крутить нельзя: она выводится из метрики задачи, и
     // записанное в неё значение стёрлось бы следующим пересчётом.
-    if (!ed || isTaskEdge(ed)) return;
+    if (!ed) return;
     const cur = Number(ed.gives) || 0, v = search((x) => [null, { [eid]: x }], cur);
     if (v != null && v > cur * 1.001) recs.push({ type: "edge", eid, from: cur, to: v,
       month: test(null, { [eid]: v }), label: ed.carrier,

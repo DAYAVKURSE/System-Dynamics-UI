@@ -53,38 +53,32 @@ describe("работа по цели — во вкладке «Цели»", () =
   });
 });
 
-describe("метрика задачи попадает в модель", () => {
-  const addEffect = (card, dir) =>
-    fireEvent.click(within(card).getByRole("button", { name: `+ ${dir}` }));
+describe("сдача задачи даёт факт", () => {
+  it("«СДАТЬ» записывает фактическое количество и закрывает задачу", () => {
+    fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 
-  it("строка метрики становится стрелкой к ресурсу", () => {
-    const card = goalCard("активные пользователи");
-    fireEvent.click(within(card).getByRole("button", { name: "+ задача" }));
-    addEffect(card, "приносит");
-
-    // Выбираем ресурс и величину.
-    const picker = [...card.querySelectorAll("select")]
-      .find((s) => s.textContent.includes("— какой ресурс —"));
-    fireEvent.change(picker, { target: { value: "u9" } });
-    const amount = [...card.querySelectorAll("input")]
-      .find((i) => i.value === "0");
-    fireEvent.change(amount, { target: { value: "7" } });
+    expect(screen.getByText(/фактически перешло в/)).toBeTruthy();
+    const amount = screen.getByPlaceholderText("сколько");
+    fireEvent.change(amount, { target: { value: "9" } });
     fireEvent.blur(amount);
+    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
 
-    // Метрика видна в модели: у ресурса появилась входящая стрелка задачи.
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
-    fireEvent.click(screen.getAllByText("активные пользователи")[0]);
-    expect(screen.getByText(/метрика задачи «Новая задача»/)).toBeTruthy();
+    expect(screen.getByText(/сдано 9/)).toBeTruthy();
+    // Сдача закрывает задачу: работа сделана, факт записан.
+    expect(screen.getAllByDisplayValue("Готово").length).toBeGreaterThan(0);
   });
 
-  it("метрика не сохраняется отдельной стрелкой — она выводится из задачи", () => {
-    const card = goalCard("активные пользователи");
-    fireEvent.click(within(card).getByRole("button", { name: "+ задача" }));
-    addEffect(card, "тратит");
+  it("сдача уезжает в сценарий вместе с задачей", () => {
+    fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
+
     const m = dump();
-    // В сценарий уехала задача с метрикой, а не лишняя стрелка.
-    expect(m.tasks[0].effects).toHaveLength(1);
-    expect(m.edges.some((e) => e.task)).toBe(false);
+    expect(m.tasks[0].submissions).toHaveLength(1);
+    expect(m.tasks[0].submissions[0].at).toBeTruthy();
   });
 });
 
@@ -110,24 +104,23 @@ describe("задача от движения", () => {
     expect(screen.getAllByText(/задач: 1/).length).toBeGreaterThan(0);
   });
 
-  it("количество за выполнение доходит до прогноза", () => {
+  it("сдача становится фактом движения в прогнозе", () => {
     board();
     fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
-
-    const amount = [...container.querySelectorAll("input")]
-      .find((i) => i.value === "0");
-    fireEvent.change(amount, { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+    const amount = screen.getByPlaceholderText("сколько");
+    fireEvent.change(amount, { target: { value: "3" } });
     fireEvent.blur(amount);
+    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
 
-    // Сказано, сколько это даёт в месяц при текущей периодичности.
-    expect(screen.getByText(/выполнение.* в месяц/)).toBeTruthy();
-    // И это уехало в сценарий вместе с задачей.
-    const m = (() => {
-      fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-      fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
-      return JSON.parse(container.querySelector("textarea").value);
-    })();
-    expect(m.tasks[0].amount).toBe(4);
-    expect(m.tasks[0].edgeId).toBeTruthy();
+    // Отчёт появился на своей вкладке — там видно, что и когда делалось.
+    fireEvent.click(screen.getByRole("button", { name: "Отчёты" }));
+    // Строка таймлайна — та, где написано название задачи.
+    const row = [...container.querySelectorAll("div")]
+      .find((d) => d.style.cursor === "pointer");
+    expect(row).toBeTruthy();
+    fireEvent.click(row);
+    expect(screen.getByText(/перешло 3/)).toBeTruthy();
   });
+
 });

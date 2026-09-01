@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { PER, unitOf, repeatsPerMonth } from "../lib/sim.js";
+import { PER, unitOf, shown, lastSubmission } from "../lib/sim.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · OKR + канбан-доска
@@ -55,13 +55,23 @@ const fmtDT=(v)=>{
 };
 const uid=(p)=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
+// Потолок на файл отчёта: он едет в хранилище вместе с остальными отчётами,
+// и мегабайтные фотографии там ни к чему.
+export const MAX_REPORT_BYTES=2*1024*1024;
+
 export function newTask({goalId,okrId=null,edgeId=null,title="Новая задача",
   body=""}){
-  return {id:uid("tk"),goalId,okrId,edgeId,amount:0,basis:"hypo",
-    title,body,status:"backlog",
-    start:nowLocal(),end:"",repeat:"once",days:[],time:"",warn:10,
-    effects:[],comments:[]};
+  // Что задача пополняет и тратит, когда и как часто происходит — всё это
+  // свойства движения, а не задачи: иначе одно и то же описывалось бы дважды
+  // и разъезжалось. У задачи остаётся имя, описание, к чему она относится,
+  // за сколько предупредить — и записи о сдаче.
+  return {id:uid("tk"),goalId,okrId,edgeId,title,body,status:"backlog",
+    warn:10,submissions:[],comments:[]};
 }
+
+// Одна сдача задачи: сколько реально перешло, чем отчитались.
+export const newSubmission=({amount=0,text="",file=null})=>
+  ({id:uid("sb"),at:new Date().toISOString(),amount:Number(amount)||0,text,file});
 
 // Подпись движения: «откуда → ресурс», как оно читается на схеме.
 export const moveLabel=(ed,traits,entities)=>{
@@ -71,13 +81,6 @@ export const moveLabel=(ed,traits,entities)=>{
   return `${from?.name||"?"} → ${to?.l||"?"}`;
 };
 
-// Метрика задачи: что она тратит и что приносит, и с какой периодичностью.
-export const newEffect=(dir="spend")=>
-  ({id:uid("ef"),dir,trait:"",amount:0,per:"мес",basis:"hypo"});
-export const EFFECT_DIRS=[
-  {id:"spend",name:"тратит",sign:-1,color:BAD},
-  {id:"gain",name:"приносит",sign:1,color:OK},
-];
 
 // Ключевой результат из рекомендации вкладки «Цели».
 export function okrFromRec(goalId,r){
@@ -183,22 +186,22 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
                     <span style={{fontSize:12.5,fontWeight:600,flex:1}}>{t.title}</span>
                     <span style={{fontSize:10.5,color:C.muted}}>{st?.name||"—"}</span>
                   </div>
-                  {(t.effects||[]).length>0&&(
-                    <div style={{fontSize:10.5,color:C.muted,marginTop:4,lineHeight:1.5}}>
-                      {(t.effects||[]).map((ef,ei)=>{
-                        const tr=traits.find(x=>x.id===ef.trait);
-                        const d=EFFECT_DIRS.find(x=>x.id===ef.dir)||EFFECT_DIRS[0];
-                        return (<span key={ef.id||ei} style={{color:d.color}}>
-                          {ei?" · ":""}{d.name} {nm(Math.abs(Number(ef.amount)||0))}
-                          {" "}{tr?unitOf(tr).split("/")[0]:"?"}/{ef.per||"мес"}
-                        </span>);})}
-                    </div>)}
+                  {(()=>{
+                    const mv=edges.find(e=>e.id===t.edgeId);
+                    const sb=lastSubmission(t);
+                    if(!mv&&!sb) return null;
+                    return (<div style={{fontSize:10.5,color:C.muted,marginTop:4,
+                      lineHeight:1.5}}>
+                      {mv?`движение: ${mv.carrier||moveLabel(mv,traits,entities)}`:""}
+                      {sb?<span style={{color:OK}}> · сдано {nm(sb.amount)}</span>:null}
+                    </div>);})()}
                   {/* Редактор открывается здесь же, под своей целью, а не
                       уезжает вниз страницы: иначе после нажатия «+ задача»
                       непонятно, куда смотреть. */}
                   {on&&<div style={{marginTop:8}}>
                     <TaskEditor task={t} goals={[g]} traits={traits}
-                      entities={entities} edges={edges} setTasks={setTasks}
+                      entities={entities} edges={edges} entityName={entityName}
+                      setTasks={setTasks}
                       onClose={()=>setOpenId(null)}
                       onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==t.id));
                         setOpenId(null);}}/>
@@ -213,20 +216,44 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
    целью во вкладке «Цели» и над доской во вкладке «Задачи». Копия того же
    JSX в двух местах разъехалась бы на первой же правке. */
 export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
-  setTasks,onClose,onDelete}){
-  const up=(f,v)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,[f]:v}:t));
+  entityName,setTasks,onClose,onDelete}){
+  const up=(f,v)=>upMany({[f]:v});
+  // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
+  // оба считают от одного и того же прежнего состояния.
+  const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const addComment=(text)=>{
     if(!text.trim()) return;
     up("comments",[...(task.comments||[]),
       {id:uid("c"),text:text.trim(),at:new Date().toISOString()}]);
   };
+  const [handing,setHanding]=useState(false);
+  const [draftAmount,setDraftAmount]=useState("0");
+  const [draftText,setDraftText]=useState("");
+  const [draftFile,setDraftFile]=useState(null);
+  const [fileErr,setFileErr]=useState("");
   const move=edges.find(e=>e.id===task.edgeId)||null;
+  const subs=task.submissions||[];
+  const goal=goals.find(g=>g.id===task.goalId)||null;
+  // Файл отчёта храним как данные: он должен пережить перезагрузку и уехать
+  // вместе с отчётами, а не остаться ссылкой на исчезнувший файл на диске.
+  const pickFile=(f)=>{
+    setFileErr("");
+    if(!f) return;
+    if(f.size>MAX_REPORT_BYTES){
+      setFileErr(`файл больше ${Math.round(MAX_REPORT_BYTES/1024/1024)} МБ — не поместится`);
+      return;
+    }
+    const r=new FileReader();
+    r.onload=()=>setDraftFile({name:f.name,type:f.type,size:f.size,data:String(r.result)});
+    r.onerror=()=>setFileErr("не удалось прочитать файл");
+    r.readAsDataURL(f);
+  };
+  const submit=()=>{
+    upMany({submissions:[...subs,newSubmission({amount:Number(draftAmount)||0,
+      text:draftText,file:draftFile})],status:"done"});
+    setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
+  };
   const target=move?traits.find(t=>t.id===move.to):null;
-  const perMonth=task.status==="done"?0:repeatsPerMonth(task);
-  const effects=task.effects||[];
-  const addEffect=(dir)=>up("effects",[...effects,newEffect(dir)]);
-  const upEffect=(i,f,v)=>up("effects",effects.map((e,ei)=>ei===i?{...e,[f]:v}:e));
-  const delEffect=(i)=>up("effects",effects.filter((_,ei)=>ei!==i));
   return (
         <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
           <div className="flex items-center gap-2" style={{marginBottom:8}}>
@@ -246,16 +273,48 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
             style={{minHeight:70,marginBottom:8,lineHeight:1.5}}
             onCommit={v=>up("body",v)}/>
 
+          <div style={S.lbl}>цель и гипотеза, на которой она построена</div>
+          <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+            padding:9,margin:"6px 0 8px",fontSize:11.5,lineHeight:1.6}}>
+            {goal
+              ? <>
+                  <div style={{fontSize:12.5,fontWeight:700,color:C.text}}>
+                    {goal.l}</div>
+                  <div style={{color:C.muted}}>
+                    {entityName?entityName(goal.e):""} · нужно {nm(shown(goal,Number(goal.want)))}
+                    {" "}{unitOf(goal)}{goal.by!=null?` к ${goal.by}-му месяцу`:""}
+                  </div>
+                  <div style={{marginTop:5,color:C.muted}}>
+                    Гипотеза: {move
+                      ? <b style={{color:C.text}}>{moveLabel(move,traits,entities)}
+                          {move.carrier?` — ${move.carrier}`:""}, {nm(Math.abs(Number(move.gives)||0))} {target?unitOf(target).split("/")[0]:""} за {move.per}</b>
+                      : "движение не выбрано — на чём стоит цель, не сказано"}
+                  </div>
+                  {move?.note&&<div style={{marginTop:4,color:C.muted}}>{move.note}</div>}
+                </>
+              : "цель удалена"}
+          </div>
+
+          <div style={S.lbl}>движение, которое выполняет задача</div>
+          <select style={{...S.inp,marginBottom:4}} value={task.edgeId||""}
+            onChange={e=>up("edgeId",e.target.value||null)}>
+            <option value="">— не привязана к движению —</option>
+            {entities.map(en=>{
+              const own=edges.filter(ed=>ed.from===en.id);
+              if(!own.length) return null;
+              return (<optgroup key={en.id} label={en.name}>
+                {own.map(ed=>(<option key={ed.id} value={ed.id}>
+                  {moveLabel(ed,traits,entities)}
+                  {ed.carrier?` · ${ed.carrier}`:""}</option>))}
+              </optgroup>);})}
+          </select>
+          <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
+            Что переходит, сколько и как часто — свойства самого движения; они
+            настраиваются на стрелке, во вкладке «Схема». Здесь только сказано,
+            какое движение эта задача делает.
+          </div>
+
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
-            <div style={{flex:"2 1 180px"}}>
-              <div style={S.lbl}>цель</div>
-              <select style={S.inp} value={task.goalId}
-                onChange={e=>up("goalId",e.target.value)}>
-                {goals.map(g=>(<option key={g.id} value={g.id}>{g.l}</option>))}
-                {!goals.some(g=>g.id===task.goalId)&&
-                  <option value={task.goalId}>цель удалена</option>}
-              </select>
-            </div>
             <div style={{flex:"1 1 130px"}}>
               <div style={S.lbl}>статус</div>
               <select style={S.inp} value={task.status}
@@ -264,50 +323,6 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
               </select>
             </div>
           </div>
-
-          <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
-            <div style={{flex:"1 1 190px"}}>
-              <div style={S.lbl}>дата и время начала</div>
-              <div className="flex gap-2" style={{alignItems:"center"}}>
-                <input type="datetime-local" style={{...S.inp,flex:1}}
-                  value={task.start||""}
-                  onChange={e=>up("start",e.target.value)}/>
-                <button style={btn(false)}
-                  onClick={()=>up("start",nowLocal())}>Сейчас</button>
-              </div>
-            </div>
-            <div style={{flex:"1 1 190px"}}>
-              <div style={S.lbl}>дата и время конца</div>
-              <input type="datetime-local" style={S.inp} value={task.end||""}
-                onChange={e=>up("end",e.target.value)}/>
-            </div>
-          </div>
-
-          <div style={S.lbl}>периодичность</div>
-          <select style={{...S.inp,marginBottom:8}} value={task.repeat}
-            onChange={e=>up("repeat",e.target.value)}>
-            {REPEATS.map(r=>(<option key={r.id} value={r.id}>{r.name}</option>))}
-          </select>
-
-          {/* Дни повтора нужны только при «в определённые дни». */}
-          {task.repeat==="weekly"&&(<>
-            <div style={S.lbl}>дни повтора</div>
-            <div className="flex flex-wrap gap-2" style={{margin:"6px 0 8px"}}>
-              {DAYS.map((d,i)=>{
-                const on=(task.days||[]).includes(i);
-                return (<button key={d} style={btn(on)}
-                  onClick={()=>up("days",on
-                    ?(task.days||[]).filter(x=>x!==i)
-                    :[...(task.days||[]),i].sort((a,b)=>a-b))}>{d}</button>);})}
-            </div>
-          </>)}
-
-          {/* Время повтора не имеет смысла для разовой задачи. */}
-          {task.repeat!=="once"&&(<>
-            <div style={S.lbl}>время повтора</div>
-            <input type="time" style={{...S.inp,marginBottom:8}} value={task.time||""}
-              onChange={e=>up("time",e.target.value)}/>
-          </>)}
 
           <div style={S.lbl}>предупредить</div>
           <select style={{...S.inp,marginBottom:4}}
@@ -335,94 +350,84 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
                   {ed.carrier?` · ${ed.carrier}`:""}</option>))}
               </optgroup>);})}
           </select>
-          {move&&target&&(<>
-            <div className="flex flex-wrap gap-2"
-              style={{alignItems:"center",marginBottom:6}}>
-              <span style={{fontSize:11.5,color:C.muted}}>
-                за одно выполнение пополняет «{target.l}» на</span>
-              <NumField value={task.amount} style={{flex:"0 1 100px"}}
-                onCommit={v=>up("amount",v??0)}/>
-              <span style={{fontSize:11.5,color:C.muted}}>
-                {unitOf(target).split("/")[0]}</span>
-              <button style={btn(true,task.basis==="fact"?OK:WARN)}
-                onClick={()=>up("basis",task.basis==="fact"?"hypo":"fact")}>
-                {task.basis==="fact"?"◆ факт":"◇ гипотеза"}</button>
-            </div>
+          {move&&target&&(
             <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-              {perMonth
-                ?`Периодичность задачи — ${REPEATS.find(r=>r.id===task.repeat)?.name}: ${nm(perMonth)} выполнен${perMonth===1?"ие":"ий"} в месяц, значит движение получает ${nm(Math.abs(Number(task.amount)||0)*perMonth)} ${unitOf(target)} .`
-                :"Задача выполнена — движение от неё больше ничего не получает."}
-              {" "}Разовая задача считается одним выполнением в месяц, пока не
-              переведена в «Готово»: шаг модели — месяц, точнее разовое событие
-              в нём не разместить.
-            </div>
-          </>)}
+              По плану движение даёт {nm(Math.abs(Number(move.gives)||0))}
+              {" "}{unitOf(target).split("/")[0]} за {move.per}. Сколько перешло
+              на самом деле — записывается при сдаче, ниже.
+            </div>)}
           {!move&&<div style={{fontSize:10.5,color:C.muted,marginBottom:8,
             lineHeight:1.5}}>
             Задача без движения ничего не пополняет — она останется просто
             напоминанием. Движения берутся со схемы: это стрелки между активами.
           </div>}
 
-          <div style={S.lbl}>что ещё задача тратит и что приносит</div>
-          <div style={{fontSize:10.5,color:C.muted,margin:"4px 0 6px",lineHeight:1.5}}>
-            Это движение в модели: каждая строка — стрелка к ресурсу, она
-            видна на схеме и участвует в прогнозе. Часы не превращаются в
-            рубли: «тратит 2 ч/день» и «приносит 5000 ₽/мес» — две разные
-            строки. Метрика перестаёт считаться, когда задача в статусе
-            «Готово».
-          </div>
-          <div style={{marginBottom:8}}>
-            {!(task.effects||[]).length&&<div style={{fontSize:11.5,color:C.muted,
-              marginBottom:6}}>Пока ничего не тратит и не приносит.</div>}
-            {(task.effects||[]).map((ef,i)=>{
-              const t=traits.find(x=>x.id===ef.trait);
-              const dir=EFFECT_DIRS.find(d=>d.id===ef.dir)||EFFECT_DIRS[0];
-              return (
-              <div key={ef.id||i} style={{background:C.panel2,
-                border:`1px solid ${C.line}`,borderRadius:6,padding:8,marginBottom:6}}>
-                <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-                  {EFFECT_DIRS.map(d=>(
-                    <button key={d.id} style={btn(ef.dir===d.id,d.color)}
-                      onClick={()=>upEffect(i,"dir",d.id)}>{d.name}</button>))}
-                  <NumField value={ef.amount} style={{flex:"0 1 92px"}}
-                    onCommit={v=>upEffect(i,"amount",v??0)}/>
-                  <span style={{fontSize:11.5,color:C.muted}}>
-                    {t?unitOf(t).split("/")[0]:"ед."} за</span>
-                  <select style={{...S.inp,flex:"0 1 96px"}} value={ef.per||"мес"}
-                    onChange={e=>upEffect(i,"per",e.target.value)}>
-                    {Object.keys(PER).map(pp=>(
-                      <option key={pp} value={pp}>{pp}</option>))}
-                  </select>
-                  <button style={{...btn(false),padding:"3px 7px"}}
-                    onClick={()=>delEffect(i)}>✕</button>
+          <div style={S.lbl}>сдача</div>
+          <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+            padding:9,margin:"6px 0 8px"}}>
+            {!subs.length&&<div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
+              Ещё не сдавалась. «Сдать» запишет, сколько ресурса реально
+              перешло — это и станет фактом в прогнозе, тогда как гипотеза
+              берётся из движения.</div>}
+            {subs.map(sb=>(
+              <div key={sb.id} style={{background:C.ink,border:`1px solid ${C.line}`,
+                borderRadius:6,padding:7,marginBottom:6}}>
+                <div className="flex items-center gap-2">
+                  <span style={{fontSize:12,fontWeight:600,color:OK,flex:1}}>
+                    сдано {nm(sb.amount)} {target?unitOf(target).split("/")[0]:""}</span>
+                  <span style={{fontSize:10,color:C.muted}}>{fmtDT(sb.at)}</span>
+                  <button style={{...btn(false),padding:"2px 6px"}}
+                    onClick={()=>up("submissions",subs.filter(x=>x.id!==sb.id))}>✕</button>
                 </div>
-                <select style={{...S.inp,marginTop:6}} value={ef.trait||""}
-                  onChange={e=>upEffect(i,"trait",e.target.value)}>
-                  <option value="">— какой ресурс —</option>
-                  {entities.map(en=>(
-                    <optgroup key={en.id} label={en.name}>
-                      {traits.filter(x=>x.e===en.id).map(x=>(
-                        <option key={x.id} value={x.id}>{x.l}</option>))}
-                    </optgroup>))}
-                </select>
-                <div className="flex flex-wrap gap-2"
-                  style={{alignItems:"center",marginTop:6}}>
-                  <button style={btn(true,ef.basis==="fact"?OK:WARN)}
-                    onClick={()=>upEffect(i,"basis",ef.basis==="fact"?"hypo":"fact")}>
-                    {ef.basis==="fact"?"◆ факт":"◇ гипотеза"}</button>
-                  <span style={{fontSize:10.5,color:C.muted,flex:1}}>
-                    {t
-                      ?`${dir.name} ${nm(Math.abs(Number(ef.amount)||0))} ${unitOf(t).split("/")[0]} за ${ef.per||"мес"} — ресурс «${t.l}»`
-                      :"выберите ресурс, иначе строка не считается"}
-                  </span>
+                {sb.text&&<div style={{fontSize:11.5,marginTop:4,lineHeight:1.5}}>
+                  {sb.text}</div>}
+                {sb.file&&<div style={{fontSize:10.5,color:ACC,marginTop:4}}>
+                  📎 {sb.file.name} · {Math.round((sb.file.size||0)/1024)} КБ</div>}
+              </div>))}
+
+            {!handing
+              ? <div className="flex flex-wrap gap-2">
+                  <button style={btn(true,OK)} disabled={!move}
+                    onClick={()=>{setHanding(true);
+                      setDraftAmount(String(Math.abs(Number(move?.gives)||0)));}}>
+                    СДАТЬ</button>
+                  {!move&&<span style={{fontSize:10.5,color:C.muted}}>
+                    сначала выберите движение — сдавать нечего</span>}
                 </div>
-              </div>);})}
-            <div className="flex flex-wrap gap-2">
-              <button style={btn(false)} onClick={()=>addEffect("spend")}>
-                + тратит</button>
-              <button style={btn(false)} onClick={()=>addEffect("gain")}>
-                + приносит</button>
-            </div>
+              : <div>
+                  <div className="flex flex-wrap gap-2"
+                    style={{alignItems:"center",marginBottom:6}}>
+                    <span style={{fontSize:11.5,color:C.muted}}>
+                      фактически перешло в «{target?.l||"ресурс"}»</span>
+                    <NumField value={draftAmount} placeholder="сколько"
+                      style={{flex:"0 1 110px"}}
+                      onCommit={v=>setDraftAmount(String(v??0))}/>
+                    <span style={{fontSize:11.5,color:C.muted}}>
+                      {target?unitOf(target).split("/")[0]:""}</span>
+                  </div>
+                  <div style={{fontSize:10.5,color:C.muted,marginBottom:6,lineHeight:1.5}}>
+                    По движению планировалось {nm(Math.abs(Number(move?.gives)||0))}
+                    {" "}{target?unitOf(target).split("/")[0]:""} за {move?.per}.
+                    Впишите, сколько перешло на самом деле.
+                  </div>
+                  <TxtField area value={draftText} placeholder="отчёт текстом"
+                    style={{minHeight:56,marginBottom:6,lineHeight:1.5}}
+                    onCommit={setDraftText}/>
+                  <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+                    <label style={{...btn(false),cursor:"pointer"}}>
+                      Загрузить отчёт
+                      <input type="file" style={{display:"none"}}
+                        onChange={e=>pickFile(e.target.files?.[0])}/>
+                    </label>
+                    {draftFile&&<span style={{fontSize:10.5,color:ACC}}>
+                      📎 {draftFile.name} · {Math.round(draftFile.size/1024)} КБ</span>}
+                    {fileErr&&<span style={{fontSize:10.5,color:BAD}}>{fileErr}</span>}
+                    <span style={{flex:1}}/>
+                    <button style={btn(false)} onClick={()=>{setHanding(false);
+                      setDraftFile(null);setFileErr("");}}>Отмена</button>
+                    <button style={btn(true,OK)} onClick={submit}>Сдать</button>
+                  </div>
+                </div>}
           </div>
 
           <div style={S.lbl}>комментарии</div>
@@ -569,6 +574,7 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
       </div>
 
       {open&&<TaskEditor task={open} goals={goals} traits={traits} entities={entities} edges={edges}
+        entityName={entityName}
         setTasks={setTasks} onClose={()=>setOpenId(null)} onDelete={()=>delT(open.id)}/>}
 
       {/* Колонки прокручиваются вбок: на телефоне четыре столбца рядом не влезают. */}

@@ -52,8 +52,9 @@ describe("доска задач", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
 
     expect(screen.getByDisplayValue("Позвонить рефералам")).toBeInTheDocument();
-    // Задача обязана принадлежать цели — по умолчанию первой.
-    expect(screen.getByDisplayValue("активные пользователи")).toBeInTheDocument();
+    // Задача обязана принадлежать цели — по умолчанию первой. Цель теперь
+    // показана целиком, а не выбирается селектом.
+    expect(screen.getAllByText(/активные пользователи/).length).toBeGreaterThan(0);
   });
 
   it("без единой цели задачу создать нельзя", () => {
@@ -97,56 +98,22 @@ describe("параметры задачи", () => {
     return view;
   };
 
-  it("«Сейчас» подставляет текущие дату и время в поле начала", () => {
+  it("дат и периодичности в задаче нет — они у движения", () => {
+    // Одно и то же расписание не должно жить в двух местах: когда движение
+    // происходит, сказано на стрелке, а задача его только исполняет.
     const { container } = renderOpen();
-    const start = container.querySelectorAll('input[type="datetime-local"]')[0];
-    commit(start, "");
-    expect(start.value).toBe("");
-
-    fireEvent.click(screen.getByRole("button", { name: "Сейчас" }));
-
-    // Формат datetime-local: YYYY-MM-DDTHH:mm
-    expect(container.querySelectorAll('input[type="datetime-local"]')[0].value)
-      .toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
-  });
-
-  it("есть отдельные поля начала и конца", () => {
-    const { container } = renderOpen();
-    const dt = container.querySelectorAll('input[type="datetime-local"]');
-    expect(dt).toHaveLength(2);
-
-    fireEvent.change(dt[1], { target: { value: "2026-09-15T18:30" } });
-    expect(container.querySelectorAll('input[type="datetime-local"]')[1].value)
-      .toBe("2026-09-15T18:30");
-  });
-
-  it("дни повтора появляются только для «в определённые дни»", () => {
-    const { container } = renderOpen();
-    expect(screen.queryByRole("button", { name: "Пн" })).toBeNull();
-
-    fireEvent.change(screen.getByDisplayValue("один раз"), { target: { value: "daily" } });
-    expect(screen.queryByRole("button", { name: "Пн" })).toBeNull(); // ежедневно — дни не нужны
-
-    fireEvent.change(screen.getByDisplayValue("повторять ежедневно"),
-      { target: { value: "weekly" } });
-    expect(screen.getByRole("button", { name: "Пн" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Вс" })).toBeInTheDocument();
-
-    // День включается и выключается.
-    fireEvent.click(screen.getByRole("button", { name: "Ср" }));
-    expect(container.querySelector('input[type="time"]')).toBeTruthy();
-  });
-
-  it("время повтора появляется только у повторяющейся задачи", () => {
-    const { container } = renderOpen();
+    expect(container.querySelectorAll('input[type="datetime-local"]')).toHaveLength(0);
     expect(container.querySelector('input[type="time"]')).toBeNull();
+    expect(screen.queryByDisplayValue("один раз")).toBeNull();
+  });
 
-    fireEvent.change(screen.getByDisplayValue("один раз"), { target: { value: "daily" } });
-    expect(container.querySelector('input[type="time"]')).toBeTruthy();
-
-    fireEvent.change(screen.getByDisplayValue("повторять ежедневно"),
-      { target: { value: "once" } });
-    expect(container.querySelector('input[type="time"]')).toBeNull();
+  it("цель показана целиком, вместе с гипотезой, а не одним ресурсом", () => {
+    renderOpen();
+    expect(screen.getByText(/цель и гипотеза, на которой она построена/))
+      .toBeTruthy();
+    expect(screen.getAllByText(/активные пользователи/).length).toBeGreaterThan(0);
+    // Движения нет — так и сказано, а не подставлено молча.
+    expect(screen.getByText(/движение не выбрано/)).toBeTruthy();
   });
 
   it("статус, название и содержимое меняются", () => {
@@ -160,11 +127,12 @@ describe("параметры задачи", () => {
     expect(screen.getByDisplayValue("Проверка")).toBeInTheDocument();
   });
 
-  it("цель задачи можно сменить", () => {
+  it("в задаче нет выбора, что она пополняет и тратит", () => {
+    // Это свойства движения: выбирать их ещё и в задаче значило бы дать им
+    // разойтись.
     renderOpen();
-    fireEvent.change(screen.getByDisplayValue("активные пользователи"),
-      { target: { value: "m2" } });
-    expect(screen.getByDisplayValue("способ заработка")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ тратит" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ приносит" })).toBeNull();
   });
 
   it("«Предупредить» выбирается и запоминается", () => {

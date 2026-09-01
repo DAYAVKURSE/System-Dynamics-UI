@@ -80,13 +80,11 @@ describe("задача по нажатию на цель", () => {
     expect(btns.length).toBeGreaterThan(1);
   });
 
-  it("задача от движения открывается с ним и с полем пополнения", () => {
+  it("задача от движения открывается с ним, с целью и с кнопкой сдачи", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
-    expect(screen.getByText(/какое движение выполняет эта задача/)).toBeTruthy();
-    expect(screen.getByText(/за одно выполнение пополняет/)).toBeTruthy();
-    // Графа цели заполнена, задача без цели не бывает.
-    const goalSelect = [...container.querySelectorAll("select")]
-      .find((s) => [...s.options].some((o) => o.value && o.selected));
-    expect(goalSelect.value).not.toBe("");
+    expect(screen.getByText(/движение, которое выполняет задача/)).toBeTruthy();
+    expect(screen.getByText(/цель и гипотеза, на которой она построена/))
+      .toBeTruthy();
+    expect(screen.getByRole("button", { name: "СДАТЬ" })).toBeTruthy();
   });
 });
