@@ -43,8 +43,6 @@ export function useHistory(doc, restore, { limit = HISTORY_LIMIT } = {}) {
   const [future, setFuture] = useState([]);
   const last = useRef(doc);      // документ, уже учтённый историей
   const applying = useRef(false); // сама отмена/возврат шагом не считается
-  const holdDepth = useRef(0);    // идёт жест (перетаскивание) — шаг ещё не закрыт
-  const holdBase = useRef(null);  // документ до начала жеста
 
   useEffect(() => {
     if (doc === last.current) return;
@@ -52,30 +50,6 @@ export function useHistory(doc, restore, { limit = HISTORY_LIMIT } = {}) {
     last.current = doc;
     if (applying.current) { applying.current = false; return; }
     if (sameDoc(prev, doc)) return;
-    if (holdDepth.current > 0) {
-      if (holdBase.current == null) holdBase.current = prev;
-      return;
-    }
-    setPast((p) => [...p, prev].slice(-limit));
-    setFuture([]);
-  }, [doc, limit]);
-
-  /* Перетаскивание актива по схеме — десятки промежуточных состояний за
-     секунду. Каждое из них в истории сделало бы отмену бесполезной, поэтому
-     жест берётся в скобки hold/release и попадает в историю одним шагом. */
-  const hold = useCallback(() => {
-    if (holdDepth.current++ === 0) holdBase.current = last.current;
-  }, []);
-
-  const release = useCallback(() => {
-    if (holdDepth.current === 0) return;
-    holdDepth.current = 0;
-    const prev = holdBase.current;
-    holdBase.current = null;
-    // Эффект для последнего движения ещё не успел отработать, поэтому берём
-    // документ текущего рендера — он уже итоговый.
-    last.current = doc;
-    if (prev == null || sameDoc(prev, doc)) return;
     setPast((p) => [...p, prev].slice(-limit));
     setFuture([]);
   }, [doc, limit]);
@@ -116,9 +90,9 @@ export function useHistory(doc, restore, { limit = HISTORY_LIMIT } = {}) {
   }, [undo, redo]);
 
   return useMemo(() => ({
-    undo, redo, reset, hold, release,
+    undo, redo, reset,
     canUndo: past.length > 0,
     canRedo: future.length > 0,
     depth: past.length,
-  }), [undo, redo, reset, hold, release, past.length, future.length]);
+  }), [undo, redo, reset, past.length, future.length]);
 }

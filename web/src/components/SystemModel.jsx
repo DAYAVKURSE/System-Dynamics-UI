@@ -457,37 +457,70 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
 
 /* ─────── СХЕМА (переиспользуемая для «сейчас» и для снимка симуляции) ─────── */
 function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesForFact,
-  onSelectEntity,onSelectPair,onMoveEntity,onMoveStart,onMoveEnd}){
+  onSelectEntity,onSelectPair,onMoveEntity}){
   // Перетаскивание активов. Тап и перетаскивание различаем по порогу сдвига:
   // пока палец/курсор не ушёл дальше DRAG_MIN пикселей, это ещё выбор блока.
   const DRAG_MIN=4;
   const drag=useRef(null);
+  // Пока блок ведут, его положение живёт здесь, а не в модели. Правка модели
+  // на каждое движение пальца перерисовывала бы всё приложение целиком —
+  // на телефоне это и давало рывки. В модель уезжает только итог жеста.
+  const [dragPos,setDragPos]=useState(null);
+
   const down=(ev,e)=>{
     if(!onMoveEntity) return;
-    try{ev.currentTarget.setPointerCapture(ev.pointerId);}catch{/* не критично */}
     drag.current={id:e.id,sx:ev.clientX,sy:ev.clientY,ox:e.x,oy:e.y,moved:false};
-    // Весь жест — один шаг истории, а не полсотни промежуточных положений.
-    onMoveStart?.();
   };
-  const move=(ev)=>{
-    const d=drag.current; if(!d) return;
-    const dx=ev.clientX-d.sx, dy=ev.clientY-d.sy;
-    if(!d.moved&&Math.hypot(dx,dy)<DRAG_MIN) return;
-    d.moved=true;
-    // Экранные пиксели → единицы viewBox: масштаб задан zoom.
-    onMoveEntity(d.id,d.ox+dx/zoom,d.oy+dy/zoom);
-  };
-  const up=(ev,e)=>{
-    const d=drag.current; drag.current=null;
-    try{ev.currentTarget.releasePointerCapture(ev.pointerId);}catch{/* не критично */}
-    onMoveEnd?.();
-    if(!d||!d.moved) onSelectEntity(e.id);
-  };
+
+  useEffect(()=>{
+    if(!onMoveEntity) return undefined;
+    // Слушаем на окне, а не на самом блоке. Палец обгоняет блок и уходит за
+    // его границы, а Safari (значит, и Telegram на iOS) ненадёжно держит
+    // pointer capture на элементах внутри <svg>: события переставали
+    // приходить, блок замирал и догонял палец скачком.
+    const move=(ev)=>{
+      const d=drag.current; if(!d) return;
+      const dx=ev.clientX-d.sx, dy=ev.clientY-d.sy;
+      if(!d.moved&&Math.hypot(dx,dy)<DRAG_MIN) return;
+      d.moved=true;
+      // Экранные пиксели → единицы viewBox: масштаб задан zoom.
+      d.x=Math.max(0,Math.round(d.ox+dx/zoom));
+      d.y=Math.max(0,Math.round(d.oy+dy/zoom));
+      setDragPos({id:d.id,x:d.x,y:d.y});
+    };
+    const up=()=>{
+      const d=drag.current; if(!d) return;
+      drag.current=null; setDragPos(null);
+      // Отменённый жест (звонок, системный жест) тоже засчитываем: человек
+      // блок передвинул, терять это движение не за что.
+      if(d.moved) onMoveEntity(d.id,d.x,d.y); else onSelectEntity(d.id);
+    };
+    // Прокрутку холста во время перетаскивания гасим сами: touch-action на
+    // элементах внутри <svg> Safari игнорирует, и браузер уводил жест в
+    // прокрутку. Слушатель непассивный — в пассивном (а React вешает
+    // touchmove именно так) preventDefault не работает.
+    const noScroll=(ev)=>{ if(drag.current) ev.preventDefault(); };
+    window.addEventListener("pointermove",move);
+    window.addEventListener("pointerup",up);
+    window.addEventListener("pointercancel",up);
+    window.addEventListener("touchmove",noScroll,{passive:false});
+    return ()=>{
+      window.removeEventListener("pointermove",move);
+      window.removeEventListener("pointerup",up);
+      window.removeEventListener("pointercancel",up);
+      window.removeEventListener("touchmove",noScroll);
+    };
+  },[zoom,onMoveEntity,onSelectEntity]);
+
+  // Ведомый блок рисуется по «живым» координатам — вместе со своими стрелками.
+  const ents=dragPos
+    ? entities.map(e=>e.id===dragPos.id?{...e,x:dragPos.x,y:dragPos.y}:e)
+    : entities;
   const anchor=(a,b)=>{const ax=a.x+NW/2,ay=a.y+NH/2,bx=b.x+NW/2,by=b.y+NH/2;
     const dx=bx-ax,dy=by-ay;
     const s=Math.min(dx===0?1e9:NW/2/Math.abs(dx),dy===0?1e9:NH/2/Math.abs(dy));
     return [ax+dx*s,ay+dy*s];};
-  const ent=(id)=>entities.find(e=>e.id===id);
+  const ent=(id)=>ents.find(e=>e.id===id);
   const gaugeFor=(enId)=>{
     const pts=traits.filter(t=>t.e===enId&&t.want!=null&&Number(t.want)!==0);
     if(!pts.length) return {hypo:0,fact:0};
@@ -500,8 +533,8 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
     return {hypo:sh/pts.length,fact:sf/pts.length};
   };
   // Холст растёт под перетащенные блоки, чтобы их не срезало по краю.
-  const CW=Math.max(1000,...entities.map(e=>e.x+NW+24));
-  const CH=Math.max(740,...entities.map(e=>e.y+NH+24));
+  const CW=Math.max(1000,...ents.map(e=>e.x+NW+24));
+  const CH=Math.max(740,...ents.map(e=>e.y+NH+24));
   return (
     <div style={{overflow:"auto",WebkitOverflowScrolling:"touch"}}>
       <svg viewBox={`0 0 ${CW} ${CH}`} width={CW*zoom} height={CH*zoom}
@@ -540,13 +573,12 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
             <text x={mx} y={my+4} textAnchor="middle" fontSize="10" fill={col}
               fontFamily="ui-monospace, monospace">
               {g.list.length}{tag}·{Math.round(k*100)}%</text></g>);})}
-        {entities.map(e=>{
+        {ents.map(e=>{
           const ts=traits.filter(t=>t.e===e.id);
           const gs=ts.filter(t=>t.want!=null).length;
           const gv=gaugeFor(e.id);
           return (<g key={e.id}
-            onPointerDown={ev=>down(ev,e)} onPointerMove={move}
-            onPointerUp={ev=>up(ev,e)} onPointerCancel={()=>{drag.current=null;onMoveEnd?.();}}
+            onPointerDown={ev=>down(ev,e)}
             style={{cursor:onMoveEntity?"grab":"pointer",touchAction:"none"}}>
             <rect x={e.x} y={e.y} width={NW} height={NH} rx="12" fill={C.panel}
               stroke={sel===e.id?ACC:C.line} strokeWidth={sel===e.id?2.6:1.6}/>
@@ -693,6 +725,27 @@ export default function SystemModel(){
       x:24,y}]);
     setSel(id); setSelTrait(null); setPair(null);
   };
+  // Схема разъезжается: блоки двигают пальцем, новые падают под низ. Кнопка
+  // ставит их в сетку, сохраняя расстановку — кто был в одном ряду, там и
+  // останется, кто был левее, останется левее. Полная перекладка «как лучше»
+  // (по связям, по слоям) сломала бы привычную для автора картину, а вернуть
+  // её было бы нечем, кроме отмены.
+  const GAP_X=48, GAP_Y=56;
+  const alignGrid=()=>{
+    const rows=[];
+    [...entities].sort((a,b)=>a.y-b.y||a.x-b.x).forEach(e=>{
+      const row=rows[rows.length-1];
+      // Ряд продолжается, пока блок не ушёл вниз настолько, что перестал бы
+      // читаться как стоящий в одну линию с соседями.
+      if(row&&e.y-row.y<NH*0.6) row.list.push(e); else rows.push({y:e.y,list:[e]});
+    });
+    const pos={};
+    rows.forEach((row,ri)=>row.list.sort((a,b)=>a.x-b.x).forEach((e,ci)=>{
+      pos[e.id]={x:24+ci*(NW+GAP_X),y:24+ri*(NH+GAP_Y)};
+    }));
+    setEntities(p=>p.map(e=>({...e,...pos[e.id]})));
+  };
+
   const delEntity=(id)=>{
     const own=new Set(traits.filter(t=>t.e===id).map(t=>t.id));
     // Уносим за собой всё, что на актив ссылалось: его ресурсы, входящие в них
@@ -1092,10 +1145,14 @@ export default function SystemModel(){
             <button style={btn(false)} onClick={()=>setZoom(z=>Math.max(.32,z-.12))}>−</button>
             <button style={btn(false)} onClick={()=>setZoom(z=>Math.min(1.6,z+.12))}>+</button>
             <button style={btn(true)} onClick={addEntity}>+ актив</button>
+            <button style={btn(false)} onClick={alignGrid}
+              title="Расставит блоки по сетке, сохранив расстановку по рядам">
+              ⌗ выровнять</button>
           </div>
           <div style={{fontSize:11,color:C.muted,marginBottom:4}}>
             Тап по блоку или стрелке — открыть. Блок можно перетащить — схема
-            запомнит новое положение.
+            запомнит новое положение. «Выровнять» расставит блоки по сетке;
+            не понравится — «отменить» в шапке.
           </div>
           <div style={{overflow:"auto",WebkitOverflowScrolling:"touch"}}>
             <SchemeSVG entities={entities} traits={traits} edges={edges} groups={groups}
@@ -1103,7 +1160,7 @@ export default function SystemModel(){
               valuesFor={tid=>live[tid]??0} valuesForFact={tid=>liveFact[tid]??0}
               onSelectEntity={id=>{setSel(id);setSelTrait(null);setPair(null);}}
               onSelectPair={key=>{setPair(key);setSelTrait(null);}}
-              onMoveEntity={moveE} onMoveStart={hist.hold} onMoveEnd={hist.release}/>
+              onMoveEntity={moveE}/>
           </div>
         </div>
 
@@ -1333,7 +1390,7 @@ export default function SystemModel(){
               valuesFor={tid=>simRun.base[tid]?.[simMonth]??0}
               valuesForFact={tid=>simRun.baseFact[tid]?.[simMonth]??0}
               onSelectEntity={id=>setSimEnt(id)} onSelectPair={()=>{}}
-              onMoveEntity={moveE} onMoveStart={hist.hold} onMoveEnd={hist.release}/>
+              onMoveEntity={moveE}/>
           </div>
 
           <div className="flex flex-wrap gap-2" style={{marginBottom:10}}>
