@@ -40,7 +40,7 @@ describe("работа по цели — во вкладке «Цели»", () =
 
     // Редактор открылся внутри карточки этой цели, а не внизу страницы.
     expect(within(card).getByDisplayValue("Новая задача")).toBeTruthy();
-    expect(within(card).getByText(/метрика — что задача тратит/)).toBeTruthy();
+    expect(within(card).getByText(/какое движение выполняет эта задача/)).toBeTruthy();
   });
 
   it("задача второй цели не открывается под первой", () => {
@@ -85,5 +85,49 @@ describe("метрика задачи попадает в модель", () => {
     // В сценарий уехала задача с метрикой, а не лишняя стрелка.
     expect(m.tasks[0].effects).toHaveLength(1);
     expect(m.edges.some((e) => e.task)).toBe(false);
+  });
+});
+
+describe("задача от движения", () => {
+  const board = () => fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
+
+  it("список движений показывает, у скольких есть задачи", () => {
+    board();
+    expect(screen.getByText(/движения ресурсов — у каждого своя задача/)).toBeTruthy();
+    // Каждое движение модели — своя строка со своей кнопкой.
+    expect(screen.getAllByRole("button", { name: "+ задача" }).length)
+      .toBeGreaterThan(1);
+    expect(screen.getAllByText(/задач: 0/).length).toBeGreaterThan(0);
+  });
+
+  it("созданная задача берёт название движения и привязывается к нему", () => {
+    board();
+    fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
+    // Движение уже выбрано — задача выросла из него, а не наоборот.
+    const movePicker = [...container.querySelectorAll("select")]
+      .find((s) => s.textContent.includes("— не привязана к движению —"));
+    expect(movePicker.value).not.toBe("");
+    expect(screen.getAllByText(/задач: 1/).length).toBeGreaterThan(0);
+  });
+
+  it("количество за выполнение доходит до прогноза", () => {
+    board();
+    fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
+
+    const amount = [...container.querySelectorAll("input")]
+      .find((i) => i.value === "0");
+    fireEvent.change(amount, { target: { value: "4" } });
+    fireEvent.blur(amount);
+
+    // Сказано, сколько это даёт в месяц при текущей периодичности.
+    expect(screen.getByText(/выполнение.* в месяц/)).toBeTruthy();
+    // И это уехало в сценарий вместе с задачей.
+    const m = (() => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+      fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+      return JSON.parse(container.querySelector("textarea").value);
+    })();
+    expect(m.tasks[0].amount).toBe(4);
+    expect(m.tasks[0].edgeId).toBeTruthy();
   });
 });

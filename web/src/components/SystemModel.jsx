@@ -1164,6 +1164,7 @@ export default function SystemModel(){
               <div style={{marginTop:12,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
                 <GoalWork g={g} okrs={okrs} setOkrs={setOkrs} tasks={tasks}
                   setTasks={setTasks} traits={traits} entities={entities}
+                  edges={edges}
                   okrValue={okrValue} okrShown={okrShown}
                   entityName={id=>ent(id)?.name||"—"}
                   openId={openTask} setOpenId={setOpenTask}/>
@@ -1175,6 +1176,7 @@ export default function SystemModel(){
       {tab==="tasks" && (
         <TasksBoard goals={goals} okrs={okrs} setOkrs={setOkrs}
           tasks={tasks} setTasks={setTasks} traits={traits} entities={entities}
+          edges={edges}
           okrValue={okrValue} okrShown={okrShown}
           openId={openTask} setOpenId={setOpenTask}
           entityName={id=>ent(id)?.name||"—"}/>)}

@@ -72,22 +72,21 @@ describe("вкладка «Симуляция» — только активы и
 describe("задача по нажатию на цель", () => {
   beforeEach(() => { fireEvent.click(screen.getByRole("button", { name: "Задачи" })); });
 
-  it("у каждой цели есть кнопка «+ задача», создающая привязанную задачу", () => {
+  it("у каждого движения своя кнопка «+ задача»", () => {
+    // Задачи ставятся от движений: список движений — над доской.
+    expect(screen.getByText(/движения ресурсов — у каждого своя задача/))
+      .toBeTruthy();
     const btns = screen.getAllByRole("button", { name: "+ задача" });
-    expect(btns.length).toBeGreaterThan(0);
-    fireEvent.click(btns[0]);
+    expect(btns.length).toBeGreaterThan(1);
+  });
 
-    // Задача открылась, и графа «цель» уже заполнена этой целью.
-    expect(screen.getByDisplayValue("Новая задача")).toBeTruthy();
+  it("задача от движения открывается с ним и с полем пополнения", () => {
+    fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
+    expect(screen.getByText(/какое движение выполняет эта задача/)).toBeTruthy();
+    expect(screen.getByText(/за одно выполнение пополняет/)).toBeTruthy();
+    // Графа цели заполнена, задача без цели не бывает.
     const goalSelect = [...container.querySelectorAll("select")]
       .find((s) => [...s.options].some((o) => o.value && o.selected));
     expect(goalSelect.value).not.toBe("");
-  });
-
-  it("созданная по цели задача попадает на доску с именем цели", () => {
-    fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
-    const card = [...container.querySelectorAll("div")]
-      .find((d) => d.style.cursor === "pointer" && /Новая задача/.test(d.textContent));
-    expect(card).toBeTruthy();
   });
 });

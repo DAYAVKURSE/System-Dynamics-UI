@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { PER, unitOf } from "../lib/sim.js";
+import { PER, unitOf, repeatsPerMonth } from "../lib/sim.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · OKR + канбан-доска
@@ -55,11 +55,21 @@ const fmtDT=(v)=>{
 };
 const uid=(p)=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
-export function newTask({goalId,okrId=null,title="Новая задача",body=""}){
-  return {id:uid("tk"),goalId,okrId,title,body,status:"backlog",
+export function newTask({goalId,okrId=null,edgeId=null,title="Новая задача",
+  body=""}){
+  return {id:uid("tk"),goalId,okrId,edgeId,amount:0,basis:"hypo",
+    title,body,status:"backlog",
     start:nowLocal(),end:"",repeat:"once",days:[],time:"",warn:10,
     effects:[],comments:[]};
 }
+
+// Подпись движения: «откуда → ресурс», как оно читается на схеме.
+export const moveLabel=(ed,traits,entities)=>{
+  if(!ed) return "";
+  const to=traits.find(t=>t.id===ed.to);
+  const from=entities.find(e=>e.id===ed.from);
+  return `${from?.name||"?"} → ${to?.l||"?"}`;
+};
 
 // Метрика задачи: что она тратит и что приносит, и с какой периодичностью.
 export const newEffect=(dir="spend")=>
@@ -83,7 +93,7 @@ export function okrFromRec(goalId,r){
    Живёт во вкладке «Цели»: цель, что по ней предлагает модель, и что по ней
    делается — в одном месте. Раньше это было на «Задачах», и между целью и
    работой по ней стояла лишняя вкладка. */
-export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],
+export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],edges=[],
   okrValue,okrShown,entityName,openId,setOpenId}){
   const show=okrShown||((o,v)=>Number(v));
   const krs=okrs.filter(o=>o.goalId===g.id);
@@ -188,7 +198,7 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],
                       непонятно, куда смотреть. */}
                   {on&&<div style={{marginTop:8}}>
                     <TaskEditor task={t} goals={[g]} traits={traits}
-                      entities={entities} setTasks={setTasks}
+                      entities={entities} edges={edges} setTasks={setTasks}
                       onClose={()=>setOpenId(null)}
                       onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==t.id));
                         setOpenId(null);}}/>
@@ -202,13 +212,17 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],
    Отдельным компонентом, потому что открывается в двух местах: под своей
    целью во вкладке «Цели» и над доской во вкладке «Задачи». Копия того же
    JSX в двух местах разъехалась бы на первой же правке. */
-export function TaskEditor({task,goals,traits=[],entities=[],setTasks,onClose,onDelete}){
+export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
+  setTasks,onClose,onDelete}){
   const up=(f,v)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,[f]:v}:t));
   const addComment=(text)=>{
     if(!text.trim()) return;
     up("comments",[...(task.comments||[]),
       {id:uid("c"),text:text.trim(),at:new Date().toISOString()}]);
   };
+  const move=edges.find(e=>e.id===task.edgeId)||null;
+  const target=move?traits.find(t=>t.id===move.to):null;
+  const perMonth=task.status==="done"?0:repeatsPerMonth(task);
   const effects=task.effects||[];
   const addEffect=(dir)=>up("effects",[...effects,newEffect(dir)]);
   const upEffect=(i,f,v)=>up("effects",effects.map((e,ei)=>ei===i?{...e,[f]:v}:e));
@@ -308,7 +322,48 @@ export function TaskEditor({task,goals,traits=[],entities=[],setTasks,onClose,on
             у бота должен быть начат диалог — откройте его и нажмите «Начать».
           </div>
 
-          <div style={S.lbl}>метрика — что задача тратит и что приносит</div>
+          <div style={S.lbl}>какое движение выполняет эта задача</div>
+          <select style={{...S.inp,marginBottom:6}} value={task.edgeId||""}
+            onChange={e=>up("edgeId",e.target.value||null)}>
+            <option value="">— не привязана к движению —</option>
+            {entities.map(en=>{
+              const own=edges.filter(ed=>ed.from===en.id&&!ed.task);
+              if(!own.length) return null;
+              return (<optgroup key={en.id} label={en.name}>
+                {own.map(ed=>(<option key={ed.id} value={ed.id}>
+                  {moveLabel(ed,traits,entities)}
+                  {ed.carrier?` · ${ed.carrier}`:""}</option>))}
+              </optgroup>);})}
+          </select>
+          {move&&target&&(<>
+            <div className="flex flex-wrap gap-2"
+              style={{alignItems:"center",marginBottom:6}}>
+              <span style={{fontSize:11.5,color:C.muted}}>
+                за одно выполнение пополняет «{target.l}» на</span>
+              <NumField value={task.amount} style={{flex:"0 1 100px"}}
+                onCommit={v=>up("amount",v??0)}/>
+              <span style={{fontSize:11.5,color:C.muted}}>
+                {unitOf(target).split("/")[0]}</span>
+              <button style={btn(true,task.basis==="fact"?OK:WARN)}
+                onClick={()=>up("basis",task.basis==="fact"?"hypo":"fact")}>
+                {task.basis==="fact"?"◆ факт":"◇ гипотеза"}</button>
+            </div>
+            <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
+              {perMonth
+                ?`Периодичность задачи — ${REPEATS.find(r=>r.id===task.repeat)?.name}: ${nm(perMonth)} выполнен${perMonth===1?"ие":"ий"} в месяц, значит движение получает ${nm(Math.abs(Number(task.amount)||0)*perMonth)} ${unitOf(target)} .`
+                :"Задача выполнена — движение от неё больше ничего не получает."}
+              {" "}Разовая задача считается одним выполнением в месяц, пока не
+              переведена в «Готово»: шаг модели — месяц, точнее разовое событие
+              в нём не разместить.
+            </div>
+          </>)}
+          {!move&&<div style={{fontSize:10.5,color:C.muted,marginBottom:8,
+            lineHeight:1.5}}>
+            Задача без движения ничего не пополняет — она останется просто
+            напоминанием. Движения берутся со схемы: это стрелки между активами.
+          </div>}
+
+          <div style={S.lbl}>что ещё задача тратит и что приносит</div>
           <div style={{fontSize:10.5,color:C.muted,margin:"4px 0 6px",lineHeight:1.5}}>
             Это движение в модели: каждая строка — стрелка к ресурсу, она
             видна на схеме и участвует в прогнозе. Часы не превращаются в
@@ -398,10 +453,15 @@ const pctOf=(o,current)=>{
 };
 
 export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
-  traits=[],entities=[],okrValue,okrShown,entityName}){
+  traits=[],entities=[],edges=[],okrValue,okrShown,entityName,
+  openId:openIdProp,setOpenId:setOpenIdProp}){
   // Прогресс считается по модельным числам, показываются — по человеческим.
   const show=okrShown||((o,v)=>Number(v));
-  const [openId,setOpenId]=useState(null);
+  const [ownOpen,setOwnOpen]=useState(null);
+  // Открытая задача общая для вкладок «Цели» и «Задачи»: иначе на одной
+  // вкладке она открыта, на другой нет, и непонятно, что редактируешь.
+  const openId=openIdProp!==undefined?openIdProp:ownOpen;
+  const setOpenId=setOpenIdProp||setOwnOpen;
   const [filter,setFilter]=useState("all");
   const [draft,setDraft]=useState("");
 
@@ -440,10 +500,54 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
   };
 
   const shown=filter==="all"?tasks:tasks.filter(t=>t.goalId===filter);
+  // Цель для задачи по движению: та, чей ресурс это движение наполняет, —
+  // иначе первая, чтобы задача не осталась без цели.
+  const goalOf=(ed)=>goals.find(g=>g.id===ed.to)?.id||goals[0]?.id;
 
   return (
     <div>
       {/* ─── Доска ─── */}
+      <div style={{...S.card,marginBottom:10}}>
+        <div style={S.lbl}>движения ресурсов — у каждого своя задача</div>
+        <div style={{fontSize:11.5,color:C.muted,margin:"6px 0 8px",lineHeight:1.6}}>
+          Движение само по себе не происходит — его кто-то делает. Заведи под
+          движение задачу и укажи, на сколько одно выполнение пополняет ресурс:
+          прогноз посчитает это по периодичности задачи.
+        </div>
+        <div style={{marginBottom:4}}>
+          {!edges.filter(e=>!e.task).length&&
+            <div style={{fontSize:11.5,color:C.muted}}>
+              Движений пока нет — нарисуй стрелку на схеме.</div>}
+          {edges.filter(e=>!e.task).map(ed=>{
+            const mt=traits.find(t=>t.id===ed.to);
+            const mine=tasks.filter(t=>t.edgeId===ed.id);
+            return (
+            <div key={ed.id} style={{background:C.panel2,
+              border:`1px solid ${C.line}`,borderRadius:8,padding:8,marginBottom:6}}>
+              <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+                <span style={{fontSize:12.5,flex:"1 1 160px"}}>
+                  {moveLabel(ed,traits,entities)}
+                  {ed.carrier?<span style={{color:C.muted}}> · {ed.carrier}</span>:null}
+                </span>
+                <span style={{fontSize:10.5,color:mine.length?OK:C.muted}}>
+                  задач: {mine.length}</span>
+                <button style={btn(true)} disabled={!goals.length}
+                  onClick={()=>{
+                    const t=newTask({goalId:goalOf(ed),edgeId:ed.id,
+                      title:ed.carrier||moveLabel(ed,traits,entities)});
+                    setTasks(p=>[...p,t]); setOpenId(t.id);
+                  }}>+ задача</button>
+              </div>
+              {mine.map(t=>(
+                <div key={t.id} style={{fontSize:10.5,color:C.muted,marginTop:4}}>
+                  {t.title} — пополняет на {nm(Math.abs(Number(t.amount)||0))}
+                  {" "}{mt?unitOf(mt).split("/")[0]:""} за выполнение
+                  {t.status==="done"?" · выполнена, в прогнозе не считается":""}
+                </div>))}
+            </div>);})}
+        </div>
+      </div>
+
       <div style={{...S.card,marginBottom:10}}>
         <div style={S.lbl}>доска задач</div>
         {!goals.length&&<div style={{fontSize:11.5,color:C.muted,marginTop:6,
@@ -464,7 +568,7 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
         </div>
       </div>
 
-      {open&&<TaskEditor task={open} goals={goals} traits={traits} entities={entities}
+      {open&&<TaskEditor task={open} goals={goals} traits={traits} entities={entities} edges={edges}
         setTasks={setTasks} onClose={()=>setOpenId(null)} onDelete={()=>delT(open.id)}/>}
 
       {/* Колонки прокручиваются вбок: на телефоне четыре столбца рядом не влезают. */}

@@ -147,12 +147,42 @@ export const isTaskEdge = (ed) => !!(ed && ed.task);
 // больше ничего не тратит и не приносит.
 export const taskCounts = (t) => !!t && t.status !== "done";
 
-export function taskEdges(tasks, traits) {
+/* Сколько раз задача выполняется за месяц — из её периодичности. Разовая
+   считается одним выполнением в месяц, пока не переведена в «Готово»: шаг
+   модели — месяц, и точнее в нём разовое событие не разместить. */
+export function repeatsPerMonth(t) {
+  if (!t) return 0;
+  if (t.repeat === "daily") return 30;
+  if (t.repeat === "weekly") return Math.max(1, (t.days || []).length) * 4.33;
+  return 1;
+}
+
+export function taskEdges(tasks, traits, edges) {
   const byId = {};
   (traits || []).forEach((t) => { byId[t.id] = t; });
+  const edgeById = {};
+  (edges || []).forEach((e) => { edgeById[e.id] = e; });
   const out = [];
   (tasks || []).forEach((task) => {
     if (!taskCounts(task)) return;
+
+    // Задача выполняет движение: каждое выполнение пополняет ресурс, в
+    // который движение ведёт. Сколько раз за месяц — из периодичности задачи.
+    const move = edgeById[task.edgeId];
+    const amount = Number(task.amount);
+    const target = move && byId[move.to];
+    if (target && amount) {
+      out.push({
+        id: `task:${task.id}:move`,
+        from: target.e, to: target.id,
+        carrier: task.title,
+        gives: Math.abs(amount) * repeatsPerMonth(task),
+        per: "мес",
+        sign: amount >= 0 ? 1 : -1,
+        conds: [], note: "", basis: task.basis === "fact" ? "fact" : "hypo",
+        task: task.id, forEdge: move.id,
+      });
+    }
     (task.effects || []).forEach((ef, i) => {
       const t = byId[ef.trait];
       const amount = Number(ef.amount);
@@ -176,7 +206,7 @@ export function taskEdges(tasks, traits) {
 
 /** Полный набор стрелок модели: нарисованные плюс выведенные из задач. */
 export const modelEdges = (edges, tasks, traits) =>
-  [...(edges || []), ...taskEdges(tasks, traits)];
+  [...(edges || []), ...taskEdges(tasks, traits, edges)];
 
 /* ─────── шаг модели: что стрелки реально передают ─────── */
 /**

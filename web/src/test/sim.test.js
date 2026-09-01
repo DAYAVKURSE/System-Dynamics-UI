@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Cond, adviseFor, asGate, asRatio, condKind, condRefs, depsOf, isFact,
   isFlow, isTaskEdge, modelEdges, normalizeTrait, normalizeTraits, resolveStep,
-  shown, simulate, stored, taskEdges, unitOf } from "../lib/sim.js";
+  repeatsPerMonth, shown, simulate, stored, taskEdges, unitOf } from "../lib/sim.js";
 
 /* Движок: расход ресурса и дележ между теми, кто на него претендует.
    Числа здесь проверяются напрямую — на отрисованные значения полагаться
@@ -541,5 +541,69 @@ describe("метрика задачи как движение", () => {
   it("стрелка задачи уникальна по задаче и строке метрики", () => {
     const two = taskEdges([task(), { ...task(), id: "t2" }], traits);
     expect(new Set(two.map((e) => e.id)).size).toBe(two.length);
+  });
+});
+
+describe("задача выполняет движение", () => {
+  const traits = [
+    { id: "ref", e: "r", k: "res", l: "рефералы", unit: "чел.", have: 0, flow: false },
+    { id: "usr", e: "u", k: "res", l: "пользователи", unit: "чел.", have: 0, flow: false },
+  ];
+  const edges = [{ id: "e1", from: "r", to: "usr", carrier: "приведённые",
+    gives: 0, per: "мес", sign: 1, conds: [], basis: "hypo" }];
+  const task = (over = {}) => ({
+    id: "t1", goalId: "usr", title: "Звонить рефералам", status: "progress",
+    edgeId: "e1", amount: 2, repeat: "once", days: [], basis: "fact", ...over,
+  });
+
+  it("пополняет ресурс движения на «количество за выполнение»", () => {
+    const es = taskEdges([task()], traits, edges);
+    expect(es).toHaveLength(1);
+    expect(es[0]).toMatchObject({ to: "usr", from: "u", gives: 2, per: "мес", sign: 1 });
+  });
+
+  it("периодичность задачи задаёт, сколько раз это происходит за месяц", () => {
+    expect(repeatsPerMonth({ repeat: "once" })).toBe(1);
+    expect(repeatsPerMonth({ repeat: "daily" })).toBe(30);
+    expect(repeatsPerMonth({ repeat: "weekly", days: [0, 3] })).toBeCloseTo(8.66, 2);
+
+    const daily = taskEdges([task({ repeat: "daily" })], traits, edges);
+    expect(daily[0].gives).toBe(60); // 2 за выполнение × 30 выполнений
+  });
+
+  it("вклад задачи виден в прогнозе", () => {
+    const s = simulate(traits, modelEdges(edges, [task({ repeat: "daily" })], traits), 2);
+    expect(at(s.usr, 1)).toBe(60);
+    expect(at(s.usr, 2)).toBe(120);
+  });
+
+  it("выполненная задача движение больше не двигает", () => {
+    expect(taskEdges([task({ status: "done" })], traits, edges)).toHaveLength(0);
+  });
+
+  it("задача без движения или без количества ничего не пополняет", () => {
+    expect(taskEdges([task({ edgeId: null })], traits, edges)).toHaveLength(0);
+    expect(taskEdges([task({ amount: 0 })], traits, edges)).toHaveLength(0);
+  });
+
+  it("несколько задач на одно движение складываются", () => {
+    const es = taskEdges([task(), task({ id: "t2", amount: 5 })], traits, edges);
+    expect(es).toHaveLength(2);
+    const s = simulate(traits,
+      modelEdges(edges, [task(), task({ id: "t2", amount: 5 })], traits), 1);
+    expect(at(s.usr, 1)).toBe(7);
+  });
+
+  it("отрицательное количество — движение в минус, а не в плюс", () => {
+    expect(taskEdges([task({ amount: -3 })], traits, edges)[0].sign).toBe(-1);
+  });
+
+  it("движение и траты задачи считаются вместе", () => {
+    const withCost = task({ repeat: "daily", effects: [
+      { id: "c", dir: "spend", trait: "ref", amount: 1, per: "день", basis: "fact" }] });
+    const es = taskEdges([withCost], traits, edges);
+    expect(es).toHaveLength(2);
+    expect(es.find((e) => e.to === "usr").gives).toBe(60);
+    expect(es.find((e) => e.to === "ref")).toMatchObject({ sign: -1, gives: 1 });
   });
 });
