@@ -1,157 +1,181 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
-import {
-  hypoGaps, hypoToEdge, hypoSentence, newHypo,
-} from "../components/HypothesisBuilder.jsx";
 
-/* Гипотеза формулируется целиком одной формой и раскладывается в стрелку. */
+/* Гипотеза набирается в одном поле из палитры под ним. */
 
-const TRAITS = [
-  { id: "t1", e: "a", k: "res", l: "рабочее время", unit: "ч", per: "мес", flow: true },
-  { id: "t2", e: "b", k: "res", l: "заявки", unit: "шт", per: "мес", flow: true },
-];
-const ENTS = [{ id: "a", name: "Я" }, { id: "b", name: "Клиенты" }];
+let container;
+beforeEach(() => { ({ container } = render(<SystemModel />)); });
 
-describe("разбор гипотезы", () => {
-  const ok = () => ({ ...newHypo("a"), fromTrait: "t1", to: "b", toTrait: "t2",
-    gives: 3, per: "нед" });
+const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
+const openBuilder = () => {
+  tab("Схема");
+  fireEvent.click(screen.getByRole("button", { name: "+ составить гипотезу" }));
+};
+const dump = () => {
+  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+  return JSON.parse(container.querySelector("textarea").value);
+};
+const field = () => screen.getByRole("group", { name: "выражение гипотезы" });
+const chipIn = (starts) => [...field().querySelectorAll("span")]
+  .find((s) => s.textContent.startsWith(starts));
+const palette = (name) => screen.getByRole("button", { name });
+const put = (name) => fireEvent.click(palette(name));
 
-  it("готовая гипотеза не жалуется", () => {
-    expect(hypoGaps(ok(), TRAITS)).toEqual([]);
+describe("палитра и поле", () => {
+  it("пустое поле так и говорит, а разложить нечего", () => {
+    openBuilder();
+    expect(screen.getByText(/пусто — возьми элемент из палитры/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Разложить в движения" }).disabled)
+      .toBe(true);
   });
 
-  it("без приёмника, без количества и с чужим ресурсом — не раскладывается", () => {
-    expect(hypoGaps({ ...ok(), toTrait: "" }, TRAITS).length).toBeGreaterThan(0);
-    expect(hypoGaps({ ...ok(), gives: 0 }, TRAITS).length).toBeGreaterThan(0);
-    // Ресурс t1 принадлежит активу «a», а приёмником выбран «b».
-    expect(hypoGaps({ ...ok(), toTrait: "t1" }, TRAITS).join(" "))
-      .toMatch(/не из выбранного актива/);
+  it("палитра предлагает ресурсы, стрелку, операторы и сравнения", () => {
+    openBuilder();
+    expect(screen.getByRole("button", { name: "→ стрелка" })).toBeTruthy();
+    ["если", "иначе", "пока", "повторить"].forEach((o) =>
+      expect(screen.getAllByRole("button", { name: o }).length).toBeGreaterThan(0));
+    expect(screen.getByRole("button", { name: ">" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "123 число" })).toBeTruthy();
   });
 
-  it("ресурс не может течь сам в себя", () => {
-    const h = { ...ok(), from: "b", fromTrait: "t2" };
-    expect(hypoGaps(h, TRAITS).join(" ")).toMatch(/сам в себя/);
+  it("нажатие на элемент палитры кладёт его в поле", () => {
+    openBuilder();
+    put("→ стрелка");
+    // Элемент появился в выражении — его видно во фразе под полем.
+    expect(screen.getAllByText(/→/).length).toBeGreaterThan(0);
   });
 
-  it("источник не обязателен — величина может приходить извне модели", () => {
-    expect(hypoGaps({ ...ok(), fromTrait: "" }, TRAITS)).toEqual([]);
+  it("вставленный элемент сразу открывает свои параметры", () => {
+    openBuilder();
+    put("→ стрелка");
+    expect(screen.getByText(/за какое время это движение должно быть произведено/))
+      .toBeTruthy();
+    expect(screen.getByText(/следующий элемент получает отчёт от предыдущего/))
+      .toBeTruthy();
+    expect(screen.getByText(/в сколько потоков/)).toBeTruthy();
   });
 
-  it("раскладывается ровно в поля стрелки", () => {
-    const ed = hypoToEdge(ok());
-    expect(ed.from).toBe("a");        // актив-источник
-    expect(ed.fromTrait).toBe("t1");  // его ресурс — он и тратится
-    expect(ed.to).toBe("t2");         // приёмник — это ресурс, не актив
-    expect(ed.gives).toBe(3);
-    expect(ed.per).toBe("нед");
-    expect(ed.sign).toBe(1);
-    expect(ed.basis).toBe("hypo");
-    expect(ed.conds).toEqual([]);
+  it("у стрелки настраиваются срок, окно дат, отчёт, повтор и потоки", () => {
+    openBuilder();
+    put("→ стрелка");
+    // Даты — два поля datetime-local, обе стороны окна.
+    expect(container.querySelectorAll('input[type="datetime-local"]')).toHaveLength(2);
+    expect(container.querySelector('input[type="checkbox"]')).toBeTruthy();
+    // Повтор: один раз / сразу / после утверждения отчёта / раз в период.
+    const opts = [...container.querySelectorAll("option")].map((o) => o.textContent);
+    ["один раз", "сразу, без ожидания", "после утверждения отчёта", "раз в период"]
+      .forEach((n) => expect(opts).toContain(n));
+    // Потоки: переключатель и число.
+    expect(screen.getByRole("button", { name: "в несколько" })).toBeTruthy();
   });
 
-  it("«купирует» становится отрицательным знаком, а не отрицательным числом", () => {
-    const ed = hypoToEdge({ ...ok(), sign: -1, gives: -3 });
-    expect(ed.sign).toBe(-1);
-    expect(ed.gives).toBe(3);
-  });
-
-  it("фраза называет оба актива, оба ресурса, число и период", () => {
-    const s = hypoSentence(ok(), TRAITS, ENTS);
-    expect(s).toMatch(/Я/); expect(s).toMatch(/Клиенты/);
-    expect(s).toMatch(/рабочее время/); expect(s).toMatch(/заявки/);
-    expect(s).toMatch(/3/); expect(s).toMatch(/нед/);
-  });
-
-  it("без источника фраза честно говорит, что ничего не тратится", () => {
-    expect(hypoSentence({ ...ok(), fromTrait: "" }, TRAITS, ENTS))
-      .toMatch(/ничего не тратит/);
+  it("щелчок по элементу в поле открывает его параметры повторно", () => {
+    openBuilder();
+    put("→ стрелка");
+    // Свернуть параметры щелчком по самому элементу...
+    const chip = chipIn("→");
+    fireEvent.click(chip);
+    expect(screen.queryByText(/в сколько потоков/)).toBeNull();
+    // ...и открыть снова.
+    fireEvent.click(chipIn("→"));
+    expect(screen.getByText(/в сколько потоков/)).toBeTruthy();
   });
 });
 
-describe("конструктор в модели", () => {
-  let container;
-  beforeEach(() => { ({ container } = render(<SystemModel />)); });
+describe("курсор решает, куда встанет элемент", () => {
+  const words = () => field().parentElement.parentElement
+    .textContent;
 
-  const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
-  const dump = () => {
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
-    return JSON.parse(container.querySelector("textarea").value);
-  };
-  // Форма конструктора — карточка вокруг кнопки «Разложить в движение»;
-  // ищем поля внутри неё, а не по номеру среди всех select страницы.
-  const form = () => screen.getByRole("button", { name: "Разложить в движение" })
-    .closest("div").parentElement;
-  const pick = (i, value) =>
-    fireEvent.change(form().querySelectorAll("select")[i], { target: { value } });
-  const build = () => {
+  it("следующий элемент встаёт после предыдущего, а не в конец наугад", () => {
+    openBuilder();
+    put("если");
+    put(">");
+    // Курсор идёт за вставленным: «если >», а не «> если».
+    expect(screen.getByText(/^если >$/)).toBeTruthy();
+  });
+
+  it("щель в поле переносит курсор, и элемент встаёт именно туда", () => {
+    openBuilder();
+    put("если");
+    put(">");
+    // Щели — пустые вставки между элементами; первая стоит перед всем.
+    const gaps = field().querySelectorAll('span[title="сюда встанет следующий элемент"]');
+    expect(gaps.length).toBe(3);          // до, между, после
+    fireEvent.click(gaps[1]);             // курсор между «если» и «>»
+    put("<");
+    expect(screen.getByText(/^если < >$/)).toBeTruthy();
+    // Курсор поехал за вставленным, а не прыгнул в конец: следующий элемент
+    // встаёт рядом с предыдущим, и вставлять по одному не приходится заново.
+    put("≥");
+    expect(screen.getByText(/^если < ≥ >$/)).toBeTruthy();
+  });
+
+  it("«убрать из выражения» удаляет именно выбранный элемент", () => {
+    openBuilder();
+    put("если");
+    put(">");
+    fireEvent.click(chipIn("если"));
+    fireEvent.click(screen.getByRole("button", { name: "Убрать из выражения" }));
+    // «если» ушло, «>» осталось. Сравнение — набираемый текст, поэтому
+    // живёт полем ввода, а не фишкой.
+    expect(chipIn("если")).toBeUndefined();
+    expect([...field().querySelectorAll("input")].map((i) => i.value)).toEqual([">"]);
+  });
+});
+
+describe("раскладка выражения в движения", () => {
+  // Кладём «[ресурс] → [ресурс]» и заполняем количество.
+  const buildMove = () => {
     const model = dump();
-    scheme();
-    fireEvent.click(screen.getByRole("button", { name: "+ составить гипотезу" }));
-    const [src, dst] = [model.entities[0], model.entities[1]];
-    const dstTrait = model.traits.find((t) => t.e === dst.id);
-    const srcTrait = model.traits.find((t) => t.e === src.id);
-    pick(0, src.id);
-    pick(1, srcTrait.id);
-    pick(2, dst.id);
-    pick(3, dstTrait.id);
-    const amount = form().querySelector('input[inputmode="decimal"]');
+    openBuilder();
+    const [a, b] = [model.traits[0], model.traits.find((t) => t.e !== model.traits[0].e)];
+    const nameOf = (t) => new RegExp(t.l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    fireEvent.click(screen.getAllByRole("button", { name: nameOf(a) })[0]);
+    put("→ стрелка");
+    fireEvent.click(screen.getAllByRole("button", { name: nameOf(b) })[0]);
+    // Курсор после стрелки — вернём выделение на неё и впишем количество.
+    fireEvent.click(chipIn("→"));
+    const amount = screen.getByText(/за раз переносит/).parentElement
+      .querySelector('input[inputmode="decimal"]');
     fireEvent.focus(amount);
     fireEvent.change(amount, { target: { value: "7" } });
     fireEvent.blur(amount);
-    return { src, dst, srcTrait, dstTrait };
+    return { a, b };
   };
 
-  it("незаполненная гипотеза не раскладывается — кнопка недоступна", () => {
-    scheme();
-    fireEvent.click(screen.getByRole("button", { name: "+ составить гипотезу" }));
-    expect(screen.getByRole("button", { name: "Разложить в движение" }).disabled)
-      .toBe(true);
-    expect(screen.getByText(/не хватает:/)).toBeTruthy();
-  });
-
-  it("заполненная — раскладывается в стрелку со всеми полями", () => {
+  it("две соседние карточки ресурсов и стрелка дают стрелку модели", () => {
     const before = dump().edges.length;
-    // Форма живёт на своей вкладке: уход на «Выгрузить» её закрывает, поэтому
-    // сначала снимок модели, потом составление.
-    const { src, srcTrait, dstTrait } = build();
-    fireEvent.click(screen.getByRole("button", { name: "Разложить в движение" }));
+    const { a, b } = buildMove();
+    fireEvent.click(screen.getByRole("button", { name: "Разложить в движения" }));
 
     const edges = dump().edges;
     expect(edges.length).toBe(before + 1);
     const ed = edges[edges.length - 1];
-    expect(ed.from).toBe(src.id);
-    expect(ed.fromTrait).toBe(srcTrait.id);
-    expect(ed.to).toBe(dstTrait.id);
+    expect(ed.fromTrait).toBe(a.id);
+    expect(ed.to).toBe(b.id);
     expect(ed.gives).toBe(7);
   });
 
-  it("новая стрелка сразу влияет на прогноз — она в модели, а не в черновике", () => {
-    build();
-    fireEvent.click(screen.getByRole("button", { name: "Разложить в движение" }));
-    const m = dump();
-    const ed = m.edges[m.edges.length - 1];
-    // Стрелка попала в edges (то, что считает движок), а не в hypos.
-    expect(m.hypos || []).toHaveLength(0);
-    expect(m.edges.some((e) => e.id === ed.id)).toBe(true);
-  });
-
-  it("отложенная гипотеза хранится в сценарии и на расчёт не влияет", () => {
+  it("отложенная гипотеза хранится выражением и на расчёт не влияет", () => {
     const before = dump().edges.length;
-    build();
+    buildMove();
     fireEvent.click(screen.getByRole("button", { name: "Отложить черновиком" }));
 
     const m = dump();
-    expect(m.edges.length).toBe(before);   // модель не тронута
-    expect(m.hypos).toHaveLength(1);       // но гипотеза не потеряна
-    expect(m.hypos[0].gives).toBe(7);
+    expect(m.edges.length).toBe(before);
+    expect(m.hypos).toHaveLength(1);
+    // Хранится именно выражение — элементы, а не готовая стрелка.
+    expect(Array.isArray(m.hypos[0].tokens)).toBe(true);
+    expect(m.hypos[0].tokens.some((t) => t.kind === "arrow")).toBe(true);
   });
 
-  it("отложенную можно разложить позже — она уходит из черновиков в модель", () => {
+  it("отложенную можно разложить позже", () => {
     const before = dump().edges.length;
-    build();
+    buildMove();
     fireEvent.click(screen.getByRole("button", { name: "Отложить черновиком" }));
+    tab("Схема");
     fireEvent.click(screen.getByRole("button", { name: "Разложить" }));
 
     const m = dump();
@@ -159,9 +183,20 @@ describe("конструктор в модели", () => {
     expect(m.hypos).toHaveLength(0);
   });
 
-  it("отмена возвращает разложенную гипотезу обратно", () => {
-    build();
-    fireEvent.click(screen.getByRole("button", { name: "Разложить в движение" }));
+  it("отложенную можно вернуть в поле кнопкой «Править»", () => {
+    buildMove();
+    fireEvent.click(screen.getByRole("button", { name: "Отложить черновиком" }));
+    tab("Схема");
+    fireEvent.click(screen.getByRole("button", { name: "Править" }));
+    // Выражение снова в поле, и черновиков не осталось.
+    expect(screen.getByRole("button", { name: "Разложить в движения" }).disabled)
+      .toBe(false);
+    expect(dump().hypos).toHaveLength(0);
+  });
+
+  it("отмена возвращает разложенное обратно", () => {
+    buildMove();
+    fireEvent.click(screen.getByRole("button", { name: "Разложить в движения" }));
     const after = dump().edges.length;
     fireEvent.click(screen.getByRole("button", { name: "↶ отменить" }));
     expect(dump().edges.length).toBe(after - 1);

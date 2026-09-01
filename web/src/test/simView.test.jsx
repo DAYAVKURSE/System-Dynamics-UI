@@ -73,11 +73,11 @@ describe("задача по нажатию на цель", () => {
   beforeEach(() => { fireEvent.click(screen.getByRole("button", { name: "Задачи" })); });
 
   it("у каждого движения своя кнопка «+ задача»", () => {
-    // Задачи ставятся от движений: список движений — над доской.
-    expect(screen.getByText(/движения ресурсов — у каждого своя задача/))
-      .toBeTruthy();
+    // Задачи ставятся от движений: форма добавления — под доской, и
+    // движения в ней сгруппированы по целям.
+    expect(screen.getByText(/завести задачу/)).toBeTruthy();
     const btns = screen.getAllByRole("button", { name: "+ задача" });
-    expect(btns.length).toBeGreaterThan(1);
+    expect(btns.length).toBeGreaterThan(0);
   });
 
   it("задача от движения открывается с ним, с целью и с кнопкой сдачи", () => {

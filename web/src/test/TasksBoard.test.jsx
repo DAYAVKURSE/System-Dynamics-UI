@@ -48,8 +48,9 @@ const openEditorFor = (title) => fireEvent.click(screen.getByText(title));
 describe("доска задач", () => {
   it("задача создаётся и попадает в колонку «Бэклог»", () => {
     render(<Harness />);
-    commit(screen.getByPlaceholderText("название новой задачи"), "Позвонить рефералам");
-    fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
+    commit(screen.getByPlaceholderText("название задачи без движения"),
+      "Позвонить рефералам");
+    fireEvent.click(screen.getByRole("button", { name: "+ задача без движения" }));
 
     expect(screen.getByDisplayValue("Позвонить рефералам")).toBeInTheDocument();
     // Задача обязана принадлежать цели — по умолчанию первой. Цель теперь
@@ -59,7 +60,8 @@ describe("доска задач", () => {
 
   it("без единой цели задачу создать нельзя", () => {
     render(<Harness goals={[]} />);
-    expect(screen.getByRole("button", { name: "+ задача" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "+ задача без движения" }))
+      .toBeDisabled();
     expect(screen.getByText(/Целей пока нет/)).toBeInTheDocument();
   });
 

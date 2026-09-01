@@ -35,28 +35,31 @@ describe("порядок и названия вкладок", () => {
 });
 
 describe("работа по цели — во вкладке «Прогноз»", () => {
-  it("у цели есть «+ задача», и задача открывается под этой же целью", () => {
+  it("кнопка «+ задача» стоит у каждого движения цели, а не у цели вообще", () => {
     const card = goalCard("активные пользователи");
-    const add = within(card).getByRole("button", { name: "+ задача" });
-    fireEvent.click(add);
-
-    // Редактор открылся внутри карточки этой цели, а не внизу страницы.
-    expect(within(card).getByDisplayValue("Новая задача")).toBeTruthy();
-    expect(within(card).getByText(/движение, которое выполняет задача/)).toBeTruthy();
+    // Движение выбирается не в задаче, а тем, под чем нажата кнопка, —
+    // значит, кнопок столько же, сколько движений входит в цель.
+    const adds = within(card).getAllByRole("button", { name: /^\+ задача/ });
+    expect(adds.length).toBeGreaterThan(0);
+    expect(within(card).getByText(/движения этой цели — у каждого своя задача/))
+      .toBeTruthy();
   });
 
-  it("задача второй цели не открывается под первой", () => {
-    const first = goalCard("активные пользователи");
-    fireEvent.click(within(first).getByRole("button", { name: "+ задача" }));
-    expect(within(first).queryByDisplayValue("Новая задача")).toBeTruthy();
+  it("задача открывается под этой же целью и уже привязана к движению", () => {
+    const card = goalCard("активные пользователи");
+    fireEvent.click(within(card).getAllByRole("button", { name: /^\+ задача/ })[0]);
 
-    const cards = screen.getAllByRole("button", { name: "+ задача" });
-    expect(cards.length).toBeGreaterThan(0);
+    // Редактор открылся внутри карточки этой цели, а не внизу страницы.
+    expect(within(card).getByText(/движение, которое выполняет задача/)).toBeTruthy();
+    // Название взято у движения — задача выросла из него, а не наоборот.
+    expect(within(card).queryByDisplayValue("Новая задача")).toBeNull();
+    expect(within(card).getByText(/Движение задано тем, под чем заведена задача/))
+      .toBeTruthy();
   });
 });
 
 describe("сдача задачи даёт факт", () => {
-  it("«СДАТЬ» записывает фактическое количество и закрывает задачу", () => {
+  it("«СДАТЬ» записывает фактическое количество и уводит на проверку", () => {
     fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
     fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
@@ -68,8 +71,9 @@ describe("сдача задачи даёт факт", () => {
     fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
 
     expect(screen.getByText(/сдано 9/)).toBeTruthy();
-    // Сдача закрывает задачу: работа сделана, факт записан.
-    expect(screen.getAllByDisplayValue("Готово").length).toBeGreaterThan(0);
+    // Сдал — не значит принято: «Готово» ставит тот, кто отчёт принял.
+    expect(screen.getAllByDisplayValue("Проверка").length).toBeGreaterThan(0);
+    expect(screen.queryByDisplayValue("Готово")).toBeNull();
   });
 
   it("сдача уезжает в сценарий вместе с задачей", () => {
@@ -89,20 +93,22 @@ describe("задача от движения", () => {
 
   it("список движений показывает, у скольких есть задачи", () => {
     board();
-    expect(screen.getByText(/движения ресурсов — у каждого своя задача/)).toBeTruthy();
-    // Каждое движение модели — своя строка со своей кнопкой.
+    expect(screen.getByText(/завести задачу/)).toBeTruthy();
+    // Каждое движение цели — своя строка со своей кнопкой.
     expect(screen.getAllByRole("button", { name: "+ задача" }).length)
-      .toBeGreaterThan(1);
+      .toBeGreaterThan(0);
     expect(screen.getAllByText(/задач: 0/).length).toBeGreaterThan(0);
   });
 
   it("созданная задача берёт название движения и привязывается к нему", () => {
     board();
     fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
-    // Движение уже выбрано — задача выросла из него, а не наоборот.
-    const movePicker = [...container.querySelectorAll("select")]
-      .find((s) => s.textContent.includes("— не привязана к движению —"));
-    expect(movePicker.value).not.toBe("");
+    // Движение задано тем, под чем нажали, и селекта для него больше нет:
+    // переназначить задачу мимо своей цели нельзя.
+    expect(screen.getByText(/Движение задано тем, под чем заведена задача/))
+      .toBeTruthy();
+    expect([...container.querySelectorAll("select")]
+      .some((s) => s.textContent.includes("не привязана к движению"))).toBe(false);
     expect(screen.getAllByText(/задач: 1/).length).toBeGreaterThan(0);
   });
 

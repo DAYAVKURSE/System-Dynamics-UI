@@ -114,8 +114,12 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
     // ключевым результатом — просто отвязываем.
     setTasks(p=>p.map(t=>t.okrId===id?{...t,okrId:null}:t));
   };
-  const addTask=()=>{
-    const t=newTask({goalId:g.id});
+  // Движение задачи задаётся тем, под чем нажали «+ задача»: у цели свои
+  // движения, и выбирать их потом селектом в самой задаче незачем.
+  const moves=edges.filter(e=>e.to===g.id);
+  const addTask=(ed)=>{
+    const t=newTask({goalId:g.id,edgeId:ed?ed.id:null,
+      title:ed?(ed.carrier||moveLabel(ed,traits,entities)):"Новая задача"});
     setTasks(p=>[...p,t]); setOpenId(t.id);
   };
   return (
@@ -125,12 +129,39 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
               <span style={{fontSize:13.5,fontWeight:700,flex:1}}>{g.l}</span>
               <span style={{fontSize:11,color:C.muted}}>
                 задач: {done}/{gt.length}</span>
-              <button style={btn(true)} title="Создать задачу к этой цели"
-                onClick={addTask}>+ задача</button>
             </div>
             <div style={{fontSize:11,color:C.muted,marginBottom:8}}>
               {entityName(g.e)} · нужно {nm(Number(g.want))} {g.unit}
               {g.by!=null?` к ${g.by}-му мес.`:""}</div>
+
+            <div style={S.lbl}>движения этой цели — у каждого своя задача</div>
+            <div style={{margin:"6px 0 10px"}}>
+              {!moves.length&&<div style={{fontSize:11.5,color:WARN,lineHeight:1.6}}>
+                В эту цель не входит ни одного движения — задаче нечего
+                выполнять. Нарисуйте стрелку на схеме или составьте гипотезу.
+              </div>}
+              {moves.map(ed=>{
+                const mine=tasks.filter(t=>t.edgeId===ed.id);
+                return (
+                <div key={ed.id} className="flex flex-wrap gap-2"
+                  style={{alignItems:"center",padding:"5px 0",
+                    borderBottom:`1px solid ${C.line}`}}>
+                  <span style={{fontSize:12,flex:"1 1 150px"}}>
+                    {ed.carrier||moveLabel(ed,traits,entities)}
+                    <span style={{color:C.muted}}> · {nm(Math.abs(Number(ed.gives)||0))}
+                      {" "}за {ed.per}</span>
+                  </span>
+                  <span style={{fontSize:10.5,color:mine.length?OK:C.muted}}>
+                    задач: {mine.length}</span>
+                  <button style={btn(true)} title="Задача на это движение"
+                    onClick={()=>addTask(ed)}>+ задача</button>
+                </div>);})}
+              {!!moves.length&&
+                <div style={{fontSize:10.5,color:C.muted,marginTop:6,lineHeight:1.5}}>
+                  Какое движение выполняет задача — решает то, под чем нажата
+                  кнопка; в самой задаче это уже не меняется.
+                </div>}
+            </div>
 
             {!krs.length&&<div style={{fontSize:11.5,color:C.muted}}>
               Ключевых результатов нет. Во вкладке «Цели» нажмите
@@ -253,8 +284,11 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
     setFileBusy(false);
   };
   const submit=()=>{
+    // Сдал — не значит принято. Задача уходит на проверку: «Готово» ставит
+    // тот, кто отчёт принял. Иначе статус означал бы «я так считаю», а на
+    // нём держится и повторяемость движения «после утверждения отчёта».
     upMany({submissions:[...subs,newSubmission({amount:Number(draftAmount)||0,
-      text:draftText,file:draftFile})],status:"done"});
+      text:draftText,file:draftFile})],status:"review"});
     setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
   };
   const target=move?traits.find(t=>t.id===move.to):null;
@@ -299,31 +333,34 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
               : "цель удалена"}
           </div>
 
+          {/* Движение не выбирается: его задаёт то, под чем нажали «+ задача».
+              Селект здесь означал бы, что задачу можно переназначить мимо
+              цели, под которой она заведена, — и метрика цели разъехалась бы
+              с работой по ней. */}
           <div style={S.lbl}>движение, которое выполняет задача</div>
-          <select style={{...S.inp,marginBottom:4}} value={task.edgeId||""}
-            onChange={e=>up("edgeId",e.target.value||null)}>
-            <option value="">— не привязана к движению —</option>
-            {entities.map(en=>{
-              const own=edges.filter(ed=>ed.from===en.id);
-              if(!own.length) return null;
-              return (<optgroup key={en.id} label={en.name}>
-                {own.map(ed=>(<option key={ed.id} value={ed.id}>
-                  {moveLabel(ed,traits,entities)}
-                  {ed.carrier?` · ${ed.carrier}`:""}</option>))}
-              </optgroup>);})}
-          </select>
           {move&&target
-            ? <div style={{fontSize:11,color:C.muted,marginBottom:8,lineHeight:1.55}}>
-                Гипотетически это движение {Number(move.sign)<0?"уменьшает":"приносит"}
-                {" "}<b style={{color:Number(move.sign)<0?BAD:OK}}>
-                  {nm(Math.abs(Number(move.gives)||0))} {unitOf(target).split("/")[0]}
-                  {" "}за {move.per}</b> в «{target.l}». Сколько перешло на самом
-                деле — записывается при сдаче, ниже. Что переходит, сколько и как
-                часто, когда начинается и заканчивается — свойства движения; они
-                настраиваются на стрелке, во вкладке «Схема».
+            ? <div style={{background:C.panel2,border:`1px solid ${C.line}`,
+                borderRadius:8,padding:9,margin:"6px 0 8px",fontSize:11.5,lineHeight:1.6}}>
+                <div style={{fontSize:12.5,fontWeight:700,color:C.text}}>
+                  {moveLabel(move,traits,entities)}
+                  {move.carrier?` · ${move.carrier}`:""}</div>
+                <div style={{color:C.muted,marginTop:4}}>
+                  Гипотетически это движение {Number(move.sign)<0?"уменьшает":"приносит"}
+                  {" "}<b style={{color:Number(move.sign)<0?BAD:OK}}>
+                    {nm(Math.abs(Number(move.gives)||0))} {unitOf(target).split("/")[0]}
+                    {" "}за {move.per}</b> в «{target.l}». Сколько перешло на самом
+                  деле — записывается при сдаче, ниже.
+                </div>
+                <div style={{color:C.muted,marginTop:4}}>
+                  Движение задано тем, под чем заведена задача, и здесь не
+                  меняется. Что переходит, сколько и как часто, когда
+                  начинается и заканчивается — свойства стрелки, во вкладке
+                  «Схема».
+                </div>
               </div>
-            : <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-                Пока движение не выбрано, непонятно, что задача меняет в модели.
+            : <div style={{fontSize:11,color:WARN,margin:"6px 0 8px",lineHeight:1.5}}>
+                Задача ни к какому движению не привязана — в модели она ничего
+                не меняет. Заведите её заново под движением цели.
               </div>}
 
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
@@ -500,73 +537,20 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
 
   return (
     <div>
-      {/* ─── Доска ─── */}
+      {/* Сначала доска: на неё смотрят каждый день, а форму добавления
+          открывают изредка — поэтому она ниже, а не перед доской. */}
       <div style={{...S.card,marginBottom:10}}>
-        <div style={S.lbl}>движения ресурсов — у каждого своя задача</div>
-        <div style={{fontSize:11.5,color:C.muted,margin:"6px 0 8px",lineHeight:1.6}}>
-          Движение само по себе не происходит — его кто-то делает. Заведи под
-          движение задачу и укажи, на сколько одно выполнение пополняет ресурс:
-          прогноз посчитает это по периодичности задачи.
-        </div>
-        <div style={{marginBottom:4}}>
-          {!edges.filter(e=>!e.task).length&&
-            <div style={{fontSize:11.5,color:C.muted}}>
-              Движений пока нет — нарисуй стрелку на схеме.</div>}
-          {edges.filter(e=>!e.task).map(ed=>{
-            const mt=traits.find(t=>t.id===ed.to);
-            const mine=tasks.filter(t=>t.edgeId===ed.id);
-            return (
-            <div key={ed.id} style={{background:C.panel2,
-              border:`1px solid ${C.line}`,borderRadius:8,padding:8,marginBottom:6}}>
-              <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-                <span style={{fontSize:12.5,flex:"1 1 160px"}}>
-                  {moveLabel(ed,traits,entities)}
-                  {ed.carrier?<span style={{color:C.muted}}> · {ed.carrier}</span>:null}
-                </span>
-                <span style={{fontSize:10.5,color:mine.length?OK:C.muted}}>
-                  задач: {mine.length}</span>
-                <button style={btn(true)} disabled={!goals.length}
-                  onClick={()=>{
-                    const t=newTask({goalId:goalOf(ed),edgeId:ed.id,
-                      title:ed.carrier||moveLabel(ed,traits,entities)});
-                    setTasks(p=>[...p,t]); setOpenId(t.id);
-                  }}>+ задача</button>
-              </div>
-              {mine.map(t=>(
-                <div key={t.id} style={{fontSize:10.5,color:C.muted,marginTop:4}}>
-                  {t.title} — пополняет на {nm(Math.abs(Number(t.amount)||0))}
-                  {" "}{mt?unitOf(mt).split("/")[0]:""} за выполнение
-                  {t.status==="done"?" · выполнена, в прогнозе не считается":""}
-                </div>))}
-            </div>);})}
-        </div>
-      </div>
-
-      <div style={{...S.card,marginBottom:10}}>
-        <div style={S.lbl}>доска задач</div>
-        {!goals.length&&<div style={{fontSize:11.5,color:C.muted,marginTop:6,
-          lineHeight:1.6}}>
-          Целей пока нет. Поставьте цель во вкладке «Цели» — задачи всегда
-          принадлежат какой-либо цели.</div>}
-        <div className="flex flex-wrap gap-2" style={{margin:"6px 0 8px"}}>
+        <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+          <span style={S.lbl}>доска задач</span>
+          <span style={{flex:1}}/>
           <button style={btn(filter==="all")} onClick={()=>setFilter("all")}>
             все цели</button>
           {goals.map(g=>(<button key={g.id} style={btn(filter===g.id)}
             onClick={()=>setFilter(g.id)}>{g.l}</button>))}
         </div>
-        <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-          <TxtField value={draft} placeholder="название новой задачи"
-            style={{flex:"2 1 180px"}} onCommit={setDraft}/>
-          <button style={btn(true)} disabled={!goals.length} onClick={addTask}>
-            + задача</button>
-        </div>
       </div>
 
-      {open&&<TaskEditor task={open} goals={goals} traits={traits} entities={entities} edges={edges}
-        entityName={entityName}
-        setTasks={setTasks} onClose={()=>setOpenId(null)} onDelete={()=>delT(open.id)}/>}
-
-      {/* Колонки прокручиваются вбок: на телефоне четыре столбца рядом не влезают. */}
+{/* Колонки прокручиваются вбок: на телефоне четыре столбца рядом не влезают. */}
       <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",paddingBottom:6}}>
         <div className="flex gap-2" style={{minWidth:4*248}}>
           {STATUSES.map(s=>{
@@ -610,6 +594,74 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
                     </div>);})}
               </div>);})}
         </div>
+      </div>
+
+{open&&<TaskEditor task={open} goals={goals} traits={traits} entities={entities} edges={edges}
+        entityName={entityName}
+        setTasks={setTasks} onClose={()=>setOpenId(null)} onDelete={()=>delT(open.id)}/>}
+
+      {/* ─── Добавление задач: под доской ─── */}
+      <div style={{...S.card,marginTop:10,marginBottom:10}}>
+        <div style={S.lbl}>завести задачу</div>
+        <div style={{fontSize:11.5,color:C.muted,margin:"6px 0 8px",lineHeight:1.6}}>
+          Движение само по себе не происходит — его кто-то делает. Задача
+          заводится под движением: какое именно она выполняет, решает то, под
+          чем нажата кнопка, а не выбор в самой задаче.
+        </div>
+        {goals.map(g=>{
+          const moves=edges.filter(e=>e.to===g.id);
+          return (
+          <div key={g.id} style={{background:C.panel2,border:`1px solid ${C.line}`,
+            borderRadius:8,padding:8,marginBottom:6}}>
+            <div style={{fontSize:12.5,fontWeight:700,marginBottom:2}}>{g.l}</div>
+            <div style={{fontSize:10.5,color:C.muted,marginBottom:6}}>
+              {entityName(g.e)}{g.by!=null?` · к ${g.by}-му мес.`:""}</div>
+            {!moves.length&&<div style={{fontSize:11,color:WARN,lineHeight:1.5}}>
+              В эту цель не входит ни одного движения — задаче нечего
+              выполнять. Нарисуйте стрелку на схеме или составьте гипотезу.</div>}
+            {moves.map(ed=>{
+              const mine=tasks.filter(t=>t.edgeId===ed.id);
+              return (
+              <div key={ed.id} className="flex flex-wrap gap-2"
+                style={{alignItems:"center",padding:"5px 0",
+                  borderTop:`1px solid ${C.line}`}}>
+                <span style={{fontSize:12,flex:"1 1 150px"}}>
+                  {ed.carrier||moveLabel(ed,traits,entities)}
+                  <span style={{color:C.muted}}> · {nm(Math.abs(Number(ed.gives)||0))}
+                    {" "}за {ed.per}
+                    {Number(ed.threads)>1?` · ${ed.threads} потока`:""}</span>
+                </span>
+                <span style={{fontSize:10.5,color:mine.length?OK:C.muted}}>
+                  задач: {mine.length}</span>
+                <button style={btn(true)} title="Задача на это движение"
+                  onClick={()=>{
+                    const t=newTask({goalId:g.id,edgeId:ed.id,
+                      title:ed.carrier||moveLabel(ed,traits,entities)});
+                    // Потоки — это столько же копий задачи в списке: одна
+                    // задача на поток, иначе «в три потока» осталось бы
+                    // числом в параметрах и никак не отразилось на работе.
+                    const n=Math.max(1,Math.round(Number(ed.threads)||1));
+                    const copies=n<=1?[t]:Array.from({length:n},(_,i)=>
+                      ({...newTask({goalId:g.id,edgeId:ed.id,
+                        title:`${ed.carrier||moveLabel(ed,traits,entities)} · поток ${i+1}`})}));
+                    setTasks(p=>[...p,...copies]); setOpenId(copies[0].id);
+                  }}>+ задача{Number(ed.threads)>1?` ×${ed.threads}`:""}</button>
+              </div>);})}
+          </div>);})}
+
+        <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginTop:8}}>
+          <TxtField value={draft} placeholder="название задачи без движения"
+            style={{flex:"2 1 180px"}} onCommit={setDraft}/>
+          <button style={btn(false)} disabled={!goals.length} onClick={addTask}>
+            + задача без движения</button>
+        </div>
+        <div style={{fontSize:10.5,color:C.muted,marginTop:5,lineHeight:1.5}}>
+          Такая задача ничего не двигает в модели — она просто напоминание.
+        </div>
+        {!goals.length&&<div style={{fontSize:11.5,color:C.muted,marginTop:6,
+          lineHeight:1.6}}>
+          Целей пока нет. Поставьте цель во вкладке «Прогноз» — задачи всегда
+          принадлежат какой-либо цели.</div>}
       </div>
     </div>);
 }

@@ -1088,7 +1088,7 @@ export default function SystemModel(){
             стоит под полотном: сначала видно, что уже есть, потом — чем
             дополнить. */}
         <HypothesisBuilder entities={entities} traits={traits} kindOf={kindOf}
-          hypos={hypos} setHypos={setHypos} defaultFrom={sel}
+          hypos={hypos} setHypos={setHypos}
           onApply={(ed)=>{setEdges(p=>[...p,ed]);
             setSelTrait(null);setSel(ed.from);
             setPair(`${ed.from}|${trait(ed.to)?.e}`);}}/>
