@@ -1,8 +1,10 @@
 /* ════════════════════════════════════════════════════════════════
    Числовые выражения со ссылками на ресурсы модели.
 
-   Условие перетекания сравнивает две величины, и каждая из них может быть
-   не просто числом, а формулой: «активные реферы * 2», «пользователи / 100 + 5».
+   Выражение — это формула со ссылками на ресурсы: «активные реферы * 2»,
+   «пользователи / 100 + 5». Наверху разбора стоит сравнение, поэтому
+   «10 - x > y + z» читается без скобок и даёт 1 или 0 — на этом держится
+   условие вида «пропускает, если верно».
 
    Два представления одного выражения:
    · хранение  — ссылка по id ресурса:   {r5} * 2
@@ -16,6 +18,16 @@
 const REF_STORAGE = /\{([^{}]+)\}/g;
 const REF_DISPLAY = /\[([^[\]]*)\]/g;
 
+/* Сравнения. Пишут их по-разному — принимаем все написания и приводим к
+   одному, чтобы дальше о разнице не думать. */
+const CMP2 = [">=", "<=", "<>", "!=", "=="];
+const CMP1 = [">", "<", "=", "\u2265", "\u2264", "\u2260"];
+const CMP_NORM = {
+  ">=": ">=", "\u2265": ">=", "<=": "<=", "\u2264": "<=",
+  "<>": "\u2260", "!=": "\u2260", "\u2260": "\u2260",
+  "==": "=", "=": "=", ">": ">", "<": "<",
+};
+
 /* ─────── разбор и вычисление ─────── */
 
 function tokenize(src) {
@@ -27,6 +39,11 @@ function tokenize(src) {
     const ch = s[i];
 
     if (/\s/.test(ch)) { i++; continue; }
+
+    // Двухсимвольные раньше односимвольных, иначе «>=» прочтётся как «>».
+    const two = s.slice(i, i + 2);
+    if (CMP2.includes(two)) { tokens.push({ t: "cmp", v: CMP_NORM[two] }); i += 2; continue; }
+    if (CMP1.includes(ch)) { tokens.push({ t: "cmp", v: CMP_NORM[ch] }); i++; continue; }
 
     if ("+-*/()".includes(ch)) { tokens.push({ t: ch }); i++; continue; }
 
@@ -62,14 +79,30 @@ function tokenize(src) {
   return { tokens };
 }
 
-/* Рекурсивный спуск: выражение → слагаемые → множители → атом.
-   Приоритет операций обычный, скобки поддерживаются. */
+/* Рекурсивный спуск: сравнение → слагаемые → множители → атом.
+   Сравнение — на самом верху, поэтому «10 - x > y + z» читается как
+   «(10 - x) > (y + z)», а не требует скобок. Результат сравнения — 1 или 0. */
 function parse(tokens) {
   let pos = 0;
   const peek = () => tokens[pos];
   const eat = (t) => (tokens[pos]?.t === t ? tokens[pos++] : null);
 
-  function expr() {
+  // Сравнение не цепочечное: «a > b > c» — почти всегда описка, и молча
+  // посчитать это как «(a > b) > c» значило бы выдать бессмыслицу за ответ.
+  function compare() {
+    const a = sum();
+    if (a.error) return a;
+    const op = eat("cmp");
+    if (!op) return a;
+    const b = sum();
+    if (b.error) return b;
+    if (peek()?.t === "cmp") {
+      return { error: "два сравнения подряд — раздели на два условия" };
+    }
+    return { op: "cmp", cmp: op.v, a, b };
+  }
+
+  function sum() {
     let node = term();
     if (node.error) return node;
     for (;;) {
@@ -108,7 +141,7 @@ function parse(tokens) {
     if (eat("num")) return { num: tok.v };
     if (eat("ref")) return { ref: tok.v };
     if (eat("(")) {
-      const node = expr();
+      const node = compare();
       if (node.error) return node;
       if (!eat(")")) return { error: "не закрыта скобка" };
       return node;
@@ -116,7 +149,7 @@ function parse(tokens) {
     return { error: `лишний символ: «${tok.t}»` };
   }
 
-  const node = expr();
+  const node = compare();
   if (node.error) return node;
   if (pos < tokens.length) return { error: "лишнее в конце выражения" };
   return node;
@@ -136,6 +169,20 @@ function walk(node, valueOf) {
   if (node.op === "neg") return { value: -a.value };
   const b = walk(node.b, valueOf);
   if (b.error) return b;
+  if (node.op === "cmp") {
+    // Допуск на погрешность: после деления и умножения точное равенство
+    // почти никогда не выполняется, и «=» без допуска был бы бесполезен.
+    const e = 1e-9, d = a.value - b.value;
+    switch (node.cmp) {
+      case ">": return { value: d > e ? 1 : 0 };
+      case "<": return { value: d < -e ? 1 : 0 };
+      case ">=": return { value: d >= -e ? 1 : 0 };
+      case "<=": return { value: d <= e ? 1 : 0 };
+      case "=": return { value: Math.abs(d) <= e ? 1 : 0 };
+      case "\u2260": return { value: Math.abs(d) > e ? 1 : 0 };
+      default: return { error: "неизвестное сравнение" };
+    }
+  }
   switch (node.op) {
     case "+": return { value: a.value + b.value };
     case "-": return { value: a.value - b.value };
@@ -189,4 +236,32 @@ export function toStorage(src, idOf) {
 // Какие ресурсы участвуют в выражении — нужно, чтобы подсветить зависимости.
 export function refsOf(src) {
   return [...String(src ?? "").matchAll(REF_STORAGE)].map((m) => m[1]);
+}
+
+/* Верхнеуровневое сравнение в выражении: «10 - {a} > {b} + 2» разбирается на
+   левую часть, знак и правую. Нужно, чтобы показать человеку обе стороны
+   числами и чтобы переключение вида условия не теряло написанное.
+   Скобки и ссылки пропускаются целиком — знак внутри них не считается. */
+export function splitComparison(src) {
+  const s = String(src ?? "");
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "(") { depth++; continue; }
+    if (ch === ")") { depth--; continue; }
+    if (ch === "{" || ch === "[") {
+      const end = s.indexOf(ch === "{" ? "}" : "]", i);
+      i = end === -1 ? s.length : end;
+      continue;
+    }
+    if (depth !== 0) continue;
+    const two = s.slice(i, i + 2);
+    if (CMP2.includes(two)) {
+      return { left: s.slice(0, i).trim(), op: CMP_NORM[two], right: s.slice(i + 2).trim() };
+    }
+    if (CMP1.includes(ch)) {
+      return { left: s.slice(0, i).trim(), op: CMP_NORM[ch], right: s.slice(i + 1).trim() };
+    }
+  }
+  return null;
 }

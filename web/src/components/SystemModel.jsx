@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule } from "../storage.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { evaluate, toDisplay, toStorage, refsOf } from "../lib/expr.js";
-import { PER, isFlow, Cond, condSides, condRefs, condK, edgeK, sourceTrait,
-  simulate, reachMonth, isFact, factEdges, frac, depsOf, adviseFor } from "../lib/sim.js";
+import { evaluate, toDisplay, toStorage, refsOf, splitComparison } from "../lib/expr.js";
+import { PER, isFlow, Cond, condSides, condRefs, condKind, condK, asGate, asRatio,
+  edgeK, sourceTrait, simulate, reachMonth, isFact, factEdges, frac, depsOf,
+  adviseFor } from "../lib/sim.js";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
@@ -243,10 +244,20 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
   const setConds=(next)=>onEdit(ed.id,"conds",next);
   // Правку условия сразу приводим к новой форме: иначе у старого условия
   // остались бы и trait/amt, и left/right, и было бы непонятно, что считать.
-  const updCond=(i,f,v)=>setConds(conds.map((c,ci)=>
-    ci===i?{...condSides(c),[f]:v}:c));
+  const updCond=(i,f,v)=>setConds(conds.map((c,ci)=>{
+    if(ci!==i) return c;
+    return f==="expr"?{expr:v}:{...condSides(c),[f]:v};
+  }));
+  const setKind=(i,kind)=>setConds(conds.map((c,ci)=>
+    ci!==i?c:(kind==="gate"?asGate(c):asRatio(c,kind))));
   const delCond=(i)=>setConds(conds.filter((_,ci)=>ci!==i));
-  const addCond=()=>setConds([...conds,{left:"",mode:"min",right:""}]);
+  // Новое условие — сравнение: это то, что спрашивают чаще всего («когда
+  // вообще переносить»), и оно читается одной строкой.
+  const addCond=()=>setConds([...conds,{expr:""}]);
+  // В подстановке ресурсов актив-источник идёт первым: чаще всего условие
+  // именно про него.
+  const nearFirst=[...entities].sort((a,b)=>
+    (a.id===ed.from?-1:0)-(b.id===ed.from?-1:0));
   return (
     <div style={{background:C.panel2,
       border:`1px solid ${k>0?(fact?OK+"55":WARN+"55"):BAD+"55"}`,borderRadius:8,
@@ -268,7 +279,9 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
           {fact?"точный расчёт — не зависит от поведения людей"
             :"предположение о поведении — может не сбыться"}</span>
       </div>
-      <div style={{marginBottom:7}}>
+      <div style={S.lbl}>перенос — что, откуда и как часто</div>
+      <div style={{background:C.ink,border:`1px solid ${C.line}`,borderRadius:6,
+        padding:8,margin:"5px 0 10px"}}>
         <div style={S.lbl}>берётся из ресурса{own?` актива «${own.name}»`:""}</div>
         <select style={S.inp} value={ed.fromTrait||""}
           onChange={e=>onEdit(ed.id,"fromTrait",e.target.value||null)}>
@@ -281,18 +294,74 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
             ?`Сколько придёт сюда, на столько же убудет «${src.l}». Не хватит — стрелка передаст меньше; если на этот же ресурс претендуют другие стрелки, каждая получит свою долю.`
             :"Ничего не тратится: величина берётся извне модели. Так и надо для приходящего снаружи — спроса, новых пользователей. Но если это ваш ресурс, выберите его выше, иначе один и тот же час работы уйдёт сразу в несколько мест."}
         </div>
+        <div className="flex flex-wrap gap-2" style={{marginTop:8,alignItems:"center"}}>
+          <span style={{fontSize:12,color:C.muted}}>за попытку берёт</span>
+          <NumField value={ed.gives} style={{flex:"0 1 84px"}}
+            onCommit={v=>onEdit(ed.id,"gives",v??0)}/>
+          <span style={{fontSize:12,color:C.muted}}>{t.unit}, попытка каждый</span>
+          <select style={{...S.inp,flex:"0 1 96px"}} value={ed.per}
+            onChange={e=>onEdit(ed.id,"per",e.target.value)}>
+            {Object.keys(PER).map(p=><option key={p} value={p}>{p}</option>)}</select>
+          <button onClick={()=>onEdit(ed.id,"sign",ed.sign>0?-1:1)}
+            style={btn(true,ed.sign>0?OK:BAD)}>{ed.sign>0?"катализирует":"купирует"}</button>
+        </div>
+        <div style={{fontSize:11.5,color:k>=1?OK:k>0?WARN:BAD,lineHeight:1.5,marginTop:7}}>
+          {!conds.length
+            ?`Условий нет — попытки удаются всегда: ${nm(ed.gives*(PER[ed.per]??1))} ${t.unit} в месяц.`
+            :k>0
+              ?`Условия сейчас пропускают ${Math.round(k*100)}% — значит переносится ${nm(ed.gives*(PER[ed.per]??1)*k)} ${t.unit} в месяц.`
+              :"Условия сейчас не выполняются — перенос не идёт."}
+        </div>
       </div>
-      <div style={{marginBottom:7}}><div style={S.lbl}>подпись стрелки на схеме</div>
+      <div style={{marginBottom:10}}><div style={S.lbl}>подпись стрелки на схеме</div>
         <TxtField value={ed.carrier} placeholder="что передаёт"
           onCommit={v=>onEdit(ed.id,"carrier",v)}/></div>
 
-      <div style={S.lbl}>условия перетекания</div>
-      <div style={{margin:"5px 0 7px"}}>
+      <div style={S.lbl}>условия — когда перенос вообще происходит</div>
+      <div style={{margin:"5px 0 10px"}}>
         {conds.map((c,i)=>{
-          const {left,right,mode}=condSides(c);
+          const kind=condKind(c);
           const valueOf=(tid)=>live[tid]??0;
-          const L=evaluate(left,valueOf), R=evaluate(right,valueOf);
           const kk=condK(c,valueOf);
+          if(kind==="gate"){
+            const R=evaluate(c.expr,valueOf);
+            const parts=splitComparison(c.expr||"");
+            // Показываем обе стороны числами: «неверно» само по себе не
+            // объясняет, чего именно не хватило.
+            const L1=parts?evaluate(parts.left,valueOf):null;
+            const L2=parts?evaluate(parts.right,valueOf):null;
+            const bad=!!R.error;
+            return (
+            <div key={i} style={{background:C.ink,
+              border:`1px solid ${bad?BAD+"66":C.line}`,borderRadius:6,
+              padding:8,marginBottom:6}}>
+              <div className="flex items-center gap-2" style={{marginBottom:6}}>
+                <span style={{...S.lbl,flex:1}}>условие {i+1}</span>
+                <button onClick={()=>delCond(i)}
+                  style={{...btn(false),padding:"3px 7px"}}>✕</button>
+              </div>
+              <select style={{...S.inp,marginBottom:8}} value={kind}
+                onChange={e=>setKind(i,e.target.value)}>
+                <option value="gate">пропускает, если верно</option>
+                <option value="min">пропорция: чем больше, тем сильнее</option>
+                <option value="max">насыщение: не больше, чем</option>
+              </select>
+              <ExprField value={c.expr} traits={traits} scope={traits}
+                entities={nearFirst} kindOf={kindOf}
+                placeholder="например: 10 - [ресурс] > [другой] + [третий]"
+                onCommit={v=>updCond(i,"expr",v)}/>
+              <div style={{fontSize:10.5,marginTop:6,lineHeight:1.5,
+                color:bad?BAD:(kk>0?OK:C.muted)}}>
+                {bad
+                  ? `${R.error} — условие не учитывается, пока не исправлено`
+                  : parts&&!L1.error&&!L2.error
+                    ? `сейчас ${nm(L1.value)} ${parts.op} ${nm(L2.value)} — ${kk>0?"верно, перенос идёт":"неверно, переноса нет"}`
+                    : `сейчас ${kk>0?"верно, перенос идёт":"неверно, переноса нет"}`}
+              </div>
+            </div>);
+          }
+          const {left,right,mode}=condSides(c);
+          const L=evaluate(left,valueOf), R=evaluate(right,valueOf);
           const bad=L.error||R.error;
           return (
           <div key={i} style={{background:C.ink,border:`1px solid ${bad?BAD+"66":C.line}`,
@@ -302,6 +371,12 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
               <button onClick={()=>delCond(i)}
                 style={{...btn(false),padding:"3px 7px"}}>✕</button>
             </div>
+            <select style={{...S.inp,marginBottom:8}} value={kind}
+              onChange={e=>setKind(i,e.target.value)}>
+              <option value="gate">пропускает, если верно</option>
+              <option value="min">пропорция: чем больше, тем сильнее</option>
+              <option value="max">насыщение: не больше, чем</option>
+            </select>
 
             <div style={S.lbl}>у «{own?.name||"актива-источника"}»</div>
             <div style={{margin:"4px 0 8px"}}>
@@ -310,13 +385,8 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
                 onCommit={v=>updCond(i,"left",v)}/>
             </div>
 
-            <select style={{...S.inp,marginBottom:8}} value={mode}
-              onChange={e=>updCond(i,"mode",e.target.value)}>
-              <option value="min">не меньше, чем</option>
-              <option value="max">не больше, чем</option>
-            </select>
-
-            <div style={S.lbl}>любой ресурс или число</div>
+            <div style={{...S.lbl,marginBottom:4}}>
+              {mode==="min"?"не меньше, чем":"не больше, чем"}</div>
             <div style={{margin:"4px 0 6px"}}>
               <ExprField value={right} traits={traits} scope={traits} entities={entities}
                 kindOf={kindOf} placeholder="число или формула"
@@ -339,21 +409,6 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
         <button style={btn(false)} onClick={addCond}>+ добавить условие</button>
       </div>
 
-      <div className="flex flex-wrap gap-2" style={{marginBottom:7,alignItems:"center"}}>
-        <span style={{fontSize:12,color:C.muted}}>даёт</span>
-        <NumField value={ed.gives} style={{flex:"0 1 84px"}}
-          onCommit={v=>onEdit(ed.id,"gives",v??0)}/>
-        <span style={{fontSize:12,color:C.muted}}>{t.unit} за</span>
-        <select style={{...S.inp,flex:"0 1 96px"}} value={ed.per}
-          onChange={e=>onEdit(ed.id,"per",e.target.value)}>
-          {Object.keys(PER).map(p=><option key={p} value={p}>{p}</option>)}</select>
-        <button onClick={()=>onEdit(ed.id,"sign",ed.sign>0?-1:1)}
-          style={btn(true,ed.sign>0?OK:BAD)}>{ed.sign>0?"катализирует":"купирует"}</button>
-      </div>
-      <div style={{fontSize:11.5,color:k>=1?OK:k>0?WARN:BAD,lineHeight:1.5,marginBottom:7}}>
-        {!conds.length?`Без условий: ${nm(ed.gives)} ${t.unit} за ${ed.per}.`
-          :`Все условия вместе дают множитель ${Math.round(k*100)}% — значит сейчас передаётся ${nm(ed.gives*k)} ${t.unit} за ${ed.per}.`}
-      </div>
       <div><div style={S.lbl}>пояснение</div>
         <TxtField area value={ed.note} style={{minHeight:46,lineHeight:1.5}}
           onCommit={v=>onEdit(ed.id,"note",v)}/></div>

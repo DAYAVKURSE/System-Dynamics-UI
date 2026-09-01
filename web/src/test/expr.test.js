@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluate, toDisplay, toStorage, refsOf } from "../lib/expr.js";
+import { evaluate, toDisplay, toStorage, refsOf, splitComparison } from "../lib/expr.js";
 
 const VALUES = { r5: 10, u9: 200, m2: 18000, zero: 0 };
 const valueOf = (id) => VALUES[id];
@@ -144,5 +144,75 @@ describe("ссылки: id ⇄ имя", () => {
   it("находит все использованные ресурсы", () => {
     expect(refsOf("{r5} * 2 + {u9}")).toEqual(["r5", "u9"]);
     expect(refsOf("5 + 3")).toEqual([]);
+  });
+});
+
+describe("сравнения", () => {
+  const v = { x: 300, y: 4, z: 6 };
+  const f = (id) => v[id];
+  const val = (src) => evaluate(src, f).value;
+
+  it("сравнение считается после арифметики, скобки не нужны", () => {
+    // Ровно то, ради чего сравнения и заводились: «10 - x > y + z».
+    expect(val("10 - {y} > {y} + {z}")).toBe(0);   // 6 > 10 — нет
+    expect(val("10 + {y} > {y} + {z}")).toBe(1);   // 14 > 10 — да
+  });
+
+  it("знает все шесть сравнений", () => {
+    expect(val("4 > 3")).toBe(1);
+    expect(val("4 < 3")).toBe(0);
+    expect(val("4 >= 4")).toBe(1);
+    expect(val("4 <= 3")).toBe(0);
+    expect(val("4 = 4")).toBe(1);
+    expect(val("4 <> 4")).toBe(0);
+  });
+
+  it("принимает разные написания одного знака", () => {
+    expect(val("4 ≥ 4")).toBe(1);
+    expect(val("4 ≤ 4")).toBe(1);
+    expect(val("4 ≠ 5")).toBe(1);
+    expect(val("4 != 5")).toBe(1);
+    expect(val("4 == 4")).toBe(1);
+  });
+
+  it("равенство с допуском — иначе после деления оно бесполезно", () => {
+    expect(val("1 / 3 * 3 = 1")).toBe(1);
+  });
+
+  it("два сравнения подряд — это описка, а не выражение", () => {
+    // Посчитать «(a > b) > c» молча значило бы выдать бессмыслицу за ответ.
+    expect(evaluate("1 > 2 > 3", f).error).toMatch(/два сравнения/);
+  });
+
+  it("результат сравнения — обычное число, с ним можно считать", () => {
+    expect(val("(3 > 2) * 5")).toBe(5);
+    expect(val("(3 < 2) * 5")).toBe(0);
+  });
+
+  it("ссылки на ресурсы в сравнении работают", () => {
+    expect(val("{x} > 100")).toBe(1);
+    expect(refsOf("{x} > {y} + {z}")).toEqual(["x", "y", "z"]);
+  });
+});
+
+describe("разбор сравнения на стороны", () => {
+  it("делит по верхнему знаку", () => {
+    expect(splitComparison("10 - {x} >= {y} + 2"))
+      .toEqual({ left: "10 - {x}", op: ">=", right: "{y} + 2" });
+  });
+
+  it("знак внутри скобок и ссылок не считается верхним", () => {
+    expect(splitComparison("(1 > 2) + 3")).toBeNull();
+    expect(splitComparison("{a>b} + 1")).toBeNull();
+  });
+
+  it("без сравнения делить нечего", () => {
+    expect(splitComparison("10 + 2")).toBeNull();
+    expect(splitComparison("")).toBeNull();
+  });
+
+  it("приводит написание знака к одному виду", () => {
+    expect(splitComparison("{a} ≥ 1").op).toBe(">=");
+    expect(splitComparison("{a} != 1").op).toBe("≠");
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Cond, depsOf, isFlow, simulate } from "../lib/sim.js";
+import { Cond, asGate, asRatio, condKind, condRefs, depsOf, isFlow, simulate }
+  from "../lib/sim.js";
 
 /* Движок: расход ресурса и дележ между теми, кто на него претендует.
    Числа здесь проверяются напрямую — на отрисованные значения полагаться
@@ -163,5 +164,90 @@ describe("тип величины", () => {
     expect(isFlow({ unit: "ч/день" })).toBe(true);
     expect(isFlow({ unit: "₽" })).toBe(false);
     expect(isFlow({ unit: "₽", flow: true })).toBe(true);
+  });
+});
+
+describe("условие-сравнение: пропускает или нет", () => {
+  // «Отклики отправляем, только пока свободного времени больше 100 часов».
+  const gated = (expr) => ({
+    traits: [
+      { id: "work", e: "me", k: "res", l: "рабочее время", unit: "ч/день" },
+      { id: "bid", e: "ord", k: "res", l: "отклики", unit: "ч/день" },
+      { id: "quota", e: "ord", k: "res", l: "остаток квоты", unit: "шт.", have: 5 },
+    ],
+    edges: [
+      { id: "e0", from: "me", to: "work", gives: 10, per: "день", sign: 1, conds: [] },
+      { id: "e1", from: "me", to: "bid", gives: 1, per: "день", sign: 1,
+        conds: [{ expr }] },
+    ],
+  });
+  const bid = (expr) => at(simulate(gated(expr).traits, gated(expr).edges, 1).bid);
+
+  it("верное условие пропускает перенос целиком", () => {
+    expect(bid("{quota} > 0")).toBe(30);
+  });
+
+  it("неверное — перенос не идёт вовсе", () => {
+    expect(bid("{quota} > 10")).toBe(0);
+  });
+
+  it("сравнение считается после арифметики", () => {
+    // 10 - 5 > 2 + 1 → 5 > 3 → верно
+    expect(bid("10 - {quota} > 2 + 1")).toBe(30);
+    // 10 - 5 > 6 + 1 → 5 > 7 → неверно
+    expect(bid("10 - {quota} > 6 + 1")).toBe(0);
+  });
+
+  it("пустое условие не душит стрелку", () => {
+    // Только что добавленное условие ещё не заполнено — стрелка обязана
+    // работать, иначе прогноз схлопывается без объяснения.
+    expect(bid("")).toBe(30);
+  });
+
+  it("сломанное условие тоже не душит", () => {
+    expect(bid("((((")).toBe(30);
+    expect(bid("{такого-нет} > 1")).toBe(30);
+  });
+
+  it("условие-сравнение сочетается с расходом источника", () => {
+    const m = gated("{quota} > 0");
+    m.edges[1].fromTrait = "work";
+    m.edges[1].gives = 20;
+    const s = simulate(m.traits, m.edges, 1);
+    expect(at(s.bid)).toBe(300);  // просит 600, есть 300
+    expect(at(s.work)).toBe(0);
+  });
+
+  it("закрытое условие ничего не тратит у источника", () => {
+    const m = gated("{quota} > 10");
+    m.edges[1].fromTrait = "work";
+    m.edges[1].gives = 20;
+    const s = simulate(m.traits, m.edges, 1);
+    expect(at(s.bid)).toBe(0);
+    expect(at(s.work)).toBe(300); // время осталось нетронутым
+  });
+});
+
+describe("вид условия", () => {
+  it("различает сравнение и пропорцию", () => {
+    expect(condKind({ expr: "{a} > 1" })).toBe("gate");
+    expect(condKind({ left: "{a}", mode: "min", right: "1" })).toBe("min");
+    expect(condKind({ left: "{a}", mode: "max", right: "1" })).toBe("max");
+    expect(condKind({ trait: "a", mode: "min", amt: 5 })).toBe("min");
+  });
+
+  it("переключение вида не теряет написанное", () => {
+    // Человек набрал формулу руками — стирать её при смене вида нельзя.
+    const gate = { expr: "10 - {a} >= {b} + 2" };
+    expect(asRatio(gate, "min")).toEqual({ left: "10 - {a}", mode: "min", right: "{b} + 2" });
+    expect(asGate(asRatio(gate, "min")).expr).toBe("10 - {a} >= {b} + 2");
+  });
+
+  it("выражение без сравнения переводится в пропорцию целиком", () => {
+    expect(asRatio({ expr: "{a} * 2" }, "min")).toEqual({ left: "{a} * 2", mode: "min", right: "1" });
+  });
+
+  it("зависимости условия-сравнения видны графу целей", () => {
+    expect(condRefs({ expr: "10 - {a} > {b} + {c}" })).toEqual(["a", "b", "c"]);
   });
 });

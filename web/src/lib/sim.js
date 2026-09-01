@@ -3,7 +3,7 @@
    Живут отдельно от интерфейса, чтобы проверять их числами, а не через
    отрисованные значения: расчёт — самое ценное в приложении, и ошибка в нём
    не видна глазом. */
-import { evaluate, refsOf } from "./expr.js";
+import { evaluate, refsOf, splitComparison } from "./expr.js";
 
 export const PER = { "час": 730, "день": 30, "нед": 4.33, "мес": 1, "квартал": 1 / 3, "год": 1 / 12 };
 
@@ -20,6 +20,18 @@ export const isFlow = (t) => (t.flow != null ? !!t.flow : /\//.test(t.unit || ""
 // пропорционально.
 export const Cond = (trait, mode, amt) => ({ left: `{${trait}}`, mode, right: String(amt) });
 
+/* Видов условий три, и они отвечают на разные вопросы.
+   · "gate" — {expr}: одно выражение со сравнением, «10 - x > y + z».
+     Верно — перенос идёт, неверно — не идёт. Множитель 1 или 0.
+   · "min"  — пропорция: чем больше левая часть относительно правой, тем
+     сильнее эффект, линейно и без потолка (усиливающий контур).
+   · "max"  — насыщение: пока левая не выше правой, эффект полный; выше —
+     слабеет обратно пропорционально (пределы роста).
+   Пропорция и насыщение — это про «насколько сильно», сравнение — про
+   «происходит ли вообще». Свести их в одно нельзя: множитель 0.4 и запрет
+   переноса — разные утверждения о системе. */
+export const condKind = (c) => (c && c.expr != null ? "gate" : (c && c.mode === "max" ? "max" : "min"));
+
 // Условия из сценариев, сохранённых до появления выражений, имеют вид
 // {trait, mode, amt}. Читаем их как частный случай: слева ресурс, справа число.
 export const condSides = (c) => ({
@@ -30,12 +42,39 @@ export const condSides = (c) => ({
 
 // Все ресурсы, от которых зависит условие — по ним строится граф зависимостей
 // цели и чистятся ссылки при удалении ресурса.
-export const condRefs = (c) => { const s = condSides(c); return [...refsOf(s.left), ...refsOf(s.right)]; };
+export const condRefs = (c) => {
+  if (condKind(c) === "gate") return refsOf(c.expr || "");
+  const s = condSides(c);
+  return [...refsOf(s.left), ...refsOf(s.right)];
+};
+
+/* Перевод условия из вида в вид — при переключении в интерфейсе. Написанное
+   не теряется: сравнение разбирается на стороны, стороны собираются в
+   сравнение. Иначе смена вида стирала бы формулу, которую набирали руками. */
+export const asGate = (c) => {
+  if (condKind(c) === "gate") return c;
+  const s = condSides(c);
+  return { expr: `${s.left || "0"} ${s.mode === "max" ? "<=" : ">="} ${s.right || "0"}` };
+};
+export const asRatio = (c, mode) => {
+  if (condKind(c) !== "gate") return { ...condSides(c), mode };
+  const parts = splitComparison(c.expr || "");
+  return parts
+    ? { left: parts.left, mode, right: parts.right }
+    : { left: c.expr || "", mode, right: "1" };
+};
 
 // множитель одного условия: min — линейно растёт с показателем (без потолка),
 // max — насыщение: пока показатель не выше порога множитель = 1, выше — падает
 // обратно пропорционально (чем сильнее превышен потолок, тем слабее эффект)
 export function condK(c, valueOf) {
+  if (condKind(c) === "gate") {
+    const r = evaluate(c.expr, valueOf);
+    // Пустое или сломанное условие не душит стрелку — тот же инвариант, что и
+    // для остальных видов: обнуление схлопнуло бы прогноз без объяснения.
+    if (r.error) return 1;
+    return r.value > 0 ? 1 : 0;
+  }
   const { left, right, mode } = condSides(c);
   const L = evaluate(left, valueOf), R = evaluate(right, valueOf);
   // Незаполненное или сломанное условие не душит стрелку: множитель 1,
