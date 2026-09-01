@@ -17,6 +17,7 @@ export function telegramUser(req, res, next) {
   if (!initData) {
     if (!isProd()) {
       req.telegramUserId = DEV_USER_ID;
+      req.telegramProfile = { name: "разработчик", username: "" };
       return next();
     }
     return res.status(401).json({ error: "Telegram initData is required" });
@@ -25,6 +26,7 @@ export function telegramUser(req, res, next) {
   if (!botToken) {
     if (!isProd()) {
       req.telegramUserId = DEV_USER_ID;
+      req.telegramProfile = { name: "разработчик", username: "" };
       return next();
     }
     return res.status(500).json({ error: "Server is missing TELEGRAM_BOT_TOKEN" });
@@ -36,5 +38,12 @@ export function telegramUser(req, res, next) {
   }
 
   req.telegramUserId = result.userId;
+  // Имя из подписанного initData: подделать его нельзя, поэтому им можно
+  // подписывать человека в списке людей.
+  req.telegramProfile = {
+    name: [result.user?.first_name, result.user?.last_name].filter(Boolean).join(" ")
+      || result.user?.username || "",
+    username: result.user?.username || "",
+  };
   next();
 }

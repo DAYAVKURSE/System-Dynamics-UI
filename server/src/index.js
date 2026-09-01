@@ -2,7 +2,9 @@ import "dotenv/config";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { store } from "./lib/scheduleStore.js";
-import { sendMessage } from "./lib/telegram.js";
+import { answerCallback, getUpdates, sendMessage, sendWithKeyboard } from "./lib/telegram.js";
+import { handleUpdate } from "./lib/bot.js";
+import * as org from "./lib/orgStore.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -32,4 +34,39 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   console.log("Планировщик напоминаний запущен (тик раз в минуту)");
 } else {
   console.log("TELEGRAM_BOT_TOKEN не задан — планировщик напоминаний выключен");
+}
+
+/* Бот принимает одно: приглашение людей владельцем. Длинный опрос — цикл
+   без таймера: следующий запрос уходит сразу после предыдущего ответа,
+   поэтому нажатие кнопки не ждёт до минуты. */
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  let offset = 0;
+  const loop = async () => {
+    for (;;) {
+      try {
+        const updates = await getUpdates(offset);
+        for (const u of updates) {
+          offset = u.update_id + 1;
+          try {
+            await handleUpdate(u, {
+              org,
+              send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
+              answer: answerCallback,
+            });
+          } catch (e) {
+            console.error(`[bot] обновление не обработано: ${e.message}`);
+          }
+        }
+      } catch (e) {
+        // Сеть моргнула или Telegram ответил ошибкой — ждём и продолжаем:
+        // упасть здесь значило бы тихо перестать принимать приглашения.
+        console.error(`[bot] опрос не удался: ${e.message}`);
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    }
+  };
+  loop();
+  console.log("Бот приглашений запущен (длинный опрос)");
+} else {
+  console.log("TELEGRAM_BOT_TOKEN не задан — бот приглашений выключен");
 }

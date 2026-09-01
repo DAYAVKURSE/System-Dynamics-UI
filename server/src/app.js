@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import scenariosRouter from "./routes/scenarios.js";
 import scheduleRouter from "./routes/schedule.js";
 import reportsRouter from "./routes/reports.js";
+import orgRouter from "./routes/org.js";
+import workspaceRouter from "./routes/workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,12 +27,18 @@ export function createApp() {
       // Файлы отчётов — то же хранилище на диске, что и сценарии: без
       // проверки подписи открывать загрузку всем подряд нельзя.
       reports: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      // Роли и общая модель держатся на подписи Telegram: без токена
+      // отличить владельца от кого угодно нечем.
+      org: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     }),
   );
   app.use("/api/scenarios", scenariosRouter);
   app.use("/api/schedule", scheduleRouter);
   // Файлы отчётов: сырые байты, поэтому свой парсер тела внутри маршрута.
   app.use("/api/reports", reportsRouter);
+  // Люди, роли и общая модель: см. lib/orgStore.js и lib/workspaceStore.js.
+  app.use("/api/org", orgRouter);
+  app.use("/api/workspace", workspaceRouter);
 
   // Собранный фронтенд (web build) кладётся сюда шагом деплоя — см. docs/DEPLOYMENT.md.
   // Локально в dev-режиме этой папки обычно нет: фронтенд поднимается отдельно
