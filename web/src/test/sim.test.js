@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Cond, asGate, asRatio, condKind, condRefs, depsOf, isFlow, normalizeTrait,
-  normalizeTraits, resolveStep, shown, simulate, stored, unitOf }
-  from "../lib/sim.js";
+import { Cond, adviseFor, asGate, asRatio, condKind, condRefs, depsOf, isFact,
+  isFlow, isTaskEdge, modelEdges, normalizeTrait, normalizeTraits, resolveStep,
+  shown, simulate, stored, taskEdges, unitOf } from "../lib/sim.js";
 
 /* Движок: расход ресурса и дележ между теми, кто на него претендует.
    Числа здесь проверяются напрямую — на отрисованные значения полагаться
@@ -474,5 +474,72 @@ describe("расчёт по попыткам внутри месяца", () => {
     const s = simulate(m.traits, m.edges, 1);
     // Остаток падает по 5 в день с 300: не меньше 280 он только 5 первых попыток.
     expect(at(s.flag, 0)).toBe(5);
+  });
+});
+
+describe("метрика задачи как движение", () => {
+  const traits = [
+    // Фонд 300 ч/мес, чтобы списание задачи было видно, а не упиралось в ноль.
+    { id: "work", e: "me", k: "res", l: "время", unit: "часов", have: 300,
+      flow: true, per: "мес" },
+    { id: "money", e: "co", k: "res", l: "деньги", unit: "₽", have: 1000, flow: false },
+  ];
+  const task = (over = {}) => ({
+    id: "t1", goalId: "g", title: "Работа по найму", status: "progress",
+    effects: [
+      { id: "e1", dir: "spend", trait: "work", amount: 2, per: "день", basis: "fact" },
+      { id: "e2", dir: "gain", trait: "money", amount: 5000, per: "мес", basis: "fact" },
+    ],
+    ...over,
+  });
+
+  it("разворачивается в обычные стрелки — по одной на строку метрики", () => {
+    const es = taskEdges([task()], traits);
+    expect(es).toHaveLength(2);
+    expect(es[0]).toMatchObject({ to: "work", from: "me", gives: 2, per: "день", sign: -1 });
+    expect(es[1]).toMatchObject({ to: "money", from: "co", gives: 5000, per: "мес", sign: 1 });
+    expect(es.every(isTaskEdge)).toBe(true);
+  });
+
+  it("тратит и приносит — это две разные стрелки, часы в рубли не превращаются", () => {
+    const s = simulate(traits, modelEdges([], [task()], traits), 2);
+    expect(at(s.work, 0)).toBe(240);   // 300 − 60: два часа в день забронированы
+    expect(at(s.money, 1)).toBe(6000); // 1000 + 5000 за месяц
+  });
+
+  it("выполненная задача больше ничего не тратит и не приносит", () => {
+    expect(taskEdges([task({ status: "done" })], traits)).toHaveLength(0);
+    const s = simulate(traits, modelEdges([], [task({ status: "done" })], traits), 1);
+    expect(at(s.money, 1)).toBe(1000);
+  });
+
+  it("строка без ресурса или без числа не считается", () => {
+    const half = task({ effects: [
+      { id: "a", dir: "spend", trait: "", amount: 5, per: "мес" },
+      { id: "b", dir: "gain", trait: "money", amount: 0, per: "мес" },
+      { id: "c", dir: "gain", trait: "нет-такого", amount: 5, per: "мес" },
+    ] });
+    expect(taskEdges([half], traits)).toHaveLength(0);
+  });
+
+  it("метрика бывает фактом и гипотезой, как обычная стрелка", () => {
+    const es = taskEdges([task()], traits);
+    expect(es.every(isFact)).toBe(true);
+    const hypo = taskEdges([task({ effects: [
+      { id: "x", dir: "gain", trait: "money", amount: 100, per: "мес" }] })], traits);
+    expect(isFact(hypo[0])).toBe(false);
+  });
+
+  it("рекомендации не предлагают крутить стрелку задачи", () => {
+    // Её значение выводится из метрики и стёрлось бы следующим пересчётом.
+    const goal = { ...traits[1], want: 100000, by: 6 };
+    const ts = [{ ...traits[0] }, goal];
+    const r = adviseFor(ts, modelEdges([], [task()], ts), goal, 6);
+    expect(r.recs.some((x) => x.type === "edge")).toBe(false);
+  });
+
+  it("стрелка задачи уникальна по задаче и строке метрики", () => {
+    const two = taskEdges([task(), { ...task(), id: "t2" }], traits);
+    expect(new Set(two.map((e) => e.id)).size).toBe(two.length);
   });
 });

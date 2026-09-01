@@ -8,8 +8,8 @@ describe("App", () => {
     expect(screen.getByText(/Активы и движение ресурсов/i)).toBeInTheDocument();
     expect(screen.getByText("Цели")).toBeInTheDocument();
     expect(screen.getByText("Схема")).toBeInTheDocument();
-    expect(screen.getByText("Симуляция")).toBeInTheDocument();
-    expect(screen.getByText("JSON")).toBeInTheDocument();
+    expect(screen.getByText("Прогноз")).toBeInTheDocument();
+    expect(screen.getByText("Выгрузить")).toBeInTheDocument();
   });
 
   it("вкладка «Цели» показывает существующую цель модели", () => {

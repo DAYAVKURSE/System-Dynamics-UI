@@ -26,7 +26,7 @@ const MODEL = {
 let container;
 beforeEach(() => {
   ({ container } = render(<SystemModel />));
-  fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
   const area = container.querySelector("textarea");
   fireEvent.change(area, { target: { value: JSON.stringify(MODEL) } });
   fireEvent.blur(area);
@@ -78,7 +78,7 @@ describe("выбор ресурса-источника", () => {
 
   it("выбранный источник и вправду ограничивает — прогноз меняется", () => {
     // Просим больше, чем источник может дать: 20 ч/день при фонде 10 ч/день.
-    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
     const area = container.querySelector("textarea");
     fireEvent.change(area, { target: { value: JSON.stringify({
       ...MODEL,

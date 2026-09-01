@@ -130,6 +130,54 @@ export const sourceTrait = (ed, hasTrait) => {
   return (s && s !== ed.to && hasTrait(s)) ? s : null;
 };
 
+/* ─────── метрики задач как движение ─────── */
+/* Задача говорит, что она тратит и что приносит. В модели это не отдельная
+   бухгалтерия, а обычные стрелки: иначе появился бы второй механизм расчёта
+   рядом с edges/conds, и «почему цифра такая» пришлось бы искать в двух
+   местах. Стрелки не хранятся в сценарии — они выводятся из задач при
+   каждом расчёте: так задача не может оставить после себя осиротевшую
+   стрелку, а правка метрики не требует чинить edges.
+
+   Часы не превращаются в рубли: «тратит 2 ч/день» и «приносит 5000 ₽/мес» —
+   это две разные стрелки к двум разным ресурсам, а не одна. Связь между
+   ними — сама задача. */
+export const isTaskEdge = (ed) => !!(ed && ed.task);
+
+// Метрика считается, пока задача не «готово»: доделанная разовая работа
+// больше ничего не тратит и не приносит.
+export const taskCounts = (t) => !!t && t.status !== "done";
+
+export function taskEdges(tasks, traits) {
+  const byId = {};
+  (traits || []).forEach((t) => { byId[t.id] = t; });
+  const out = [];
+  (tasks || []).forEach((task) => {
+    if (!taskCounts(task)) return;
+    (task.effects || []).forEach((ef, i) => {
+      const t = byId[ef.trait];
+      const amount = Number(ef.amount);
+      if (!t || !amount) return;
+      out.push({
+        id: `task:${task.id}:${ef.id || i}`,
+        // Стрелка идёт от актива ресурса к нему же: задача меняет актив
+        // изнутри, а не переносит величину откуда-то ещё.
+        from: t.e, to: t.id,
+        carrier: task.title,
+        gives: Math.abs(amount),
+        per: ef.per || "мес",
+        sign: ef.dir === "spend" ? -1 : 1,
+        conds: [], note: "", basis: ef.basis === "fact" ? "fact" : "hypo",
+        task: task.id, effect: ef.id || String(i),
+      });
+    });
+  });
+  return out;
+}
+
+/** Полный набор стрелок модели: нарисованные плюс выведенные из задач. */
+export const modelEdges = (edges, tasks, traits) =>
+  [...(edges || []), ...taskEdges(tasks, traits)];
+
 /* ─────── шаг модели: что стрелки реально передают ─────── */
 /**
  * Значение потока — это сколько его В ЭТОМ месяце: стартовое значение плюс
@@ -365,7 +413,10 @@ export function adviseFor(traits, edges, g, span) {
       month: test({ [tid]: v }, null), label: t.l, unit: unitOf(t), e: t.e });
   });
   d.edges.forEach((eid) => {
-    const ed = edges.find((x) => x.id === eid); if (!ed) return;
+    const ed = edges.find((x) => x.id === eid);
+    // Стрелку задачи крутить нельзя: она выводится из метрики задачи, и
+    // записанное в неё значение стёрлось бы следующим пересчётом.
+    if (!ed || isTaskEdge(ed)) return;
     const cur = Number(ed.gives) || 0, v = search((x) => [null, { [eid]: x }], cur);
     if (v != null && v > cur * 1.001) recs.push({ type: "edge", eid, from: cur, to: v,
       month: test(null, { [eid]: v }), label: ed.carrier,

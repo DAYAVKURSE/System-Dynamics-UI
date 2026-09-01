@@ -18,7 +18,7 @@ const MODEL = {
 
 let container;
 const load = (model) => {
-  fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
   const area = container.querySelector("textarea");
   fireEvent.change(area, { target: { value: JSON.stringify(model) } });
   fireEvent.blur(area);
@@ -38,8 +38,8 @@ const perPicker = () => [...container.querySelectorAll("select")]
   .filter((s) => [...s.options].map((o) => o.value).join(",") === "час,день,нед,мес,квартал,год")[0];
 const hypoField = () => container.querySelector('[title="Прогноз с учётом поведенческих допущений"]');
 const model = () => {
-  fireEvent.click(screen.getByRole("button", { name: "JSON" }));
-  fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
   const m = JSON.parse(container.querySelector("textarea").value);
   fireEvent.click(screen.getByRole("button", { name: "Схема" }));
   return m;

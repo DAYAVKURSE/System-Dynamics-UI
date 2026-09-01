@@ -21,7 +21,7 @@ describe("время на главной схеме", () => {
   it("сдвиг в будущее меняет значения на схеме", () => {
     // Детерминированная модель: запас растёт по 100 в месяц к цели 1200 —
     // «сейчас» шкала цели пустая, через 12 месяцев полная.
-    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
     const area = container.querySelector("textarea");
     fireEvent.change(area, { target: { value: JSON.stringify({
       entities: [{ id: "a", name: "Касса", color: "#fff", x: 0, y: 0 }],
@@ -51,7 +51,7 @@ describe("время на главной схеме", () => {
 });
 
 describe("вкладка «Симуляция» — только активы и графики", () => {
-  beforeEach(() => { fireEvent.click(screen.getByRole("button", { name: "Симуляция" })); });
+  beforeEach(() => { fireEvent.click(screen.getByRole("button", { name: "Прогноз" })); });
 
   it("кнопки «запустить» больше нет — пересчёт сам", () => {
     expect(screen.queryByRole("button", { name: /запустить/i })).toBeNull();

@@ -100,7 +100,7 @@ describe("автосохранение", () => {
   it("нетронутая модель черновика не создаёт", () => {
     render(<SystemModel />);
     scheme();
-    fireEvent.click(screen.getByRole("button", { name: "Симуляция" }));
+    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
     tick(900);
     // Переключение вкладок — не работа, терять там нечего.
     expect(readDraft()).toBeNull();
@@ -217,7 +217,7 @@ describe("черновик и диск", () => {
     flushOnHide();
     expect(readDraft()).not.toBeNull(); // черновик есть — иначе проверка ниже пустая
 
-    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
 
     const name = screen.getByPlaceholderText("имя сценария");
     fireEvent.change(name, { target: { value: "Рабочий" } });
@@ -242,7 +242,7 @@ describe("черновик и диск", () => {
     flushOnHide();
     expect(readDraft()).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
     const list = await screen.findByRole("combobox");
     fireEvent.change(list, { target: { value: "s1" } });
     // Кнопок «Загрузить» на вкладке две: первая — для текста JSON,
@@ -262,7 +262,7 @@ describe("черновик и диск", () => {
       data: { s2: JSON.stringify(old) },
     }));
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
     const list = await screen.findByRole("combobox");
     fireEvent.change(list, { target: { value: "s2" } });
     // Кнопок «Загрузить» на вкладке две: первая — для текста JSON,

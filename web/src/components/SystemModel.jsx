@@ -5,9 +5,10 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui
 import { evaluate, toDisplay, toStorage, refsOf, splitComparison } from "../lib/expr.js";
 import { PER, isFlow, perOf, shown, stored, unitOf, normalizeTraits, Cond,
   condSides, condRefs, condKind, condK, asGate, asRatio, edgeK, sourceTrait,
-  simulate, resolveStep, reachMonth, isFact, factEdges, frac, depsOf,
+  simulate, resolveStep, modelEdges, isTaskEdge, reachMonth, isFact, factEdges,
+  frac, depsOf,
   adviseFor } from "../lib/sim.js";
-import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
+import TasksBoard, { GoalWork, newTask, okrFromRec } from "./TasksBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 
@@ -631,6 +632,7 @@ export default function SystemModel(){
   const [simSpan,setSimSpan]=useState(24);
   const [simOv,setSimOv]=useState([]); // [{trait,val}] — стартовые условия сценария
   const [simEnt,setSimEnt]=useState(ENTITIES0[0]?.id);
+  const [openTask,setOpenTask]=useState(null); // задача, открытая в редакторе
   const [simMonth,setSimMonth]=useState(0); // месяц на ползунке времени главной схемы
 
   const ent=(id)=>entities.find(e=>e.id===id);
@@ -638,7 +640,7 @@ export default function SystemModel(){
   // Пустое значение — это «не задано», и превращать его в 0 нельзя.
   const asShown=(t,v)=>(v==null||v===""?v:shown(t,v));
   const asStored=(t,v)=>(v==null?v:stored(t,v));
-  const into=(tid)=>edges.filter(e=>e.to===tid);
+  const into=(tid)=>mEdges.filter(e=>e.to===tid);
   const upE=(id,f,v)=>setEntities(p=>p.map(e=>e.id===id?{...e,[f]:v}:e));
   const upT=(id,f,v)=>setTraits(p=>p.map(t=>t.id===id?{...t,[f]:v}:t));
   const upA=(id,f,v)=>setEdges(p=>p.map(e=>e.id===id?{...e,[f]:v}:e));
@@ -860,36 +862,41 @@ export default function SystemModel(){
     setSavedBusy(false);
   };
 
+  // Стрелки модели — нарисованные плюс выведенные из метрик задач. Всё, что
+  // считает и рисует, работает с этим набором: иначе метрика задачи была бы
+  // видна в прогнозе, но не на схеме, или наоборот.
+  const mEdges=useMemo(()=>modelEdges(edges,tasks,traits),[edges,tasks,traits]);
+
   const goals=traits.filter(t=>t.want!=null);
   const span=useMemo(()=>Math.max(horizon,...goals.map(g=>g.by??0),6),[horizon,goals]);
   // гипотетический прогноз — по всем стрелкам, включая поведенческие допущения
-  const base=useMemo(()=>simulate(traits,edges,span),[traits,edges,span]);
+  const base=useMemo(()=>simulate(traits,mEdges,span),[traits,mEdges,span]);
   const live=useMemo(()=>{const o={};traits.forEach(t=>o[t.id]=base[t.id]?.[0]??0);return o;},
     [base,traits]);
   // фактический прогноз — только по стрелкам-фактам (точные расчёты, без предположений)
-  const baseFact=useMemo(()=>simulate(traits,factEdges(edges),span),[traits,edges,span]);
+  const baseFact=useMemo(()=>simulate(traits,factEdges(mEdges),span),[traits,mEdges,span]);
   const liveFact=useMemo(()=>{const o={};traits.forEach(t=>o[t.id]=baseFact[t.id]?.[0]??0);
     return o;},[baseFact,traits]);
   // Тот же расчёт и то же состояние, что у месяца 0 симуляции: карточка
   // стрелки обязана объяснять ровно те числа, которые показывает прогноз.
-  const step0=useMemo(()=>resolveStep(traits,edges,{
+  const step0=useMemo(()=>resolveStep(traits,mEdges,{
     stockAt:(id)=>Number(traits.find(t=>t.id===id)?.have??0),
     seedAt:(t)=>Number(t.have??0),
     giveAt:(ed)=>Number(ed.gives)||0,
-  }),[traits,edges]);
+  }),[traits,mEdges]);
   const flowNow=useMemo(()=>{
     const by={};
     step0.moves.forEach(f=>{by[f.ed.id]=f;});
     return by;
   },[step0]);
 
-  const advice=useMemo(()=>goals.map(g=>({g,...adviseFor(traits,edges,g,span)})),
-    [traits,edges,span,goals.length]);
+  const advice=useMemo(()=>goals.map(g=>({g,...adviseFor(traits,mEdges,g,span)})),
+    [traits,mEdges,span,goals.length]);
 
   const groups=useMemo(()=>{const g={};
-    edges.forEach(ed=>{const t=traits.find(x=>x.id===ed.to);if(!t)return;
+    mEdges.forEach(ed=>{const t=traits.find(x=>x.id===ed.to);if(!t)return;
       const k=ed.from+"|"+t.e;(g[k]=g[k]||{from:ed.from,to:t.e,list:[]}).list.push(ed);});
-    return Object.entries(g).map(([k,v])=>({key:k,...v}));},[edges,traits]);
+    return Object.entries(g).map(([k,v])=>({key:k,...v}));},[mEdges,traits]);
 
   const selE=ent(sel),selT=selTrait?trait(selTrait):null;
   const pairG=pair?groups.find(g=>g.key===pair):null;
@@ -903,11 +910,11 @@ export default function SystemModel(){
       seedMod[o.trait]=t?asStored(t,Number(o.val)||0):Number(o.val)||0;
     }});
     return {
-      base:simulate(traits,edges,simSpan,seedMod),
-      baseFact:simulate(traits,factEdges(edges),simSpan,seedMod),
+      base:simulate(traits,mEdges,simSpan,seedMod),
+      baseFact:simulate(traits,factEdges(mEdges),simSpan,seedMod),
       span:simSpan,
     };
-  },[traits,edges,simSpan,simOv]);
+  },[traits,mEdges,simSpan,simOv]);
 
   return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
@@ -952,8 +959,8 @@ export default function SystemModel(){
         </div>)}
 
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {[["goals","Цели"],["tasks","Задачи"],["scheme","Схема"],
-          ["sim","Симуляция"],["kinds","Типы"],["json","JSON"]].map(([k,t])=>(
+        {[["goals","Цели"],["tasks","Задачи"],["kinds","Типы"],["scheme","Схема"],
+          ["sim","Прогноз"],["json","Выгрузить"]].map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 
@@ -986,7 +993,7 @@ export default function SystemModel(){
 
         {advice.map(({g,now,recs})=>{
           const by=g.by??span, inTime=now!=null&&now<=by;
-          const d=depsOf(edges,g.id);
+          const d=depsOf(mEdges,g.id);
           const hypoChain=d.edges.map(id=>edges.find(e=>e.id===id)).filter(e=>e&&!isFact(e));
           const w=g.want!=null?Number(g.want):null;
           const hv=live[g.id]??0, fv=liveFact[g.id]??0;
@@ -1150,13 +1157,26 @@ export default function SystemModel(){
               {!recs.length&&now==null&&<div style={{fontSize:12,color:BAD,lineHeight:1.6}}>
                 Ни один рычаг не выводит на цель: в ресурс не входит ни одной стрелки,
                 либо все условия замкнуты сами на себя. Открой её на схеме.</div>}
+
+              {/* Работа по цели — здесь же: ключевые результаты, задачи и их
+                  создание. Между целью и работой по ней не должно стоять
+                  переключение вкладки. */}
+              <div style={{marginTop:12,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+                <GoalWork g={g} okrs={okrs} setOkrs={setOkrs} tasks={tasks}
+                  setTasks={setTasks} traits={traits} entities={entities}
+                  okrValue={okrValue} okrShown={okrShown}
+                  entityName={id=>ent(id)?.name||"—"}
+                  openId={openTask} setOpenId={setOpenTask}/>
+              </div>
             </div>);})}
       </div>)}
 
       {/* ═══ ЗАДАЧИ (OKR + канбан) ═══ */}
       {tab==="tasks" && (
         <TasksBoard goals={goals} okrs={okrs} setOkrs={setOkrs}
-          tasks={tasks} setTasks={setTasks} okrValue={okrValue} okrShown={okrShown}
+          tasks={tasks} setTasks={setTasks} traits={traits} entities={entities}
+          okrValue={okrValue} okrShown={okrShown}
+          openId={openTask} setOpenId={setOpenTask}
           entityName={id=>ent(id)?.name||"—"}/>)}
 
       {/* ═══ СХЕМА ═══ */}
@@ -1188,7 +1208,7 @@ export default function SystemModel(){
             ней — прогноз на выбранный месяц; правки всегда меняют «сейчас».
           </div>
           <div style={{overflow:"auto",WebkitOverflowScrolling:"touch"}}>
-            <SchemeSVG entities={entities} traits={traits} edges={edges} groups={groups}
+            <SchemeSVG entities={entities} traits={traits} edges={mEdges} groups={groups}
               zoom={zoom} sel={sel} pair={pair}
               valuesFor={tid=>base[tid]?.[Math.min(simMonth,span)]??0}
               valuesForFact={tid=>baseFact[tid]?.[Math.min(simMonth,span)]??0}
@@ -1357,10 +1377,20 @@ export default function SystemModel(){
                 <div style={{margin:"6px 0 10px"}}>
                   {!into(selT.id).length&&<div style={{fontSize:12,color:BAD}}>
                     Ни одной стрелки — эту величину никто не производит.</div>}
-                  {into(selT.id).map(ed=>(
-                    <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities}
-                      valueOf={id=>step0.state[id]??0}
-                      kindOf={kindOf} now={flowNow[ed.id]} onEdit={upA} onDelete={delA}/>))}
+                  {into(selT.id).map(ed=>(isTaskEdge(ed)
+                    ? <div key={ed.id} style={{background:C.panel2,
+                        border:`1px solid ${C.line}`,borderRadius:8,padding:9,
+                        marginBottom:8,fontSize:11.5,lineHeight:1.5}}>
+                        <b style={{color:ed.sign>0?OK:BAD}}>
+                          {ed.sign>0?"приносит":"тратит"}{" "}
+                          {nm(shown(selT,ed.gives*(PER[ed.per]??1)))} {unitOf(selT)}</b>
+                        {" "}— метрика задачи «{ed.carrier}».
+                        <span style={{color:C.muted}}> Правится в самой задаче,
+                        во вкладке «Цели» или «Задачи».</span>
+                      </div>
+                    : <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities}
+                        valueOf={id=>step0.state[id]??0}
+                        kindOf={kindOf} now={flowNow[ed.id]} onEdit={upA} onDelete={delA}/>))}
                 </div>
                 <div style={S.lbl}>добавить стрелку сюда</div>
                 <div className="flex flex-wrap gap-2" style={{marginTop:6,marginBottom:10}}>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import TasksBoard, { newTask } from "../components/TasksBoard.jsx";
+import TasksBoard, { GoalWork, newTask } from "../components/TasksBoard.jsx";
 import SystemModel from "../components/SystemModel.jsx";
 
 const GOALS = [
@@ -13,13 +13,29 @@ const GOALS = [
 function Harness({ tasks: t0 = [], okrs: o0 = [], goals = GOALS, okrValue = () => 5 }) {
   const [tasks, setTasks] = React.useState(t0);
   const [okrs, setOkrs] = React.useState(o0);
+  const [openId, setOpenId] = React.useState(null);
   return (
     <TasksBoard
       goals={goals} okrs={okrs} setOkrs={setOkrs}
-      tasks={tasks} setTasks={setTasks}
+      tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
       okrValue={okrValue} entityName={() => "Актив"}
     />
   );
+}
+
+// Работа по цели (KR + задачи цели) переехала во вкладку «Цели» — рендерим
+// её тем же способом, каким это делает SystemModel.
+function GoalHarness({ tasks: t0 = [], okrs: o0 = [], goals = GOALS, okrValue = () => 5 }) {
+  const [tasks, setTasks] = React.useState(t0);
+  const [okrs, setOkrs] = React.useState(o0);
+  const [openId, setOpenId] = React.useState(null);
+  return (<>
+    {goals.map((g) => (
+      <GoalWork key={g.id} g={g} okrs={okrs} setOkrs={setOkrs}
+        tasks={tasks} setTasks={setTasks} okrValue={okrValue}
+        entityName={() => "Актив"} openId={openId} setOpenId={setOpenId} />
+    ))}
+  </>);
 }
 
 const commit = (el, value) => {
@@ -183,17 +199,17 @@ describe("OKR", () => {
   };
 
   it("прогресс считается по фактическому значению рычага в модели", () => {
-    render(<Harness okrs={[KR]} okrValue={() => 5} />);
+    render(<GoalHarness okrs={[KR]} okrValue={() => 5} />);
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
   it("достигнутый ключевой результат показывает 100%", () => {
-    render(<Harness okrs={[KR]} okrValue={() => 12} />);
+    render(<GoalHarness okrs={[KR]} okrValue={() => 12} />);
     expect(screen.getByText("100%")).toBeInTheDocument();
   });
 
   it("удаление KR не удаляет уже сделанные по нему задачи", () => {
-    render(<Harness okrs={[KR]}
+    render(<GoalHarness okrs={[KR]}
       tasks={[{ ...newTask({ goalId: "u9", title: "Задача по KR" }), okrId: "kr1" }]} />);
 
     const krCard = screen.getByText("активные реферы").parentElement;
@@ -218,9 +234,12 @@ describe("«Взять в работу» во вкладке «Цели»", () =
     expect(screen.queryAllByRole("button", { name: "Взять в работу" }).length)
       .toBeLessThan(before);
 
-    fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
+    // Ключевой результат и задача появились прямо под целью, на этой же
+    // вкладке — работа по цели больше не за переключением вкладки.
     expect(screen.getAllByText("KR").length).toBeGreaterThan(0);
-    // Задача появилась на доске и привязана к цели.
+    expect(screen.getAllByText("активные пользователи").length).toBeGreaterThan(0);
+    // И на доске задач они тоже есть.
+    fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
     expect(screen.getAllByText("активные пользователи").length).toBeGreaterThan(0);
   });
 
@@ -228,15 +247,20 @@ describe("«Взять в работу» во вкладке «Цели»", () =
     const { container } = render(<SystemModel />);
 
     // Снимок прогноза до принятия решения.
-    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
-    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
-    const before = JSON.parse(container.querySelector("textarea").value);
+    // Вкладка и кнопка внутри неё называются одинаково: первая — вкладка.
+    const dump = () => {
+      const bs = screen.getAllByRole("button", { name: "Выгрузить" });
+      fireEvent.click(bs[0]);
+      fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+      return JSON.parse(container.querySelector("textarea").value);
+    };
+    const before = dump();
 
     fireEvent.click(screen.getByRole("button", { name: "Цели" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
 
-    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
-    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
     const after = JSON.parse(container.querySelector("textarea").value);
 
     // Рычаг сдвинут: либо стартовое значение ресурса, либо интенсивность стрелки.
@@ -252,8 +276,8 @@ describe("«Взять в работу» во вкладке «Цели»", () =
     const { container } = render(<SystemModel />);
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
 
-    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
-    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
 
     const dump = JSON.parse(container.querySelector("textarea").value);
     expect(dump.okrs).toHaveLength(1);
