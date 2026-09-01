@@ -85,6 +85,14 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       # Необязателен: без него владельцем станет первый вошедший.
       OWNER_TELEGRAM_ID: ${{ secrets.OWNER_TELEGRAM_ID }}
+      # Короткое имя мини-приложения из @BotFather — из него собирается
+      # ссылка на звонок. Необязательно: по умолчанию «app».
+      TELEGRAM_APP_NAME: ${{ secrets.TELEGRAM_APP_NAME }}
+      # TURN нужен, когда оба собеседника за строгим NAT. Без него
+      # часть звонков не соединится — см. DEPLOYMENT.md.
+      TURN_URL: ${{ secrets.TURN_URL }}
+      TURN_USER: ${{ secrets.TURN_USER }}
+      TURN_PASS: ${{ secrets.TURN_PASS }}
     steps:
       - name: Проверить секреты
         id: secrets
@@ -194,6 +202,11 @@ jobs:
           REPORTS_DIR=${DEPLOY_PATH_R}/data/reports
           ORG_DIR=${DEPLOY_PATH_R}/data/org
           WORKSPACE_DIR=${DEPLOY_PATH_R}/data/workspace
+          CALLS_DIR=${DEPLOY_PATH_R}/data/calls
+          TELEGRAM_APP_NAME=${TELEGRAM_APP_NAME:-app}
+          TURN_URL=${TURN_URL:-}
+          TURN_USER=${TURN_USER:-}
+          TURN_PASS=${TURN_PASS:-}
           OWNER_TELEGRAM_ID=${OWNER_TELEGRAM_ID:-}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF

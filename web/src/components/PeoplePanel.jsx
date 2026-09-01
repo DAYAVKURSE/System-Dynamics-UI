@@ -17,7 +17,7 @@ import {
    ════════════════════════════════════════════════════════════════ */
 
 const TAB_NAMES = {
-  tasks: "Задачи", review: "Проверка", timeline: "Timeline",
+  tasks: "Задачи", review: "Проверка", timeline: "Timeline", calls: "Звонки",
   scheme: "Схема", sim: "Прогноз", json: "Выгрузить",
 };
 

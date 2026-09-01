@@ -7,6 +7,7 @@ import scheduleRouter from "./routes/schedule.js";
 import reportsRouter from "./routes/reports.js";
 import orgRouter from "./routes/org.js";
 import workspaceRouter from "./routes/workspace.js";
+import callsRouter from "./routes/calls.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,6 +31,8 @@ export function createApp() {
       // Роли и общая модель держатся на подписи Telegram: без токена
       // отличить владельца от кого угодно нечем.
       org: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      // Звонки идут напрямую между собеседниками; сервер только сводит их.
+      calls: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     }),
   );
   app.use("/api/scenarios", scenariosRouter);
@@ -39,6 +42,7 @@ export function createApp() {
   // Люди, роли и общая модель: см. lib/orgStore.js и lib/workspaceStore.js.
   app.use("/api/org", orgRouter);
   app.use("/api/workspace", workspaceRouter);
+  app.use("/api/calls", callsRouter);
 
   // Собранный фронтенд (web build) кладётся сюда шагом деплоя — см. docs/DEPLOYMENT.md.
   // Локально в dev-режиме этой папки обычно нет: фронтенд поднимается отдельно

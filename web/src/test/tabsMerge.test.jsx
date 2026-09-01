@@ -31,10 +31,10 @@ describe("состав вкладок", () => {
     // Первыми в разметке идут кнопки истории — переключатели вкладок за ними.
     const bar = [...container.querySelectorAll("button")]
       .map((b) => b.textContent)
-      .filter((t) => ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
-        "Выгрузить", "Цели", "Типы", "Отчёты"].includes(t));
-    expect(bar.slice(0, 6)).toEqual(["Задачи", "Проверка", "Timeline", "Схема",
-      "Прогноз", "Выгрузить"]);
+      .filter((t) => ["Задачи", "Проверка", "Timeline", "Звонки", "Схема",
+        "Прогноз", "Выгрузить", "Цели", "Типы", "Отчёты"].includes(t));
+    expect(bar.slice(0, 7)).toEqual(["Задачи", "Проверка", "Timeline", "Звонки",
+      "Схема", "Прогноз", "Выгрузить"]);
     expect(screen.queryByRole("button", { name: "Цели" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Типы" })).toBeNull();
   });

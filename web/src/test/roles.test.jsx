@@ -31,20 +31,20 @@ const fresh = async () => {
 };
 const tabNames = (container) => [...container.querySelectorAll("button")]
   .map((b) => b.textContent)
-  .filter((t) => ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
-    "Выгрузить"].includes(t));
+  .filter((t) => ["Задачи", "Проверка", "Timeline", "Звонки", "Схема",
+    "Прогноз", "Выгрузить"].includes(t));
 
 beforeEach(() => { localStorage.clear(); resetIdentity(); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; resetIdentity(); });
 
 describe("вкладки по роли", () => {
-  it("владельцу видны все шесть", async () => {
+  it("владельцу видны все семь", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "scheme", "sim", "json"] });
+      tabs: ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"] });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(7));
     expect(tabNames(container)).toEqual(["Задачи", "Проверка", "Timeline",
-      "Схема", "Прогноз", "Выгрузить"]);
+      "Звонки", "Схема", "Прогноз", "Выгрузить"]);
   });
 
   it("исполнителю — только «Задачи»", async () => {
@@ -82,7 +82,7 @@ describe("вкладки по роли", () => {
   it("без сервера приложение остаётся одиночным и полным", async () => {
     global.fetch = vi.fn(async () => { throw new Error("нет сети"); });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(7));
   });
 
   it("сервер без токена бота — тоже одиночный режим, а не отказ", async () => {
@@ -94,7 +94,7 @@ describe("вкладки по роли", () => {
       return { ok: false, status: 401, json: async () => ({}) };
     });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(7));
   });
 });
 
@@ -120,7 +120,7 @@ describe("общая модель ходит через сервер", () => {
   it("владелец выкладывает модель на сервер — иначе её никто не увидит", async () => {
     vi.useFakeTimers();
     spyServer({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "scheme", "sim", "json"] });
+      tabs: ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"] });
     await fresh();
     await vi.advanceTimersByTimeAsync(2500);
     vi.useRealTimers();
@@ -176,9 +176,9 @@ describe("кому какие задачи видны", () => {
 
   it("владелец видит и свои, и чужие", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "scheme", "sim", "json"] });
+      tabs: ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"] });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(7));
     load(container, model(TASKS));
     fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
     expect(screen.getByText("Моя задача")).toBeTruthy();

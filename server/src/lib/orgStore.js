@@ -20,7 +20,7 @@ import path from "node:path";
    и не ограничен ролью вовсе.
    ════════════════════════════════════════════════════════════════ */
 
-export const TABS = ["tasks", "review", "timeline", "scheme", "sim", "json"];
+export const TABS = ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"];
 
 // Встроенные роли переименовать и удалить нельзя: на них ссылается
 // приглашение из бота, и остаться без единой роли значит остаться без
@@ -29,6 +29,9 @@ export const BUILTIN_ROLES = [
   { id: "executor", name: "исполнитель", tabs: ["tasks"], builtin: true },
   { id: "reviewer", name: "проверяющий", tabs: ["review"], builtin: true },
   { id: "worker", name: "исполнитель и проверяющий", tabs: ["tasks", "review"], builtin: true },
+  // Созвон нужен всем, кто вообще работает в модели: договориться о
+  // встрече — не привилегия.
+  { id: "caller", name: "исполнитель со звонками", tabs: ["tasks", "calls"], builtin: true },
 ];
 
 const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [] };

@@ -55,8 +55,8 @@ describe("кнопки истории", () => {
   });
 
   it("видны с любой вкладки — правки есть везде", () => {
-    for (const tab of ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
-      "Выгрузить"]) {
+    for (const tab of ["Задачи", "Проверка", "Timeline", "Звонки", "Схема",
+      "Прогноз", "Выгрузить"]) {
       fireEvent.click(screen.getByRole("button", { name: tab }));
       expect(undoBtn()).toBeTruthy();
     }

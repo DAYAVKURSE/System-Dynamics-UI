@@ -12,7 +12,7 @@ import { getInitData } from "./telegram.js";
    от единственного её хозяина было бы странно.
    ════════════════════════════════════════════════════════════════ */
 
-export const ALL_TABS = ["tasks", "review", "timeline", "scheme", "sim", "json"];
+export const ALL_TABS = ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"];
 
 export const SOLO = {
   id: "local", isOwner: true, known: true, name: "", role: null,

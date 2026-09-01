@@ -3,6 +3,7 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, putWorkspace, reviewTaskRemote }
   from "../identity.js";
+import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { evaluate, toDisplay, toStorage, refsOf, splitComparison } from "../lib/expr.js";
 import { PER, isFlow, perOf, shown, stored, unitOf, normalizeTraits, Cond,
@@ -16,6 +17,7 @@ import TasksBoard, { GoalWork, STATUSES, TaskEditor, newTask, nowLocal, okrFromR
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
+import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 
@@ -666,7 +668,7 @@ function whenText(iso){
    в каком порядке — иначе у двух людей приложение выглядело бы по-разному
    не только составом, но и расположением. */
 export const TAB_LIST=[["tasks","Задачи"],["review","Проверка"],
-  ["timeline","Timeline"],["scheme","Схема"],["sim","Прогноз"],
+  ["timeline","Timeline"],["calls","Звонки"],["scheme","Схема"],["sim","Прогноз"],
   ["json","Выгрузить"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
@@ -706,11 +708,16 @@ export default function SystemModel(){
   // Развёрнутые карточки прогноза. Множество, а не одна: сравнивать два
   // ресурса, схлопывая один при раскрытии другого, невозможно.
   const [openCards,setOpenCards]=useState(()=>new Set());
+  // Встреча, с которой приложение открыли по ссылке: сразу в её комнату,
+  // иначе человек попадает на доску задач и ищет, куда нажать.
+  const [openCall,setOpenCall]=useState(()=>callFromLocation());
   const [people,setPeople]=useState([]);
   useEffect(()=>{ let live=true;
     whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
     return ()=>{ live=false; };
   },[]);
+  useEffect(()=>{ if(openCall && me.tabs.includes("calls")) setTab("calls"); },
+    [openCall,me.tabs]);
 
   const ent=(id)=>entities.find(e=>e.id===id);
   const trait=(id)=>traits.find(t=>t.id===id);
@@ -1148,6 +1155,10 @@ export default function SystemModel(){
           goals={goals} meId={me.id} isOwner={me.isOwner} nameOf={personName}
           onAccept={(t,note)=>decide(t,true,note)}
           onReturn={(t,note)=>decide(t,false,note)}/>)}
+
+      {/* ═══ ЗВОНКИ ═══ */}
+      {tab==="calls" && me.tabs.includes("calls") && (
+        <CallsBoard meId={me.id} openCall={openCall} onOpenCall={setOpenCall}/>)}
 
       {/* ═══ TIMELINE ═══ */}
       {tab==="timeline" && me.tabs.includes("timeline") && (

@@ -59,9 +59,34 @@ export async function getUpdates(offset, timeout = 25,
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
   const url = `https://api.telegram.org/bot${token}/getUpdates`
     + `?timeout=${timeout}${offset ? `&offset=${offset}` : ""}`
-    + "&allowed_updates=" + encodeURIComponent(JSON.stringify(["message", "callback_query"]));
+    + "&allowed_updates="
+    + encodeURIComponent(JSON.stringify(["message", "callback_query", "inline_query"]));
   const res = await fetch(url);
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.description || `Telegram ответил ${res.status}`);
   return data.result || [];
+}
+
+/** Ответ на инлайн-запрос: список карточек, которые показывает Telegram. */
+export async function answerInline(id, results, extra = {},
+  token = process.env.TELEGRAM_BOT_TOKEN) {
+  if (!token) return null;
+  const res = await fetch(`https://api.telegram.org/bot${token}/answerInlineQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inline_query_id: id, results, cache_time: 0, ...extra }),
+  });
+  const data = await res.json().catch(() => ({}));
+  // Инлайн-ответ живёт секунды: если опоздали, Telegram отвечает ошибкой, и
+  // ронять на этом опрос обновлений незачем.
+  if (!res.ok || !data.ok) console.warn(`[bot] инлайн-ответ не принят: ${data.description || res.status}`);
+  return data.result;
+}
+
+/** Имя бота — из него собирается ссылка на мини-приложение. */
+export async function getMe(token = process.env.TELEGRAM_BOT_TOKEN) {
+  if (!token) return null;
+  const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+  const data = await res.json().catch(() => ({}));
+  return data.ok ? data.result : null;
 }

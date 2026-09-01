@@ -32,9 +32,9 @@ const dump = () => {
 };
 
 describe("порядок и названия вкладок", () => {
-  it("задачи, проверка, timeline, схема, прогноз, выгрузить", () => {
-    const names = ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
-      "Выгрузить"];
+  it("задачи, проверка, timeline, звонки, схема, прогноз, выгрузить", () => {
+    const names = ["Задачи", "Проверка", "Timeline", "Звонки", "Схема",
+      "Прогноз", "Выгрузить"];
     const tabs = names.map((n) => screen.getAllByRole("button", { name: n })[0]);
     // Порядок в разметке — это и есть порядок на экране.
     const pos = tabs.map((b) => [...container.querySelectorAll("button")].indexOf(b));

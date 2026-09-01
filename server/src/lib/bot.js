@@ -30,6 +30,59 @@ const pending = new Map();
 
 export function resetPending() { pending.clear(); }
 
+/* ─────── инлайн-режим: позвать на созвон ───────
+   Инлайн-запрос набирается в любом чате: «@бот завтра 15:00 разбор
+   прогноза». Бот показывает разобранное время и текст подсказкой, а
+   отправляет карточку со ссылкой, по которой открывается окно звонка в
+   мини-приложении.
+
+   Инлайн-режим сначала надо включить в @BotFather (/setinline) — без этого
+   Telegram таких запросов просто не пришлёт. */
+
+const meetingCard = (m, link, botName) => [
+  `📹 ${m.title}`,
+  m.at ? `когда: ${m.at}` : "когда: договоримся в чате",
+  "",
+  `Подключиться: ${link}`,
+  botName ? `\nОкно звонка откроется внутри @${botName}.` : "",
+].filter((x) => x !== null).join("\n");
+
+async function onInline(q, from, { org, calls, answerInline, appLink, botName }) {
+  const parsed = calls.parseMeeting(q.query || "");
+  const me = await org.identify(String(from.id), { name: nameOf(from), username: from.username });
+  if (!me.known) {
+    return answerInline(q.id, [], {
+      button: { text: "Вас ещё не позвали в модель", start_parameter: "start" },
+    });
+  }
+  if (!q.query || !q.query.trim()) {
+    return answerInline(q.id, [{
+      type: "article", id: "hint", title: "Напишите время и тему",
+      description: "например: завтра 15:00 разбор прогноза",
+      input_message_content: { message_text:
+        "Наберите после имени бота время и тему: «завтра 15:00 разбор прогноза»." },
+    }]);
+  }
+
+  // Встреча заводится сразу: ссылка должна работать в тот момент, когда
+  // сообщение уже отправлено, а второго шага «подтвердите» в инлайне нет.
+  const m = await calls.createMeeting({
+    title: parsed.title, at: parsed.atText, text: parsed.text, by: from.id,
+  });
+  const link = appLink(m.id);
+  return answerInline(q.id, [{
+    type: "article",
+    id: m.id,
+    title: parsed.atText ? `${parsed.atText} — ${parsed.title}` : parsed.title,
+    description: parsed.ok
+      ? "Отправить приглашение со ссылкой на звонок"
+      : "Время не разобрал — отправлю без него",
+    input_message_content: { message_text: meetingCard(m, link, botName),
+      disable_web_page_preview: false },
+    reply_markup: { inline_keyboard: [[{ text: "📹 Подключиться", url: link }]] },
+  }], { cache_time: 0, is_personal: true });
+}
+
 const HELP = [
   "Я умею одно: добавлять людей в модель.",
   "",
@@ -56,8 +109,17 @@ export async function handleUpdate(update, deps) {
   const { org, send, answer } = deps;
   const msg = update?.message;
   const cb = update?.callback_query;
-  const from = msg?.from || cb?.from;
+  const inline = update?.inline_query;
+  const from = msg?.from || cb?.from || inline?.from;
   if (!from) return { ignored: "no sender" };
+
+  // Позвать на созвон может любой, кого позвали в модель, — не только
+  // владелец: иначе исполнитель не смог бы предложить встречу.
+  if (inline) {
+    if (!deps.calls) return { ignored: "no calls" };
+    await onInline(inline, from, deps);
+    return { inline: String(from.id) };
+  }
 
   const me = await org.identify(String(from.id), { name: nameOf(from), username: from.username });
   if (!me.isOwner) {

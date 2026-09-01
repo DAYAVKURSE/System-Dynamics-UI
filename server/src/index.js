@@ -2,9 +2,11 @@ import "dotenv/config";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { store } from "./lib/scheduleStore.js";
-import { answerCallback, getUpdates, sendMessage, sendWithKeyboard } from "./lib/telegram.js";
+import { answerCallback, answerInline, getMe, getUpdates, sendMessage, sendWithKeyboard }
+  from "./lib/telegram.js";
 import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
+import * as calls from "./lib/callStore.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -41,6 +43,15 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
    поэтому нажатие кнопки не ждёт до минуты. */
 if (process.env.TELEGRAM_BOT_TOKEN) {
   let offset = 0;
+  // Имя бота и мини-приложения нужны, чтобы собрать ссылку на звонок.
+  // Спрашиваем один раз при старте: оно не меняется.
+  let botName = "";
+  getMe().then((u) => { botName = u?.username || ""; }).catch(() => {});
+  const APP = process.env.TELEGRAM_APP_NAME || "app";
+  const appLink = (callId) => (botName
+    ? `https://t.me/${botName}/${APP}?startapp=call_${callId}`
+    : `${process.env.PUBLIC_URL || ""}/?call=${callId}`);
+
   const loop = async () => {
     for (;;) {
       try {
@@ -49,9 +60,12 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
           offset = u.update_id + 1;
           try {
             await handleUpdate(u, {
-              org,
+              org, calls,
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
+              answerInline,
+              appLink,
+              botName,
             });
           } catch (e) {
             console.error(`[bot] обновление не обработано: ${e.message}`);
