@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Cond, asGate, asRatio, condKind, condRefs, depsOf, isFlow, normalizeTrait,
-  normalizeTraits, shown, simulate, stored, unitOf } from "../lib/sim.js";
+  normalizeTraits, shown, simulate, stored, transfers, unitOf } from "../lib/sim.js";
 
 /* Движок: расход ресурса и дележ между теми, кто на него претендует.
    Числа здесь проверяются напрямую — на отрисованные значения полагаться
@@ -313,5 +313,68 @@ describe("разбор старой записи единицы", () => {
     const after = simulate(normalizeTraits(raw), edges, 2);
     expect(after.a).toEqual(before.a);
     expect(after.b).toEqual(before.b);
+  });
+});
+
+describe("что стрелка передаёт на самом деле", () => {
+  // Случай из жизни: 300 часов в месяц и две стрелки, каждая просит 1460.
+  const rush = {
+    traits: [
+      { id: "work", e: "me", k: "res", l: "рабочее время", unit: "часов", flow: true, per: "мес" },
+      { id: "cv", e: "job", k: "res", l: "резюме", unit: "часов", flow: true, per: "мес" },
+      { id: "bid", e: "ord", k: "res", l: "отклики", unit: "часов", flow: true, per: "мес" },
+    ],
+    edges: [
+      { id: "in", from: "me", to: "work", gives: 10, per: "день", sign: 1, conds: [] },
+      { id: "cv", from: "me", to: "cv", gives: 2, per: "час", sign: 1, conds: [], fromTrait: "work" },
+      { id: "bid", from: "me", to: "bid", gives: 2, per: "час", sign: 1, conds: [], fromTrait: "work" },
+    ],
+  };
+  const now = (m = rush, state = { work: 0 }) => {
+    const by = {};
+    transfers(m.traits, m.edges, {
+      valueAt: (id) => state[id] ?? 0,
+      seedAt: (t) => Number(t.have ?? 0),
+      giveAt: (ed) => Number(ed.gives) || 0,
+    }).forEach((f) => { by[f.ed.id] = f; });
+    return by;
+  };
+
+  it("запрос и полученное — разные числа, и видно оба", () => {
+    // Ровно то, из-за чего карточка врала: она показывала запрос как факт.
+    const f = now();
+    expect(f.cv.want).toBe(1460);
+    expect(f.cv.moved).toBe(150);
+    expect(f.bid.moved).toBe(150);
+  });
+
+  it("сумма выданного не больше того, что есть у источника", () => {
+    const f = now();
+    expect(f.cv.moved + f.bid.moved).toBe(300);
+    expect(f.cv.supply).toBe(300);
+    expect(f.cv.demand).toBe(2920);
+  });
+
+  it("доля показывает, насколько урезали", () => {
+    const f = now();
+    expect(f.cv.share).toBeCloseTo(300 / 2920, 6);
+    expect(f.in.share).toBe(1); // приход извне никто не режет
+  });
+
+  it("когда хватает на всех, запрос и полученное совпадают", () => {
+    const m = JSON.parse(JSON.stringify(rush));
+    m.edges[1].gives = 1; m.edges[1].per = "день";  // 30
+    m.edges[2].gives = 2; m.edges[2].per = "день";  // 60
+    const f = now(m);
+    expect(f.cv.moved).toBe(f.cv.want);
+    expect(f.bid.share).toBe(1);
+  });
+
+  it("карточка и симуляция считают одним и тем же — числа сходятся", () => {
+    // Если разойдутся, пользователь снова увидит в карточке одно, а в
+    // прогнозе другое; поэтому проверяем совпадение прямо.
+    const s = simulate(rush.traits, rush.edges, 2);
+    const f = now(rush, { work: s.work[0] });
+    expect(at(s.cv, 1)).toBe(Math.round(f.cv.moved * 100) / 100);
   });
 });

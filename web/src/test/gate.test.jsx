@@ -72,6 +72,37 @@ describe("перенос и условие — разные блоки", () => {
   });
 });
 
+describe("сводка стрелки говорит правду про нехватку", () => {
+  it("две стрелки к одному источнику не получают по полной", () => {
+    // Ровно та ошибка, из-за которой карточка показывала обеим по 100%:
+    // она печатала запрос, а не то, что уходит на самом деле.
+    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    const area = container.querySelector("textarea");
+    commit(area, JSON.stringify({
+      ...MODEL,
+      traits: [...MODEL.traits,
+        { id: "bid", e: "job", k: "growth", l: "отклики", unit: "ч", flow: true, per: "мес" }],
+      edges: [MODEL.edges[0],
+        { ...MODEL.edges[1], gives: 2, per: "час", fromTrait: "work" },
+        { id: "e2", from: "me", to: "bid", carrier: "", gives: 2, per: "час",
+          sign: 1, conds: [], basis: "hypo", fromTrait: "work" }],
+    }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    fireEvent.click(screen.getAllByText("время на резюме")[0]);
+
+    // Внутри модели: 300 ч/мес на двоих, каждый просит 1460, получает 150.
+    // На экране всё в периоде ресурса — в днях, то есть делённое на 30.
+    expect(screen.getByText(/Просит 48,67, получает 5 ч\/день/)).toBeTruthy();
+    expect(screen.getByText(/есть 10, просят 97,33 ч\/день/)).toBeTruthy();
+  });
+
+  it("когда источника хватает, про нехватку не говорится", () => {
+    expect(screen.queryByText(/на всех не хватает/)).toBeNull();
+    expect(screen.getByText(/Переносится/)).toBeTruthy();
+  });
+});
+
 describe("условие как целое выражение", () => {
   it("новое условие — сравнение, и это одно поле на всё выражение", () => {
     addCond();

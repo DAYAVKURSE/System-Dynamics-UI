@@ -5,7 +5,8 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui
 import { evaluate, toDisplay, toStorage, refsOf, splitComparison } from "../lib/expr.js";
 import { PER, isFlow, perOf, shown, stored, unitOf, normalizeTraits, Cond,
   condSides, condRefs, condKind, condK, asGate, asRatio, edgeK, sourceTrait,
-  simulate, reachMonth, isFact, factEdges, frac, depsOf, adviseFor } from "../lib/sim.js";
+  simulate, transfers, reachMonth, isFact, factEdges, frac, depsOf,
+  adviseFor } from "../lib/sim.js";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
@@ -231,7 +232,7 @@ function ExprField({value,onCommit,traits,scope,entities,kindOf,placeholder}){
 }
 
 /* ─────── СТРОКА СТРЕЛКИ ─────── */
-function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
+function ArrowRow({ed,traits,entities,live,kindOf,now,onEdit,onDelete}){
   const t=traits.find(x=>x.id===ed.to); if(!t) return null;
   const en=(id)=>entities.find(e=>e.id===id);
   const conds=ed.conds||[];
@@ -306,13 +307,22 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
           <button onClick={()=>onEdit(ed.id,"sign",ed.sign>0?-1:1)}
             style={btn(true,ed.sign>0?OK:BAD)}>{ed.sign>0?"катализирует":"купирует"}</button>
         </div>
-        <div style={{fontSize:11.5,color:k>=1?OK:k>0?WARN:BAD,lineHeight:1.5,marginTop:7}}>
-          {!conds.length
-            ?`Условий нет — попытки удаются всегда: ${nm(shown(t,ed.gives*(PER[ed.per]??1)))} ${unitOf(t)}.`
-            :k>0
-              ?`Условия сейчас пропускают ${Math.round(k*100)}% — значит переносится ${nm(shown(t,ed.gives*(PER[ed.per]??1)*k))} ${unitOf(t)}.`
-              :"Условия сейчас не выполняются — перенос не идёт."}
-        </div>
+        {(()=>{
+          const want=now?now.want:ed.gives*(PER[ed.per]??1)*k;
+          const moved=now?now.moved:want;
+          // Нехватку считаем по доле, а не по разнице: иначе округление
+          // показывало бы «недодали 0» там, где недодали чуть-чуть.
+          const short=now&&now.src&&now.share<0.9999;
+          const col=moved<=0?BAD:(short?WARN:OK);
+          return (
+          <div style={{fontSize:11.5,color:col,lineHeight:1.5,marginTop:7}}>
+            {!conds.length?"Условий нет — попытки удаются всегда. "
+              :k>0?`Условия сейчас пропускают ${Math.round(k*100)}%. `
+                :"Условия сейчас не выполняются — перенос не идёт. "}
+            {k>0&&(short
+              ? `Просит ${nm(shown(t,want))}, получает ${nm(shown(t,moved))} ${unitOf(t)}: у «${src?.l||"источника"}» на всех не хватает — есть ${nm(shown(src||t,now.supply))}, просят ${nm(shown(src||t,now.demand))} ${unitOf(src||t)}, и каждый получает свою долю запроса.`
+              : `Переносится ${nm(shown(t,moved))} ${unitOf(t)}.`)}
+          </div>);})()}
       </div>
       <div style={{marginBottom:10}}><div style={S.lbl}>подпись стрелки на схеме</div>
         <TxtField value={ed.carrier} placeholder="что передаёт"
@@ -844,6 +854,19 @@ export default function SystemModel(){
   const baseFact=useMemo(()=>simulate(traits,factEdges(edges),span),[traits,edges,span]);
   const liveFact=useMemo(()=>{const o={};traits.forEach(t=>o[t.id]=baseFact[t.id]?.[0]??0);
     return o;},[baseFact,traits]);
+  // Тем же расчётом, что и симуляция: карточка стрелки не должна считать
+  // «сколько передаёт» по-своему — так она и разошлась с моделью, показывая
+  // запрос вместо того, что реально уходит.
+  const flowNow=useMemo(()=>{
+    const by={};
+    transfers(traits,edges,{
+      valueAt:(id)=>live[id]??0,
+      seedAt:(t)=>Number(t.have??0),
+      giveAt:(ed)=>Number(ed.gives)||0,
+    }).forEach(f=>{by[f.ed.id]=f;});
+    return by;
+  },[traits,edges,live]);
+
   const advice=useMemo(()=>goals.map(g=>({g,...adviseFor(traits,edges,g,span)})),
     [traits,edges,span,goals.length]);
 
@@ -1303,8 +1326,8 @@ export default function SystemModel(){
                   {!into(selT.id).length&&<div style={{fontSize:12,color:BAD}}>
                     Ни одной стрелки — эту величину никто не производит.</div>}
                   {into(selT.id).map(ed=>(
-                    <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities} live={live} kindOf={kindOf}
-                      onEdit={upA} onDelete={delA}/>))}
+                    <ArrowRow key={ed.id} ed={ed} traits={traits} entities={entities} live={live}
+                      kindOf={kindOf} now={flowNow[ed.id]} onEdit={upA} onDelete={delA}/>))}
                 </div>
                 <div style={S.lbl}>добавить стрелку сюда</div>
                 <div className="flex flex-wrap gap-2" style={{marginTop:6,marginBottom:10}}>

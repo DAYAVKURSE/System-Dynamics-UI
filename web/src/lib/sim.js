@@ -130,6 +130,62 @@ export const sourceTrait = (ed, hasTrait) => {
   return (s && s !== ed.to && hasTrait(s)) ? s : null;
 };
 
+/* ─────── что стрелки реально передают ─────── */
+/**
+ * Один шаг распределения при данном состоянии: сколько каждая стрелка просит
+ * и сколько реально получает с учётом условий, наличия у источника и
+ * конкуренции за него.
+ *
+ * Эта же функция считает и шаг симуляции, и то, что показывается в карточке
+ * стрелки. Раньше карточка считала своё («сколько передаёт» = запрос) и
+ * потому врала: две стрелки к одному источнику обе показывали полный объём,
+ * хотя на всех его не хватало. Один расчёт на оба применения — единственный
+ * способ не дать им разойтись снова.
+ */
+export function transfers(traits, edges, { valueAt, seedAt, giveAt }) {
+  const byId = {};
+  traits.forEach((t) => { byId[t.id] = t; });
+
+  // 1. Намерения стрелок при нынешнем состоянии.
+  const moves = [];
+  for (const ed of edges) {
+    if (!byId[ed.to]) continue;
+    // линейная пропорция по каждому условию: если 1 в месяц даёт 1, то 5 дают 5,
+    // без потолка в 100% (для условий-«не меньше»)
+    const k = edgeK(ed, valueAt);
+    const want = Number(ed.sign) * giveAt(ed) * (PER[ed.per] ?? 1) * k;
+    moves.push({ ed, to: ed.to, src: sourceTrait(ed, (id) => byId[id] !== undefined), k, want });
+  }
+
+  // 2. Сколько у источника просят и сколько он может отдать. Просят больше —
+  //    каждый получает свою долю запроса: делить поровну было бы неверно
+  //    (кто просил вдвое больше, вдвое больше и получит), а обслуживать по
+  //    порядку — тем более: порядок стрелок в файле не значит приоритета.
+  const demand = {};
+  moves.forEach((f) => { if (f.src && f.want > 0) demand[f.src] = (demand[f.src] || 0) + f.want; });
+  const share = {}, supply = {};
+  Object.keys(demand).forEach((tid) => {
+    // Запас отдаёт накопленное. Поток — то, что втекает в него за тот же
+    // шаг: скорость нельзя потратить заранее, её ещё нет.
+    let have = valueAt(tid);
+    if (isFlow(byId[tid])) {
+      have = seedAt(byId[tid]);
+      moves.forEach((f) => { if (f.to === tid && f.want > 0) have += f.want; });
+    }
+    supply[tid] = have = Math.max(0, have);
+    share[tid] = demand[tid] > have ? have / demand[tid] : 1;
+  });
+
+  // 3. Итог: сколько уходит на самом деле.
+  moves.forEach((f) => {
+    f.share = (f.src && f.want > 0) ? (share[f.src] ?? 1) : 1;
+    f.moved = f.want * f.share;
+    f.demand = f.src ? demand[f.src] : null;
+    f.supply = f.src ? supply[f.src] : null;
+  });
+  return moves;
+}
+
 /* ─────── симуляция ─────── */
 /**
  * Метод Эйлера, шаг — месяц. Внутри шага порядок такой:
@@ -141,53 +197,21 @@ export const sourceTrait = (ed, hasTrait) => {
  */
 export function simulate(traits, edges, months, seedMod, giveMod) {
   const seed = (t) => Number((seedMod && seedMod[t.id] != null) ? seedMod[t.id] : (t.have ?? 0));
-  const st = {}, series = {}, byId = {};
-  traits.forEach((t) => { byId[t.id] = t; st[t.id] = isFlow(t) ? 0 : seed(t); series[t.id] = []; });
-  const hasTrait = (id) => byId[id] !== undefined;
+  const st = {}, series = {};
+  traits.forEach((t) => { st[t.id] = isFlow(t) ? 0 : seed(t); series[t.id] = []; });
+
+  const giveAt = (ed) =>
+    Number((giveMod && giveMod[ed.id] != null) ? giveMod[ed.id] : ed.gives) || 0;
 
   for (let m = 0; m <= months; m++) {
     const rate = {}; traits.forEach((t) => { rate[t.id] = 0; });
 
-    // 1. Намерения стрелок при нынешнем состоянии.
-    const moves = [];
-    for (const ed of edges) {
-      if (rate[ed.to] === undefined) continue;
-      const g = Number((giveMod && giveMod[ed.id] != null) ? giveMod[ed.id] : ed.gives) || 0;
-      // линейная пропорция по каждому условию: если 1 в месяц даёт 1, то 5 дают 5,
-      // без потолка в 100% (для условий-«не меньше»)
-      const k = edgeK(ed, (tid) => st[tid]);
-      moves.push({
-        to: ed.to,
-        src: sourceTrait(ed, hasTrait),
-        moved: Number(ed.sign) * g * (PER[ed.per] ?? 1) * k,
+    // Сколько пришло получателю, столько же ушло у источника.
+    transfers(traits, edges, { valueAt: (id) => st[id], seedAt: seed, giveAt })
+      .forEach((f) => {
+        rate[f.to] += f.moved;
+        if (f.src) rate[f.src] -= f.moved;
       });
-    }
-
-    // 2. Сколько у источника просят и сколько он может отдать. Просят больше —
-    //    каждый получает свою долю запроса: делить поровну было бы неверно
-    //    (кто просил вдвое больше, вдвое больше и получит), а обслуживать по
-    //    порядку — тем более: порядок стрелок в файле не значит приоритета.
-    const demand = {};
-    moves.forEach((f) => { if (f.src && f.moved > 0) demand[f.src] = (demand[f.src] || 0) + f.moved; });
-    const share = {};
-    Object.keys(demand).forEach((tid) => {
-      // Запас отдаёт накопленное. Поток — то, что втекает в него за тот же
-      // шаг: скорость нельзя потратить заранее, её ещё нет.
-      let have = st[tid];
-      if (isFlow(byId[tid])) {
-        have = seed(byId[tid]);
-        moves.forEach((f) => { if (f.to === tid && f.moved > 0) have += f.moved; });
-      }
-      have = Math.max(0, have);
-      share[tid] = demand[tid] > have ? have / demand[tid] : 1;
-    });
-
-    // 3. Разносим: сколько пришло получателю, столько же ушло у источника.
-    moves.forEach((f) => {
-      const moved = f.moved * ((f.src && f.moved > 0) ? (share[f.src] ?? 1) : 1);
-      rate[f.to] += moved;
-      if (f.src) rate[f.src] -= moved;
-    });
 
     traits.forEach((t) => {
       if (isFlow(t)) st[t.id] = Math.max(0, seed(t) + rate[t.id]);
