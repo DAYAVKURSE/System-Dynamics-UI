@@ -3,6 +3,8 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule } from "../storage.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { evaluate, toDisplay, toStorage, refsOf } from "../lib/expr.js";
+import { PER, isFlow, Cond, condSides, condRefs, condK, edgeK, sourceTrait,
+  simulate, reachMonth, isFact, factEdges, frac, depsOf, adviseFor } from "../lib/sim.js";
 import TasksBoard, { newTask, okrFromRec } from "./TasksBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
@@ -29,10 +31,7 @@ const KINDS0=[
 // сценарии, сохранённом до её удаления) — показываем заглушку, а не падаем.
 const NOKIND={id:"",sign:"?",name:"без типа",color:NEU,dir:"up"};
 const kindLookup=(kinds)=>(id)=>kinds.find(k=>k.id===id)||NOKIND;
-const PER={"час":730,"день":30,"нед":4.33,"мес":1,"квартал":1/3,"год":1/12};
 const NW=208,NH=112;
-
-const isFlow=(t)=>t.flow!=null?!!t.flow:/\//.test(t.unit||"");
 
 /* ─────── ДАННЫЕ ─────── */
 const ENTITIES0=[
@@ -104,24 +103,6 @@ const TRAITS0=[
   T("s5","set","repro","доля функций, понятных без объяснений","коэф."),
   T("s6","set","payback","часов пользователям на 1 час разработки","ч"),
 ];
-// Условие: {left, mode, right} — сравнение двух величин, и каждая может быть
-// формулой со ссылками на ресурсы ("{r5} * 2", "{u9} / 100 + 5").
-// mode "min" — «не меньше»: чем больше левая часть относительно правой, тем
-// сильнее эффект (линейно, без потолка). mode "max" — «не больше»: пока левая
-// не выше правой, эффект полный; выше — насыщение, эффект слабеет обратно
-// пропорционально (модель 7 млрд пользователей из примера).
-const Cond=(trait,mode,amt)=>({left:`{${trait}}`,mode,right:String(amt)});
-
-// Условия из сценариев, сохранённых до появления выражений, имеют вид
-// {trait, mode, amt}. Читаем их как частный случай: слева ресурс, справа число.
-const condSides=(c)=>({
-  left: c.left!=null?c.left:(c.trait?`{${c.trait}}`:""),
-  right: c.right!=null?c.right:String(c.amt??""),
-  mode: c.mode||"min",
-});
-// Все ресурсы, от которых зависит условие — по ним строится граф зависимостей
-// цели и чистятся ссылки при удалении ресурса.
-const condRefs=(c)=>{const s=condSides(c);return [...refsOf(s.left),...refsOf(s.right)];};
 const E=(id,from,to,carrier,gives,per,sign,conds,note,basis)=>
   ({id,from,to,carrier,gives,per,sign,conds:conds||[],note,basis:basis||"hypo"});
 const EDGES0=[
@@ -183,97 +164,6 @@ const EDGES0=[
     "Нужно минимум 6 разборов в месяц."),
   E("e26","dec","s3","часы на разработку функционала",30,"мес",1,[],"Цена обновлений."),
 ];
-
-// множитель одного условия: min — линейно растёт с показателем (без потолка),
-// max — насыщение: пока показатель не выше порога множитель = 1, выше — падает
-// обратно пропорционально (чем сильнее превышен потолок, тем слабее эффект)
-function condK(c,valueOf){
-  const {left,right,mode}=condSides(c);
-  const L=evaluate(left,valueOf), R=evaluate(right,valueOf);
-  // Незаполненное или сломанное условие не душит стрелку: множитель 1,
-  // то есть «не ограничивает». Обнулять было бы хуже — прогноз схлопнулся бы
-  // без объяснения; сама ошибка показывается рядом с полем в интерфейсе.
-  if(L.error||R.error) return 1;
-  if(R.value<=0) return 1;
-  if(mode==="max") return L.value>R.value?R.value/L.value:1;
-  return L.value/R.value;
-}
-// общий множитель стрелки — произведение множителей всех её условий
-// (если условий несколько, каждое ограничивает независимо)
-function edgeK(ed,valueOf){
-  if(!ed.conds||!ed.conds.length) return 1;
-  return ed.conds.reduce((acc,c)=>acc*condK(c,valueOf),1);
-}
-/* ─────── СИМУЛЯЦИЯ ─────── */
-function simulate(traits,edges,months,seedMod,giveMod){
-  const seed=(t)=>Number((seedMod&&seedMod[t.id]!=null)?seedMod[t.id]:(t.have??0));
-  const st={},series={};
-  traits.forEach(t=>{st[t.id]=isFlow(t)?0:seed(t);series[t.id]=[];});
-  for(let m=0;m<=months;m++){
-    const rate={};traits.forEach(t=>rate[t.id]=0);
-    for(const ed of edges){
-      if(rate[ed.to]===undefined) continue;
-      const g=Number((giveMod&&giveMod[ed.id]!=null)?giveMod[ed.id]:ed.gives)||0;
-      // линейная пропорция по каждому условию: если 1 в месяц даёт 1, то 5 дают 5,
-      // без потолка в 100% (для условий-«не меньше»)
-      const k=edgeK(ed,tid=>st[tid]);
-      rate[ed.to]+=Number(ed.sign)*g*(PER[ed.per]??1)*k;
-    }
-    traits.forEach(t=>{
-      if(isFlow(t)) st[t.id]=Math.max(0,seed(t)+rate[t.id]);
-      series[t.id].push(st[t.id]);
-    });
-    traits.forEach(t=>{if(!isFlow(t)) st[t.id]=Math.max(0,st[t.id]+rate[t.id]);});
-  }
-  return series;
-}
-const reachMonth=(s,w)=>{for(let i=0;i<(s?.length||0);i++) if(s[i]+1e-9>=w) return i; return null;};
-
-// гипотеза/факт — свойство самой стрелки: «10 реферов приведут 10 пользователей»
-// это гипотеза (поведенческое допущение), а «10% от 100 тысяч — это 10 тысяч» — факт
-// (точный расчёт). Поэтому считаем модель дважды: по всем стрелкам (гипотетический
-// прогноз, оптимистичный) и только по стрелкам-фактам (гарантированный прогноз).
-const isFact=(e)=>e.basis==="fact";
-const factEdges=(edges)=>edges.filter(isFact);
-const frac=(v,w)=>(w?Math.max(0,Number(v)/Number(w)):null);
-const depsOf=(edges,tid)=>{
-  const seen=new Set(),arr=new Set();
-  const go=(id,d)=>{if(seen.has(id)||d>6)return;seen.add(id);
-    edges.filter(e=>e.to===id).forEach(ed=>{arr.add(ed.id);
-      (ed.conds||[]).forEach(c=>{condRefs(c).forEach(r=>go(r,d+1));});});};
-  go(tid,0);return{traits:[...seen],edges:[...arr]};
-};
-function adviseFor(traits,edges,g,span){
-  const by=g.by??span,want=Number(g.want);
-  const base=simulate(traits,edges,Math.max(span,by));
-  const now=reachMonth(base[g.id],want);
-  if(now!=null&&now<=by) return {now,recs:[]};
-  const d=depsOf(edges,g.id),recs=[];
-  const test=(sm,gm)=>reachMonth(simulate(traits,edges,by,sm,gm)[g.id],want);
-  const search=(mk,cur)=>{
-    let hi=Math.max(1,cur||1,Math.abs(Number(g.want))||1);
-    for(let i=0;i<40&&test(...mk(hi))==null;i++) hi*=2;
-    if(test(...mk(hi))==null) return null;
-    let lo=cur||0;
-    for(let i=0;i<16;i++){const mid=(lo+hi)/2;test(...mk(mid))!=null?hi=mid:lo=mid;}
-    return hi;
-  };
-  d.traits.forEach(tid=>{
-    const t=traits.find(x=>x.id===tid); if(!t||isFlow(t)) return;
-    const cur=Number(t.have??0),v=search(x=>[{[tid]:x},null],cur);
-    if(v!=null&&v>cur+1e-6) recs.push({type:"seed",tid,from:cur,to:v,
-      month:test({[tid]:v},null),label:t.l,unit:t.unit,e:t.e});
-  });
-  d.edges.forEach(eid=>{
-    const ed=edges.find(x=>x.id===eid); if(!ed) return;
-    const cur=Number(ed.gives)||0,v=search(x=>[null,{[eid]:x}],cur);
-    if(v!=null&&v>cur*1.001) recs.push({type:"edge",eid,from:cur,to:v,
-      month:test(null,{[eid]:v}),label:ed.carrier,unit:traits.find(t=>t.id===ed.to)?.unit,
-      per:ed.per,e:ed.from});
-  });
-  recs.sort((a,b)=>(a.month??99)-(b.month??99));
-  return {now,recs:recs.slice(0,6)};
-}
 
 /* ─────── ГРАФИК ─────── */
 function Chart({lines,months,goalLine,goalMonth,cursorMonth}){
@@ -349,6 +239,7 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
   // определяют, сколько он отдаёт. Левое поле предлагает только их.
   const own=en(ed.from);
   const ownTraits=traits.filter(x=>x.e===ed.from);
+  const src=traits.find(x=>x.id===ed.fromTrait);
   const setConds=(next)=>onEdit(ed.id,"conds",next);
   // Правку условия сразу приводим к новой форме: иначе у старого условия
   // остались бы и trait/amt, и left/right, и было бы непонятно, что считать.
@@ -377,8 +268,22 @@ function ArrowRow({ed,traits,entities,live,kindOf,onEdit,onDelete}){
           {fact?"точный расчёт — не зависит от поведения людей"
             :"предположение о поведении — может не сбыться"}</span>
       </div>
-      <div style={{marginBottom:7}}><div style={S.lbl}>что передаёт (движение ресурса)</div>
-        <TxtField value={ed.carrier} placeholder="носитель"
+      <div style={{marginBottom:7}}>
+        <div style={S.lbl}>берётся из ресурса{own?` актива «${own.name}»`:""}</div>
+        <select style={S.inp} value={ed.fromTrait||""}
+          onChange={e=>onEdit(ed.id,"fromTrait",e.target.value||null)}>
+          <option value="">— ниоткуда: величина появляется —</option>
+          {ownTraits.filter(x=>x.id!==ed.to).map(x=>(
+            <option key={x.id} value={x.id}>{x.l} · {x.unit}</option>))}
+        </select>
+        <div style={{fontSize:11.5,color:src?C.muted:WARN,marginTop:4,lineHeight:1.5}}>
+          {src
+            ?`Сколько придёт сюда, на столько же убудет «${src.l}». Не хватит — стрелка передаст меньше; если на этот же ресурс претендуют другие стрелки, каждая получит свою долю.`
+            :"Ничего не тратится: величина берётся извне модели. Так и надо для приходящего снаружи — спроса, новых пользователей. Но если это ваш ресурс, выберите его выше, иначе один и тот же час работы уйдёт сразу в несколько мест."}
+        </div>
+      </div>
+      <div style={{marginBottom:7}}><div style={S.lbl}>подпись стрелки на схеме</div>
+        <TxtField value={ed.carrier} placeholder="что передаёт"
           onCommit={v=>onEdit(ed.id,"carrier",v)}/></div>
 
       <div style={S.lbl}>условия перетекания</div>
@@ -1275,6 +1180,12 @@ export default function SystemModel(){
                       background:C.panel2,display:"flex",alignItems:"center"}}
                       title="Прогноз только по стрелкам-фактам — без гипотез">{nm(fv)}</div></div>
                 </div>
+                {fv===0&&into(selT.id).length>0&&!into(selT.id).some(isFact)&&(
+                  <div style={{fontSize:11.5,color:WARN,marginBottom:10,lineHeight:1.5}}>
+                    Фактически ноль потому, что все входящие стрелки помечены как
+                    гипотезы. Если стрелка — точный расчёт, а не допущение о
+                    поведении, переключите её на «◆ факт» ниже.
+                  </div>)}
                 <div style={{fontSize:11.5,color:C.muted,marginBottom:10}}>
                   {isFlow(selT)?"Поток: значение равно текущей скорости."
                     :"Запас: копится по месяцам."} Тип берётся из единицы — слэш делает поток.

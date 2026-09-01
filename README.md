@@ -20,6 +20,7 @@ SDK, бэкенд для дискового хранения сценариев 
 web/                    React + Vite фронтенд (сама модель + Telegram-обвязка)
   src/components/SystemModel.jsx  Модель: расчёты, схема, цели, симуляция
   src/components/TasksBoard.jsx   OKR и канбан-доска задач
+  src/lib/sim.js         Движок: симуляция по месяцам, условия, рекомендации
   src/lib/expr.js        Разбор числовых выражений в условиях (без eval)
   src/lib/history.js     История правок модели: отмена и возврат
   src/lib/draft.js       Черновик: страховка от закрытия вкладки
