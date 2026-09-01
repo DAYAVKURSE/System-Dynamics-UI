@@ -8,6 +8,7 @@ import { PER, isFlow, perOf, shown, stored, unitOf, normalizeTraits, Cond,
   simulate, resolveStep, scheduleOf, lastSubmission, reachMonth, isFact,
   factEdges, frac, depsOf,
   adviseFor } from "../lib/sim.js";
+import HypothesisBuilder from "./HypothesisBuilder.jsx";
 import TasksBoard, { GoalWork, newTask, nowLocal, okrFromRec } from "./TasksBoard.jsx";
 import ReportsGantt from "./ReportsGantt.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
@@ -664,6 +665,7 @@ export default function SystemModel(){
   const [kinds,setKinds]=useState(KINDS0);
   const [kindMsg,setKindMsg]=useState("");
   const [okrs,setOkrs]=useState([]);
+  const [hypos,setHypos]=useState([]); // черновики гипотез: на расчёт не влияют
   const [tasks,setTasks]=useState([]);
   const [tab,setTab]=useState("tasks");
   const [sel,setSel]=useState("usr");
@@ -719,11 +721,13 @@ export default function SystemModel(){
   // сохранённый сценарий. Вкладка, зум и выбранный блок в неё не попадают:
   // отменять «переключение вкладки» пользователь не просил, а вот потерять
   // каскадное удаление актива — реальная беда.
-  const doc=useMemo(()=>({entities,traits,edges,kinds,okrs,tasks}),
-    [entities,traits,edges,kinds,okrs,tasks]);
+  const doc=useMemo(()=>({entities,traits,edges,kinds,okrs,tasks,hypos}),
+    [entities,traits,edges,kinds,okrs,tasks,hypos]);
   const restoreDoc=useCallback((d)=>{
     setEntities(d.entities); setTraits(normalizeTraits(d.traits)); setEdges(d.edges);
     setKinds(d.kinds); setOkrs(d.okrs); setTasks(d.tasks);
+    // Сценарии, сохранённые до появления конструктора, поля hypos не знают.
+    setHypos(Array.isArray(d.hypos)?d.hypos:[]);
     // Шаг назад может убрать актив, на который сейчас смотрит панель, —
     // тогда выбор надо перевести, иначе панель опустеет без объяснения.
     setPair(null);
@@ -909,6 +913,7 @@ export default function SystemModel(){
         traits:normalizeTraits(arr(s.data?.traits,traits)),
         edges:arr(s.data?.edges,edges), kinds:arr(s.data?.kinds,kinds,true),
         okrs:arr(s.data?.okrs,okrs), tasks:arr(s.data?.tasks,tasks),
+        hypos:arr(s.data?.hypos,hypos),
       };
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -1078,6 +1083,15 @@ export default function SystemModel(){
               onMoveEntity={moveE}/>
           </div>
         </div>
+
+        {/* Гипотеза формулируется целиком и раскладывается в стрелку. Форма
+            стоит под полотном: сначала видно, что уже есть, потом — чем
+            дополнить. */}
+        <HypothesisBuilder entities={entities} traits={traits} kindOf={kindOf}
+          hypos={hypos} setHypos={setHypos} defaultFrom={sel}
+          onApply={(ed)=>{setEdges(p=>[...p,ed]);
+            setSelTrait(null);setSel(ed.from);
+            setPair(`${ed.from}|${trait(ed.to)?.e}`);}}/>
 
         {pairG && (
           <div style={{...S.card,marginBottom:10}}>
@@ -1638,7 +1652,7 @@ export default function SystemModel(){
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <button style={btn(true)} onClick={()=>{
-              setJson(JSON.stringify({entities,traits,edges,kinds,okrs,tasks},null,2));
+              setJson(JSON.stringify({entities,traits,edges,kinds,okrs,tasks,hypos},null,2));
               setJsonMsg("Выгружено.");}}>
               Выгрузить</button>
             <button style={btn(false)} onClick={()=>{try{const d=JSON.parse(json);
@@ -1650,6 +1664,7 @@ export default function SystemModel(){
               if(Array.isArray(d.kinds)&&d.kinds.length)setKinds(d.kinds);
               if(Array.isArray(d.okrs))setOkrs(d.okrs);
               if(Array.isArray(d.tasks))setTasks(d.tasks);
+              if(Array.isArray(d.hypos))setHypos(d.hypos);
               setJsonMsg("Загружено.");}
               catch{setJsonMsg("Не разобрал JSON.");}}}>Загрузить</button>
             {jsonMsg&&<span style={{fontSize:12,color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}

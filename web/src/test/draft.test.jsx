@@ -273,4 +273,31 @@ describe("черновик и диск", () => {
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     expect(screen.getAllByDisplayValue("рост").length).toBeGreaterThan(0);
   });
+
+  it("черновик, записанный до появления гипотез, всё ещё читается", () => {
+    // Обязательный список в readDraft() — это ядро документа. Расширять его
+    // задним числом нельзя: черновик предыдущей версии пропал бы ровно
+    // тогда, когда он и нужен.
+    saveDraft(DOC);           // DOC — шесть частей, без hypos
+    expect(readDraft()).not.toBeNull();
+    expect(readDraft().hypos).toBeUndefined();
+  });
+
+  it("сценарий без гипотез загружается, и конструктор начинает с пустого списка",
+    async () => {
+    const { hypos, ...old } = { ...DOC };
+    localStorage.setItem("sd_scenarios", JSON.stringify({
+      index: [{ id: "s3", name: "Без гипотез", savedAt: new Date().toISOString() }],
+      data: { s3: JSON.stringify(old) },
+    }));
+    const { container } = render(<SystemModel />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    const list = await screen.findByRole("combobox");
+    fireEvent.change(list, { target: { value: "s3" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[1]);
+    await waitFor(() => expect(screen.getByText(/Загружено/)).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+    expect(JSON.parse(container.querySelector("textarea").value).hypos).toEqual([]);
+  });
 });
