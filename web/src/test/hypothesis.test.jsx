@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 
-/* Гипотеза набирается в одном поле из палитры под ним. */
+/* Гипотеза набирается строками: каждая начинается с оператора, элементы
+   кладутся из палитры под программой. */
 
 let container;
 beforeEach(() => { ({ container } = render(<SystemModel />)); });
@@ -17,126 +18,116 @@ const dump = () => {
   fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
   return JSON.parse(container.querySelector("textarea").value);
 };
-const field = () => screen.getByRole("group", { name: "выражение гипотезы" });
-const chipIn = (starts) => [...field().querySelectorAll("span")]
-  .find((s) => s.textContent.startsWith(starts));
-const palette = (name) => screen.getByRole("button", { name });
-const put = (name) => fireEvent.click(palette(name));
+const program = () => screen.getByRole("group", { name: "строки гипотезы" });
+const lineRow = (op) => screen.getByRole("group", { name: `строка ${op}` });
+// Кнопки-операторы стоят и в палитре строк, и в самих строках: палитра идёт
+// после программы, поэтому берём последнюю.
+const addLine = (op) => {
+  const all = screen.getAllByRole("button", { name: op });
+  fireEvent.click(all[all.length - 1]);
+};
+const put = (name) => {
+  const all = screen.getAllByRole("button", { name });
+  fireEvent.click(all[all.length - 1]);
+};
+const openAsset = (name) => fireEvent.click(
+  screen.getByRole("button", { name: new RegExp(`^[▸▾] ${name}`) }));
 
-describe("палитра и поле", () => {
-  it("пустое поле так и говорит, а разложить нечего", () => {
+describe("палитра и программа", () => {
+  it("пустая программа так и говорит, а разложить нечего", () => {
     openBuilder();
-    expect(screen.getByText(/пусто — возьми элемент из палитры/)).toBeTruthy();
+    expect(screen.getByText(/Пусто\. Начните строкой/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Разложить в движения" }).disabled)
       .toBe(true);
   });
 
-  it("палитра предлагает ресурсы, стрелку, операторы и сравнения", () => {
+  it("операторы — все восемь, каждый заводит свою строку", () => {
     openBuilder();
-    expect(screen.getByRole("button", { name: "→ стрелка" })).toBeTruthy();
-    ["если", "иначе", "пока", "повторить"].forEach((o) =>
-      expect(screen.getAllByRole("button", { name: o }).length).toBeGreaterThan(0));
-    expect(screen.getByRole("button", { name: ">" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "123 число" })).toBeTruthy();
+    ["если", "то", "иначе", "пока", "повторять", "для", "break", "continue"]
+      .forEach((o) => expect(screen.getAllByRole("button", { name: o }).length)
+        .toBeGreaterThan(0));
   });
 
-  it("нажатие на элемент палитры кладёт его в поле", () => {
+  it("строка начинается с оператора — он часть строки, а не её содержимого", () => {
     openBuilder();
-    put("→ стрелка");
-    // Элемент появился в выражении — его видно во фразе под полем.
-    expect(screen.getAllByText(/→/).length).toBeGreaterThan(0);
+    addLine("если");
+    const row = lineRow("если");
+    expect(within(row).getByRole("button", { name: "если" })).toBeTruthy();
   });
 
-  it("вставленный элемент сразу открывает свои параметры", () => {
+  it("оператор строки меняется нажатием на него", () => {
     openBuilder();
-    put("→ стрелка");
-    expect(screen.getByText(/за какое время это движение должно быть произведено/))
-      .toBeTruthy();
-    expect(screen.getByText(/следующий элемент получает отчёт от предыдущего/))
-      .toBeTruthy();
-    expect(screen.getByText(/в сколько потоков/)).toBeTruthy();
+    addLine("если");
+    fireEvent.click(within(lineRow("если")).getByRole("button", { name: "если" }));
+    expect(screen.getByRole("group", { name: "строка то" })).toBeTruthy();
   });
 
-  it("у стрелки настраиваются срок, окно дат, отчёт, повтор и потоки", () => {
+  it("строка удаляется и переставляется своими кнопками", () => {
     openBuilder();
-    put("→ стрелка");
-    // Даты — два поля datetime-local, обе стороны окна.
-    expect(container.querySelectorAll('input[type="datetime-local"]')).toHaveLength(2);
-    expect(container.querySelector('input[type="checkbox"]')).toBeTruthy();
-    // Повтор: один раз / сразу / после утверждения отчёта / раз в период.
-    const opts = [...container.querySelectorAll("option")].map((o) => o.textContent);
-    ["один раз", "сразу, без ожидания", "после утверждения отчёта", "раз в период"]
-      .forEach((n) => expect(opts).toContain(n));
-    // Потоки: переключатель и число.
-    expect(screen.getByRole("button", { name: "в несколько" })).toBeTruthy();
-  });
-
-  it("щелчок по элементу в поле открывает его параметры повторно", () => {
-    openBuilder();
-    put("→ стрелка");
-    // Свернуть параметры щелчком по самому элементу...
-    const chip = chipIn("→");
-    fireEvent.click(chip);
-    expect(screen.queryByText(/в сколько потоков/)).toBeNull();
-    // ...и открыть снова.
-    fireEvent.click(chipIn("→"));
-    expect(screen.getByText(/в сколько потоков/)).toBeTruthy();
+    addLine("если");
+    addLine("то");
+    expect(program().querySelectorAll('[role="group"]')).toHaveLength(2);
+    fireEvent.click(within(lineRow("то")).getByRole("button", { name: "удалить строку" }));
+    expect(program().querySelectorAll('[role="group"]')).toHaveLength(1);
   });
 });
 
-describe("курсор решает, куда встанет элемент", () => {
-  const words = () => field().parentElement.parentElement
-    .textContent;
-
-  it("следующий элемент встаёт после предыдущего, а не в конец наугад", () => {
+describe("ресурсы под спойлером актива", () => {
+  it("свёрнуты, пока актив не раскрыт", () => {
     openBuilder();
-    put("если");
-    put(">");
-    // Курсор идёт за вставленным: «если >», а не «> если».
-    expect(screen.getByText(/^если >$/)).toBeTruthy();
+    const model = dump();
+    openBuilder();
+    const trait = model.traits[0];
+    const ent = model.entities.find((e) => e.id === trait.e);
+    // Заголовок актива есть, ресурсов под ним не видно.
+    expect(screen.getByRole("button", { name: new RegExp(`^▸ ${ent.name}`) })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: new RegExp(trait.l) })).toBeNull();
+
+    openAsset(ent.name);
+    expect(screen.getAllByRole("button", { name: new RegExp(trait.l) }).length)
+      .toBeGreaterThan(0);
   });
 
-  it("щель в поле переносит курсор, и элемент встаёт именно туда", () => {
+  it("в заголовке видно, сколько ресурсов внутри", () => {
     openBuilder();
-    put("если");
-    put(">");
-    // Щели — пустые вставки между элементами; первая стоит перед всем.
-    const gaps = field().querySelectorAll('span[title="сюда встанет следующий элемент"]');
-    expect(gaps.length).toBe(3);          // до, между, после
-    fireEvent.click(gaps[1]);             // курсор между «если» и «>»
-    put("<");
-    expect(screen.getByText(/^если < >$/)).toBeTruthy();
-    // Курсор поехал за вставленным, а не прыгнул в конец: следующий элемент
-    // встаёт рядом с предыдущим, и вставлять по одному не приходится заново.
-    put("≥");
-    expect(screen.getByText(/^если < ≥ >$/)).toBeTruthy();
+    const model = dump();
+    openBuilder();
+    const ent = model.entities[0];
+    const n = model.traits.filter((t) => t.e === ent.id).length;
+    expect(screen.getByRole("button", { name: new RegExp(`${ent.name}\\s*·\\s*${n}`) }))
+      .toBeTruthy();
   });
 
-  it("«убрать из выражения» удаляет именно выбранный элемент", () => {
+  it("раскрытый актив даёт и сам актив — для строки «для»", () => {
     openBuilder();
-    put("если");
-    put(">");
-    fireEvent.click(chipIn("если"));
-    fireEvent.click(screen.getByRole("button", { name: "Убрать из выражения" }));
-    // «если» ушло, «>» осталось. Сравнение — набираемый текст, поэтому
-    // живёт полем ввода, а не фишкой.
-    expect(chipIn("если")).toBeUndefined();
-    expect([...field().querySelectorAll("input")].map((i) => i.value)).toEqual([">"]);
+    const model = dump();
+    openBuilder();
+    const ent = model.entities[0];
+    openAsset(ent.name);
+    expect(screen.getByRole("button", { name: `«${ent.name}»` })).toBeTruthy();
   });
 });
 
-describe("раскладка выражения в движения", () => {
-  // Кладём «[ресурс] → [ресурс]» и заполняем количество.
+describe("раскладка программы в движения", () => {
+  // «то [ресурс A] → [ресурс B]» с заполненным количеством.
   const buildMove = () => {
     const model = dump();
     openBuilder();
-    const [a, b] = [model.traits[0], model.traits.find((t) => t.e !== model.traits[0].e)];
-    const nameOf = (t) => new RegExp(t.l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    fireEvent.click(screen.getAllByRole("button", { name: nameOf(a) })[0]);
+    const a = model.traits[0];
+    const b = model.traits.find((t) => t.e !== a.e);
+    const entA = model.entities.find((e) => e.id === a.e);
+    const entB = model.entities.find((e) => e.id === b.e);
+    addLine("то");
+    openAsset(entA.name);
+    put(new RegExp(a.l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     put("→ стрелка");
-    fireEvent.click(screen.getAllByRole("button", { name: nameOf(b) })[0]);
-    // Курсор после стрелки — вернём выделение на неё и впишем количество.
-    fireEvent.click(chipIn("→"));
+    openAsset(entB.name);
+    put(new RegExp(b.l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+    // Количество — в параметрах стрелки: возвращаем выделение на неё.
+    const chipArrow = [...lineRow("то").querySelectorAll("span")]
+      .find((s) => s.textContent.startsWith("→"));
+    fireEvent.click(chipArrow);
     const amount = screen.getByText(/за раз переносит/).parentElement
       .querySelector('input[inputmode="decimal"]');
     fireEvent.focus(amount);
@@ -145,7 +136,7 @@ describe("раскладка выражения в движения", () => {
     return { a, b };
   };
 
-  it("две соседние карточки ресурсов и стрелка дают стрелку модели", () => {
+  it("строка «то» с двумя ресурсами и стрелкой даёт стрелку модели", () => {
     const before = dump().edges.length;
     const { a, b } = buildMove();
     fireEvent.click(screen.getByRole("button", { name: "Разложить в движения" }));
@@ -156,9 +147,10 @@ describe("раскладка выражения в движения", () => {
     expect(ed.fromTrait).toBe(a.id);
     expect(ed.to).toBe(b.id);
     expect(ed.gives).toBe(7);
+    expect(ed.conds).toEqual([]);        // «то» без «если» — без условий
   });
 
-  it("отложенная гипотеза хранится выражением и на расчёт не влияет", () => {
+  it("отложенная гипотеза хранится строками и на расчёт не влияет", () => {
     const before = dump().edges.length;
     buildMove();
     fireEvent.click(screen.getByRole("button", { name: "Отложить черновиком" }));
@@ -166,9 +158,8 @@ describe("раскладка выражения в движения", () => {
     const m = dump();
     expect(m.edges.length).toBe(before);
     expect(m.hypos).toHaveLength(1);
-    // Хранится именно выражение — элементы, а не готовая стрелка.
-    expect(Array.isArray(m.hypos[0].tokens)).toBe(true);
-    expect(m.hypos[0].tokens.some((t) => t.kind === "arrow")).toBe(true);
+    expect(Array.isArray(m.hypos[0].lines)).toBe(true);
+    expect(m.hypos[0].lines[0].op).toBe("then");
   });
 
   it("отложенную можно разложить позже", () => {
@@ -177,21 +168,7 @@ describe("раскладка выражения в движения", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отложить черновиком" }));
     tab("Схема");
     fireEvent.click(screen.getByRole("button", { name: "Разложить" }));
-
-    const m = dump();
-    expect(m.edges.length).toBe(before + 1);
-    expect(m.hypos).toHaveLength(0);
-  });
-
-  it("отложенную можно вернуть в поле кнопкой «Править»", () => {
-    buildMove();
-    fireEvent.click(screen.getByRole("button", { name: "Отложить черновиком" }));
-    tab("Схема");
-    fireEvent.click(screen.getByRole("button", { name: "Править" }));
-    // Выражение снова в поле, и черновиков не осталось.
-    expect(screen.getByRole("button", { name: "Разложить в движения" }).disabled)
-      .toBe(false);
-    expect(dump().hypos).toHaveLength(0);
+    expect(dump().edges.length).toBe(before + 1);
   });
 
   it("отмена возвращает разложенное обратно", () => {
@@ -200,5 +177,49 @@ describe("раскладка выражения в движения", () => {
     const after = dump().edges.length;
     fireEvent.click(screen.getByRole("button", { name: "↶ отменить" }));
     expect(dump().edges.length).toBe(after - 1);
+  });
+
+  it("«если» над «то» доезжает до стрелки условием", () => {
+    const model = dump();
+    openBuilder();
+    const a = model.traits[0];
+    const b = model.traits.find((t) => t.e !== a.e);
+    const entA = model.entities.find((e) => e.id === a.e);
+    const entB = model.entities.find((e) => e.id === b.e);
+    const rx = (s) => new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+
+    // Сначала условие, потом действие — строки идут сверху вниз.
+    addLine("если");
+    openAsset(entA.name);
+    put(rx(a.l));
+    put(">");
+    // Число — отдельный элемент: иначе «1» ушло бы в то же поле, где «>».
+    put("123 число");
+    const num = [...lineRow("если").querySelectorAll("input")].pop();
+    fireEvent.focus(num);
+    fireEvent.change(num, { target: { value: "1" } });
+    fireEvent.blur(num);
+
+    addLine("то");
+    put(rx(a.l));
+    put("→ стрелка");
+    openAsset(entB.name);
+    put(rx(b.l));
+    const chipArrow = [...lineRow("то").querySelectorAll("span")]
+      .find((s) => s.textContent.startsWith("→"));
+    fireEvent.click(chipArrow);
+    const amount = screen.getByText(/за раз переносит/).parentElement
+      .querySelector('input[inputmode="decimal"]');
+    fireEvent.focus(amount);
+    fireEvent.change(amount, { target: { value: "4" } });
+    fireEvent.blur(amount);
+
+    fireEvent.click(screen.getByRole("button", { name: "Разложить в движения" }));
+    const edges = dump().edges;
+    const ed = edges[edges.length - 1];
+    expect(ed.gives).toBe(4);
+    // Условие доехало и ссылается на ресурс по id, а не по имени.
+    expect(ed.conds).toHaveLength(1);
+    expect(ed.conds[0].expr).toBe(`{${a.id}} > 1`);
   });
 });
