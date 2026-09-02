@@ -275,6 +275,10 @@ jobs:
       # на блоке Claude Code, пока SSH не оборвался с «Broken pipe».
       # Файл + «< /dev/null» убирают оба исхода разом: bash читает скрипт
       # целиком из файла, а ввода нет ни у кого.
+      #
+      # «\$?» и «\$rc» экранированы нарочно: без обратной косой их раскрыл бы
+      # шелл раннера, где стоит «set -u», и шаг падал бы с «rc: unbound
+      # variable», не дойдя до сервера. Раскрывать их должен шелл сервера.
       - name: Подготовить сервер (пакеты, Node, pm2, nginx, HTTPS)
         if: steps.secrets.outputs.ready == 'true'
         env:
@@ -287,7 +291,7 @@ jobs:
           set -euo pipefail
           payload="$(base64 -w0 deploy/bootstrap.sh)"
           $SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
-            "echo $payload | base64 -d > /tmp/sd-bootstrap.sh && DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_DOMAIN=$(printf '%q' "$APP_DOMAIN_R") APP_PORT=3000 TURN_SECRET=$(printf '%q' "${TURN_SECRET_R:-}") bash /tmp/sd-bootstrap.sh < /dev/null; rc=$?; rm -f /tmp/sd-bootstrap.sh; exit $rc"
+            "echo $payload | base64 -d > /tmp/sd-bootstrap.sh && DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_DOMAIN=$(printf '%q' "$APP_DOMAIN_R") APP_PORT=3000 TURN_SECRET=$(printf '%q' "${TURN_SECRET_R:-}") bash /tmp/sd-bootstrap.sh < /dev/null; rc=\$?; rm -f /tmp/sd-bootstrap.sh; exit \$rc"
 
       # Место кончается быстрее всего не от приложения, а от логов pm2, кэшей
       # apt и npm и системного журнала. Уборка идёт до копирования, чтобы
@@ -305,7 +309,7 @@ jobs:
           set -euo pipefail
           payload="$(base64 -w0 deploy/cleanup.sh)"
           $SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
-            "echo $payload | base64 -d > /tmp/sd-cleanup.sh && DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") bash /tmp/sd-cleanup.sh < /dev/null; rc=$?; rm -f /tmp/sd-cleanup.sh; exit $rc"
+            "echo $payload | base64 -d > /tmp/sd-cleanup.sh && DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") bash /tmp/sd-cleanup.sh < /dev/null; rc=\$?; rm -f /tmp/sd-cleanup.sh; exit \$rc"
 
       - name: Скопировать приложение (данные сценариев не трогаются — они вне app/)
         if: steps.secrets.outputs.ready == 'true'
@@ -330,7 +334,7 @@ jobs:
           set -euo pipefail
           payload="$(base64 -w0 deploy/release.sh)"
           $SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
-            "echo $payload | base64 -d > /tmp/sd-release.sh && DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_PORT=3000 bash /tmp/sd-release.sh < /dev/null; rc=$?; rm -f /tmp/sd-release.sh; exit $rc"
+            "echo $payload | base64 -d > /tmp/sd-release.sh && DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_PORT=3000 bash /tmp/sd-release.sh < /dev/null; rc=\$?; rm -f /tmp/sd-release.sh; exit \$rc"
 
       - name: Проверить приложение снаружи по HTTPS
         id: verify
