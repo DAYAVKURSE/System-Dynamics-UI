@@ -204,4 +204,37 @@ describe("инлайн-режим", () => {
     await handleUpdate(q({ id: 200, first_name: "Иван" }, "завтра 12:00 созвон"), deps);
     expect(last().results).toHaveLength(1);
   });
+
+  it("набор фразы по буквам правит одну встречу, а не плодит их", async () => {
+    // Telegram присылает инлайн-запрос на каждое нажатие. По встрече на
+    // нажатие — и хранилище (предел 500) за вечер вытеснит все прежние
+    // вместе с их ссылками.
+    for (const typed of ["зав", "завтра", "завтра 15:00", "завтра 15:00 разбор"]) {
+      await handleUpdate(q(owner, typed), deps);
+    }
+    const all = await listMeetings();
+    expect(all).toHaveLength(1);
+    expect(all[0].title).toBe("разбор");
+    expect(all[0].at).toBe("завтра 15:00");
+    // Ссылка всё это время одна и та же — её уже могли отправить.
+    const ids = new Set(inlineAnswers.map((a) => a.results[0].id));
+    expect(ids.size).toBe(1);
+  });
+
+  it("другая фраза — другая встреча: прежнее приглашение не переписывается", async () => {
+    await handleUpdate(q(owner, "завтра 15:00 разбор"), deps);
+    const first = last().results[0].id;
+    await handleUpdate(q(owner, "в пятницу планёрка"), deps);
+    const second = last().results[0].id;
+    expect(second).not.toBe(first);
+    expect((await getMeeting(first)).title).toBe("разбор");
+  });
+
+  it("инлайн-запрос не делает человека владельцем модели", async () => {
+    // Владельца нет вовсе: набор запроса в чужом чате — не повод им стать.
+    await fs.rm(process.env.ORG_DIR, { recursive: true, force: true });
+    await handleUpdate(q(guest, "завтра 15:00 разбор"), deps);
+    expect((await org.readOrg()).ownerId).toBeNull();
+    expect(await listMeetings()).toHaveLength(0);
+  });
 });

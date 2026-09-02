@@ -68,7 +68,9 @@ beforeEach(() => {
   delete global.MediaRecorder;
   global.fetch = vi.fn(async (url, opts = {}) => {
     const u = String(url);
-    if (u.endsWith("/api/calls/ice")) return ok(ice);
+    // Серверы соединения выдаются под конкретную встречу: знание её id —
+    // то же право, что и войти в комнату.
+    if (u.endsWith("/api/calls/m1/ice")) return ok(ice);
     if (/\/api\/calls\/m1\/signal\?since=/.test(u)) {
       if (signalsOnce.length) { const s = signalsOnce; signalsOnce = []; return ok({ seq: ++seq, signals: s, peers: [] }); }
       return new Promise((res) => { pendingPoll = res; });   // длинный опрос: ждём deliver()

@@ -214,6 +214,14 @@ elif [ -z "${TURN_SECRET:-}" ]; then
 fi
 
 echo "── Claude Code (мост) ──"
+# Запасной путь входа (`claude setup-token`) целиком стоит на псевдотерминале
+# от `script`: без него та команда не печатает вообще ничего. На минимальном
+# образе util-linux бывает урезан, и не хватало бы её молча.
+command -v script >/dev/null 2>&1 \
+  || { echo "ставлю util-linux (нужна команда script)"; $SUDO apt-get install -y -qq util-linux >/dev/null 2>&1 || true; }
+command -v script >/dev/null 2>&1 \
+  && echo "команда script есть — запасной путь входа доступен" \
+  || echo "команды script нет — вход пойдёт основным путём (claude auth login)"
 # Воркер моста запускает Claude Code здесь же, на сервере. Ставится
 # глобально; вход в аккаунт — отдельный шаг владельца (см. DEPLOYMENT.md).
 if ! command -v claude >/dev/null 2>&1; then

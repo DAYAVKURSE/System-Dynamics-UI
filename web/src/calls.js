@@ -1,4 +1,4 @@
-import { getInitData } from "./telegram.js";
+import { getInitData, getTelegram } from "./telegram.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЗВОНКИ · клиентская часть
@@ -12,11 +12,48 @@ import { getInitData } from "./telegram.js";
    Сигналы ходят обычным HTTP с длинным опросом: nginx на сервере
    проксирует без Upgrade, и вебсокет через него не пройдёт. Сигналов за
    звонок десяток — этого транспорта хватает.
+
+   Кто мы для сервера. Открыли звонок мини-приложением — подписанный
+   Telegram: id настоящий, подделать нельзя. Открыли просто ссылкой (в
+   браузере, в чужом мессенджере) — гость: номер заводит себе сам браузер
+   и хранит у себя. Гостю этого хватает: право войти даёт знание id
+   встречи, а не регистрация в боте. Заводить встречи гость по-прежнему
+   не может — там подпись обязательна.
    ════════════════════════════════════════════════════════════════ */
+
+const GUEST_KEY = "sd.call.guest";
+
+/** Номер гостя: случайный, свой на каждый браузер, живёт между звонками. */
+export function guestId() {
+  const make = () => {
+    const b = new Uint8Array(12);
+    (globalThis.crypto?.getRandomValues
+      ? globalThis.crypto.getRandomValues(b)
+      : b.forEach((_, i) => { b[i] = Math.floor(Math.random() * 256); }));
+    return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  };
+  try {
+    const kept = localStorage.getItem(GUEST_KEY);
+    if (kept && /^[A-Za-z0-9_-]{8,64}$/.test(kept)) return kept;
+    const fresh = make();
+    localStorage.setItem(GUEST_KEY, fresh);
+    return fresh;
+  } catch {
+    // Хранилище закрыто (приватное окно, старый WebView) — номер живёт
+    // столько же, сколько открытая страница. Для одного звонка достаточно.
+    if (!guestId.once) guestId.once = make();
+    return guestId.once;
+  }
+}
+
+/** Кто я в комнате: id Telegram, если он есть, иначе номер гостя. */
+export const callerId = () =>
+  String(getTelegram()?.initDataUnsafe?.user?.id || `guest-${guestId()}`);
 
 const headers = () => ({
   "Content-Type": "application/json",
   "X-Telegram-Init-Data": getInitData(),
+  "X-Call-Guest": guestId(),
 });
 
 const json = async (url, opts) => {
@@ -33,7 +70,7 @@ export const createMeeting = (m) =>
 export const getMeeting = (id) => json(`/api/calls/${encodeURIComponent(id)}`);
 export const deleteMeeting = (id) =>
   json(`/api/calls/${encodeURIComponent(id)}`, { method: "DELETE" });
-export const getIce = () => json("/api/calls/ice");
+export const getIce = (id) => json(`/api/calls/${encodeURIComponent(id)}/ice`);
 
 export const sendSignal = (id, data, to = null) =>
   json(`/api/calls/${encodeURIComponent(id)}/signal`,

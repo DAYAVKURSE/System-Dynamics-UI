@@ -19,8 +19,18 @@ describe("подхват входа без перезапуска", () => {
   });
 
   it("пустой .env не стирает уже работающий вход", () => {
+    // Строки в файле нет вовсе — его могли переписывать прямо сейчас.
     refreshToken(() => ({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-live" }));
     expect(refreshToken(() => ({}))).toBe(false);
     expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat01-live");
+  });
+
+  it("обнулённый токен убирается: вход теперь сохранён у самого claude", () => {
+    // Способ `claude auth login` хранит вход у себя, а строку в .env
+    // обнуляют нарочно: токен стоит в очереди выше сохранённого входа и
+    // перебил бы его.
+    refreshToken(() => ({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-old" }));
+    expect(refreshToken(() => ({ CLAUDE_CODE_OAUTH_TOKEN: "" }))).toBe(true);
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
 });
