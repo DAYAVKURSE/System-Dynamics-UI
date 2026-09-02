@@ -61,7 +61,14 @@ export default function CallApp() {
   };
 
   return (
-    <div style={{ height: "var(--tg-viewport-stable-height, 100%)", minHeight: 0,
+    /* Высоту окна задаёт Telegram переменной --tg-viewport-stable-height, и
+       на части клиентов сразу после запуска она приходит НУЛЕВОЙ. Без нижней
+       границы окно звонка схлопывалось в несколько пикселей — снаружи это
+       выглядит как пустой экран, и понять по нему нечего. 200 пикселей ниже
+       любого настоящего окна Telegram (даже на пол-экрана), поэтому в
+       обычной жизни граница не мешает, а вырожденный случай перестаёт быть
+       невидимым. */
+    <div style={{ height: "var(--tg-viewport-stable-height, 100%)", minHeight: 200,
       background: C.ink, color: C.text, padding: 8, boxSizing: "border-box",
       overflow: "hidden", display: "flex", flexDirection: "column", gap: 6,
       fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>

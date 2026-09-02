@@ -59,6 +59,19 @@ describe("окно звонка", () => {
     expect(await screen.findByText(/Ссылка на звонок неполная/)).toBeInTheDocument();
   });
 
+  it("нулевая высота от Telegram не превращает окно в пустой экран", async () => {
+    // Telegram задаёт высоту переменной --tg-viewport-stable-height, и на
+    // части клиентов сразу после запуска она приходит нулевой. Без нижней
+    // границы окно схлопывалось в несколько пикселей — снаружи это выглядит
+    // как «ничего не работает», и понять по нему нечего.
+    setUrl("?call=m1");
+    const { container } = render(<CallApp />);
+    await screen.findByText("Разбор");
+    const box = container.firstElementChild;
+    expect(box.style.height).toContain("--tg-viewport-stable-height");
+    expect(parseInt(box.style.minHeight, 10)).toBeGreaterThanOrEqual(200);
+  });
+
   it("свайпы не сворачивают окно: видео тянут пальцем", async () => {
     setUrl("?call=m1");
     render(<CallApp />);
