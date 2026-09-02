@@ -240,6 +240,7 @@ rehearse_as 1000 "как обычный пользователь с sudo"
 # означать «стереть отчёты и записи созвонов».
 # ─────────────────────────────────────────────────────────────
 rehearse_cleanup() {
+  local fake_uid="$1" label="$2"
   local sandbox bin calls
   sandbox="$(mktemp -d)"
   bin="$sandbox/bin"
@@ -258,6 +259,27 @@ rehearse_cleanup() {
   stub apt-get
   stub journalctl
   stub pm2
+
+  # id и sudo — как в репетиции bootstrap. Без подставного sudo он сбрасывает
+  # PATH (secure_path) и зовёт НАСТОЯЩИЙ apt-get мимо заглушек: локально под
+  # root это незаметно, а на раннере GitHub (обычный пользователь с sudo)
+  # проверка «кэш apt чистился» разваливалась. Ровно так CI и упал.
+  printf '#!/usr/bin/env bash\necho %s\n' "$fake_uid" > "$bin/id"
+  chmod +x "$bin/id"
+  cat > "$bin/sudo" <<'STUB'
+#!/usr/bin/env bash
+echo "sudo $*" >> "$CALLS_FILE"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n|-E) shift ;;
+    -u) shift 2 ;;
+    *) break ;;
+  esac
+done
+[ $# -eq 0 ] && exit 0
+exec "$@"
+STUB
+  chmod +x "$bin/sudo"
 
   export CALLS_FILE="$calls"
   export PATH="$bin:$PATH"
@@ -280,13 +302,12 @@ rehearse_cleanup() {
   # Мусор: его обязано не стать.
   mkdir -p "$PM2_LOG_DIR" "$TMP_DIR" $CACHE_DIRS
   head -c 200000 /dev/zero > "$PM2_LOG_DIR/app-out.log"
-  head -c 100000 /dev/zero > "$CACHE_DIRS%% *"/pkg.tgz 2>/dev/null || \
-    head -c 100000 /dev/zero > "$sandbox/cache/npm/pkg.tgz"
+  head -c 100000 /dev/zero > "$sandbox/cache/npm/pkg.tgz"
   head -c 100000 /dev/zero > "$sandbox/cache/other/blob"
   echo "старое" > "$TMP_DIR/старое"; touch -d "30 days ago" "$TMP_DIR/старое"
   echo "свежее" > "$TMP_DIR/свежее"
 
-  echo "═══ уборка · проход 1 ═══"
+  echo "═══ уборка ($label) · проход 1 ═══"
   bash "$ROOT/deploy/cleanup.sh" > "$sandbox/clean1.log" 2>&1 || {
     sed 's/^/  /' "$sandbox/clean1.log"; fail "cleanup.sh упал"
   }
@@ -294,7 +315,7 @@ rehearse_cleanup() {
 
   # 1. Данные целы — это главное.
   [ "$(find "$DEPLOY_PATH/data" -type f | sort | md5sum)" = "$data_before" ] \
-    || fail "уборка тронула данные владельца"
+    || fail "[$label] уборка тронула данные владельца"
   grep -q "запись созвона" "$DEPLOY_PATH/data/reports/созвон.webm" \
     || fail "запись созвона повреждена"
 
@@ -308,7 +329,7 @@ rehearse_cleanup() {
   # 3. Заполняться снова не даёт.
   grep -q "SystemMaxUse=" "$JOURNALD_DIR/99-size.conf" || fail "нет потолка системного журнала"
   grep -q "copytruncate" "$LOGROTATE_DIR/pm2-system-dynamics" || fail "нет ротации логов pm2"
-  grep -q "apt-get clean" "$calls" || fail "кэш apt не чистился"
+  grep -q "apt-get clean" "$calls" || fail "[$label] кэш apt не чистился"
   grep -q "apt-get autoremove" "$calls" || fail "ненужные пакеты не удалялись"
 
   # 4. Отчёт дочитан до конца: под set -e он обрывался на первой же ложной
@@ -317,7 +338,7 @@ rehearse_cleanup() {
   grep -q "данные модели (НЕ тронуты" "$sandbox/clean1.log" || fail "не показан размер данных"
   grep -q "из них записей созвонов: 1" "$sandbox/clean1.log" || fail "записи созвонов не посчитаны"
 
-  echo "═══ уборка · проход 2 (на уже убранном) ═══"
+  echo "═══ уборка ($label) · проход 2 (на уже убранном) ═══"
   bash "$ROOT/deploy/cleanup.sh" > "$sandbox/clean2.log" 2>&1 || {
     sed 's/^/  /' "$sandbox/clean2.log"; fail "cleanup.sh упал на повторном запуске"
   }
@@ -325,7 +346,7 @@ rehearse_cleanup() {
     || fail "повторная уборка тронула данные владельца"
   echo "  повторный запуск безопасен, данные на месте"
 
-  echo "═══ уборка · без прав ═══"
+  echo "═══ уборка ($label) · без прав ═══"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$bin/sudo"; chmod +x "$bin/sudo"
   printf '#!/usr/bin/env bash\necho 1000\n' > "$bin/id"; chmod +x "$bin/id"
   local out
@@ -338,7 +359,10 @@ rehearse_cleanup() {
   echo
 }
 
-rehearse_cleanup
+# Под обоими пользователями: под root sudo не участвует вовсе, под обычным —
+# через него идут все привилегированные команды.
+rehearse_cleanup 0 "как root"
+rehearse_cleanup 1000 "как обычный пользователь с sudo"
 
 # ─────────────────────────────────────────────────────────────
 # Проверка TURN снаружи (deploy/turn-probe.py): поддельный STUN-сервер
