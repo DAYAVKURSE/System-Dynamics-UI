@@ -235,6 +235,112 @@ rehearse_as 0 "как root"
 rehearse_as 1000 "как обычный пользователь с sudo"
 
 # ─────────────────────────────────────────────────────────────
+# Уборка диска (deploy/cleanup.sh). Главное, что здесь проверяется, —
+# что данные владельца она не трогает: «почистить диск» не должно однажды
+# означать «стереть отчёты и записи созвонов».
+# ─────────────────────────────────────────────────────────────
+rehearse_cleanup() {
+  local sandbox bin calls
+  sandbox="$(mktemp -d)"
+  bin="$sandbox/bin"
+  calls="$sandbox/calls.log"
+  mkdir -p "$bin"
+  : > "$calls"
+
+  stub() {
+    local name="$1" body="${2:-}"
+    { echo '#!/usr/bin/env bash'
+      echo "echo \"$name \$*\" >> \"\$CALLS_FILE\""
+      echo "$body"
+    } > "$bin/$name"
+    chmod +x "$bin/$name"
+  }
+  stub apt-get
+  stub journalctl
+  stub pm2
+
+  export CALLS_FILE="$calls"
+  export PATH="$bin:$PATH"
+  export DEPLOY_PATH="$sandbox/opt/system-dynamics-ui"
+  export LOGROTATE_DIR="$sandbox/etc/logrotate.d"
+  export JOURNALD_DIR="$sandbox/etc/systemd/journald.conf.d"
+  export PM2_LOG_DIR="$sandbox/pm2/logs"
+  export TMP_DIR="$sandbox/tmp"
+  export CACHE_DIRS="$sandbox/cache/npm $sandbox/cache/other"
+  export SCAN_ROOT="$sandbox"
+
+  # Данные владельца: их обязано пережить всё.
+  mkdir -p "$DEPLOY_PATH/data/reports" "$DEPLOY_PATH/data/scenarios" "$DEPLOY_PATH/data/org"
+  echo "запись созвона" > "$DEPLOY_PATH/data/reports/созвон.webm"
+  echo "отчёт" > "$DEPLOY_PATH/data/reports/отчёт.pdf"
+  echo "модель" > "$DEPLOY_PATH/data/scenarios/модель.json"
+  echo "роли" > "$DEPLOY_PATH/data/org/org.json"
+  local data_before; data_before="$(find "$DEPLOY_PATH/data" -type f | sort | md5sum)"
+
+  # Мусор: его обязано не стать.
+  mkdir -p "$PM2_LOG_DIR" "$TMP_DIR" $CACHE_DIRS
+  head -c 200000 /dev/zero > "$PM2_LOG_DIR/app-out.log"
+  head -c 100000 /dev/zero > "$CACHE_DIRS%% *"/pkg.tgz 2>/dev/null || \
+    head -c 100000 /dev/zero > "$sandbox/cache/npm/pkg.tgz"
+  head -c 100000 /dev/zero > "$sandbox/cache/other/blob"
+  echo "старое" > "$TMP_DIR/старое"; touch -d "30 days ago" "$TMP_DIR/старое"
+  echo "свежее" > "$TMP_DIR/свежее"
+
+  echo "═══ уборка · проход 1 ═══"
+  bash "$ROOT/deploy/cleanup.sh" > "$sandbox/clean1.log" 2>&1 || {
+    sed 's/^/  /' "$sandbox/clean1.log"; fail "cleanup.sh упал"
+  }
+  sed 's/^/  /' "$sandbox/clean1.log"
+
+  # 1. Данные целы — это главное.
+  [ "$(find "$DEPLOY_PATH/data" -type f | sort | md5sum)" = "$data_before" ] \
+    || fail "уборка тронула данные владельца"
+  grep -q "запись созвона" "$DEPLOY_PATH/data/reports/созвон.webm" \
+    || fail "запись созвона повреждена"
+
+  # 2. Мусор убран.
+  [ -s "$PM2_LOG_DIR/app-out.log" ] && fail "лог pm2 не очищен"
+  [ -f "$sandbox/cache/npm/pkg.tgz" ] && fail "кэш npm не очищен"
+  [ -f "$sandbox/cache/other/blob" ] && fail "кэш не очищен"
+  [ -f "$TMP_DIR/старое" ] && fail "старый временный файл не удалён"
+  [ -f "$TMP_DIR/свежее" ] || fail "свежий временный файл удалён, а его мог держать процесс"
+
+  # 3. Заполняться снова не даёт.
+  grep -q "SystemMaxUse=" "$JOURNALD_DIR/99-size.conf" || fail "нет потолка системного журнала"
+  grep -q "copytruncate" "$LOGROTATE_DIR/pm2-system-dynamics" || fail "нет ротации логов pm2"
+  grep -q "apt-get clean" "$calls" || fail "кэш apt не чистился"
+  grep -q "apt-get autoremove" "$calls" || fail "ненужные пакеты не удалялись"
+
+  # 4. Отчёт дочитан до конца: под set -e он обрывался на первой же ложной
+  #    проверке — эта строка ловит именно это.
+  grep -q "^освобождено:" "$sandbox/clean1.log" || fail "нет строки «освобождено»"
+  grep -q "данные модели (НЕ тронуты" "$sandbox/clean1.log" || fail "не показан размер данных"
+  grep -q "из них записей созвонов: 1" "$sandbox/clean1.log" || fail "записи созвонов не посчитаны"
+
+  echo "═══ уборка · проход 2 (на уже убранном) ═══"
+  bash "$ROOT/deploy/cleanup.sh" > "$sandbox/clean2.log" 2>&1 || {
+    sed 's/^/  /' "$sandbox/clean2.log"; fail "cleanup.sh упал на повторном запуске"
+  }
+  [ "$(find "$DEPLOY_PATH/data" -type f | sort | md5sum)" = "$data_before" ] \
+    || fail "повторная уборка тронула данные владельца"
+  echo "  повторный запуск безопасен, данные на месте"
+
+  echo "═══ уборка · без прав ═══"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$bin/sudo"; chmod +x "$bin/sudo"
+  printf '#!/usr/bin/env bash\necho 1000\n' > "$bin/id"; chmod +x "$bin/id"
+  local out
+  out="$(bash "$ROOT/deploy/cleanup.sh" 2>&1)" || fail "без прав уборка обязана тихо пропускаться"
+  echo "$out" | grep -q "уборка пропущена" || fail "без прав нет понятного сообщения"
+  echo "  без прав пропускается, а не роняет деплой"
+
+  unset CALLS_FILE DEPLOY_PATH LOGROTATE_DIR JOURNALD_DIR PM2_LOG_DIR TMP_DIR CACHE_DIRS SCAN_ROOT
+  rm -rf "$sandbox"
+  echo
+}
+
+rehearse_cleanup
+
+# ─────────────────────────────────────────────────────────────
 # Проверка TURN снаружи (deploy/turn-probe.py): поддельный STUN-сервер
 # отвечает — проба видит его; молчит или отвечает чужим id — не видит.
 # ─────────────────────────────────────────────────────────────
@@ -303,4 +409,5 @@ echo
 echo "✓ РЕПЕТИЦИЯ ПРОЙДЕНА: bootstrap.sh корректен на чистом сервере,"
 echo "  идемпотентен при повторных деплоях и внятно падает без прав —"
 echo "  и под root, и под обычным пользователем; coturn настраивается,"
-echo "  проверяется и не роняет деплой; проба TURN снаружи честна."
+echo "  проверяется и не роняет деплой; проба TURN снаружи честна;"
+echo "  уборка диска чистит мусор и не трогает данные владельца."

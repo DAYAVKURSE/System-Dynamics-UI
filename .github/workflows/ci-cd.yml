@@ -273,6 +273,24 @@ jobs:
           $SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
             "echo $payload | base64 -d | DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_DOMAIN=$(printf '%q' "$APP_DOMAIN_R") APP_PORT=3000 TURN_SECRET=$(printf '%q' "${TURN_SECRET_R:-}") bash"
 
+      # Место кончается быстрее всего не от приложения, а от логов pm2, кэшей
+      # apt и npm и системного журнала. Уборка идёт до копирования, чтобы
+      # деплою было куда писать. Данные модели она не трогает и деплой не
+      # роняет: не убралось — не повод не обновиться.
+      - name: Освободить место на сервере
+        if: steps.secrets.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+          SSH_CMD: ${{ steps.ssh.outputs.cmd }}
+          SSH_USER_R: ${{ steps.cfg.outputs.user }}
+          DEPLOY_PATH_R: ${{ steps.cfg.outputs.path }}
+        run: |
+          set -euo pipefail
+          payload="$(base64 -w0 deploy/cleanup.sh)"
+          $SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
+            "echo $payload | base64 -d | DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") bash"
+
       - name: Скопировать приложение (данные сценариев не трогаются — они вне app/)
         if: steps.secrets.outputs.ready == 'true'
         env:
