@@ -104,10 +104,21 @@ echo "── coturn (TURN для звонков) ──"
 # ставится сюда же и работает по общему секрету: пароль для браузера —
 # HMAC от срока действия, постоянных учётных данных в браузер не уезжает.
 # Секрет пишет деплой в .env приложения; сюда он приходит переменной.
+# TURN — улучшение звонков, а не само приложение: его сбой не должен ронять
+# деплой. Поэтому установка в условии, а не под set -e. Индекс apt перед
+# установкой обновляется: на живом сервере он был устаревшим, и apt получал
+# 404 на зависимость, которой в зеркале уже нет.
+turn_ok=0
 if [ -n "${TURN_SECRET:-}" ]; then
-  if ! command -v turnserver >/dev/null 2>&1; then
-    $SUDO apt-get install -y -qq coturn
+  if command -v turnserver >/dev/null 2>&1; then
+    turn_ok=1
+  elif $SUDO apt-get update -qq >/dev/null 2>&1 && $SUDO apt-get install -y -qq coturn >/dev/null 2>&1; then
+    turn_ok=1
+  else
+    echo "coturn не установился (apt) — звонки будут без TURN; приложение это не трогает"
   fi
+fi
+if [ "$turn_ok" = "1" ]; then
   $SUDO tee /etc/turnserver.conf >/dev/null <<TURN
 listening-port=3478
 fingerprint
@@ -134,7 +145,7 @@ TURN
     $SUDO ufw allow 49152:65535/udp >/dev/null 2>&1 || true
   fi
   echo "coturn настроен на $APP_DOMAIN"
-else
+elif [ -z "${TURN_SECRET:-}" ]; then
   echo "TURN_SECRET не задан — TURN пропущен"
 fi
 
