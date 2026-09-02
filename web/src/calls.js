@@ -46,15 +46,25 @@ export const pollSignals = (id, since, signal) =>
 /** Ссылка на страницу звонка — отдельную, без вкладок модели. */
 export const callLink = (id) => `${location.origin}/call?call=${encodeURIComponent(id)}`;
 
-/** Встреча, с которой приложение открыли: ?call=… или startapp=call_… */
+/**
+ * Встреча, с которой приложение открыли: `?call=…` или `startapp=call_…`.
+ *
+ * Свои параметры Telegram кладёт во ФРАГМЕНТ адреса, а не в строку запроса:
+ * `https://…/#tgWebAppData=…&tgWebAppStartParam=call_abc`. Читать только
+ * `location.search` — значит не увидеть их вовсе: приложение открывалось
+ * ссылкой на звонок и показывало всю модель с вкладками вместо окна звонка.
+ * Смотрим в оба места и в разобранный SDK-ом `start_param`.
+ */
 export function callFromLocation() {
   try {
     const q = new URLSearchParams(location.search);
-    const direct = q.get("call");
+    const h = new URLSearchParams(String(location.hash || "").replace(/^#/, ""));
+    const direct = q.get("call") || h.get("call");
     if (direct) return direct;
-    const start = q.get("tgWebAppStartParam")
+    const start = q.get("tgWebAppStartParam") || h.get("tgWebAppStartParam")
       || window.Telegram?.WebApp?.initDataUnsafe?.start_param || "";
-    return /^call_(.+)$/.test(start) ? start.replace(/^call_/, "") : null;
+    const m = String(start).match(/^call_(.+)$/);
+    return m ? m[1] : null;
   } catch {
     return null;
   }

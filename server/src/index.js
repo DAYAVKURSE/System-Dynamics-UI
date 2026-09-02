@@ -9,6 +9,7 @@ import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
 import * as bridge from "./lib/bridgeStore.js";
+import * as login from "./lib/loginFlow.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -63,6 +64,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
             await handleUpdate(u, {
               org, calls,
               bridge: process.env.BRIDGE_TOKEN ? bridge : null,
+              // Вход в Claude Code из чата — только когда мост вообще включён:
+              // логинить некого, если воркеру нечем подключиться.
+              login: process.env.BRIDGE_TOKEN ? login : null,
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
               answerInline,

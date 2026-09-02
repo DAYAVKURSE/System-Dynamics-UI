@@ -44,15 +44,26 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // .env приложения — рядом, если воркер запущен pm2 на сервере. Читаем сами,
 // без зависимостей: dotenv у воркера нет, а у сервера есть.
-for (const f of [path.resolve(process.cwd(), ".env")]) {
-  if (!existsSync(f)) continue;
-  for (const line of readFileSync(f, "utf8").split("\n")) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)=(.*)$/);
-    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
-  }
+const ENV_FILE = path.resolve(process.cwd(), ".env");
+
+function readEnvFile() {
+  const out = {};
+  if (!existsSync(ENV_FILE)) return out;
+  try {
+    for (const line of readFileSync(ENV_FILE, "utf8").split("\n")) {
+      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)=(.*)$/);
+      if (m) out[m[1]] = m[2].trim();
+    }
+  } catch { /* файл переписывают прямо сейчас — прочитаем на следующем круге */ }
+  return out;
+}
+
+for (const [k, v] of Object.entries(readEnvFile())) {
+  if (process.env[k] === undefined) process.env[k] = v;
 }
 
 const URL_BASE = (process.env.BRIDGE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
@@ -66,11 +77,6 @@ const TIMEOUT_MS = Number(process.env.BRIDGE_TIMEOUT_MS || 240000);
 // Проверка входа — короткая: если Claude Code не залогинен и повис на
 // приглашении войти, ждать четыре минуты незачем — ответ уже известен.
 const LOGIN_TIMEOUT_MS = Number(process.env.BRIDGE_LOGIN_TIMEOUT_MS || 20000);
-
-if (!URL_BASE || !TOKEN) {
-  console.error("Нужны BRIDGE_URL и BRIDGE_TOKEN. См. комментарий в начале файла.");
-  process.exit(1);
-}
 
 const headers = { "Content-Type": "application/json", "X-Bridge-Token": TOKEN };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -120,21 +126,30 @@ function runClaude(prompt, sid, timeoutMs = TIMEOUT_MS) {
 }
 
 const LOGIN_HELP = [
-  "Claude Code на сервере ещё не вошёл в ваш аккаунт — это единственный шаг,",
-  "который делает только владелец аккаунта. Один раз:",
+  "Claude Code ещё не вошёл в ваш аккаунт.",
   "",
-  "1. Зайдите на сервер по SSH (с телефона годится любое SSH-приложение).",
-  "2. Выполните: claude setup-token",
-  "3. Откройте показанную ссылку, разрешите доступ, вставьте код обратно.",
-  "4. Полученный токен допишите в файл app/.env строкой",
-  "   CLAUDE_CODE_OAUTH_TOKEN=…  и выполните: pm2 restart claude-bridge",
-  "",
-  "После этого вопросы начнут получать ответы.",
+  "Откройте чат с ботом и отправьте /login — он пришлёт ссылку, вы",
+  "подтвердите вход и вставите код ответным сообщением. Всё, больше",
+  "ничего делать не нужно.",
 ].join("\n");
 
 /** Есть ли вход: пробуем самый короткий запрос. Ответ кэшируется на 10 минут —
  *  проверка стоит одного вызова Claude, и спрашивать её каждый раз незачем. */
 let loginOk = null, loginCheckedAt = 0;
+
+/** Токен могли дописать в .env только что — входом из чата. Перечитываем его
+ *  на каждом круге: иначе вход подействовал бы лишь после перезапуска, а
+ *  перезапуск не всегда в наших руках. */
+export function refreshToken(read = readEnvFile) {
+  const fresh = read().CLAUDE_CODE_OAUTH_TOKEN || "";
+  if (fresh && fresh !== process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = fresh;
+    loginOk = null; loginCheckedAt = 0;   // проверять вход заново
+    return true;
+  }
+  return false;
+}
+
 async function loggedIn() {
   if (loginOk && Date.now() - loginCheckedAt < 600000) return true;
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) { loginOk = true; loginCheckedAt = Date.now(); return true; }
@@ -149,6 +164,7 @@ async function loop() {
   console.log(`Мост запущен. Каталог: ${CWD}. Инструменты: ${TOOLS}. Сервер: ${URL_BASE}`);
   for (;;) {
     let task = null;
+    if (refreshToken()) console.log("подхватил новый вход в Claude Code из .env");
     try {
       const r = await fetch(`${URL_BASE}/api/bridge/next`, { headers });
       if (r.status === 401) { console.error("Секрет не подошёл — проверьте BRIDGE_TOKEN."); await sleep(10000); continue; }
@@ -181,4 +197,14 @@ async function loop() {
   }
 }
 
-loop();
+// Цикл запускается, только когда воркер вызвали как программу: иначе его
+// нельзя было бы разобрать тестами — импорт сразу уходил бы в опрос сервера.
+const runDirectly = process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (runDirectly) {
+  if (!URL_BASE || !TOKEN) {
+    console.error("Нужны BRIDGE_URL и BRIDGE_TOKEN. См. комментарий в начале файла.");
+    process.exit(1);
+  }
+  loop();
+}

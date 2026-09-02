@@ -30,6 +30,23 @@ describe("встреча из ссылки", () => {
     expect(callFromLocation()).toBe("zzz");
   });
 
+  it("берётся из фрагмента адреса — именно туда Telegram кладёт свои параметры", () => {
+    // Настоящий адрес, с которым открывается мини-приложение по ссылке
+    // t.me/<бот>?startapp=call_… : всё после решётки, ничего в запросе.
+    setUrl("#tgWebAppData=user%3D%7B%7D&tgWebAppVersion=7.0&tgWebAppStartParam=call_frag1");
+    expect(callFromLocation()).toBe("frag1");
+  });
+
+  it("во фрагменте распознаётся и прямая ссылка на звонок", () => {
+    setUrl("#call=direct9");
+    expect(callFromLocation()).toBe("direct9");
+  });
+
+  it("чужой startapp во фрагменте встречей не считается", () => {
+    setUrl("#tgWebAppStartParam=invite_777");
+    expect(callFromLocation()).toBeNull();
+  });
+
   it("чужой startapp встречей не считается", () => {
     setUrl("?tgWebAppStartParam=invite_777");
     expect(callFromLocation()).toBeNull();

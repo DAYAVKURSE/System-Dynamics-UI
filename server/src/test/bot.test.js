@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { handleUpdate, resetPending } from "../lib/bot.js";
+import { handleUpdate, resetBridgeMode, resetPending } from "../lib/bot.js";
 import * as org from "../lib/orgStore.js";
 
 /* Бот умеет одно: владелец пересылает сообщение от человека и выбирает
@@ -138,5 +138,85 @@ describe("когда пересылка не сообщает id", () => {
     // свой собственный id человек и так видит в любом клиенте.
     await handleUpdate(msg(owner, { text: "/id" }), deps);
     expect(lastText()).toMatch(/Ваш id: 100/);
+  });
+});
+
+/* ─────── вход в Claude Code из чата ───────
+   Сам разговор с `claude` проверяется в loginFlow.test.js; здесь — что бот
+   зовёт его в нужный момент и не путает код подтверждения с вопросом. */
+
+describe("вход в Claude Code", () => {
+  const calls = [];
+  let awaiting = false;
+  let startFails = "";
+  const login = {
+    hasLogin: () => false,
+    awaitingCode: () => awaiting,
+    startLogin: async () => {
+      calls.push({ start: true });
+      if (startFails) throw new Error(startFails);
+      awaiting = true;
+      return { url: "https://claude.com/cai/oauth/authorize?code_challenge=c&state=s" };
+    },
+    finishLogin: async (code) => {
+      calls.push({ code });
+      awaiting = false;
+      return { saved: true, restarted: true };
+    },
+    cancelLogin: () => { calls.push({ cancel: true }); awaiting = false; return true; },
+  };
+  const asked = [];
+  const bridge = { ask: ({ text }) => { asked.push(text); return { id: "q1" }; } };
+  const deps2 = { ...deps, bridge, login };
+  const lastButton = () => (sent[sent.length - 1]?.keyboard?.inline_keyboard || [])[0]?.[0];
+
+  beforeEach(() => { calls.length = 0; asked.length = 0; awaiting = false; startFails = ""; });
+
+  it("«/login» присылает ссылку кнопкой, а не текстом инструкции", async () => {
+    await handleUpdate(msg(owner, { text: "/login" }), deps2);
+    expect(calls[0]).toEqual({ start: true });
+    expect(lastButton()?.url).toMatch(/oauth\/authorize/);
+    expect(lastText()).toMatch(/код/i);
+  });
+
+  it("следующее сообщение считается кодом и доводит вход до конца", async () => {
+    await handleUpdate(msg(owner, { text: "/login" }), deps2);
+    await handleUpdate(msg(owner, { text: "aBc123-code" }), deps2);
+    expect(calls).toContainEqual({ code: "aBc123-code" });
+    expect(lastText()).toMatch(/подключён/i);
+  });
+
+  it("код не уезжает вопросом в Claude, даже когда включён режим моста", async () => {
+    await handleUpdate(msg(owner, { text: "/claude" }), deps2);     // режим моста
+    await handleUpdate(msg(owner, { text: "/login" }), deps2);
+    await handleUpdate(msg(owner, { text: "secret-code" }), deps2);
+    expect(asked).toEqual([]);                        // в мост не ушло ничего
+    expect(calls).toContainEqual({ code: "secret-code" });
+    resetBridgeMode();
+  });
+
+  it("«/stop» во время входа отменяет вход", async () => {
+    await handleUpdate(msg(owner, { text: "/login" }), deps2);
+    await handleUpdate(msg(owner, { text: "/stop" }), deps2);
+    expect(calls).toContainEqual({ cancel: true });
+    expect(lastText()).toMatch(/отмен/i);
+  });
+
+  it("сбой запуска объясняется словами, а не молчанием", async () => {
+    startFails = "на сервере нет команды script или claude";
+    await handleUpdate(msg(owner, { text: "/login" }), deps2);
+    expect(lastText()).toMatch(/нет команды script/);
+  });
+
+  it("посторонний вход не начинает", async () => {
+    await handleUpdate(msg(guest, { text: "/login" }), deps2);
+    expect(calls).toEqual([]);
+    expect(lastText()).toMatch(/только владельцу/);
+  });
+
+  it("без моста «/login» не предлагается вовсе — логинить некого", async () => {
+    await handleUpdate(msg(owner, { text: "/login" }), { ...deps, bridge: null, login: null });
+    expect(calls).toEqual([]);
+    expect(lastText()).toMatch(/перешлите мне сообщение/i);
   });
 });

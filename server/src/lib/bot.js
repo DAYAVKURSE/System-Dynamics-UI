@@ -104,6 +104,10 @@ const HELP = [
   "Ещё умею передавать вопрос в ваш Claude Code: «/claude вопрос».",
   "«/claude» без текста включает режим, когда туда уходит каждое",
   "следующее сообщение; «/stop» его выключает.",
+  "",
+  "«/login» — вход в Claude Code прямо отсюда: пришлю ссылку, вы",
+  "подтвердите и вставите код ответным сообщением. Ни SSH, ни компьютера",
+  "для этого не нужно.",
 ].join("\n");
 
 const rolesKeyboard = (roles) => ({
@@ -147,11 +151,25 @@ export async function handleUpdate(update, deps) {
 }
 
 async function onMessage(msg, from, deps) {
-  const { org, send, bridge } = deps;
+  const { org, send, bridge, login } = deps;
   const text = String(msg.text || "").trim();
 
-  // 0. Мост к Claude Code — раньше всего остального: в режиме моста
-  //    сообщение уходит туда целиком, включая то, что похоже на команду.
+  // 0. Вход в Claude Code — раньше моста: и «/login», и код подтверждения
+  //    иначе уехали бы в мост обычным вопросом.
+  if (login) {
+    if (/^\/login\b/i.test(text)) return onLogin(from, deps);
+    if (login.awaitingCode()) {
+      if (/^\/(stop|cancel)\b/i.test(text)) {
+        login.cancelLogin();
+        await send(from.id, "Вход отменён.");
+        return { login: "cancelled" };
+      }
+      if (text && !text.startsWith("/")) return onLoginCode(text, from, deps);
+    }
+  }
+
+  // 1. Мост к Claude Code: в режиме моста сообщение уходит туда целиком,
+  //    включая то, что похоже на команду.
   if (bridge) {
     const cmd = text.match(/^\/claude\b\s*([\s\S]*)$/i);
     if (cmd) {
@@ -173,7 +191,7 @@ async function onMessage(msg, from, deps) {
     }
   }
 
-  // 1. Пересланное сообщение — основной путь.
+  // 2. Пересланное сообщение — основной путь.
   const fwd = msg.forward_from;
   if (fwd) {
     const roles = (await org.listOrg()).roles;
@@ -195,7 +213,7 @@ async function onMessage(msg, from, deps) {
     return { blocked: "hidden" };
   }
 
-  // 2. Ожидаем имя новой роли.
+  // 3. Ожидаем имя новой роли.
   const wait = pending.get(String(from.id));
   if (wait?.awaiting === "roleName" && text) {
     try {
@@ -211,7 +229,7 @@ async function onMessage(msg, from, deps) {
     }
   }
 
-  // 3. Запасной путь: «id 123 Имя» — когда пересылка не сработала.
+  // 4. Запасной путь: «id 123 Имя» — когда пересылка не сработала.
   const byId = text.match(/^id\s+(\d{3,20})\s*(.*)$/i);
   if (byId) {
     const roles = (await org.listOrg()).roles;
@@ -222,7 +240,7 @@ async function onMessage(msg, from, deps) {
     return { asked: byId[1] };
   }
 
-  // 4. Свой номер — чтобы было что переслать владельцу.
+  // 5. Свой номер — чтобы было что переслать владельцу.
   if (/^\/id\b/.test(text)) {
     await send(from.id, `Ваш id: ${from.id}`);
     return { told: String(from.id) };
@@ -230,6 +248,46 @@ async function onMessage(msg, from, deps) {
 
   await send(from.id, HELP);
   return { helped: true };
+}
+
+/* ─────── вход в Claude Code ───────
+   Владелец жмёт ссылку, подтверждает и присылает код обратно сообщением.
+   Токен в чат не уходит: сервер кладёт его в .env сам (см. lib/loginFlow.js). */
+
+async function onLogin(from, { send, login }) {
+  if (login.hasLogin()) {
+    await send(from.id, "Claude Code уже подключён. Если ответы всё-таки не приходят,"
+      + " отправьте /login ещё раз — вход обновится.");
+  }
+  await send(from.id, "Запускаю вход, это занимает несколько секунд…");
+  try {
+    const { url } = await login.startLogin();
+    await send(from.id, [
+      "1. Откройте ссылку и подтвердите вход в свой аккаунт Claude.",
+      "2. Скопируйте выданный код.",
+      "3. Пришлите его мне ответным сообщением — одной строкой.",
+      "",
+      "«/stop» — отменить.",
+    ].join("\n"), { inline_keyboard: [[{ text: "Войти в Claude", url }]] });
+    return { login: "url" };
+  } catch (e) {
+    await send(from.id, `Вход не запустился: ${e.message}`);
+    return { login: "error", error: e.message };
+  }
+}
+
+async function onLoginCode(code, from, { send, login }) {
+  await send(from.id, "Проверяю код…");
+  try {
+    const r = await login.finishLogin(code);
+    await send(from.id, r.restarted
+      ? "Готово: Claude Code подключён, черновики задач заработают сразу."
+      : "Готово: Claude Code подключён. Черновики заработают в течение минуты.");
+    return { login: "done" };
+  } catch (e) {
+    await send(from.id, `${e.message}\n\nПопробуйте ещё раз: /login`);
+    return { login: "error", error: e.message };
+  }
 }
 
 async function askBridge(text, from, { send, bridge }) {
