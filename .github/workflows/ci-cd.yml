@@ -85,8 +85,9 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       # Необязателен: без него владельцем станет первый вошедший.
       OWNER_TELEGRAM_ID: ${{ secrets.OWNER_TELEGRAM_ID }}
-      # Короткое имя мини-приложения из @BotFather — из него собирается
-      # ссылка на звонок. Необязательно: по умолчанию «app».
+      # Короткое имя мини-приложения из @BotFather — только если вы завели
+      # отдельное приложение. Без него ссылка на звонок ведёт на главное
+      # мини-приложение бота (t.me/<бот>?startapp=…), и этого достаточно.
       TELEGRAM_APP_NAME: ${{ secrets.TELEGRAM_APP_NAME }}
       # TURN нужен, когда оба собеседника за строгим NAT. Без него
       # часть звонков не соединится — см. DEPLOYMENT.md.
@@ -95,6 +96,9 @@ jobs:
       TURN_PASS: ${{ secrets.TURN_PASS }}
       # Общий секрет с воркером моста к Claude Code. Пусто — мост выключен.
       BRIDGE_TOKEN: ${{ secrets.BRIDGE_TOKEN }}
+      # Токен входа Claude Code (`claude setup-token`). Необязателен здесь:
+      # если его дописали в .env на сервере, деплой его сохраняет.
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
       - name: Проверить секреты
         id: secrets
@@ -214,6 +218,12 @@ jobs:
           BRIDGE_TOKEN="${BRIDGE_TOKEN:-$(openssl rand -hex 24)}"
           TURN_SECRET="${TURN_SECRET:-$(keep TURN_SECRET)}"
           TURN_SECRET="${TURN_SECRET:-$(openssl rand -hex 24)}"
+          # Токен входа Claude Code владелец дописывает в .env руками (см.
+          # DEPLOYMENT.md 6.7) — деплой обязан его сохранить, иначе мост
+          # молча разлогинивался бы на каждом обновлении. Секрет репозитория,
+          # если задан, имеет приоритет.
+          CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-$(keep CLAUDE_CODE_OAUTH_TOKEN)}"
+          [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] || echo "::add-mask::$CLAUDE_CODE_OAUTH_TOKEN"
           # Секрет TURN нужен и следующему шагу — он настраивает coturn.
           echo "::add-mask::$TURN_SECRET"
           echo "TURN_SECRET_R=$TURN_SECRET" >> "$GITHUB_ENV"
@@ -228,7 +238,7 @@ jobs:
           ORG_DIR=${DEPLOY_PATH_R}/data/org
           WORKSPACE_DIR=${DEPLOY_PATH_R}/data/workspace
           CALLS_DIR=${DEPLOY_PATH_R}/data/calls
-          TELEGRAM_APP_NAME=${TELEGRAM_APP_NAME:-app}
+          TELEGRAM_APP_NAME=${TELEGRAM_APP_NAME:-}
           TURN_URL=${TURN_URL:-}
           TURN_USER=${TURN_USER:-}
           TURN_PASS=${TURN_PASS:-}
@@ -236,6 +246,7 @@ jobs:
           TURN_HOST=${APP_DOMAIN_R}
           BRIDGE_TOKEN=${BRIDGE_TOKEN}
           BRIDGE_CWD=${DEPLOY_PATH_R}/app
+          CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
           OWNER_TELEGRAM_ID=${OWNER_TELEGRAM_ID:-}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF
