@@ -85,13 +85,10 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       # Необязателен: без него владельцем станет первый вошедший.
       OWNER_TELEGRAM_ID: ${{ secrets.OWNER_TELEGRAM_ID }}
-      # Короткое имя мини-приложения из @BotFather — только если вы завели
-      # отдельное приложение. Без него ссылка на звонок ведёт на главное
-      # мини-приложение бота (t.me/<бот>?startapp=…), и этого достаточно.
-      TELEGRAM_APP_NAME: ${{ secrets.TELEGRAM_APP_NAME }}
       # Короткое имя отдельного мини-приложения звонка (@BotFather → /newapp,
-      # адрес https://<домен>/call). Без него ссылка на звонок ведёт на
-      # главное мини-приложение, и оно само откроет окно звонка.
+      # адрес https://<домен>/call). Задавать секретом не обязательно: то же
+      # имя владелец сообщает боту командой «/callapp call», и деплой его
+      # сохраняет. Без имени ссылка на звонок ведёт на страницу /call.
       TELEGRAM_CALL_APP: ${{ secrets.TELEGRAM_CALL_APP }}
       # TURN нужен, когда оба собеседника за строгим NAT. Без него
       # часть звонков не соединится — см. DEPLOYMENT.md.
@@ -222,12 +219,22 @@ jobs:
           BRIDGE_TOKEN="${BRIDGE_TOKEN:-$(openssl rand -hex 24)}"
           TURN_SECRET="${TURN_SECRET:-$(keep TURN_SECRET)}"
           TURN_SECRET="${TURN_SECRET:-$(openssl rand -hex 24)}"
-          # Токен входа Claude Code владелец дописывает в .env руками (см.
-          # DEPLOYMENT.md 6.7) — деплой обязан его сохранить, иначе мост
-          # молча разлогинивался бы на каждом обновлении. Секрет репозитория,
-          # если задан, имеет приоритет.
-          CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-$(keep CLAUDE_CODE_OAUTH_TOKEN)}"
+          # Токен входа Claude Code кладёт на сервер команда «/login» в чате
+          # (см. DEPLOYMENT.md 6.7). Что лежит на сервере, то и остаётся:
+          # секрет репозитория — только для первой заливки. Наоборот было бы
+          # хуже всего — старый секрет воскрешал бы мёртвый токен на каждом
+          # деплое и молча отменял вход, сделанный с телефона. Пустая строка
+          # на сервере — это тоже ответ: так помечен вход, который claude
+          # хранит у себя (`claude auth login`), и перебивать его нельзя.
+          if echo "$prev_env" | grep -q '^CLAUDE_CODE_OAUTH_TOKEN='; then
+            CLAUDE_CODE_OAUTH_TOKEN="$(keep CLAUDE_CODE_OAUTH_TOKEN)"
+          fi
           [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] || echo "::add-mask::$CLAUDE_CODE_OAUTH_TOKEN"
+          # Имя мини-приложения звонка владелец задаёт из чата («/callapp call»),
+          # а сервер кладёт его в .env. Не сохранить его здесь — значит
+          # разучить ссылку открывать мини-приложение на каждом обновлении.
+          TELEGRAM_CALL_APP="${TELEGRAM_CALL_APP:-$(keep TELEGRAM_CALL_APP)}"
+          echo "TELEGRAM_CALL_APP_R=$TELEGRAM_CALL_APP" >> "$GITHUB_ENV"
           # Секрет TURN нужен и следующему шагу — он настраивает coturn.
           echo "::add-mask::$TURN_SECRET"
           echo "TURN_SECRET_R=$TURN_SECRET" >> "$GITHUB_ENV"
@@ -242,8 +249,8 @@ jobs:
           ORG_DIR=${DEPLOY_PATH_R}/data/org
           WORKSPACE_DIR=${DEPLOY_PATH_R}/data/workspace
           CALLS_DIR=${DEPLOY_PATH_R}/data/calls
-          TELEGRAM_APP_NAME=${TELEGRAM_APP_NAME:-}
           TELEGRAM_CALL_APP=${TELEGRAM_CALL_APP:-}
+          PUBLIC_URL=https://${APP_DOMAIN_R}
           TURN_URL=${TURN_URL:-}
           TURN_USER=${TURN_USER:-}
           TURN_PASS=${TURN_PASS:-}
@@ -400,6 +407,21 @@ jobs:
                 echo ""
                 echo "\`TELEGRAM_BOT_TOKEN\` не задан: сценарии сохраняются в облако"
                 echo "Telegram, кнопку бота нужно назначить вручную."
+              fi
+              echo ""
+              if [ -n "${TELEGRAM_CALL_APP_R:-}" ]; then
+                echo "Звонок открывается отдельным мини-приложением:"
+                echo "\`t.me/<бот>/${TELEGRAM_CALL_APP_R}?startapp=call_…\`"
+              else
+                echo "**Звонок пока открывается обычной страницей, а не мини-приложением.**"
+                echo "Завести приложение можно только руками — метода Bot API для этого нет:"
+                echo ""
+                echo "1. @BotFather → \`/newapp\` → этот бот → название «Звонок», описание,"
+                echo "   картинка 640×360;"
+                echo "2. адрес приложения: \`https://${APP_DOMAIN_R}/call\`;"
+                echo "3. короткое имя, например \`call\`;"
+                echo "4. в чате с ботом отправьте \`/callapp call\` — он запомнит имя, и"
+                echo "   деплой будет его сохранять."
               fi
               echo ""
               if [ "${TURN_OK:-false}" = "true" ]; then

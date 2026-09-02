@@ -70,6 +70,25 @@ export async function getMeeting(id) {
   return (await readAll()).find((m) => m.id === id) || null;
 }
 
+/**
+ * Правит уже заведённую встречу, не меняя её id.
+ *
+ * Нужно ровно для одного: инлайн-запрос Telegram присылает на каждое
+ * нажатие клавиши, и заводить на каждое по встрече значило бы за один
+ * вечер вытеснить из хранилища все прежние — вместе с их ссылками.
+ * Пока человек дописывает одну и ту же фразу, правится одна запись.
+ */
+export async function updateMeeting(id, { title, at, text }) {
+  const list = await readAll();
+  const m = list.find((x) => x.id === id);
+  if (!m) return null;
+  if (title != null) m.title = String(title).trim().slice(0, 200) || m.title;
+  if (at != null) m.at = String(at).slice(0, 40);
+  if (text != null) m.text = String(text).slice(0, 2000);
+  await writeAll(list);
+  return m;
+}
+
 export async function listMeetings(by) {
   const list = await readAll();
   const mine = by == null ? list : list.filter((m) => m.by === String(by));
@@ -90,6 +109,24 @@ export async function deleteMeeting(id, by) {
 /* ─────── сигналы созвона (только в памяти) ─────── */
 
 const rooms = new Map();   // id встречи → { seq, items: [{n, from, to, data, at}] }
+
+/* Кто есть кто внутри комнаты.
+
+   Войти в звонок может любой, у кого есть ссылка, — и тот же любой видит
+   список участников. Показывать в нём номера Telegram нельзя: это чужие
+   личные данные, а не техническая подробность. Поэтому наружу уходит
+   псевдоним — HMAC от «встреча + человек» на секрете, который живёт
+   столько же, сколько процесс. Комнаты и так в памяти, переживать
+   перезапуск псевдонимам незачем.
+
+   Собеседники обмениваются только псевдонимами, поэтому и адресовать
+   сигнал друг другу они могут ими же — переводить ничего не надо. */
+const ALIAS_SECRET = crypto.randomBytes(32);
+
+export const aliasFor = (meetingId, who) => crypto
+  .createHmac("sha256", ALIAS_SECRET)
+  .update(`${meetingId}\u0000${who}`)
+  .digest("base64url").slice(0, 16);
 
 const room = (id) => {
   if (!rooms.has(id)) rooms.set(id, { seq: 0, items: [] });

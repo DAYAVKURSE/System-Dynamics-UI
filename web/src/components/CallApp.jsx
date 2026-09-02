@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { C, BAD } from "./ui.jsx";
 import CallRoom from "./CallRoom.jsx";
-import { callFromLocation } from "../calls.js";
-import { getTelegram } from "../telegram.js";
-import { whoAmI } from "../identity.js";
+import { callFromLocation, callerId } from "../calls.js";
+import { getInitData, getTelegram } from "../telegram.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОКНО ЗВОНКА · отдельное мини-приложение
@@ -15,46 +14,70 @@ import { whoAmI } from "../identity.js";
    помещается в экран телефона без прокрутки: сетка видео растягивается,
    кнопки — внизу.
 
-   Кто я — из initData Telegram: id нужен серверу и сигналингу (кто из
-   пары делает предложение соединения, решает порядок id), имя — чтобы
-   подписать плитку у других. Приглашённость в модель для звонка не
-   требуется: ссылка и есть приглашение.
+   Про модель это окно не знает ничего и знать не должно: ни ролей, ни
+   вкладок, ни «кто я в организации». Приглашение на звонок — это ссылка,
+   а не запись в списке людей, и спрашивать сервер «свой ли ты» здесь
+   некого и незачем. Заодно снимается неприятность: запрос «кто я»
+   назначал владельцем модели первого, кто её открыл, — а по ссылке на
+   звонок приходит кто угодно.
+
+   Кто я для комнаты: id из initData Telegram, если звонок открыт
+   мини-приложением, иначе номер гостя, который завёл себе сам браузер
+   (см. calls.js). Имя — из Telegram, а гость пишет его сам: без имени
+   у собеседников подписана безымянная плитка.
    ════════════════════════════════════════════════════════════════ */
 
 const BG = "#0E1420";
+const NAME_KEY = "sd.call.name";
+
+const keptName = () => {
+  try { return localStorage.getItem(NAME_KEY) || ""; } catch { return ""; }
+};
 
 export default function CallApp() {
   const meetingId = useMemo(() => callFromLocation(), []);
-  const [me, setMe] = useState(null);
+  const tgUser = getTelegram()?.initDataUnsafe?.user;
+  const tgName = [tgUser?.first_name, tgUser?.last_name].filter(Boolean).join(" ")
+    || tgUser?.username || "";
+  const [name, setName] = useState(() => tgName || keptName());
 
   useEffect(() => {
     const tg = getTelegram();
-    if (tg) {
-      try { tg.ready(); } catch { /* старый клиент */ }
-      try { tg.setHeaderColor(BG); tg.setBackgroundColor(BG); } catch { /* старый клиент */ }
-      // Свайп по видео не должен сворачивать окно.
-      try { tg.disableVerticalSwipes?.(); } catch { /* необязательно */ }
-    }
-    let live = true;
-    whoAmI().then((m) => { if (live) setMe(m); }).catch(() => { if (live) setMe({}); });
-    return () => { live = false; };
+    if (!tg) return;
+    try { tg.ready(); } catch { /* старый клиент */ }
+    try { tg.setHeaderColor(BG); tg.setBackgroundColor(BG); } catch { /* старый клиент */ }
+    // Свайп по видео не должен сворачивать окно.
+    try { tg.disableVerticalSwipes?.(); } catch { /* необязательно */ }
   }, []);
 
-  const tgUser = getTelegram()?.initDataUnsafe?.user;
-  // Сигналинг сравнивает id с тем, что видит сервер, — это id Telegram.
-  const meId = String(tgUser?.id || (me?.id && me.id !== "local" ? me.id : "guest"));
-  const myName = me?.name
-    || [tgUser?.first_name, tgUser?.last_name].filter(Boolean).join(" ")
-    || "";
+  // Сигналинг сравнивает id с тем, что видит сервер: у своего это id
+  // Telegram, у гостя — его номер.
+  const meId = useMemo(() => callerId(), []);
   const expand = () => { try { getTelegram()?.expand(); } catch { /* нет Telegram */ } };
+
+  const rename = (v) => {
+    setName(v);
+    try { localStorage.setItem(NAME_KEY, v); } catch { /* хранилище закрыто — не беда */ }
+  };
 
   return (
     <div style={{ height: "var(--tg-viewport-stable-height, 100%)", minHeight: 0,
       background: C.ink, color: C.text, padding: 8, boxSizing: "border-box",
-      overflow: "hidden", fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
+      overflow: "hidden", display: "flex", flexDirection: "column", gap: 6,
+      fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
       {meetingId ? (
-        <CallRoom meetingId={meetingId} meId={meId} myName={myName} fit
-          onExpand={getTelegram() ? expand : null} />
+        <>
+          {!tgName && (
+            <input aria-label="как вас зовут" placeholder="Как вас зовут — увидят собеседники"
+              value={name} onChange={(e) => rename(e.target.value)} maxLength={40}
+              style={{ flex: "0 0 auto", background: C.panel, color: C.text, fontSize: 12,
+                border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 8px" }} />)}
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <CallRoom meetingId={meetingId} meId={meId} myName={name} fit
+              canRecord={Boolean(getInitData())}
+              onExpand={getTelegram() ? expand : null} />
+          </div>
+        </>
       ) : (
         <div style={{ fontSize: 13, color: BAD, lineHeight: 1.6, padding: 12 }}>
           Ссылка на звонок неполная — откройте её из приглашения в чате.

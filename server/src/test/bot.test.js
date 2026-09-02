@@ -150,7 +150,8 @@ describe("вход в Claude Code", () => {
   let awaiting = false;
   let startFails = "";
   const login = {
-    hasLogin: () => false,
+    loggedIn: async () => false,
+    loginState: () => ({ stage: awaiting ? "code" : "idle" }),
     awaitingCode: () => awaiting,
     startLogin: async () => {
       calls.push({ start: true });
@@ -172,51 +173,121 @@ describe("вход в Claude Code", () => {
 
   beforeEach(() => { calls.length = 0; asked.length = 0; awaiting = false; startFails = ""; });
 
+  // Разговор с claude бот не ждёт — иначе он глохнет на всё время входа.
+  // Обещание отдаётся в `done`, и тесту есть чего дождаться.
+  const step = async (text, from = owner, d = deps2) => {
+    const r = await handleUpdate(msg(from, { text }), d);
+    if (r?.done) await r.done;
+    return r;
+  };
+
   it("«/login» присылает ссылку кнопкой, а не текстом инструкции", async () => {
-    await handleUpdate(msg(owner, { text: "/login" }), deps2);
+    await step("/login");
     expect(calls[0]).toEqual({ start: true });
     expect(lastButton()?.url).toMatch(/oauth\/authorize/);
     expect(lastText()).toMatch(/код/i);
   });
 
+  it("бот не глохнет на время входа: ответ приходит сразу", async () => {
+    const r = await handleUpdate(msg(owner, { text: "/login" }), deps2);
+    expect(r.login).toBe("started");
+    expect(r.done).toBeInstanceOf(Promise);
+    await r.done;
+  });
+
   it("следующее сообщение считается кодом и доводит вход до конца", async () => {
-    await handleUpdate(msg(owner, { text: "/login" }), deps2);
-    await handleUpdate(msg(owner, { text: "aBc123-code" }), deps2);
+    await step("/login");
+    await step("aBc123-code");
     expect(calls).toContainEqual({ code: "aBc123-code" });
     expect(lastText()).toMatch(/подключён/i);
   });
 
   it("код не уезжает вопросом в Claude, даже когда включён режим моста", async () => {
-    await handleUpdate(msg(owner, { text: "/claude" }), deps2);     // режим моста
-    await handleUpdate(msg(owner, { text: "/login" }), deps2);
-    await handleUpdate(msg(owner, { text: "secret-code" }), deps2);
+    await step("/claude");                            // режим моста
+    await step("/login");
+    await step("secret-code");
     expect(asked).toEqual([]);                        // в мост не ушло ничего
     expect(calls).toContainEqual({ code: "secret-code" });
     resetBridgeMode();
   });
 
-  it("«/stop» во время входа отменяет вход", async () => {
-    await handleUpdate(msg(owner, { text: "/login" }), deps2);
-    await handleUpdate(msg(owner, { text: "/stop" }), deps2);
+  it("код без начатого входа не уезжает в Claude и не пишется в журнал", async () => {
+    // Одноразовый код, присланный после того, как окно закрылось.
+    await step("/claude");
+    await step(`ac_${"A".repeat(70)}#${"s".repeat(43)}`);
+    expect(asked).toEqual([]);
+    expect(lastText()).toMatch(/вход сейчас не начат/i);
+    resetBridgeMode();
+  });
+
+  it("«/stop» отменяет вход и во время проверки кода", async () => {
+    await step("/login");
+    await step("/stop");
     expect(calls).toContainEqual({ cancel: true });
     expect(lastText()).toMatch(/отмен/i);
   });
 
   it("сбой запуска объясняется словами, а не молчанием", async () => {
     startFails = "на сервере нет команды script или claude";
-    await handleUpdate(msg(owner, { text: "/login" }), deps2);
+    await step("/login");
     expect(lastText()).toMatch(/нет команды script/);
   });
 
   it("посторонний вход не начинает", async () => {
-    await handleUpdate(msg(guest, { text: "/login" }), deps2);
+    await step("/login", guest);
     expect(calls).toEqual([]);
     expect(lastText()).toMatch(/только владельцу/);
   });
 
   it("без моста «/login» не предлагается вовсе — логинить некого", async () => {
-    await handleUpdate(msg(owner, { text: "/login" }), { ...deps, bridge: null, login: null });
+    await step("/login", owner, { ...deps, bridge: null, login: null });
     expect(calls).toEqual([]);
     expect(lastText()).toMatch(/перешлите мне сообщение/i);
+  });
+});
+
+/* ─────── отдельное мини-приложение звонка ───────
+   Завести его можно только руками в @BotFather, а вот запомнить короткое
+   имя владелец может отсюда — не открывая GitHub и не трогая сервер. */
+
+describe("приложение звонка", () => {
+  let stored;
+  const settings = {
+    getCallApp: () => stored,
+    setCallApp: (v) => { stored = v; return v; },
+  };
+  const deps3 = { ...deps, settings, botName: "sdbot", publicUrl: "https://x.test" };
+
+  beforeEach(() => { stored = ""; });
+
+  it("«/callapp» без имени объясняет, что делать в @BotFather", async () => {
+    await handleUpdate(msg(owner, { text: "/callapp" }), deps3);
+    expect(lastText()).toMatch(/newapp/);
+    expect(lastText()).toContain("https://x.test/call");
+  });
+
+  it("имя запоминается и попадает в ссылку", async () => {
+    const r = await handleUpdate(msg(owner, { text: "/callapp call" }), deps3);
+    expect(r).toEqual({ callApp: "call" });
+    expect(stored).toBe("call");
+    expect(lastText()).toContain("t.me/sdbot/call");
+  });
+
+  it("негодное имя отклоняется с объяснением, а не молча", async () => {
+    await handleUpdate(msg(owner, { text: "/callapp зво нок" }), deps3);
+    expect(stored).toBe("");
+    expect(lastText()).toMatch(/латиница/i);
+  });
+
+  it("«/callapp» с уже заведённым именем показывает нынешнюю ссылку", async () => {
+    stored = "call";
+    await handleUpdate(msg(owner, { text: "/callapp" }), deps3);
+    expect(lastText()).toContain("t.me/sdbot/call?startapp=call_…");
+  });
+
+  it("посторонний имя не меняет", async () => {
+    await handleUpdate(msg(guest, { text: "/callapp call" }), deps3);
+    expect(stored).toBe("");
+    expect(lastText()).toMatch(/только владельцу/);
   });
 });

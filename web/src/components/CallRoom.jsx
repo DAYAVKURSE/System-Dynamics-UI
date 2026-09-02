@@ -38,6 +38,7 @@ const mb = (n) => `${(n / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
 
 export default function CallRoom({
   meetingId, meId, myName = "", onClose, nameOf, fit = false, onExpand = null,
+  canRecord = true,
 }) {
   const [meeting, setMeeting] = useState(null);
   const [state, setState] = useState("idle");   // idle | asking | waiting | live | ended
@@ -81,13 +82,27 @@ export default function CallRoom({
 
   useEffect(() => () => stop(), [stop]);
 
+  // Как нас зовут внутри комнаты. Сервер отдаёт псевдоним: номеров Telegram
+  // участники друг о друге не узнают (см. aliasFor в lib/callStore.js).
+  // Пока встреча не загрузилась, обходимся своим id — до «привет» он всё
+  // равно никуда не уходит.
+  const myId = useRef(String(meId));
+  const aliased = useRef(false);
+
+  const learnMe = useCallback((m) => {
+    if (!m?.me) return m;
+    myId.current = String(m.me);
+    aliased.current = true;
+    return m;
+  }, []);
+
   useEffect(() => {
     let live = true;
     getMeeting(meetingId)
-      .then((m) => { if (live) setMeeting(m); })
+      .then((m) => { if (live) setMeeting(learnMe(m)); })
       .catch((e) => { if (live) setErr(e.message); });
     return () => { live = false; };
-  }, [meetingId]);
+  }, [meetingId, learnMe]);
 
   /* ─── сигналинг ─── */
   const post = useCallback((data, to = null) =>
@@ -164,11 +179,11 @@ export default function CallRoom({
       // Пришёл новый: предложение делает тот, чей id меньше. Отвечаем
       // «привет» адресно, чтобы новичок узнал обо всех, кто уже здесь.
       post({ type: "hello-back", name: myName }, from);
-      if (String(meId) < from) await makeOffer(from);
+      if (myId.current < from) await makeOffer(from);
       return;
     }
     if (d.type === "hello-back") {
-      if (String(meId) < from) await makeOffer(from);
+      if (myId.current < from) await makeOffer(from);
       return;
     }
     if (d.type === "bye") {
@@ -196,11 +211,18 @@ export default function CallRoom({
   /* ─── вход в звонок ─── */
   const join = async () => {
     setErr(""); setNote(""); setState("asking");
+    // Как нас зовут в комнате, знает сервер. Если встреча с первого раза не
+    // загрузилась, спрашиваем ещё раз: без псевдонима непонятно, кому из
+    // пары делать предложение соединения, и оба сделают его разом.
+    if (!aliased.current) {
+      try { setMeeting(learnMe(await getMeeting(meetingId))); }
+      catch { /* скажем ниже: серверов соединения мы тоже не получим */ }
+    }
     // Сначала — сервер ретрансляции: без него звонка не будет, и включать
     // камеру, чтобы потом извиниться, незачем.
     let ice;
     try {
-      ice = await getIce();
+      ice = await getIce(meetingId);
     } catch {
       setErr("Сервер не отвечает — звонок без него невозможен."); setState("idle"); return;
     }
@@ -380,11 +402,14 @@ export default function CallRoom({
         <button aria-label="экран" title={sharing ? "прекратить показ экрана" : "показать экран"}
           style={ctl(sharing, ACC)} onClick={shareScreen}>
           {fit ? "🖥" : (sharing ? "🖥 экран показывается" : "🖥 показать экран")}</button>)}
-      {rec
+      {/* Запись ложится в хранилище отчётов, а туда пускают только по
+          подписи Telegram: гостю, вошедшему по ссылке, кнопку не рисуем —
+          лучше её отсутствие, чем отказ сервера после сорока минут. */}
+      {canRecord && (rec
         ? <button aria-label="запись" title="остановить запись" style={ctl(true, BAD)} onClick={stopRec}>
           {fit ? "⏹" : "⏹ остановить запись"}</button>
         : <button aria-label="запись" title="записать" style={ctl(false)} onClick={startRec}>
-          {fit ? "⏺" : "⏺ записать"}</button>}
+          {fit ? "⏺" : "⏺ записать"}</button>)}
       <button aria-label="выйти" title="выйти из звонка"
         style={ctl(false, null, { color: BAD, borderColor: "#5A2436" })} onClick={leave}>
         {fit ? "✕" : "Выйти"}</button>

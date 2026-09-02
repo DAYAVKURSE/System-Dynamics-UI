@@ -17,6 +17,8 @@
    тестами, а не перепиской с живым ботом.
    ════════════════════════════════════════════════════════════════ */
 
+import { CALL_APP_STEPS, callAppNameOk } from "./links.js";
+
 // Роль, выбранная кнопкой: короткий префикс, чтобы влезть в 64 байта
 // callback_data, которые разрешает Telegram.
 const PICK = "r:";
@@ -28,7 +30,17 @@ const nameOf = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(" ")
 /** Ожидание ответа на «как назвать роль»: кого зовём, пока имя не пришло. */
 const pending = new Map();
 
-export function resetPending() { pending.clear(); }
+/* Последняя встреча, заведённая инлайн-запросом, — на человека.
+
+   Telegram присылает инлайн-запрос на КАЖДОЕ нажатие клавиши. Заводить на
+   каждое по встрече — значит за один вечер вытеснить из хранилища все
+   прежние вместе с их ссылками (там предел в 500 записей). Пока человек
+   дописывает одну и ту же фразу, правится одна и та же встреча; новая
+   фраза или пауза в несколько минут — новая встреча. */
+const inlineDraft = new Map();   // id пользователя → { id, query, at }
+const INLINE_REUSE_MS = 3 * 60 * 1000;
+
+export function resetPending() { pending.clear(); inlineDraft.clear(); }
 
 /* ─────── инлайн-режим: позвать на созвон ───────
    Инлайн-запрос набирается в любом чате: «@бот завтра 15:00 разбор
@@ -49,7 +61,10 @@ const meetingCard = (m, link, botName) => [
 
 async function onInline(q, from, { org, calls, answerInline, appLink, botName }) {
   const parsed = calls.parseMeeting(q.query || "");
-  const me = await org.identify(String(from.id), { name: nameOf(from), username: from.username });
+  // claim: false — набранный в чужом чате инлайн-запрос не должен делать
+  // человека владельцем модели, даже если владелец ещё не назначен.
+  const me = await org.identify(String(from.id), { name: nameOf(from), username: from.username },
+    { claim: false });
   if (!me.known) {
     return answerInline(q.id, [], {
       button: { text: "Вас ещё не позвали в модель", start_parameter: "start" },
@@ -66,9 +81,17 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
 
   // Встреча заводится сразу: ссылка должна работать в тот момент, когда
   // сообщение уже отправлено, а второго шага «подтвердите» в инлайне нет.
-  const m = await calls.createMeeting({
-    title: parsed.title, at: parsed.atText, text: parsed.text, by: from.id,
-  });
+  // Но пока человек дописывает ту же фразу — правится одна запись, а не
+  // заводится по встрече на нажатие клавиши.
+  const typed = String(q.query || "").trim();
+  const prev = inlineDraft.get(String(from.id));
+  const now = Date.now();
+  const sameBurst = prev && now - prev.at < INLINE_REUSE_MS
+    && (typed.startsWith(prev.query) || prev.query.startsWith(typed));
+  const fields = { title: parsed.title, at: parsed.atText, text: parsed.text };
+  const m = (sameBurst && await calls.updateMeeting(prev.id, fields))
+    || await calls.createMeeting({ ...fields, by: from.id });
+  inlineDraft.set(String(from.id), { id: m.id, query: typed, at: now });
   const link = appLink(m.id);
   return answerInline(q.id, [{
     type: "article",
@@ -106,9 +129,25 @@ const HELP = [
   "следующее сообщение; «/stop» его выключает.",
   "",
   "«/login» — вход в Claude Code прямо отсюда: пришлю ссылку, вы",
-  "подтвердите и вставите код ответным сообщением. Ни SSH, ни компьютера",
-  "для этого не нужно.",
+  "подтвердите и вставите код ответным сообщением — целиком, вместе",
+  "с частью после «#». Ни SSH, ни компьютера для этого не нужно.",
+  "",
+  "«/callapp» — отдельное мини-приложение для звонков: расскажу, как",
+  "завести его в @BotFather, и запомню короткое имя.",
 ].join("\n");
+
+/**
+ * Похоже ли сообщение на одноразовый код подтверждения Claude.
+ *
+ * Проверка нарочно узкая: длинная строка без пробелов из «код#состояние».
+ * Обычная переписка так не выглядит, а перепутать значило бы не передать
+ * человеку его же вопрос.
+ */
+export const looksLikeCode = (text) =>
+  /^[A-Za-z0-9._~:+/=%-]{16,}#[A-Za-z0-9._~:+/=%-]{8,}$/.test(String(text || "").trim());
+
+/** Пускает долгую работу дальше, не роняя бота на её ошибке. */
+const detach = (p) => { p.catch(() => {}); return p; };
 
 const rolesKeyboard = (roles) => ({
   inline_keyboard: [
@@ -154,21 +193,44 @@ async function onMessage(msg, from, deps) {
   const { org, send, bridge, login } = deps;
   const text = String(msg.text || "").trim();
 
-  // 0. Вход в Claude Code — раньше моста: и «/login», и код подтверждения
-  //    иначе уехали бы в мост обычным вопросом.
+  // 0. Настройка приложения звонка — раньше моста, иначе команда уехала бы
+  //    в Claude Code обычным вопросом.
+  if (deps.settings) {
+    const m = text.match(/^\/callapp\b\s*([\s\S]*)$/i);
+    if (m) return onCallApp(m[1], from, deps);
+  }
+
+  /* 1. Вход в Claude Code — тоже раньше моста: и «/login», и код
+        подтверждения иначе уехали бы в мост обычным вопросом.
+
+        Разговор с claude идёт долго (ссылка — секунды, проверка кода —
+        тоже), а обновления Telegram обрабатываются по очереди. Поэтому
+        сам разговор не ждём: бот остаётся живым и может, в частности,
+        принять «/stop». Обещание отдаётся вызывающему в `done` — тестам
+        есть чего дождаться. */
   if (login) {
-    if (/^\/login\b/i.test(text)) return onLogin(from, deps);
-    if (login.awaitingCode()) {
-      if (/^\/(stop|cancel)\b/i.test(text)) {
-        login.cancelLogin();
-        await send(from.id, "Вход отменён.");
-        return { login: "cancelled" };
-      }
-      if (text && !text.startsWith("/")) return onLoginCode(text, from, deps);
+    if (/^\/login\b/i.test(text)) return { login: "started", done: detach(onLogin(from, deps)) };
+    // «/stop» отменяет вход на любой его стадии, не только пока ждём код:
+    // проверка кода — как раз тот момент, когда отменить хочется сильнее.
+    if (login.loginState().stage !== "idle" && /^\/(stop|cancel)\b/i.test(text)) {
+      login.cancelLogin();
+      await send(from.id, "Вход отменён.");
+      return { login: "cancelled" };
+    }
+    if (login.awaitingCode() && text && !text.startsWith("/")) {
+      return { login: "code", done: detach(onLoginCode(text, from, deps)) };
+    }
+    // Код, присланный без начатого входа (окно закрылось, вход отменили),
+    // не должен уехать в Claude Code обычным вопросом: он одноразовый, но
+    // до сих пор попадал и в чужой процесс, и в журнал воркера.
+    if (looksLikeCode(text)) {
+      await send(from.id, "Похоже на код подтверждения, но вход сейчас не начат"
+        + " — он живёт несколько минут. Отправьте /login и повторите.");
+      return { login: "stale-code" };
     }
   }
 
-  // 1. Мост к Claude Code: в режиме моста сообщение уходит туда целиком,
+  // 2. Мост к Claude Code: в режиме моста сообщение уходит туда целиком,
   //    включая то, что похоже на команду.
   if (bridge) {
     const cmd = text.match(/^\/claude\b\s*([\s\S]*)$/i);
@@ -191,7 +253,7 @@ async function onMessage(msg, from, deps) {
     }
   }
 
-  // 2. Пересланное сообщение — основной путь.
+  // 3. Пересланное сообщение — основной путь.
   const fwd = msg.forward_from;
   if (fwd) {
     const roles = (await org.listOrg()).roles;
@@ -213,7 +275,7 @@ async function onMessage(msg, from, deps) {
     return { blocked: "hidden" };
   }
 
-  // 3. Ожидаем имя новой роли.
+  // 4. Ожидаем имя новой роли.
   const wait = pending.get(String(from.id));
   if (wait?.awaiting === "roleName" && text) {
     try {
@@ -229,7 +291,7 @@ async function onMessage(msg, from, deps) {
     }
   }
 
-  // 4. Запасной путь: «id 123 Имя» — когда пересылка не сработала.
+  // 5. Запасной путь: «id 123 Имя» — когда пересылка не сработала.
   const byId = text.match(/^id\s+(\d{3,20})\s*(.*)$/i);
   if (byId) {
     const roles = (await org.listOrg()).roles;
@@ -240,7 +302,7 @@ async function onMessage(msg, from, deps) {
     return { asked: byId[1] };
   }
 
-  // 5. Свой номер — чтобы было что переслать владельцу.
+  // 6. Свой номер — чтобы было что переслать владельцу.
   if (/^\/id\b/.test(text)) {
     await send(from.id, `Ваш id: ${from.id}`);
     return { told: String(from.id) };
@@ -250,25 +312,74 @@ async function onMessage(msg, from, deps) {
   return { helped: true };
 }
 
+/* ─────── отдельное мини-приложение звонка ───────
+   Ссылка на звонок открывает мини-приложение, только если оно заведено в
+   @BotFather: создать его через Bot API нельзя вовсе — такого метода нет.
+   Зато можно не гонять владельца в GitHub за секретом: короткое имя он
+   присылает сюда, а сервер кладёт его в .env, откуда и читает ссылку.
+   Деплой это значение сохраняет. */
+
+async function onCallApp(arg, from, deps) {
+  const { send, settings, botName = "", publicUrl = "" } = deps;
+  const name = String(arg || "").trim().replace(/^@/, "");
+  const steps = CALL_APP_STEPS.replace("{url}", `${publicUrl}/call`);
+
+  if (!name) {
+    const now = settings.getCallApp();
+    await send(from.id, now
+      ? [`Звонок открывает приложение «${now}»:`,
+        `t.me/${botName}/${now}?startapp=call_…`,
+        "",
+        "Сменить — пришлите «/callapp другое-имя». Завести заново:",
+        "", steps].join("\n")
+      : ["Отдельного приложения звонка пока нет, и ссылка ведёт на обычную",
+        "страницу — в Telegram она откроется браузером, а камеру и микрофон",
+        "он даёт не везде. Заведём мини-приложение — минута:",
+        "", steps].join("\n"));
+    return { callApp: now || "" };
+  }
+
+  if (!callAppNameOk(name)) {
+    await send(from.id, "Короткое имя — латиница, цифры и «_», от 3 до 32 знаков."
+      + " Например: call");
+    return { error: "bad name" };
+  }
+
+  settings.setCallApp(name);
+  await send(from.id, [
+    `Запомнил: звонки открывает t.me/${botName}/${name}`,
+    "",
+    "Проверьте: позовите себя на встречу через инлайн-режим («@" + (botName || "бот")
+      + " сегодня 18:00 проверка») и нажмите «Подключиться». Должно открыться",
+    "окно звонка на пол-экрана, а не модель.",
+    "",
+    "Если Telegram скажет, что приложение не найдено, — короткое имя другое:"
+      + " посмотрите его в @BotFather, /myapps.",
+  ].join("\n"));
+  return { callApp: name };
+}
+
 /* ─────── вход в Claude Code ───────
    Владелец жмёт ссылку, подтверждает и присылает код обратно сообщением.
-   Токен в чат не уходит: сервер кладёт его в .env сам (см. lib/loginFlow.js). */
+   Токен в чат не уходит: сервер кладёт его в .env сам (см. lib/loginFlow.js).
 
-async function onLogin(from, { send, login }) {
-  if (login.hasLogin()) {
-    await send(from.id, "Claude Code уже подключён. Если ответы всё-таки не приходят,"
-      + " отправьте /login ещё раз — вход обновится.");
-  }
-  await send(from.id, "Запускаю вход, это занимает несколько секунд…");
+   Код одноразовый и живёт минуты: если он не подошёл, старая ссылка уже
+   бесполезна — второй код по ней не выдадут. Поэтому на любую осечку бот
+   сразу присылает НОВУЮ ссылку, а не просит вспоминать про «/login». */
+
+const CODE_STEPS = [
+  "1. Откройте ссылку и подтвердите вход в свой аккаунт Claude.",
+  "2. Скопируйте код целиком — вместе с длинной частью после «#».",
+  "3. Пришлите его мне ответным сообщением, одной строкой.",
+  "",
+  "Код живёт несколько минут. «/stop» — отменить.",
+].join("\n");
+
+async function sendAuthLink(from, { send, login }, lead) {
+  if (lead) await send(from.id, lead);
   try {
     const { url } = await login.startLogin();
-    await send(from.id, [
-      "1. Откройте ссылку и подтвердите вход в свой аккаунт Claude.",
-      "2. Скопируйте выданный код.",
-      "3. Пришлите его мне ответным сообщением — одной строкой.",
-      "",
-      "«/stop» — отменить.",
-    ].join("\n"), { inline_keyboard: [[{ text: "Войти в Claude", url }]] });
+    await send(from.id, CODE_STEPS, { inline_keyboard: [[{ text: "Войти в Claude", url }]] });
     return { login: "url" };
   } catch (e) {
     await send(from.id, `Вход не запустился: ${e.message}`);
@@ -276,15 +387,28 @@ async function onLogin(from, { send, login }) {
   }
 }
 
-async function onLoginCode(code, from, { send, login }) {
+async function onLogin(from, deps) {
+  const { login } = deps;
+  // Одно сообщение, а не два: «уже подключён, отправьте /login ещё раз» в
+  // ответ на только что отправленный /login читалось как отказ.
+  return sendAuthLink(from, deps, await login.loggedIn()
+    ? "Claude Code уже подключён — обновляю вход, это несколько секунд…"
+    : "Запускаю вход, это занимает несколько секунд…");
+}
+
+async function onLoginCode(code, from, deps) {
+  const { send, login } = deps;
   await send(from.id, "Проверяю код…");
   try {
     const r = await login.finishLogin(code);
     await send(from.id, r.restarted
       ? "Готово: Claude Code подключён, черновики задач заработают сразу."
       : "Готово: Claude Code подключён. Черновики заработают в течение минуты.");
-    return { login: "done" };
+    return { login: "done", mode: r.mode };
   } catch (e) {
+    // Осечка на коде — не тупик: старый код уже сгорел, поэтому выдаём
+    // новую ссылку тем же сообщением, а не отсылаем к «/login».
+    if (e.retry) return sendAuthLink(from, deps, `${e.message}. Вот новая ссылка:`);
     await send(from.id, `${e.message}\n\nПопробуйте ещё раз: /login`);
     return { login: "error", error: e.message };
   }

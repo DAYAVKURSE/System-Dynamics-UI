@@ -24,11 +24,14 @@
 
    ─── Вход в аккаунт ───
 
-   Claude Code должен быть залогинен там, где работает воркер. Это
-   единственный шаг, который делает только владелец аккаунта: один раз
-   выполнить `claude setup-token`, открыть ссылку, разрешить, и положить
-   выданный токен в CLAUDE_CODE_OAUTH_TOKEN в .env. Пока входа нет, воркер
-   отвечает на каждый вопрос именно этим — что делать, — а не молчит.
+   Claude Code должен быть залогинен там, где работает воркер. Владелец
+   делает это из чата с ботом командой «/login»: бот присылает ссылку,
+   владелец подтверждает вход и вставляет код ответным сообщением. Дальше
+   вход живёт одним из двух способов — сохранённым у самого claude
+   (`claude auth login`) или токеном в CLAUDE_CODE_OAUTH_TOKEN
+   (`claude setup-token`); воркеру годятся оба, и он спрашивает про них
+   сам командой `claude auth status`. Пока входа нет, воркер отвечает на
+   каждый вопрос именно этим — что делать, — а не молчит.
 
    ─── Что важно знать ───
 
@@ -46,9 +49,16 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// .env приложения — рядом, если воркер запущен pm2 на сервере. Читаем сами,
-// без зависимостей: dotenv у воркера нет, а у сервера есть.
-const ENV_FILE = path.resolve(process.cwd(), ".env");
+/* .env приложения — рядом, если воркер запущен pm2 на сервере. Читаем сами,
+   без зависимостей: dotenv у воркера нет, а у сервера есть.
+
+   Путь считаем от самого файла (tools/claude-bridge.mjs → ../.env), а не от
+   текущего каталога: сервер пишет в `ENV_FILE || <корень приложения>/.env`, и
+   до сих пор эти два адреса совпадали только потому, что pm2 запускает оба
+   из одного каталога. Запусти воркер руками из другого места — и вход из
+   чата попадал бы в файл, который воркер не читает. */
+const ENV_FILE = process.env.ENV_FILE
+  || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".env");
 
 function readEnvFile() {
   const out = {};
@@ -63,7 +73,10 @@ function readEnvFile() {
 }
 
 for (const [k, v] of Object.entries(readEnvFile())) {
-  if (process.env[k] === undefined) process.env[k] = v;
+  // Пустое значение — это «не задано», а не «задано пустым»: с пустым
+  // CLAUDE_CODE_OAUTH_TOKEN в окружении claude решил бы, что вход задан
+  // токеном, и не посмотрел бы на сохранённый.
+  if (v && process.env[k] === undefined) process.env[k] = v;
 }
 
 const URL_BASE = (process.env.BRIDGE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
@@ -133,26 +146,70 @@ const LOGIN_HELP = [
   "ничего делать не нужно.",
 ].join("\n");
 
-/** Есть ли вход: пробуем самый короткий запрос. Ответ кэшируется на 10 минут —
- *  проверка стоит одного вызова Claude, и спрашивать её каждый раз незачем. */
+/** Есть ли вход. Ответ кэшируется на 10 минут: спрашивать каждый раз незачем. */
 let loginOk = null, loginCheckedAt = 0;
 
-/** Токен могли дописать в .env только что — входом из чата. Перечитываем его
- *  на каждом круге: иначе вход подействовал бы лишь после перезапуска, а
- *  перезапуск не всегда в наших руках. */
+/**
+ * Вход из чата меняет .env, а не наш процесс, — поэтому перечитываем файл
+ * на каждом круге. Меняться он может в обе стороны:
+ *
+ * · появился токен (вход способом `setup-token`) — берём его;
+ * · токен обнулили (вход способом `claude auth login`: он сохраняет вход у
+ *   себя, а старый токен из .env убирают, потому что тот стоит в очереди
+ *   ВЫШЕ сохранённого входа и перебил бы его) — убираем и у себя.
+ *
+ * Строки в .env нет вовсе — не трогаем: файл могли переписывать прямо
+ * сейчас, и стирать по этому поводу рабочий вход не за что.
+ */
 export function refreshToken(read = readEnvFile) {
-  const fresh = read().CLAUDE_CODE_OAUTH_TOKEN || "";
+  const env = read();
+  if (!Object.prototype.hasOwnProperty.call(env, "CLAUDE_CODE_OAUTH_TOKEN")) return false;
+  const fresh = env.CLAUDE_CODE_OAUTH_TOKEN || "";
   if (fresh && fresh !== process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = fresh;
     loginOk = null; loginCheckedAt = 0;   // проверять вход заново
     return true;
   }
+  if (!fresh && process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    loginOk = null; loginCheckedAt = 0;
+    return true;
+  }
   return false;
+}
+
+/** Что сам claude говорит о своём входе. Пусто — команды `auth` у него нет. */
+function authStatus() {
+  return new Promise((resolve) => {
+    let child;
+    try { child = spawn(BIN, ["auth", "status"], { stdio: ["ignore", "pipe", "pipe"] }); }
+    catch { return resolve(null); }
+    let out = "";
+    const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch { /* уже мёртв */ } },
+      LOGIN_TIMEOUT_MS);
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { out += d; });
+    child.on("error", () => { clearTimeout(timer); resolve(null); });
+    child.on("close", () => {
+      clearTimeout(timer);
+      try { resolve(JSON.parse(out.trim())); } catch { resolve(null); }
+    });
+    return undefined;
+  });
 }
 
 async function loggedIn() {
   if (loginOk && Date.now() - loginCheckedAt < 600000) return true;
+  // Прямой ответ самого claude — дешевле и точнее, чем пробный вопрос
+  // модели: он знает и про токен, и про сохранённый вход.
+  const st = await authStatus();
+  if (st && typeof st.loggedIn === "boolean") {
+    loginOk = st.loggedIn; loginCheckedAt = Date.now();
+    if (!loginOk) console.error("вход в Claude Code не подтверждён: claude auth status говорит «не вошли»");
+    return loginOk;
+  }
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) { loginOk = true; loginCheckedAt = Date.now(); return true; }
+  // Старая версия без `auth status` — остаётся самый короткий запрос.
   const r = await runClaude("Ответь одним словом: ок", null, LOGIN_TIMEOUT_MS);
   loginOk = !r.error && /ок|ok/i.test(String(r.text || ""));
   loginCheckedAt = Date.now();
@@ -180,10 +237,22 @@ async function loop() {
     }
     if (!task?.id) continue;
 
-    console.log(`→ вопрос ${task.id}: ${task.text.slice(0, 80)}`);
-    const res = (await loggedIn())
+    // Текст вопроса в журнал не пишем: через мост уезжает и то, что писать
+    // в лог не стоит, — например одноразовый код входа, присланный не в тот
+    // момент. Длины достаточно, чтобы понять, что вопрос дошёл.
+    console.log(`→ вопрос ${task.id} (${task.text.length} знаков)`);
+    let res = (await loggedIn())
       ? await runClaude(task.text, task.sid)
       : { text: "", sid: null, error: LOGIN_HELP };
+    // «Вход есть» у claude значит «есть чем подписать запрос», а не «оно
+    // ещё работает»: просроченный токен он тоже считает входом. Поэтому
+    // ответ-отказ разбираем сами и говорим владельцу, что делать, вместо
+    // того чтобы пересылать ему чужую ошибку.
+    if (res.error && /401|403|invalid_grant|unauthor|authentic|credential|expired|log ?in/i
+      .test(res.error)) {
+      loginOk = null; loginCheckedAt = 0;
+      res = { text: "", sid: null, error: LOGIN_HELP };
+    }
     try {
       await fetch(`${URL_BASE}/api/bridge/${task.id}/answer`, {
         method: "POST",

@@ -69,7 +69,12 @@ export async function readOrg() {
 
 async function writeOrg(org) {
   await fs.mkdir(baseDir(), { recursive: true });
-  await fs.writeFile(file(), JSON.stringify(org, null, 2), "utf8");
+  // Через временный файл и переименование: иначе читатель, попавший на
+  // середину записи, получил бы обрезанный JSON — а разбор здесь молча
+  // возвращает пустую организацию, и владелец «терялся» бы.
+  const tmp = `${file()}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(org, null, 2), "utf8");
+  await fs.rename(tmp, file());
   return org;
 }
 
@@ -80,14 +85,18 @@ export const envOwner = () =>
 /**
  * Кто спрашивает и что ему видно. Первый вошедший становится владельцем,
  * если владелец не задан ни переменной, ни файлом.
+ *
+ * `claim: false` выключает это назначение — для случаев, когда человек
+ * пришёл не «открыть модель», а по ссылке со стороны: инлайн-запрос,
+ * звонок. Хозяином модели такой человек становиться не должен.
  */
-export async function identify(userId, profile = {}) {
+export async function identify(userId, profile = {}, { claim = true } = {}) {
   const org = await readOrg();
   const env = envOwner();
   let changed = false;
 
   if (env && org.ownerId !== env) { org.ownerId = env; changed = true; }
-  if (!org.ownerId) { org.ownerId = String(userId); changed = true; }
+  if (!org.ownerId && claim) { org.ownerId = String(userId); changed = true; }
 
   const id = String(userId);
   const isOwner = org.ownerId === id;

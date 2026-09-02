@@ -60,7 +60,9 @@ export function createApp() {
   if (fs.existsSync(indexHtml)) {
     app.use(express.static(staticDir));
     if (fs.existsSync(callHtml)) {
-      app.get(["/call", "/call/"], (_req, res) => res.sendFile(callHtml));
+      // И всё, что под /call: ссылка из приглашения бывает с хвостом, а
+      // открыться по ней должно окно звонка, а не приложение модели.
+      app.get(/^\/call(\/.*)?$/, (_req, res) => res.sendFile(callHtml));
     }
     app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(indexHtml));
   }

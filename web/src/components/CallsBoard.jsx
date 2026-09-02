@@ -87,7 +87,9 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
             </div>
             <div style={{ fontSize: 10, color: ACC, marginTop: 5, wordBreak: "break-all",
               fontFamily: "ui-monospace, Menlo, monospace" }}>
-              {callLink(m.id)}</div>
+              {/* Ссылку собирает сервер: только он знает имя бота и
+                  приложения звонка. Своя — на случай работы без сервера. */}
+              {m.link || callLink(m.id)}</div>
           </div>))}
       </div>
     </div>);

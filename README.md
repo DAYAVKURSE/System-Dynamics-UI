@@ -18,14 +18,19 @@ SDK, бэкенд для дискового хранения сценариев 
 
 ```
 web/                    React + Vite фронтенд (сама модель + Telegram-обвязка)
+  index.html             Модель: главное мини-приложение
+  call.html              Звонок: ОТДЕЛЬНОЕ мини-приложение (/call), свой бандл
   src/components/SystemModel.jsx  Модель: расчёты, схема, цели, симуляция
   src/components/TasksBoard.jsx   OKR и канбан-доска задач
+  src/components/CallApp.jsx      Окно звонка: ни вкладок, ни модели
   src/lib/sim.js         Движок: симуляция по месяцам, условия, рекомендации
   src/lib/expr.js        Разбор числовых выражений в условиях (без eval)
   src/lib/history.js     История правок модели: отмена и возврат
   src/lib/draft.js       Черновик: страховка от закрытия вкладки
   src/storage.js         Хранилище сценариев: сервер → облако Telegram → браузер
 server/                 Express-бэкенд: отдаёт фронтенд + API /api/scenarios
+  src/lib/links.js       Ссылка-приглашение на звонок (только отдельное приложение)
+  src/lib/loginFlow.js   Вход в Claude Code прямо из чата с ботом
 deploy/
   bootstrap.sh           Приводит чистый VPS в рабочее состояние (идемпотентно)
   release.sh             Установка зависимостей, перезапуск, health-check
