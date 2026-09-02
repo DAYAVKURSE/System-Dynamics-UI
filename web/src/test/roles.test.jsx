@@ -31,20 +31,20 @@ const fresh = async () => {
 };
 const tabNames = (container) => [...container.querySelectorAll("button")]
   .map((b) => b.textContent)
-  .filter((t) => ["Задачи", "Проверка", "Timeline", "Звонки", "Схема",
-    "Прогноз", "Выгрузить"].includes(t));
+  .filter((t) => ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
+    "Инструменты"].includes(t));
 
 beforeEach(() => { localStorage.clear(); resetIdentity(); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; resetIdentity(); });
 
 describe("вкладки по роли", () => {
-  it("владельцу видны все семь", async () => {
+  it("владельцу видны все шесть", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"] });
+      tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(7));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
     expect(tabNames(container)).toEqual(["Задачи", "Проверка", "Timeline",
-      "Звонки", "Схема", "Прогноз", "Выгрузить"]);
+      "Схема", "Прогноз", "Инструменты"]);
   });
 
   it("исполнителю — только «Задачи»", async () => {
@@ -54,7 +54,7 @@ describe("вкладки по роли", () => {
     await waitFor(() => expect(tabNames(container)).toEqual(["Задачи"]));
     // Ни схемы, ни выгрузки: модель ему не принадлежит.
     expect(screen.queryByRole("button", { name: "Схема" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Выгрузить" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Инструменты" })).toBeNull();
   });
 
   it("проверяющему — только «Проверка»", async () => {
@@ -82,7 +82,7 @@ describe("вкладки по роли", () => {
   it("без сервера приложение остаётся одиночным и полным", async () => {
     global.fetch = vi.fn(async () => { throw new Error("нет сети"); });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(7));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
   });
 
   it("сервер без токена бота — тоже одиночный режим, а не отказ", async () => {
@@ -94,7 +94,7 @@ describe("вкладки по роли", () => {
       return { ok: false, status: 401, json: async () => ({}) };
     });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(7));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
   });
 });
 
@@ -120,7 +120,7 @@ describe("общая модель ходит через сервер", () => {
   it("владелец выкладывает модель на сервер — иначе её никто не увидит", async () => {
     vi.useFakeTimers();
     spyServer({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"] });
+      tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
     await fresh();
     await vi.advanceTimersByTimeAsync(2500);
     vi.useRealTimers();
@@ -167,7 +167,8 @@ describe("кому какие задачи видны", () => {
       status: "backlog", assignee: "8", reviewer: "9", submissions: [], comments: [] },
   ];
   const load = (container, m) => {
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const area = container.querySelector("textarea");
     fireEvent.change(area, { target: { value: JSON.stringify(m) } });
     fireEvent.blur(area);
@@ -176,9 +177,9 @@ describe("кому какие задачи видны", () => {
 
   it("владелец видит и свои, и чужие", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"] });
+      tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(7));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
     load(container, model(TASKS));
     fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
     expect(screen.getByText("Моя задача")).toBeTruthy();
@@ -188,7 +189,7 @@ describe("кому какие задачи видны", () => {
   it("исполнитель видит только свою — чужой нет нигде на странице", async () => {
     server({ id: "2", isOwner: false, known: true,
       role: { id: "executor", name: "исполнитель" },
-      tabs: ["tasks", "json"] });          // json — чтобы загрузить модель в тесте
+      tabs: ["tasks", "tools"] });          // json — чтобы загрузить модель в тесте
     const { container } = await fresh();
     await waitFor(() => expect(tabNames(container)).toContain("Задачи"));
     load(container, model(TASKS));
@@ -199,7 +200,7 @@ describe("кому какие задачи видны", () => {
 
   it("проверяющий видит на «Проверке» только то, что проверяет он", async () => {
     server({ id: "3", isOwner: false, known: true,
-      role: { id: "reviewer", name: "проверяющий" }, tabs: ["review", "json"] });
+      role: { id: "reviewer", name: "проверяющий" }, tabs: ["review", "tools"] });
     const { container } = await fresh();
     await waitFor(() => expect(tabNames(container)).toContain("Проверка"));
     load(container, model(TASKS));
@@ -210,7 +211,7 @@ describe("кому какие задачи видны", () => {
 
   it("принятое проверяющим становится «Готово»", async () => {
     server({ id: "3", isOwner: false, known: true,
-      role: { id: "reviewer", name: "проверяющий" }, tabs: ["review", "json"] });
+      role: { id: "reviewer", name: "проверяющий" }, tabs: ["review", "tools"] });
     const { container } = await fresh();
     await waitFor(() => expect(tabNames(container)).toContain("Проверка"));
     load(container, model([{ ...TASKS[0], status: "review",
@@ -219,8 +220,9 @@ describe("кому какие задачи видны", () => {
     fireEvent.click(screen.getByText("Моя задача"));
     fireEvent.click(screen.getByRole("button", { name: "Принять" }));
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
     expect(JSON.parse(container.querySelector("textarea").value).tasks[0].status)
       .toBe("done");
   });

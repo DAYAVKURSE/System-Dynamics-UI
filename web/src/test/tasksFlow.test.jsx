@@ -10,8 +10,9 @@ beforeEach(() => { ({ container } = render(<SystemModel />)); });
 
 const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
 const dump = () => {
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);
 };
 const addFromMove = () => {
@@ -64,13 +65,10 @@ describe("движение берётся из того, под чем нажа�
     expect(ed.to).toBe(t.goalId);
   });
 
-  it("задача без движения заводится отдельной кнопкой и названа честно", () => {
+  it("задачи без движения не бывает — кнопки для неё нет", () => {
     tab("Задачи");
-    fireEvent.click(screen.getByRole("button", { name: "+ задача без движения" }));
-    const t = dump().tasks[0];
-    expect(t.edgeId).toBeNull();
-    tab("Задачи");
-    expect(screen.getByText(/в модели она ничего\s+не меняет/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /без движения/ })).toBeNull();
+    expect(screen.queryByPlaceholderText(/без движения/)).toBeNull();
   });
 });
 

@@ -19,13 +19,18 @@ const GOALS = [
 ];
 
 // Обёртка держит состояние задач и KR, как это делает SystemModel.
-function Harness({ tasks: t0 = [], okrs: o0 = [], goals = GOALS, okrValue = () => 5 }) {
+// Задача заводится только под движением цели, поэтому у обёртки есть и
+// движение, ведущее в первую цель.
+const EDGES = [{ id: "e1", from: "mkt", to: "u9", carrier: "приток", gives: 1, per: "мес",
+  sign: 1, conds: [], basis: "hypo" }];
+function Harness({ tasks: t0 = [], okrs: o0 = [], goals = GOALS, okrValue = () => 5,
+  edges = EDGES }) {
   const [tasks, setTasks] = React.useState(t0);
   const [okrs, setOkrs] = React.useState(o0);
   const [openId, setOpenId] = React.useState(null);
   return (
     <TasksBoard
-      goals={goals} okrs={okrs} setOkrs={setOkrs}
+      goals={goals} okrs={okrs} setOkrs={setOkrs} edges={edges}
       tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
       okrValue={okrValue} entityName={() => "Актив"}
     />
@@ -55,22 +60,18 @@ const commit = (el, value) => {
 const openEditorFor = (title) => fireEvent.click(screen.getByText(title));
 
 describe("доска задач", () => {
-  it("задача создаётся и попадает в колонку «Бэклог»", () => {
+  it("задачи без движения не бывает — форма предлагает только движения целей", () => {
     render(<Harness />);
-    commit(screen.getByPlaceholderText("название задачи без движения"),
-      "Позвонить рефералам");
-    fireEvent.click(screen.getByRole("button", { name: "+ задача без движения" }));
-
-    expect(screen.getByDisplayValue("Позвонить рефералам")).toBeInTheDocument();
-    // Задача обязана принадлежать цели — по умолчанию первой. Цель теперь
-    // показана целиком, а не выбирается селектом.
-    expect(screen.getAllByText(/активные пользователи/).length).toBeGreaterThan(0);
+    expect(screen.queryByPlaceholderText(/без движения/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /без движения/ })).toBeNull();
+    // Зато у каждого движения, ведущего к цели, своя кнопка.
+    expect(screen.getAllByRole("button", { name: /^\+ задача/ }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Задача — это гипотеза, взятая в работу/)).toBeInTheDocument();
   });
 
-  it("без единой цели задачу создать нельзя", () => {
+  it("без единой цели заводить нечего — так и сказано", () => {
     render(<Harness goals={[]} />);
-    expect(screen.getByRole("button", { name: "+ задача без движения" }))
-      .toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^\+ задача/ })).toBeNull();
     expect(screen.getByText(/Целей пока нет/)).toBeInTheDocument();
   });
 
@@ -231,9 +232,9 @@ describe("«Взять в работу» во вкладке «Прогноз»"
     // Снимок прогноза до принятия решения.
     // Вкладка и кнопка внутри неё называются одинаково: первая — вкладка.
     const dump = () => {
-      const bs = screen.getAllByRole("button", { name: "Выгрузить" });
-      fireEvent.click(bs[0]);
-      fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+      fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+      fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+      fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
       return JSON.parse(container.querySelector("textarea").value);
     };
     const before = dump();
@@ -242,8 +243,9 @@ describe("«Взять в работу» во вкладке «Прогноз»"
     expandCards(container);
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
     const after = JSON.parse(container.querySelector("textarea").value);
 
     // Рычаг сдвинут: либо стартовое значение ресурса, либо интенсивность стрелки.
@@ -261,8 +263,9 @@ describe("«Взять в работу» во вкладке «Прогноз»"
     expandCards(container);
     fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
 
     const dump = JSON.parse(container.querySelector("textarea").value);
     expect(dump.okrs).toHaveLength(1);

@@ -21,7 +21,8 @@ describe("время на главной схеме", () => {
   it("сдвиг в будущее меняет значения на схеме", () => {
     // Детерминированная модель: запас растёт по 100 в месяц к цели 1200 —
     // «сейчас» шкала цели пустая, через 12 месяцев полная.
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const area = container.querySelector("textarea");
     fireEvent.change(area, { target: { value: JSON.stringify({
       entities: [{ id: "a", name: "Касса", color: "#fff", x: 0, y: 0 }],

@@ -184,6 +184,10 @@ jobs:
         if: steps.secrets.outputs.ready == 'true'
         env:
           DEPLOY_PATH_R: ${{ steps.cfg.outputs.path }}
+          APP_DOMAIN_R: ${{ steps.cfg.outputs.domain }}
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+          SSH_CMD: ${{ steps.ssh.outputs.cmd }}
+          SSH_USER_R: ${{ steps.cfg.outputs.user }}
         run: |
           set -euo pipefail
           rm -rf deploy_pkg
@@ -195,6 +199,25 @@ jobs:
           # .env для сервера собирается здесь, из секретов Actions. В репозитории
           # никаких значений нет — server/.env.example нужен только для локальной
           # разработки и на сервер не попадает.
+          # Воркер моста едет вместе с сервером.
+          mkdir -p deploy_pkg/tools && cp tools/claude-bridge.mjs deploy_pkg/tools/
+
+          # Секреты, которые нужны только внутри сервера, рождаются здесь сами,
+          # если их не задали: общий секрет воркера и секрет TURN не должны
+          # требовать от владельца ничего выдумывать. Один раз родившись, они
+          # переживают деплои: файл .env уже лежит на сервере, и мы читаем
+          # прежнее значение оттуда, а не перезаписываем.
+          prev_env=$($SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
+            "cat '${DEPLOY_PATH_R}/app/.env' 2>/dev/null || true")
+          keep() { echo "$prev_env" | sed -n "s/^$1=//p" | head -1; }
+          BRIDGE_TOKEN="${BRIDGE_TOKEN:-$(keep BRIDGE_TOKEN)}"
+          BRIDGE_TOKEN="${BRIDGE_TOKEN:-$(openssl rand -hex 24)}"
+          TURN_SECRET="${TURN_SECRET:-$(keep TURN_SECRET)}"
+          TURN_SECRET="${TURN_SECRET:-$(openssl rand -hex 24)}"
+          # Секрет TURN нужен и следующему шагу — он настраивает coturn.
+          echo "::add-mask::$TURN_SECRET"
+          echo "TURN_SECRET_R=$TURN_SECRET" >> "$GITHUB_ENV"
+
           umask 077
           cat > deploy_pkg/.env <<EOF
           NODE_ENV=production
@@ -209,7 +232,10 @@ jobs:
           TURN_URL=${TURN_URL:-}
           TURN_USER=${TURN_USER:-}
           TURN_PASS=${TURN_PASS:-}
-          BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
+          TURN_SECRET=${TURN_SECRET}
+          TURN_HOST=${APP_DOMAIN_R}
+          BRIDGE_TOKEN=${BRIDGE_TOKEN}
+          BRIDGE_CWD=${DEPLOY_PATH_R}/app
           OWNER_TELEGRAM_ID=${OWNER_TELEGRAM_ID:-}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF
@@ -229,7 +255,7 @@ jobs:
           set -euo pipefail
           payload="$(base64 -w0 deploy/bootstrap.sh)"
           $SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
-            "echo $payload | base64 -d | DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_DOMAIN=$(printf '%q' "$APP_DOMAIN_R") APP_PORT=3000 bash"
+            "echo $payload | base64 -d | DEPLOY_PATH=$(printf '%q' "$DEPLOY_PATH_R") APP_DOMAIN=$(printf '%q' "$APP_DOMAIN_R") APP_PORT=3000 TURN_SECRET=$(printf '%q' "${TURN_SECRET_R:-}") bash"
 
       - name: Скопировать приложение (данные сценариев не трогаются — они вне app/)
         if: steps.secrets.outputs.ready == 'true'

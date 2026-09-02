@@ -9,7 +9,7 @@ describe("App", () => {
     expect(screen.getByText("Задачи")).toBeInTheDocument();
     expect(screen.getByText("Схема")).toBeInTheDocument();
     expect(screen.getByText("Прогноз")).toBeInTheDocument();
-    expect(screen.getByText("Выгрузить")).toBeInTheDocument();
+    expect(screen.getByText("Инструменты")).toBeInTheDocument();
   });
 
   it("модель со стартовой целью рендерится", () => {

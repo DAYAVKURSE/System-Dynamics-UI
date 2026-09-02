@@ -14,10 +14,21 @@
 
    ─── Запуск ───
 
+   На сервере воркер поднимает pm2 рядом с приложением и читает тот же
+   .env — руками его запускать не нужно. На своей машине:
+
      BRIDGE_URL=https://ваш-домен \
      BRIDGE_TOKEN=тот-же-секрет-что-на-сервере \
      BRIDGE_CWD=/путь/к/репозиторию \
      node tools/claude-bridge.mjs
+
+   ─── Вход в аккаунт ───
+
+   Claude Code должен быть залогинен там, где работает воркер. Это
+   единственный шаг, который делает только владелец аккаунта: один раз
+   выполнить `claude setup-token`, открыть ссылку, разрешить, и положить
+   выданный токен в CLAUDE_CODE_OAUTH_TOKEN в .env. Пока входа нет, воркер
+   отвечает на каждый вопрос именно этим — что делать, — а не молчит.
 
    ─── Что важно знать ───
 
@@ -31,8 +42,20 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
-const URL_BASE = (process.env.BRIDGE_URL || "").replace(/\/+$/, "");
+// .env приложения — рядом, если воркер запущен pm2 на сервере. Читаем сами,
+// без зависимостей: dotenv у воркера нет, а у сервера есть.
+for (const f of [path.resolve(process.cwd(), ".env")]) {
+  if (!existsSync(f)) continue;
+  for (const line of readFileSync(f, "utf8").split("\n")) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)=(.*)$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
+  }
+}
+
+const URL_BASE = (process.env.BRIDGE_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 const TOKEN = process.env.BRIDGE_TOKEN || "";
 const CWD = process.env.BRIDGE_CWD || process.cwd();
 const BIN = process.env.CLAUDE_BIN || "claude";
@@ -93,8 +116,33 @@ function runClaude(prompt, sid) {
   });
 }
 
+const LOGIN_HELP = [
+  "Claude Code на сервере ещё не вошёл в ваш аккаунт — это единственный шаг,",
+  "который делает только владелец аккаунта. Один раз:",
+  "",
+  "1. Зайдите на сервер по SSH (с телефона годится любое SSH-приложение).",
+  "2. Выполните: claude setup-token",
+  "3. Откройте показанную ссылку, разрешите доступ, вставьте код обратно.",
+  "4. Полученный токен допишите в файл app/.env строкой",
+  "   CLAUDE_CODE_OAUTH_TOKEN=…  и выполните: pm2 restart claude-bridge",
+  "",
+  "После этого вопросы начнут получать ответы.",
+].join("\n");
+
+/** Есть ли вход: пробуем самый короткий запрос. Ответ кэшируется на 10 минут —
+ *  проверка стоит одного вызова Claude, и спрашивать её каждый раз незачем. */
+let loginOk = null, loginCheckedAt = 0;
+async function loggedIn() {
+  if (loginOk && Date.now() - loginCheckedAt < 600000) return true;
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) { loginOk = true; loginCheckedAt = Date.now(); return true; }
+  const r = await runClaude("Ответь одним словом: ок", null);
+  loginOk = !r.error && /ок|ok/i.test(String(r.text || ""));
+  loginCheckedAt = Date.now();
+  return loginOk;
+}
+
 async function loop() {
-  console.log(`Мост запущен. Каталог: ${CWD}. Инструменты: ${TOOLS}`);
+  console.log(`Мост запущен. Каталог: ${CWD}. Инструменты: ${TOOLS}. Сервер: ${URL_BASE}`);
   for (;;) {
     let task = null;
     try {
@@ -113,7 +161,9 @@ async function loop() {
     if (!task?.id) continue;
 
     console.log(`→ вопрос ${task.id}: ${task.text.slice(0, 80)}`);
-    const res = await runClaude(task.text, task.sid);
+    const res = (await loggedIn())
+      ? await runClaude(task.text, task.sid)
+      : { text: "", sid: null, error: LOGIN_HELP };
     try {
       await fetch(`${URL_BASE}/api/bridge/${task.id}/answer`, {
         method: "POST",

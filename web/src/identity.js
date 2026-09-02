@@ -12,7 +12,7 @@ import { getInitData } from "./telegram.js";
    от единственного её хозяина было бы странно.
    ════════════════════════════════════════════════════════════════ */
 
-export const ALL_TABS = ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"];
+export const ALL_TABS = ["tasks", "review", "timeline", "scheme", "sim", "tools"];
 
 export const SOLO = {
   id: "local", isOwner: true, known: true, name: "", role: null,
@@ -81,3 +81,7 @@ export const submitTaskRemote = (id, submission) =>
 export const reviewTaskRemote = (id, { accept, comment }) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/review`,
     { method: "POST", body: JSON.stringify({ accept, comment }) });
+
+/** Черновик содержимого задачи от Claude — через мост, только владельцу. */
+export const draftTask = (fields) =>
+  json("/api/workspace/draft", { method: "POST", body: JSON.stringify(fields) });

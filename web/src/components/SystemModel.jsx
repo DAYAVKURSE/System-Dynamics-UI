@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule } from "../storage.js";
-import { SOLO, whoAmI, getWorkspace, putWorkspace, reviewTaskRemote }
+import { SOLO, whoAmI, getWorkspace, putWorkspace, reviewTaskRemote, draftTask }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
@@ -668,8 +668,8 @@ function whenText(iso){
    в каком порядке — иначе у двух людей приложение выглядело бы по-разному
    не только составом, но и расположением. */
 export const TAB_LIST=[["tasks","Задачи"],["review","Проверка"],
-  ["timeline","Timeline"],["calls","Звонки"],["scheme","Схема"],["sim","Прогноз"],
-  ["json","Выгрузить"]];
+  ["timeline","Timeline"],["scheme","Схема"],["sim","Прогноз"],
+  ["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
 export default function SystemModel(){
@@ -716,7 +716,9 @@ export default function SystemModel(){
     whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
     return ()=>{ live=false; };
   },[]);
-  useEffect(()=>{ if(openCall && me.tabs.includes("calls")) setTab("calls"); },
+  // Внутренняя вкладка «инструментов». Звонок по ссылке открывает её сразу.
+  const [tool,setTool]=useState("people");
+  useEffect(()=>{ if(openCall && me.tabs.includes("tools")) { setTab("tools"); setTool("calls"); } },
     [openCall,me.tabs]);
 
   const ent=(id)=>entities.find(e=>e.id===id);
@@ -936,10 +938,10 @@ export default function SystemModel(){
     try{ setSavedList(await listScenarios()); }
     catch{ setSavedMsg("Не удалось получить список сохранённых сценариев."); }
   };
-  useEffect(()=>{ if(tab!=="json") return;
+  useEffect(()=>{ if(tab!=="tools"||tool!=="export") return;
     refreshSavedList();
     detectStorage().then(k=>setSavedWhere(STORAGE_LABEL[k]||"")).catch(()=>{});
-  },[tab]);
+  },[tab,tool]);
   const saveToDisk=async()=>{
     setSavedBusy(true);
     try{
@@ -992,22 +994,24 @@ export default function SystemModel(){
     setSavedBusy(false);
   };
 
-  // Кому какие задачи видны. Владельцу — все; остальным только свои: те,
-  // где он исполнитель или проверяющий. Настоящий отбор делает сервер, здесь
-  // то же правило повторено, чтобы интерфейс не показывал лишнего в
+  // Кому какие задачи видны. Владельцу — все. Остальным во вкладке «Задачи»
+  // — только назначенные ему как исполнителю: то, что он проверяет, живёт
+  // на «Проверке» и в списке дел ему не нужно. Настоящий отбор делает
+  // сервер; здесь то же правило, чтобы интерфейс не показывал лишнего в
   // одиночном режиме и до ответа сервера.
   const myTasks=useMemo(()=>(me.isOwner?tasks:tasks.filter(t=>
-    String(t.assignee||"")===String(me.id)||String(t.reviewer||"")===String(me.id))),
-  [tasks,me.isOwner,me.id]);
+    String(t.assignee||"")===String(me.id))),[tasks,me.isOwner,me.id]);
   const personName=useCallback((id)=>{
     if(id==null||id==="") return "не назначен";
     return people.find(p=>String(p.id)===String(id))?.name||String(id);
   },[people]);
   // Решение проверяющего меняет статус и добавляет комментарий одной
   // правкой: два setTasks подряд считали бы от одного прежнего состояния.
+  // Возврат — в бэклог с текстом доработки: задачу надо переставить заново,
+  // прочитав, что исправить.
   const decide=useCallback((task,accept,note)=>{
     setTasks(p=>p.map(t=>t.id===task.id?{...t,
-      status:accept?"done":"progress",
+      status:accept?"done":"backlog",
       comments:note?[...(t.comments||[]),
         {id:"c"+Date.now().toString(36),text:note,at:new Date().toISOString()}]
         :(t.comments||[]),
@@ -1017,6 +1021,15 @@ export default function SystemModel(){
     reviewTaskRemote(task.id,{accept,comment:note}).catch(()=>{});
   },[setTasks]);
 
+  const onDraft=useMemo(()=>((me.solo||!me.isOwner)?null:
+    async({task,goal,move,target,assignee,reviewer})=>{
+      const r=await draftTask({
+        title:task.title,
+        goal:goal?`${goal.l} — нужно ${nm(shown(goal,Number(goal.want)))} ${unitOf(goal)}`:"",
+        move:move?`${move.carrier||""} ${nm(Math.abs(Number(move.gives)||0))} ${target?unitOf(target).split("/")[0]:""} за ${move.per} в «${target?.l||""}»`.trim():"",
+        assignee,reviewer});
+      return r?.text||"";
+    }),[me.solo,me.isOwner]);
   const toggleCard=useCallback((id)=>setOpenCards(p=>{
     const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n;
   }),[]);
@@ -1146,7 +1159,7 @@ export default function SystemModel(){
           edges={edges}
           okrValue={okrValue} okrShown={okrShown}
           openId={openTask} setOpenId={setOpenTask}
-          people={people} canAssign={me.isOwner}
+          people={people} canAssign={me.isOwner} onDraft={onDraft}
           entityName={id=>ent(id)?.name||"—"}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
@@ -1155,10 +1168,6 @@ export default function SystemModel(){
           goals={goals} meId={me.id} isOwner={me.isOwner} nameOf={personName}
           onAccept={(t,note)=>decide(t,true,note)}
           onReturn={(t,note)=>decide(t,false,note)}/>)}
-
-      {/* ═══ ЗВОНКИ ═══ */}
-      {tab==="calls" && me.tabs.includes("calls") && (
-        <CallsBoard meId={me.id} openCall={openCall} onOpenCall={setOpenCall}/>)}
 
       {/* ═══ TIMELINE ═══ */}
       {tab==="timeline" && me.tabs.includes("timeline") && (
@@ -1721,7 +1730,7 @@ export default function SystemModel(){
                   setTasks={setTasks} traits={traits} entities={entities}
                   edges={edges}
                   okrValue={okrValue} okrShown={okrShown}
-                  people={people} canAssign={me.isOwner}
+                  people={people} canAssign={me.isOwner} onDraft={onDraft}
                   entityName={id=>ent(id)?.name||"—"}
                   openId={openTask} setOpenId={setOpenTask}/>
               </div>
@@ -1824,7 +1833,7 @@ export default function SystemModel(){
                           {on&&<div style={{marginTop:6}}>
                             <TaskEditor task={tk} goals={goals} traits={traits}
                               entities={entities} edges={edges}
-                              people={people} canAssign={me.isOwner}
+                              people={people} canAssign={me.isOwner} onDraft={onDraft}
                               entityName={id=>ent(id)?.name||"—"}
                               setTasks={setTasks} onClose={()=>setOpenTask(null)}
                               onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==tk.id));
@@ -1843,10 +1852,26 @@ export default function SystemModel(){
       </div>)}
 
       {/* ═══ ВЫГРУЗИТЬ ═══ */}
-      {tab==="json" && me.isOwner && !me.solo && (
-        <PeoplePanel onPeople={setPeople}/>)}
+      {tab==="tools" && me.tabs.includes("tools") && (
+        <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
+          {[["people","Люди и роли"],["calls","Звонки"],["export","Выгрузка"]]
+            .filter(([k])=>k!=="people"||(me.isOwner&&!me.solo)||me.solo)
+            .map(([k,t])=>(
+            <button key={k} style={btn(tool===k)} onClick={()=>setTool(k)}>{t}</button>))}
+        </div>)}
 
-      {tab==="json" && me.tabs.includes("json") && (
+      {tab==="tools" && me.tabs.includes("tools") && tool==="people" && (
+        me.solo
+          ? <div style={{...S.card,marginBottom:10,fontSize:11.5,color:C.muted,lineHeight:1.6}}>
+              Людей и ролей нет: приложение работает без сервера, и вы здесь один.
+            </div>
+          : <PeoplePanel onPeople={setPeople}/>)}
+
+      {tab==="tools" && me.tabs.includes("tools") && tool==="calls" && (
+        <CallsBoard meId={me.id} openCall={openCall} onOpenCall={setOpenCall}
+          nameOf={personName}/>)}
+
+      {tab==="tools" && me.tabs.includes("tools") && tool==="export" && (
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <button style={btn(true)} onClick={()=>{
@@ -1874,7 +1899,7 @@ export default function SystemModel(){
       {/* ═══ СОХРАНЕНИЕ НА ДИСКЕ СЕРВЕРА ═══
           Отдельный блок поверх существующей вкладки JSON: ничего из логики/расчётов/
           разметки выше не тронуто — это только I/O к бэкенду для дисковых сценариев. */}
-      {tab==="json" && me.tabs.includes("json") && (
+      {tab==="tools" && me.tabs.includes("tools") && tool==="export" && (
         <div style={{...S.card,marginTop:10}}>
           <div style={S.lbl}>сохранённые сценарии{savedWhere?` · ${savedWhere}`:""}</div>
           <div className="flex flex-wrap gap-2" style={{margin:"6px 0 8px",alignItems:"center"}}>

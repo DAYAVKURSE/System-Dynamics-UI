@@ -39,6 +39,7 @@ rehearse_as() {
   stub systemctl
   stub nginx     # в том числе "nginx -t"
   stub pm2
+  stub claude    # Claude Code «уже стоит»: ставить его в песочнице незачем
   stub chown     # в песочнице менять владельца не нужно и нельзя
 
   # curl тянет установщик nodesource и результат уходит в bash — отдаём no-op.

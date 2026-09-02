@@ -99,6 +99,56 @@ fi
 $SUDO nginx -t
 $SUDO systemctl reload nginx || $SUDO systemctl restart nginx
 
+echo "── coturn (TURN для звонков) ──"
+# Без TURN звонок между двумя строгими NAT не соединится вовсе. coturn
+# ставится сюда же и работает по общему секрету: пароль для браузера —
+# HMAC от срока действия, постоянных учётных данных в браузер не уезжает.
+# Секрет пишет деплой в .env приложения; сюда он приходит переменной.
+if [ -n "${TURN_SECRET:-}" ]; then
+  if ! command -v turnserver >/dev/null 2>&1; then
+    $SUDO apt-get install -y -qq coturn
+  fi
+  $SUDO tee /etc/turnserver.conf >/dev/null <<TURN
+listening-port=3478
+fingerprint
+use-auth-secret
+static-auth-secret=${TURN_SECRET}
+realm=${APP_DOMAIN}
+# Только ретрансляция для WebRTC — ничего лишнего наружу.
+no-cli
+no-tlsv1
+no-tlsv1_1
+min-port=49152
+max-port=65535
+TURN
+  # В Debian/Ubuntu coturn выключен, пока не снят комментарий в этом файле.
+  if [ -f /etc/default/coturn ]; then
+    $SUDO sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn
+  fi
+  $SUDO systemctl enable coturn >/dev/null 2>&1 || true
+  $SUDO systemctl restart coturn || echo "coturn не перезапустился — звонки будут без TURN"
+  # Файрвол: 3478 для сигналов TURN, диапазон ретрансляции — UDP.
+  if command -v ufw >/dev/null 2>&1 && $SUDO ufw status | grep -q "Status: active"; then
+    $SUDO ufw allow 3478/udp >/dev/null 2>&1 || true
+    $SUDO ufw allow 3478/tcp >/dev/null 2>&1 || true
+    $SUDO ufw allow 49152:65535/udp >/dev/null 2>&1 || true
+  fi
+  echo "coturn настроен на $APP_DOMAIN"
+else
+  echo "TURN_SECRET не задан — TURN пропущен"
+fi
+
+echo "── Claude Code (мост) ──"
+# Воркер моста запускает Claude Code здесь же, на сервере. Ставится
+# глобально; вход в аккаунт — отдельный шаг владельца (см. DEPLOYMENT.md).
+if ! command -v claude >/dev/null 2>&1; then
+  $SUDO npm i -g @anthropic-ai/claude-code >/dev/null 2>&1 \
+    && echo "Claude Code установлен" \
+    || echo "Claude Code не установился — мост будет отвечать, что не залогинен"
+else
+  echo "Claude Code уже установлен: $(claude --version 2>/dev/null | head -1)"
+fi
+
 echo "── HTTPS-сертификат ──"
 if $SUDO certbot certificates 2>/dev/null | grep -q "$APP_DOMAIN"; then
   echo "сертификат для $APP_DOMAIN уже выпущен (продление certbot делает сам)"

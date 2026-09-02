@@ -43,7 +43,7 @@ describe("владелец", () => {
   it("владельцу видны все вкладки, и роль ему не нужна", async () => {
     const me = await identify("100", { name: "Первый" });
     expect(me.tabs).toContain("scheme");
-    expect(me.tabs).toContain("json");
+    expect(me.tabs).toContain("tools");
     expect(me.role).toBeNull();
   });
 
@@ -89,8 +89,24 @@ describe("роли", () => {
     expect((await identify("300", {})).tabs).toEqual(["tasks", "sim"]);
   });
 
-  it("встроенную роль удалить нельзя — иначе приглашать станет некем", async () => {
-    expect(await removeRole("executor")).toBe(false);
+  it("удалить можно любую роль, кроме последней — иначе приглашать станет некем", async () => {
+    expect(await removeRole("executor")).toBe(true);     // встроенные тоже
+    expect(await removeRole("reviewer")).toBe(true);
+    expect(await removeRole("worker")).toBe(true);
+    // Осталась одна — она не удаляется.
+    const { roles } = await listOrg();
+    expect(roles).toHaveLength(1);
+    expect(await removeRole(roles[0].id)).toBe(false);
+  });
+
+  it("удалённая встроенная роль не воскресает при следующем чтении", async () => {
+    await removeRole("executor");
+    expect((await listOrg()).roles.map((r) => r.id)).not.toContain("executor");
+  });
+
+  it("старые имена вкладок в сохранённой роли читаются как «инструменты»", async () => {
+    const role = await addRole({ name: "Архивная", tabs: ["json", "calls", "tasks"] });
+    expect(role.tabs.sort()).toEqual(["tasks", "tools"]);
   });
 
   it("удаление роли оставляет людей без роли, а не раздаёт другую молча", async () => {
@@ -207,9 +223,16 @@ describe("что можно изменить", () => {
     expect(r.task.comments).toHaveLength(1);
   });
 
-  it("возврат отчёта отправляет задачу обратно в работу", async () => {
+  it("возврат отчёта отправляет задачу в бэклог с текстом доработки", async () => {
     await seed();
-    expect((await reviewTask("300", "tk1", { accept: false })).task.status).toBe("progress");
+    const r = await reviewTask("300", "tk1", { accept: false, comment: "не хватает цифр" });
+    expect(r.task.status).toBe("backlog");
+    expect(r.task.comments[0].text).toBe("не хватает цифр");
+  });
+
+  it("вернуть без текста доработки нельзя — исполнителю нечего исправлять", async () => {
+    await seed();
+    expect((await reviewTask("300", "tk1", { accept: false })).error).toBe("comment required");
   });
 
   it("принять свою же задачу исполнитель не может", async () => {

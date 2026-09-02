@@ -29,18 +29,11 @@ const lastOf = (t) => {
   return subs.length ? subs[subs.length - 1] : null;
 };
 
-export default function ReviewBoard({ tasks = [], traits = [], entities = [], edges = [],
-  goals = [], meId, isOwner, onAccept, onReturn, nameOf }) {
-  const [openId, setOpenId] = useState(null);
-  const [note, setNote] = useState("");
-
-  // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
-  const mine = useMemo(() => tasks.filter((t) =>
-    isOwner || String(t.reviewer || "") === String(meId)), [tasks, meId, isOwner]);
-  const waiting = mine.filter((t) => t.status === "review");
-  const rest = mine.filter((t) => t.status !== "review");
-
-  const Card = ({ t, dim }) => {
+/* Карточка вынесена из компонента намеренно: объявленная внутри рендера,
+   она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
+   на каждой букве. */
+function Card({ t, dim, openId, setOpenId, note, setNote, edges, traits, entities,
+  nameOf, onAccept, onReturn }) {
     const on = openId === t.id;
     const sub = lastOf(t);
     const ed = edges.find((e) => e.id === t.edgeId) || null;
@@ -90,7 +83,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], ed
 
             {t.status === "review" && (
               <>
-                <input value={note} placeholder="комментарий к решению"
+                <input value={note} placeholder="что доработать (обязательно при возврате)"
                   onChange={(e) => setNote(e.target.value)}
                   style={{ ...S.inp, marginBottom: 6 }} />
                 <div className="flex flex-wrap gap-2">
@@ -98,12 +91,15 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], ed
                     onClick={() => { onAccept(t, note); setNote(""); setOpenId(null); }}>
                     Принять</button>
                   <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+                    disabled={!note.trim()}
+                    title={note.trim() ? "" : "Напишите, что доработать"}
                     onClick={() => { onReturn(t, note); setNote(""); setOpenId(null); }}>
-                    Вернуть в работу</button>
+                    Вернуть в бэклог</button>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-                  «Принять» переводит задачу в «Готово». «Вернуть» — обратно
-                  в работу; комментарий увидит исполнитель.
+                  «Принять» переводит задачу в «Готово». «Вернуть» — в бэклог с
+                  текстом доработки; без текста вернуть нельзя — исполнителю
+                  нечего будет исправлять.
                 </div>
               </>)}
             {!!(t.comments || []).length && (
@@ -116,7 +112,18 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], ed
               </div>)}
           </div>)}
       </div>);
-  };
+  }
+
+export default function ReviewBoard({ tasks = [], traits = [], entities = [], edges = [],
+  goals = [], meId, isOwner, onAccept, onReturn, nameOf }) {
+  const [openId, setOpenId] = useState(null);
+  const [note, setNote] = useState("");
+
+  // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
+  const mine = useMemo(() => tasks.filter((t) =>
+    isOwner || String(t.reviewer || "") === String(meId)), [tasks, meId, isOwner]);
+  const waiting = mine.filter((t) => t.status === "review");
+  const rest = mine.filter((t) => t.status !== "review");
 
   return (
     <div>
@@ -132,12 +139,16 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], ed
       {!waiting.length && (
         <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>
           Ничего не ждёт проверки.</div>)}
-      {waiting.map((t) => <Card key={t.id} t={t} />)}
+      {waiting.map((t) => <Card key={t.id} t={t} openId={openId} setOpenId={setOpenId}
+        note={note} setNote={setNote} edges={edges} traits={traits} entities={entities}
+        nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
 
       {!!rest.length && (
         <>
           <div style={{ ...S.lbl, margin: "12px 0 6px" }}>остальные задачи под вашей проверкой</div>
-          {rest.map((t) => <Card key={t.id} t={t} dim />)}
+          {rest.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
+            note={note} setNote={setNote} edges={edges} traits={traits} entities={entities}
+            nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
         </>)}
     </div>);
 }

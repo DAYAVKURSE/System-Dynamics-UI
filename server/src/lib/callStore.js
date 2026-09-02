@@ -20,7 +20,8 @@ import crypto from "node:crypto";
 
 const MAX_MEETINGS = 500;
 const SIGNAL_TTL_MS = 10 * 60 * 1000;   // сигналы живут только на время созвона
-const MAX_SIGNALS = 400;                // на комнату
+const MAX_SIGNALS = 2000;               // на комнату: сетка на 20 человек шлёт много ICE
+export const MAX_PEERS = 20;
 
 function baseDir() {
   return process.env.CALLS_DIR

@@ -123,7 +123,10 @@ export async function reviewTask(userId, taskId, { accept, comment }) {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.reviewer || "") !== String(userId)) return { error: "not yours" };
-  task.status = accept ? "done" : "progress";
+  // Возврат — в бэклог, а не «в работу»: задачу надо переставить заново,
+  // прочитав, что именно доработать. Текст доработки — обязателен.
+  if (!accept && !String(comment || "").trim()) return { error: "comment required" };
+  task.status = accept ? "done" : "backlog";
   if (comment) {
     task.comments = [...(task.comments || []), {
       id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),

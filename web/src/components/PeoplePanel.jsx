@@ -17,8 +17,8 @@ import {
    ════════════════════════════════════════════════════════════════ */
 
 const TAB_NAMES = {
-  tasks: "Задачи", review: "Проверка", timeline: "Timeline", calls: "Звонки",
-  scheme: "Схема", sim: "Прогноз", json: "Выгрузить",
+  tasks: "Задачи", review: "Проверка", timeline: "Timeline",
+  scheme: "Схема", sim: "Прогноз", tools: "Инструменты",
 };
 
 export default function PeoplePanel({ onPeople }) {
@@ -106,10 +106,11 @@ export default function PeoplePanel({ onPeople }) {
               <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{r.name}</span>
               <span style={{ fontSize: 10, color: C.muted }}>
                 людей: {org.users.filter((u) => u.roleId === r.id).length}</span>
-              {r.builtin
-                ? <span style={{ fontSize: 9.5, color: C.muted }}>встроенная</span>
-                : <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
-                    disabled={busy} onClick={() => act(() => removeRole(r.id))}>✕</button>}
+              {r.builtin && <span style={{ fontSize: 9.5, color: C.muted }}>встроенная</span>}
+              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+                disabled={busy || org.roles.length <= 1}
+                title={org.roles.length <= 1 ? "Последнюю роль удалить нельзя — позвать станет некого" : ""}
+                onClick={() => act(() => removeRole(r.id))}>Удалить роль</button>
             </div>
             <div className="flex flex-wrap gap-2">
               {ALL_TABS.map((t) => {

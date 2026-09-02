@@ -49,8 +49,9 @@ const openSubmit = () => {
   fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 };
 const dump = () => {
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);
 };
 const attach = async (f) => {

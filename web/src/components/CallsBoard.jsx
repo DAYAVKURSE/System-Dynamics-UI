@@ -19,7 +19,7 @@ const fmt = (v) => {
       hour: "2-digit", minute: "2-digit" });
 };
 
-export default function CallsBoard({ meId, openCall, onOpenCall }) {
+export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
   const [list, setList] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,7 +39,8 @@ export default function CallsBoard({ meId, openCall, onOpenCall }) {
   };
 
   if (openCall) {
-    return <CallRoom meetingId={openCall} meId={meId} onClose={() => onOpenCall(null)} />;
+    return <CallRoom meetingId={openCall} meId={meId} nameOf={nameOf}
+      onClose={() => onOpenCall(null)} />;
   }
 
   return (

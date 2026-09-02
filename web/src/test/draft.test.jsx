@@ -217,7 +217,8 @@ describe("черновик и диск", () => {
     flushOnHide();
     expect(readDraft()).not.toBeNull(); // черновик есть — иначе проверка ниже пустая
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
 
     const name = screen.getByPlaceholderText("имя сценария");
     fireEvent.change(name, { target: { value: "Рабочий" } });
@@ -242,7 +243,8 @@ describe("черновик и диск", () => {
     flushOnHide();
     expect(readDraft()).not.toBeNull();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const list = await screen.findByRole("combobox");
     fireEvent.change(list, { target: { value: "s1" } });
     // Кнопок «Загрузить» на вкладке две: первая — для текста JSON,
@@ -262,7 +264,8 @@ describe("черновик и диск", () => {
       data: { s2: JSON.stringify(old) },
     }));
     render(<SystemModel />);
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const list = await screen.findByRole("combobox");
     fireEvent.change(list, { target: { value: "s2" } });
     // Кнопок «Загрузить» на вкладке две: первая — для текста JSON,
@@ -291,13 +294,14 @@ describe("черновик и диск", () => {
       data: { s3: JSON.stringify(old) },
     }));
     const { container } = render(<SystemModel />);
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const list = await screen.findByRole("combobox");
     fireEvent.change(list, { target: { value: "s3" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[1]);
     await waitFor(() => expect(screen.getByText(/Загружено/)).toBeTruthy());
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
     expect(JSON.parse(container.querySelector("textarea").value).hypos).toEqual([]);
   });
 });

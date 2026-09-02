@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { PER, unitOf, shown, lastSubmission } from "../lib/sim.js";
 import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
@@ -103,7 +103,7 @@ export function okrFromRec(goalId,r){
    делается — в одном месте. Раньше это было на «Задачах», и между целью и
    работой по ней стояла лишняя вкладка. */
 export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],edges=[],
-  okrValue,okrShown,entityName,openId,setOpenId,people=[],canAssign=true}){
+  okrValue,okrShown,entityName,openId,setOpenId,people=[],canAssign=true,onDraft=null}){
   const show=okrShown||((o,v)=>Number(v));
   const krs=okrs.filter(o=>o.goalId===g.id);
   const gt=tasks.filter(t=>t.goalId===g.id);
@@ -238,7 +238,7 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
                   {on&&<div style={{marginTop:8}}>
                     <TaskEditor task={t} goals={[g]} traits={traits}
                       entities={entities} edges={edges} entityName={entityName}
-                      people={people} canAssign={canAssign}
+                      people={people} canAssign={canAssign} onDraft={onDraft}
                       setTasks={setTasks}
                       onClose={()=>setOpenId(null)}
                       onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==t.id));
@@ -254,7 +254,7 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
    целью во вкладке «Цели» и над доской во вкладке «Задачи». Копия того же
    JSX в двух местах разъехалась бы на первой же правке. */
 export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
-  entityName,setTasks,onClose,onDelete,people=[],canAssign=true}){
+  entityName,setTasks,onClose,onDelete,people=[],canAssign=true,onDraft=null}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
@@ -295,6 +295,31 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
     setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
   };
   const target=move?traits.find(t=>t.id===move.to):null;
+
+  // Черновик содержимого от Claude — когда назначены оба и текста ещё нет.
+  // Один запрос на задачу: повторно — только кнопкой, иначе каждая правка
+  // назначений заново переписывала бы то, что человек уже начал менять.
+  const [drafting,setDrafting]=useState(false);
+  const [draftNote,setDraftNote]=useState("");
+  const askedFor=useRef(null);
+  const requestDraft=async(force=false)=>{
+    if(!onDraft||drafting) return;
+    if(!task.assignee||!task.reviewer) return;
+    if(!force&&(task.body||askedFor.current===task.id)) return;
+    askedFor.current=task.id;
+    setDrafting(true); setDraftNote("");
+    try{
+      const text=await onDraft({task,goal,move,target,
+        assignee:people.find(p=>String(p.id)===String(task.assignee))?.name,
+        reviewer:people.find(p=>String(p.id)===String(task.reviewer))?.name});
+      if(text){ up("body",text); setDraftNote("черновик от Claude — правьте как угодно"); }
+      else setDraftNote("не вышло: Claude не ответил");
+    }catch(e){ setDraftNote(`не вышло: ${e.message}`); }
+    setDrafting(false);
+  };
+  useEffect(()=>{ requestDraft(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },
+    [task.assignee,task.reviewer,task.id]);
+
   return (
         <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
           <div className="flex items-center gap-2" style={{marginBottom:8}}>
@@ -309,10 +334,30 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
           <TxtField value={task.title} style={{marginBottom:8,fontWeight:600}}
             onCommit={v=>up("title",v)}/>
 
-          <div style={S.lbl}>содержимое задачи</div>
-          <TxtField area value={task.body} placeholder="что именно нужно сделать"
-            style={{minHeight:70,marginBottom:8,lineHeight:1.5}}
-            onCommit={v=>up("body",v)}/>
+          <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
+            <div style={{flex:"1 1 150px"}}>
+              <div style={S.lbl}>исполнитель</div>
+              <select style={S.inp} value={task.assignee||""} disabled={!canAssign}
+                onChange={e=>up("assignee",e.target.value||null)}>
+                <option value="">— не назначен —</option>
+                {people.map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+              </select>
+            </div>
+            <div style={{flex:"1 1 150px"}}>
+              <div style={S.lbl}>проверяющий</div>
+              <select style={S.inp} value={task.reviewer||""} disabled={!canAssign}
+                onChange={e=>up("reviewer",e.target.value||null)}>
+                <option value="">— не назначен —</option>
+                {people.map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+              </select>
+            </div>
+          </div>
+          <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
+            {canAssign
+              ? "Исполнителю задача видна во вкладке «Задачи», проверяющему — во вкладке «Проверка». Больше её не видит никто, кроме владельца."
+              : "Кого назначить, решает владелец."}
+            {!people.length&&" Пока в модели один человек — добавьте людей через бота."}
+          </div>
 
           <div style={S.lbl}>цель и гипотеза, на которой она построена</div>
           <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
@@ -366,38 +411,16 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
                 не меняет. Заведите её заново под движением цели.
               </div>}
 
-          <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
-            <div style={{flex:"1 1 150px"}}>
-              <div style={S.lbl}>исполнитель</div>
-              <select style={S.inp} value={task.assignee||""} disabled={!canAssign}
-                onChange={e=>up("assignee",e.target.value||null)}>
-                <option value="">— не назначен —</option>
-                {people.map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
-              </select>
-            </div>
-            <div style={{flex:"1 1 150px"}}>
-              <div style={S.lbl}>проверяющий</div>
-              <select style={S.inp} value={task.reviewer||""} disabled={!canAssign}
-                onChange={e=>up("reviewer",e.target.value||null)}>
-                <option value="">— не назначен —</option>
-                {people.map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
-              </select>
-            </div>
-          </div>
-          <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-            {canAssign
-              ? "Исполнителю задача видна во вкладке «Задачи», проверяющему — во вкладке «Проверка». Больше её не видит никто, кроме владельца."
-              : "Кого назначить, решает владелец."}
-            {!people.length&&" Пока в модели один человек — добавьте людей через бота."}
-          </div>
-
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <div style={{flex:"1 1 130px"}}>
               <div style={S.lbl}>статус</div>
               <select style={S.inp} value={task.status}
                 onChange={e=>up("status",e.target.value)}>
-                {STATUSES.map(s=>(<option key={s.id} value={s.id}>{s.name}</option>))}
+                {STATUSES.map(s=>(<option key={s.id} value={s.id}
+                  disabled={s.id==="done"&&task.status!=="done"}>{s.name}</option>))}
               </select>
+              <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
+                «Готово» ставит проверяющий, принимая отчёт.</div>
             </div>
           </div>
 
@@ -502,6 +525,25 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
           </div>
           <TxtField value="" placeholder="добавить комментарий и нажать Enter"
             onCommit={v=>addComment(v)}/>
+
+          {/* Содержимое — последним: его удобнее писать, когда всё остальное
+              уже задано, а с назначенными исполнителем и проверяющим черновик
+              предлагает Claude. Текст правится как любой другой. */}
+          <div style={{...S.lbl,marginTop:10}}>содержимое задачи</div>
+          <TxtField area value={task.body}
+            placeholder={drafting?"Claude составляет черновик…":"что именно нужно сделать"}
+            style={{minHeight:70,marginBottom:4,lineHeight:1.5}}
+            onCommit={v=>up("body",v)}/>
+          <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+            {onDraft&&<button style={btn(false)} disabled={drafting||!task.assignee||!task.reviewer}
+              onClick={()=>requestDraft(true)}>
+              {drafting?"составляю…":"✎ черновик от Claude"}</button>}
+            <span style={{fontSize:10.5,color:draftNote.startsWith("не")?WARN:C.muted,
+              lineHeight:1.5}}>
+              {draftNote||(onDraft
+                ?"Черновик появится сам, когда назначены исполнитель и проверяющий."
+                :"")}</span>
+          </div>
         </div>  );
 }
 
@@ -513,7 +555,7 @@ const pctOf=(o,current)=>{
 
 export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
   traits=[],entities=[],edges=[],okrValue,okrShown,entityName,
-  openId:openIdProp,setOpenId:setOpenIdProp,people=[],canAssign=true}){
+  openId:openIdProp,setOpenId:setOpenIdProp,people=[],canAssign=true,onDraft=null}){
   // Прогресс считается по модельным числам, показываются — по человеческим.
   const show=okrShown||((o,v)=>Number(v));
   const [ownOpen,setOwnOpen]=useState(null);
@@ -522,7 +564,6 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
   const openId=openIdProp!==undefined?openIdProp:ownOpen;
   const setOpenId=setOpenIdProp||setOwnOpen;
   const [filter,setFilter]=useState("all");
-  const [draft,setDraft]=useState("");
 
   const goalById=useMemo(()=>Object.fromEntries(goals.map(g=>[g.id,g])),[goals]);
   const open=tasks.find(t=>t.id===openId)||null;
@@ -536,11 +577,7 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
     setTasks(p=>[...p,t]); setOpenId(t.id);
     return t;
   };
-  const addTask=()=>{
-    if(!goals.length) return;
-    const goalId=filter!=="all"&&goalById[filter]?filter:goals[0].id;
-    addTaskFor(goalId,draft.trim()); setDraft("");
-  };
+
   const addComment=(id,text)=>{
     if(!text.trim()) return;
     upT(id,"comments",[...(tasks.find(t=>t.id===id)?.comments||[]),
@@ -552,10 +589,19 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
     // ключевым результатом — просто отвязываем.
     setTasks(p=>p.map(t=>t.okrId===id?{...t,okrId:null}:t));
   };
+  // «Готово» с доски недостижимо: туда задачу переводит только проверяющий,
+  // принимая отчёт. Иначе исполнитель закрывал бы свою работу сам, и слово
+  // «готово» перестало бы что-либо значить.
+  // Одно правило и для кнопки, и для перестановки: дальше «Проверки» с доски
+  // не уехать. Иначе кнопка и логика разошлись бы, и тест ловил бы одно, а
+  // код делал другое.
+  const REVIEW_AT=STATUSES.findIndex(s=>s.id==="review");
+  const canAdvance=(t)=>STATUSES.findIndex(s=>s.id===t.status)<REVIEW_AT;
   const moveStatus=(t,dir)=>{
+    if(dir>0&&!canAdvance(t)) return;
     const i=STATUSES.findIndex(s=>s.id===t.status);
-    const next=STATUSES[Math.max(0,Math.min(STATUSES.length-1,i+dir))];
-    upT(t.id,"status",next.id);
+    const next=STATUSES[Math.max(0,Math.min(REVIEW_AT,i+dir))];
+    if(next.id!==t.status) upT(t.id,"status",next.id);
   };
 
   const shown=filter==="all"?tasks:tasks.filter(t=>t.goalId===filter);
@@ -616,7 +662,8 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
                           disabled={s.id===STATUSES[0].id}
                           onClick={()=>moveStatus(t,-1)}>‹</button>
                         <button style={{...btn(false),padding:"2px 8px"}}
-                          disabled={s.id===STATUSES[STATUSES.length-1].id}
+                          disabled={!canAdvance(t)}
+                          title={!canAdvance(t)?"Дальше — только через приём отчёта":""}
                           onClick={()=>moveStatus(t,1)}>›</button>
                       </div>
                     </div>);})}
@@ -625,16 +672,17 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
       </div>
 
 {open&&<TaskEditor task={open} goals={goals} traits={traits} entities={entities} edges={edges}
-        entityName={entityName} people={people} canAssign={canAssign}
+        entityName={entityName} people={people} canAssign={canAssign} onDraft={onDraft}
         setTasks={setTasks} onClose={()=>setOpenId(null)} onDelete={()=>delT(open.id)}/>}
 
       {/* ─── Добавление задач: под доской ─── */}
       <div style={{...S.card,marginTop:10,marginBottom:10}}>
         <div style={S.lbl}>завести задачу</div>
         <div style={{fontSize:11.5,color:C.muted,margin:"6px 0 8px",lineHeight:1.6}}>
-          Движение само по себе не происходит — его кто-то делает. Задача
-          заводится под движением: какое именно она выполняет, решает то, под
-          чем нажата кнопка, а не выбор в самой задаче.
+          Задача — это гипотеза, взятая в работу: она заводится только под
+          движением, которое ведёт к поставленной цели. Что именно она
+          выполняет, решает то, под чем нажата кнопка. Задачи «просто так»
+          не бывает: ей нечего было бы менять в модели.
         </div>
         {goals.map(g=>{
           const moves=edges.filter(e=>e.to===g.id);
@@ -677,15 +725,6 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
               </div>);})}
           </div>);})}
 
-        <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginTop:8}}>
-          <TxtField value={draft} placeholder="название задачи без движения"
-            style={{flex:"2 1 180px"}} onCommit={setDraft}/>
-          <button style={btn(false)} disabled={!goals.length} onClick={addTask}>
-            + задача без движения</button>
-        </div>
-        <div style={{fontSize:10.5,color:C.muted,marginTop:5,lineHeight:1.5}}>
-          Такая задача ничего не двигает в модели — она просто напоминание.
-        </div>
         {!goals.length&&<div style={{fontSize:11.5,color:C.muted,marginTop:6,
           lineHeight:1.6}}>
           Целей пока нет. Поставьте цель во вкладке «Прогноз» — задачи всегда

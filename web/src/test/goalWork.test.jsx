@@ -24,8 +24,9 @@ const goalCard = (name) => {
   return label.closest("div").parentElement;
 };
 const dump = () => {
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   const m = JSON.parse(container.querySelector("textarea").value);
   fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
   return m;
@@ -33,8 +34,8 @@ const dump = () => {
 
 describe("порядок и названия вкладок", () => {
   it("задачи, проверка, timeline, звонки, схема, прогноз, выгрузить", () => {
-    const names = ["Задачи", "Проверка", "Timeline", "Звонки", "Схема",
-      "Прогноз", "Выгрузить"];
+    const names = ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
+      "Инструменты"];
     const tabs = names.map((n) => screen.getAllByRole("button", { name: n })[0]);
     // Порядок в разметке — это и есть порядок на экране.
     const pos = tabs.map((b) => [...container.querySelectorAll("button")].indexOf(b));

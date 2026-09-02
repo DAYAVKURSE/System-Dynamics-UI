@@ -1,8 +1,9 @@
 import { Router } from "express";
+import crypto from "node:crypto";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify } from "../lib/orgStore.js";
 import {
-  createMeeting, deleteMeeting, getMeeting, listMeetings, peersIn, putSignal,
+  MAX_PEERS, createMeeting, deleteMeeting, getMeeting, listMeetings, peersIn, putSignal,
   takeSignals,
 } from "../lib/callStore.js";
 
@@ -18,23 +19,38 @@ router.use(async (req, res, next) => {
 const known = (req, res, next) =>
   (req.me.known ? next() : res.status(403).json({ error: "not invited" }));
 
-/** Что отдавать клиенту для соединения: публичный STUN плюс TURN, если задан. */
-export function iceServers(env = process.env) {
+/**
+ * Что отдавать клиенту для соединения: публичный STUN плюс TURN.
+ *
+ * TURN двух видов. Свой coturn на этом же сервере ставится деплоем и
+ * работает по общему секрету (TURN_SECRET): пароль — HMAC от срока
+ * действия, поэтому в браузер уезжают учётные данные на час, а не
+ * постоянные. Внешний TURN (TURN_URL/TURN_USER/TURN_PASS) — как есть.
+ */
+export function iceServers(env = process.env, now = Date.now()) {
   const list = [{ urls: (env.STUN_URLS || "stun:stun.l.google.com:19302").split(",") }];
-  if (env.TURN_URL) {
+  if (env.TURN_SECRET && env.TURN_HOST) {
+    const ttl = 3600;
+    const username = `${Math.floor(now / 1000) + ttl}:sd`;
+    const credential = crypto.createHmac("sha1", env.TURN_SECRET).update(username).digest("base64");
     list.push({
-      urls: env.TURN_URL.split(","),
-      username: env.TURN_USER || "",
-      credential: env.TURN_PASS || "",
+      urls: [`turn:${env.TURN_HOST}:3478?transport=udp`, `turn:${env.TURN_HOST}:3478?transport=tcp`],
+      username, credential,
     });
+  } else if (env.TURN_URL) {
+    list.push({ urls: env.TURN_URL.split(","), username: env.TURN_USER || "",
+      credential: env.TURN_PASS || "" });
   }
   return list;
 }
 
+export const hasTurn = (env = process.env) =>
+  Boolean((env.TURN_SECRET && env.TURN_HOST) || env.TURN_URL);
+
 router.get("/ice", (_req, res) => {
-  // TURN нужен, когда оба собеседника за строгим NAT: без него часть
-  // звонков не соединится вовсе. Говорим прямо, а не молчим.
-  res.json({ iceServers: iceServers(), turn: Boolean(process.env.TURN_URL) });
+  // TURN нужен, когда собеседники за строгим NAT: без него часть звонков
+  // не соединится вовсе. Говорим прямо, а не молчим.
+  res.json({ iceServers: iceServers(), turn: hasTurn(), maxPeers: MAX_PEERS });
 });
 
 router.get("/", known, async (req, res, next) => {
@@ -75,6 +91,12 @@ router.delete("/:id", known, async (req, res, next) => {
 router.post("/:id/signal", async (req, res, next) => {
   try {
     if (!(await getMeeting(req.params.id))) return res.status(404).json({ error: "not found" });
+    // Комната полна — новому «привет» отказ, а не тихое молчание в ответ.
+    const here = peersIn(req.params.id);
+    if (req.body?.data?.type === "hello" && !here.includes(req.telegramUserId)
+      && here.length >= MAX_PEERS) {
+      return res.status(409).json({ error: `в комнате уже ${MAX_PEERS} участников` });
+    }
     const n = putSignal(req.params.id, {
       from: req.telegramUserId,
       to: req.body?.to ?? null,

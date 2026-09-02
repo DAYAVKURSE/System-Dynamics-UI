@@ -23,8 +23,9 @@ const undoBtn = () => screen.getByRole("button", { name: /отменить/ });
 
 // Состояние модели читаем через выгрузку JSON — не через то, что нарисовано.
 const model = () => {
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   const m = JSON.parse(container.querySelector("textarea").value);
   fireEvent.click(screen.getByRole("button", { name: "Схема" }));
   return m;
@@ -127,7 +128,8 @@ describe("выравнивание по сетке", () => {
     traits: [], edges: [],
   };
   const load = () => {
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const area = container.querySelector("textarea");
     fireEvent.change(area, { target: { value: JSON.stringify(MESSY) } });
     fireEvent.blur(area);

@@ -27,7 +27,8 @@ const MODEL = {
 let container;
 beforeEach(() => {
   ({ container } = render(<SystemModel />));
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
   const area = container.querySelector("textarea");
   fireEvent.change(area, { target: { value: JSON.stringify(MODEL) } });
   fireEvent.blur(area);
@@ -80,7 +81,8 @@ describe("сводка стрелки говорит правду про нех�
   it("две стрелки к одному источнику не получают по полной", () => {
     // Ровно та ошибка, из-за которой карточка показывала обеим по 100%:
     // она печатала запрос, а не то, что уходит на самом деле.
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const area = container.querySelector("textarea");
     commit(area, JSON.stringify({
       ...MODEL,
@@ -109,7 +111,8 @@ describe("сводка стрелки говорит правду про нех�
 
 describe("условие на остаток собственного источника", () => {
   const selfGated = () => {
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const area = container.querySelector("textarea");
     commit(area, JSON.stringify({
       ...MODEL,
@@ -209,7 +212,8 @@ describe("переключение вида условия", () => {
 
 describe("старые условия продолжают работать", () => {
   it("условие-пропорция из сохранённого сценария открывается своим видом", () => {
-    fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const area = container.querySelector("textarea");
     commit(area, JSON.stringify({
       ...MODEL,

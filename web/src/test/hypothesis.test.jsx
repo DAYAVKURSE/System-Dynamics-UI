@@ -14,8 +14,9 @@ const openBuilder = () => {
   fireEvent.click(screen.getByRole("button", { name: "+ составить гипотезу" }));
 };
 const dump = () => {
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);
 };
 const program = () => screen.getByRole("group", { name: "строки гипотезы" });

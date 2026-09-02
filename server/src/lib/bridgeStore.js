@@ -52,6 +52,25 @@ export function ask({ text, from, chatId, sid = null }, now = Date.now()) {
   return item;
 }
 
+/**
+ * Ждёт ответа на вопрос — для запросов из приложения, где ответ нужен
+ * в том же HTTP-запросе, а не в чат. Не дождались — null, а не вечное
+ * ожидание: интерфейс скажет «не вышло», человек напишет сам.
+ */
+export function waitFor(id, timeoutMs = 90000, stepMs = 300) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const look = () => {
+      const item = find(id);
+      if (!item) return resolve(null);
+      if (item.status === "done") { item.sent = true; return resolve(item); }
+      if (Date.now() >= deadline) return resolve(null);
+      return setTimeout(look, stepMs);
+    };
+    look();
+  });
+}
+
 /** Что взять в работу. Воркер один, поэтому берётся самый старый вопрос. */
 export function takeNext(now = Date.now()) {
   sweep(now);

@@ -20,7 +20,13 @@ import path from "node:path";
    и не ограничен ролью вовсе.
    ════════════════════════════════════════════════════════════════ */
 
-export const TABS = ["tasks", "review", "timeline", "calls", "scheme", "sim", "json"];
+export const TABS = ["tasks", "review", "timeline", "scheme", "sim", "tools"];
+// Прежние имена вкладок из сохранённых ролей: «выгрузка» и «звонки» стали
+// внутренними вкладками «инструментов». Читаем старое как новое, чтобы роль,
+// заведённая вчера, не потеряла вкладку сегодня.
+const TAB_ALIAS = { json: "tools", calls: "tools" };
+export const normTabs = (tabs) => [...new Set((tabs || [])
+  .map((t) => TAB_ALIAS[t] || t).filter((t) => TABS.includes(t)))];
 
 // Встроенные роли переименовать и удалить нельзя: на них ссылается
 // приглашение из бота, и остаться без единой роли значит остаться без
@@ -31,7 +37,7 @@ export const BUILTIN_ROLES = [
   { id: "worker", name: "исполнитель и проверяющий", tabs: ["tasks", "review"], builtin: true },
   // Созвон нужен всем, кто вообще работает в модели: договориться о
   // встрече — не привилегия.
-  { id: "caller", name: "исполнитель со звонками", tabs: ["tasks", "calls"], builtin: true },
+  { id: "caller", name: "исполнитель со звонками", tabs: ["tasks", "tools"], builtin: true },
 ];
 
 const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [] };
@@ -50,9 +56,10 @@ export async function readOrg() {
       ? parsed.roles : BUILTIN_ROLES;
     return {
       ownerId: parsed.ownerId != null ? String(parsed.ownerId) : null,
-      // Встроенные роли дописываем всегда: файл мог быть сохранён версией,
-      // которая их ещё не знала, а без них приглашать некого.
-      roles: [...roles, ...BUILTIN_ROLES.filter((b) => !roles.some((r) => r.id === b.id))],
+      // Роли — как записаны: встроенные тоже можно удалить, и воскрешать их
+      // при каждом чтении нельзя. Пустой список — единственный случай, когда
+      // подставляются встроенные: иначе позвать в модель станет некого.
+      roles: roles.map((r) => ({ ...r, tabs: normTabs(r.tabs) })),
       users: Array.isArray(parsed.users) ? parsed.users : [],
     };
   } catch {
@@ -108,7 +115,7 @@ export async function identify(userId, profile = {}) {
     role: role || null,
     // Владельцу доступно всё; остальным — то, что даёт роль. Не найдена
     // роль (её удалили) — не показываем ничего, кроме объяснения.
-    tabs: isOwner ? [...TABS] : (role ? role.tabs.filter((t) => TABS.includes(t)) : []),
+    tabs: isOwner ? [...TABS] : (role ? normTabs(role.tabs) : []),
   };
 }
 
@@ -170,7 +177,7 @@ export async function addRole({ name, tabs }) {
   while (org.roles.some((r) => r.id === id)) id = `${slug(clean)}-${n++}`;
   // Новая роль по умолчанию — исполнитель: из бота роль заводится одним
   // именем, а видеть чужие проверки без явного решения она не должна.
-  const list = Array.isArray(tabs) ? tabs.filter((t) => TABS.includes(t)) : [];
+  const list = normTabs(tabs);
   const role = { id, name: clean, tabs: list.length ? list : ["tasks"], builtin: false };
   org.roles.push(role);
   await writeOrg(org);
@@ -181,7 +188,7 @@ export async function setRoleTabs(id, tabs) {
   const org = await readOrg();
   const role = org.roles.find((r) => r.id === id);
   if (!role) return null;
-  role.tabs = (Array.isArray(tabs) ? tabs : []).filter((t) => TABS.includes(t));
+  role.tabs = normTabs(tabs);
   await writeOrg(org);
   return role;
 }
@@ -189,7 +196,9 @@ export async function setRoleTabs(id, tabs) {
 export async function removeRole(id) {
   const org = await readOrg();
   const role = org.roles.find((r) => r.id === id);
-  if (!role || role.builtin) return false;
+  // Удалить можно любую роль, включая встроенную, — кроме последней: без
+  // единой роли позвать в модель станет некого.
+  if (!role || org.roles.length <= 1) return false;
   org.roles = org.roles.filter((r) => r.id !== id);
   // Люди с удалённой ролью не исчезают — они остаются без роли, и это
   // видно в списке. Молча раздавать им другую роль нельзя.

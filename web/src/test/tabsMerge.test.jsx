@@ -21,8 +21,9 @@ beforeEach(() => { ({ container } = render(<SystemModel />)); });
 const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
 const forecast = () => { tab("Прогноз"); expandCards(container); };
 const dump = () => {
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[0]);
-  fireEvent.click(screen.getAllByRole("button", { name: "Выгрузить" })[1]);
+  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+  fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);
 };
 
@@ -31,10 +32,10 @@ describe("состав вкладок", () => {
     // Первыми в разметке идут кнопки истории — переключатели вкладок за ними.
     const bar = [...container.querySelectorAll("button")]
       .map((b) => b.textContent)
-      .filter((t) => ["Задачи", "Проверка", "Timeline", "Звонки", "Схема",
-        "Прогноз", "Выгрузить", "Цели", "Типы", "Отчёты"].includes(t));
-    expect(bar.slice(0, 7)).toEqual(["Задачи", "Проверка", "Timeline", "Звонки",
-      "Схема", "Прогноз", "Выгрузить"]);
+      .filter((t) => ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
+        "Инструменты", "Звонки", "Выгрузить", "Цели", "Типы", "Отчёты"].includes(t));
+    expect(bar.slice(0, 6)).toEqual(["Задачи", "Проверка", "Timeline",
+      "Схема", "Прогноз", "Инструменты"]);
     expect(screen.queryByRole("button", { name: "Цели" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Типы" })).toBeNull();
   });
