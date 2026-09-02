@@ -16,6 +16,9 @@ APP_PORT="${APP_PORT:-3000}"
 # целиком в песочнице, не трогая настоящий /etc (см. deploy/rehearse.sh).
 NGINX_CONF="${NGINX_CONF:-/etc/nginx/sites-available/system-dynamics-ui}"
 NGINX_ENABLED_DIR="${NGINX_ENABLED_DIR:-/etc/nginx/sites-enabled}"
+# То же — для coturn: конфиг и файл включения службы.
+TURN_CONF="${TURN_CONF:-/etc/turnserver.conf}"
+TURN_DEFAULT="${TURN_DEFAULT:-/etc/default/coturn}"
 
 # SUDO_E — отдельная переменная для команд, которым нужен sudo -E (сохранить
 # окружение). Под root обе пустые: иначе одинокий "-E" стал бы именем команды.
@@ -119,12 +122,28 @@ if [ -n "${TURN_SECRET:-}" ]; then
   fi
 fi
 if [ "$turn_ok" = "1" ]; then
-  $SUDO tee /etc/turnserver.conf >/dev/null <<TURN
+  # Публичный адрес — тот, в который резолвится домен. Если на интерфейсе
+  # сервера его нет (хостер отдаёт приватный адрес и пробрасывает публичный),
+  # coturn обязан знать оба: без external-ip он выдаёт клиентам приватный
+  # адрес ретрансляции, до которого снаружи не добраться, — и TURN «настроен»,
+  # но не работает.
+  public_ip="$(getent ahostsv4 "$APP_DOMAIN" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+  local_ips="$(hostname -I 2>/dev/null || true)"
+  external_ip_line=""
+  if [ -n "$public_ip" ] && ! printf '%s\n' $local_ips | grep -qx "$public_ip"; then
+    local_ip="$(printf '%s\n' $local_ips | grep -v '^127\.' | head -1 || true)"
+    if [ -n "$local_ip" ]; then
+      external_ip_line="external-ip=${public_ip}/${local_ip}"
+      echo "сервер за NAT: публичный $public_ip, на интерфейсе $local_ip — прописываю external-ip"
+    fi
+  fi
+  $SUDO tee "$TURN_CONF" >/dev/null <<TURN
 listening-port=3478
 fingerprint
 use-auth-secret
 static-auth-secret=${TURN_SECRET}
 realm=${APP_DOMAIN}
+${external_ip_line}
 # Только ретрансляция для WebRTC — ничего лишнего наружу.
 no-cli
 no-tlsv1
@@ -133,18 +152,37 @@ min-port=49152
 max-port=65535
 TURN
   # В Debian/Ubuntu coturn выключен, пока не снят комментарий в этом файле.
-  if [ -f /etc/default/coturn ]; then
-    $SUDO sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn
+  if [ -f "$TURN_DEFAULT" ]; then
+    $SUDO sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' "$TURN_DEFAULT"
   fi
   $SUDO systemctl enable coturn >/dev/null 2>&1 || true
   $SUDO systemctl restart coturn || echo "coturn не перезапустился — звонки будут без TURN"
   # Файрвол: 3478 для сигналов TURN, диапазон ретрансляции — UDP.
-  if command -v ufw >/dev/null 2>&1 && $SUDO ufw status | grep -q "Status: active"; then
+  if command -v ufw >/dev/null 2>&1 && $SUDO ufw status 2>/dev/null | grep -q "Status: active"; then
     $SUDO ufw allow 3478/udp >/dev/null 2>&1 || true
     $SUDO ufw allow 3478/tcp >/dev/null 2>&1 || true
     $SUDO ufw allow 49152:65535/udp >/dev/null 2>&1 || true
+    echo "ufw активен: 3478 и 49152–65535/udp открыты"
+  else
+    echo "ufw не активен — порты на самом сервере не закрыты"
   fi
-  echo "coturn настроен на $APP_DOMAIN"
+  # «Настроен» — не то же, что «работает». Проверяем, что служба жива и порт
+  # действительно слушается: иначе ошибка конфигурации осталась бы невидимой,
+  # а звонки за строгим NAT молча не соединялись бы.
+  # Список портов берём в переменную, а не в конвейер с grep -q: под pipefail
+  # grep -q закрывает трубу после первого совпадения, ss получает SIGPIPE, и
+  # проверка «не проходит» при живом coturn. Репетиция это и поймала.
+  sleep 1
+  listening="$({ ss -lnu 2>/dev/null; ss -lnt 2>/dev/null; } || true)"
+  if ! systemctl is-active --quiet coturn 2>/dev/null; then
+    echo "coturn НЕ ЗАПУЩЕН — звонки будут без TURN. Последние строки журнала:"
+    $SUDO journalctl -u coturn -n 8 --no-pager 2>/dev/null | sed 's/^/  /' || true
+  elif [[ "$listening" == *":3478 "* ]]; then
+    echo "coturn слушает 3478 (udp/tcp) на $APP_DOMAIN"
+  else
+    echo "coturn запущен, но порт 3478 не слушает — звонки будут без TURN. Журнал:"
+    $SUDO journalctl -u coturn -n 8 --no-pager 2>/dev/null | sed 's/^/  /' || true
+  fi
 elif [ -z "${TURN_SECRET:-}" ]; then
   echo "TURN_SECRET не задан — TURN пропущен"
 fi

@@ -302,6 +302,27 @@ jobs:
           echo "HTTPS снаружи не отвечает (вероятно, закрыт порт 443 или не выпущен сертификат)." >&2
           exit 1
 
+      # TURN виден только снаружи: с самого сервера файрвол хостера не
+      # проверить, а у владельца нет своей машины. Раннер — единственная
+      # точка, откуда это можно сделать честно. Деплой не роняет: TURN —
+      # улучшение звонков, а не приложение.
+      - name: Проверить TURN снаружи (STUN на 3478)
+        id: turn
+        if: steps.secrets.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          APP_DOMAIN_R: ${{ steps.cfg.outputs.domain }}
+        run: |
+          set -euo pipefail
+          if python3 deploy/turn-probe.py "$APP_DOMAIN_R" 3478; then
+            echo "turn=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "turn=false" >> "$GITHUB_OUTPUT"
+            echo "Смотрите строки после «── coturn ──» в шаге «Подготовить сервер»: если там" >&2
+            echo "«coturn слушает 3478», порт закрыт у хостера — откройте 3478 tcp/udp и 49152–65535/udp." >&2
+            exit 1
+          fi
+
       # Привязывает WebApp к боту, чтобы не ходить в @BotFather руками.
       - name: Настроить кнопку бота в Telegram
         if: steps.secrets.outputs.ready == 'true' && steps.verify.outputs.https == 'true'
@@ -331,6 +352,7 @@ jobs:
         env:
           APP_DOMAIN_R: ${{ steps.cfg.outputs.domain }}
           HTTPS_OK: ${{ steps.verify.outputs.https }}
+          TURN_OK: ${{ steps.turn.outputs.turn }}
         run: |
           {
             echo "### Деплой завершён"
@@ -344,6 +366,15 @@ jobs:
                 echo ""
                 echo "\`TELEGRAM_BOT_TOKEN\` не задан: сценарии сохраняются в облако"
                 echo "Telegram, кнопку бота нужно назначить вручную."
+              fi
+              echo ""
+              if [ "${TURN_OK:-false}" = "true" ]; then
+                echo "TURN (звонки за строгим NAT): **доступен снаружи**."
+              else
+                echo "TURN (звонки за строгим NAT): **снаружи не отвечает**. Звонки в обычных"
+                echo "сетях работают и так. Чтобы соединялись и за строгим NAT, откройте у"
+                echo "хостера порты 3478 tcp/udp и 49152–65535/udp; подробности — в шаге"
+                echo "«Подготовить сервер», строки после «── coturn ──»."
               fi
             else
               echo "Приложение развёрнуто, но снаружи по HTTPS не ответило."
