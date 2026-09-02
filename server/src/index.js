@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { store } from "./lib/scheduleStore.js";
@@ -48,14 +49,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   // Спрашиваем один раз при старте: оно не меняется.
   let botName = "";
   getMe().then((u) => { botName = u?.username || ""; }).catch(() => {});
-  // Главное мини-приложение бота открывается ссылкой t.me/<бот>?startapp=…:
-  // короткое имя приложения ему не нужно — BotFather спрашивает только URL.
-  // Если короткое имя всё же задано, ссылка идёт через него.
-  const APP = process.env.TELEGRAM_APP_NAME || "";
-  const appLink = (callId) => (botName
-    ? (APP ? `https://t.me/${botName}/${APP}?startapp=call_${callId}`
-           : `https://t.me/${botName}?startapp=call_${callId}`)
-    : `${process.env.PUBLIC_URL || ""}/?call=${callId}`);
+  // Как собирается ссылка на звонок — см. lib/links.js: отдельное
+  // мини-приложение (TELEGRAM_CALL_APP) или главное, всегда на пол-экрана.
+  const appLink = (callId) => callLinkFor(callLinkEnv(process.env, botName), callId);
 
   const loop = async () => {
     for (;;) {

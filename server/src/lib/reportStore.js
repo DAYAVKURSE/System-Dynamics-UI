@@ -17,7 +17,9 @@ import crypto from "node:crypto";
 
 const CONTROL_OR_SEP = /[\u0000-\u001f\u007f/\\]/g;
 
-export const MAX_REPORT_BYTES = 20 * 1024 * 1024;
+// 100 МБ: запись созвона при 300 кбит/с — это около 45 минут. Больше не
+// держим: диск сервера общий с моделью, и одна запись не должна его забить.
+export const MAX_REPORT_BYTES = 100 * 1024 * 1024;
 const MAX_REPORTS_PER_USER = 2000;
 const MAX_NAME_LEN = 200;
 

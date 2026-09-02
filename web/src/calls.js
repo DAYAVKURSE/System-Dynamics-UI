@@ -3,9 +3,11 @@ import { getInitData } from "./telegram.js";
 /* ════════════════════════════════════════════════════════════════
    ЗВОНКИ · клиентская часть
 
-   Видео и звук идут напрямую между собеседниками (WebRTC). Сервер только
-   передаёт им описания соединения и сетевые кандидаты — и перестаёт
-   участвовать, как только соединение установлено.
+   Видео и звук идут через сервер: у каждого участника соединение с
+   каждым, но медиа всегда ретранслирует coturn на этом же сервере
+   (iceTransportPolicy: relay). Прямых путей между телефонами нет — один
+   и тот же механизм для двоих и для десяти, и никаких «у одного не
+   соединилось из-за NAT».
 
    Сигналы ходят обычным HTTP с длинным опросом: nginx на сервере
    проксирует без Upgrade, и вебсокет через него не пройдёт. Сигналов за
@@ -41,8 +43,8 @@ export const pollSignals = (id, since, signal) =>
   fetch(`/api/calls/${encodeURIComponent(id)}/signal?since=${since}`,
     { headers: headers(), signal }).then((r) => (r.ok ? r.json() : null));
 
-/** Ссылка, по которой встреча открывается: её же кладём в приглашение. */
-export const callLink = (id) => `${location.origin}/?call=${encodeURIComponent(id)}`;
+/** Ссылка на страницу звонка — отдельную, без вкладок модели. */
+export const callLink = (id) => `${location.origin}/call?call=${encodeURIComponent(id)}`;
 
 /** Встреча, с которой приложение открыли: ?call=… или startapp=call_… */
 export function callFromLocation() {
@@ -90,6 +92,29 @@ export async function getLocalStream({ video = true, audio = true } = {}) {
     throw e;
   }
 }
+
+/** Умеет ли этот клиент показывать экран. На телефонах Telegram этого не
+ *  даёт вовсе (ни iOS, ни Android WebView); на компьютере — да. */
+export const screenShareSupported = () =>
+  Boolean(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+
+/** Экран для трансляции. Отказ — не поломка: человек передумал. */
+export async function getScreenStream() {
+  if (!screenShareSupported()) {
+    throw new Error("Этот клиент не умеет показывать экран — на телефоне Telegram это недоступно.");
+  }
+  try {
+    return await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  } catch (err) {
+    throw new Error(err?.name === "NotAllowedError"
+      ? "Показ экрана отменён."
+      : `Не удалось начать показ экрана: ${err?.message || err?.name || "неизвестная ошибка"}`);
+  }
+}
+
+/** Запись — умеренного качества: 300 кбит/с видео и 32 кбит/с звук дают
+ *  около 2,5 МБ в минуту, то есть 100 МБ — это сорок минут созвона. */
+export const RECORDER_OPTS = { videoBitsPerSecond: 300000, audioBitsPerSecond: 32000 };
 
 /** Формат записи, который умеет этот браузер. Пусто — записывать нечем. */
 export function recorderMime() {

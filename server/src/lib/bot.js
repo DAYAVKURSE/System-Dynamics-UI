@@ -44,7 +44,7 @@ const meetingCard = (m, link, botName) => [
   m.at ? `когда: ${m.at}` : "когда: договоримся в чате",
   "",
   `Подключиться: ${link}`,
-  botName ? `\nОкно звонка откроется внутри @${botName}.` : "",
+  botName ? "\nЗвонок откроется отдельным окном на пол-экрана — потяните вверх, чтобы развернуть." : "",
 ].filter((x) => x !== null).join("\n");
 
 async function onInline(q, from, { org, calls, answerInline, appLink, botName }) {

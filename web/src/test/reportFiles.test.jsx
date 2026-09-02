@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 /* Файл отчёта уезжает на диск сервера, а в сценарий попадает ссылка.
@@ -119,7 +120,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
     ({ container } = await fresh());
     openSubmit();
     const big = file("огромный.bin", "application/octet-stream", 1);
-    Object.defineProperty(big, "size", { value: 21 * 1024 * 1024 });
+    Object.defineProperty(big, "size", { value: MAX_UPLOAD_REPORT_BYTES + 1 });
     await attach(big);
 
     await waitFor(() => expect(screen.getByText(/не поместится/)).toBeTruthy());

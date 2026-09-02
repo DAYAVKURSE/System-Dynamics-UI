@@ -139,7 +139,7 @@ export async function syncSchedule(tasks) {
 // Инлайн переживает выгрузку сценария целиком, поэтому лимит здесь жёстче:
 // это то, что ляжет в одну ячейку хранилища вместе со всей моделью.
 export const MAX_INLINE_REPORT_BYTES = 2 * 1024 * 1024;
-export const MAX_UPLOAD_REPORT_BYTES = 20 * 1024 * 1024;
+export const MAX_UPLOAD_REPORT_BYTES = 100 * 1024 * 1024;   // как MAX_REPORT_BYTES на сервере
 
 let reportsOk = null;
 export async function reportsAvailable() {

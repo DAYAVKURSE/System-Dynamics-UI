@@ -83,5 +83,19 @@ export const reviewTaskRemote = (id, { accept, comment }) =>
     { method: "POST", body: JSON.stringify({ accept, comment }) });
 
 /** Черновик содержимого задачи от Claude — через мост, только владельцу. */
-export const draftTask = (fields) =>
-  json("/api/workspace/draft", { method: "POST", body: JSON.stringify(fields) });
+/** Черновик задачи от Claude. В два шага: поставить вопрос и опрашивать
+ *  ответ короткими запросами. Один длинный запрос nginx и WebView Telegram
+ *  рвали на минуте — интерфейс видел только «Failed to fetch». */
+export async function draftTask(fields, { intervalMs = 1500, timeoutMs = 190000, signal } = {}) {
+  const started = await json("/api/workspace/draft",
+    { method: "POST", body: JSON.stringify(fields) });
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (signal?.aborted) throw new Error("отменено");
+    await new Promise((r) => setTimeout(r, intervalMs));
+    const st = await json(`/api/workspace/draft/${encodeURIComponent(started.id)}`);
+    if (st.status === "done") return st.text;
+    if (st.status !== "pending") throw new Error(st.error || "Claude не ответил");
+    if (Date.now() > deadline) throw new Error("Claude не ответил вовремя — напишите текст сами");
+  }
+}

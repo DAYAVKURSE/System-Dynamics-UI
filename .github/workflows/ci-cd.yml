@@ -89,6 +89,10 @@ jobs:
       # отдельное приложение. Без него ссылка на звонок ведёт на главное
       # мини-приложение бота (t.me/<бот>?startapp=…), и этого достаточно.
       TELEGRAM_APP_NAME: ${{ secrets.TELEGRAM_APP_NAME }}
+      # Короткое имя отдельного мини-приложения звонка (@BotFather → /newapp,
+      # адрес https://<домен>/call). Без него ссылка на звонок ведёт на
+      # главное мини-приложение, и оно само откроет окно звонка.
+      TELEGRAM_CALL_APP: ${{ secrets.TELEGRAM_CALL_APP }}
       # TURN нужен, когда оба собеседника за строгим NAT. Без него
       # часть звонков не соединится — см. DEPLOYMENT.md.
       TURN_URL: ${{ secrets.TURN_URL }}
@@ -239,6 +243,7 @@ jobs:
           WORKSPACE_DIR=${DEPLOY_PATH_R}/data/workspace
           CALLS_DIR=${DEPLOY_PATH_R}/data/calls
           TELEGRAM_APP_NAME=${TELEGRAM_APP_NAME:-}
+          TELEGRAM_CALL_APP=${TELEGRAM_CALL_APP:-}
           TURN_URL=${TURN_URL:-}
           TURN_USER=${TURN_USER:-}
           TURN_PASS=${TURN_PASS:-}

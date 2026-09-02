@@ -32,7 +32,7 @@ export function createApp() {
       // Роли и общая модель держатся на подписи Telegram: без токена
       // отличить владельца от кого угодно нечем.
       org: Boolean(process.env.TELEGRAM_BOT_TOKEN),
-      // Звонки идут напрямую между собеседниками; сервер только сводит их.
+      // Звонки: сигналинг и ретрансляция медиа через этот же сервер.
       calls: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Мост включён, только когда задан общий секрет с воркером.
       bridge: Boolean(process.env.BRIDGE_TOKEN),
@@ -54,8 +54,14 @@ export function createApp() {
   // через `vite`, который проксирует /api на этот сервер (см. web/vite.config.js).
   const staticDir = process.env.STATIC_DIR || path.join(__dirname, "..", "public");
   const indexHtml = path.join(staticDir, "index.html");
+  // Звонок — отдельная страница с собственным входом (web/call.html): она
+  // открывается как самостоятельное мини-приложение, без вкладок модели.
+  const callHtml = path.join(staticDir, "call.html");
   if (fs.existsSync(indexHtml)) {
     app.use(express.static(staticDir));
+    if (fs.existsSync(callHtml)) {
+      app.get(["/call", "/call/"], (_req, res) => res.sendFile(callHtml));
+    }
     app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(indexHtml));
   }
 

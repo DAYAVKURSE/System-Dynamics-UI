@@ -16,6 +16,7 @@ APP_PORT="${APP_PORT:-3000}"
 # целиком в песочнице, не трогая настоящий /etc (см. deploy/rehearse.sh).
 NGINX_CONF="${NGINX_CONF:-/etc/nginx/sites-available/system-dynamics-ui}"
 NGINX_ENABLED_DIR="${NGINX_ENABLED_DIR:-/etc/nginx/sites-enabled}"
+NGINX_CONFD="${NGINX_CONFD:-/etc/nginx/conf.d}"
 # То же — для coturn: конфиг и файл включения службы.
 TURN_CONF="${TURN_CONF:-/etc/turnserver.conf}"
 TURN_DEFAULT="${TURN_DEFAULT:-/etc/default/coturn}"
@@ -99,8 +100,33 @@ else
   echo "конфиг для $APP_DOMAIN уже на месте"
 fi
 
+# Лимиты — отдельным файлом в conf.d, а не правкой основного конфига: тот
+# дописан certbot и переписывается только при смене домена. У nginx тело
+# запроса по умолчанию — 1 МБ, и запись созвона получала 413; сервер
+# принимает файлы до 100 МБ, nginx должен пропускать не меньше. Ожидание —
+# 5 минут: загрузка с телефона идёт медленно.
+$SUDO mkdir -p "$NGINX_CONFD"
+$SUDO tee "$NGINX_CONFD/system-dynamics-ui.conf" >/dev/null <<LIMITS
+# system-dynamics-ui: лимиты загрузки и ожидания (пишется деплоем)
+client_max_body_size 128m;
+client_body_timeout 300s;
+proxy_read_timeout 300s;
+proxy_send_timeout 300s;
+LIMITS
+echo "лимиты nginx: тело до 128m, ожидание 300s"
+
 $SUDO nginx -t
 $SUDO systemctl reload nginx || $SUDO systemctl restart nginx
+
+echo "── диск ──"
+# Записи созвонов и файлы отчётов ложатся на этот диск. Полный диск — это
+# «запись не сохранилась» без объяснений, поэтому говорим заранее.
+disk_line="$(df -hP "$DEPLOY_PATH" 2>/dev/null | awk 'NR==2{print "занято "$5" ("$3" из "$2"), свободно "$4}' || true)"
+disk_use="$(df -P "$DEPLOY_PATH" 2>/dev/null | awk 'NR==2{gsub("%","",$5); print $5}' || true)"
+echo "${disk_line:-не удалось узнать}"
+if [ -n "$disk_use" ] && [ "$disk_use" -ge 85 ] 2>/dev/null; then
+  echo "ВНИМАНИЕ: диск почти полон — записи созвонов и файлы отчётов скоро перестанут сохраняться. Освободите место или расширьте диск у хостера."
+fi
 
 echo "── coturn (TURN для звонков) ──"
 # Без TURN звонок между двумя строгими NAT не соединится вовсе. coturn

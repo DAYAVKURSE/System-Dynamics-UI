@@ -40,9 +40,9 @@ describe("встреча из ссылки", () => {
     expect(callFromLocation()).toBeNull();
   });
 
-  it("ссылка на встречу ведёт на этот же адрес", () => {
+  it("ссылка на встречу ведёт на отдельную страницу звонка", () => {
     setUrl("");
-    expect(callLink("abc")).toBe("https://example.test/?call=abc");
+    expect(callLink("abc")).toBe("https://example.test/call?call=abc");
   });
 });
 

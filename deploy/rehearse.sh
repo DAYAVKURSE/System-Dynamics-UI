@@ -133,6 +133,7 @@ STUB
   export PATH="$bin:$PATH"
   export NGINX_CONF="$sandbox/etc/nginx/sites-available/system-dynamics-ui"
   export NGINX_ENABLED_DIR="$sandbox/etc/nginx/sites-enabled"
+  export NGINX_CONFD="$sandbox/etc/nginx/conf.d"
   export DEPLOY_PATH="$sandbox/opt/system-dynamics-ui"
   export APP_DOMAIN="203-0-113-42.sslip.io"
   export APP_PORT=3000
@@ -158,6 +159,12 @@ STUB
   # Переменные nginx ($host и т.п.) не должны раскрыться при генерации конфига.
   grep -q 'proxy_set_header Host \$host;' "$NGINX_CONF" || fail "[$label] переменные nginx раскрылись"
   [ -L "$NGINX_ENABLED_DIR/system-dynamics-ui" ] || fail "[$label] сайт не включён симлинком"
+  # Лимиты загрузки: без них запись созвона упирается в 1 МБ nginx (413).
+  grep -q "^client_max_body_size 128m;" "$NGINX_CONFD/system-dynamics-ui.conf" 2>/dev/null \
+    || fail "[$label] не записан лимит client_max_body_size для nginx"
+  grep -q "^proxy_read_timeout 300s;" "$NGINX_CONFD/system-dynamics-ui.conf" \
+    || fail "[$label] не записан proxy_read_timeout для nginx"
+  grep -q "занято\|не удалось узнать" "$sandbox/pass1.log" || fail "[$label] нет строки о диске"
   grep -q "certbot --nginx -d $APP_DOMAIN" "$calls" || fail "[$label] не вызван выпуск сертификата"
   grep -q "^nginx -t" "$calls" || fail "[$label] конфиг nginx не проверен через nginx -t"
   # Ветка обновления Node должна была отработать целиком: и скачивание

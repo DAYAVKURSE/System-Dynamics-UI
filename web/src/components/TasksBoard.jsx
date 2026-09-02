@@ -531,7 +531,7 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
               предлагает Claude. Текст правится как любой другой. */}
           <div style={{...S.lbl,marginTop:10}}>содержимое задачи</div>
           <TxtField area value={task.body}
-            placeholder={drafting?"Claude составляет черновик…":"что именно нужно сделать"}
+            placeholder={drafting?"Claude составляет черновик — это до пары минут…":"что именно нужно сделать"}
             style={{minHeight:70,marginBottom:4,lineHeight:1.5}}
             onCommit={v=>up("body",v)}/>
           <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
@@ -539,7 +539,7 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
               onClick={()=>requestDraft(true)}>
               {drafting?"составляю…":"✎ черновик от Claude"}</button>}
             <span style={{fontSize:10.5,color:draftNote.startsWith("не")?WARN:C.muted,
-              lineHeight:1.5}}>
+              lineHeight:1.5,whiteSpace:"pre-wrap"}}>
               {draftNote||(onDraft
                 ?"Черновик появится сам, когда назначены исполнитель и проверяющий."
                 :"")}</span>

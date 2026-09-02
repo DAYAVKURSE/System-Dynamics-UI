@@ -1,46 +1,65 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn } from "./ui.jsx";
+import { C, OK, BAD, ACC, S, btn } from "./ui.jsx";
 import {
-  callLink, getIce, getLocalStream, getMeeting, pollSignals, recorderMime, sendSignal,
+  RECORDER_OPTS, callLink, getIce, getLocalStream, getMeeting, getScreenStream, pollSignals,
+  recorderMime, screenShareSupported, sendSignal,
 } from "../calls.js";
-import { putReportFile } from "../storage.js";
+import { MAX_UPLOAD_REPORT_BYTES, putReportFile } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОКНО СОВЕЩАНИЯ
 
-   Соединение — WebRTC, сетка «каждый с каждым»: у каждого участника своё
-   соединение с каждым другим, видео идёт напрямую, мимо сервера. Кто из
-   пары делает предложение, решает не человек, а порядок id: иначе оба
+   Соединение — WebRTC, у каждого участника своё соединение с каждым, но
+   медиа всегда идёт через сервер: iceTransportPolicy «relay» запрещает
+   прямые пути между устройствами, и весь звук и видео ретранслирует
+   coturn на этом же сервере. Так один и тот же механизм работает для
+   двоих и для десяти, и не бывает «с одним соединилось, с другим нет из-за
+   NAT»: путь до сервера у всех один.
+
+   Без сервера ретрансляции звонок не начинается — об этом говорится
+   словами, а не тишиной.
+
+   Кто из пары делает предложение соединения, решает порядок id: иначе оба
    предлагают одновременно и соединение разваливается на «glare».
 
-   Предел в 20 участников — предел комнаты, а не телефона. Сетка на N
-   человек — это N−1 исходящих видеопотоков с каждого устройства; на
-   телефоне после пятерых частота кадров падает, а батарея греется.
-   Честное решение для двадцати — сервер-микшер (SFU); он в роадмапе, а
-   здесь сетка, которая на пятерых работает хорошо и на двадцати — работает.
+   Предел в 20 участников — предел комнаты. Каждый участник отдаёт по
+   потоку на каждого другого; на телефоне после пятерых частота кадров
+   падает. Сервер-микшер (SFU), который берёт один поток и раздаёт всем,
+   — следующий шаг, он в роадмапе.
    ════════════════════════════════════════════════════════════════ */
 
 export const MAX_PEERS = 20;
 
-const CFG_FALLBACK = { iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }] };
+// Запас до предела загрузки: последний кусок записи прилетает уже после
+// команды «стоп», и его тоже надо уместить.
+export const MAX_RECORDING_BYTES = MAX_UPLOAD_REPORT_BYTES - 2 * 1024 * 1024;
 
-export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
+const mb = (n) => `${(n / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
+
+export default function CallRoom({
+  meetingId, meId, myName = "", onClose, nameOf, fit = false, onExpand = null,
+}) {
   const [meeting, setMeeting] = useState(null);
   const [state, setState] = useState("idle");   // idle | asking | waiting | live | ended
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
   const [mic, setMic] = useState(true);
   const [cam, setCam] = useState(true);
+  const [sharing, setSharing] = useState(false);
   const [rec, setRec] = useState(false);
   const [recNote, setRecNote] = useState("");
-  const [noTurn, setNoTurn] = useState(false);
+  const [recBytes, setRecBytes] = useState(0);
+  const [names, setNames] = useState({});          // id собеседника → имя из его «привет»
 
   const peers = useRef(new Map());        // id собеседника → RTCPeerConnection
   const [streams, setStreams] = useState({});   // id собеседника → MediaStream
-  const cfgRef = useRef(CFG_FALLBACK);
-  const local = useRef(null);
+  const cfgRef = useRef(null);
+  const local = useRef(null);             // камера и микрофон
+  const screen = useRef(null);            // экран, пока он транслируется
+  const outVideo = useRef(null);          // видеодорожка, которую сейчас отдаём
   const recorder = useRef(null);
   const chunks = useRef([]);
+  const bytes = useRef(0);
   const abort = useRef(null);
   const since = useRef(0);
   const stopped = useRef(false);
@@ -52,6 +71,10 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
     peers.current.forEach((c) => { try { c.close(); } catch { /* уже закрыт */ } });
     peers.current.clear();
     setStreams({});
+    screen.current?.getTracks().forEach((t) => t.stop());
+    screen.current = null;
+    outVideo.current = null;
+    setSharing(false);
     local.current?.getTracks().forEach((t) => t.stop());
     local.current = null;
   }, []);
@@ -96,7 +119,11 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
     if (peers.current.size >= MAX_PEERS - 1) return null;
     const conn = new RTCPeerConnection(cfgRef.current);
     peers.current.set(id, conn);
-    local.current?.getTracks().forEach((t) => conn.addTrack(t, local.current));
+    const audio = local.current?.getAudioTracks()[0];
+    if (audio) conn.addTrack(audio, local.current);
+    // Видео — то, что отдаём сейчас: экран, если он показывается, иначе камера.
+    const video = outVideo.current || local.current?.getVideoTracks()[0];
+    if (video) conn.addTrack(video, local.current);
     conn.ontrack = (e) => {
       setStreams((p) => ({ ...p, [id]: e.streams[0] }));
       setState("live");
@@ -105,7 +132,8 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
     conn.onconnectionstatechange = () => {
       if (conn.connectionState === "connected") { setState("live"); setNote(""); }
       if (conn.connectionState === "failed") {
-        setNote((n) => n || "С одним из участников соединение не установилось — строгий NAT, нужен TURN.");
+        setNote((n) => n || "С одним из участников соединение не установилось: у него не открылся"
+          + " путь до сервера ретрансляции (порт 3478). Пусть попробует другую сеть.");
       }
       if (["closed", "disconnected", "failed"].includes(conn.connectionState)) {
         // Собеседник ушёл — убираем его окно, остальные продолжают.
@@ -131,10 +159,11 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
   const onSignal = async (s) => {
     const d = s.data || {};
     const from = String(s.from);
+    if (d.name) setNames((p) => (p[from] === d.name ? p : { ...p, [from]: d.name }));
     if (d.type === "hello") {
       // Пришёл новый: предложение делает тот, чей id меньше. Отвечаем
       // «привет» адресно, чтобы новичок узнал обо всех, кто уже здесь.
-      post({ type: "hello-back" }, from);
+      post({ type: "hello-back", name: myName }, from);
       if (String(meId) < from) await makeOffer(from);
       return;
     }
@@ -167,6 +196,21 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
   /* ─── вход в звонок ─── */
   const join = async () => {
     setErr(""); setNote(""); setState("asking");
+    // Сначала — сервер ретрансляции: без него звонка не будет, и включать
+    // камеру, чтобы потом извиниться, незачем.
+    let ice;
+    try {
+      ice = await getIce();
+    } catch {
+      setErr("Сервер не отвечает — звонок без него невозможен."); setState("idle"); return;
+    }
+    if (!ice.turn) {
+      setErr("На сервере не настроена ретрансляция (TURN), а звонок идёт только через"
+        + " сервер. Настройка — в docs/DEPLOYMENT.md, раздел 6.6.");
+      setState("idle"); return;
+    }
+    cfgRef.current = { iceServers: ice.iceServers, iceTransportPolicy: "relay" };
+
     let stream;
     try {
       stream = await getLocalStream({ video: true, audio: true });
@@ -175,17 +219,12 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
     }
     local.current = stream;
 
-    try {
-      const ice = await getIce();
-      cfgRef.current = { iceServers: ice.iceServers };
-      setNoTurn(!ice.turn);
-    } catch { /* без ответа сервера остаётся публичный STUN */ }
-
     stopped.current = false;
     setState("waiting");
     listen();
-    // «Привет» зовёт того, кто уже в комнате, начать соединение.
-    post({ type: "hello" });
+    // «Привет» зовёт тех, кто уже в комнате, начать соединение; имя — чтобы
+    // они подписали плитку.
+    post({ type: "hello", name: myName });
   };
 
   const leave = () => {
@@ -195,7 +234,7 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
     setNote("Вы вышли из звонка.");
   };
 
-  /* ─── микрофон, камера, запись ─── */
+  /* ─── микрофон, камера, экран ─── */
   const toggleMic = () => {
     const on = !mic;
     local.current?.getAudioTracks().forEach((t) => { t.enabled = on; });
@@ -207,30 +246,77 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
     setCam(on);
   };
 
+  // Подменяет видеодорожку во всех соединениях, не пересобирая их: собеседники
+  // просто видят другую картинку.
+  const swapVideo = async (track) => {
+    await Promise.all([...peers.current.values()].map(async (conn) => {
+      const sender = conn.getSenders().find((s) => s.track?.kind === "video");
+      if (sender) await sender.replaceTrack(track).catch(() => {});
+      else if (track) conn.addTrack(track, local.current);
+    }));
+  };
+  const stopShare = async () => {
+    screen.current?.getTracks().forEach((t) => t.stop());
+    screen.current = null;
+    outVideo.current = null;
+    setSharing(false);
+    await swapVideo(local.current?.getVideoTracks()[0] || null);
+  };
+  const shareScreen = async () => {
+    if (sharing) return stopShare();
+    let s;
+    try { s = await getScreenStream(); } catch (e) { setNote(e.message); return; }
+    const track = s.getVideoTracks()[0];
+    if (!track) return;
+    screen.current = s;
+    outVideo.current = track;
+    setSharing(true);
+    // Кнопка «остановить» в системной плашке браузера тоже завершает показ.
+    track.onended = () => { if (screen.current === s) stopShare(); };
+    await swapVideo(track);
+  };
+
+  /* ─── запись ─── */
   const startRec = () => {
     const mime = recorderMime();
     if (!mime) { setRecNote("Этот клиент не умеет записывать — записи не будет."); return; }
     if (!local.current) { setRecNote("Сначала войдите в звонок."); return; }
     try {
-      // Пишем свою дорожку: сведение двух видео в одну требует холста и
+      // Пишем свою дорожку: сведение всех видео в одно требует холста и
       // микшера звука, а на телефоне это съедает батарею и роняет частоту
-      // кадров у самого звонка. Собеседник пишет свою сторону сам.
+      // кадров у самого звонка. Каждый пишет свою сторону сам.
       chunks.current = [];
-      const r = new MediaRecorder(local.current, { mimeType: mime });
-      r.ondataavailable = (e) => { if (e.data?.size) chunks.current.push(e.data); };
+      bytes.current = 0;
+      setRecBytes(0);
+      const r = new MediaRecorder(local.current, { mimeType: mime, ...RECORDER_OPTS });
+      r.ondataavailable = (e) => {
+        if (!e.data?.size) return;
+        chunks.current.push(e.data);
+        bytes.current += e.data.size;
+        setRecBytes(bytes.current);
+        // Предел размера — предел загрузки на сервер. Останавливаемся сами,
+        // пока запись ещё можно сохранить, а не после того, как сервер откажет.
+        if (bytes.current >= MAX_RECORDING_BYTES && r.state === "recording") {
+          setRecNote("Запись достигла предела размера — сохраняю.");
+          r.stop(); setRec(false);
+        }
+      };
       r.onstop = async () => {
         const blob = new Blob(chunks.current, { type: mime });
-        setRecNote("Сохраняю запись…");
+        setRecNote(`Сохраняю запись (${mb(blob.size)})…`);
         try {
           const name = `звонок-${new Date().toISOString().slice(0, 16).replace(":", "-")}`
             + (mime.includes("mp4") ? ".mp4" : ".webm");
           const file = new File([blob], name, { type: mime });
           const saved = await putReportFile(file);
           setRecNote(saved.url
-            ? `Запись сохранена: ${saved.name}`
-            : `Запись готова (${Math.round(blob.size / 1024)} КБ), но сервера нет — она осталась только здесь.`);
+            ? `Запись сохранена: ${saved.name} (${mb(blob.size)})`
+            : `Запись готова (${mb(blob.size)}), но сервера нет — она осталась только здесь.`);
         } catch (e) {
-          setRecNote(`Запись не сохранилась: ${e.message}`);
+          const why = /413/.test(e.message)
+            ? `файл (${mb(blob.size)}) больше, чем принимает сервер`
+            : e.message;
+          setRecNote(`Запись не сохранилась: ${why}`);
         }
       };
       r.start(1000);
@@ -245,93 +331,143 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
     setRec(false);
   };
 
-  // Сетка окон: своё и по одному на каждого собеседника. Чем больше людей,
-  // тем меньше окно — двадцать окон по 240px на телефон не влезут.
-  const n = Object.keys(streams).length + 1;
-  const cell = n <= 2 ? "1 1 240px" : n <= 6 ? "1 1 160px" : "1 1 110px";
-  const Tile = ({ stream, muted, label }) => {
+  /* ─── вид ─── */
+  const others = Object.entries(streams);
+  const n = others.length + 1;
+  // Сетка: столбцов столько, чтобы все влезли в экран без прокрутки.
+  const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+  const label = (id) => names[id] || (nameOf && nameOf(id)) || "участник";
+  const inCall = state !== "idle" && state !== "ended";
+  const status = state === "asking" ? "Спрашиваю доступ к камере и микрофону…"
+    : state === "waiting" ? "Жду остальных · соединение через сервер"
+      : state === "live" ? `Через сервер · ${others.length} участник${others.length === 1 ? "" : others.length < 5 ? "а" : "ов"} кроме вас`
+        : "";
+
+  const Tile = ({ stream, muted, label: text, mirror }) => {
     const ref = useRef(null);
     useEffect(() => { if (ref.current && stream) ref.current.srcObject = stream; }, [stream]);
     return (
-      <div style={{ position: "relative", flex: cell, minWidth: n <= 6 ? 140 : 100 }}>
+      <div style={{ position: "relative", minHeight: 0, minWidth: 0, borderRadius: 10,
+        overflow: "hidden", background: "#000", border: `1px solid ${C.line}`,
+        aspectRatio: fit ? undefined : "3 / 4" }}>
         <video ref={ref} autoPlay playsInline muted={muted}
-          style={{ width: "100%", borderRadius: 10, background: "#000",
-            aspectRatio: "3 / 4", objectFit: "cover", border: `1px solid ${C.line}` }} />
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block",
+            transform: mirror ? "scaleX(-1)" : undefined }} />
         <span style={{ position: "absolute", left: 6, bottom: 6, fontSize: 10,
           color: C.text, background: "#0009", borderRadius: 4, padding: "2px 5px",
           maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis",
-          whiteSpace: "nowrap" }}>{label}</span>
+          whiteSpace: "nowrap" }}>{text}</span>
       </div>);
   };
+
+  const ctl = (on, col, extra = {}) => ({
+    ...btn(on, col), ...(fit ? { padding: "8px 10px", fontSize: 15, lineHeight: 1 } : {}), ...extra,
+  });
+
+  const controls = state === "idle" || state === "ended" ? (
+    <button style={ctl(true, OK, fit ? { fontSize: 13, padding: "10px 16px", flex: 1 } : {})}
+      onClick={join}>
+      {state === "ended" ? "Войти снова" : "Войти в звонок"}</button>
+  ) : (
+    <>
+      <button aria-label="микрофон" title={mic ? "выключить микрофон" : "включить микрофон"}
+        style={ctl(mic, mic ? OK : BAD)} onClick={toggleMic}>
+        {fit ? (mic ? "🎙" : "🔇") : (mic ? "🎙 микрофон вкл" : "🔇 микрофон выкл")}</button>
+      <button aria-label="камера" title={cam ? "выключить камеру" : "включить камеру"}
+        style={ctl(cam, cam ? OK : BAD)} onClick={toggleCam}>
+        {fit ? (cam ? "🎥" : "🚫") : (cam ? "🎥 камера вкл" : "🚫 камера выкл")}</button>
+      {screenShareSupported() && (
+        <button aria-label="экран" title={sharing ? "прекратить показ экрана" : "показать экран"}
+          style={ctl(sharing, ACC)} onClick={shareScreen}>
+          {fit ? "🖥" : (sharing ? "🖥 экран показывается" : "🖥 показать экран")}</button>)}
+      {rec
+        ? <button aria-label="запись" title="остановить запись" style={ctl(true, BAD)} onClick={stopRec}>
+          {fit ? "⏹" : "⏹ остановить запись"}</button>
+        : <button aria-label="запись" title="записать" style={ctl(false)} onClick={startRec}>
+          {fit ? "⏺" : "⏺ записать"}</button>}
+      <button aria-label="выйти" title="выйти из звонка"
+        style={ctl(false, null, { color: BAD, borderColor: "#5A2436" })} onClick={leave}>
+        {fit ? "✕" : "Выйти"}</button>
+    </>);
+
+  const header = (
+    <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
+      <span style={{ fontSize: fit ? 12.5 : 14, fontWeight: 700, flex: 1, minWidth: 0,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {meeting ? meeting.title : (err ? "Звонок" : "Загружаю встречу…")}</span>
+      {meeting && (
+        <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+          {inCall ? `${n} из ${MAX_PEERS}` : (meeting.at || "")}</span>)}
+      {onExpand && <button aria-label="на весь экран" title="на весь экран"
+        style={ctl(false)} onClick={onExpand}>⤢</button>}
+      {onClose && <button aria-label="закрыть" style={ctl(false)}
+        onClick={() => { stop(); onClose(); }}>✕</button>}
+    </div>);
+
+  const tiles = (
+    <>
+      <Tile stream={sharing ? screen.current : local.current} muted mirror={!sharing}
+        label={sharing ? "ваш экран" : (mic ? "вы" : "вы · микрофон выключен")} />
+      {others.map(([id, st]) => (
+        <Tile key={id} stream={st} muted={false} label={label(id)} />))}
+      {!others.length && inCall && (
+        <div style={{ minHeight: 0, borderRadius: 10, border: `1px dashed ${C.line}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 11, color: C.muted, aspectRatio: fit ? undefined : "3 / 4" }}>
+          ждём остальных</div>)}
+    </>);
+
+  const messages = (
+    <>
+      {(status || note) && (
+        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5,
+          ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
+          title={`${status} ${note}`.trim()}>
+          {status}{status && note ? " · " : ""}{note}</div>)}
+      {err && <div style={{ fontSize: 11.5, color: BAD, lineHeight: 1.5 }}>{err}</div>}
+      {recNote && <div style={{ fontSize: 11, color: rec ? BAD : ACC, lineHeight: 1.5 }}>
+        {recNote}{rec && recBytes ? ` · ${mb(recBytes)} из ${mb(MAX_RECORDING_BYTES)}` : ""}</div>}
+    </>);
+
+  if (fit) {
+    // Всё окно — в экран: заголовок, растущая сетка видео, строка статуса,
+    // кнопки. Ничего не прокручивается, видео ужимается, а не уезжает вниз.
+    return (
+      <div data-testid="call-fit" style={{ display: "flex", flexDirection: "column",
+        height: "100%", minHeight: 0, gap: 6 }}>
+        {header}
+        <div style={{ flex: 1, minHeight: 0, display: "grid", gap: 6,
+          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+          gridAutoRows: "minmax(0, 1fr)" }}>
+          {tiles}
+        </div>
+        <div style={{ flex: "0 0 auto" }}>{messages}</div>
+        <div className="flex gap-2" style={{ flex: "0 0 auto", justifyContent: "center",
+          flexWrap: "wrap" }}>{controls}</div>
+      </div>);
+  }
 
   return (
     <div>
       <div style={{ ...S.card, marginBottom: 10 }}>
-        <div className="flex items-center gap-2">
-          <span style={S.lbl}>звонок</span>
-          <span style={{ flex: 1 }} />
-          {onClose && <button style={btn(false)} onClick={() => { stop(); onClose(); }}>✕</button>}
-        </div>
-        {meeting ? (
-          <div style={{ marginTop: 6 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{meeting.title}</div>
-            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 3 }}>
-              {meeting.at || "время не задано"}
-              {meeting.peers?.length ? ` · в комнате: ${meeting.peers.length} из ${MAX_PEERS}` : " · пока никого"}
-            </div>
-            {meeting.text && meeting.text !== meeting.title && (
-              <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>{meeting.text}</div>)}
-          </div>
-        ) : (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>
-            {err || "Загружаю встречу…"}</div>)}
+        {header}
+        {meeting && (
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>
+            {meeting.at || "время не задано"}
+            {meeting.peers?.length ? ` · в комнате: ${meeting.peers.length} из ${MAX_PEERS}` : " · пока никого"}
+          </div>)}
+        {meeting?.text && meeting.text !== meeting.title && (
+          <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>{meeting.text}</div>)}
       </div>
 
-      <div className="flex flex-wrap gap-2" style={{ marginBottom: 10 }}>
-        <Tile stream={local.current} muted label={mic ? "вы" : "вы · микрофон выключен"} />
-        {Object.entries(streams).map(([id, st]) => (
-          <Tile key={id} stream={st} muted={false} label={nameOf ? nameOf(id) : `участник ${id}`} />))}
-        {!Object.keys(streams).length && state !== "idle" && state !== "ended" && (
-          <div style={{ flex: cell, minWidth: 140, borderRadius: 10, border: `1px dashed ${C.line}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 11, color: C.muted, aspectRatio: "3 / 4" }}>
-            ждём остальных</div>)}
+      <div style={{ display: "grid", gap: 8, marginBottom: 10,
+        gridTemplateColumns: `repeat(${Math.min(cols, 3)}, minmax(0, 1fr))` }}>
+        {tiles}
       </div>
 
       <div style={{ ...S.card, marginBottom: 10 }}>
-        <div className="flex flex-wrap gap-2">
-          {state === "idle" || state === "ended" ? (
-            <button style={btn(true, OK)} onClick={join}>
-              {state === "ended" ? "Войти снова" : "Войти в звонок"}</button>
-          ) : (
-            <>
-              <button style={btn(mic, mic ? OK : BAD)} onClick={toggleMic}>
-                {mic ? "🎙 микрофон вкл" : "🔇 микрофон выкл"}</button>
-              <button style={btn(cam, cam ? OK : BAD)} onClick={toggleCam}>
-                {cam ? "🎥 камера вкл" : "🚫 камера выкл"}</button>
-              {rec
-                ? <button style={btn(true, BAD)} onClick={stopRec}>⏹ остановить запись</button>
-                : <button style={btn(false)} onClick={startRec}>⏺ записать</button>}
-              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
-                onClick={leave}>Выйти</button>
-            </>)}
-        </div>
-
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>
-          {state === "asking" && "Спрашиваю доступ к камере и микрофону…"}
-          {state === "waiting" && "Жду остальных. Кто войдёт по ссылке — подключится сам."}
-          {state === "live" && `Соединение установлено с ${Object.keys(streams).length} участник${Object.keys(streams).length === 1 ? "ом" : "ами"} — видео идёт напрямую, мимо сервера.`}
-          {note}
-        </div>
-        {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: 6, lineHeight: 1.6 }}>
-          {err}</div>}
-        {recNote && <div style={{ fontSize: 11.5, color: rec ? BAD : ACC, marginTop: 6 }}>
-          {recNote}</div>}
-        {noTurn && state !== "idle" && (
-          <div style={{ fontSize: 10.5, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
-            TURN-сервер не настроен: если оба собеседника за строгим NAT,
-            соединение может не установиться. Настраивается в TURN_URL.
-          </div>)}
+        <div className="flex flex-wrap gap-2">{controls}</div>
+        <div style={{ marginTop: 8, display: "grid", gap: 4 }}>{messages}</div>
       </div>
 
       {meeting && (
@@ -342,7 +478,8 @@ export default function CallRoom({ meetingId, meId, onClose, nameOf }) {
             {callLink(meeting.id)}</div>
           <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
             Кому дали ссылку — тот и войдёт. Приглашение удобнее отправлять из
-            чата: наберите имя бота и время встречи.
+            чата: наберите имя бота и время встречи — у собеседника звонок откроется
+            отдельным окном на пол-экрана.
           </div>
         </div>)}
     </div>);

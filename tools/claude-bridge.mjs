@@ -63,6 +63,9 @@ const BIN = process.env.CLAUDE_BIN || "claude";
 // «покажи, где эта функция». Запись и запуск команд включаются осознанно.
 const TOOLS = process.env.BRIDGE_TOOLS || "Read,Grep,Glob";
 const TIMEOUT_MS = Number(process.env.BRIDGE_TIMEOUT_MS || 240000);
+// Проверка входа — короткая: если Claude Code не залогинен и повис на
+// приглашении войти, ждать четыре минуты незачем — ответ уже известен.
+const LOGIN_TIMEOUT_MS = Number(process.env.BRIDGE_LOGIN_TIMEOUT_MS || 20000);
 
 if (!URL_BASE || !TOKEN) {
   console.error("Нужны BRIDGE_URL и BRIDGE_TOKEN. См. комментарий в начале файла.");
@@ -73,7 +76,7 @@ const headers = { "Content-Type": "application/json", "X-Bridge-Token": TOKEN };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Запускает Claude Code и возвращает {text, sid}. */
-function runClaude(prompt, sid) {
+function runClaude(prompt, sid, timeoutMs = TIMEOUT_MS) {
   return new Promise((resolve) => {
     const args = ["-p", "--output-format", "json", "--allowedTools", TOOLS];
     // Продолжаем ту же сессию, если она уже была: иначе каждый вопрос
@@ -86,8 +89,8 @@ function runClaude(prompt, sid) {
     let out = "", err = "";
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      err += `\n(превышено время ожидания ${Math.round(TIMEOUT_MS / 1000)} с)`;
-    }, TIMEOUT_MS);
+      err += `\n(превышено время ожидания ${Math.round(timeoutMs / 1000)} с)`;
+    }, timeoutMs);
 
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { err += d; });
@@ -135,9 +138,10 @@ let loginOk = null, loginCheckedAt = 0;
 async function loggedIn() {
   if (loginOk && Date.now() - loginCheckedAt < 600000) return true;
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) { loginOk = true; loginCheckedAt = Date.now(); return true; }
-  const r = await runClaude("Ответь одним словом: ок", null);
+  const r = await runClaude("Ответь одним словом: ок", null, LOGIN_TIMEOUT_MS);
   loginOk = !r.error && /ок|ok/i.test(String(r.text || ""));
   loginCheckedAt = Date.now();
+  if (!loginOk) console.error(`вход в Claude Code не подтверждён: ${(r.error || r.text || "пустой ответ").slice(0, 200)}`);
   return loginOk;
 }
 
