@@ -173,7 +173,11 @@ describe("классификации ресурсов", () => {
     expect(entityGroup(container, "Актив")).toBeTruthy();
     expect(screen.getByDisplayValue("Актив")).toBeInTheDocument();
     // Ресурс с неизвестной классификацией показан с заглушкой вместо значка.
-    expect(screen.getByText("ресурс")).toBeInTheDocument();
+    // Слово «ресурс» на экране теперь не одно: так называется и сам ресурс
+    // в этой модели, и подпись под его названием. Берём именно название —
+    // оно в строке списка, растянутой на всю ширину.
+    expect(screen.getAllByText("ресурс")
+      .some((n) => n.style.flex === "1 1 0%")).toBe(true);
     expect(screen.getAllByText("?").length).toBeGreaterThan(0);
   });
 });

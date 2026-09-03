@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm } from "./ui.jsx";
-import { DUR_UNITS, avgHours, fromHours, hoursOf, newFunc, newGive } from "../lib/funcs.js";
+import { DUR_UNITS, avgHours, checkFunc, fromHours, hoursOf, newFunc, newGive }
+  from "../lib/funcs.js";
+import { Mark } from "./Modal.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ФУНКЦИОНАЛЬНЫЕ ЭЛЕМЕНТЫ АКТИВА · редактор
@@ -62,7 +64,7 @@ function People({ title, ids, people, nameOf, onToggle }) {
 }
 
 export default function FuncPanel({
-  entityId, funcs, setFuncs, traits, people = [], nameOf, cyclesOf,
+  entityId, funcs, setFuncs, traits, people = [], nameOf, cyclesOf, onWhy,
 }) {
   const mine = funcs.filter((f) => f.e === entityId);
   const [open, setOpen] = useState(null);
@@ -112,6 +114,10 @@ export default function FuncPanel({
                 fontSize: 11, padding: "2px 6px" }}
                 onClick={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(null); }}>
                 удалить</button>
+            </div>
+            <div style={{ marginTop: 2 }}>
+              <Mark text="функциональный элемент" ok={checkFunc(f, { traits }).ok}
+                onWhy={() => onWhy && onWhy(f.id)} />
             </div>
             {/* Свёрнутый элемент всё равно говорит главное: что берёт, что
                 выдаёт и за сколько. Разворачивать ради этого не нужно. */}

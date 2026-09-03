@@ -20,8 +20,10 @@ import PeoplePanel from "./PeoplePanel.jsx";
 import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
-import { normalizeFuncs } from "../lib/funcs.js";
+import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, checkTrait, normalizeFuncs }
+  from "../lib/funcs.js";
 import FuncPanel from "./FuncPanel.jsx";
+import Modal, { Mark } from "./Modal.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v8
@@ -45,7 +47,7 @@ const KINDS0=[
 // сценарии, сохранённом до её удаления) — показываем заглушку, а не падаем.
 const NOKIND={id:"",sign:"?",name:"без типа",color:NEU,dir:"up"};
 const kindLookup=(kinds)=>(id)=>kinds.find(k=>k.id===id)||NOKIND;
-const NW=208,NH=112;
+const NW=208,NH=126;   // выше прежнего на строку подписи «актив»
 
 /* ─────── ДАННЫЕ ─────── */
 const ENTITIES0=[
@@ -508,7 +510,7 @@ function ArrowRow({ed,traits,entities,valueOf,kindOf,now,onEdit,onDelete}){
 
 /* ─────── СХЕМА (переиспользуемая для «сейчас» и для снимка симуляции) ─────── */
 function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesForFact,
-  onSelectEntity,onSelectPair,onMoveEntity}){
+  onSelectEntity,onSelectPair,onMoveEntity,assetOk,onWhy}){
   // Перетаскивание активов. Тап и перетаскивание различаем по порогу сдвига:
   // пока палец/курсор не ушёл дальше DRAG_MIN пикселей, это ещё выбор блока.
   const DRAG_MIN=4;
@@ -636,20 +638,36 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
             <rect x={e.x} y={e.y} width="5" height={NH} rx="2.5" fill={e.color}/>
             <text x={e.x+14} y={e.y+26} fontSize="13.5" fontWeight="700" fill={C.text}>
               {e.name.length>23?e.name.slice(0,22)+"…":e.name}</text>
-            <text x={e.x+14} y={e.y+46} fontSize="11" fill={C.muted}
+            {/* Подпись под названием: что это за узел и сходится ли его
+                строение. Красная — значит не сходится, и рядом «?» с
+                объяснением. Нажатие по «?» не должно ни выделять блок, ни
+                начинать перетаскивание — отсюда stopPropagation на самом
+                кружке и порог сдвига у перетаскивания. */}
+            <text x={e.x+14} y={e.y+44} fontSize="10.5"
+              fill={assetOk&&assetOk(e.id)?C.text:BAD}>актив</text>
+            {assetOk&&!assetOk(e.id)&&(
+              <g style={{cursor:"help"}}
+                onPointerDown={ev=>{ev.stopPropagation();}}
+                onClick={ev=>{ev.stopPropagation();onWhy&&onWhy("asset",e.id);}}>
+                <title>почему подпись красная</title>
+                <circle cx={e.x+52} cy={e.y+40} r="7.5" fill="transparent" stroke={BAD}/>
+                <text x={e.x+52} y={e.y+43.5} textAnchor="middle" fontSize="10"
+                  fill={BAD}>?</text>
+              </g>)}
+            <text x={e.x+14} y={e.y+60} fontSize="11" fill={C.muted}
               fontFamily="ui-monospace, monospace">
               ресурсов: {ts.length} · {gs?`целей: ${gs}`:"целей нет"}</text>
-            <rect x={e.x+14} y={e.y+58} width={NW-28} height={8} rx="4"
+            <rect x={e.x+14} y={e.y+72} width={NW-28} height={8} rx="4"
               fill={C.ink} stroke={C.line}/>
-            <rect x={e.x+14} y={e.y+58} width={Math.max(0,(NW-28)*gv.hypo)}
+            <rect x={e.x+14} y={e.y+72} width={Math.max(0,(NW-28)*gv.hypo)}
               height={8} rx="4" fill={WARN}/>
-            <rect x={e.x+14} y={e.y+58} width={Math.max(0,(NW-28)*gv.fact)}
+            <rect x={e.x+14} y={e.y+72} width={Math.max(0,(NW-28)*gv.fact)}
               height={8} rx="4" fill={OK}/>
-            <text x={e.x+14} y={e.y+80} fontSize="11" fontWeight="700">
+            <text x={e.x+14} y={e.y+94} fontSize="11" fontWeight="700">
               <tspan fill={OK}>{Math.round(gv.fact*100)}% факт</tspan>
               <tspan fill={C.muted}> · </tspan>
               <tspan fill={WARN}>{Math.round(gv.hypo*100)}% гип.</tspan></text>
-            <text x={e.x+14} y={e.y+98} fontSize="10.5" fill={C.muted}>
+            <text x={e.x+14} y={e.y+112} fontSize="10.5" fill={C.muted}>
               стрелок наружу: {edges.filter(x=>x.from===e.id).length}</text></g>);})}
       </svg>
     </div>);
@@ -691,6 +709,9 @@ export default function SystemModel(){
   const [sel,setSel]=useState("usr");
   const [selTrait,setSelTrait]=useState(null);
   const [pair,setPair]=useState(null);
+  /* Какое объяснение сейчас открыто: {kind:"asset"|"trait"|"func", id}.
+     Одно состояние на все три подписи — окно всё равно одно. */
+  const [why,setWhy]=useState(null);
   const [horizon,setHorizon]=useState(24);
   const [zoom,setZoom]=useState(0.6);
   const [draft,setDraft]=useState("");
@@ -1222,7 +1243,9 @@ export default function SystemModel(){
               valuesForFact={tid=>baseFact[tid]?.[Math.min(simMonth,span)]??0}
               onSelectEntity={id=>{setSel(id);setSelTrait(null);setPair(null);}}
               onSelectPair={key=>{setPair(key);setSelTrait(null);}}
-              onMoveEntity={moveE}/>
+              onMoveEntity={moveE}
+              assetOk={id=>checkAsset(id,{traits,edges}).ok}
+              onWhy={(kind,id)=>setWhy({kind,id})}/>
           </div>
         </div>
 
@@ -1287,6 +1310,10 @@ export default function SystemModel(){
                     <span style={{flex:1}}>{t.l}</span>
                     {t.want!=null&&<span style={{fontSize:9.5,color:ACC,
                       border:`1px solid ${ACC}66`,borderRadius:3,padding:"1px 4px"}}>цель</span>}
+                  </div>
+                  <div style={{marginTop:2}}>
+                    <Mark text="ресурс" ok={checkTrait(t.id,{traits,edges,funcs}).ok}
+                      onWhy={()=>setWhy({kind:"trait",id:t.id})}/>
                   </div>
                   <div style={{fontSize:11,color:C.muted,marginTop:3}}>
                     {isFlow(t)?"поток":"запас"} · {unitOf(t)}
@@ -1438,7 +1465,8 @@ export default function SystemModel(){
                 ресурсы это то, что есть, элементы — то, что их преобразует,
                 и путать их в одном списке нельзя. */}
             <FuncPanel entityId={selE.id} funcs={funcs} setFuncs={setFuncs}
-              traits={traits} people={people} nameOf={personName}/>
+              traits={traits} people={people} nameOf={personName}
+              onWhy={id=>setWhy({kind:"func",id})}/>
           </div>)}
 
         {/* Классификации ресурсов — здесь же, под добавлением ресурса:
@@ -1950,5 +1978,16 @@ export default function SystemModel(){
           </div>
           {savedMsg&&<div style={{fontSize:12,color:C.muted}}>{savedMsg}</div>}
         </div>)}
+
+      {/* Объяснение красной подписи. Окно одно на всё приложение: подписей
+          много, а читают их по одной, и три копии одного и того же диалога
+          отличались бы друг от друга через месяц правок. */}
+      {why&&(
+        <Modal onClose={()=>setWhy(null)}
+          title={why.kind==="asset"?"Что такое актив"
+            :why.kind==="func"?"Что такое функциональный элемент"
+              :"Что такое ресурс актива"}>
+          {why.kind==="asset"?WHY_ASSET:why.kind==="func"?WHY_FUNC:WHY_TRAIT}
+        </Modal>)}
     </div>);
 }
