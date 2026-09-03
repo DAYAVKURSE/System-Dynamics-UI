@@ -90,6 +90,31 @@ describe("окно звонка", () => {
       expect(localStorage.getItem("sd.call.low")).toBe("1");
     });
 
+    it("считает 40% от ЭКРАНА, а не от окна", async () => {
+      // Числа разные: у владельца экран 883 точки, а окно, которое выдал
+      // Telegram, — 775. «Сорок процентов» он просил от экрана.
+      Object.defineProperty(window.screen, "height", { value: 883, configurable: true });
+      window.innerHeight = 775;
+      setUrl("?call=m1");
+      render(<CallApp />);
+      await screen.findByText("Разбор");
+      expect(room().style.flex).toContain("353px");   // 883 × 0.4
+      Object.defineProperty(window.screen, "height", { value: 0, configurable: true });
+    });
+
+    it("панель не вылезает за окно, даже когда экран много больше него", async () => {
+      // Свёрнутый лист Telegram бывает сильно меньше экрана. Панель, взятая
+      // от экрана, тогда не поместилась бы — и кнопки уехали бы за край.
+      Object.defineProperty(window.screen, "height", { value: 2000, configurable: true });
+      window.innerHeight = 400;
+      setUrl("?call=m1");
+      render(<CallApp />);
+      await screen.findByText("Разбор");
+      expect(parseInt(room().style.flexBasis, 10)).toBeLessThanOrEqual(400);
+      Object.defineProperty(window.screen, "height", { value: 0, configurable: true });
+      window.innerHeight = 768;
+    });
+
     it("выбор запоминается — решают один раз, а не каждый звонок", async () => {
       localStorage.setItem("sd.call.low", "0");
       setUrl("?call=m1");
@@ -147,6 +172,18 @@ describe("окно звонка", () => {
     const box = container.firstElementChild;
     expect(box.style.height).toContain("--tg-viewport-stable-height");
     expect(parseInt(box.style.minHeight, 10)).toBeGreaterThanOrEqual(200);
+  });
+
+  it("страница не бывает длиннее окна — даже если Telegram назвал число больше", async () => {
+    // На Android владельца Telegram сообщает 843 точки, когда в окне их
+    // 775. Взяв это число на веру, страница становится на 68 точек длиннее
+    // окна, и низ — кнопки звонка — уезжает за край. Отсюда min(…, 100%):
+    // высота никогда не больше того, что есть на самом деле.
+    setUrl("?call=m1");
+    const { container } = render(<CallApp />);
+    await screen.findByText("Разбор");
+    expect(container.firstElementChild.style.height)
+      .toBe("min(var(--tg-viewport-stable-height, 100%), 100%)");
   });
 
   it("свайпы не сворачивают окно: видео тянут пальцем", async () => {

@@ -47,8 +47,24 @@ const LOW_KEY = "sd.call.low";
    работает; это разные вещи, и обещать первое, делая второе, нельзя.
 
    Выбор запоминается: человек решает один раз, а не каждый звонок. */
-const LOW_PART = "40%";
+const LOW_SHARE = 0.4;
 const LOW_MIN = 240;
+
+/* Сорок процентов ЭКРАНА, а не окна.
+
+   Это разные числа: на телефоне владельца экран 883 точки, а окно, которое
+   Telegram выдал странице, — 775. Просить «40%» у окна значило бы обещать
+   одно, а показывать другое. Поэтому считаем от screen.height, но не даём
+   панели вылезти за окно и не даём ей стать меньше того, во что помещаются
+   кнопки: на маленьком экране 40% — это уже не звонок, а полоска. */
+const lowHeight = () => {
+  const scr = typeof window !== "undefined" ? window.screen?.height : 0;
+  const win = typeof window !== "undefined" ? window.innerHeight : 0;
+  if (!scr) return null;
+  const want = Math.round(scr * LOW_SHARE);
+  const room = win ? Math.max(LOW_MIN, win - 40) : want;
+  return Math.max(LOW_MIN, Math.min(want, room));
+};
 
 const keptLow = () => {
   try { return localStorage.getItem(LOW_KEY) !== "0"; } catch { return true; }
@@ -137,6 +153,18 @@ export default function CallApp() {
   };
 
   const [low, setLow] = useState(keptLow);
+  // Пересчитывается на поворот экрана и на изменение окна: Telegram меняет
+  // высоту, когда лист тянут пальцем, и панель обязана остаться в окне.
+  const [lowPx, setLowPx] = useState(lowHeight);
+  useEffect(() => {
+    const again = () => setLowPx(lowHeight());
+    window.addEventListener("resize", again);
+    window.addEventListener("orientationchange", again);
+    return () => {
+      window.removeEventListener("resize", again);
+      window.removeEventListener("orientationchange", again);
+    };
+  }, []);
   const putLow = (v) => {
     setLow(v);
     try { localStorage.setItem(LOW_KEY, v ? "1" : "0"); } catch { /* не беда */ }
@@ -149,8 +177,14 @@ export default function CallApp() {
        выглядит как пустой экран, и понять по нему нечего. 200 пикселей ниже
        любого настоящего окна Telegram (даже на пол-экрана), поэтому в
        обычной жизни граница не мешает, а вырожденный случай перестаёт быть
-       невидимым. */
-    <div style={{ height: "var(--tg-viewport-stable-height, 100%)", minHeight: 200,
+       невидимым.
+
+       А min(…, 100%) — про обратную беду, и она у владельца настоящая: на
+       его Android Telegram сообщает 843 точки, когда в окне их 775. Взяв
+       число Telegram на веру, страница становится на 68 точек длиннее
+       окна, и низ — то есть кнопки звонка — уезжает за край. Правильная
+       высота никогда не больше того, что есть на самом деле. */
+    <div style={{ height: "min(var(--tg-viewport-stable-height, 100%), 100%)", minHeight: 200,
       background: C.ink, color: C.text, padding: 8, boxSizing: "border-box",
       overflow: "hidden", display: "flex", flexDirection: "column", gap: 6,
       fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
@@ -180,8 +214,9 @@ export default function CallApp() {
                 border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 8px" }} />)}
           <div data-testid="комната"
             style={low
-              ? { flex: `0 0 ${LOW_PART}`, minHeight: LOW_MIN, overflow: "hidden",
-                borderRadius: "14px 14px 0 0", background: C.panel, padding: 4 }
+              ? { flex: `0 0 ${lowPx ? `${lowPx}px` : "40%"}`, minHeight: 0,
+                overflow: "hidden", borderRadius: "14px 14px 0 0",
+                background: C.panel, padding: 4 }
               : { flex: 1, minHeight: 0 }}>
             <CallRoom meetingId={meetingId} meId={meId} myName={name} fit
               canRecord={Boolean(getInitData())}
