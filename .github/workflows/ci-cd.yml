@@ -235,6 +235,11 @@ jobs:
           # разучить ссылку открывать мини-приложение на каждом обновлении.
           TELEGRAM_CALL_APP="${TELEGRAM_CALL_APP:-$(keep TELEGRAM_CALL_APP)}"
           echo "TELEGRAM_CALL_APP_R=$TELEGRAM_CALL_APP" >> "$GITHUB_ENV"
+          # Тем же порядком — «/callmain on»: открывать ли звонок главным
+          # приложением бота. Секрета для этого нет, значение живёт только
+          # на сервере, поэтому его достаточно не потерять.
+          TELEGRAM_CALL_MAIN="$(keep TELEGRAM_CALL_MAIN)"
+          echo "TELEGRAM_CALL_MAIN_R=$TELEGRAM_CALL_MAIN" >> "$GITHUB_ENV"
           # Секрет TURN нужен и следующему шагу — он настраивает coturn.
           echo "::add-mask::$TURN_SECRET"
           echo "TURN_SECRET_R=$TURN_SECRET" >> "$GITHUB_ENV"
@@ -250,6 +255,7 @@ jobs:
           WORKSPACE_DIR=${DEPLOY_PATH_R}/data/workspace
           CALLS_DIR=${DEPLOY_PATH_R}/data/calls
           TELEGRAM_CALL_APP=${TELEGRAM_CALL_APP:-}
+          TELEGRAM_CALL_MAIN=${TELEGRAM_CALL_MAIN:-}
           PUBLIC_URL=https://${APP_DOMAIN_R}
           TURN_URL=${TURN_URL:-}
           TURN_USER=${TURN_USER:-}
@@ -422,9 +428,16 @@ jobs:
                 echo "Telegram, кнопку бота нужно назначить вручную."
               fi
               echo ""
-              if [ -n "${TELEGRAM_CALL_APP_R:-}" ]; then
+              if [ "${TELEGRAM_CALL_MAIN_R:-}" = "1" ]; then
+                echo "Звонок открывается главным мини-приложением бота:"
+                echo "\`t.me/<бот>?startapp=call_…&mode=compact\` — на пол-экрана."
+              elif [ -n "${TELEGRAM_CALL_APP_R:-}" ]; then
                 echo "Звонок открывается отдельным мини-приложением:"
                 echo "\`t.me/<бот>/${TELEGRAM_CALL_APP_R}?startapp=call_…\`"
+                echo ""
+                echo "Такое окно открывается на весь экран — половину Telegram"
+                echo "делает только главному приложению. Нужна половина —"
+                echo "отправьте боту \`/callmain\`, он расскажет как."
               else
                 echo "**Звонок пока открывается обычной страницей, а не мини-приложением.**"
                 echo "Завести приложение можно только руками — метода Bot API для этого нет:"

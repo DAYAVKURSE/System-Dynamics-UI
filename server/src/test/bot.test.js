@@ -291,3 +291,81 @@ describe("приложение звонка", () => {
     expect(lastText()).toMatch(/только владельцу/);
   });
 });
+
+/* ─────── звонок главным приложением бота ───────
+
+   Ради высоты окна: отдельное приложение Telegram открывает только на весь
+   экран (почему — в lib/links.js). Включать вслепую нельзя: если главного
+   приложения в @BotFather нет, ссылка t.me/<бот>?startapp=… открывает
+   просто чат с ботом, и по приглашению не открывается НИЧЕГО. Поэтому
+   сперва спрашиваем у Telegram. */
+
+describe("звонок главным приложением", () => {
+  let stored;
+  let main;
+  let ready;
+  const settings = {
+    getCallApp: () => stored,
+    setCallApp: (v) => { stored = v; return v; },
+    getCallMain: () => main,
+    setCallMain: (v) => { main = v; return v; },
+    mainAppReady: async () => ready,
+  };
+  const deps4 = { ...deps, settings, botName: "sdbot", publicUrl: "https://x.test" };
+
+  beforeEach(() => { stored = "call"; main = false; ready = true; });
+
+  it("«/callmain» без слова объясняет, зачем это и что нажать в @BotFather", async () => {
+    const r = await handleUpdate(msg(owner, { text: "/callmain" }), deps4);
+    expect(r).toEqual({ callMain: false });
+    expect(lastText()).toMatch(/Configure Mini App/);
+    expect(lastText()).toContain("https://x.test/call");
+    expect(main).toBe(false);
+  });
+
+  it("«on» включает — и приглашение начинает открывать пол-экрана", async () => {
+    const r = await handleUpdate(msg(owner, { text: "/callmain on" }), deps4);
+    expect(r).toEqual({ callMain: true });
+    expect(main).toBe(true);
+    expect(lastText()).toContain("t.me/sdbot?startapp=call_…");
+  });
+
+  it("если главного приложения нет — НЕ включает: иначе ссылка перестанет открывать что-либо",
+    async () => {
+      ready = false;
+      const r = await handleUpdate(msg(owner, { text: "/callmain on" }), deps4);
+      expect(r).toEqual({ error: "no main app" });
+      expect(main).toBe(false);
+      expect(lastText()).toMatch(/главного приложения у бота нет/i);
+      expect(lastText()).toMatch(/Configure Mini App/);
+    });
+
+  it("Telegram не ответил — тоже не включает, и говорит об этом", async () => {
+    ready = null;
+    const r = await handleUpdate(msg(owner, { text: "/callmain on" }), deps4);
+    expect(r).toEqual({ error: "no answer" });
+    expect(main).toBe(false);
+    expect(lastText()).toMatch(/повторите/i);
+  });
+
+  it("«off» возвращает отдельное приложение", async () => {
+    main = true;
+    const r = await handleUpdate(msg(owner, { text: "/callmain off" }), deps4);
+    expect(r).toEqual({ callMain: false });
+    expect(main).toBe(false);
+    expect(lastText()).toContain("t.me/sdbot/call");
+  });
+
+  it("включённое состояние показывается словами, а не молчанием", async () => {
+    main = true;
+    await handleUpdate(msg(owner, { text: "/callmain" }), deps4);
+    expect(lastText()).toContain("t.me/sdbot?startapp=call_…");
+    expect(lastText()).toMatch(/callmain off/);
+  });
+
+  it("посторонний ничего не включает", async () => {
+    await handleUpdate(msg(guest, { text: "/callmain on" }), deps4);
+    expect(main).toBe(false);
+    expect(lastText()).toMatch(/только владельцу/);
+  });
+});

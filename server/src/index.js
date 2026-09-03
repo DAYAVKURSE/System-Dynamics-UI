@@ -85,6 +85,18 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   const settings = {
     getCallApp: () => (process.env.TELEGRAM_CALL_APP || "").trim(),
     setCallApp: (name) => setSetting("TELEGRAM_CALL_APP", name),
+    // Открывать ли звонок ГЛАВНЫМ приложением бота. Ради одного —
+    // пол-экрана: отдельное приложение открывается только на весь
+    // (почему — в lib/links.js). Команда «/callmain on».
+    getCallMain: () => (process.env.TELEGRAM_CALL_MAIN || "").trim() === "1",
+    setCallMain: (on) => setSetting("TELEGRAM_CALL_MAIN", on ? "1" : ""),
+    // Заведено ли главное приложение на самом деле. null — Telegram не
+    // ответил; включать на таком ответе нельзя, иначе приглашение
+    // перестанет открывать вообще что-либо.
+    mainAppReady: async () => {
+      const u = await getMe();
+      return u ? Boolean(u.has_main_web_app) : null;
+    },
   };
   if (!settings.getCallApp()) {
     console.warn("[calls] TELEGRAM_CALL_APP не задан: ссылка на звонок ведёт на"

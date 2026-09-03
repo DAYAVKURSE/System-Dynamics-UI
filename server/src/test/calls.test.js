@@ -188,6 +188,22 @@ describe("инлайн-режим", () => {
     expect(text).toMatch(/Не открылось\? Откройте страницей: https:\/\/x\.test\/call\?call=/);
   });
 
+  it("про пол-экрана карточка не врёт", async () => {
+    // Отдельное приложение звонка Telegram открывает только на весь экран:
+    // на десктопе compact для таких ссылок не реализован вовсе, на телефоне
+    // высоту диктует ответ сервера (см. lib/links.js). Обещать половину и
+    // открыть целое — хуже, чем не обещать ничего.
+    await handleUpdate(q(owner, "завтра 15:00 разбор"), deps);
+    expect(last().results[0].input_message_content.message_text).not.toMatch(/пол-экрана/);
+
+    // А вот главное приложение бота половину действительно умеет — и
+    // только про него об этом сказано.
+    const asMain = { ...deps,
+      appLink: (id) => `https://t.me/bot?startapp=call_${id}&mode=compact` };
+    await handleUpdate(q(owner, "завтра 16:00 разбор"), asMain);
+    expect(last().results[0].input_message_content.message_text).toMatch(/пол-экрана/);
+  });
+
   it("встреча заводится сразу — ссылка обязана работать в момент отправки", async () => {
     await handleUpdate(q(owner, "завтра 15:00 разбор"), deps);
     const id = last().results[0].id;
