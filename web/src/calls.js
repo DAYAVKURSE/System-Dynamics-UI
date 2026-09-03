@@ -80,6 +80,24 @@ export const pollSignals = (id, since, signal) =>
   fetch(`/api/calls/${encodeURIComponent(id)}/signal?since=${since}`,
     { headers: headers(), signal }).then((r) => (r.ok ? r.json() : null));
 
+/* ─────── записи созвонов ───────
+
+   Лежат в том же хранилище файлов, что и вложения к задачам, но помечены
+   видом «call» — иначе вкладка звонков показывала бы всё подряд. Список,
+   отправка себе в чат и удаление доступны только своему: сервер выводит
+   каталог из подписи Telegram, а не из запроса. */
+
+export const listRecordings = () => json("/api/reports?kind=call");
+
+/** Отправить запись себе в чат с ботом: сохранить файл из мини-приложения
+ *  на телефон нельзя, а из чата — можно. */
+export const sendRecording = (id) =>
+  json(`/api/reports/${encodeURIComponent(id)}/send`, { method: "POST" });
+
+export const deleteRecording = (scope, id) =>
+  json(`/api/reports/${encodeURIComponent(scope)}/${encodeURIComponent(id)}`,
+    { method: "DELETE" });
+
 /** Ссылка на страницу звонка — отдельную, без вкладок модели. */
 export const callLink = (id) => `${location.origin}/call?call=${encodeURIComponent(id)}`;
 

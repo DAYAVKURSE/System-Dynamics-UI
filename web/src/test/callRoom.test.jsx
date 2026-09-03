@@ -214,6 +214,21 @@ describe("запись", () => {
     expect(screen.getByLabelText("запись").title).toBe("записать");
   });
 
+  it("во время записи картинка не пересоздаётся — экран не моргает", async () => {
+    // Пока Tile был объявлен внутри компонента, каждый рендер был для React
+    // НОВЫМ типом: он сносил <video> и создавал заново, и картинка гасла.
+    // Во время записи кусок приходит раз в секунду — экран моргал ровно с
+    // этой частотой.
+    const { container } = await join();
+    const videoBefore = container.querySelector("video");
+    fireEvent.click(await screen.findByLabelText("запись"));
+    await waitFor(() => expect(recorders).toHaveLength(1));
+    for (const size of [400000, 400000, 400000]) {
+      act(() => { recorders[0].ondataavailable({ data: { size } }); });
+    }
+    expect(container.querySelector("video")).toBe(videoBefore);
+  });
+
   it("413 от сервера объясняется размером, а не кодом", async () => {
     reportStatus = 413;
     await join();
@@ -222,6 +237,28 @@ describe("запись", () => {
     act(() => { recorders[0].ondataavailable({ data: { size: 5 * 1024 * 1024 } }); });
     fireEvent.click(screen.getByLabelText("запись"));
     expect(await screen.findByText(/больше, чем принимает сервер/)).toBeInTheDocument();
+  });
+});
+
+describe("до входа в звонок", () => {
+  it("камеру и микрофон можно выключить ДО входа, и они остаются выключенными", async () => {
+    render(<CallRoom meetingId="m1" meId="100" myName="Я" />);
+    // Кнопки есть сразу, а не после входа: решать, войти ли с камерой,
+    // человек должен до того, как его увидят.
+    const camBtn = await screen.findByLabelText("камера");
+    const micBtn = screen.getByLabelText("микрофон");
+    expect(screen.getByText("Войти в звонок")).toBeInTheDocument();
+
+    fireEvent.click(camBtn);
+    fireEvent.click(micBtn);
+    expect(screen.getByLabelText("камера").title).toBe("включить камеру");
+    expect(screen.getByLabelText("микрофон").title).toBe("включить микрофон");
+
+    fireEvent.click(screen.getByText("Войти в звонок"));
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+    const stream = await getUserMedia.mock.results[0].value;
+    await waitFor(() => expect(stream.getVideoTracks()[0].enabled).toBe(false));
+    expect(stream.getAudioTracks()[0].enabled).toBe(false);
   });
 });
 

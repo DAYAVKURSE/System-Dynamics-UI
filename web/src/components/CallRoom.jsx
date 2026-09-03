@@ -36,6 +36,48 @@ export const MAX_RECORDING_BYTES = MAX_UPLOAD_REPORT_BYTES - 2 * 1024 * 1024;
 
 const mb = (n) => `${(n / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
 
+/* ════════════════════════════════════════════════════════════════
+   ПЛИТКА С ВИДЕО
+
+   Объявлена ЗДЕСЬ, а не внутри CallRoom, и это не вкусовщина. Функция,
+   объявленная в теле компонента, на каждый рендер новая — для React это
+   новый тип компонента, поэтому он не обновляет старое дерево, а сносит
+   его и создаёт заново вместе с <video>. Картинка при этом гаснет и
+   загорается снова.
+
+   Пока в комнате ничего не меняется, это незаметно. А во время записи
+   MediaRecorder отдаёт кусок раз в секунду, счётчик размера обновляет
+   состояние — и экран моргал ровно раз в секунду. Отсюда же и memo:
+   поток у плитки меняется редко, и перерисовывать её из-за чужого
+   счётчика незачем.
+   ════════════════════════════════════════════════════════════════ */
+const Tile = React.memo(function Tile({ stream, muted, label: text, mirror, fit }) {
+  const ref = useRef(null);
+  // srcObject присваивается, только когда поток ДРУГОЙ: повторное
+  // присваивание того же потока перезапускает воспроизведение и даёт то же
+  // моргание, что и пересоздание элемента.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Поток ушёл — гасим: иначе после выхода из звонка в плитке навсегда
+    // остаётся последний кадр с камеры, будто она ещё работает.
+    if (!stream) { el.srcObject = null; return; }
+    if (el.srcObject !== stream) el.srcObject = stream;
+  }, [stream]);
+  return (
+    <div style={{ position: "relative", minHeight: 0, minWidth: 0, borderRadius: 10,
+      overflow: "hidden", background: "#000", border: `1px solid ${C.line}`,
+      aspectRatio: fit ? undefined : "3 / 4" }}>
+      <video ref={ref} autoPlay playsInline muted={muted}
+        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block",
+          transform: mirror ? "scaleX(-1)" : undefined }} />
+      <span style={{ position: "absolute", left: 6, bottom: 6, fontSize: 10,
+        color: C.text, background: "#0009", borderRadius: 4, padding: "2px 5px",
+        maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis",
+        whiteSpace: "nowrap" }}>{text}</span>
+    </div>);
+});
+
 export default function CallRoom({
   meetingId, meId, myName = "", onClose, nameOf, fit = false, onExpand = null,
   canRecord = true,
@@ -64,9 +106,14 @@ export default function CallRoom({
   const abort = useRef(null);
   const since = useRef(0);
   const stopped = useRef(false);
+  // Отложенная уборка плиток — по таймеру на собеседника, чтобы их можно
+  // было отменить и чтобы ни один не сработал после закрытия окна.
+  const dropTimers = useRef(new Map());
 
   const stop = useCallback(() => {
     stopped.current = true;
+    dropTimers.current.forEach((t) => clearTimeout(t));
+    dropTimers.current.clear();
     try { abort.current?.abort(); } catch { /* уже закрыт */ }
     try { recorder.current?.state === "recording" && recorder.current.stop(); } catch { /* нет записи */ }
     peers.current.forEach((c) => { try { c.close(); } catch { /* уже закрыт */ } });
@@ -140,7 +187,10 @@ export default function CallRoom({
     const video = outVideo.current || local.current?.getVideoTracks()[0];
     if (video) conn.addTrack(video, local.current);
     conn.ontrack = (e) => {
-      setStreams((p) => ({ ...p, [id]: e.streams[0] }));
+      // Тот же поток приходит дважды — на звук и на видео. Переписывать им
+      // состояние второй раз значит перерисовать всё окно на ровном месте,
+      // и как раз в самый шумный момент: когда участник входит.
+      setStreams((p) => (p[id] === e.streams[0] ? p : { ...p, [id]: e.streams[0] }));
       setState("live");
     };
     conn.onicecandidate = (e) => { if (e.candidate) post({ type: "ice", candidate: e.candidate }, id); };
@@ -150,14 +200,26 @@ export default function CallRoom({
         setNote((n) => n || "С одним из участников соединение не установилось: у него не открылся"
           + " путь до сервера ретрансляции (порт 3478). Пусть попробует другую сеть.");
       }
+      if (conn.connectionState === "connected") {
+        // Соединение вернулось — отменяем уборку, иначе она уберёт живого.
+        clearTimeout(dropTimers.current.get(id));
+        dropTimers.current.delete(id);
+      }
       if (["closed", "disconnected", "failed"].includes(conn.connectionState)) {
-        // Собеседник ушёл — убираем его окно, остальные продолжают.
-        setTimeout(() => {
+        // Собеседник ушёл — убираем его окно, остальные продолжают. Таймер
+        // на собеседника ровно один: на плохой сети соединение прыгает
+        // «отвалилось → вернулось» несколько раз подряд, и без отмены
+        // накапливалась очередь уборщиков — плитка выпадала и появлялась
+        // снова уже у живого участника.
+        clearTimeout(dropTimers.current.get(id));
+        const t = setTimeout(() => {
+          dropTimers.current.delete(id);
           if (peers.current.get(id) === conn && conn.connectionState !== "connected") {
             peers.current.delete(id);
             setStreams((p) => { const n = { ...p }; delete n[id]; return n; });
           }
         }, 3000);
+        dropTimers.current.set(id, t);
       }
     };
     return conn;
@@ -240,6 +302,10 @@ export default function CallRoom({
       setErr(e.message); setState("idle"); return;
     }
     local.current = stream;
+    // Выбор, сделанный до входа: если камеру или микрофон выключили на
+    // экране ожидания, они и должны остаться выключенными.
+    stream.getAudioTracks().forEach((t) => { t.enabled = mic; });
+    stream.getVideoTracks().forEach((t) => { t.enabled = cam; });
 
     stopped.current = false;
     setState("waiting");
@@ -315,7 +381,10 @@ export default function CallRoom({
         if (!e.data?.size) return;
         chunks.current.push(e.data);
         bytes.current += e.data.size;
-        setRecBytes(bytes.current);
+        // Показываем десятые доли мегабайта — значит и в состояние кладём
+        // столько же. Обновлять его на каждый кусок значит перерисовывать
+        // окно раз в секунду ради цифры, которая не изменилась.
+        setRecBytes((was) => (mb(bytes.current) === mb(was) ? was : bytes.current));
         // Предел размера — предел загрузки на сервер. Останавливаемся сами,
         // пока запись ещё можно сохранить, а не после того, как сервер откажет.
         if (bytes.current >= MAX_RECORDING_BYTES && r.state === "recording") {
@@ -330,7 +399,7 @@ export default function CallRoom({
           const name = `звонок-${new Date().toISOString().slice(0, 16).replace(":", "-")}`
             + (mime.includes("mp4") ? ".mp4" : ".webm");
           const file = new File([blob], name, { type: mime });
-          const saved = await putReportFile(file);
+          const saved = await putReportFile(file, { kind: "call" });
           setRecNote(saved.url
             ? `Запись сохранена: ${saved.name} (${mb(blob.size)})`
             : `Запись готова (${mb(blob.size)}), но сервера нет — она осталась только здесь.`);
@@ -365,32 +434,16 @@ export default function CallRoom({
       : state === "live" ? `Через сервер · ${others.length} участник${others.length === 1 ? "" : others.length < 5 ? "а" : "ов"} кроме вас`
         : "";
 
-  const Tile = ({ stream, muted, label: text, mirror }) => {
-    const ref = useRef(null);
-    useEffect(() => { if (ref.current && stream) ref.current.srcObject = stream; }, [stream]);
-    return (
-      <div style={{ position: "relative", minHeight: 0, minWidth: 0, borderRadius: 10,
-        overflow: "hidden", background: "#000", border: `1px solid ${C.line}`,
-        aspectRatio: fit ? undefined : "3 / 4" }}>
-        <video ref={ref} autoPlay playsInline muted={muted}
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block",
-            transform: mirror ? "scaleX(-1)" : undefined }} />
-        <span style={{ position: "absolute", left: 6, bottom: 6, fontSize: 10,
-          color: C.text, background: "#0009", borderRadius: 4, padding: "2px 5px",
-          maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis",
-          whiteSpace: "nowrap" }}>{text}</span>
-      </div>);
-  };
-
   const ctl = (on, col, extra = {}) => ({
     ...btn(on, col), ...(fit ? { padding: "8px 10px", fontSize: 15, lineHeight: 1 } : {}), ...extra,
   });
 
-  const controls = state === "idle" || state === "ended" ? (
-    <button style={ctl(true, OK, fit ? { fontSize: 13, padding: "10px 16px", flex: 1 } : {})}
-      onClick={join}>
-      {state === "ended" ? "Войти снова" : "Войти в звонок"}</button>
-  ) : (
+  /* Микрофон и камера — кнопки, которые есть ВСЕГДА, в том числе до входа.
+     Человек должен решить, войдёт он с камерой или без, до того как его
+     увидят, а не гасить её потом на глазах у собеседников. Выбор,
+     сделанный до входа, применяется к дорожкам сразу при получении
+     доступа (см. join). */
+  const micCam = (
     <>
       <button aria-label="микрофон" title={mic ? "выключить микрофон" : "включить микрофон"}
         style={ctl(mic, mic ? OK : BAD)} onClick={toggleMic}>
@@ -398,6 +451,18 @@ export default function CallRoom({
       <button aria-label="камера" title={cam ? "выключить камеру" : "включить камеру"}
         style={ctl(cam, cam ? OK : BAD)} onClick={toggleCam}>
         {fit ? (cam ? "🎥" : "🚫") : (cam ? "🎥 камера вкл" : "🚫 камера выкл")}</button>
+    </>);
+
+  const controls = state === "idle" || state === "ended" ? (
+    <>
+      {micCam}
+      <button style={ctl(true, OK, fit ? { fontSize: 13, padding: "10px 16px", flex: 1 } : {})}
+        onClick={join}>
+        {state === "ended" ? "Войти снова" : "Войти в звонок"}</button>
+    </>
+  ) : (
+    <>
+      {micCam}
       {screenShareSupported() && (
         <button aria-label="экран" title={sharing ? "прекратить показ экрана" : "показать экран"}
           style={ctl(sharing, ACC)} onClick={shareScreen}>
@@ -431,10 +496,10 @@ export default function CallRoom({
 
   const tiles = (
     <>
-      <Tile stream={sharing ? screen.current : local.current} muted mirror={!sharing}
+      <Tile stream={sharing ? screen.current : local.current} muted mirror={!sharing} fit={fit}
         label={sharing ? "ваш экран" : (mic ? "вы" : "вы · микрофон выключен")} />
       {others.map(([id, st]) => (
-        <Tile key={id} stream={st} muted={false} label={label(id)} />))}
+        <Tile key={id} stream={st} muted={false} label={label(id)} fit={fit} />))}
       {!others.length && inCall && (
         <div style={{ minHeight: 0, borderRadius: 10, border: `1px dashed ${C.line}`,
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -450,7 +515,13 @@ export default function CallRoom({
           title={`${status} ${note}`.trim()}>
           {status}{status && note ? " · " : ""}{note}</div>)}
       {err && <div style={{ fontSize: 11.5, color: BAD, lineHeight: 1.5 }}>{err}</div>}
-      {recNote && <div style={{ fontSize: 11, color: rec ? BAD : ACC, lineHeight: 1.5 }}>
+      {/* В компактном окне эта строка — единственная, что не была прижата к
+          одной строке. Счётчик рос («9,9 МБ» → «10,0 МБ»), строка
+          переносилась, и сетка видео теряла полтора десятка пикселей —
+          снаружи это выглядит как ещё одно моргание, уже не от React. */}
+      {recNote && <div style={{ fontSize: 11, color: rec ? BAD : ACC, lineHeight: 1.5,
+        ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
+        title={recNote}>
         {recNote}{rec && recBytes ? ` · ${mb(recBytes)} из ${mb(MAX_RECORDING_BYTES)}` : ""}</div>}
     </>);
 

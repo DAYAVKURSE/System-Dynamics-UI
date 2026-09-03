@@ -106,7 +106,13 @@ export function safeName(name) {
   return cleaned || "отчёт";
 }
 
-export async function saveReport(userId, { name, type, bytes } = {}) {
+/* Метка вида файла: «call» у записей созвонов, пусто у обычных вложений к
+   задачам. Нужна ровно затем, чтобы на вкладке звонков показывать записи, а
+   не всё подряд, что человек когда-либо прикладывал. Держим её узкой —
+   короткая латиница, — чтобы в манифест не уезжало что попало из заголовка. */
+export const safeKind = (k) => (/^[a-z]{1,16}$/.test(String(k || "")) ? String(k) : "");
+
+export async function saveReport(userId, { name, type, bytes, kind } = {}) {
   if (!bytes || !bytes.length) throw new Error("file is required");
   if (bytes.length > MAX_REPORT_BYTES) {
     throw new Error(`file must be at most ${Math.round(MAX_REPORT_BYTES / 1024 / 1024)} MB`);
@@ -122,6 +128,7 @@ export async function saveReport(userId, { name, type, bytes } = {}) {
   const entry = {
     id, name: safeName(name), type: safeType(type),
     size: bytes.length, savedAt: new Date().toISOString(),
+    ...(safeKind(kind) ? { kind: safeKind(kind) } : {}),
   };
   // Расширения у файла на диске нет намеренно: имя и тип живут в манифесте,
   // а статикой этот каталог не отдаётся — только через маршрут с проверкой.
@@ -129,6 +136,40 @@ export async function saveReport(userId, { name, type, bytes } = {}) {
   manifest.push(entry);
   await writeManifest(dir, manifest);
   return { ...entry, scope, url: `/api/reports/${scope}/${id}` };
+}
+
+/**
+ * Что у человека лежит. Только своё: scope выводится из подписанного
+ * пользователя, а не берётся из запроса, — иначе список стал бы способом
+ * заглянуть в чужой.
+ *
+ * Записи созвонов помечены kind: "call". Файлы, сохранённые до появления
+ * метки, её не имеют — и это не повод их прятать: фильтр по виду применяем
+ * только когда о нём попросили.
+ */
+export async function listReports(userId, { kind = "" } = {}) {
+  const scope = await scopeFor(userId);
+  if (!scope) return [];
+  const manifest = await readManifest(scopeDir(scope));
+  const want = safeKind(kind);
+  return manifest
+    .filter((m) => !want || m.kind === want)
+    .map((m) => ({ ...m, scope, url: `/api/reports/${scope}/${m.id}` }))
+    .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+}
+
+/** Своё по id — с байтами. Для отправки в чат: наружу файл не уходит. */
+export async function ownReport(userId, id) {
+  const scope = await scopeFor(userId);
+  if (!scope) return null;
+  const entry = (await readManifest(scopeDir(scope))).find((m) => m.id === id);
+  if (!entry) return null;
+  try {
+    return {
+      ...entry, scope, url: `/api/reports/${scope}/${entry.id}`,
+      bytes: await fs.readFile(path.join(scopeDir(scope), entry.id)),
+    };
+  } catch { return null; }
 }
 
 /** Чтение — по ссылке-ключу: scope из URL, а не из подписи запроса. */

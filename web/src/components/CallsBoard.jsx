@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, S, btn, TxtField } from "./ui.jsx";
 import CallRoom from "./CallRoom.jsx";
-import { callLink, createMeeting, deleteMeeting, listMeetings } from "../calls.js";
+import {
+  callLink, createMeeting, deleteMeeting, deleteRecording, listMeetings, listRecordings,
+  sendRecording,
+} from "../calls.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЗВОНКИ · список встреч и вход в комнату
@@ -19,18 +22,27 @@ const fmt = (v) => {
       hour: "2-digit", minute: "2-digit" });
 };
 
+const mb = (n) => `${(Number(n || 0) / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
+
 export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
   const [list, setList] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [at, setAt] = useState("");
+  const [recs, setRecs] = useState(null);
+  const [openRec, setOpenRec] = useState("");   // какая запись раскрыта
+  const [recMsg, setRecMsg] = useState("");
 
   const load = async () => {
     try { setList(await listMeetings()); }
     catch (e) { setMsg(e.message); setList([]); }
   };
-  useEffect(() => { load(); }, []);
+  const loadRecs = async () => {
+    try { setRecs(await listRecordings()); }
+    catch { setRecs([]); }        // нет сервера или нет прав — просто нечего показывать
+  };
+  useEffect(() => { load(); loadRecs(); }, []);
 
   const act = async (fn) => {
     setBusy(true); setMsg("");
@@ -91,6 +103,57 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
                   приложения звонка. Своя — на случай работы без сервера. */}
               {m.link || callLink(m.id)}</div>
           </div>))}
+      </div>
+
+      {/* ─────── записи созвонов ───────
+          Запись делает каждый свою и кладёт на сервер. Показываем их здесь,
+          рядом со встречами: искать запись во вкладке отчётов по задачам
+          никому не придёт в голову.
+
+          «Скачать» — это отправка себе в чат с ботом, и так и подписано:
+          сохранить файл прямо из мини-приложения Telegram не даёт, а из
+          чата он открывается и пересылается штатно. */}
+      <div style={{ ...S.card, marginTop: 10 }}>
+        <div style={S.lbl}>записи</div>
+        {recs === null && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>
+          Загружаю…</div>}
+        {recs && !recs.length && (
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+            Записей пока нет. Во время звонка нажмите «⏺» — запись ляжет сюда.</div>)}
+        {(recs || []).map((r) => (
+          <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
+            borderRadius: 8, padding: 9, marginTop: 6 }}>
+            <button aria-label={`запись ${r.name}`}
+              onClick={() => { setRecMsg(""); setOpenRec(openRec === r.id ? "" : r.id); }}
+              style={{ display: "flex", width: "100%", gap: 8, alignItems: "center",
+                background: "transparent", border: 0, padding: 0, cursor: "pointer",
+                color: C.text, textAlign: "left" }}>
+              <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {r.name}</span>
+              <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+                {mb(r.size)} · {fmt(r.savedAt)}</span>
+            </button>
+            {openRec === r.id && (
+              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+                <button style={btn(true, OK)} disabled={busy}
+                  onClick={() => act(async () => {
+                    const out = await sendRecording(r.id);
+                    setRecMsg(out?.sent === "link"
+                      ? "Запись великовата для файла — отправил в чат ссылку на неё."
+                      : "Отправил запись в чат с ботом.");
+                  })}>Скачать</button>
+                <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+                  disabled={busy}
+                  onClick={() => act(async () => {
+                    await deleteRecording(r.scope, r.id);
+                    setOpenRec(""); setRecMsg("Запись удалена с сервера.");
+                    await loadRecs();
+                  })}>Удалить</button>
+              </div>)}
+          </div>))}
+        {recMsg && <div style={{ fontSize: 11.5, color: ACC, marginTop: 8, lineHeight: 1.5 }}>
+          {recMsg}</div>}
       </div>
     </div>);
 }

@@ -163,7 +163,7 @@ const readAsDataUrl = (file) => new Promise((resolve, reject) => {
 
 /** Кладёт файл отчёта туда, где он переживёт перезагрузку, и возвращает
  *  запись для сдачи: `{name, type, size, url}` либо `{name, type, size, data}`. */
-export async function putReportFile(file) {
+export async function putReportFile(file, { kind = "" } = {}) {
   const meta = { name: file.name, type: file.type, size: file.size };
   if (await reportsAvailable()) {
     if (file.size > MAX_UPLOAD_REPORT_BYTES) {
@@ -177,6 +177,9 @@ export async function putReportFile(file) {
         "Content-Type": "application/octet-stream",
         "X-Report-Name": nameB64,
         "X-Report-Type": file.type || "application/octet-stream",
+        // Вид файла: «call» у записей созвонов. По нему вкладка звонков
+        // показывает записи, а не всё, что человек когда-либо приложил.
+        ...(kind ? { "X-Report-Kind": kind } : {}),
         "X-Telegram-Init-Data": getInitData(),
       },
       body: file,

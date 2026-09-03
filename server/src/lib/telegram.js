@@ -84,6 +84,43 @@ export async function answerInline(id, results, extra = {},
 }
 
 /** Имя бота — из него собирается ссылка на мини-приложение. */
+/* ─────── файл в чат ───────
+
+   Записи созвонов живут на диске сервера, а забирать их владелец хочет
+   туда, где он и так сидит, — в чат с ботом. Bot API принимает файл только
+   как multipart/form-data; в Node это FormData и Blob из стандартной
+   библиотеки, никаких зависимостей.
+
+   Предел у бота — 50 МБ на документ, а запись бывает и под сотню: в этом
+   случае звать sendDocument бессмысленно, и вызывающий код шлёт ссылку.
+   Предел назван здесь, чтобы решение принималось в одном месте. */
+
+export const MAX_BOT_DOCUMENT_BYTES = 50 * 1024 * 1024;
+
+export async function sendDocument(chatId, { bytes, name, type, caption = "" },
+  token = process.env.TELEGRAM_BOT_TOKEN) {
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
+  if (!bytes?.length) throw new Error("файл пуст");
+  if (bytes.length > MAX_BOT_DOCUMENT_BYTES) {
+    throw Object.assign(new Error("файл больше 50 МБ — бот такой не отправит"), { tooBig: true });
+  }
+  const form = new FormData();
+  form.set("chat_id", String(chatId));
+  if (caption) form.set("caption", caption.slice(0, 1024));
+  form.set("document", new Blob([bytes], { type: type || "application/octet-stream" }), name);
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+    method: "POST", body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    // Чаще всего человек просто не открывал чат с ботом: Telegram запрещает
+    // писать первым, и об этом надо сказать словами, а не кодом.
+    throw new Error(data.description || `Telegram ответил ${res.status}`);
+  }
+  return data.result;
+}
+
 export async function getMe(token = process.env.TELEGRAM_BOT_TOKEN) {
   if (!token) return null;
   const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);

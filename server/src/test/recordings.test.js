@@ -1,0 +1,174 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import request from "supertest";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+/* ═══════════════════════════════════════════════════════════════
+   ЗАПИСИ СОЗВОНОВ
+
+   Лежат в том же хранилище файлов, что и вложения к задачам, но помечены
+   видом «call» — иначе вкладка звонков показывала бы всё подряд.
+
+   Главное, что здесь проверяется, — своё и чужое. Список, отправка в чат и
+   удаление обязаны выводить каталог из подписи Telegram, а не из запроса:
+   иначе знание id превращалось бы в право прочитать чужую запись. Поэтому
+   проверка идёт на боевом режиме, где пользователи различимы.
+   ═══════════════════════════════════════════════════════════════ */
+
+const TOKEN = "test-token";
+let app, tmp, prev;
+
+function initDataFor(id) {
+  const user = JSON.stringify({ id, first_name: "Кто-то" });
+  const params = { auth_date: String(Math.floor(Date.now() / 1000)), user };
+  const check = Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join("\n");
+  const secret = crypto.createHmac("sha256", "WebAppData").update(TOKEN).digest();
+  const hash = crypto.createHmac("sha256", secret).update(check).digest("hex");
+  return new URLSearchParams({ ...params, hash }).toString();
+}
+const as = (id) => ({ "X-Telegram-Init-Data": initDataFor(id) });
+const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
+
+const upload = (who, bytes, { name = "звонок.webm", type = "video/webm", kind = "call" } = {}) => {
+  const r = request(app).post("/api/reports")
+    .set(as(who))
+    .set("X-Report-Name", b64(name))
+    .set("X-Report-Type", type)
+    .set("Content-Type", "application/octet-stream");
+  if (kind) r.set("X-Report-Kind", kind);
+  return r.send(bytes);
+};
+
+beforeAll(async () => {
+  tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sd-recordings-"));
+  prev = { node: process.env.NODE_ENV, token: process.env.TELEGRAM_BOT_TOKEN,
+    url: process.env.PUBLIC_URL };
+  process.env.REPORTS_DIR = tmp;
+  process.env.NODE_ENV = "production";
+  process.env.TELEGRAM_BOT_TOKEN = TOKEN;
+  process.env.PUBLIC_URL = "https://x.test";
+  const { createApp } = await import("../app.js");
+  app = createApp();
+});
+afterAll(async () => {
+  process.env.NODE_ENV = prev.node;
+  if (prev.token === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+  else process.env.TELEGRAM_BOT_TOKEN = prev.token;
+  if (prev.url === undefined) delete process.env.PUBLIC_URL;
+  else process.env.PUBLIC_URL = prev.url;
+  await fs.rm(tmp, { recursive: true, force: true });
+});
+afterEach(() => { vi.restoreAllMocks(); });
+
+/** Telegram в тестах поддельный: настоящему боту тут звонить нечем и незачем. */
+const fakeTelegram = () => {
+  const calls = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opts) => {
+    calls.push({ url: String(url), body: opts?.body });
+    return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) };
+  });
+  return calls;
+};
+
+describe("список записей", () => {
+  it("показывает свои записи и не показывает вложения к задачам", async () => {
+    await upload(100, Buffer.from("видео"), { name: "звонок-1.webm" });
+    await upload(100, Buffer.from("картинка"), { name: "снимок.png", type: "image/png", kind: "" });
+
+    const all = await request(app).get("/api/reports").set(as(100));
+    expect(all.status).toBe(200);
+    expect(all.body.map((f) => f.name).sort()).toEqual(["звонок-1.webm", "снимок.png"]);
+
+    const rec = await request(app).get("/api/reports?kind=call").set(as(100));
+    expect(rec.body).toHaveLength(1);
+    expect(rec.body[0]).toMatchObject({ name: "звонок-1.webm", kind: "call" });
+    // Ссылка на файл и каталог нужны интерфейсу, чтобы открыть и удалить.
+    expect(rec.body[0].url).toMatch(/^\/api\/reports\/[a-f0-9]{32}\//);
+    expect(rec.body[0].scope).toMatch(/^[a-f0-9]{32}$/);
+  });
+
+  it("чужих записей в списке нет", async () => {
+    await upload(100, Buffer.from("моё"), { name: "моя.webm" });
+    const res = await request(app).get("/api/reports?kind=call").set(as(777));
+    expect(res.body.map((f) => f.name)).not.toContain("моя.webm");
+  });
+
+  it("без подписи список не отдаётся вовсе", async () => {
+    expect((await request(app).get("/api/reports")).status).toBe(401);
+  });
+});
+
+describe("«Скачать» — отправка себе в чат", () => {
+  it("запись уходит документом в чат тому же человеку", async () => {
+    const calls = fakeTelegram();
+    const up = await upload(100, Buffer.from("видеозапись"), { name: "звонок-2.webm" });
+    const res = await request(app).post(`/api/reports/${up.body.id}/send`).set(as(100));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sent: "file" });
+
+    const sent = calls.find((c) => c.url.includes("/sendDocument"));
+    expect(sent).toBeTruthy();
+    // Адресат — тот же подписанный пользователь, а не что-то из запроса.
+    expect(sent.body.get("chat_id")).toBe("100");
+    expect(sent.body.get("document").name).toBe("звонок-2.webm");
+  });
+
+  it("слишком большая запись уходит ссылкой, а не молчанием", async () => {
+    // Бот отправляет документ не больше 50 МБ, а сорок минут созвона весят
+    // под сотню. Файл кладём мимо HTTP: гонять сто мегабайт через supertest
+    // ради одной ветки незачем.
+    const { saveReport } = await import("../lib/reportStore.js");
+    const { MAX_BOT_DOCUMENT_BYTES } = await import("../lib/telegram.js");
+    const big = await saveReport("100", {
+      name: "длинная.webm", type: "video/webm", kind: "call",
+      bytes: Buffer.alloc(MAX_BOT_DOCUMENT_BYTES + 1),
+    });
+    const calls = fakeTelegram();
+    const res = await request(app).post(`/api/reports/${big.id}/send`).set(as(100));
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe("link");
+    expect(res.body.link).toBe(`https://x.test${big.url}`);
+
+    expect(calls.find((c) => c.url.includes("/sendDocument"))).toBeFalsy();
+    const msg = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(JSON.parse(msg.body).text).toContain(`https://x.test${big.url}`);
+  }, 20000);
+
+  it("чужую запись отправить нельзя, даже зная её id", async () => {
+    const calls = fakeTelegram();
+    const up = await upload(100, Buffer.from("чужое"), { name: "чужая.webm" });
+    const res = await request(app).post(`/api/reports/${up.body.id}/send`).set(as(777));
+    expect(res.status).toBe(404);
+    expect(calls.find((c) => c.url.includes("/sendDocument"))).toBeFalsy();
+  });
+
+  it("несуществующая запись — 404, а не пятисотка", async () => {
+    fakeTelegram();
+    const res = await request(app).post("/api/reports/нет-такой/send").set(as(100));
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("«Удалить» — с сервера насовсем", () => {
+  it("своя запись исчезает и из списка, и с диска", async () => {
+    const up = await upload(100, Buffer.from("на удаление"), { name: "лишняя.webm" });
+    const { scope, id } = up.body;
+    expect((await request(app).get(`/api/reports/${scope}/${id}`)).status).toBe(200);
+
+    const del = await request(app).delete(`/api/reports/${scope}/${id}`).set(as(100));
+    expect(del.status).toBe(204);
+    expect((await request(app).get(`/api/reports/${scope}/${id}`)).status).toBe(404);
+    const left = await request(app).get("/api/reports?kind=call").set(as(100));
+    expect(left.body.map((f) => f.name)).not.toContain("лишняя.webm");
+  });
+
+  it("чужую запись не удалить: каталог берётся из подписи, а не из ссылки", async () => {
+    const up = await upload(100, Buffer.from("не трогать"), { name: "чужая-2.webm" });
+    const { scope, id } = up.body;
+    const del = await request(app).delete(`/api/reports/${scope}/${id}`).set(as(777));
+    expect(del.status).toBe(404);
+    expect((await request(app).get(`/api/reports/${scope}/${id}`)).status).toBe(200);
+  });
+});
