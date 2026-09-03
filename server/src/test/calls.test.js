@@ -168,60 +168,39 @@ describe("инлайн-режим", () => {
     await org.identify("100", { name: "Владелец" });
   });
 
-  it("карточка несёт время, тему и ссылку на звонок", async () => {
+  it("в карточке ровно три вещи: название, время и кнопка", async () => {
+    // Так просил владелец, и просил по делу: лишняя ссылка в тексте — это
+    // ещё одна цель для пальца, а ведёт она на обычную страницу, которую
+    // Telegram открывает встроенным браузером, во весь экран и без
+    // надёжного доступа к камере.
     await handleUpdate(q(owner, "завтра 15:00 разбор прогноза"), deps);
-    const [card] = last().results;
-    expect(card.title).toMatch(/завтра 15:00/);
-    expect(card.input_message_content.message_text).toMatch(/разбор прогноза/);
-    expect(card.input_message_content.message_text).toMatch(/startapp=call_/);
-    // И кнопкой тоже: ссылку в тексте на телефоне попасть пальцем трудно.
-    expect(card.reply_markup.inline_keyboard[0][0].url).toMatch(/startapp=call_/);
-  });
-
-  it("запасной выход есть, но отдельной кнопкой, а не строкой в тексте", async () => {
-    // Мини-приложение зависит от того, что заведено в @BotFather. Если там
-    // указан не тот адрес, Telegram покажет чёрный экран — и человеку на
-    // встрече нужен запасной выход, а не разбирательство.
-    //
-    // Но в тексте ему не место: обычная ссылка открывается встроенным
-    // браузером, а он всегда во весь экран. Лёжа соседней строкой, она на
-    // глаз не отличалась от нужной — и «звонок открывается на весь экран»
-    // объяснялось одним промахом пальца.
-    await handleUpdate(q(owner, "завтра 15:00 разбор"), deps);
     const card = last().results[0];
     const text = card.input_message_content.message_text;
-    expect(text).toMatch(/Подключиться: https:\/\/t\.me\/bot\/call\?startapp=call_/);
-    expect(text).not.toContain("x.test/call?call=");
-    // Превью вело бы туда же — третьей крупной целью.
-    expect(card.input_message_content.disable_web_page_preview).toBe(true);
 
+    expect(text).toContain("разбор прогноза");
+    expect(text).toContain("завтра 15:00");
+    expect(text).not.toMatch(/https?:\/\//);          // ни одной ссылки текстом
+    expect(text).not.toMatch(/пол-экрана|развернуть/i); // ни слова про окно
+    expect(text).not.toMatch(/страницей/i);            // и про запасной выход
+    expect(text.split("\n").filter(Boolean)).toHaveLength(2);
+
+    // Кнопка одна, и ведёт она в мини-приложение.
     const rows = card.reply_markup.inline_keyboard;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveLength(1);
+    expect(rows[0][0].text).toMatch(/Подключиться/);
     expect(rows[0][0].url).toMatch(/t\.me\/bot\/call\?startapp=call_/);
-    expect(rows[1][0].text).toMatch(/страницей/i);
-    expect(rows[1][0].url).toMatch(/https:\/\/x\.test\/call\?call=/);
+    // Превью вело бы на ту же страницу третьей крупной целью.
+    expect(card.input_message_content.disable_web_page_preview).toBe(true);
   });
 
-  it("когда мини-приложения нет, второй кнопки не появляется", async () => {
-    // Обе ссылки ведут на одну страницу — вторая кнопка была бы её двойником.
-    const noApp = { ...deps, appLink: (id) => `https://x.test/call?call=${id}` };
-    await handleUpdate(q(owner, "завтра 15:00 разбор"), noApp);
-    expect(last().results[0].reply_markup.inline_keyboard).toHaveLength(1);
-  });
-
-  it("про пол-экрана карточка не врёт", async () => {
-    // Отдельное приложение звонка Telegram открывает только на весь экран:
-    // на десктопе compact для таких ссылок не реализован вовсе, на телефоне
-    // высоту диктует ответ сервера (см. lib/links.js). Обещать половину и
-    // открыть целое — хуже, чем не обещать ничего.
-    await handleUpdate(q(owner, "завтра 15:00 разбор"), deps);
-    expect(last().results[0].input_message_content.message_text).not.toMatch(/пол-экрана/);
-
-    // А вот главное приложение бота половину действительно умеет — и
-    // только про него об этом сказано.
-    const asMain = { ...deps,
-      appLink: (id) => `https://t.me/bot?startapp=call_${id}&mode=compact` };
-    await handleUpdate(q(owner, "завтра 16:00 разбор"), asMain);
-    expect(last().results[0].input_message_content.message_text).toMatch(/пол-экрана/);
+  it("без разобранного времени остаётся одно название", async () => {
+    // «когда: договоримся в чате» — это выдумка вместо факта, а владелец
+    // просил только то, что есть.
+    await handleUpdate(q(owner, "разбор без времени"), deps);
+    const text = last().results[0].input_message_content.message_text;
+    expect(text.split("\n").filter(Boolean)).toHaveLength(1);
+    expect(text).not.toMatch(/договоримся/i);
   });
 
   it("встреча заводится сразу — ссылка обязана работать в момент отправки", async () => {

@@ -59,72 +59,6 @@ describe("окно звонка", () => {
     expect(await screen.findByText(/Ссылка на звонок неполная/)).toBeInTheDocument();
   });
 
-  /* Звонок на нижней части экрана.
-
-     Само окно нам не подчиняется: высоту листа Telegram считает из размера
-     экрана и фиксирует, а свернуть его из страницы нечем — expand()
-     односторонний. В нашей власти только то, где на этой высоте лежит
-     звонок. Поэтому он занимает нижние 40%, а по пустому месту сверху
-     разворачивается обратно — иначе нижний режим было бы некуда отменить. */
-  describe("звонок внизу экрана", () => {
-    const room = () => screen.getByTestId("комната");
-
-    it("по умолчанию занимает нижние 40%, и сверху есть чем развернуть", async () => {
-      setUrl("?call=m1");
-      render(<CallApp />);
-      await screen.findByText("Разбор");
-      expect(room().style.flex).toContain("40%");
-      expect(screen.getByText(/нажмите, чтобы развернуть/)).toBeInTheDocument();
-    });
-
-    it("разворачивается на всё окно и сворачивается обратно", async () => {
-      setUrl("?call=m1");
-      render(<CallApp />);
-      await screen.findByText("Разбор");
-      fireEvent.click(screen.getByText(/нажмите, чтобы развернуть/));
-      expect(room().style.flex).not.toContain("40%");
-      expect(localStorage.getItem("sd.call.low")).toBe("0");
-
-      fireEvent.click(screen.getByText(/вниз экрана/));
-      expect(room().style.flex).toContain("40%");
-      expect(localStorage.getItem("sd.call.low")).toBe("1");
-    });
-
-    it("считает 40% от ЭКРАНА, а не от окна", async () => {
-      // Числа разные: у владельца экран 883 точки, а окно, которое выдал
-      // Telegram, — 775. «Сорок процентов» он просил от экрана.
-      Object.defineProperty(window.screen, "height", { value: 883, configurable: true });
-      window.innerHeight = 775;
-      setUrl("?call=m1");
-      render(<CallApp />);
-      await screen.findByText("Разбор");
-      expect(room().style.flex).toContain("353px");   // 883 × 0.4
-      Object.defineProperty(window.screen, "height", { value: 0, configurable: true });
-    });
-
-    it("панель не вылезает за окно, даже когда экран много больше него", async () => {
-      // Свёрнутый лист Telegram бывает сильно меньше экрана. Панель, взятая
-      // от экрана, тогда не поместилась бы — и кнопки уехали бы за край.
-      Object.defineProperty(window.screen, "height", { value: 2000, configurable: true });
-      window.innerHeight = 400;
-      setUrl("?call=m1");
-      render(<CallApp />);
-      await screen.findByText("Разбор");
-      expect(parseInt(room().style.flexBasis, 10)).toBeLessThanOrEqual(400);
-      Object.defineProperty(window.screen, "height", { value: 0, configurable: true });
-      window.innerHeight = 768;
-    });
-
-    it("выбор запоминается — решают один раз, а не каждый звонок", async () => {
-      localStorage.setItem("sd.call.low", "0");
-      setUrl("?call=m1");
-      render(<CallApp />);
-      await screen.findByText("Разбор");
-      expect(room().style.flex).not.toContain("40%");
-      localStorage.removeItem("sd.call.low");
-    });
-  });
-
   it("рассказывает серверу, в каком окне открылось, — без единого слова о человеке", async () => {
     // Со стороны сервера высоту окна не видно: и половина, и весь экран —
     // один и тот же запрос. Спорить о ней вслепую нечем, поэтому страница
@@ -177,7 +111,7 @@ describe("окно звонка", () => {
     expect(parseInt(box.style.minHeight, 10)).toBeGreaterThanOrEqual(200);
   });
 
-  it("страница не бывает длиннее окна — даже если Telegram назвал число больше", async () => {
+  it("страница ровно по окну — ни длиннее, ни короче", async () => {
     // На Android владельца Telegram сообщает 843 точки, когда в окне их
     // 775. Взяв это число на веру, страница становится на 68 точек длиннее
     // окна, и низ — кнопки звонка — уезжает за край. Отсюда min(…, 100%):

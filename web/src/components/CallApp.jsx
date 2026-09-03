@@ -29,46 +29,6 @@ import { getInitData, getTelegram } from "../telegram.js";
 
 const BG = "#0E1420";
 const NAME_KEY = "sd.call.name";
-const LOW_KEY = "sd.call.low";
-
-/* ─── звонок на нижней части экрана ───
-
-   Владелец просил окно на пол-экрана. Само окно нам не подчиняется:
-   высоту листа Android считает в onMeasure из размера экрана и
-   фиксирует (MeasureSpec.EXACTLY), содержимое страницы в этот расчёт не
-   входит, а свернуть окно из страницы нечем — expand() односторонний, и
-   обратного метода в Mini Apps нет. Замер с телефона владельца это и
-   показал: Telegram выдал 843 точки из 883 при своём же isExpanded=false.
-
-   Что в нашей власти — где на этой высоте лежит сам звонок. В нижнем
-   режиме он занимает нижние 40% и получает скруглённый верх, а над ним
-   остаётся фон приложения, по которому можно нажать и развернуть звонок
-   обратно. Окно от этого меньше не станет — станет меньше то, что в нём
-   работает; это разные вещи, и обещать первое, делая второе, нельзя.
-
-   Выбор запоминается: человек решает один раз, а не каждый звонок. */
-const LOW_SHARE = 0.4;
-const LOW_MIN = 240;
-
-/* Сорок процентов ЭКРАНА, а не окна.
-
-   Это разные числа: на телефоне владельца экран 883 точки, а окно, которое
-   Telegram выдал странице, — 775. Просить «40%» у окна значило бы обещать
-   одно, а показывать другое. Поэтому считаем от screen.height, но не даём
-   панели вылезти за окно и не даём ей стать меньше того, во что помещаются
-   кнопки: на маленьком экране 40% — это уже не звонок, а полоска. */
-const lowHeight = () => {
-  const scr = typeof window !== "undefined" ? window.screen?.height : 0;
-  const win = typeof window !== "undefined" ? window.innerHeight : 0;
-  if (!scr) return null;
-  const want = Math.round(scr * LOW_SHARE);
-  const room = win ? Math.max(LOW_MIN, win - 40) : want;
-  return Math.max(LOW_MIN, Math.min(want, room));
-};
-
-const keptLow = () => {
-  try { return localStorage.getItem(LOW_KEY) !== "0"; } catch { return true; }
-};
 
 /* ─── чем открыли окно, по словам самого Telegram ───
 
@@ -77,7 +37,8 @@ const keptLow = () => {
    развёрнутый лист (isExpanded), есть fullsize из ответа сервера и есть
    fullscreen из Bot API 8.0 — и лечатся они по-разному. Спорить о высоте
    вслепую бессмысленно, поэтому страница один раз говорит, что ей
-   сообщил SDK, и это видно в /api/health.
+   сообщил SDK, и это видно в /api/health. Именно этот отчёт и нашёл
+   расхождение 843 против 775, из-за которого страница была длиннее окна.
 
    Дважды: сразу и через три секунды. Разница между замерами отвечает на
    отдельный вопрос — открылось сразу во весь экран или сначала на
@@ -98,7 +59,8 @@ const viewFacts = (when) => {
     innerHeight: typeof window !== "undefined" ? window.innerHeight : null,
     screenHeight: scr?.height ?? null,
     // Доля экрана в процентах — то самое, о чём спор: 100 значит «на весь».
-    ratio: scr?.height ? Math.round(((tg?.viewportHeight ?? window.innerHeight) / scr.height) * 100) : null,
+    ratio: scr?.height
+      ? Math.round(((tg?.viewportHeight ?? window.innerHeight) / scr.height) * 100) : null,
     platform: tg?.platform || "нет Telegram",
     version: tg?.version || "",
     // Только вид параметра, не значение: по id встречи входят в комнату.
@@ -152,24 +114,6 @@ export default function CallApp() {
     try { localStorage.setItem(NAME_KEY, v); } catch { /* хранилище закрыто — не беда */ }
   };
 
-  const [low, setLow] = useState(keptLow);
-  // Пересчитывается на поворот экрана и на изменение окна: Telegram меняет
-  // высоту, когда лист тянут пальцем, и панель обязана остаться в окне.
-  const [lowPx, setLowPx] = useState(lowHeight);
-  useEffect(() => {
-    const again = () => setLowPx(lowHeight());
-    window.addEventListener("resize", again);
-    window.addEventListener("orientationchange", again);
-    return () => {
-      window.removeEventListener("resize", again);
-      window.removeEventListener("orientationchange", again);
-    };
-  }, []);
-  const putLow = (v) => {
-    setLow(v);
-    try { localStorage.setItem(LOW_KEY, v ? "1" : "0"); } catch { /* не беда */ }
-  };
-
   return (
     /* Высоту окна задаёт Telegram переменной --tg-viewport-stable-height, и
        на части клиентов сразу после запуска она приходит НУЛЕВОЙ. Без нижней
@@ -199,34 +143,12 @@ export default function CallApp() {
       fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
       {meetingId ? (
         <>
-          {low ? (
-            /* Пустое место сверху — не пустое: по нему разворачивают звонок
-               обратно. Иначе нижний режим было бы некуда отменить, а
-               маленькое окно на большом экране нужно не всегда. */
-            <button type="button" onClick={() => putLow(false)}
-              style={{ flex: 1, minHeight: 0, background: "transparent", border: 0,
-                color: C.muted, fontSize: 12, cursor: "pointer", display: "flex",
-                alignItems: "flex-end", justifyContent: "center", paddingBottom: 8 }}>
-              Звонок внизу экрана · нажмите, чтобы развернуть
-            </button>
-          ) : (
-            <button type="button" onClick={() => putLow(true)}
-              style={{ flex: "0 0 auto", background: "transparent", border: 0, color: C.muted,
-                fontSize: 11, cursor: "pointer", alignSelf: "flex-end", padding: "2px 4px" }}>
-              ▾ вниз экрана
-            </button>
-          )}
           {!tgName && (
             <input aria-label="как вас зовут" placeholder="Как вас зовут — увидят собеседники"
               value={name} onChange={(e) => rename(e.target.value)} maxLength={40}
               style={{ flex: "0 0 auto", background: C.panel, color: C.text, fontSize: 12,
                 border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 8px" }} />)}
-          <div data-testid="комната"
-            style={low
-              ? { flex: `0 0 ${lowPx ? `${lowPx}px` : "40%"}`, minHeight: 0,
-                overflow: "hidden", borderRadius: "14px 14px 0 0",
-                background: C.panel, padding: 4 }
-              : { flex: 1, minHeight: 0 }}>
+          <div data-testid="комната" style={{ flex: 1, minHeight: 0 }}>
             <CallRoom meetingId={meetingId} meId={meId} myName={name} fit
               canRecord={Boolean(getInitData())}
               onExpand={getTelegram() ? expand : null} />
