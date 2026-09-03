@@ -59,6 +59,30 @@ describe("окно звонка", () => {
     expect(await screen.findByText(/Ссылка на звонок неполная/)).toBeInTheDocument();
   });
 
+  it("рассказывает серверу, в каком окне открылось, — без единого слова о человеке", async () => {
+    // Со стороны сервера высоту окна не видно: и половина, и весь экран —
+    // один и тот же запрос. Спорить о ней вслепую нечем, поэтому страница
+    // говорит, что ей сообщил SDK. Но отладка не должна превращаться в
+    // слежку: ни initData, ни id встречи сюда попадать не должны.
+    tg.isExpanded = true;
+    tg.viewportHeight = 800;
+    tg.platform = "android";
+    tg.version = "8.0";
+    tg.initDataUnsafe.start_param = "call_секрет";
+    setUrl("");
+    render(<CallApp />);
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/call-view",
+      expect.objectContaining({ method: "POST" })));
+    const call = global.fetch.mock.calls.find(([u]) => String(u) === "/api/call-view");
+    const sent = JSON.parse(call[1].body);
+    expect(sent).toMatchObject({ when: "старт", expanded: true, height: 800,
+      platform: "android", version: "8.0", start: "call" });
+    expect(JSON.stringify(sent)).not.toContain("секрет");
+    expect(JSON.stringify(sent)).not.toContain("Иван");
+    expect(sent.initData).toBeUndefined();
+  });
+
   it("«startapp=check» открывает окно звонка, а не пустоту", async () => {
     // Этой ссылкой бот («/callmain») предлагает владельцу убедиться своими
     // глазами, что главное приложение бота — это окно звонка, а не модель:

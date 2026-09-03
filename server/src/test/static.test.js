@@ -54,8 +54,21 @@ describe("страницы", () => {
     expect(Date.parse(after.lastAt)).toBeGreaterThan(0);
     // Мини-приложение приходит без «?call=…» (id Telegram кладёт во
     // фрагмент), прямая ссылка — с ним. В сумме они неразличимы, поэтому
-    // адрес и запоминается: иначе не понять, что именно не открылось.
-    expect(after.recent.map((h) => h.query).slice(0, 2)).toEqual(["call=m1", ""]);
+    // запоминаются ИМЕНА параметров: иначе не понять, что не открылось.
+    expect(after.recent.map((h) => h.query).slice(0, 2)).toEqual(["call", ""]);
+  });
+
+  it("id встречи в /api/health не попадает — адрес открыт наружу", async () => {
+    // По id встречи в комнату входит кто угодно: она на то и рассчитана на
+    // гостей без регистрации. Раньше строка запроса писалась целиком, и
+    // каждый, кто открыл /api/health, получал ключи от чужих переговоров.
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    await request(app).get("/call?call=секретная-встреча&tgWebAppStartParam=call_тоже");
+    const { recent } = (await request(app).get("/api/health")).body.callPage;
+    expect(recent[0].query).toBe("call,tgWebAppStartParam");
+    expect(JSON.stringify(recent)).not.toContain("секретная-встреча");
+    expect(JSON.stringify(recent)).not.toContain("тоже");
   });
 
   it("последних открытий хранится немного — это отладка, а не статистика", async () => {
@@ -64,7 +77,50 @@ describe("страницы", () => {
     for (let i = 0; i < 12; i += 1) await request(app).get(`/call?call=m${i}`);
     const { recent } = (await request(app).get("/api/health")).body.callPage;
     expect(recent).toHaveLength(8);
-    expect(recent[0].query).toBe("call=m11");
+    expect(recent[0].query).toBe("call");
+  });
+
+  /* Окно звонка глазами самой страницы.
+
+     Со стороны сервера высоту окна не видно вовсе: и половина, и весь
+     экран — один и тот же запрос. А у Telegram три разных «полных
+     экрана», и лечатся они по-разному, поэтому спорить о высоте вслепую
+     бессмысленно — пусть страница скажет, что ей сообщил SDK. */
+  it("страница может рассказать, в каком окне её открыли", async () => {
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    await request(app).post("/api/call-view")
+      .send({ when: "старт", expanded: true, height: 800.4, screenHeight: 800,
+        ratio: 100, platform: "android", version: "8.0", start: "call" });
+    const { views } = (await request(app).get("/api/health")).body.callPage;
+    expect(views[0]).toMatchObject({ when: "старт", expanded: true, height: 800,
+      platform: "android", ratio: 100 });
+    expect(Date.parse(views[0].at)).toBeGreaterThan(0);
+  });
+
+  it("в отчёт об окне попадают только названные поля, и обрезанными", async () => {
+    // Адрес открыт наружу: складывать в память что попало нельзя.
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    await request(app).post("/api/call-view")
+      .send({ platform: "я".repeat(200), initData: "user=...", cookie: "тайна",
+        start: "call" });
+    const { views } = (await request(app).get("/api/health")).body.callPage;
+    expect(views[0].platform).toHaveLength(40);
+    expect(views[0].initData).toBeUndefined();
+    expect(views[0].cookie).toBeUndefined();
+    expect(JSON.stringify(views[0])).not.toContain("тайна");
+  });
+
+  it("отчётов об окне хранится немного", async () => {
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    for (let i = 0; i < 9; i += 1) {
+      await request(app).post("/api/call-view").send({ when: `раз-${i}` });
+    }
+    const { views } = (await request(app).get("/api/health")).body.callPage;
+    expect(views).toHaveLength(6);
+    expect(views[0].when).toBe("раз-8");
   });
 
   it("без call.html страница звонка не выдумывается — отдаётся модель", async () => {

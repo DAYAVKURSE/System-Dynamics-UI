@@ -285,6 +285,16 @@ describe("приложение звонка", () => {
     expect(lastText()).toContain("t.me/sdbot/call?startapp=call_…");
   });
 
+  it("удалённое приложение можно забыть — «/callapp -»", async () => {
+    // Приложение удаляют в @BotFather, и тогда прежнее имя — прямой путь к
+    // «приложение не найдено» вместо звонка.
+    stored = "call";
+    const r = await handleUpdate(msg(owner, { text: "/callapp -" }), deps3);
+    expect(r).toEqual({ callApp: "" });
+    expect(stored).toBe("");
+    expect(lastText()).toMatch(/забыл/i);
+  });
+
   it("посторонний имя не меняет", async () => {
     await handleUpdate(msg(guest, { text: "/callapp call" }), deps3);
     expect(stored).toBe("");

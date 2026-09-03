@@ -30,6 +30,50 @@ import { getInitData, getTelegram } from "../telegram.js";
 const BG = "#0E1420";
 const NAME_KEY = "sd.call.name";
 
+/* ─── чем открыли окно, по словам самого Telegram ───
+
+   Со стороны сервера высоту окна не видно вовсе: и половина экрана, и
+   весь — один и тот же запрос. А «весь экран» у Telegram не один: есть
+   развёрнутый лист (isExpanded), есть fullsize из ответа сервера и есть
+   fullscreen из Bot API 8.0 — и лечатся они по-разному. Спорить о высоте
+   вслепую бессмысленно, поэтому страница один раз говорит, что ей
+   сообщил SDK, и это видно в /api/health.
+
+   Дважды: сразу и через три секунды. Разница между замерами отвечает на
+   отдельный вопрос — открылось сразу во весь экран или сначала на
+   половину, а развернулось потом (и тогда виновато что-то на странице).
+
+   Про человека здесь ничего нет: ни id, ни имени, ни initData — только
+   размеры, платформа и версия. Отладка не должна превращаться в слежку. */
+const viewFacts = (when) => {
+  const tg = getTelegram();
+  const scr = typeof window !== "undefined" ? window.screen : null;
+  const start = String(tg?.initDataUnsafe?.start_param || "");
+  return {
+    when,
+    expanded: tg ? Boolean(tg.isExpanded) : null,
+    fullscreen: tg ? Boolean(tg.isFullscreen) : null,
+    height: tg?.viewportHeight ?? null,
+    stable: tg?.viewportStableHeight ?? null,
+    innerHeight: typeof window !== "undefined" ? window.innerHeight : null,
+    screenHeight: scr?.height ?? null,
+    // Доля экрана в процентах — то самое, о чём спор: 100 значит «на весь».
+    ratio: scr?.height ? Math.round(((tg?.viewportHeight ?? window.innerHeight) / scr.height) * 100) : null,
+    platform: tg?.platform || "нет Telegram",
+    version: tg?.version || "",
+    // Только вид параметра, не значение: по id встречи входят в комнату.
+    start: start ? (start.startsWith("call_") ? "call" : start.slice(0, 12)) : "нет",
+  };
+};
+
+const tellServer = (when) => {
+  try {
+    fetch("/api/call-view", { method: "POST", keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(viewFacts(when)) }).catch(() => {});
+  } catch { /* отладке нельзя мешать звонку */ }
+};
+
 const keptName = () => {
   try { return localStorage.getItem(NAME_KEY) || ""; } catch { return ""; }
 };
@@ -48,6 +92,14 @@ export default function CallApp() {
     try { tg.setHeaderColor(BG); tg.setBackgroundColor(BG); } catch { /* старый клиент */ }
     // Свайп по видео не должен сворачивать окно.
     try { tg.disableVerticalSwipes?.(); } catch { /* необязательно */ }
+  }, []);
+
+  // Рассказ о высоте окна — см. viewFacts. Отдельным эффектом, чтобы
+  // отладка не перепуталась с настройкой окна и снималась одной строкой.
+  useEffect(() => {
+    tellServer("старт");
+    const t = setTimeout(() => tellServer("через 3 с"), 3000);
+    return () => clearTimeout(t);
   }, []);
 
   // Сигналинг сравнивает id с тем, что видит сервер: у своего это id

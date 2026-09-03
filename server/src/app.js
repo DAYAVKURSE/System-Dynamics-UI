@@ -26,17 +26,53 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
    Живёт в памяти и хранит восемь последних: это отладочный сигнал, а не
    статистика, и переживать перезапуск ему незачем. */
-const callPage = { hits: 0, lastAt: null, recent: [] };
+const callPage = { hits: 0, lastAt: null, recent: [], views: [] };
 const RECENT_HITS = 8;
+const RECENT_VIEWS = 6;
+
+/* Что Telegram сказал самой странице.
+
+   Счётчик выше отвечает на вопрос «дошли ли до нас», а этот — на вопрос
+   «в каком окне нас открыли». Со стороны сервера высоту окна не видно
+   вовсе: и половина, и весь экран — один и тот же запрос. А спорить о ней
+   вслепую бессмысленно: у Telegram есть три разных «полных экрана»
+   (развёрнутый лист, fullsize и fullscreen из Bot API 8.0), и лечатся они
+   по-разному. Поэтому страница один раз рассказывает, что ей сообщил SDK,
+   и это видно в /api/health.
+
+   Здесь нарочно нет ничего про человека: ни id, ни имени, ни initData —
+   только размеры окна, платформа и версия. Отладка не должна превращаться
+   в слежку. Поля перечислены поимённо и обрезаны: снаружи этот адрес
+   открыт, и складывать в память что попало нельзя. */
+const VIEW_FLAGS = ["when", "expanded", "fullscreen", "stable", "height", "innerHeight",
+  "screenHeight", "ratio", "platform", "version", "start"];
+
+function noteCallView(body) {
+  const v = {};
+  for (const k of VIEW_FLAGS) {
+    const raw = body?.[k];
+    if (raw === undefined || raw === null) continue;
+    v[k] = typeof raw === "number" ? Math.round(raw)
+      : typeof raw === "boolean" ? raw
+        : String(raw).slice(0, 40);
+  }
+  v.at = new Date().toISOString();
+  callPage.views.unshift(v);
+  callPage.views.length = Math.min(callPage.views.length, RECENT_VIEWS);
+}
 
 function noteCallHit(req) {
   callPage.hits += 1;
   callPage.lastAt = new Date().toISOString();
   callPage.recent.unshift({
     at: callPage.lastAt,
-    // Строка запроса целиком: она короткая и в ней нет ничего, кроме id
-    // встречи, который и так есть у каждого, кому дали ссылку.
-    query: String(req.originalUrl || "").split("?")[1] || "",
+    // ИМЕНА параметров, без значений. Различить мини-приложение и прямую
+    // ссылку нужно, а вот id встречи здесь быть не должно: этот адрес
+    // открыт наружу, а по id в комнату входит кто угодно — на то она и
+    // рассчитана на гостей. Раньше строка запроса писалась целиком, и id
+    // утекали всякому, кто открыл /api/health.
+    query: [...new URLSearchParams(String(req.originalUrl || "").split("?")[1] || "").keys()]
+      .join(",").slice(0, 80),
     // Чем открыли — по первым знакам: этого хватает, чтобы отличить
     // мини-приложение от встроенного браузера, и не превращает отладку в
     // слежку.
@@ -70,9 +106,19 @@ export function createApp() {
       // Мост включён, только когда задан общий секрет с воркером.
       bridge: Boolean(process.env.BRIDGE_TOKEN),
       // Кто и как открывал страницу звонка — см. выше.
-      callPage: { ...callPage, recent: [...callPage.recent] },
+      callPage: { ...callPage, recent: [...callPage.recent], views: [...callPage.views] },
     }),
   );
+
+  /* Страница рассказывает, в каком окне её открыли. Без подписи нарочно:
+     в комнату звонка входят и гости, у которых initData нет вовсе, а
+     смысл этого адреса — увидеть окно ИМЕННО в тот момент, когда всё
+     остальное непонятно. Записать сюда можно только перечисленные поля,
+     обрезанные по длине, и хранится их шесть штук в памяти. */
+  app.post("/api/call-view", (req, res) => {
+    noteCallView(req.body);
+    res.json({ ok: true });
+  });
   app.use("/api/scenarios", scenariosRouter);
   app.use("/api/schedule", scheduleRouter);
   // Файлы отчётов: сырые байты, поэтому свой парсер тела внутри маршрута.
