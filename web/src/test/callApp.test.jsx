@@ -170,7 +170,10 @@ describe("окно звонка", () => {
     const { container } = render(<CallApp />);
     await screen.findByText("Разбор");
     const box = container.firstElementChild;
-    expect(box.style.height).toContain("--tg-viewport-stable-height");
+    // Число Telegram теперь ограничивает высоту сверху, а не задаёт её.
+    expect(box.style.maxHeight).toContain("--tg-viewport-stable-height");
+    // По правилам CSS min-height сильнее max-height — на этом и держится
+    // защита: нулевая высота от Telegram окно не схлопнет.
     expect(parseInt(box.style.minHeight, 10)).toBeGreaterThanOrEqual(200);
   });
 
@@ -182,8 +185,16 @@ describe("окно звонка", () => {
     setUrl("?call=m1");
     const { container } = render(<CallApp />);
     await screen.findByText("Разбор");
-    expect(container.firstElementChild.style.height)
-      .toBe("min(var(--tg-viewport-stable-height, 100%), 100%)");
+    const box = container.firstElementChild;
+    // Высота — по окну, число Telegram только ограничивает её сверху.
+    expect(box.style.height).toBe("100%");
+    expect(box.style.maxHeight).toBe("var(--tg-viewport-stable-height, 100%)");
+    // min() тут нельзя: его понимают не все WebView, а непонятое правило
+    // браузер выбрасывает целиком — высота пропала бы вовсе.
+    expect(box.style.height).not.toContain("min(");
+    // И нижняя граница обязана пережить max-height: по правилам CSS
+    // min-height сильнее, иначе нулевая высота снова схлопнет окно.
+    expect(parseInt(box.style.minHeight, 10)).toBeGreaterThanOrEqual(200);
   });
 
   it("свайпы не сворачивают окно: видео тянут пальцем", async () => {

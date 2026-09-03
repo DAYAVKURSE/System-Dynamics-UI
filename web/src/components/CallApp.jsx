@@ -179,12 +179,21 @@ export default function CallApp() {
        обычной жизни граница не мешает, а вырожденный случай перестаёт быть
        невидимым.
 
-       А min(…, 100%) — про обратную беду, и она у владельца настоящая: на
-       его Android Telegram сообщает 843 точки, когда в окне их 775. Взяв
-       число Telegram на веру, страница становится на 68 точек длиннее
-       окна, и низ — то есть кнопки звонка — уезжает за край. Правильная
-       высота никогда не больше того, что есть на самом деле. */
-    <div style={{ height: "min(var(--tg-viewport-stable-height, 100%), 100%)", minHeight: 200,
+       Обратная беда у владельца настоящая: на его Android Telegram
+       сообщает 843 точки, когда в окне их 775. Взяв число Telegram на
+       веру, страница становится на 68 точек длиннее окна, и низ — то есть
+       кнопки звонка — уезжает за край. Отсюда пара height:100% +
+       max-height: число Telegram. Высота берётся по окну, а число
+       Telegram только ограничивает её сверху — на клиентах, где видимая
+       часть листа меньше самого WebView.
+
+       Почему парой, а не min(): min() понимают не все WebView, а
+       непонятое объявление браузер выбрасывает целиком — высота пропала
+       бы вовсе, и окно схлопнулось бы по содержимому. height и max-height
+       понимают все. Нижняя граница при этом сохраняется: по правилам CSS
+       min-height сильнее max-height, поэтому нулевая высота от Telegram
+       по-прежнему не схлопывает окно. */
+    <div style={{ height: "100%", maxHeight: "var(--tg-viewport-stable-height, 100%)", minHeight: 200,
       background: C.ink, color: C.text, padding: 8, boxSizing: "border-box",
       overflow: "hidden", display: "flex", flexDirection: "column", gap: 6,
       fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
