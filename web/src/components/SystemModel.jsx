@@ -1229,7 +1229,7 @@ export default function SystemModel(){
       {tab==="tasks" && me.tabs.includes("tasks") && (
         <TasksBoard goals={goals} okrs={okrs} setOkrs={setOkrs}
           tasks={myTasks} setTasks={setTasks} traits={traits} entities={entities}
-          edges={edges}
+          edges={edges} funcs={funcs} flows={flows}
           okrValue={okrValue} okrShown={okrShown}
           openId={openTask} setOpenId={setOpenTask}
           people={people} canAssign={me.isOwner} onDraft={onDraft}
@@ -1831,7 +1831,7 @@ export default function SystemModel(){
               <div style={{marginTop:12,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
                 <GoalWork g={g} okrs={okrs} setOkrs={setOkrs} tasks={myTasks}
                   setTasks={setTasks} traits={traits} entities={entities}
-                  edges={edges}
+                  edges={edges} funcs={funcs} flows={flows}
                   okrValue={okrValue} okrShown={okrShown}
                   people={people} canAssign={me.isOwner} onDraft={onDraft}
                   entityName={id=>ent(id)?.name||"—"}
@@ -1935,7 +1935,7 @@ export default function SystemModel(){
                           </div>
                           {on&&<div style={{marginTop:6}}>
                             <TaskEditor task={tk} goals={goals} traits={traits}
-                              entities={entities} edges={edges}
+                              entities={entities} edges={edges} funcs={funcs} flows={flows}
                               people={people} canAssign={me.isOwner} onDraft={onDraft}
                               entityName={id=>ent(id)?.name||"—"}
                               setTasks={setTasks} onClose={()=>setOpenTask(null)}

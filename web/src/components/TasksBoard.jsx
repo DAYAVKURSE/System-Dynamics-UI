@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { PER, unitOf, shown, lastSubmission } from "../lib/sim.js";
 import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
+import { factOf, flowsFrom, inRange, rangeText } from "../lib/funcs.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · OKR + канбан-доска
@@ -71,13 +72,23 @@ export function newTask({goalId,okrId=null,edgeId=null,title="Новая зад�
   // за сколько предупредить — и записи о сдаче.
   // Исполнитель и проверяющий — часть постановки задачи, а не её хода:
   // без них непонятно, кому она видна и кто принимает отчёт.
-  return {id:uid("tk"),goalId,okrId,edgeId,title,body,status:"backlog",
-    assignee,reviewer,warn:10,submissions:[],comments:[]};
+  // funcId/giveId — к какой функции какого элемента относится задача.
+  // От них зависит, какие стрелки человек заполняет при сдаче: элемент
+  // передаёт ресурсы дальше, и по каждой стрелке нужен факт.
+  return {id:uid("tk"),goalId,okrId,edgeId,funcId:null,giveId:null,title,body,
+    status:"backlog",assignee,reviewer,warn:10,submissions:[],comments:[]};
 }
 
-// Одна сдача задачи: сколько реально перешло, чем отчитались.
-export const newSubmission=({amount=0,text="",file=null})=>
-  ({id:uid("sb"),at:new Date().toISOString(),amount:Number(amount)||0,text,file});
+/* Одна сдача задачи: сколько реально перешло, чем отчитались.
+
+   `facts` — фактический расход по каждой стрелке функционального
+   элемента: [{flow, amount}]. У стрелки лежит вилка-гипотеза, здесь —
+   что вышло на самом деле. Держим их порознь: сложи мы факт в поле
+   плана, план исчез бы в тот момент, когда с ним впервые можно было бы
+   сравнить. */
+export const newSubmission=({amount=0,text="",file=null,facts=[]})=>
+  ({id:uid("sb"),at:new Date().toISOString(),amount:Number(amount)||0,text,file,
+    facts:(Array.isArray(facts)?facts:[]).map(f=>({flow:f.flow,amount:Number(f.amount)||0}))});
 
 // Подпись движения: «откуда → ресурс», как оно читается на схеме.
 export const moveLabel=(ed,traits,entities)=>{
@@ -103,6 +114,7 @@ export function okrFromRec(goalId,r){
    делается — в одном месте. Раньше это было на «Задачах», и между целью и
    работой по ней стояла лишняя вкладка. */
 export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],edges=[],
+  funcs=[],flows=[],
   okrValue,okrShown,entityName,openId,setOpenId,people=[],canAssign=true,onDraft=null}){
   const show=okrShown||((o,v)=>Number(v));
   const krs=okrs.filter(o=>o.goalId===g.id);
@@ -237,7 +249,8 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
                       непонятно, куда смотреть. */}
                   {on&&<div style={{marginTop:8}}>
                     <TaskEditor task={t} goals={[g]} traits={traits}
-                      entities={entities} edges={edges} entityName={entityName}
+                      entities={entities} edges={edges} funcs={funcs} flows={flows}
+                      entityName={entityName}
                       people={people} canAssign={canAssign} onDraft={onDraft}
                       setTasks={setTasks}
                       onClose={()=>setOpenId(null)}
@@ -254,6 +267,7 @@ export function GoalWork({g,okrs,setOkrs,tasks,setTasks,traits=[],entities=[],ed
    целью во вкладке «Цели» и над доской во вкладке «Задачи». Копия того же
    JSX в двух местах разъехалась бы на первой же правке. */
 export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
+  funcs=[],flows=[],
   entityName,setTasks,onClose,onDelete,people=[],canAssign=true,onDraft=null}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
@@ -266,6 +280,13 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
   };
   const [handing,setHanding]=useState(false);
   const [draftAmount,setDraftAmount]=useState("0");
+  /* Фактический расход по каждой стрелке элемента. Ключ — id стрелки:
+     стрелок у элемента несколько, и одно поле «сколько» на всех означало
+     бы, что расход по ним неразличим. */
+  const [draftFacts,setDraftFacts]=useState({});
+  const taskFunc=funcs.find(f=>f.id===task.funcId)||null;
+  const taskFlows=taskFunc?flowsFrom(taskFunc.id,flows):[];
+  const traitName=(id)=>traits.find(t=>t.id===id)?.l||"ресурс";
   const [draftText,setDraftText]=useState("");
   const [draftFile,setDraftFile]=useState(null);
   const [fileErr,setFileErr]=useState("");
@@ -291,8 +312,15 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
     // тот, кто отчёт принял. Иначе статус означал бы «я так считаю», а на
     // нём держится и повторяемость движения «после утверждения отчёта».
     upMany({submissions:[...subs,newSubmission({amount:Number(draftAmount)||0,
-      text:draftText,file:draftFile})],status:"review"});
+      text:draftText,file:draftFile,
+      // По каждой стрелке элемента — сколько ушло на самом деле. Пустое
+      // поле не превращаем в ноль: «не вписали» и «ничего не потратили» —
+      // разные вещи, и вторая должна быть сказана явно.
+      facts:taskFlows.filter(w=>draftFacts[w.id]!==undefined&&draftFacts[w.id]!=="")
+        .map(w=>({flow:w.id,amount:Number(draftFacts[w.id])||0}))})],
+      status:"review"});
     setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
+    setDraftFacts({});
   };
   const target=move?traits.find(t=>t.id===move.to):null;
 
@@ -424,6 +452,18 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
             </div>
           </div>
 
+          {/* К какой функции какого элемента относится задача. От этого
+              зависит, по каким стрелкам исполнитель отчитывается: элемент
+              передаёт ресурсы дальше, и по каждой нужен факт. */}
+          <div style={S.lbl}>функция элемента</div>
+          <select style={{...S.inp,marginBottom:8}} aria-label="функция элемента"
+            value={task.funcId||""}
+            onChange={e=>upMany({funcId:e.target.value||null})}>
+            <option value="">— не выбрана —</option>
+            {funcs.map(f=>(<option key={f.id} value={f.id}>
+              {f.name||"без названия"}</option>))}
+          </select>
+
           <div style={S.lbl}>предупредить</div>
           <select style={{...S.inp,marginBottom:4}}
             value={task.warn==null?"":String(task.warn)}
@@ -454,6 +494,19 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
                   <button style={{...btn(false),padding:"2px 6px"}}
                     onClick={()=>up("submissions",subs.filter(x=>x.id!==sb.id))}>✕</button>
                 </div>
+                {/* План против факта по каждой стрелке: проверяющему нужно
+                    видеть не только «сколько», но и «сходится ли это с тем,
+                    что предполагали». Мимо вилки — не запрет, а пометка. */}
+                {taskFlows.map(w=>{
+                  const v=factOf(sb,w.id);
+                  if(v===null) return null;
+                  const fit=inRange(w,v);
+                  return (<div key={w.id} style={{fontSize:11,marginTop:4}}>
+                    <span style={{color:C.muted}}>{traitName(w.trait)}: </span>
+                    <span style={{color:fit===false?BAD:OK}}>факт {nm(v)}</span>
+                    <span style={{color:C.muted}}> · план {rangeText(w)}</span>
+                    {fit===false&&<span style={{color:BAD}}> · мимо гипотезы</span>}
+                  </div>);})}
                 {sb.text&&<div style={{fontSize:11.5,marginTop:4,lineHeight:1.5}}>
                   {sb.text}</div>}
                 {sb.file&&<div style={{fontSize:10.5,color:ACC,marginTop:4}}>
@@ -485,6 +538,25 @@ export function TaskEditor({task,goals,traits=[],entities=[],edges=[],
                     {" "}{target?unitOf(target).split("/")[0]:""} за {move?.per}.
                     Впишите, сколько перешло на самом деле.
                   </div>
+
+                  {/* Стрелки элемента: по каждой свой фактический расход.
+                      В подписи стоит вилка-гипотеза — чтобы человек видел,
+                      с чем сравнивают, и не подгонял число вслепую. */}
+                  {taskFlows.length>0&&(
+                    <div style={{marginBottom:8}}>
+                      <div style={S.lbl}>фактический расход по стрелкам</div>
+                      {taskFlows.map(w=>(
+                        <div key={w.id} className="flex flex-wrap gap-2"
+                          style={{alignItems:"center",marginTop:5}}>
+                          <span style={{fontSize:11.5,flex:"1 1 120px"}}>
+                            {traitName(w.trait)}</span>
+                          <NumField value={draftFacts[w.id]??""} placeholder="сколько"
+                            style={{flex:"0 1 100px"}}
+                            onCommit={v=>setDraftFacts(p=>({...p,[w.id]:String(v??"")}))}/>
+                          <span style={{fontSize:10.5,color:C.muted}}>
+                            план: {rangeText(w)}</span>
+                        </div>))}
+                    </div>)}
                   <TxtField area value={draftText} placeholder="отчёт текстом"
                     style={{minHeight:56,marginBottom:6,lineHeight:1.5}}
                     onCommit={setDraftText}/>
@@ -554,7 +626,7 @@ const pctOf=(o,current)=>{
 };
 
 export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
-  traits=[],entities=[],edges=[],okrValue,okrShown,entityName,
+  traits=[],entities=[],edges=[],funcs=[],flows=[],okrValue,okrShown,entityName,
   openId:openIdProp,setOpenId:setOpenIdProp,people=[],canAssign=true,onDraft=null}){
   // Прогресс считается по модельным числам, показываются — по человеческим.
   const show=okrShown||((o,v)=>Number(v));
@@ -672,7 +744,7 @@ export default function TasksBoard({goals,okrs,setOkrs,tasks,setTasks,
       </div>
 
 {open&&<TaskEditor task={open} goals={goals} traits={traits} entities={entities} edges={edges}
-        entityName={entityName} people={people} canAssign={canAssign} onDraft={onDraft}
+        funcs={funcs} flows={flows} entityName={entityName} people={people} canAssign={canAssign} onDraft={onDraft}
         setTasks={setTasks} onClose={()=>setOpenId(null)} onDelete={()=>delT(open.id)}/>}
 
       {/* ─── Добавление задач: под доской ─── */}
