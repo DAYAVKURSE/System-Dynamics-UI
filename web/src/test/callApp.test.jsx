@@ -59,6 +59,47 @@ describe("окно звонка", () => {
     expect(await screen.findByText(/Ссылка на звонок неполная/)).toBeInTheDocument();
   });
 
+  /* Звонок на нижней части экрана.
+
+     Само окно нам не подчиняется: высоту листа Telegram считает из размера
+     экрана и фиксирует, а свернуть его из страницы нечем — expand()
+     односторонний. В нашей власти только то, где на этой высоте лежит
+     звонок. Поэтому он занимает нижние 40%, а по пустому месту сверху
+     разворачивается обратно — иначе нижний режим было бы некуда отменить. */
+  describe("звонок внизу экрана", () => {
+    const room = () => screen.getByTestId("комната");
+
+    it("по умолчанию занимает нижние 40%, и сверху есть чем развернуть", async () => {
+      setUrl("?call=m1");
+      render(<CallApp />);
+      await screen.findByText("Разбор");
+      expect(room().style.flex).toContain("40%");
+      expect(screen.getByText(/нажмите, чтобы развернуть/)).toBeInTheDocument();
+    });
+
+    it("разворачивается на всё окно и сворачивается обратно", async () => {
+      setUrl("?call=m1");
+      render(<CallApp />);
+      await screen.findByText("Разбор");
+      fireEvent.click(screen.getByText(/нажмите, чтобы развернуть/));
+      expect(room().style.flex).not.toContain("40%");
+      expect(localStorage.getItem("sd.call.low")).toBe("0");
+
+      fireEvent.click(screen.getByText(/вниз экрана/));
+      expect(room().style.flex).toContain("40%");
+      expect(localStorage.getItem("sd.call.low")).toBe("1");
+    });
+
+    it("выбор запоминается — решают один раз, а не каждый звонок", async () => {
+      localStorage.setItem("sd.call.low", "0");
+      setUrl("?call=m1");
+      render(<CallApp />);
+      await screen.findByText("Разбор");
+      expect(room().style.flex).not.toContain("40%");
+      localStorage.removeItem("sd.call.low");
+    });
+  });
+
   it("рассказывает серверу, в каком окне открылось, — без единого слова о человеке", async () => {
     // Со стороны сервера высоту окна не видно: и половина, и весь экран —
     // один и тот же запрос. Спорить о ней вслепую нечем, поэтому страница

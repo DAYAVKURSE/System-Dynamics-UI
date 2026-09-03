@@ -28,7 +28,10 @@ describe("App", () => {
     expect(screen.queryByText(/Активы и движение ресурсов/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Инструменты")).not.toBeInTheDocument();
     expect(screen.queryByText("Прогноз")).not.toBeInTheDocument();
-    expect(screen.getByText(/звонок|совещание|Войти в звонок/i)).toBeInTheDocument();
+    // Именно кнопка входа, а не любое слово «звонок» на странице: их там
+    // теперь несколько (одно — на кнопке «вниз экрана»), и широкая
+    // проверка стала бы падать от любой новой надписи.
+    expect(screen.getByRole("button", { name: "Войти в звонок" })).toBeInTheDocument();
   });
 
   it("модель со стартовой целью рендерится", () => {
