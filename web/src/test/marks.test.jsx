@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT } from "../lib/funcs.js";
 
-/* Подписи под названиями: «актив», «ресурс», «функциональный элемент».
+/* Подписи под названиями: «актив», «ресурс», «функция».
    Белая — строение сходится, красная — нет, и рядом «?» с объяснением.
    Проверяем не цвет ради цвета, а то, ради чего это делалось: человек
    должен видеть, что именно не так, и получать определение словами. */
@@ -112,22 +112,32 @@ describe("подпись у ресурса", () => {
   });
 });
 
-describe("подпись у функционального элемента", () => {
-  it("только что заведённый элемент красный — ему нечего преобразовывать", () => {
+describe("подпись у функции", () => {
+  it("только что заведённая функция красная — ей нечего преобразовывать", () => {
     scheme();
-    fireEvent.click(screen.getByRole("button", { name: "+ элемент" }));
-    expect(screen.getByText("функциональный элемент")).toBeInTheDocument();
-    const ask = screen.getByRole("button", { name: /почему «функциональный элемент»/ });
+    fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
+    expect(screen.getByText("функция")).toBeInTheDocument();
+    const ask = screen.getByRole("button", { name: /почему «функция»/ });
     fireEvent.click(ask);
     expect(within(dialog()).getByText(WHY_FUNC)).toBeInTheDocument();
   });
 
-  it("элемент с входом и выходом внутри актива становится белым", () => {
+  it("функция с входом и выходом внутри актива становится белой", () => {
     scheme();
-    fireEvent.click(screen.getByRole("button", { name: "+ элемент" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
     fireEvent.click(screen.getAllByRole("button", { name: /^\+ берёт/ })[0]);
     fireEvent.click(screen.getAllByRole("button", { name: /^\+ выдаёт/ })[1]);
     // Красной подписи больше нет — значит и «?» рядом с ней исчез.
-    expect(screen.queryByRole("button", { name: /почему «функциональный элемент»/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /почему «функция»/ })).toBeNull();
+  });
+
+  it("функция без времени выполнения красная — она не говорит, когда будет готово", () => {
+    scheme();
+    fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^\+ берёт/ })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^\+ выдаёт/ })[1]);
+    fireEvent.change(screen.getByLabelText("время одного выполнения"),
+      { target: { value: "0" } });
+    expect(screen.getByRole("button", { name: /почему «функция»/ })).toBeInTheDocument();
   });
 });

@@ -20,8 +20,8 @@ import PeoplePanel from "./PeoplePanel.jsx";
 import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
-import { WHY_ASSET, WHY_FLOW, WHY_FUNC, WHY_TRAIT, checkAsset, checkTrait,
-  normalizeFlows, normalizeFuncs } from "../lib/funcs.js";
+import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, adoptFuncs, checkAsset,
+  checkTrait } from "../lib/funcs.js";
 import FuncPanel from "./FuncPanel.jsx";
 import Modal, { Mark } from "./Modal.jsx";
 
@@ -510,7 +510,7 @@ function ArrowRow({ed,traits,entities,valueOf,kindOf,now,onEdit,onDelete}){
 
 /* ─────── СХЕМА (переиспользуемая для «сейчас» и для снимка симуляции) ─────── */
 function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesForFact,
-  onSelectEntity,onSelectPair,onMoveEntity,assetOk,onWhy,funcs=[],flows=[]}){
+  onSelectEntity,onSelectPair,onMoveEntity,assetOk,onWhy,funcs=[]}){
   // Перетаскивание активов. Тап и перетаскивание различаем по порогу сдвига:
   // пока палец/курсор не ушёл дальше DRAG_MIN пикселей, это ещё выбор блока.
   const DRAG_MIN=4;
@@ -628,35 +628,29 @@ function SchemeSVG({entities,traits,edges,groups,zoom,sel,pair,valuesFor,valuesF
             <text x={mx} y={my+4} textAnchor="middle" fontSize="10" fill={col}
               fontFamily="ui-monospace, monospace">
               {g.list.length}{tag}·{Math.round(k*100)}%</text></g>);})}
-        {/* ─── стрелки между функциональными элементами ───
+        {/* ─── передачи ресурса в другие активы ───
 
             Их рисуем ПОСЛЕ прежних связей и до блоков: они про другое —
-            не «сколько актив даёт ресурсу», а «какой элемент какому
-            передаёт ресурс и сколько примерно». Пунктиром и своим цветом,
-            чтобы одно не выдавалось за другое. Пока элементы не имеют
-            своего места на схеме, стрелка идёт между их активами, а имена
-            элементов и вилка стоят в подписи. */}
-        {flows.map(w=>{
-          const ff=funcs.find(x=>x.id===w.from),ft=funcs.find(x=>x.id===w.to);
-          if(!ff||!ft) return null;
-          const a=ent(ff.e),b=ent(ft.e); if(!a||!b) return null;
-          const tl=traits.find(t=>t.id===w.trait)?.l||"ресурс не выбран";
-          if(a.id===b.id){
-            const cx=a.x+24,cy=a.y+NH-10;
-            return (<g key={w.id} style={{pointerEvents:"none"}}>
-              <path d={`M${cx},${cy} q22,-16 44,0`} fill="none" stroke={ACC}
-                strokeWidth="1.6" strokeDasharray="4 3" markerEnd="url(#aw)"/>
-              <text x={cx+22} y={cy-18} textAnchor="middle" fontSize="9" fill={ACC}>
-                {tl}</text></g>);}
+            не «сколько актив даёт ресурсу», а «какая функция какому активу
+            передаёт ресурс». Пунктиром и своим цветом, чтобы одно не
+            выдавалось за другое.
+
+            Передача — это выход функции ресурсом чужого актива: функция
+            взяла своё и отдала наружу. Отдельного списка стрелок для этого
+            нет, и второго места, где то же самое задаётся иначе, тоже. */}
+        {funcs.flatMap(f=>f.gives.map(g=>({f,g}))).map(({f,g})=>{
+          const t=traits.find(x=>x.id===g.trait);
+          if(!t||t.e===f.e) return null;
+          const a=ent(f.e),b=ent(t.e); if(!a||!b) return null;
           const [x1,y1]=anchor(a,b),[x2,y2]=anchor(b,a);
           const mx=(x1+x2)/2,my=(y1+y2)/2;
-          return (<g key={w.id} style={{pointerEvents:"none"}}>
+          return (<g key={`${f.id}-${g.id}`} style={{pointerEvents:"none"}}>
             <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={ACC} strokeWidth="1.6"
               strokeDasharray="4 3" markerEnd="url(#aw)"/>
             <rect x={mx-52} y={my-11} width="104" height="22" rx="6" fill={C.panel}
               stroke={ACC} strokeWidth="1"/>
             <text x={mx} y={my+3.5} textAnchor="middle" fontSize="9" fill={ACC}>
-              {tl.length>16?tl.slice(0,15)+"…":tl}</text></g>);})}
+              {t.l.length>16?t.l.slice(0,15)+"…":t.l}</text></g>);})}
         {ents.map(e=>{
           const ts=traits.filter(t=>t.e===e.id);
           const gs=ts.filter(t=>t.want!=null).length;
@@ -731,14 +725,12 @@ export default function SystemModel(){
   const [kindMsg,setKindMsg]=useState("");
   const [okrs,setOkrs]=useState([]);
   const [hypos,setHypos]=useState([]); // черновики гипотез: на расчёт не влияют
-  /* Функциональные элементы — то, что преобразует ресурсы (см. lib/funcs.js).
-     Отдельным списком, а не среди ресурсов: ресурсы здесь числа, и элемент,
-     положенный к ним, полез бы в цели, условия, формулы и подсказки. */
+  /* Функции актива — то, что преобразует его ресурсы (см. lib/funcs.js).
+     Отдельным списком, а не среди ресурсов: ресурсы здесь числа, и функция,
+     положенная к ним, полезла бы в цели, условия, формулы и подсказки.
+     Передача ресурса в другой актив — это выход функции, а не отдельный
+     список стрелок: два места про одно и то же разошлись бы. */
   const [funcs,setFuncs]=useState([]);
-  /* Стрелки между элементами, несущие ресурс (см. lib/funcs.js). Отдельно
-     от edges: те держат весь нынешний прогноз владельца, и ломать их в
-     день выката значило бы обнулить его модель. */
-  const [flows,setFlows]=useState([]);
   const [tasks,setTasks]=useState([]);
   const [tab,setTab]=useState("tasks");
   const [sel,setSel]=useState("usr");
@@ -815,16 +807,17 @@ export default function SystemModel(){
   // сохранённый сценарий. Вкладка, зум и выбранный блок в неё не попадают:
   // отменять «переключение вкладки» пользователь не просил, а вот потерять
   // каскадное удаление актива — реальная беда.
-  const doc=useMemo(()=>({entities,traits,edges,kinds,okrs,tasks,hypos,funcs,flows}),
-    [entities,traits,edges,kinds,okrs,tasks,hypos,funcs,flows]);
+  const doc=useMemo(()=>({entities,traits,edges,kinds,okrs,tasks,hypos,funcs}),
+    [entities,traits,edges,kinds,okrs,tasks,hypos,funcs]);
   const restoreDoc=useCallback((d)=>{
     setEntities(d.entities); setTraits(normalizeTraits(d.traits)); setEdges(d.edges);
     setKinds(d.kinds); setOkrs(d.okrs); setTasks(d.tasks);
     // Сценарии, сохранённые до появления конструктора, поля hypos не знают.
     setHypos(Array.isArray(d.hypos)?d.hypos:[]);
-    // И тем более не знают про функциональные элементы: их не было вовсе.
-    setFuncs(normalizeFuncs(d.funcs));
-    setFlows(normalizeFlows(d.flows));
+    // И тем более не знают про функции: их не было вовсе. А знающие про
+    // прежние стрелки между элементами приносят их в списке flows — он
+    // вливается в выходы функций, чтобы заложенные числа не пропали.
+    setFuncs(adoptFuncs(d.funcs,d.flows));
     // Шаг назад может убрать актив, на который сейчас смотрит панель, —
     // тогда выбор надо перевести, иначе панель опустеет без объяснения.
     setPair(null);
@@ -905,12 +898,9 @@ export default function SystemModel(){
     setEdges(p=>p.filter(x=>x.from!==id&&!own.has(x.to))
       .map(x=>({...x,conds:(x.conds||[]).filter(c=>!condRefs(c).some(r=>own.has(r)))})));
     setTraits(p=>p.filter(t=>t.e!==id));
-    // Элементы живут внутри актива: без него они повисли бы ссылкой в
+    // Функции живут внутри актива: без него они повисли бы ссылкой в
     // никуда и остались бы в прогнозе невидимыми слагаемыми.
-    const gone=new Set(funcs.filter(f=>f.e===id).map(f=>f.id));
     setFuncs(p=>p.filter(f=>f.e!==id));
-    // Потоки живут между элементами: пропал элемент — стрелке некуда идти.
-    setFlows(p=>p.filter(w=>!gone.has(w.from)&&!gone.has(w.to)));
     setEntities(p=>p.filter(e=>e.id!==id));
     setSelTrait(null); setPair(null);
     setSel(p=>p===id?(entities.find(e=>e.id!==id)?.id??null):p);
@@ -949,7 +939,7 @@ export default function SystemModel(){
       restoreDoc({
         entities:w.entities||[], traits:normalizeTraits(w.traits||[]),
         edges:w.edges||[], kinds:(w.kinds&&w.kinds.length)?w.kinds:KINDS0,
-        okrs:w.okrs||[], tasks:w.tasks||[], hypos:[], funcs:normalizeFuncs(w.funcs), flows:normalizeFlows(w.flows),
+        okrs:w.okrs||[], tasks:w.tasks||[], hypos:[], funcs:adoptFuncs(w.funcs,w.flows),
       });
     }).catch(()=>{});
   },[me.solo,me.isOwner,restoreDoc]);
@@ -1046,8 +1036,7 @@ export default function SystemModel(){
         edges:arr(s.data?.edges,edges), kinds:arr(s.data?.kinds,kinds,true),
         okrs:arr(s.data?.okrs,okrs), tasks:arr(s.data?.tasks,tasks),
         hypos:arr(s.data?.hypos,hypos),
-        funcs:normalizeFuncs(arr(s.data?.funcs,funcs)),
-        flows:normalizeFlows(arr(s.data?.flows,flows)),
+        funcs:adoptFuncs(arr(s.data?.funcs,funcs),s.data?.flows),
       };
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -1284,7 +1273,7 @@ export default function SystemModel(){
               onSelectEntity={id=>{setSel(id);setSelTrait(null);setPair(null);}}
               onSelectPair={key=>{setPair(key);setSelTrait(null);}}
               onMoveEntity={moveE}
-              funcs={funcs} flows={flows}
+              funcs={funcs}
               assetOk={id=>checkAsset(id,{traits,edges}).ok}
               onWhy={(kind,id)=>setWhy({kind,id})}/>
           </div>
@@ -1472,30 +1461,29 @@ export default function SystemModel(){
                 </div>
                 {/* Кнопок «добавить стрелку сюда» здесь больше нет.
 
-                    Ресурс сам себя не передаёт: стрелка идёт от одного
-                    функционального элемента к другому и несёт ресурс.
-                    Заводится она в карточке элемента-источника — «+ стрелка
-                    от этого элемента». Прежние стрелки (актив → ресурс)
-                    остались и работают: на них держится нынешний прогноз,
-                    и обнулять его в день выката нельзя. Но новые так больше
-                    не заводятся, иначе модель разошлась бы надвое. */}
+                    Ресурс сам себя не передаёт: его берёт и выдаёт функция.
+                    Задаётся это в карточке функции — «берёт» и «выдаёт», а
+                    выход ресурсом чужого актива и есть передача туда.
+                    Прежние стрелки (актив → ресурс) остались и работают: на
+                    них держится нынешний прогноз, и обнулять его в день
+                    выката нельзя. Но новые так больше не заводятся, иначе
+                    модель разошлась бы надвое. */}
                 <div style={{fontSize:11,color:C.muted,lineHeight:1.5,
                   marginTop:6,marginBottom:10}}>
-                  Новые стрелки заводятся у функционального элемента, который
-                  ресурс отдаёт: он и передаёт его дальше. Ресурс сам себя не
-                  меняет.
+                  Новые стрелки заводятся у функции, которая ресурс отдаёт:
+                  она и передаёт его дальше — хоть внутри актива, хоть в
+                  другой актив. Ресурс сам себя не меняет.
                 </div>
                 <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
                   onClick={()=>{setTraits(p=>p.filter(x=>x.id!==selT.id));
                     setEdges(p=>p.filter(x=>x.to!==selT.id&&
                       !(x.conds||[]).some(c=>condRefs(c).includes(selT.id))));
                     // Удалённый ресурс не должен оставаться во входах и
-                    // выходах элементов: там он превратился бы в строку
+                    // выходах функций: там он превратился бы в строку
                     // «(неизвестный ресурс)» и в ноль в расчёте.
                     setFuncs(p=>p.map(f=>({...f,
                       takes:f.takes.filter(t=>t.trait!==selT.id),
                       gives:f.gives.filter(g=>g.trait!==selT.id)})));
-                    setFlows(p=>p.filter(w=>w.trait!==selT.id));
                     setSelTrait(null);}}>Удалить ресурс</button>
               </div>)}
 
@@ -1510,14 +1498,12 @@ export default function SystemModel(){
                 + {k.sign} {k.name}</button>))}
             </div>
 
-            {/* Функциональные элементы — отдельным разделом под ресурсами:
-                ресурсы это то, что есть, элементы — то, что их преобразует,
-                и путать их в одном списке нельзя. */}
+            {/* Функции — отдельным разделом под ресурсами: ресурсы это то,
+                что есть, функции — то, что их преобразует, и путать их в
+                одном списке нельзя. */}
             <FuncPanel entityId={selE.id} funcs={funcs} setFuncs={setFuncs}
-              flows={flows} setFlows={setFlows}
-              traits={traits} people={people} nameOf={personName}
-              onWhy={id=>setWhy({kind:"func",id})}
-              onWhyFlow={()=>setWhy({kind:"flow"})}/>
+              traits={traits} entities={entities} people={people} nameOf={personName}
+              onWhy={id=>setWhy({kind:"func",id})}/>
           </div>)}
 
         {/* Классификации ресурсов — здесь же, под добавлением ресурса:
@@ -1978,7 +1964,7 @@ export default function SystemModel(){
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <button style={btn(true)} onClick={()=>{
-              setJson(JSON.stringify({entities,traits,edges,kinds,okrs,tasks,hypos,funcs,flows},null,2));
+              setJson(JSON.stringify({entities,traits,edges,kinds,okrs,tasks,hypos,funcs},null,2));
               setJsonMsg("Выгружено.");}}>
               Выгрузить</button>
             <button style={btn(false)} onClick={()=>{try{const d=JSON.parse(json);
@@ -1991,8 +1977,7 @@ export default function SystemModel(){
               if(Array.isArray(d.okrs))setOkrs(d.okrs);
               if(Array.isArray(d.tasks))setTasks(d.tasks);
               if(Array.isArray(d.hypos))setHypos(d.hypos);
-              if(Array.isArray(d.funcs))setFuncs(normalizeFuncs(d.funcs));
-              if(Array.isArray(d.flows))setFlows(normalizeFlows(d.flows));
+              if(Array.isArray(d.funcs))setFuncs(adoptFuncs(d.funcs,d.flows));
               setJsonMsg("Загружено.");}
               catch{setJsonMsg("Не разобрал JSON.");}}}>Загрузить</button>
             {jsonMsg&&<span style={{fontSize:12,color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}
@@ -2037,11 +2022,9 @@ export default function SystemModel(){
       {why&&(
         <Modal onClose={()=>setWhy(null)}
           title={why.kind==="asset"?"Что такое актив"
-            :why.kind==="func"?"Что такое функциональный элемент"
-              :why.kind==="flow"?"Что такое стрелка между элементами"
+            :why.kind==="func"?"Что такое функция"
                 :"Что такое ресурс актива"}>
-          {why.kind==="asset"?WHY_ASSET:why.kind==="func"?WHY_FUNC
-            :why.kind==="flow"?WHY_FLOW:WHY_TRAIT}
+          {why.kind==="asset"?WHY_ASSET:why.kind==="func"?WHY_FUNC:WHY_TRAIT}
         </Modal>)}
     </div>);
 }

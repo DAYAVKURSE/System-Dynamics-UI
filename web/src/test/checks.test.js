@@ -68,7 +68,7 @@ describe("ресурс", () => {
     expect(checkTrait("a1", m).ok).toBe(false);
   });
 
-  it("функциональный элемент своего актива засчитывается и как «к нему», и как «внутрь»", () => {
+  it("функция своего актива засчитывается и как «к нему», и как «внутрь»", () => {
     const m = {
       traits: model.traits,
       edges: [{ from: "A", to: "b1" }],
@@ -88,33 +88,56 @@ describe("ресурс", () => {
   });
 });
 
-describe("функциональный элемент", () => {
-  const F = (takes, gives, e = "A") => ({ id: "f1", e, takes, gives });
-
-  it("преобразование целиком внутри актива — годен", () => {
-    expect(checkFunc(F([{ trait: "a1" }], [{ trait: "a2" }]), model).ok).toBe(true);
+describe("функция", () => {
+  // Годная функция — это ещё и вилки, и время: без них она выглядит
+  // заполненной, но не говорит ни сколько уйдёт, ни когда будет готово.
+  const P = (trait) => ({ id: `p${trait}`, trait, lo: 1, hi: 2 });
+  const F = (takes, gives, e = "A", over = {}) => ({
+    id: "f1", e, dur: 1, durUnit: "дн",
+    takes: takes.map(P), gives: gives.map(P), ...over,
   });
 
-  it("стрелки и внутрь, и наружу — годен", () => {
-    expect(checkFunc(F([{ trait: "b1" }], [{ trait: "a1" }]), model).ok).toBe(true);
+  it("преобразование целиком внутри актива — годна", () => {
+    expect(checkFunc(F(["a1"], ["a2"]), model).ok).toBe(true);
   });
 
-  it("всё снаружи — не годен: тогда он не часть этого актива", () => {
-    expect(checkFunc(F([{ trait: "b1" }], [{ trait: "b1" }]), model).ok).toBe(false);
+  it("берёт несколько ресурсов и выдаёт несколько других — годна", () => {
+    expect(checkFunc(F(["a1", "b1"], ["a2"]), model).ok).toBe(true);
   });
 
-  it("ничего не берёт или ничего не выдаёт — не годен: он не преобразует ничего", () => {
-    expect(checkFunc(F([], [{ trait: "a1" }]), model).ok).toBe(false);
-    expect(checkFunc(F([{ trait: "a1" }], []), model).ok).toBe(false);
+  it("ресурсы и внутрь, и наружу — годна: это и есть передача в другой актив", () => {
+    expect(checkFunc(F(["b1"], ["a1"]), model).ok).toBe(true);
+    expect(checkFunc(F(["a1"], ["b1"]), model).ok).toBe(true);
+  });
+
+  it("всё снаружи — не годна: тогда она не часть этого актива", () => {
+    expect(checkFunc(F(["b1"], ["b1"]), model).ok).toBe(false);
+  });
+
+  it("ничего не берёт или ничего не выдаёт — не годна: она не преобразует ничего", () => {
+    expect(checkFunc(F([], ["a1"]), model).ok).toBe(false);
+    expect(checkFunc(F(["a1"], []), model).ok).toBe(false);
     expect(checkFunc(null, model).ok).toBe(false);
   });
 
   it("ссылка на удалённый ресурс — обрыв, а не «наружу»", () => {
-    expect(checkFunc(F([{ trait: "нет-такого" }], [{ trait: "a1" }]), model).ok).toBe(false);
+    expect(checkFunc(F(["нет-такого"], ["a1"]), model).ok).toBe(false);
+  });
+
+  it("вилка без количества или перевёрнутая — не годна", () => {
+    const f = F(["a1"], ["a2"]);
+    expect(checkFunc({ ...f, takes: [{ trait: "a1", lo: 0, hi: 0 }] }, model).ok).toBe(false);
+    expect(checkFunc({ ...f, gives: [{ trait: "a2", lo: 5, hi: 3 }] }, model).ok).toBe(false);
+  });
+
+  it("без времени выполнения — не годна: неизвестно, когда будет готово", () => {
+    expect(checkFunc(F(["a1"], ["a2"], "A", { dur: 0 }), model).ok).toBe(false);
   });
 
   it("объяснение — дословно то, что дал владелец", () => {
     expect(checkFunc(F([], []), model).why).toBe(WHY_FUNC);
     expect(WHY_FUNC).toMatch(/преобразует внешний ресурс во внутренний/);
+    expect(WHY_FUNC).toMatch(/диапазон/);
+    expect(WHY_FUNC).toMatch(/среднее арифметическое/);
   });
 });
