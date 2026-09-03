@@ -137,19 +137,21 @@ describe("что видно в общей модели", () => {
       { id: "t2", e: "e2", l: "заявки" },
       { id: "t9", e: "e3", l: "тайна" },
     ],
-    edges: [
-      { id: "ed1", from: "e1", fromTrait: "t1", to: "t2", gives: 5 },
-      { id: "ed9", from: "e3", fromTrait: "t9", to: "t9", gives: 1 },
-    ],
     kinds: [{ id: "growth", name: "рост" }],
-    okrs: [{ id: "kr1", goalId: "t2" }, { id: "kr9", goalId: "t9" }],
+    // Задача — выполнение функции; функция живёт в активе и связана с
+    // ресурсами входами и выходами.
+    funcs: [
+      { id: "fn1", e: "e1", name: "Обработка",
+        takes: [{ trait: "t1" }], gives: [{ trait: "t2", to: "e2" }] },
+      { id: "fn9", e: "e3", name: "Тайная",
+        takes: [{ trait: "t9" }], gives: [{ trait: "t9" }] },
+    ],
     tasks: [
-      { id: "tk1", goalId: "t2", edgeId: "ed1", assignee: "200", reviewer: "300",
+      { id: "tk1", funcId: "fn1", assignee: "200", reviewer: "300",
         title: "Моя задача", submissions: [] },
-      { id: "tk9", goalId: "t9", edgeId: "ed9", assignee: "999", reviewer: "999",
+      { id: "tk9", funcId: "fn9", assignee: "999", reviewer: "999",
         title: "Чужая задача", submissions: [] },
     ],
-    hypos: [{ id: "h1", tokens: [] }],
   };
 
   it("владелец видит модель целиком", () => {
@@ -174,16 +176,20 @@ describe("что видно в общей модели", () => {
 
   it("вместе с задачей приезжает только то, на что она ссылается", () => {
     const v = viewFor(MODEL, { id: "200", isOwner: false });
-    // Цель, концы движения и их активы — да; чужой актив и его ресурс — нет.
+    // Функция задачи, её ресурсы и активы — да; чужая функция, чужой актив
+    // и его ресурс — нет.
+    expect(v.funcs.map((f) => f.id)).toEqual(["fn1"]);
     expect(v.traits.map((t) => t.id).sort()).toEqual(["t1", "t2"]);
     expect(v.entities.map((e) => e.id).sort()).toEqual(["e1", "e2"]);
-    expect(v.edges.map((e) => e.id)).toEqual(["ed1"]);
-    expect(v.okrs.map((o) => o.id)).toEqual(["kr1"]);
   });
 
-  it("черновики гипотез остаются у владельца", () => {
-    expect(viewFor(MODEL, { id: "200", isOwner: false }).hypos).toEqual([]);
-    expect(viewFor(MODEL, { id: "100", isOwner: true }).hypos).toHaveLength(1);
+  it("частей прежнего расчёта в срезе нет вовсе", () => {
+    // Стрелки, OKR и гипотезы убраны из модели: их больше не считает
+    // никто, и отдавать их незачем.
+    const v = viewFor(MODEL, { id: "200", isOwner: false });
+    expect(v.edges).toBeUndefined();
+    expect(v.okrs).toBeUndefined();
+    expect(v.hypos).toBeUndefined();
   });
 
   it("tasksFor не путает исполнителя с проверяющим по типу id", () => {
@@ -203,17 +209,20 @@ describe("что можно изменить", () => {
 
   it("исполнитель сдаёт свою задачу, и она уходит на проверку", async () => {
     await seed();
-    const r = await submitTask("200", "tk1", { amount: 5, text: "готово" });
+    const r = await submitTask("200", "tk1",
+      { hours: 5, takes: { t1: 2 }, gives: { t2: 3 }, text: "готово" });
     expect(r.task.status).toBe("review");
     expect(r.task.submissions).toHaveLength(1);
-    expect(r.task.submissions[0].amount).toBe(5);
+    // Сдача — это факт выполнения: часы и сколько чего взяли и выдали.
+    expect(r.task.submissions[0]).toMatchObject({ hours: 5, takes: { t1: 2 },
+      gives: { t2: 3 } });
   });
 
   it("чужую задачу сдать нельзя", async () => {
     await seed();
-    expect((await submitTask("777", "tk1", { amount: 5 })).error).toBe("not yours");
+    expect((await submitTask("777", "tk1", { hours: 5 })).error).toBe("not yours");
     // И проверяющий не сдаёт за исполнителя.
-    expect((await submitTask("300", "tk1", { amount: 5 })).error).toBe("not yours");
+    expect((await submitTask("300", "tk1", { hours: 5 })).error).toBe("not yours");
   });
 
   it("проверяющий принимает отчёт — задача становится готовой", async () => {

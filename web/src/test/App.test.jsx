@@ -13,7 +13,7 @@ afterEach(() => { setUrl(""); });
 describe("App", () => {
   it("рендерит схему жизнеспособности без ошибок", () => {
     render(<App />);
-    expect(screen.getByText(/Активы и движение ресурсов/i)).toBeInTheDocument();
+    expect(screen.getByText(/Активы: воркеры, функции, ресурсы/i)).toBeInTheDocument();
     expect(screen.getByText("Задачи")).toBeInTheDocument();
     expect(screen.getByText("Схема")).toBeInTheDocument();
     expect(screen.getByText("Прогноз")).toBeInTheDocument();
@@ -25,7 +25,7 @@ describe("App", () => {
     // «Подключиться»: параметры Telegram — во фрагменте.
     setUrl("#tgWebAppData=user%3D%7B%7D&tgWebAppStartParam=call_abc123");
     render(<App />);
-    expect(screen.queryByText(/Активы и движение ресурсов/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Активы: воркеры, функции, ресурсы/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Инструменты")).not.toBeInTheDocument();
     expect(screen.queryByText("Прогноз")).not.toBeInTheDocument();
     // Именно кнопка входа, а не любое слово «звонок» на странице: их там
@@ -34,11 +34,10 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Войти в звонок" })).toBeInTheDocument();
   });
 
-  it("модель со стартовой целью рендерится", () => {
+  it("стартовая модель рендерится: у неё есть функции", () => {
     render(<App />);
-    // TRAITS0 содержит одну готовую цель: t.id="u9" want=10, "активные пользователи".
-    // Текст встречается и в карточке цели, и в выпадающих списках — проверяем,
-    // что он вообще есть на странице, не привязываясь к конкретному месту.
-    expect(screen.getAllByText(/активные пользователи/i).length).toBeGreaterThan(0);
+    // Приложение открывается на «Задачах», а задача — это выполнение
+    // функции: список функций модели там и стоит.
+    expect(screen.getAllByText(/Сбор заявок/).length).toBeGreaterThan(0);
   });
 });

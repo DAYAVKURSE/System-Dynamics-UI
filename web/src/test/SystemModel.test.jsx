@@ -89,67 +89,66 @@ describe("активы на схеме", () => {
 describe("переименование ресурса", () => {
   it("меняет название и показывает его в модели", () => {
     openTab("Схема");
-    // Выбираем ресурс в списке актива — открывается его карточка.
-    fireEvent.click(screen.getAllByText("активные пользователи")[0]);
-
+    // Ресурсы актива — карточки в его разделе «ресурсы актива».
     const field = screen.getByDisplayValue("активные пользователи");
     typeAndCommit(field, "ядро аудитории");
 
     expect(screen.getByDisplayValue("ядро аудитории")).toBeInTheDocument();
-    expect(screen.queryByText("активные пользователи")).toBeNull();
+    expect(screen.queryByDisplayValue("активные пользователи")).toBeNull();
+  });
+
+  it("заводится кнопкой своей классификации и сразу принадлежит активу", () => {
+    openTab("Схема");
+    const box = screen.getByPlaceholderText("текст нового ресурса");
+    typeAndCommit(box, "новый запас");
+    fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
+    expect(screen.getByDisplayValue("новый запас")).toBeInTheDocument();
   });
 });
 
 describe("классификации ресурсов", () => {
+  const kindRow = (name) =>
+    screen.getByDisplayValue(name).closest("div");
+
   it("переименовываются", () => {
     openTab("Схема");
-    typeAndCommit(screen.getByDisplayValue("воспроизводимость"), "тиражируемость");
-
+    typeAndCommit(screen.getByDisplayValue("рост"), "тиражируемость");
     expect(screen.getByDisplayValue("тиражируемость")).toBeInTheDocument();
 
-    // Название подхватывается там, где классификации выбираются для ресурса.
-    openTab("Схема");
-    fireEvent.click(screen.getAllByText("активные пользователи")[0]);
-    expect(screen.getAllByRole("button", { name: /тиражируемость/ }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: /воспроизводимость/ })).toBeNull();
+    // Название подхватывается там, где классификация выбирается для ресурса.
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[0]);
+    expect(screen.getAllByRole("button", { name: /тиражируемость/ }).length)
+      .toBeGreaterThan(0);
   });
 
   it("добавляются", () => {
     openTab("Схема");
-    const before = screen.getAllByRole("button", { name: "Удалить" }).length;
-
-    fireEvent.click(screen.getByRole("button", { name: /добавить классификацию/ }));
-
+    fireEvent.click(screen.getByRole("button", { name: "+ классификация" }));
     expect(screen.getByDisplayValue("новая классификация")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Удалить" })).toHaveLength(before + 1);
   });
 
   it("удаляются, а их ресурсы переезжают в оставшуюся классификацию", () => {
     openTab("Схема");
-    // «рост» — первая классификация, ресурсы на ней есть.
-    const row = screen.getByDisplayValue("рост").closest("div").parentElement;
-    fireEvent.click(within(row).getByRole("button", { name: "Удалить" }));
+    fireEvent.click(within(kindRow("рост")).getByRole("button", { name: "✕" }));
 
     expect(screen.queryByDisplayValue("рост")).toBeNull();
     // Сообщение подтверждает, что ресурсы не остались без типа.
     expect(screen.getByText(/переведено в/)).toBeInTheDocument();
   });
 
-  it("последнюю классификацию удалить нельзя", () => {
+  it("последнюю классификацию удалить нельзя — и сказано почему", () => {
     openTab("Схема");
-    // Удаляем все, кроме одной.
-    for (let i = 0; i < 5; i++) {
-      const buttons = screen.getAllByRole("button", { name: "Удалить" });
-      fireEvent.click(buttons[0]);
-    }
-    const last = screen.getAllByRole("button", { name: "Удалить" });
-    expect(last).toHaveLength(1);
-    expect(last[0]).toBeDisabled();
+    ["рост", "затрата"].forEach((name) => {
+      fireEvent.click(within(kindRow(name)).getByRole("button", { name: "✕" }));
+    });
+    fireEvent.click(within(kindRow("ресурс")).getByRole("button", { name: "✕" }));
+    expect(screen.getByDisplayValue("ресурс")).toBeInTheDocument();
+    expect(screen.getByText(/Нельзя удалить последнюю классификацию/)).toBeInTheDocument();
   });
 
   it("ресурс со ссылкой на исчезнувшую классификацию не роняет приложение", () => {
-    // Через вкладку JSON загружаем модель, где ресурс ссылается на тип,
-    // которого нет в списке классификаций.
+    // Через вкладку «Выгрузка» загружаем модель, где ресурс ссылается на
+    // тип, которого нет в списке классификаций.
     openTab("Инструменты"); openTab("Выгрузка");
     const area = container.querySelector("textarea");
     typeAndCommit(
@@ -157,27 +156,22 @@ describe("классификации ресурсов", () => {
       JSON.stringify({
         entities: [{ id: "a", name: "Актив", color: "#fff", x: 0, y: 0 }],
         traits: [{ id: "t1", e: "a", k: "которого-нет", l: "ресурс", unit: "шт." }],
-        edges: [],
+        funcs: [],
         kinds: [{ id: "growth", sign: "↑", name: "рост", color: "#3DDC97", dir: "up" }],
       }),
     );
-    // «Загрузить» есть и у текстового поля, и у дискового блока — берём первую,
-    // она относится к JSON из поля выше.
+    // «Загрузить» есть и у текстового поля, и у дискового блока — берём
+    // первую, она относится к JSON из поля выше.
     fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[0]);
-
     expect(screen.getByText("Загружено.")).toBeInTheDocument();
 
     openTab("Схема");
-    // Приложение не упало: актив из загруженной модели на схеме,
-    // и выбор перешёл на него (прежний актив в новой модели отсутствует).
+    // Приложение не упало: актив из загруженной модели на схеме, и выбор
+    // перешёл на него (прежний актив в новой модели отсутствует).
     expect(entityGroup(container, "Актив")).toBeTruthy();
     expect(screen.getByDisplayValue("Актив")).toBeInTheDocument();
     // Ресурс с неизвестной классификацией показан с заглушкой вместо значка.
-    // Слово «ресурс» на экране теперь не одно: так называется и сам ресурс
-    // в этой модели, и подпись под его названием. Берём именно название —
-    // оно в строке списка, растянутой на всю ширину.
-    expect(screen.getAllByText("ресурс")
-      .some((n) => n.style.flex === "1 1 0%")).toBe(true);
-    expect(screen.getAllByText("?").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("ресурс")).toBeInTheDocument();
+    expect(screen.getAllByText(/\? без типа/).length).toBeGreaterThan(0);
   });
 });

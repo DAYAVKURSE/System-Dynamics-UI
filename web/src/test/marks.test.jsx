@@ -31,9 +31,11 @@ describe("подпись на схеме", () => {
     .filter((t) => t.textContent === "актив" && t.getAttribute("fill") !== "#E6EDF7").length;
 
   it("«?» стоит ровно у красных подписей, и красные в модели есть", () => {
-    scheme();
-    // Второе условие важнее первого: без него сравнение «ноль равен нулю»
-    // проходило бы и тогда, когда подписи вообще перестали краснеть.
+    // Стартовая модель собрана верно, красных в ней нет — заводим свой
+    // актив: он ничего не берёт и ничего не отдаёт. Второе условие важнее
+    // первого: без него сравнение «ноль равен нулю» проходило бы и тогда,
+    // когда подписи вообще перестали краснеть.
+    addAsset();
     expect(reds()).toBeGreaterThan(0);
     expect(asks().length).toBe(reds());
   });
@@ -73,7 +75,11 @@ describe("подпись на схеме", () => {
   });
 
   it("тап по «?» открывает объяснение и НЕ перескакивает выбор на чужой блок", () => {
-    scheme();
+    // Красный блок нужен чужой: у своего выбор не изменился бы и без защиты.
+    addAsset();
+    const other = blocks().find((g) => g.querySelector("text").textContent !== "Новый актив");
+    fireEvent.pointerDown(other, { clientX: 1, clientY: 1 });
+    fireEvent.pointerUp(window, { clientX: 1, clientY: 1 });
     const mine = nameBox().value;
     // «?» чужого блока: у своего выбор не изменился бы и без защиты.
     const ask = asks().map((t) => t.parentElement)
@@ -91,53 +97,70 @@ describe("подпись на схеме", () => {
 });
 
 describe("подпись у ресурса", () => {
-  it("под каждым ресурсом написано «ресурс»", () => {
-    scheme();
-    expect(screen.getAllByText("ресурс").length).toBeGreaterThan(0);
-  });
-
   it("красная подпись объясняется определением ресурса", () => {
-    // Заводим ресурс в новом активе: он ни с чем не связан, значит красный.
+    // Заводим ресурс в новом активе: его никто не выдаёт и никто не берёт,
+    // значит он красный.
     addAsset();
-    const box = container.querySelector('input[placeholder="текст нового ресурса"]');
+    const box = screen.getByPlaceholderText("текст нового ресурса");
     fireEvent.change(box, { target: { value: "новый ресурс" } });
     fireEvent.blur(box);
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ / })
-      .find((b) => /рост|затрат|ресурс/i.test(b.textContent)));
+    fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
 
-    const ask = screen.getAllByRole("button", { name: /почему «ресурс»/ })[0];
-    expect(ask).toBeTruthy();
+    const ask = screen.getByRole("button", { name: /почему «ресурс»/ });
     fireEvent.click(ask);
     expect(within(dialog()).getByText(WHY_TRAIT)).toBeInTheDocument();
+  });
+
+  it("ресурс, который одна функция выдаёт, а другая берёт, — белый", () => {
+    // На стартовой модели такие есть: она собрана замкнуто.
+    scheme();
+    expect(screen.getAllByText("ресурс").length).toBeGreaterThan(0);
   });
 });
 
 describe("подпись у функции", () => {
-  it("только что заведённая функция красная — ей нечего преобразовывать", () => {
-    scheme();
+  /* Функцию заводим в новом активе: там она одна, и проверка не путается
+     между карточками стартовой модели. */
+  const freshFunc = () => {
+    addAsset();
     fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
-    expect(screen.getByText("функция")).toBeInTheDocument();
+  };
+
+  it("только что заведённая функция красная — ей нечего преобразовывать", () => {
+    freshFunc();
     const ask = screen.getByRole("button", { name: /почему «функция»/ });
     fireEvent.click(ask);
     expect(within(dialog()).getByText(WHY_FUNC)).toBeInTheDocument();
   });
 
   it("функция с входом и выходом внутри актива становится белой", () => {
-    scheme();
-    fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ берёт/ })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ выдаёт/ })[1]);
-    // Красной подписи больше нет — значит и «?» рядом с ней исчез.
+    freshFunc();
+    // Два ресурса в новом активе: один во вход, другой в выход.
+    const box = screen.getByPlaceholderText("текст нового ресурса");
+    ["сырьё", "изделие"].forEach((name) => {
+      fireEvent.change(box, { target: { value: name } });
+      fireEvent.blur(box);
+      fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "+ берёт «сырьё»" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ выдаёт «изделие»" }));
+
     expect(screen.queryByRole("button", { name: /почему «функция»/ })).toBeNull();
   });
 
   it("функция без времени выполнения красная — она не говорит, когда будет готово", () => {
-    scheme();
-    fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ берёт/ })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ выдаёт/ })[1]);
+    freshFunc();
+    const box = screen.getByPlaceholderText("текст нового ресурса");
+    ["сырьё", "изделие"].forEach((name) => {
+      fireEvent.change(box, { target: { value: name } });
+      fireEvent.blur(box);
+      fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "+ берёт «сырьё»" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ выдаёт «изделие»" }));
     fireEvent.change(screen.getByLabelText("время одного выполнения"),
       { target: { value: "0" } });
+
     expect(screen.getByRole("button", { name: /почему «функция»/ })).toBeInTheDocument();
   });
 });

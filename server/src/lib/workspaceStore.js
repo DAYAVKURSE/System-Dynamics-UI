@@ -20,12 +20,13 @@ import path from "node:path";
    отчёта (проверяющий). Больше ничего — запись модели целиком закрыта.
    ════════════════════════════════════════════════════════════════ */
 
-/* `flows` — прежние стрелки между функциональными элементами. Клиент их
-   больше не пишет: передача ресурса теперь выражается выходом функции. Но в
-   уже сохранённых моделях они лежат, и читать их надо — при открытии клиент
-   вливает их в выходы. Уберём отсюда, когда таких моделей не останется. */
-const PARTS = ["entities", "traits", "edges", "kinds", "okrs", "tasks", "hypos", "funcs",
-  "flows"];
+/* Модель — это активы (со своими воркерами), их ресурсы, их функции и
+   задачи-выполнения. Прежние части — `edges` (стрелки «актив → ресурс»),
+   `okrs`, `hypos` и `flows` — принадлежали расчёту, которого больше нет;
+   они остаются в списке только для чтения уже сохранённых моделей, чтобы
+   клиент мог перенести из них числа. Записывать их он перестал. */
+const PARTS = ["entities", "traits", "kinds", "tasks", "funcs",
+  "edges", "okrs", "hypos", "flows"];
 const EMPTY = Object.fromEntries(PARTS.map((k) => [k, []]));
 
 function baseDir() {
@@ -74,30 +75,31 @@ export function viewFor(model, { id, isOwner }) {
   if (isOwner) return { ...model, mine: model.tasks || [] };
 
   const tasks = tasksFor(model, id);
-  const edgeIds = new Set(tasks.map((t) => t.edgeId).filter(Boolean));
-  const goalIds = new Set(tasks.map((t) => t.goalId).filter(Boolean));
-  const edges = (model.edges || []).filter((e) => edgeIds.has(e.id));
+  // Задача — это выполнение функции, поэтому видно ему ровно её: саму
+  // функцию, её актив и те ресурсы, которые она берёт и выдаёт. Без них
+  // сдача превратилась бы в набор безымянных полей.
+  const funcIds = new Set(tasks.map((t) => t.funcId).filter(Boolean));
+  const funcs = (model.funcs || []).filter((f) => funcIds.has(f.id));
 
-  // Ресурсы: цели задач, концы их движений и источники этих движений —
-  // без них подпись «Я → заявки» превратилась бы в «? → ?».
-  const traitIds = new Set([...goalIds]);
-  edges.forEach((e) => {
-    if (e.to) traitIds.add(e.to);
-    if (e.fromTrait) traitIds.add(e.fromTrait);
+  const traitIds = new Set();
+  funcs.forEach((f) => {
+    (f.takes || []).forEach((p) => { if (p.trait) traitIds.add(p.trait); });
+    (f.gives || []).forEach((p) => { if (p.trait) traitIds.add(p.trait); });
   });
   const traits = (model.traits || []).filter((t) => traitIds.has(t.id));
 
   const entIds = new Set(traits.map((t) => t.e));
-  edges.forEach((e) => { if (e.from) entIds.add(e.from); });
+  funcs.forEach((f) => {
+    if (f.e) entIds.add(f.e);
+    (f.gives || []).forEach((p) => { if (p.to) entIds.add(p.to); });
+  });
 
   return {
     entities: (model.entities || []).filter((e) => entIds.has(e.id)),
     traits,
-    edges,
+    funcs,
     kinds: model.kinds || [],          // значки и цвета — не тайна
-    okrs: (model.okrs || []).filter((o) => goalIds.has(o.goalId)),
     tasks,
-    hypos: [],                          // черновики гипотез — дело владельца
     savedAt: model.savedAt || null,
     mine: tasks,
   };
@@ -109,10 +111,17 @@ export async function submitTask(userId, taskId, submission) {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  // Сдача — это фактическое выполнение функции: сколько часов ушло и
+  // сколько каждого ресурса взяли и выдали. Из принятых сдач считается
+  // среднее арифметическое, которое уточняет прогноз.
+  const qty = (v) => Object.fromEntries(Object.entries(v && typeof v === "object" ? v : {})
+    .map(([k, n]) => [String(k), Number(n) || 0]));
   task.submissions = [...(task.submissions || []), {
     id: "sb" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     at: new Date().toISOString(),
-    amount: Number(submission?.amount) || 0,
+    hours: Number(submission?.hours) || 0,
+    takes: qty(submission?.takes),
+    gives: qty(submission?.gives),
     text: String(submission?.text || ""),
     file: submission?.file || null,
   }];

@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
-import { STATUSES, TaskEditor, moveLabel } from "./TasksBoard.jsx";
-import { unitOf } from "../lib/sim.js";
+import { STATUSES, funcLabel } from "./TasksBoard.jsx";
 import { reportSrc } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -11,9 +10,9 @@ import { reportSrc } from "../storage.js";
    назначен проверяющим и по которым уже есть сдача. Принять — задача
    становится готовой; вернуть — уходит обратно в работу с комментарием.
 
-   Решение «принято» отделено от «сдано» намеренно: иначе исполнитель сам
-   принимал бы свою работу, а повтор движения «после утверждения отчёта»
-   держаться было бы не на чем.
+   Решение «принято» отделено от «сдано» намеренно: принятая сдача идёт в
+   расчёт как фактическое выполнение функции, и если бы исполнитель
+   принимал сам себя, фактом стало бы его собственное заявление.
    ════════════════════════════════════════════════════════════════ */
 
 const fmtDT = (v) => {
@@ -32,12 +31,14 @@ const lastOf = (t) => {
 /* Карточка вынесена из компонента намеренно: объявленная внутри рендера,
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
    на каждой букве. */
-function Card({ t, dim, openId, setOpenId, note, setNote, edges, traits, entities,
+function Card({ t, dim, openId, setOpenId, note, setNote, funcs, traits, entities,
   nameOf, onAccept, onReturn }) {
     const on = openId === t.id;
     const sub = lastOf(t);
-    const ed = edges.find((e) => e.id === t.edgeId) || null;
-    const target = ed ? traits.find((x) => x.id === ed.to) : null;
+    const f = funcs.find((x) => x.id === t.funcId) || null;
+    const traitName = (id) => traits.find((x) => x.id === id)?.l || "(ресурс удалён)";
+    const qty = (map) => Object.entries(map || {})
+      .map(([id, v]) => `${traitName(id)} ${nm(v)}`).join(", ") || "—";
     const st = STATUSES.find((s) => s.id === t.status);
     return (
       <div style={{ ...S.card, marginBottom: 8, opacity: dim ? 0.65 : 1,
@@ -47,7 +48,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, edges, traits, entitie
           <span style={{ width: 8, height: 8, borderRadius: 2, background: st?.color || C.muted }} />
           <span style={{ fontSize: 13, fontWeight: 600, flex: "1 1 140px" }}>{t.title}</span>
           {sub && <span style={{ fontSize: 11, color: OK }}>
-            сдано {nm(sub.amount)}{target ? ` ${String(unitOf(target)).split("/")[0]}` : ""}</span>}
+            сдано за {nm(sub.hours)} ч</span>}
           <span style={{ fontSize: 10.5, color: C.muted }}>{sub ? fmtDT(sub.at) : st?.name}</span>
           <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
         </div>
@@ -55,7 +56,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, edges, traits, entitie
         {on && (
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.6 }}>
-              {ed ? moveLabel(ed, traits, entities) : "задача без движения"}
+              {f ? funcLabel(f, entities) : "задача без функции"}
               {" · исполнитель: "}{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}
             </div>
             {t.body && <div style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.5 }}>{t.body}</div>}
@@ -67,10 +68,13 @@ function Card({ t, dim, openId, setOpenId, note, setNote, edges, traits, entitie
                 borderRadius: 8, padding: 8, marginBottom: 6 }}>
                 <div className="flex items-center gap-2">
                   <span style={{ fontSize: 12, fontWeight: 600, color: OK, flex: 1 }}>
-                    сдано {nm(sb.amount)}
-                    {target ? ` ${String(unitOf(target)).split("/")[0]}` : ""}</span>
+                    ушло {nm(sb.hours)} ч</span>
                   <span style={{ fontSize: 10, color: C.muted }}>{fmtDT(sb.at)}</span>
                 </div>
+                {/* Числа сдачи — это и есть факт, который уточнит прогноз.
+                    Проверяющий должен видеть их до того, как примет. */}
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
+                  взято: {qty(sb.takes)} · выдано: {qty(sb.gives)}</div>
                 {sb.text && <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
                   {sb.text}</div>}
                 {sb.file && (/^image\//.test(sb.file.type || "")
@@ -97,9 +101,10 @@ function Card({ t, dim, openId, setOpenId, note, setNote, edges, traits, entitie
                     Вернуть в бэклог</button>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-                  «Принять» переводит задачу в «Готово». «Вернуть» — в бэклог с
-                  текстом доработки; без текста вернуть нельзя — исполнителю
-                  нечего будет исправлять.
+                  «Принять» переводит задачу в «Готово» — и её числа идут в
+                  расчёт как фактическое выполнение функции. «Вернуть» — в
+                  бэклог с текстом доработки; без текста вернуть нельзя —
+                  исполнителю нечего будет исправлять.
                 </div>
               </>)}
             {!!(t.comments || []).length && (
@@ -114,8 +119,8 @@ function Card({ t, dim, openId, setOpenId, note, setNote, edges, traits, entitie
       </div>);
   }
 
-export default function ReviewBoard({ tasks = [], traits = [], entities = [], edges = [],
-  goals = [], meId, isOwner, onAccept, onReturn, nameOf }) {
+export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
+  meId, isOwner, onAccept, onReturn, nameOf }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
 
@@ -140,14 +145,14 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], ed
         <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>
           Ничего не ждёт проверки.</div>)}
       {waiting.map((t) => <Card key={t.id} t={t} openId={openId} setOpenId={setOpenId}
-        note={note} setNote={setNote} edges={edges} traits={traits} entities={entities}
+        note={note} setNote={setNote} funcs={funcs} traits={traits} entities={entities}
         nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
 
       {!!rest.length && (
         <>
           <div style={{ ...S.lbl, margin: "12px 0 6px" }}>остальные задачи под вашей проверкой</div>
           {rest.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
-            note={note} setNote={setNote} edges={edges} traits={traits} entities={entities}
+            note={note} setNote={setNote} funcs={funcs} traits={traits} entities={entities}
             nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
         </>)}
     </div>);

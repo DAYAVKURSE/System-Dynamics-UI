@@ -20,7 +20,9 @@ let container;
 beforeEach(() => { ({ container } = render(<SystemModel />)); });
 
 const undoBtn = () => screen.getByRole("button", { name: /отменить/ });
-const redoBtn = () => screen.getByRole("button", { name: /вернуть/ });
+/* «Вернуть» есть и на проверке («Вернуть в бэклог») — берём кнопку шапки
+   со стрелкой, а не любое слово «вернуть». */
+const redoBtn = () => screen.getByRole("button", { name: /↷ вернуть/ });
 const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
 const addEntity = () => fireEvent.click(screen.getByRole("button", { name: "+ актив" }));
 
@@ -90,15 +92,17 @@ describe("отмена правки значения", () => {
 });
 
 describe("отмена структурных правок", () => {
-  it("возвращает удалённый актив вместе с его ресурсами и стрелками", () => {
+  it("возвращает удалённый актив вместе с его ресурсами и передачами", () => {
     scheme();
     const arrowsBefore = container.querySelectorAll("svg line").length;
-    selectEntity("Реферальная система");
+    selectEntity("Виртуальный менеджер");
     fireEvent.click(screen.getByRole("button", { name: "Удалить актив" }));
-    expect(entityNames()).not.toContain("Реферальная система");
+    expect(entityNames()).not.toContain("Виртуальный менеджер");
+    // Передачи в удалённый актив исчезают вместе с ним.
+    expect(container.querySelectorAll("svg line").length).toBeLessThan(arrowsBefore);
 
     fireEvent.click(undoBtn());
-    expect(entityNames()).toContain("Реферальная система");
+    expect(entityNames()).toContain("Виртуальный менеджер");
     expect(container.querySelectorAll("svg line").length).toBe(arrowsBefore);
   });
 
@@ -113,8 +117,8 @@ describe("отмена структурных правок", () => {
   it("возвращает удалённую классификацию и прежний тип ресурса", () => {
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     const before = screen.getAllByDisplayValue("рост").length;
-    const card = screen.getByDisplayValue("рост").closest("div").parentElement;
-    fireEvent.click(within(card).getByRole("button", { name: /удалить/i }));
+    const card = screen.getByDisplayValue("рост").closest("div");
+    fireEvent.click(within(card).getByRole("button", { name: "✕" }));
     expect(screen.queryAllByDisplayValue("рост")).toHaveLength(0);
 
     fireEvent.click(undoBtn());
@@ -170,40 +174,34 @@ describe("клавиши", () => {
   });
 });
 
-describe("прогноз после отмены", () => {
-  it("отмена «взять в работу» возвращает и рекомендацию, и прогноз", () => {
-    // Рекомендации живут на «Прогнозе», а стартовая вкладка — «Задачи».
-    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
-    expandCards(container);
-    const recs = () => screen.queryAllByRole("button", { name: "Взять в работу" });
-    const before = recs().length;
-    fireEvent.click(recs()[0]);
-    expect(recs().length).toBeLessThan(before);
+describe("отмена в работе с функциями", () => {
+  it("возвращает удалённую функцию вместе с её задачами", () => {
+    // Функция — то, по чему считается прогноз, и то, что выполняют задачи:
+    // потерять её отменяемым движением нельзя.
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    selectEntity("Пользователи");
+    const name = () => screen.queryByDisplayValue("Сбор заявок");
+    expect(name()).toBeInTheDocument();
+
+    const card = name().closest("div");
+    fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
+    expect(name()).toBeNull();
 
     fireEvent.click(undoBtn());
-    expect(recs().length).toBe(before);
-    expect(screen.queryByText(/взято в работу/)).toBeNull();
+    expect(screen.getByDisplayValue("Сбор заявок")).toBeInTheDocument();
   });
 
-  it("отмена уносит и заведённые под рекомендацию KR с задачей", () => {
-    // Пустая колонка канбана подписана «Пусто.» — считаем по ним, не завися
-    // от текста конкретной рекомендации.
-    const tasks = () => fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
-    const goals = () => fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
-    const emptyCols = () => screen.queryAllByText("Пусто.").length;
-
-    tasks();
-    const allEmpty = emptyCols();
-    expect(allEmpty).toBeGreaterThan(0);
-
-    goals();
-    expandCards(container);
-    fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
-    tasks();
-    expect(emptyCols()).toBeLessThan(allEmpty);
+  it("отмена возвращает прежний диапазон входа — и прогноз вместе с ним", () => {
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    selectEntity("Пользователи");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть функции" })[0]);
+    const field = screen.getByLabelText("сколько максимум спрос");
+    const was = field.value;
+    fireEvent.change(field, { target: { value: "40" } });
+    expect(screen.getByLabelText("сколько максимум спрос").value).toBe("40");
 
     fireEvent.click(undoBtn());
-    expect(emptyCols()).toBe(allEmpty);
+    expect(screen.getByLabelText("сколько максимум спрос").value).toBe(was);
   });
 });
 

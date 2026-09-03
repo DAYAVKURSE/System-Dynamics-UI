@@ -2,142 +2,148 @@ import { describe, expect, it } from "vitest";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, checkFunc, checkTrait }
   from "../lib/funcs.js";
 
-/* Подписи «актив», «функциональный элемент», «ресурс» белые, пока строение
-   сходится, и красные, когда нет. Здесь проверяются сами правила: цвет и
-   модальное окно — дело интерфейса, а вот «сходится или нет» решается тут.
+/* Подписи «актив», «функция», «ресурс» белые, пока строение сходится, и
+   красные, когда нет. Здесь проверяются сами правила: цвет и модальное
+   окно — дело интерфейса, а вот «сходится или нет» решается тут.
 
-   Связи в этой модели идут ОТ АКТИВА к РЕСУРСУ: {from: актив, to: ресурс},
-   и стрелка может потреблять ресурс-источник (fromTrait). */
+   Связи в этой модели задают функции, и только они: функция берёт ресурсы
+   (свои или чужого актива) и выдаёт ресурсы, а выданное может передать в
+   другой актив. Стрелок «актив → ресурс» больше нет. */
 
 const T = (id, e) => ({ id, e, l: id });
-const model = {
-  traits: [T("a1", "A"), T("a2", "A"), T("b1", "B")],
-  edges: [],
-  funcs: [],
-};
-const withEdges = (...edges) => ({ ...model, edges });
+const P = (trait, to) => ({ id: `p${trait}${to || ""}`, trait, lo: 1, hi: 2,
+  ...(to !== undefined ? { to } : {}) });
+const F = (id, e, takes, gives, over = {}) => ({ id, e, name: id, dur: 1, durUnit: "дн",
+  takes, gives, owners: [], reviewers: [], ...over });
+
+const traits = [T("a1", "A"), T("a2", "A"), T("b1", "B")];
+const entities = [{ id: "A" }, { id: "B" }];
 
 describe("актив", () => {
+  // Годный актив: есть функция, она берёт ресурс чужого актива (внешний) и
+  // передаёт выданное наружу.
+  const both = F("f1", "A", [P("b1")], [P("a1", "B")]);
+
   it("годен, когда есть и вход извне, и выход наружу", () => {
-    const m = withEdges({ from: "B", to: "a1" }, { from: "A", to: "b1" });
-    expect(checkAsset("A", m).ok).toBe(true);
+    expect(checkAsset("A", { traits, entities, funcs: [both] }).ok).toBe(true);
+  });
+
+  it("без функций — не годен: выполнять нечего", () => {
+    expect(checkAsset("A", { traits, entities, funcs: [] }).ok).toBe(false);
   });
 
   it("без входа извне — не годен", () => {
-    expect(checkAsset("A", withEdges({ from: "A", to: "b1" })).ok).toBe(false);
+    const f = F("f1", "A", [P("a2")], [P("a1", "B")]);
+    expect(checkAsset("A", { traits, entities, funcs: [f] }).ok).toBe(false);
   });
 
-  it("без выхода наружу — не годен", () => {
-    expect(checkAsset("A", withEdges({ from: "B", to: "a1" })).ok).toBe(false);
+  it("без передачи наружу — не годен", () => {
+    const f = F("f1", "A", [P("b1")], [P("a1", "")]);
+    expect(checkAsset("A", { traits, entities, funcs: [f] }).ok).toBe(false);
   });
 
-  it("внутренние стрелки внешними не считаются", () => {
-    // Актив, который варится сам в себе, ничего не берёт снаружи и ничего
-    // наружу не отдаёт — это не актив.
-    expect(checkAsset("A", withEdges({ from: "A", to: "a2" })).ok).toBe(false);
+  it("но ресурс, который забирает чужая функция, — это тоже выход наружу", () => {
+    // Отдавать можно и не передавая: у соседа своя функция, и она берёт.
+    const mine = F("f1", "A", [P("b1")], [P("a1", "")]);
+    const neighbour = F("f2", "B", [P("a1")], [P("b1", "")]);
+    expect(checkAsset("A", { traits, entities, funcs: [mine, neighbour] }).ok).toBe(true);
+  });
+
+  it("актив, который варится сам в себе, — не годен", () => {
+    const f = F("f1", "A", [P("a2")], [P("a1", "")]);
+    expect(checkAsset("A", { traits, entities, funcs: [f] }).ok).toBe(false);
   });
 
   it("объяснение — дословно то, что дал владелец", () => {
-    expect(checkAsset("A", model).why).toBe(WHY_ASSET);
+    expect(checkAsset("A", { traits, entities }).why).toBe(WHY_ASSET);
     expect(WHY_ASSET).toMatch(/берёт один ресурс из внешней системы/);
   });
 });
 
 describe("ресурс", () => {
-  const full = () => ({
-    traits: model.traits,
-    edges: [{ from: "B", to: "a1" }, { from: "A", to: "b1" }],
-    funcs: [],
+  it("годен: одна функция его выдаёт, другая берёт", () => {
+    const funcs = [F("f1", "A", [P("b1")], [P("a1", "")]),
+      F("f2", "A", [P("a1")], [P("a2", "")])];
+    expect(checkTrait("a1", { traits, funcs }).ok).toBe(true);
   });
 
-  it("годен: к нему идёт извне, а из его актива уходит стрелка", () => {
-    expect(checkTrait("a1", full()).ok).toBe(true);
+  it("его никто не выдаёт — не годен: он берётся ниоткуда", () => {
+    const funcs = [F("f2", "A", [P("a1")], [P("a2", "")])];
+    expect(checkTrait("a1", { traits, funcs }).ok).toBe(false);
   });
 
-  it("некуда не идёт — не годен", () => {
-    const m = { ...full(), edges: [{ from: "B", to: "a1" }] };
-    expect(checkTrait("a1", m).ok).toBe(false);
+  it("его никто не берёт — не годен: он копится и никому не нужен", () => {
+    const funcs = [F("f1", "A", [P("b1")], [P("a1", "")])];
+    expect(checkTrait("a1", { traits, funcs }).ok).toBe(false);
   });
 
-  it("к нему ничего не идёт — не годен", () => {
-    expect(checkTrait("a2", full()).ok).toBe(false);
+  it("функция чужого актива тоже считается — передача приносит ресурс", () => {
+    const funcs = [F("f1", "B", [P("b1")], [P("a1", "A")]),
+      F("f2", "A", [P("a1")], [P("a2", "")])];
+    expect(checkTrait("a1", { traits, funcs }).ok).toBe(true);
   });
 
-  it("приходит только изнутри своего актива — «внутрь» не засчитано", () => {
-    const m = { ...full(), edges: [{ from: "A", to: "a1" }, { from: "A", to: "b1" }] };
-    expect(checkTrait("a1", m).ok).toBe(false);
+  it("удалённого ресурса нет — и годным он быть не может", () => {
+    expect(checkTrait("нет-такого", { traits, funcs: [] }).ok).toBe(false);
   });
 
-  it("функция своего актива засчитывается и как «к нему», и как «внутрь»", () => {
-    const m = {
-      traits: model.traits,
-      edges: [{ from: "A", to: "b1" }],
-      funcs: [{ id: "f1", e: "A", takes: [{ trait: "a2" }], gives: [{ trait: "a1" }] }],
-    };
-    expect(checkTrait("a1", m).ok).toBe(true);
-  });
-
-  it("ресурс, меняющий сам себя, — не годен: это делают элементы", () => {
-    const m = { ...full(), edges: [...full().edges, { from: "A", to: "a1", fromTrait: "a1" }] };
-    expect(checkTrait("a1", m).ok).toBe(false);
-  });
-
-  it("объяснение — дословно то, что дал владелец", () => {
-    expect(checkTrait("a1", model).why).toBe(WHY_TRAIT);
-    expect(WHY_TRAIT).toMatch(/не должен изменяться сам/);
+  it("объяснение говорит, что ресурс сам себя не меняет", () => {
+    expect(checkTrait("a1", { traits }).why).toBe(WHY_TRAIT);
+    expect(WHY_TRAIT).toMatch(/Сам он не изменяется/);
   });
 });
 
 describe("функция", () => {
-  // Годная функция — это ещё и вилки, и время: без них она выглядит
-  // заполненной, но не говорит ни сколько уйдёт, ни когда будет готово.
-  const P = (trait) => ({ id: `p${trait}`, trait, lo: 1, hi: 2 });
-  const F = (takes, gives, e = "A", over = {}) => ({
-    id: "f1", e, dur: 1, durUnit: "дн",
-    takes: takes.map(P), gives: gives.map(P), ...over,
-  });
+  const m = { traits, entities };
 
   it("преобразование целиком внутри актива — годна", () => {
-    expect(checkFunc(F(["a1"], ["a2"]), model).ok).toBe(true);
+    expect(checkFunc(F("f1", "A", [P("a1")], [P("a2", "")]), m).ok).toBe(true);
   });
 
   it("берёт несколько ресурсов и выдаёт несколько других — годна", () => {
-    expect(checkFunc(F(["a1", "b1"], ["a2"]), model).ok).toBe(true);
+    const f = F("f1", "A", [P("a1"), P("b1")], [P("a2", "")]);
+    expect(checkFunc(f, m).ok).toBe(true);
   });
 
-  it("ресурсы и внутрь, и наружу — годна: это и есть передача в другой актив", () => {
-    expect(checkFunc(F(["b1"], ["a1"]), model).ok).toBe(true);
-    expect(checkFunc(F(["a1"], ["b1"]), model).ok).toBe(true);
+  it("берёт внешний ресурс и делает из него свой — годна, куда бы ни передавала", () => {
+    // «Наружу» — про ресурс, а не про получателя: функция, которая берёт
+    // чужой ресурс, делает свой и отдаёт его дальше, — самая обычная.
+    expect(checkFunc(F("f1", "A", [P("b1")], [P("a1", "B")]), m).ok).toBe(true);
+    expect(checkFunc(F("f1", "A", [P("b1")], [P("a1", "")]), m).ok).toBe(true);
   });
 
-  it("всё снаружи — не годна: тогда она не часть этого актива", () => {
-    expect(checkFunc(F(["b1"], ["b1"]), model).ok).toBe(false);
+  it("все ресурсы чужие — не годна: тогда она не часть этого актива", () => {
+    expect(checkFunc(F("f1", "A", [P("b1")], [P("b1", "B")]), m).ok).toBe(false);
   });
 
-  it("ничего не берёт или ничего не выдаёт — не годна: она не преобразует ничего", () => {
-    expect(checkFunc(F([], ["a1"]), model).ok).toBe(false);
-    expect(checkFunc(F(["a1"], []), model).ok).toBe(false);
-    expect(checkFunc(null, model).ok).toBe(false);
+  it("ничего не берёт или ничего не выдаёт — не годна", () => {
+    expect(checkFunc(F("f1", "A", [], [P("a1", "")]), m).ok).toBe(false);
+    expect(checkFunc(F("f1", "A", [P("a1")], []), m).ok).toBe(false);
+    expect(checkFunc(null, m).ok).toBe(false);
   });
 
   it("ссылка на удалённый ресурс — обрыв, а не «наружу»", () => {
-    expect(checkFunc(F(["нет-такого"], ["a1"]), model).ok).toBe(false);
+    expect(checkFunc(F("f1", "A", [P("нет-такого")], [P("a1", "")]), m).ok).toBe(false);
+  });
+
+  it("передача в несуществующий актив — тоже обрыв", () => {
+    expect(checkFunc(F("f1", "A", [P("b1")], [P("a1", "нет-такого")]), m).ok).toBe(false);
   });
 
   it("вилка без количества или перевёрнутая — не годна", () => {
-    const f = F(["a1"], ["a2"]);
-    expect(checkFunc({ ...f, takes: [{ trait: "a1", lo: 0, hi: 0 }] }, model).ok).toBe(false);
-    expect(checkFunc({ ...f, gives: [{ trait: "a2", lo: 5, hi: 3 }] }, model).ok).toBe(false);
+    const f = F("f1", "A", [P("a1")], [P("a2", "")]);
+    expect(checkFunc({ ...f, takes: [{ trait: "a1", lo: 0, hi: 0 }] }, m).ok).toBe(false);
+    expect(checkFunc({ ...f, gives: [{ trait: "a2", lo: 5, hi: 3 }] }, m).ok).toBe(false);
   });
 
   it("без времени выполнения — не годна: неизвестно, когда будет готово", () => {
-    expect(checkFunc(F(["a1"], ["a2"], "A", { dur: 0 }), model).ok).toBe(false);
+    expect(checkFunc(F("f1", "A", [P("a1")], [P("a2", "")], { dur: 0 }), m).ok).toBe(false);
   });
 
-  it("объяснение — дословно то, что дал владелец", () => {
-    expect(checkFunc(F([], []), model).why).toBe(WHY_FUNC);
+  it("объяснение — то, что дал владелец, нынешними словами", () => {
+    expect(checkFunc(F("f1", "A", [], []), m).why).toBe(WHY_FUNC);
     expect(WHY_FUNC).toMatch(/преобразует внешний ресурс во внутренний/);
-    expect(WHY_FUNC).toMatch(/диапазон/);
+    expect(WHY_FUNC).toMatch(/может только взять и дать/);
     expect(WHY_FUNC).toMatch(/среднее арифметическое/);
   });
 });

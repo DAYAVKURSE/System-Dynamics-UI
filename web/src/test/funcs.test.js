@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DUR_UNITS, adoptFuncs, avgOf, cyclesPerMonth, fromHours, hoursOf, newFunc,
-  newPort, normalizeFunc, normalizeFuncs, okRange, rangeText, runHours, runQty,
-  workersOf } from "../lib/funcs.js";
+import { DUR_UNITS, adoptAssets, adoptFuncs, avgOf, cyclesPerMonth, fromHours, hoursOf,
+  newFunc, newGive, newPort, normalizeFunc, normalizeFuncs, okRange, pruneWorkers,
+  rangeText, runHours, runQty, workersOf } from "../lib/funcs.js";
 
 /* Функция — то, что преобразует ресурсы актива: берёт одни, выдаёт другие,
    и на это уходит время. Здесь проверяется её запись, диапазоны, среднее по
@@ -199,15 +199,36 @@ describe("факт: среднее арифметическое по выпол�
 });
 
 describe("воркеры актива", () => {
-  it("это люди с его функций: исполнители и проверяющие, без повторов", () => {
-    // Отдельный список воркеров разошёлся бы с назначениями в первый же
-    // день — поэтому он не хранится, а считается.
+  it("принадлежат активу, а не функции", () => {
+    // У актива есть исполнители и проверяющие — это его воркеры. Функции
+    // выполняют они же, поэтому список один и лежит на активе.
+    const entities = [{ id: "A", owners: ["p1", "p2"], reviewers: ["p9"] },
+      { id: "B", owners: ["p7"] }];
+    expect(workersOf(entities, "A")).toEqual({ owners: ["p1", "p2"], reviewers: ["p9"] });
+    expect(workersOf(entities, "B")).toEqual({ owners: ["p7"], reviewers: [] });
+    expect(workersOf(entities, "нет-такого")).toEqual({ owners: [], reviewers: [] });
+  });
+
+  it("прежние назначения поднимаются с функций в актив, без повторов", () => {
+    // В моделях, где воркеров ещё не было, люди назначались прямо на
+    // функцию. Потерять их нельзя: они уже в работе.
     const funcs = [
       { id: "f1", e: "A", owners: ["p1", "p2"], reviewers: ["p9"] },
-      { id: "f2", e: "A", owners: ["p2"], reviewers: ["p8"] },
+      { id: "f2", e: "A", owners: ["p2"], reviewers: [] },
       { id: "f3", e: "B", owners: ["p7"], reviewers: [] },
     ];
-    expect(workersOf(funcs, "A")).toEqual({ owners: ["p1", "p2"], reviewers: ["p9", "p8"] });
-    expect(workersOf(funcs, "C")).toEqual({ owners: [], reviewers: [] });
+    const [a, b] = adoptAssets([{ id: "A" }, { id: "B", owners: ["p0"] }], funcs);
+    expect(a).toMatchObject({ owners: ["p1", "p2"], reviewers: ["p9"] });
+    expect(b.owners).toEqual(["p0", "p7"]);
+  });
+
+  it("человек, переставший быть воркером, уходит и с функций актива", () => {
+    // Иначе задача висела бы на том, кого в активе уже нет.
+    const funcs = [{ id: "f1", e: "A", owners: ["p1", "p2"], reviewers: ["p9"] },
+      { id: "f2", e: "B", owners: ["p1"], reviewers: [] }];
+    const out = pruneWorkers(funcs, "A", { owners: ["p1"], reviewers: [] });
+    expect(out[0]).toMatchObject({ owners: ["p1"], reviewers: [] });
+    // Чужой актив не трогаем: там свои воркеры.
+    expect(out[1].owners).toEqual(["p1"]);
   });
 });

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
-import { STATUSES } from "./TasksBoard.jsx";
-import { unitOf } from "../lib/sim.js";
+import { hoursOf } from "../lib/funcs.js";
+import { STATUSES, funcLabel } from "./TasksBoard.jsx";
 import { reportSrc } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -13,9 +13,9 @@ import { reportSrc } from "../storage.js";
 
    Показываются ВСЕ задачи, а не только сданные: бэклог и запланированное
    на будущее — такая же часть картины, как сделанное. Задача, у которой
-   времени нет вовсе (ни окна дат у движения, ни единой сдачи), на ось не
-   ставится — придумывать ей дату нельзя, — но и не пропадает: она в
-   списке под осью, и там видно, что срок ей не задан.
+   времени нет вовсе (ни начала, ни единой сдачи), на ось не ставится —
+   придумывать ей дату нельзя, — но и не пропадает: она в списке под осью,
+   и там видно, что срок ей не задан.
    ════════════════════════════════════════════════════════════════ */
 
 const DAY = 86400000;
@@ -26,32 +26,42 @@ const fmtDT = (v) => {
   return isNaN(d.getTime()) ? "—" : d.toLocaleString("ru-RU",
     { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
-const ms = (v) => { const t = new Date(v).getTime(); return isNaN(t) ? null : t; };
+/* Пустая дата — это НЕ дата, а не полночь 1970 года: `new Date(null)` даёт
+   ровно её, и задача без начала уезжала на ось в шестидесятые, утаскивая
+   за собой всю шкалу. */
+const ms = (v) => {
+  if (v == null || v === "") return null;
+  const t = new Date(v).getTime();
+  return isNaN(t) ? null : t;
+};
 
-/* Полоса задачи: от начала её движения (или первой сдачи) до последней сдачи
-   либо до конца движения. Задача без дат и без сдач полосы не имеет — ей
-   нечего показать во времени, и рисовать её «от сегодня до сегодня» значило
-   бы выдумать данные. */
-export function barOf(task, edge) {
-  const subs = (task.submissions || []).map((s) => ms(s.at)).filter(Boolean).sort();
-  const from = ms(edge?.start) ?? subs[0] ?? null;
-  const to = subs[subs.length - 1] ?? ms(edge?.end) ?? (from ? from + DAY : null);
-  if (from == null || to == null) return null;
+/* Полоса задачи: от её начала (или первой сдачи) до последней сдачи, а если
+   сдач ещё нет — на время одного выполнения функции. Задача без начала и без
+   сдач полосы не имеет: рисовать её «от сегодня до сегодня» значило бы
+   выдумать данные. */
+export function barOf(task, func) {
+  // Сортировка числовая: обычная sort() сравнивает как строки, и «9…» шло
+  // бы после «17…» — последняя сдача оказывалась не последней.
+  const subs = (task.submissions || []).map((s) => ms(s.at)).filter(Boolean)
+    .sort((a, b) => a - b);
+  const from = ms(task.start) ?? subs[0] ?? null;
+  if (from == null) return null;
+  const planned = func ? hoursOf(func) * 3600000 : DAY;
+  const to = subs[subs.length - 1] ?? (from + Math.max(DAY / 4, planned));
   return { from, to: Math.max(to, from + DAY / 4) };
 }
 
-export default function Timeline({ tasks, edges, traits, goals, entityName, nameOf }) {
+export default function Timeline({ tasks, funcs = [], traits = [], entities = [], nameOf }) {
   const [openId, setOpenId] = useState(null);
   const [only, setOnly] = useState("all");
-  const edgeById = useMemo(() =>
-    Object.fromEntries((edges || []).map((e) => [e.id, e])), [edges]);
-  const goalById = useMemo(() =>
-    Object.fromEntries((goals || []).map((g) => [g.id, g])), [goals]);
+  const funcById = useMemo(() =>
+    Object.fromEntries((funcs || []).map((f) => [f.id, f])), [funcs]);
+  const traitName = (id) => traits.find((x) => x.id === id)?.l || "(ресурс удалён)";
 
   const all = useMemo(() => (tasks || [])
     .filter((t) => only === "all" || t.status === only)
-    .map((t) => ({ t, edge: edgeById[t.edgeId], bar: barOf(t, edgeById[t.edgeId]) })),
-  [tasks, edgeById, only]);
+    .map((t) => ({ t, func: funcById[t.funcId], bar: barOf(t, funcById[t.funcId]) })),
+  [tasks, funcById, only]);
   const rows = useMemo(() => all.filter((r) => r.bar)
     .sort((a, b) => a.bar.from - b.bar.from), [all]);
   const undated = useMemo(() => all.filter((r) => !r.bar), [all]);
@@ -66,7 +76,7 @@ export default function Timeline({ tasks, edges, traits, goals, entityName, name
             onClick={() => setOnly(s.id)}>{s.name}</button>))}
       </div>
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-        Полоса — срок движения задачи; чёрточки на ней — сдачи; пунктир —
+        Полоса — время выполнения задачи; чёрточки на ней — сдачи; пунктир —
         сегодня. Слева от него прошлое, справа запланированное.
       </div>
     </div>);
@@ -120,7 +130,7 @@ export default function Timeline({ tasks, edges, traits, goals, entityName, name
             </div>
           </div>
 
-          {rows.map(({ t, edge, bar }) => {
+          {rows.map(({ t, func, bar }) => {
             const st = STATUSES.find((x) => x.id === t.status) || { color: NEU, name: "—" };
             const on = t.id === openId;
             const subs = t.submissions || [];
@@ -133,7 +143,7 @@ export default function Timeline({ tasks, edges, traits, goals, entityName, name
                   overflow: "hidden" }}>
                   {t.title}
                   <div style={{ fontSize: 9.5, color: C.muted }}>
-                    {goalById[t.goalId]?.l || "цель удалена"}</div>
+                    {funcLabel(func, entities)}</div>
                 </div>
                 <div style={{ flex: 1, position: "relative", height: 26,
                   background: C.ink, borderRadius: 6,
@@ -165,8 +175,8 @@ export default function Timeline({ tasks, edges, traits, goals, entityName, name
           <div style={S.lbl}>без сроков — на оси им не место</div>
           <div style={{ fontSize: 10.5, color: C.muted, margin: "5px 0 7px",
             lineHeight: 1.5 }}>
-            У движения не задано окно дат, и сдач ещё не было. Поставить их
-            на ось значило бы придумать дату.
+            Начало не задано, и сдач ещё не было. Поставить их на ось значило
+            бы придумать дату.
           </div>
           {undated.map(({ t }) => {
             const st = STATUSES.find((x) => x.id === t.status) || { color: NEU, name: "—" };
@@ -182,9 +192,9 @@ export default function Timeline({ tasks, edges, traits, goals, entityName, name
         </div>)}
 
       {open && (() => {
-        const { t, edge } = open;
-        const target = traits.find((x) => x.id === edge?.to);
-        const goal = goalById[t.goalId];
+        const { t, func } = open;
+        const qty = (map) => Object.entries(map || {})
+          .map(([id, v]) => `${traitName(id)} ${nm(v)}`).join(", ") || "—";
         const st = STATUSES.find((x) => x.id === t.status);
         return (
           <div style={{ ...S.card, borderColor: ACC }}>
@@ -196,13 +206,10 @@ export default function Timeline({ tasks, edges, traits, goals, entityName, name
             </div>
             <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6,
               marginBottom: 8 }}>
-              Статус: {st?.name || "—"} · цель: {goal ? goal.l : "удалена"}
+              Статус: {st?.name || "—"} · функция: {funcLabel(func, entities)}
               {t.assignee ? <> · исполнитель: {nameOf ? nameOf(t.assignee) : t.assignee}</> : null}
               {t.reviewer ? <> · проверяет: {nameOf ? nameOf(t.reviewer) : t.reviewer}</> : null}
-              {edge ? <> · движение: {entityName ? entityName(edge.from) : ""} →
-                {" "}{target?.l || "?"}{edge.carrier ? ` (${edge.carrier})` : ""}</> : null}
-              {edge?.start ? <> · начало {fmtDT(edge.start)}</> : null}
-              {edge?.end ? <> · конец {fmtDT(edge.end)}</> : null}
+              {t.start ? <> · начало {fmtDT(t.start)}</> : null}
             </div>
             {t.body && <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 8 }}>
               {t.body}</div>}
@@ -217,13 +224,15 @@ export default function Timeline({ tasks, edges, traits, goals, entityName, name
                   marginBottom: 6 }}>
                   <div className="flex items-center gap-2">
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: OK, flex: 1 }}>
-                      перешло {nm(sb.amount)}
-                      {target ? ` ${unitOf(target).split("/")[0]}` : ""}
-                      {edge ? <span style={{ color: C.muted, fontWeight: 400 }}>
-                        {" "}· планировалось {nm(Math.abs(Number(edge.gives) || 0))}</span> : null}
+                      ушло {nm(sb.hours)} ч
+                      {func ? <span style={{ color: C.muted, fontWeight: 400 }}>
+                        {" "}· планировалось {nm(hoursOf(func))} ч</span> : null}
                     </span>
                     <span style={{ fontSize: 10, color: C.muted }}>{fmtDT(sb.at)}</span>
                   </div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3,
+                    lineHeight: 1.5 }}>
+                    взято: {qty(sb.takes)} · выдано: {qty(sb.gives)}</div>
                   {sb.text && <div style={{ fontSize: 12, marginTop: 5, lineHeight: 1.5 }}>
                     {sb.text}</div>}
                   {sb.file && (

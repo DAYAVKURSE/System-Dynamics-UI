@@ -13,7 +13,10 @@
    пока работа не сохранена или не отброшена. */
 import { getTelegram } from "../telegram.js";
 
-export const DRAFT_V = 1;
+/* Версия черновика поднята: документ стал другим — вместо стрелок и OKR в
+   нём функции. Черновик прежней версии восстанавливать нельзя: он собрал бы
+   модель, которой это приложение уже не понимает. */
+export const DRAFT_V = 2;
 const BASE_KEY = "sd_draft";
 
 /* На одном телефоне могут быть два аккаунта Telegram. Черновик одного не
@@ -49,7 +52,11 @@ export function readDraft() {
     const d = p.doc;
     // Половина документа хуже, чем его отсутствие: восстановление собрало бы
     // модель, которой у пользователя никогда не было.
-    const parts = ["entities", "traits", "edges", "kinds", "okrs", "tasks"];
+    // Части нынешнего документа: активы (с воркерами), ресурсы,
+    // классификации, функции и задачи. Прежних edges/okrs/hypos в нём нет —
+    // расчёта по ним не осталось, и требовать их значило бы не принимать
+    // ни одного сегодняшнего черновика.
+    const parts = ["entities", "traits", "kinds", "funcs", "tasks"];
     if (!d || parts.some((k) => !Array.isArray(d[k])) || !d.kinds.length) return null;
     return { savedAt: p.savedAt, name: p.name || "", doc: d };
   } catch {

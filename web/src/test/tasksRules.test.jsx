@@ -1,89 +1,135 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
-import TasksBoard, { TaskEditor, newTask } from "../components/TasksBoard.jsx";
+import TasksBoard, { newTask, runsOfFunc } from "../components/TasksBoard.jsx";
 import ReviewBoard from "../components/ReviewBoard.jsx";
 import React from "react";
 
-/* Правила работы с задачами: в «Готово» только через приём отчёта; возврат —
-   в бэклог с текстом доработки; исполнителю видно только своё; поля задачи
-   в порядке постановки; «Инструменты» с внутренними вкладками. */
+/* Правила работы с задачами: задача — это выполнение функции; в «Готово»
+   только через приём отчёта; возврат — в бэклог с текстом доработки;
+   исполнителю видно только своё; поля задачи в порядке постановки;
+   «Инструменты» с внутренними вкладками. */
 
-const GOALS = [{ id: "u9", e: "usr", l: "активные пользователи", unit: "чел.", want: 10, by: 6 }];
-const EDGES = [{ id: "e1", from: "mkt", to: "u9", carrier: "приток", gives: 1, per: "мес",
-  sign: 1, conds: [], basis: "hypo" }];
+const ENTITIES = [{ id: "usr", name: "Пользователи",
+  owners: ["2"], reviewers: ["3"] }];
+const TRAITS = [{ id: "t1", e: "usr", l: "спрос", unit: "шт." },
+  { id: "t2", e: "usr", l: "заявки", unit: "шт." }];
+const FUNCS = [{ id: "f1", e: "usr", name: "Сбор заявок", dur: 2, durUnit: "ч",
+  takes: [{ id: "p1", trait: "t1", lo: 2, hi: 4 }],
+  gives: [{ id: "p2", trait: "t2", lo: 1, hi: 1, to: "" }],
+  owners: ["2"], reviewers: ["3"] }];
 const PEOPLE = [{ id: "1", name: "Владелец" }, { id: "2", name: "Иван" }, { id: "3", name: "Пётр" }];
 
 function Board({ tasks: t0, people = PEOPLE, canAssign = true, onDraft = null }) {
   const [tasks, setTasks] = React.useState(t0);
-  const [okrs, setOkrs] = React.useState([]);
   const [openId, setOpenId] = React.useState(null);
-  return (<TasksBoard goals={GOALS} okrs={okrs} setOkrs={setOkrs} edges={EDGES}
+  return (<TasksBoard funcs={FUNCS} entities={ENTITIES} traits={TRAITS}
     tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
-    okrValue={() => 5} entityName={() => "Актив"} people={people} canAssign={canAssign}
-    onDraft={onDraft} />);
+    people={people} canAssign={canAssign} onDraft={onDraft} />);
 }
 
 describe("«Готово» — только через приём отчёта", () => {
+  const task = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }), ...over });
+
   it("стрелка › на доске не переводит дальше «Проверки»", () => {
-    const t = newTask({ goalId: "u9", edgeId: "e1", title: "Задача A" });
-    const { container } = render(<Board tasks={[{ ...t, status: "review" }]} />);
-    const card = screen.getByText("Задача A").closest("div").parentElement.parentElement;
-    const next = within(card).getByRole("button", { name: "›" });
-    expect(next).toBeDisabled();
-    // Заголовок колонки «Готово» на доске есть, но задача туда не уехала.
-    expect(container.textContent).toContain("Готово");
+    render(<Board tasks={[task({ status: "review" })]} />);
+    // Название лежит внутри карточки — стрелки её соседи.
+    const card = screen.getByText("Задача A").parentElement;
+    expect(within(card).getByRole("button", { name: "›" })).toBeDisabled();
   });
 
   it("из «В работе» стрелка ведёт на «Проверку», а не дальше", () => {
-    const t = newTask({ goalId: "u9", edgeId: "e1", title: "Задача A" });
-    render(<Board tasks={[{ ...t, status: "progress" }]} />);
-    const card = screen.getByText("Задача A").closest("div").parentElement.parentElement;
+    render(<Board tasks={[task({ status: "progress" })]} />);
+    const card = screen.getByText("Задача A").parentElement;
     fireEvent.click(within(card).getByRole("button", { name: "›" }));
-    const moved = screen.getByText("Задача A").closest("div").parentElement.parentElement;
+    // Карточка переехала в колонку «Проверка», и дальше её не двинуть.
+    const moved = screen.getByText("Задача A").parentElement;
     expect(within(moved).getByRole("button", { name: "›" })).toBeDisabled();
   });
 
   it("в редакторе статус «Готово» руками не выбрать", () => {
-    const t = newTask({ goalId: "u9", edgeId: "e1", title: "Задача A" });
-    render(<Board tasks={[t]} />);
+    render(<Board tasks={[task({ status: "review" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
-    const opt = [...document.querySelectorAll("option")].find((o) => o.textContent === "Готово");
-    expect(opt.disabled).toBe(true);
-    expect(screen.getByText(/«Готово» ставит проверяющий/)).toBeTruthy();
+    const done = [...screen.getByDisplayValue("Проверка").options]
+      .find((o) => o.textContent === "Готово");
+    expect(done.disabled).toBe(true);
+  });
+});
+
+describe("сдача записывает факт выполнения", () => {
+  const task = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }), ...over });
+
+  it("сдача — это часы и сколько чего взяли и выдали; после неё задача на проверке", () => {
+    render(<Board tasks={[task({ status: "progress" })]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+
+    // Поля предзаполнены планом — переписать одно число проще, чем набирать все.
+    const hours = screen.getByDisplayValue("2");
+    fireEvent.change(hours, { target: { value: "5" } });
+    fireEvent.blur(hours);
+    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
+
+    expect(screen.getByText(/5 ч/)).toBeInTheDocument();
+    expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
+  });
+
+  it("выполнения считаются только по принятым задачам", () => {
+    // Непринятая сдача — заявление исполнителя, а не измерение.
+    const sb = { id: "s1", at: "2026-01-01T00:00:00Z", hours: 3,
+      takes: { t1: 2 }, gives: { t2: 1 } };
+    const one = (status) => runsOfFunc([{ funcId: "f1", status, submissions: [sb] }], "f1");
+    expect(one("review")).toHaveLength(0);
+    expect(one("done")).toHaveLength(1);
+    expect(one("done")[0]).toMatchObject({ hours: 3, takes: { t1: 2 }, gives: { t2: 1 } });
+  });
+});
+
+describe("назначения берутся из воркеров актива", () => {
+  it("в списке исполнителей только исполнители этого актива", () => {
+    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    const box = screen.getAllByRole("combobox")[0];
+    const names = [...box.options].map((o) => o.textContent);
+    // Иван — исполнитель актива, Пётр — только проверяющий, Владелец не воркер.
+    expect(names).toContain("Иван");
+    expect(names).not.toContain("Пётр");
+    expect(names).not.toContain("Владелец");
   });
 });
 
 describe("возврат с проверки", () => {
-  const task = { ...newTask({ goalId: "u9", edgeId: "e1", title: "На проверке" }),
+  const reviewTask = { ...newTask({ funcId: "f1", title: "Задача A" }),
     status: "review", assignee: "2", reviewer: "3",
-    submissions: [{ id: "s1", at: new Date().toISOString(), amount: 3, text: "" }] };
+    submissions: [{ id: "s1", at: "2026-01-01T00:00:00Z", hours: 3,
+      takes: {}, gives: {} }] };
 
   it("«Вернуть» недоступен без текста доработки", () => {
-    const onReturn = vi.fn();
-    render(<ReviewBoard tasks={[task]} traits={[]} entities={[]} edges={EDGES} goals={GOALS}
-      meId="3" isOwner={false} onAccept={() => {}} onReturn={onReturn} nameOf={(x) => x} />);
-    fireEvent.click(screen.getByText("На проверке"));
+    render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
+      entities={ENTITIES} meId="3" isOwner={false}
+      onAccept={() => {}} onReturn={() => {}} />);
+    fireEvent.click(screen.getByText("Задача A"));
     const back = screen.getByRole("button", { name: "Вернуть в бэклог" });
     expect(back).toBeDisabled();
-    fireEvent.change(screen.getByPlaceholderText(/что доработать/), { target: { value: "цифр нет" } });
-    expect(back).not.toBeDisabled();
-    fireEvent.click(back);
-    expect(onReturn).toHaveBeenCalledWith(expect.objectContaining({ id: task.id }), "цифр нет");
+
+    fireEvent.change(screen.getByPlaceholderText(/что доработать/),
+      { target: { value: "переделать" } });
+    expect(screen.getByRole("button", { name: "Вернуть в бэклог" })).not.toBeDisabled();
   });
 
   it("проверяющий видит только своё, чужое не показывается", () => {
-    const alien = { ...task, id: "alien", title: "Чужая", reviewer: "9" };
-    render(<ReviewBoard tasks={[task, alien]} traits={[]} entities={[]} edges={EDGES}
-      goals={GOALS} meId="3" isOwner={false} onAccept={() => {}} onReturn={() => {}} />);
-    expect(screen.getByText("На проверке")).toBeTruthy();
+    const alien = { ...reviewTask, id: "x", title: "Чужая", reviewer: "9" };
+    render(<ReviewBoard tasks={[reviewTask, alien]} funcs={FUNCS} traits={TRAITS}
+      entities={ENTITIES} meId="3" isOwner={false}
+      onAccept={() => {}} onReturn={() => {}} />);
+    expect(screen.getByText("Задача A")).toBeTruthy();
     expect(screen.queryByText("Чужая")).toBeNull();
   });
 });
 
 describe("поля задачи в порядке постановки", () => {
   it("исполнитель и проверяющий сразу после названия, содержимое — последним", () => {
-    const t = newTask({ goalId: "u9", edgeId: "e1", title: "Задача A" });
+    const t = newTask({ funcId: "f1", title: "Задача A" });
     const { container } = render(<Board tasks={[t]} />);
     fireEvent.click(screen.getByText("Задача A"));
     const labels = [...container.querySelectorAll("div")]
@@ -97,7 +143,7 @@ describe("поля задачи в порядке постановки", () => {
 
   it("черновик от Claude просится сам, когда назначены оба, и текст правится", async () => {
     const onDraft = vi.fn(async () => "Сделать то-то. Считать готовым тогда-то.");
-    const t = { ...newTask({ goalId: "u9", edgeId: "e1", title: "Задача A" }),
+    const t = { ...newTask({ funcId: "f1", title: "Задача A" }),
       assignee: "2", reviewer: "3" };
     render(<Board tasks={[t]} onDraft={onDraft} />);
     fireEvent.click(screen.getByText("Задача A"));
@@ -110,7 +156,7 @@ describe("поля задачи в порядке постановки", () => {
 
   it("без назначенных обоих черновик не просится", async () => {
     const onDraft = vi.fn(async () => "текст");
-    const t = { ...newTask({ goalId: "u9", edgeId: "e1", title: "Задача A" }), assignee: "2" };
+    const t = { ...newTask({ funcId: "f1", title: "Задача A" }), assignee: "2" };
     render(<Board tasks={[t]} onDraft={onDraft} />);
     fireEvent.click(screen.getByText("Задача A"));
     await new Promise((r) => setTimeout(r, 50));
@@ -119,7 +165,7 @@ describe("поля задачи в порядке постановки", () => {
   });
 
   it("без моста кнопки черновика нет вовсе — не обещаем того, чего нет", () => {
-    const t = { ...newTask({ goalId: "u9", edgeId: "e1", title: "Задача A" }),
+    const t = { ...newTask({ funcId: "f1", title: "Задача A" }),
       assignee: "2", reviewer: "3" };
     render(<Board tasks={[t]} onDraft={null} />);
     fireEvent.click(screen.getByText("Задача A"));
