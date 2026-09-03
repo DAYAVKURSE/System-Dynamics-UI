@@ -104,11 +104,19 @@ describe("окно звонка", () => {
     const { container } = render(<CallApp />);
     await screen.findByText("Разбор");
     const box = container.firstElementChild;
-    // Число Telegram теперь ограничивает высоту сверху, а не задаёт её.
-    expect(box.style.maxHeight).toContain("--tg-viewport-stable-height");
-    // По правилам CSS min-height сильнее max-height — на этом и держится
-    // защита: нулевая высота от Telegram окно не схлопнет.
     expect(parseInt(box.style.minHeight, 10)).toBeGreaterThanOrEqual(200);
+  });
+
+  it("нижняя безопасная зона: кнопки не под жестовой полосой", async () => {
+    // Замер собранной страницы: нижний край ряда кнопок в 767 при окне 775 —
+    // запас восемь точек. Жестовая полоса Android (около 24) съедает
+    // половину высоты кнопок, трёхкнопочная навигация (около 48) — весь ряд.
+    setUrl("?call=m1");
+    const { container } = render(<CallApp />);
+    await screen.findByText("Разбор");
+    const pad = container.firstElementChild.style.paddingBottom;
+    expect(pad).toContain("safe-area-inset-bottom");        // от браузера
+    expect(pad).toContain("--tg-safe-area-inset-bottom");   // и от Telegram
   });
 
   it("страница ровно по окну — ни длиннее, ни короче", async () => {
@@ -120,14 +128,14 @@ describe("окно звонка", () => {
     const { container } = render(<CallApp />);
     await screen.findByText("Разбор");
     const box = container.firstElementChild;
-    // Высота — по окну, число Telegram только ограничивает её сверху.
+    // Только height: 100%. Числом Telegram высоту не задают (на Android
+    // владельца оно приходило больше окна — 843 против 775, и страница
+    // становилась длиннее окна) и им же не ограничивают: когда оно МЕНЬШЕ
+    // окна, страница стала бы меньше окна — звонок повис бы посреди экрана.
     expect(box.style.height).toBe("100%");
-    expect(box.style.maxHeight).toBe("var(--tg-viewport-stable-height, 100%)");
-    // min() тут нельзя: его понимают не все WebView, а непонятое правило
-    // браузер выбрасывает целиком — высота пропала бы вовсе.
-    expect(box.style.height).not.toContain("min(");
-    // И нижняя граница обязана пережить max-height: по правилам CSS
-    // min-height сильнее, иначе нулевая высота снова схлопнет окно.
+    expect(box.style.maxHeight).toBe("");
+    // И сторож вырожденного случая: без высоты у родителя height:100%
+    // посчитается в auto, и окно схлопнется по содержимому.
     expect(parseInt(box.style.minHeight, 10)).toBeGreaterThanOrEqual(200);
   });
 

@@ -46,7 +46,7 @@ const RECENT_VIEWS = 6;
    в слежку. Поля перечислены поимённо и обрезаны: снаружи этот адрес
    открыт, и складывать в память что попало нельзя. */
 const VIEW_FLAGS = ["when", "expanded", "fullscreen", "stable", "height", "innerHeight",
-  "screenHeight", "ratio", "platform", "version", "start"];
+  "screenHeight", "ratio", "safeBottom", "contentBottom", "platform", "version", "start"];
 
 function noteCallView(body) {
   const v = {};

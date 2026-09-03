@@ -534,7 +534,14 @@ export default function CallRoom({
           ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
           title={`${status} ${note}`.trim()}>
           {status}{status && note ? " · " : ""}{note}</div>)}
-      {err && <div style={{ fontSize: 11.5, color: BAD, lineHeight: 1.5 }}>{err}</div>}
+      {/* И эта строка тоже в одну: тексты ошибок приходят от браузера и от
+          сервера, длину им никто не ограничивает («Не удалось включить
+          камеру: …», «Сервер ответил …»). Пятнадцать строк такого текста —
+          это 259 точек, на которые уезжают кнопки звонка. Целиком её видно
+          по долгому нажатию, в подсказке. */}
+      {err && <div style={{ fontSize: 11.5, color: BAD, lineHeight: 1.5,
+        ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
+        title={err}>{err}</div>}
       {/* В компактном окне эта строка — единственная, что не была прижата к
           одной строке. Счётчик рос («9,9 МБ» → «10,0 МБ»), строка
           переносилась, и сетка видео теряла полтора десятка пикселей —
@@ -549,15 +556,22 @@ export default function CallRoom({
     // Всё окно — в экран: заголовок, растущая сетка видео, строка статуса,
     // кнопки. Ничего не прокручивается, видео ужимается, а не уезжает вниз.
     return (
+      /* overflow:hidden здесь — последний рубеж. Без него переполнение не
+         обрезалось и не прокручивалось, а вылезало наружу: содержимое
+         существовало, но его не было видно и нельзя было нажать, и полосы
+         прокрутки при этом тоже не появлялось. */
       <div data-testid="call-fit" style={{ display: "flex", flexDirection: "column",
-        height: "100%", minHeight: 0, gap: 6 }}>
+        height: "100%", minHeight: 0, gap: 6, overflow: "hidden" }}>
         {header}
         <div style={{ flex: 1, minHeight: 0, display: "grid", gap: 6,
           gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
           gridAutoRows: "minmax(0, 1fr)" }}>
           {tiles}
         </div>
-        <div style={{ flex: "0 0 auto" }}>{messages}</div>
+        {/* Сообщения не толкают кнопки: сетка видео отдаёт им место точка в
+            точку, но, дойдя до нуля, начинала расти вся колонка — и ряд
+            кнопок уходил за нижний край окна. Теперь лишнее обрезается. */}
+        <div style={{ flex: "0 1 auto", minHeight: 0, overflow: "hidden" }}>{messages}</div>
         <div className="flex gap-2" style={{ flex: "0 0 auto", justifyContent: "center",
           flexWrap: "wrap" }}>{controls}</div>
       </div>);

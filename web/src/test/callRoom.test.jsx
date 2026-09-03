@@ -323,3 +323,60 @@ describe("компактный режим", () => {
     expect(await screen.findByText(/\/call\?call=m1/)).toBeInTheDocument();
   });
 });
+
+/* Ничто не выталкивает кнопки за нижний край окна.
+
+   Замер в настоящем Chromium (окно 360×400): сетка видео отдаёт сообщениям
+   место точка в точку — 280 → 229 → 177 → 91 → 56 → 0, — а дойдя до нуля,
+   начинала расти вся колонка, и ряд кнопок оказывался на 19 точек ниже
+   панели и на 11 ниже окна. Обрезки не было нигде: содержимое существовало,
+   но его не было видно и нельзя было нажать, и полосы прокрутки при этом
+   не появлялось. Снаружи это ровно та жалоба, с которой всё началось:
+   «страница занимает больше, чем есть на экране».
+
+   Разметку в jsdom не посчитать, поэтому проверяем то, на чём держится
+   защита: обрезку у корня и у блока сообщений и однострочность текстов. */
+describe("ничего не уезжает за нижний край", () => {
+  const fitRoot = () => screen.getByTestId("call-fit");
+
+  it("корень компактного окна обрезает лишнее", async () => {
+    render(<CallRoom meetingId="m1" meId="100" myName="Я" fit />);
+    await screen.findByText("Войти в звонок");
+    expect(fitRoot().style.overflow).toBe("hidden");
+    expect(fitRoot().style.minHeight).toBe("0");
+  });
+
+  it("блок сообщений сжимается и обрезается, а не толкает кнопки", async () => {
+    render(<CallRoom meetingId="m1" meId="100" myName="Я" fit />);
+    await screen.findByText("Войти в звонок");
+    // Блок сообщений — предпоследний ребёнок: заголовок, сетка, сообщения, кнопки.
+    const kids = [...fitRoot().children];
+    const box = kids[kids.length - 2];
+    expect(box.style.overflow).toBe("hidden");
+    expect(box.style.minHeight).toBe("0");
+    expect(box.style.flex).not.toContain("0 0");   // сжиматься разрешено
+  });
+
+  it("длинная ошибка прижата к одной строке", async () => {
+    // Тексты ошибок приходят от браузера и от сервера, длину им никто не
+    // ограничивает: пятнадцать строк такого текста — 259 точек, ровно на
+    // которые и уезжали кнопки. Ошибку добываем настоящую: у встречи, за
+    // которую сервер не отдаёт серверы соединения, вход не состоится.
+    global.fetch = vi.fn(async (url) => (String(url).endsWith("/api/calls/m1")
+      ? ok({ id: "m1", title: "Разбор прогноза", at: "", peers: [] })
+      : ok({ error: "Не удалось включить камеру: ".repeat(8) }, 500)));
+    render(<CallRoom meetingId="m1" meId="100" myName="Я" fit />);
+    fireEvent.click(await screen.findByText("Войти в звонок"));
+
+    // Ищем именно строку ошибки: у неё есть подсказка с полным текстом.
+    const line = await waitFor(() => {
+      const d = [...screen.getByTestId("call-fit").querySelectorAll("div[title]")]
+        .find((x) => /Сервер не отвечает|не настроена|камеру/i.test(x.getAttribute("title") || ""));
+      if (!d) throw new Error("ошибки ещё нет");
+      return d;
+    });
+    expect(line.style.whiteSpace).toBe("nowrap");
+    expect(line.style.textOverflow).toBe("ellipsis");
+    expect(line.title).toBeTruthy();          // целиком — по долгому нажатию
+  });
+});
