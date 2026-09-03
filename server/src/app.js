@@ -12,16 +12,38 @@ import bridgeRouter from "./routes/bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/* Сколько раз открывали страницу звонка.
+/* Кто и как открывал страницу звонка.
 
-   Нужно ради одного вопроса, на который иначе нечем ответить: доходит ли
-   Telegram до нашей страницы вообще. Если владелец открывает мини-приложение
-   и видит чёрный экран, причин ровно две — либо страница не открылась у нас,
-   либо Telegram её и не запрашивал (в @BotFather у приложения другой адрес).
-   Счётчик различает их за один запрос к /api/health, не требуя ни доступа к
-   серверу, ни чтения журналов. Живёт в памяти: это отладочный сигнал, а не
+   Нужно ради вопроса, на который иначе нечем ответить: доходит ли Telegram
+   до нашей страницы. Если мини-приложение показывает пустой экран, причин
+   ровно две — либо страница не открылась у нас, либо Telegram её и не
+   запрашивал (в @BotFather у приложения другой адрес). Одного счётчика для
+   этого мало: и мини-приложение, и прямая ссылка ведут на один и тот же
+   /call, и в сумме они неразличимы. Поэтому запоминаем последние открытия
+   с адресом: мини-приложение приходит БЕЗ «?call=…» (id встречи Telegram
+   кладёт во фрагмент, который на сервер не отправляется), прямая ссылка —
+   с ним.
+
+   Живёт в памяти и хранит восемь последних: это отладочный сигнал, а не
    статистика, и переживать перезапуск ему незачем. */
-const callPage = { hits: 0, lastAt: null };
+const callPage = { hits: 0, lastAt: null, recent: [] };
+const RECENT_HITS = 8;
+
+function noteCallHit(req) {
+  callPage.hits += 1;
+  callPage.lastAt = new Date().toISOString();
+  callPage.recent.unshift({
+    at: callPage.lastAt,
+    // Строка запроса целиком: она короткая и в ней нет ничего, кроме id
+    // встречи, который и так есть у каждого, кому дали ссылку.
+    query: String(req.originalUrl || "").split("?")[1] || "",
+    // Чем открыли — по первым знакам: этого хватает, чтобы отличить
+    // мини-приложение от встроенного браузера, и не превращает отладку в
+    // слежку.
+    client: String(req.header("user-agent") || "").slice(0, 80),
+  });
+  callPage.recent.length = Math.min(callPage.recent.length, RECENT_HITS);
+}
 
 export function createApp() {
   const app = express();
@@ -47,8 +69,8 @@ export function createApp() {
       calls: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Мост включён, только когда задан общий секрет с воркером.
       bridge: Boolean(process.env.BRIDGE_TOKEN),
-      // Открывали ли страницу звонка и когда в последний раз — см. выше.
-      callPage: { ...callPage },
+      // Кто и как открывал страницу звонка — см. выше.
+      callPage: { ...callPage, recent: [...callPage.recent] },
     }),
   );
   app.use("/api/scenarios", scenariosRouter);
@@ -75,9 +97,8 @@ export function createApp() {
     if (fs.existsSync(callHtml)) {
       // И всё, что под /call: ссылка из приглашения бывает с хвостом, а
       // открыться по ней должно окно звонка, а не приложение модели.
-      app.get(/^\/call(\/.*)?$/, (_req, res) => {
-        callPage.hits += 1;
-        callPage.lastAt = new Date().toISOString();
+      app.get(/^\/call(\/.*)?$/, (req, res) => {
+        noteCallHit(req);
         res.sendFile(callHtml);
       });
     }

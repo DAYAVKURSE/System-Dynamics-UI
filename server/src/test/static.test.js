@@ -52,6 +52,19 @@ describe("страницы", () => {
     const after = (await request(app).get("/api/health")).body.callPage;
     expect(after.hits - before.hits).toBe(2);
     expect(Date.parse(after.lastAt)).toBeGreaterThan(0);
+    // Мини-приложение приходит без «?call=…» (id Telegram кладёт во
+    // фрагмент), прямая ссылка — с ним. В сумме они неразличимы, поэтому
+    // адрес и запоминается: иначе не понять, что именно не открылось.
+    expect(after.recent.map((h) => h.query).slice(0, 2)).toEqual(["call=m1", ""]);
+  });
+
+  it("последних открытий хранится немного — это отладка, а не статистика", async () => {
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    for (let i = 0; i < 12; i += 1) await request(app).get(`/call?call=m${i}`);
+    const { recent } = (await request(app).get("/api/health")).body.callPage;
+    expect(recent).toHaveLength(8);
+    expect(recent[0].query).toBe("call=m11");
   });
 
   it("без call.html страница звонка не выдумывается — отдаётся модель", async () => {
