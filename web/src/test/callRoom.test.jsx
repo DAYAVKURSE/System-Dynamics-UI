@@ -219,6 +219,62 @@ describe("запись", () => {
     recorders.length = 0; global.MediaRecorder = FakeRecorder; resetReportsAvailable();
   });
 
+  it("пишет ВСЕХ: в MediaRecorder уходит сведённый поток, а не свой", async () => {
+    // Владелец увидел на записи только свой экран и свой голос — в
+    // MediaRecorder уходил свой поток целиком. Теперь туда идёт сведённый:
+    // холст со всеми плитками и микшер со всеми голосами (recordMix.js).
+    await join();
+    fireEvent.click(await screen.findByLabelText("запись"));
+    await waitFor(() => expect(recorders).toHaveLength(1));
+    const got = recorders[0].stream;
+
+    // У своего потока дорожки настоящие, у сведённого — холст и микшер.
+    expect(got.getVideoTracks()).toHaveLength(1);
+    expect(got.getAudioTracks()).toHaveLength(1);
+    expect(got.getTracks().every((t) => !(t instanceof FakeTrack))).toBe(true);
+  });
+
+  it("подключившийся во время записи попадает в неё голосом", async () => {
+    // Микшер живёт всю запись, а состав меняется: без пересборки у
+    // пришедшего позже не было бы звука, и владелец снова услышал бы на
+    // записи только себя — уже по другой причине.
+    const made = vi.spyOn(window.AudioContext.prototype, "createMediaStreamSource");
+    signalsOnce = [hello("200", "Пётр")];
+    await join();
+    fireEvent.click(await screen.findByLabelText("запись"));
+    await waitFor(() => expect(recorders).toHaveLength(1));
+    const before = made.mock.calls.length;
+
+    const theirs = fakeStream();
+    await waitFor(() => expect(pcs).toHaveLength(1));
+    act(() => { pcs[0].ontrack({ streams: [theirs] }); });
+
+    await waitFor(() => expect(made.mock.calls.length).toBeGreaterThan(before));
+    expect(made.mock.calls.some(([st]) => st === theirs)).toBe(true);
+  });
+
+  it("о записи сообщают собеседникам, а не пишут их молча", async () => {
+    // Раньше каждый писал только себя, и предупреждать было не о чем.
+    // Теперь запись забирает всех — молчать об этом нельзя.
+    signalsOnce = [hello("200", "Пётр")];
+    await join();
+    fireEvent.click(await screen.findByLabelText("запись"));
+    await waitFor(() => expect(posted.some((p) => p.data.type === "rec" && p.data.on)).toBe(true));
+
+    fireEvent.click(screen.getByLabelText("запись"));
+    await waitFor(() => expect(posted.some((p) => p.data.type === "rec" && !p.data.on)).toBe(true));
+  });
+
+  it("когда пишет собеседник, об этом сказано на экране", async () => {
+    await join();
+    await waitFor(() => expect(pendingPoll).toBeTruthy());
+    act(() => deliver([{ from: "200", data: { type: "rec", on: true } }]));
+    expect(await screen.findByText(/звонок записывает/i)).toBeInTheDocument();
+
+    act(() => deliver([{ from: "200", data: { type: "rec", on: false } }]));
+    await waitFor(() => expect(screen.queryByText(/звонок записывает/i)).toBeNull());
+  });
+
   it("пишется умеренный битрейт, а у предела размера запись останавливается сама", async () => {
     await join();
     fireEvent.click(await screen.findByLabelText("запись"));

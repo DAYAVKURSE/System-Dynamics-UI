@@ -5,6 +5,7 @@ import {
   recorderMime, screenShareSupported, sendSignal,
 } from "../calls.js";
 import { MAX_UPLOAD_REPORT_BYTES, putReportFile, reportsAvailable } from "../storage.js";
+import { startMix } from "../recordMix.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОКНО СОВЕЩАНИЯ
@@ -101,11 +102,22 @@ export default function CallRoom({
   const [sharing, setSharing] = useState(false);
   const [rec, setRec] = useState(false);
   const [recNote, setRecNote] = useState("");
+  // Кто из собеседников пишет звонок. Раньше каждый писал только себя, и
+  // знать об этом было незачем; теперь запись забирает всех, и молчать об
+  // этом нельзя.
+  const [theyRec, setTheyRec] = useState({});
+  // Своё состояние записи ссылкой: «привет» приходит в цикле опроса, где
+  // состояние осталось бы от первого рендера.
+  const recRef = useRef(false);
   const [recBytes, setRecBytes] = useState(0);
   const [names, setNames] = useState({});          // id собеседника → имя из его «привет»
 
   const peers = useRef(new Map());        // id собеседника → RTCPeerConnection
   const [streams, setStreams] = useState({});   // id собеседника → MediaStream
+  // Те же потоки ссылкой: микшер записи живёт весь звонок и должен видеть
+  // не тот набор, что был при её начале, а сегодняшний — люди приходят и
+  // уходят посреди записи.
+  const streamsRef = useRef(streams);
   const cfgRef = useRef(null);
   const local = useRef(null);             // камера и микрофон
   // Тот же поток состоянием: ref не перерисовывает, а плитку нужно
@@ -114,6 +126,9 @@ export default function CallRoom({
   const screen = useRef(null);            // экран, пока он транслируется
   const outVideo = useRef(null);          // видеодорожка, которую сейчас отдаём
   const recorder = useRef(null);
+  // Сетка плиток: с неё запись срисовывает то же, что видит человек.
+  const gridRef = useRef(null);
+  const mix = useRef(null);
   const chunks = useRef([]);
   const bytes = useRef(0);
   const abort = useRef(null);
@@ -259,11 +274,19 @@ export default function CallRoom({
     if (d.type === "hello") {
       // Пришёл новый: предложение делает тот, чей id меньше. Отвечаем
       // «привет» адресно, чтобы новичок узнал обо всех, кто уже здесь.
-      post({ type: "hello-back", name: myName }, from);
+      // Про запись говорим сразу: пришедший позже иначе не узнал бы, что
+      // его пишут, — а раньше каждый писал только себя, и предупреждать
+      // было не о чем.
+      post({ type: "hello-back", name: myName, rec: recRef.current }, from);
       if (myId.current < from) await makeOffer(from);
       return;
     }
+    if (d.type === "rec") {
+      setTheyRec((was) => ({ ...was, [from]: Boolean(d.on) }));
+      return;
+    }
     if (d.type === "hello-back") {
+      if (d.rec) setTheyRec((was) => ({ ...was, [from]: true }));
       if (myId.current < from) await makeOffer(from);
       return;
     }
@@ -424,6 +447,13 @@ export default function CallRoom({
     await swapVideo(track);
   };
 
+  // Состав меняется — микшер узнаёт об этом сразу: у нового собеседника
+  // иначе не было бы звука в записи, а у ушедшего остался бы висеть узел.
+  useEffect(() => {
+    streamsRef.current = streams;
+    mix.current?.sync();
+  }, [streams]);
+
   /* ─── запись ─── */
   const startRec = async () => {
     const mime = recorderMime();
@@ -437,13 +467,18 @@ export default function CallRoom({
       return;
     }
     try {
-      // Пишем свою дорожку: сведение всех видео в одно требует холста и
-      // микшера звука, а на телефоне это съедает батарею и роняет частоту
-      // кадров у самого звонка. Каждый пишет свою сторону сам.
+      // Пишем ВСЕХ, а не себя: видео сводится на холст с тех же плиток, что
+      // на экране, звук — микшером Web Audio (см. recordMix.js). Раньше в
+      // MediaRecorder уходил свой поток целиком, и на записи оказывались
+      // только своя камера и свой голос.
       chunks.current = [];
       bytes.current = 0;
       setRecBytes(0);
-      const r = new MediaRecorder(local.current, { mimeType: mime, ...RECORDER_OPTS });
+      mix.current = startMix({
+        grid: () => gridRef.current,
+        streams: () => [local.current, ...Object.values(streamsRef.current || {})],
+      });
+      const r = new MediaRecorder(mix.current.stream, { mimeType: mime, ...RECORDER_OPTS });
       r.ondataavailable = (e) => {
         if (!e.data?.size) return;
         chunks.current.push(e.data);
@@ -456,10 +491,15 @@ export default function CallRoom({
         // пока запись ещё можно сохранить, а не после того, как сервер откажет.
         if (bytes.current >= MAX_RECORDING_BYTES && r.state === "recording") {
           setRecNote("Запись достигла предела размера — сохраняю.");
-          r.stop(); setRec(false);
+          r.stop(); setRec(false); recRef.current = false; post({ type: "rec", on: false });
         }
       };
       r.onstop = async () => {
+        // Здесь, а не в кнопке: запись кончается и сама — по пределу
+        // размера, и при выходе из звонка. Холст с микшером, оставшись
+        // жить, продолжали бы жечь батарею впустую.
+        try { mix.current?.stop(); } catch { /* уже */ }
+        mix.current = null;
         const blob = new Blob(chunks.current, { type: mime });
         setRecNote(`Сохраняю запись (${mb(blob.size)})…`);
         try {
@@ -483,13 +523,18 @@ export default function CallRoom({
       };
       r.start(1000);
       recorder.current = r;
-      setRec(true); setRecNote("Идёт запись вашей дорожки.");
+      setRec(true);
+      recRef.current = true;
+      post({ type: "rec", on: true });
+      setRecNote("Идёт запись звонка — со всеми участниками.");
     } catch (e) {
       setRecNote(`Запись не началась: ${e.message}`);
     }
   };
   const stopRec = () => {
     try { recorder.current?.stop(); } catch { /* уже остановлена */ }
+    recRef.current = false;
+    post({ type: "rec", on: false });
     setRec(false);
   };
 
@@ -500,6 +545,9 @@ export default function CallRoom({
   const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
   const label = (id) => names[id] || (nameOf && nameOf(id)) || "участник";
   const inCall = state !== "idle" && state !== "ended";
+  // Запись собеседника — не мелочь: человек должен знать, что его пишут.
+  const recByOthers = Object.entries(theyRec).filter(([, on]) => on).map(([id]) => label(id));
+
   const status = state === "asking" ? "Спрашиваю доступ к камере и микрофону…"
     : state === "waiting" ? "Жду остальных · соединение через сервер"
       : state === "live" ? `Через сервер · ${others.length} участник${others.length === 1 ? "" : others.length < 5 ? "а" : "ов"} кроме вас`
@@ -602,6 +650,13 @@ export default function CallRoom({
           одной строке. Счётчик рос («9,9 МБ» → «10,0 МБ»), строка
           переносилась, и сетка видео теряла полтора десятка пикселей —
           снаружи это выглядит как ещё одно моргание, уже не от React. */}
+      {/* Чужая запись — отдельной строкой и красным: это не наш статус, а
+          предупреждение о том, что человека пишут. */}
+      {recByOthers.length > 0 && (
+        <div style={{ fontSize: 11, color: BAD, lineHeight: 1.5,
+          ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
+          title={`Звонок записывает: ${recByOthers.join(", ")}`}>
+          ⏺ звонок записывает {recByOthers.join(", ")}</div>)}
       {recNote && <div style={{ fontSize: 11, color: rec ? BAD : ACC, lineHeight: 1.5,
         ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
         title={recNote}>
@@ -619,7 +674,7 @@ export default function CallRoom({
       <div data-testid="call-fit" style={{ display: "flex", flexDirection: "column",
         height: "100%", minHeight: 0, gap: 6, overflow: "hidden" }}>
         {header}
-        <div style={{ flex: 1, minHeight: 0, display: "grid", gap: 6,
+        <div ref={gridRef} style={{ flex: 1, minHeight: 0, display: "grid", gap: 6,
           gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
           gridAutoRows: "minmax(0, 1fr)" }}>
           {tiles}
@@ -646,7 +701,7 @@ export default function CallRoom({
           <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>{meeting.text}</div>)}
       </div>
 
-      <div style={{ display: "grid", gap: 8, marginBottom: 10,
+      <div ref={gridRef} style={{ display: "grid", gap: 8, marginBottom: 10,
         gridTemplateColumns: `repeat(${Math.min(cols, 3)}, minmax(0, 1fr))` }}>
         {tiles}
       </div>
