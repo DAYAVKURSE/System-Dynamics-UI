@@ -257,6 +257,35 @@ describe("запись", () => {
   });
 });
 
+describe("имя участника", () => {
+  it("имя, набранное ДО входа, доходит до тех, кто подключился позже", async () => {
+    // Гость печатает имя в поле окна звонка и только потом жмёт «Войти».
+    // Цикл опроса запоминал разбор сигналов из первого рендера — вместе с
+    // тогдашним пустым именем, — и в ответ «привет» уходила пустота.
+    const { rerender } = render(<CallRoom meetingId="m1" meId="100" myName="" />);
+    rerender(<CallRoom meetingId="m1" meId="100" myName="Гость Вася" />);
+    fireEvent.click(await screen.findByText("Войти в звонок"));
+    await waitFor(() => expect(posted.some((p) => p.data.type === "hello")).toBe(true));
+
+    // Кто-то подключается позже и здоровается — мы отвечаем своим именем.
+    await waitFor(() => expect(pendingPoll).toBeTruthy());
+    act(() => deliver([hello("200", "Пётр")]));
+    await waitFor(() => expect(posted.some((p) => p.data.type === "hello-back")).toBe(true));
+    expect(posted.find((p) => p.data.type === "hello-back").data.name).toBe("Гость Вася");
+  });
+
+  it("переименование во время звонка тоже доходит", async () => {
+    const { rerender } = render(<CallRoom meetingId="m1" meId="100" myName="Аня" />);
+    fireEvent.click(await screen.findByText("Войти в звонок"));
+    await waitFor(() => expect(posted.some((p) => p.data.type === "hello")).toBe(true));
+    rerender(<CallRoom meetingId="m1" meId="100" myName="Анна Петровна" />);
+    await waitFor(() => expect(pendingPoll).toBeTruthy());
+    act(() => deliver([hello("300", "Пётр")]));
+    await waitFor(() => expect(posted.some((p) => p.data.type === "hello-back")).toBe(true));
+    expect(posted.find((p) => p.data.type === "hello-back").data.name).toBe("Анна Петровна");
+  });
+});
+
 describe("до входа в звонок", () => {
   it("камеру и микрофон можно выключить ДО входа, и они остаются выключенными", async () => {
     render(<CallRoom meetingId="m1" meId="100" myName="Я" />);

@@ -105,6 +105,8 @@ export default function CallRoom({
   const bytes = useRef(0);
   const abort = useRef(null);
   const since = useRef(0);
+  // Всегда свежий разбор сигналов для цикла опроса — см. listen().
+  const onSignalRef = useRef(null);
   const stopped = useRef(false);
   // Отложенная уборка плиток — по таймеру на собеседника, чтобы их можно
   // было отменить и чтобы ни один не сработал после закрытия окна.
@@ -169,7 +171,11 @@ export default function CallRoom({
       if (!out) { await new Promise((r) => setTimeout(r, 1500)); continue; }
       since.current = out.seq;
       for (const s of out.signals || []) {
-        try { await onSignal(s); } catch { /* один битый сигнал не рвёт звонок */ }
+        // Через ссылку, а не напрямую: цикл опроса живёт весь звонок и
+        // запомнил бы разбор сигналов из ПЕРВОГО рендера — вместе с тогдашним
+        // именем. Гость печатает имя до входа, и в ответ «привет» уходило
+        // пустое: подключившиеся позже видели безымянного участника.
+        try { await onSignalRef.current(s); } catch { /* один битый сигнал не рвёт звонок */ }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -269,6 +275,9 @@ export default function CallRoom({
       await conn.addIceCandidate(d.candidate).catch(() => {});
     }
   };
+  // Цикл опроса берёт разбор отсюда, поэтому ссылка обновляется на каждый
+  // рендер: иначе в звонке навсегда осталось бы состояние первого.
+  onSignalRef.current = onSignal;
 
   /* ─── вход в звонок ─── */
   const join = async () => {
