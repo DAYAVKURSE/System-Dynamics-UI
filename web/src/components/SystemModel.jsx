@@ -20,6 +20,8 @@ import PeoplePanel from "./PeoplePanel.jsx";
 import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
+import { normalizeFuncs } from "../lib/funcs.js";
+import FuncPanel from "./FuncPanel.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v8
@@ -680,6 +682,10 @@ export default function SystemModel(){
   const [kindMsg,setKindMsg]=useState("");
   const [okrs,setOkrs]=useState([]);
   const [hypos,setHypos]=useState([]); // черновики гипотез: на расчёт не влияют
+  /* Функциональные элементы — то, что преобразует ресурсы (см. lib/funcs.js).
+     Отдельным списком, а не среди ресурсов: ресурсы здесь числа, и элемент,
+     положенный к ним, полез бы в цели, условия, формулы и подсказки. */
+  const [funcs,setFuncs]=useState([]);
   const [tasks,setTasks]=useState([]);
   const [tab,setTab]=useState("tasks");
   const [sel,setSel]=useState("usr");
@@ -753,13 +759,15 @@ export default function SystemModel(){
   // сохранённый сценарий. Вкладка, зум и выбранный блок в неё не попадают:
   // отменять «переключение вкладки» пользователь не просил, а вот потерять
   // каскадное удаление актива — реальная беда.
-  const doc=useMemo(()=>({entities,traits,edges,kinds,okrs,tasks,hypos}),
-    [entities,traits,edges,kinds,okrs,tasks,hypos]);
+  const doc=useMemo(()=>({entities,traits,edges,kinds,okrs,tasks,hypos,funcs}),
+    [entities,traits,edges,kinds,okrs,tasks,hypos,funcs]);
   const restoreDoc=useCallback((d)=>{
     setEntities(d.entities); setTraits(normalizeTraits(d.traits)); setEdges(d.edges);
     setKinds(d.kinds); setOkrs(d.okrs); setTasks(d.tasks);
     // Сценарии, сохранённые до появления конструктора, поля hypos не знают.
     setHypos(Array.isArray(d.hypos)?d.hypos:[]);
+    // И тем более не знают про функциональные элементы: их не было вовсе.
+    setFuncs(normalizeFuncs(d.funcs));
     // Шаг назад может убрать актив, на который сейчас смотрит панель, —
     // тогда выбор надо перевести, иначе панель опустеет без объяснения.
     setPair(null);
@@ -840,6 +848,9 @@ export default function SystemModel(){
     setEdges(p=>p.filter(x=>x.from!==id&&!own.has(x.to))
       .map(x=>({...x,conds:(x.conds||[]).filter(c=>!condRefs(c).some(r=>own.has(r)))})));
     setTraits(p=>p.filter(t=>t.e!==id));
+    // Элементы живут внутри актива: без него они повисли бы ссылкой в
+    // никуда и остались бы в прогнозе невидимыми слагаемыми.
+    setFuncs(p=>p.filter(f=>f.e!==id));
     setEntities(p=>p.filter(e=>e.id!==id));
     setSelTrait(null); setPair(null);
     setSel(p=>p===id?(entities.find(e=>e.id!==id)?.id??null):p);
@@ -878,7 +889,7 @@ export default function SystemModel(){
       restoreDoc({
         entities:w.entities||[], traits:normalizeTraits(w.traits||[]),
         edges:w.edges||[], kinds:(w.kinds&&w.kinds.length)?w.kinds:KINDS0,
-        okrs:w.okrs||[], tasks:w.tasks||[], hypos:[],
+        okrs:w.okrs||[], tasks:w.tasks||[], hypos:[], funcs:normalizeFuncs(w.funcs),
       });
     }).catch(()=>{});
   },[me.solo,me.isOwner,restoreDoc]);
@@ -975,6 +986,7 @@ export default function SystemModel(){
         edges:arr(s.data?.edges,edges), kinds:arr(s.data?.kinds,kinds,true),
         okrs:arr(s.data?.okrs,okrs), tasks:arr(s.data?.tasks,tasks),
         hypos:arr(s.data?.hypos,hypos),
+        funcs:normalizeFuncs(arr(s.data?.funcs,funcs)),
       };
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -1402,6 +1414,12 @@ export default function SystemModel(){
                   onClick={()=>{setTraits(p=>p.filter(x=>x.id!==selT.id));
                     setEdges(p=>p.filter(x=>x.to!==selT.id&&
                       !(x.conds||[]).some(c=>condRefs(c).includes(selT.id))));
+                    // Удалённый ресурс не должен оставаться во входах и
+                    // выходах элементов: там он превратился бы в строку
+                    // «(неизвестный ресурс)» и в ноль в расчёте.
+                    setFuncs(p=>p.map(f=>({...f,
+                      takes:f.takes.filter(t=>t.trait!==selT.id),
+                      gives:f.gives.filter(g=>g.trait!==selT.id)})));
                     setSelTrait(null);}}>Удалить ресурс</button>
               </div>)}
 
@@ -1415,6 +1433,12 @@ export default function SystemModel(){
                     unit:"ед./мес",have:null,want:null,by:null}]);setDraft("");}}>
                 + {k.sign} {k.name}</button>))}
             </div>
+
+            {/* Функциональные элементы — отдельным разделом под ресурсами:
+                ресурсы это то, что есть, элементы — то, что их преобразует,
+                и путать их в одном списке нельзя. */}
+            <FuncPanel entityId={selE.id} funcs={funcs} setFuncs={setFuncs}
+              traits={traits} people={people} nameOf={personName}/>
           </div>)}
 
         {/* Классификации ресурсов — здесь же, под добавлением ресурса:
@@ -1875,7 +1899,7 @@ export default function SystemModel(){
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <button style={btn(true)} onClick={()=>{
-              setJson(JSON.stringify({entities,traits,edges,kinds,okrs,tasks,hypos},null,2));
+              setJson(JSON.stringify({entities,traits,edges,kinds,okrs,tasks,hypos,funcs},null,2));
               setJsonMsg("Выгружено.");}}>
               Выгрузить</button>
             <button style={btn(false)} onClick={()=>{try{const d=JSON.parse(json);
@@ -1888,6 +1912,7 @@ export default function SystemModel(){
               if(Array.isArray(d.okrs))setOkrs(d.okrs);
               if(Array.isArray(d.tasks))setTasks(d.tasks);
               if(Array.isArray(d.hypos))setHypos(d.hypos);
+              if(Array.isArray(d.funcs))setFuncs(normalizeFuncs(d.funcs));
               setJsonMsg("Загружено.");}
               catch{setJsonMsg("Не разобрал JSON.");}}}>Загрузить</button>
             {jsonMsg&&<span style={{fontSize:12,color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}
