@@ -12,11 +12,9 @@ export async function sendMessage(chatId, text, token = process.env.TELEGRAM_BOT
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok) {
-    // description Telegram объясняет причину: чаще всего пользователь не
-    // начинал диалог с ботом (403 bot was blocked / chat not found).
-    throw new Error(data.description || `Telegram ответил ${res.status}`);
-  }
+  // Чаще всего причина человеческая — не открыт чат с ботом. Тогда у ошибки
+  // есть userMessage, и её можно показать словами (см. telegramError ниже).
+  if (!res.ok || !data.ok) throw telegramError(data.description, res.status);
   return data.result;
 }
 
@@ -97,27 +95,53 @@ export async function answerInline(id, results, extra = {},
 
 export const MAX_BOT_DOCUMENT_BYTES = 50 * 1024 * 1024;
 
-export async function sendDocument(chatId, { bytes, name, type, caption = "" },
+/**
+ * Ошибка Telegram, переведённая на человеческий.
+ *
+ * `userMessage` заполнено, только когда причина В ЧЕЛОВЕКЕ и он может её
+ * устранить. Сломанная настройка сервера пользователю ничего не говорит и
+ * не должна выглядеть его виной — такая ошибка идёт как есть, в журнал.
+ */
+function telegramError(description, status) {
+  const d = String(description || "");
+  const e = new Error(d || `Telegram ответил ${status}`);
+  if (/chat not found|bot can't initiate|user is deactivated/i.test(d)) {
+    e.userMessage = "Бот не может написать вам первым. Откройте чат с ботом,"
+      + " нажмите «Запустить» и повторите.";
+  } else if (/blocked by the user/i.test(d)) {
+    e.userMessage = "Вы заблокировали бота — разблокируйте его, и запись придёт в чат.";
+  } else if (/too large|entity too large|file is too big/i.test(d)) {
+    e.userMessage = "Файл слишком большой для отправки ботом.";
+  }
+  return e;
+}
+
+/**
+ * Отправляет файл в чат.
+ *
+ * `blob` — предпочтительный способ: файл читается с диска потоком, а не
+ * копируется в память целиком. `bytes` оставлен для короткого содержимого.
+ */
+export async function sendDocument(chatId, { blob, bytes, name, type, caption = "" },
   token = process.env.TELEGRAM_BOT_TOKEN) {
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
-  if (!bytes?.length) throw new Error("файл пуст");
-  if (bytes.length > MAX_BOT_DOCUMENT_BYTES) {
+  const body = blob || (bytes?.length
+    ? new Blob([bytes], { type: type || "application/octet-stream" })
+    : null);
+  if (!body) throw new Error("файл пуст");
+  if (body.size > MAX_BOT_DOCUMENT_BYTES) {
     throw Object.assign(new Error("файл больше 50 МБ — бот такой не отправит"), { tooBig: true });
   }
   const form = new FormData();
   form.set("chat_id", String(chatId));
   if (caption) form.set("caption", caption.slice(0, 1024));
-  form.set("document", new Blob([bytes], { type: type || "application/octet-stream" }), name);
+  form.set("document", body, name);
 
   const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
     method: "POST", body: form,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok) {
-    // Чаще всего человек просто не открывал чат с ботом: Telegram запрещает
-    // писать первым, и об этом надо сказать словами, а не кодом.
-    throw new Error(data.description || `Telegram ответил ${res.status}`);
-  }
+  if (!res.ok || !data.ok) throw telegramError(data.description, res.status);
   return data.result;
 }
 

@@ -44,11 +44,20 @@ const upload = (who, bytes, { name = "звонок.webm", type = "video/webm", k
 beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sd-recordings-"));
   prev = { node: process.env.NODE_ENV, token: process.env.TELEGRAM_BOT_TOKEN,
-    url: process.env.PUBLIC_URL };
+    url: process.env.PUBLIC_URL, owner: process.env.OWNER_TELEGRAM_ID,
+    org: process.env.ORG_DIR };
   process.env.REPORTS_DIR = tmp;
+  process.env.ORG_DIR = path.join(tmp, "org");
   process.env.NODE_ENV = "production";
   process.env.TELEGRAM_BOT_TOKEN = TOKEN;
   process.env.PUBLIC_URL = "https://x.test";
+  // 100 — владелец, 200 — позванный в модель, 777 — посторонний. Файлы на
+  // сервере есть только у тех, кто в модели: иначе любой, кому дали ссылку
+  // на звонок, получал бы личное хранилище на нашем диске.
+  process.env.OWNER_TELEGRAM_ID = "100";
+  const org = await import("../lib/orgStore.js");
+  await org.identify("100", { name: "Хозяин" });
+  await org.addUser({ id: "200", name: "Иван", roleId: "executor", addedBy: "100" });
   const { createApp } = await import("../app.js");
   app = createApp();
 });
@@ -58,6 +67,10 @@ afterAll(async () => {
   else process.env.TELEGRAM_BOT_TOKEN = prev.token;
   if (prev.url === undefined) delete process.env.PUBLIC_URL;
   else process.env.PUBLIC_URL = prev.url;
+  if (prev.owner === undefined) delete process.env.OWNER_TELEGRAM_ID;
+  else process.env.OWNER_TELEGRAM_ID = prev.owner;
+  if (prev.org === undefined) delete process.env.ORG_DIR;
+  else process.env.ORG_DIR = prev.org;
   await fs.rm(tmp, { recursive: true, force: true });
 });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -89,14 +102,48 @@ describe("список записей", () => {
     expect(rec.body[0].scope).toMatch(/^[a-f0-9]{32}$/);
   });
 
-  it("чужих записей в списке нет", async () => {
+  it("другой участник модели видит своё, а не чужое", async () => {
     await upload(100, Buffer.from("моё"), { name: "моя.webm" });
-    const res = await request(app).get("/api/reports?kind=call").set(as(777));
+    const res = await request(app).get("/api/reports?kind=call").set(as(200));
+    expect(res.status).toBe(200);
     expect(res.body.map((f) => f.name)).not.toContain("моя.webm");
+  });
+
+  it("посторонний со ссылкой на звонок хранилища не получает вовсе", async () => {
+    // Иначе любой, кого позвали на один созвон, заводил бы себе на нашем
+    // диске две тысячи файлов по сто мегабайт и бота-курьера к ним.
+    expect((await request(app).get("/api/reports").set(as(777))).status).toBe(403);
+    expect((await upload(777, Buffer.from("чужое"))).status).toBe(403);
   });
 
   it("без подписи список не отдаётся вовсе", async () => {
     expect((await request(app).get("/api/reports")).status).toBe(401);
+  });
+
+  it("непонятный вид не превращается в «показать всё»", async () => {
+    await upload(100, Buffer.from("видео"), { name: "звонок-9.webm" });
+    const res = await request(app).get("/api/reports?kind=НЕ-ВИД").set(as(100));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it("запись, сделанная до появления метки, всё равно находится", async () => {
+    // Иначе у людей на диске остались бы файлы по сотне мегабайт, которые
+    // видно в чате, но нельзя ни найти, ни удалить.
+    const { saveReport } = await import("../lib/reportStore.js");
+    await saveReport("100", {
+      name: "звонок-старый.webm", type: "video/webm", bytes: Buffer.from("старое"),
+    });
+    const res = await request(app).get("/api/reports?kind=call").set(as(100));
+    expect(res.body.map((f) => f.name)).toContain("звонок-старый.webm");
+  });
+
+  it("тип записи не теряется из-за кодеков в MIME", async () => {
+    // MediaRecorder всегда отдаёт «video/webm;codecs=vp9,opus». Без отсечения
+    // параметров запись сохранялась безымянным потоком байтов и не игралась.
+    const up = await upload(100, Buffer.from("видео"),
+      { name: "звонок-кодеки.webm", type: "video/webm;codecs=vp9,opus" });
+    expect(up.body.type).toBe("video/webm");
   });
 });
 
@@ -139,7 +186,7 @@ describe("«Скачать» — отправка себе в чат", () => {
   it("чужую запись отправить нельзя, даже зная её id", async () => {
     const calls = fakeTelegram();
     const up = await upload(100, Buffer.from("чужое"), { name: "чужая.webm" });
-    const res = await request(app).post(`/api/reports/${up.body.id}/send`).set(as(777));
+    const res = await request(app).post(`/api/reports/${up.body.id}/send`).set(as(200));
     expect(res.status).toBe(404);
     expect(calls.find((c) => c.url.includes("/sendDocument"))).toBeFalsy();
   });
@@ -167,7 +214,7 @@ describe("«Удалить» — с сервера насовсем", () => {
   it("чужую запись не удалить: каталог берётся из подписи, а не из ссылки", async () => {
     const up = await upload(100, Buffer.from("не трогать"), { name: "чужая-2.webm" });
     const { scope, id } = up.body;
-    const del = await request(app).delete(`/api/reports/${scope}/${id}`).set(as(777));
+    const del = await request(app).delete(`/api/reports/${scope}/${id}`).set(as(200));
     expect(del.status).toBe(404);
     expect((await request(app).get(`/api/reports/${scope}/${id}`)).status).toBe(200);
   });

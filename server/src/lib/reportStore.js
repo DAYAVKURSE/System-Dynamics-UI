@@ -37,8 +37,13 @@ const SAFE_TYPES = new Set([
 ]);
 const FALLBACK_TYPE = "application/octet-stream";
 
-export const safeType = (t) => (SAFE_TYPES.has(String(t || "").toLowerCase())
-  ? String(t).toLowerCase() : FALLBACK_TYPE);
+/* Тип приходит с параметрами: MediaRecorder отдаёт «video/webm;codecs=vp9,opus»,
+   и без отсечения параметров запись сохранялась безымянным потоком байтов —
+   в чат приходила «файлом», а по ссылке не открывалась и не игралась. */
+export const safeType = (t) => {
+  const base = String(t || "").split(";")[0].trim().toLowerCase();
+  return SAFE_TYPES.has(base) ? base : FALLBACK_TYPE;
+};
 
 function baseDir() {
   return process.env.REPORTS_DIR
@@ -77,8 +82,17 @@ export async function scopeFor(userId, { create = false } = {}) {
   if (!create) return null;
   const scope = crypto.randomBytes(16).toString("hex");
   await fs.mkdir(usersDir(), { recursive: true });
-  await fs.writeFile(ptr, scope, "utf8");
-  return scope;
+  try {
+    // «wx» — создать или отказать. Без него две первые загрузки подряд
+    // заводили ДВА каталога: проигравший оставался с файлом внутри, но без
+    // указателя — владелец не видел его в списке и не мог удалить, а по
+    // ссылке файл продолжал читаться. Для записи созвона это худший исход.
+    await fs.writeFile(ptr, scope, { encoding: "utf8", flag: "wx" });
+    return scope;
+  } catch {
+    const kept = (await fs.readFile(ptr, "utf8")).trim();
+    return SCOPE_RE.test(kept) ? kept : scope;
+  }
 }
 
 const scopeDir = (scope) => path.join(baseDir(), scope);
@@ -92,8 +106,40 @@ async function readManifest(dir) {
   }
 }
 
-const writeManifest = (dir, m) =>
-  fs.writeFile(path.join(dir, "manifest.json"), JSON.stringify(m, null, 2), "utf8");
+async function writeManifest(dir, m) {
+  // Через временный файл и переименование: читатель видит либо прежний
+  // манифест, либо новый целиком, но никогда половину.
+  const file = path.join(dir, "manifest.json");
+  const tmp = `${file}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(m, null, 2), "utf8");
+  await fs.rename(tmp, file);
+}
+
+/* Правки манифеста идут по очереди, по одной на каталог.
+
+   Манифест правится чтением-изменением-записью, и две одновременные
+   загрузки затирали друг друга: запись оставалась на диске, но исчезала
+   из манифеста — то есть навсегда, потому что удалить можно только то,
+   что в нём есть. Запись созвона на девяносто мегабайт так и лежала бы
+   мёртвым грузом. Процесс один (pm2, instances: 1), поэтому цепочки
+   обещаний в памяти достаточно. */
+const queues = new Map();
+
+function inOrder(dir, job) {
+  const prev = queues.get(dir) || Promise.resolve();
+  const next = prev.then(job, job);
+  // Хвост очереди не должен копить необработанные отказы.
+  queues.set(dir, next.then(() => {}, () => {}));
+  return next;
+}
+
+/** Прочитать манифест, изменить и записать — не мешая другим правкам. */
+const editManifest = (dir, change) => inOrder(dir, async () => {
+  const manifest = await readManifest(dir);
+  const out = await change(manifest);
+  await writeManifest(dir, manifest);
+  return out;
+});
 
 /* Имя показывается пользователю и попадает в заголовок ответа: вырезаем
    разделители путей и управляющие символы, остальное оставляем как есть —
@@ -120,10 +166,6 @@ export async function saveReport(userId, { name, type, bytes, kind } = {}) {
   const scope = await scopeFor(userId, { create: true });
   const dir = scopeDir(scope);
   await fs.mkdir(dir, { recursive: true });
-  const manifest = await readManifest(dir);
-  if (manifest.length >= MAX_REPORTS_PER_USER) {
-    throw new Error(`limit of ${MAX_REPORTS_PER_USER} report files reached`);
-  }
   const id = crypto.randomUUID();
   const entry = {
     id, name: safeName(name), type: safeType(type),
@@ -133,8 +175,14 @@ export async function saveReport(userId, { name, type, bytes, kind } = {}) {
   // Расширения у файла на диске нет намеренно: имя и тип живут в манифесте,
   // а статикой этот каталог не отдаётся — только через маршрут с проверкой.
   await fs.writeFile(path.join(dir, id), bytes);
-  manifest.push(entry);
-  await writeManifest(dir, manifest);
+  await editManifest(dir, async (manifest) => {
+    if (manifest.length >= MAX_REPORTS_PER_USER) {
+      // Файл уже на диске — убираем, иначе он остался бы без манифеста.
+      await fs.rm(path.join(dir, id), { force: true });
+      throw new Error(`limit of ${MAX_REPORTS_PER_USER} report files reached`);
+    }
+    manifest.push(entry);
+  });
   return { ...entry, scope, url: `/api/reports/${scope}/${id}` };
 }
 
@@ -147,15 +195,41 @@ export async function saveReport(userId, { name, type, bytes, kind } = {}) {
  * метки, её не имеют — и это не повод их прятать: фильтр по виду применяем
  * только когда о нём попросили.
  */
+/* Записи, сделанные ДО появления метки, метки не имеют. Просто не показать
+   их — значит оставить человеку файлы по сотне мегабайт, которые он видит
+   в чате, но не может ни найти, ни удалить. Поэтому запись узнаётся ещё и
+   по виду файла: имя «звонок-…» или видео. */
+const looksLikeCall = (m) => m.kind === "call"
+  || /^звонок[-\s]/i.test(String(m.name || ""))
+  || String(m.type || "").startsWith("video/");
+
 export async function listReports(userId, { kind = "" } = {}) {
   const scope = await scopeFor(userId);
   if (!scope) return [];
+  const asked = String(kind || "");
+  const want = safeKind(asked);
+  // Непонятный вид — пустой список, а не «показать всё». Иначе опечатка в
+  // запросе выкладывала бы на вкладку звонков все вложения к задачам, да
+  // ещё с кнопкой «Удалить».
+  if (asked && !want) return [];
   const manifest = await readManifest(scopeDir(scope));
-  const want = safeKind(kind);
   return manifest
-    .filter((m) => !want || m.kind === want)
+    .filter((m) => !want || (want === "call" ? looksLikeCall(m) : m.kind === want))
     .map((m) => ({ ...m, scope, url: `/api/reports/${scope}/${m.id}` }))
     .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+}
+
+/** Только описание файла, без байтов: чтобы решить про размер, читать сто
+ *  мегабайт в память незачем. */
+export async function ownReportMeta(userId, id) {
+  const scope = await scopeFor(userId);
+  if (!scope) return null;
+  const entry = (await readManifest(scopeDir(scope))).find((m) => m.id === id);
+  if (!entry) return null;
+  return {
+    ...entry, scope, url: `/api/reports/${scope}/${entry.id}`,
+    path: path.join(scopeDir(scope), entry.id),
+  };
 }
 
 /** Своё по id — с байтами. Для отправки в чат: наружу файл не уходит. */
@@ -191,11 +265,12 @@ export async function deleteReport(userId, id) {
   const scope = await scopeFor(userId);
   if (!scope) return false;
   const dir = scopeDir(scope);
-  const manifest = await readManifest(dir);
-  const idx = manifest.findIndex((m) => m.id === id);
-  if (idx === -1) return false;
-  const [entry] = manifest.splice(idx, 1);
-  await writeManifest(dir, manifest);
-  await fs.rm(path.join(dir, entry.id), { force: true });
+  const gone = await editManifest(dir, (manifest) => {
+    const idx = manifest.findIndex((m) => m.id === id);
+    if (idx === -1) return null;
+    return manifest.splice(idx, 1)[0];
+  });
+  if (!gone) return false;
+  await fs.rm(path.join(dir, gone.id), { force: true });
   return true;
 }

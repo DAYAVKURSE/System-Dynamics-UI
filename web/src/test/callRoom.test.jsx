@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import CallRoom, { MAX_RECORDING_BYTES } from "../components/CallRoom.jsx";
+import { resetReportsAvailable } from "../storage.js";
 
 /* Окно звонка: медиа только через сервер, имена в «привете», показ экрана,
    запись с пределом размера, компактная раскладка. WebRTC и камера —
@@ -197,7 +198,9 @@ describe("запись", () => {
     start() { this.state = "recording"; }
     stop() { this.state = "inactive"; this.onstop?.(); }
   }
-  beforeEach(() => { recorders.length = 0; global.MediaRecorder = FakeRecorder; });
+  beforeEach(() => {
+    recorders.length = 0; global.MediaRecorder = FakeRecorder; resetReportsAvailable();
+  });
 
   it("пишется умеренный битрейт, а у предела размера запись останавливается сама", async () => {
     await join();
@@ -227,6 +230,20 @@ describe("запись", () => {
       act(() => { recorders[0].ondataavailable({ data: { size } }); });
     }
     expect(container.querySelector("video")).toBe(videoBefore);
+  });
+
+  it("когда сохранять некуда, запись не начинается вовсе", async () => {
+    // Иначе сорок минут записи исчезали в момент остановки, и человек
+    // узнавал об этом последним — из сообщения, которое до того уверяло,
+    // что запись идёт.
+    const realFetch = global.fetch;
+    global.fetch = vi.fn(async (url, opts) => (String(url).endsWith("/api/health")
+      ? ok({ ok: true, reports: false })
+      : realFetch(url, opts)));
+    await join();
+    fireEvent.click(await screen.findByLabelText("запись"));
+    expect(await screen.findByText(/Сохранять запись некуда/)).toBeInTheDocument();
+    expect(recorders).toHaveLength(0);
   });
 
   it("413 от сервера объясняется размером, а не кодом", async () => {

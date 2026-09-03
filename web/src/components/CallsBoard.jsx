@@ -24,6 +24,10 @@ const fmt = (v) => {
 
 const mb = (n) => `${(Number(n || 0) / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
 
+// Больше этого бот файлом не отправит (предел Bot API) — и человек должен
+// видеть заранее, что придёт ссылка, а не файл.
+const MAX_BOT_FILE_BYTES = 50 * 1024 * 1024;
+
 export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
   const [list, setList] = useState(null);
   const [msg, setMsg] = useState("");
@@ -33,6 +37,7 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
   const [recs, setRecs] = useState(null);
   const [openRec, setOpenRec] = useState("");   // какая запись раскрыта
   const [recMsg, setRecMsg] = useState("");
+  const [confirmDel, setConfirmDel] = useState("");   // какую запись переспрашиваем
 
   const load = async () => {
     try { setList(await listMeetings()); }
@@ -42,11 +47,23 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
     try { setRecs(await listRecordings()); }
     catch { setRecs([]); }        // нет сервера или нет прав — просто нечего показывать
   };
-  useEffect(() => { load(); loadRecs(); }, []);
+  useEffect(() => { load(); }, []);
+  // Список записей перечитывается и при возврате из комнаты: штатный путь
+  // «записал → вышел → забрать файл» иначе показывал «Записей пока нет».
+  useEffect(() => { if (!openCall) loadRecs(); }, [openCall]);
 
   const act = async (fn) => {
     setBusy(true); setMsg("");
     try { await fn(); await load(); } catch (e) { setMsg(e.message); }
+    setBusy(false);
+  };
+
+  /* Действия с записями — со своим сообщением и своим обновлением.
+     Раньше отказ «бот не смог отправить файл» появлялся в карточке встреч
+     наверху: человек жал «Скачать» и не видел вообще ничего. */
+  const actRec = async (fn) => {
+    setBusy(true); setRecMsg("");
+    try { await fn(); await loadRecs(); } catch (e) { setRecMsg(e.message); }
     setBusy(false);
   };
 
@@ -124,7 +141,10 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
             borderRadius: 8, padding: 9, marginTop: 6 }}>
             <button aria-label={`запись ${r.name}`}
-              onClick={() => { setRecMsg(""); setOpenRec(openRec === r.id ? "" : r.id); }}
+              onClick={() => {
+                setRecMsg(""); setConfirmDel("");
+                setOpenRec(openRec === r.id ? "" : r.id);
+              }}
               style={{ display: "flex", width: "100%", gap: 8, alignItems: "center",
                 background: "transparent", border: 0, padding: 0, cursor: "pointer",
                 color: C.text, textAlign: "left" }}>
@@ -137,19 +157,27 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
             {openRec === r.id && (
               <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
                 <button style={btn(true, OK)} disabled={busy}
-                  onClick={() => act(async () => {
+                  onClick={() => actRec(async () => {
                     const out = await sendRecording(r.id);
                     setRecMsg(out?.sent === "link"
                       ? "Запись великовата для файла — отправил в чат ссылку на неё."
                       : "Отправил запись в чат с ботом.");
-                  })}>Скачать</button>
-                <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
-                  disabled={busy}
-                  onClick={() => act(async () => {
-                    await deleteRecording(r.scope, r.id);
-                    setOpenRec(""); setRecMsg("Запись удалена с сервера.");
-                    await loadRecs();
-                  })}>Удалить</button>
+                  })}>
+                  {r.size > MAX_BOT_FILE_BYTES ? "Прислать ссылку" : "Скачать"}</button>
+                {/* Удаление — в два касания. Другой копии нет: файл уехал на
+                    сервер сразу, на телефоне его не осталось, и час созвона
+                    не должен исчезать от промаха пальцем. */}
+                <button style={{ ...btn(confirmDel === r.id, BAD), color: BAD,
+                  borderColor: "#5A2436" }} disabled={busy}
+                  onClick={() => {
+                    if (confirmDel !== r.id) { setConfirmDel(r.id); setRecMsg(""); return; }
+                    setConfirmDel("");
+                    actRec(async () => {
+                      await deleteRecording(r.scope, r.id);
+                      setOpenRec(""); setRecMsg("Запись удалена с сервера.");
+                    });
+                  }}>
+                  {confirmDel === r.id ? "Удалить насовсем?" : "Удалить"}</button>
               </div>)}
           </div>))}
         {recMsg && <div style={{ fontSize: 11.5, color: ACC, marginTop: 8, lineHeight: 1.5 }}>

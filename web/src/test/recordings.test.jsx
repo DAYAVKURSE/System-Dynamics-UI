@@ -83,14 +83,28 @@ describe("записи на вкладке звонков", () => {
     expect(await screen.findByText(/ссылку на неё/)).toBeInTheDocument();
   });
 
-  it("«Удалить» убирает запись с сервера и из списка", async () => {
+  it("«Удалить» переспрашивает: другой копии записи нет", async () => {
     board();
     await screen.findByText("звонок-1.webm");
     fireEvent.click(screen.getByLabelText("запись звонок-1.webm"));
     fireEvent.click(screen.getByText("Удалить"));
+    // Первое нажатие ничего не стирает — только переспрашивает.
+    expect(deleted).toEqual([]);
+    expect(screen.getByText("Удалить насовсем?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Удалить насовсем?"));
     await waitFor(() => expect(deleted).toEqual(["r1"]));
     await waitFor(() => expect(screen.queryByText("звонок-1.webm")).toBeNull());
     expect(screen.getByText("звонок-2.webm")).toBeInTheDocument();
+  });
+
+  it("у записи, которая не влезет в файл, кнопка честно называется иначе", async () => {
+    recordings = [rec("r9", "длинная.webm", { size: 80 * 1024 * 1024 })];
+    board();
+    await screen.findByText("длинная.webm");
+    fireEvent.click(screen.getByLabelText("запись длинная.webm"));
+    expect(screen.getByText("Прислать ссылку")).toBeInTheDocument();
+    expect(screen.queryByText("Скачать")).toBeNull();
   });
 
   it("без записей — не пустота, а что сделать", async () => {

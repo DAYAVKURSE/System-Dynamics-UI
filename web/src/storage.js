@@ -142,6 +142,8 @@ export const MAX_INLINE_REPORT_BYTES = 2 * 1024 * 1024;
 export const MAX_UPLOAD_REPORT_BYTES = 100 * 1024 * 1024;   // как MAX_REPORT_BYTES на сервере
 
 let reportsOk = null;
+/** Забыть ответ про хранилище — нужно тестам, как resetIdentity рядом. */
+export function resetReportsAvailable() { reportsOk = null; }
 export async function reportsAvailable() {
   if (reportsOk !== null) return reportsOk;
   try {

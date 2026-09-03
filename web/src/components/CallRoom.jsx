@@ -4,7 +4,7 @@ import {
   RECORDER_OPTS, callLink, getIce, getLocalStream, getMeeting, getScreenStream, pollSignals,
   recorderMime, screenShareSupported, sendSignal,
 } from "../calls.js";
-import { MAX_UPLOAD_REPORT_BYTES, putReportFile } from "../storage.js";
+import { MAX_UPLOAD_REPORT_BYTES, putReportFile, reportsAvailable } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОКНО СОВЕЩАНИЯ
@@ -365,10 +365,17 @@ export default function CallRoom({
   };
 
   /* ─── запись ─── */
-  const startRec = () => {
+  const startRec = async () => {
     const mime = recorderMime();
     if (!mime) { setRecNote("Этот клиент не умеет записывать — записи не будет."); return; }
     if (!local.current) { setRecNote("Сначала войдите в звонок."); return; }
+    // Проверяем ДО начала, а не после: иначе сорок минут записи исчезали
+    // в момент остановки, и человек узнавал об этом последним.
+    if (!(await reportsAvailable())) {
+      setRecNote("Сохранять запись некуда: сервер файлов недоступен. Записывать не начинаю,"
+        + " чтобы не потерять её в конце.");
+      return;
+    }
     try {
       // Пишем свою дорожку: сведение всех видео в одно требует холста и
       // микшера звука, а на телефоне это съедает батарею и роняет частоту
@@ -396,7 +403,11 @@ export default function CallRoom({
         const blob = new Blob(chunks.current, { type: mime });
         setRecNote(`Сохраняю запись (${mb(blob.size)})…`);
         try {
-          const name = `звонок-${new Date().toISOString().slice(0, 16).replace(":", "-")}`
+          // В имени — встреча и время: за день их бывает несколько, и
+          // «звонок-2026-09-03T10-30» друг от друга не отличить.
+          const when = new Date().toISOString().slice(0, 16).replace(":", "-");
+          const about = meeting?.title ? ` — ${meeting.title}` : "";
+          const name = `звонок-${when}${about}`.slice(0, 120)
             + (mime.includes("mp4") ? ".mp4" : ".webm");
           const file = new File([blob], name, { type: mime });
           const saved = await putReportFile(file, { kind: "call" });
@@ -412,7 +423,7 @@ export default function CallRoom({
       };
       r.start(1000);
       recorder.current = r;
-      setRec(true); setRecNote("Идёт запись.");
+      setRec(true); setRecNote("Идёт запись вашей дорожки.");
     } catch (e) {
       setRecNote(`Запись не началась: ${e.message}`);
     }
