@@ -80,6 +80,24 @@ describe("страницы", () => {
     expect(recent[0].query).toBe("call");
   });
 
+  it("в /api/health видно, какую ссылку бот кладёт в приглашение", async () => {
+    // Веток три — отдельное приложение, главное, просто страница, — и
+    // переключается она молча, значением в .env. Не видя её, спор о том,
+    // «почему окно не такое», не разрешить ничем.
+    const { createApp } = await import("../app.js");
+    const keep = { ...process.env };
+    process.env.BOT_NAME = "sdbot";
+    process.env.TELEGRAM_CALL_APP = "call";
+    delete process.env.TELEGRAM_CALL_MAIN;
+    let res = await request(createApp()).get("/api/health");
+    expect(res.body.callLink).toBe("https://t.me/sdbot/call?startapp=call_ID&mode=compact");
+
+    process.env.TELEGRAM_CALL_MAIN = "1";
+    res = await request(createApp()).get("/api/health");
+    expect(res.body.callLink).toBe("https://t.me/sdbot?startapp=call_ID&mode=compact");
+    process.env = keep;
+  });
+
   /* Окно звонка глазами самой страницы.
 
      Со стороны сервера высоту окна не видно вовсе: и половина, и весь

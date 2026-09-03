@@ -8,6 +8,7 @@ import reportsRouter from "./routes/reports.js";
 import orgRouter from "./routes/org.js";
 import workspaceRouter from "./routes/workspace.js";
 import callsRouter from "./routes/calls.js";
+import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import bridgeRouter from "./routes/bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -107,6 +108,12 @@ export function createApp() {
       bridge: Boolean(process.env.BRIDGE_TOKEN),
       // Кто и как открывал страницу звонка — см. выше.
       callPage: { ...callPage, recent: [...callPage.recent], views: [...callPage.views] },
+      // Какую ссылку бот кладёт в приглашение ПРЯМО СЕЙЧАС. Настроек три
+      // (отдельное приложение, главное, просто страница), и ветка молча
+      // меняется от того, что лежит в .env, — а по чату этого не видно.
+      // Здесь нет ничего тайного: имя бота и имя приложения и так стоят в
+      // каждой отправленной ссылке, а id встречи заменён на «ID».
+      callLink: callLinkFor(callLinkEnv(process.env, process.env.BOT_NAME || ""), "ID"),
     }),
   );
 
