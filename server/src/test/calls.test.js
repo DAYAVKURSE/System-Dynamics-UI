@@ -178,14 +178,34 @@ describe("инлайн-режим", () => {
     expect(card.reply_markup.inline_keyboard[0][0].url).toMatch(/startapp=call_/);
   });
 
-  it("в карточке две ссылки: мини-приложение и страница на случай осечки", async () => {
+  it("запасной выход есть, но отдельной кнопкой, а не строкой в тексте", async () => {
     // Мини-приложение зависит от того, что заведено в @BotFather. Если там
     // указан не тот адрес, Telegram покажет чёрный экран — и человеку на
     // встрече нужен запасной выход, а не разбирательство.
+    //
+    // Но в тексте ему не место: обычная ссылка открывается встроенным
+    // браузером, а он всегда во весь экран. Лёжа соседней строкой, она на
+    // глаз не отличалась от нужной — и «звонок открывается на весь экран»
+    // объяснялось одним промахом пальца.
     await handleUpdate(q(owner, "завтра 15:00 разбор"), deps);
-    const text = last().results[0].input_message_content.message_text;
+    const card = last().results[0];
+    const text = card.input_message_content.message_text;
     expect(text).toMatch(/Подключиться: https:\/\/t\.me\/bot\/call\?startapp=call_/);
-    expect(text).toMatch(/Не открылось\? Откройте страницей: https:\/\/x\.test\/call\?call=/);
+    expect(text).not.toContain("x.test/call?call=");
+    // Превью вело бы туда же — третьей крупной целью.
+    expect(card.input_message_content.disable_web_page_preview).toBe(true);
+
+    const rows = card.reply_markup.inline_keyboard;
+    expect(rows[0][0].url).toMatch(/t\.me\/bot\/call\?startapp=call_/);
+    expect(rows[1][0].text).toMatch(/страницей/i);
+    expect(rows[1][0].url).toMatch(/https:\/\/x\.test\/call\?call=/);
+  });
+
+  it("когда мини-приложения нет, второй кнопки не появляется", async () => {
+    // Обе ссылки ведут на одну страницу — вторая кнопка была бы её двойником.
+    const noApp = { ...deps, appLink: (id) => `https://x.test/call?call=${id}` };
+    await handleUpdate(q(owner, "завтра 15:00 разбор"), noApp);
+    expect(last().results[0].reply_markup.inline_keyboard).toHaveLength(1);
   });
 
   it("про пол-экрана карточка не врёт", async () => {
