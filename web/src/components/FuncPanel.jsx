@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm } from "./ui.jsx";
-import { DUR_UNITS, avgHours, checkFunc, fromHours, hoursOf, newFunc, newGive }
-  from "../lib/funcs.js";
+import { DUR_UNITS, avgHours, checkFlow, checkFunc, fromHours, hoursOf, newFlow, newFunc,
+  newGive, rangeText } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 
 /* ════════════════════════════════════════════════════════════════
@@ -64,7 +64,8 @@ function People({ title, ids, people, nameOf, onToggle }) {
 }
 
 export default function FuncPanel({
-  entityId, funcs, setFuncs, traits, people = [], nameOf, cyclesOf, onWhy,
+  entityId, funcs, setFuncs, flows = [], setFlows, traits, people = [], nameOf, cyclesOf,
+  onWhy, onWhyFlow,
 }) {
   const mine = funcs.filter((f) => f.e === entityId);
   const [open, setOpen] = useState(null);
@@ -75,6 +76,7 @@ export default function FuncPanel({
   const upGive = (id, gid, make) => up(id, (f) => ({
     ...f, gives: f.gives.map((g) => (g.id === gid ? make(g) : g)),
   }));
+  const upFlow = (id, patch) => setFlows((p) => p.map((w) => (w.id === id ? { ...w, ...patch } : w)));
 
   const add = () => {
     const f = newFunc(entityId);
@@ -190,6 +192,62 @@ export default function FuncPanel({
                       onClick={() => up(f.id, (x) => ({ ...x, gives: [...x.gives, newGive(t.id, 1)] }))}>
                       + выдаёт «{t.l}»</button>))}
                 </div>
+
+                {/* ─── стрелки к другим элементам ───
+
+                    Стрелка идёт от элемента к элементу и несёт ресурс:
+                    источник отдаёт, приёмник принимает. Ресурс сам себя не
+                    передаёт — потому в самих ресурсах связь больше и не
+                    задаётся.
+
+                    Значение — вилка, а не число: это гипотеза о том,
+                    насколько ресурс потратится или пополнится, когда работа
+                    будет выполнена. Факт появится при сдаче задачи. */}
+                <div style={{ ...S.lbl, margin: "10px 0 4px" }}>передаёт другим элементам</div>
+                {flows.filter((w) => w.from === f.id).map((w) => {
+                  const good = checkFlow(w, { funcs, traits }).ok;
+                  return (
+                    <div key={w.id} style={{ border: `1px solid ${good ? C.line : BAD}`,
+                      borderRadius: 6, padding: 7, marginBottom: 6 }}>
+                      <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
+                        <select value={w.trait} aria-label="какой ресурс несёт стрелка"
+                          onChange={(e) => upFlow(w.id, { trait: e.target.value })}
+                          style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
+                          <option value="">— ресурс —</option>
+                          {traits.map((t) => <option key={t.id} value={t.id}>{t.l}</option>)}
+                        </select>
+                        <span style={{ fontSize: 12, color: C.muted }}>→</span>
+                        <select value={w.to} aria-label="в какой элемент"
+                          onChange={(e) => upFlow(w.id, { to: e.target.value })}
+                          style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
+                          <option value="">— элемент —</option>
+                          {funcs.filter((x) => x.id !== f.id)
+                            .map((x) => <option key={x.id} value={x.id}>{x.name || "без названия"}</option>)}
+                        </select>
+                        <span style={{ flex: 1 }} />
+                        <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD }}
+                          aria-label="убрать стрелку"
+                          onClick={() => setFlows((p) => p.filter((y) => y.id !== w.id))}>×</button>
+                      </div>
+                      <div className="flex items-center gap-2" style={{ marginTop: 5 }}>
+                        <span style={S.lbl}>от</span>
+                        <Num value={w.lo} onChange={(v) => upFlow(w.id, { lo: Number(v) || 0 })} />
+                        <span style={S.lbl}>до</span>
+                        <Num value={w.hi} onChange={(v) => upFlow(w.id, { hi: Number(v) || 0 })} />
+                        <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>
+                          {rangeText(w)} · гипотеза, факт — при сдаче задачи</span>
+                        {!good && (
+                          <button aria-label="почему стрелка не годится"
+                            onClick={() => onWhyFlow && onWhyFlow()}
+                            style={{ width: 15, height: 15, lineHeight: "13px", padding: 0,
+                              borderRadius: "50%", background: "transparent", color: BAD,
+                              border: `1px solid ${BAD}`, fontSize: 10, cursor: "pointer" }}>?</button>)}
+                      </div>
+                    </div>);
+                })}
+                <button style={{ ...btn(false), fontSize: 11, padding: "3px 7px" }}
+                  onClick={() => setFlows((p) => [...p, newFlow(f.id, "", "")])}>
+                  + стрелка от этого элемента</button>
               </div>)}
           </div>);
       })}

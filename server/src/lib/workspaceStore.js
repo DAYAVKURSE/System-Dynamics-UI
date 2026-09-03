@@ -20,7 +20,8 @@ import path from "node:path";
    отчёта (проверяющий). Больше ничего — запись модели целиком закрыта.
    ════════════════════════════════════════════════════════════════ */
 
-const PARTS = ["entities", "traits", "edges", "kinds", "okrs", "tasks", "hypos", "funcs"];
+const PARTS = ["entities", "traits", "edges", "kinds", "okrs", "tasks", "hypos", "funcs",
+  "flows"];
 const EMPTY = Object.fromEntries(PARTS.map((k) => [k, []]));
 
 function baseDir() {
