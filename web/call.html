@@ -5,8 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <title>Звонок</title>
-    <!-- Telegram Web App SDK: provides window.Telegram.WebApp -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!--
+      SDK Telegram здесь НЕ подключается тегом. Такой тег блокирует разбор
+      документа: пока telegram.org не ответит, браузер не читает даже <body>,
+      и если тот молчит (плохая сеть, блокировка) — страница остаётся пустой
+      навсегда. Снаружи это ровно чёрный экран без единой надписи. SDK
+      грузит src/call-main.jsx — со сроком и не мешая странице рисоваться.
+    -->
   </head>
   <body>
     <!--

@@ -40,10 +40,13 @@
 /** Годится ли id для параметра startapp — по правилам Telegram. */
 export const startParamOk = (id) => /^[A-Za-z0-9_-]{1,58}$/.test(String(id));
 
+/** Прямой адрес страницы звонка — без Telegram, для кого угодно. */
+export const callPageLink = ({ publicUrl = "" } = {}, callId) =>
+  `${publicUrl}/call?call=${encodeURIComponent(String(callId))}`;
+
 export function callLinkFor({ botName = "", callApp = "", publicUrl = "" } = {}, callId) {
   const id = String(callId);
-  const page = `${publicUrl}/call?call=${encodeURIComponent(id)}`;
-  if (!botName || !callApp || !startParamOk(id)) return page;
+  if (!botName || !callApp || !startParamOk(id)) return callPageLink({ publicUrl }, id);
   return `https://t.me/${botName}/${callApp}?startapp=call_${id}&mode=compact`;
 }
 

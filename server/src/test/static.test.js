@@ -39,6 +39,21 @@ describe("страницы", () => {
     expect(res.text).toContain("Схема");
   });
 
+  it("открытия страницы звонка видны в /api/health", async () => {
+    // Единственный способ отличить «страница не открылась» от «Telegram её
+    // и не запрашивал»: во втором случае счётчик не сдвинется.
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    // Счёт ведётся на весь процесс, а не на приложение: в этом файле
+    // страницу уже открывали выше, поэтому смотрим прирост, а не число.
+    const before = (await request(app).get("/api/health")).body.callPage;
+    await request(app).get("/call");
+    await request(app).get("/call?call=m1");
+    const after = (await request(app).get("/api/health")).body.callPage;
+    expect(after.hits - before.hits).toBe(2);
+    expect(Date.parse(after.lastAt)).toBeGreaterThan(0);
+  });
+
   it("без call.html страница звонка не выдумывается — отдаётся модель", async () => {
     await fs.rm(path.join(tmp, "call.html"));
     const { createApp } = await import("../app.js");

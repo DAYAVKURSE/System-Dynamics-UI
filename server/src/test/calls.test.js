@@ -154,7 +154,8 @@ describe("инлайн-режим", () => {
     send: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); },
     answer: async () => {},
     answerInline: async (id, results, extra) => { inlineAnswers.push({ id, results, extra }); },
-    appLink: (callId) => `https://t.me/bot/app?startapp=call_${callId}`,
+    appLink: (callId) => `https://t.me/bot/call?startapp=call_${callId}`,
+    pageLink: (callId) => `https://x.test/call?call=${callId}`,
     botName: "bot",
   };
   const owner = { id: 100, first_name: "Владелец" };
@@ -175,6 +176,16 @@ describe("инлайн-режим", () => {
     expect(card.input_message_content.message_text).toMatch(/startapp=call_/);
     // И кнопкой тоже: ссылку в тексте на телефоне попасть пальцем трудно.
     expect(card.reply_markup.inline_keyboard[0][0].url).toMatch(/startapp=call_/);
+  });
+
+  it("в карточке две ссылки: мини-приложение и страница на случай осечки", async () => {
+    // Мини-приложение зависит от того, что заведено в @BotFather. Если там
+    // указан не тот адрес, Telegram покажет чёрный экран — и человеку на
+    // встрече нужен запасной выход, а не разбирательство.
+    await handleUpdate(q(owner, "завтра 15:00 разбор"), deps);
+    const text = last().results[0].input_message_content.message_text;
+    expect(text).toMatch(/Подключиться: https:\/\/t\.me\/bot\/call\?startapp=call_/);
+    expect(text).toMatch(/Не открылось\? Откройте страницей: https:\/\/x\.test\/call\?call=/);
   });
 
   it("встреча заводится сразу — ссылка обязана работать в момент отправки", async () => {

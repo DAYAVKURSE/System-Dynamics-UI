@@ -51,15 +51,28 @@ export function resetPending() { pending.clear(); inlineDraft.clear(); }
    Инлайн-режим сначала надо включить в @BotFather (/setinline) — без этого
    Telegram таких запросов просто не пришлёт. */
 
-const meetingCard = (m, link, botName) => [
+/* Карточка приглашения.
+
+   Ссылок в ней две, и вторая не для красоты. Первая открывает отдельное
+   мини-приложение звонка — так и задумано, там надёжно работают камера и
+   микрофон. Но она зависит от того, что владелец однажды завёл в @BotFather,
+   и если там указан не тот адрес, Telegram показывает чёрный экран, по
+   которому человеку нечего понять. Вторая ссылка ведёт на ту же страницу
+   напрямую и не зависит ни от чего: по ней войдёт кто угодно, хоть вовсе
+   без Telegram. Пусть лучше будет запасной выход, чем «у меня не
+   открывается» посреди назначенной встречи. */
+const meetingCard = (m, link, page) => [
   `📹 ${m.title}`,
   m.at ? `когда: ${m.at}` : "когда: договоримся в чате",
   "",
   `Подключиться: ${link}`,
-  botName ? "\nЗвонок откроется отдельным окном на пол-экрана — потяните вверх, чтобы развернуть." : "",
-].filter((x) => x !== null).join("\n");
+  page && page !== link ? `Не открылось? Откройте страницей: ${page}` : "",
+  link.startsWith("https://t.me/")
+    ? "\nЗвонок откроется отдельным окном на пол-экрана — потяните вверх, чтобы развернуть."
+    : "",
+].filter(Boolean).join("\n");
 
-async function onInline(q, from, { org, calls, answerInline, appLink, botName }) {
+async function onInline(q, from, { org, calls, answerInline, appLink, pageLink, botName }) {
   const parsed = calls.parseMeeting(q.query || "");
   // claim: false — набранный в чужом чате инлайн-запрос не должен делать
   // человека владельцем модели, даже если владелец ещё не назначен.
@@ -93,6 +106,7 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
     || await calls.createMeeting({ ...fields, by: from.id });
   inlineDraft.set(String(from.id), { id: m.id, query: typed, at: now });
   const link = appLink(m.id);
+  const page = pageLink ? pageLink(m.id) : "";
   return answerInline(q.id, [{
     type: "article",
     id: m.id,
@@ -100,7 +114,7 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
     description: parsed.ok
       ? "Отправить приглашение со ссылкой на звонок"
       : "Время не разобрал — отправлю без него",
-    input_message_content: { message_text: meetingCard(m, link, botName),
+    input_message_content: { message_text: meetingCard(m, link, page),
       disable_web_page_preview: false },
     reply_markup: { inline_keyboard: [[{ text: "📹 Подключиться", url: link }]] },
   }], { cache_time: 0, is_personal: true });

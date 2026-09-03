@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { callLinkEnv, callLinkFor } from "./lib/links.js";
+import { callLinkEnv, callLinkFor, callPageLink } from "./lib/links.js";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { store } from "./lib/scheduleStore.js";
@@ -74,6 +74,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   // мини-приложение звонка (TELEGRAM_CALL_APP), а без него — страница
   // /call. На главное приложение модели ссылка не ведёт никогда.
   const appLink = (callId) => callLinkFor(callLinkEnv(process.env, botName), callId);
+  // Запасной путь в приглашении: та же страница, но напрямую — она не
+  // зависит от того, что заведено в @BotFather.
+  const pageLink = (callId) => callPageLink(callLinkEnv(process.env, botName), callId);
 
   /* Отдельное мини-приложение звонка. Завести его можно только руками в
      @BotFather (метода Bot API для этого нет вовсе), а вот запомнить его
@@ -110,6 +113,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
               answer: answerCallback,
               answerInline,
               appLink,
+              pageLink,
               botName,
               settings,
               publicUrl: (process.env.PUBLIC_URL || "").replace(/\/+$/, ""),

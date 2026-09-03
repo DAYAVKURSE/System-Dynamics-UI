@@ -12,6 +12,17 @@ import bridgeRouter from "./routes/bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/* Сколько раз открывали страницу звонка.
+
+   Нужно ради одного вопроса, на который иначе нечем ответить: доходит ли
+   Telegram до нашей страницы вообще. Если владелец открывает мини-приложение
+   и видит чёрный экран, причин ровно две — либо страница не открылась у нас,
+   либо Telegram её и не запрашивал (в @BotFather у приложения другой адрес).
+   Счётчик различает их за один запрос к /api/health, не требуя ни доступа к
+   серверу, ни чтения журналов. Живёт в памяти: это отладочный сигнал, а не
+   статистика, и переживать перезапуск ему незачем. */
+const callPage = { hits: 0, lastAt: null };
+
 export function createApp() {
   const app = express();
   app.disable("x-powered-by");
@@ -36,6 +47,8 @@ export function createApp() {
       calls: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Мост включён, только когда задан общий секрет с воркером.
       bridge: Boolean(process.env.BRIDGE_TOKEN),
+      // Открывали ли страницу звонка и когда в последний раз — см. выше.
+      callPage: { ...callPage },
     }),
   );
   app.use("/api/scenarios", scenariosRouter);
@@ -62,7 +75,11 @@ export function createApp() {
     if (fs.existsSync(callHtml)) {
       // И всё, что под /call: ссылка из приглашения бывает с хвостом, а
       // открыться по ней должно окно звонка, а не приложение модели.
-      app.get(/^\/call(\/.*)?$/, (_req, res) => res.sendFile(callHtml));
+      app.get(/^\/call(\/.*)?$/, (_req, res) => {
+        callPage.hits += 1;
+        callPage.lastAt = new Date().toISOString();
+        res.sendFile(callHtml);
+      });
     }
     app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(indexHtml));
   }
