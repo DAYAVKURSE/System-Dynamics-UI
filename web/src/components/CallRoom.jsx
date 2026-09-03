@@ -51,7 +51,7 @@ const mb = (n) => `${(n / 1024 / 1024).toFixed(1).replace(".", ",")} МБ`;
    поток у плитки меняется редко, и перерисовывать её из-за чужого
    счётчика незачем.
    ════════════════════════════════════════════════════════════════ */
-const Tile = React.memo(function Tile({ stream, muted, label: text, mirror, fit }) {
+const Tile = React.memo(function Tile({ stream, muted, label: text, mirror, fit, hint = "" }) {
   const ref = useRef(null);
   // srcObject присваивается, только когда поток ДРУГОЙ: повторное
   // присваивание того же потока перезапускает воспроизведение и даёт то же
@@ -71,6 +71,16 @@ const Tile = React.memo(function Tile({ stream, muted, label: text, mirror, fit 
       <video ref={ref} autoPlay playsInline muted={muted}
         style={{ width: "100%", height: "100%", objectFit: "cover", display: "block",
           transform: mirror ? "scaleX(-1)" : undefined }} />
+      {/* Пока потока нет или камера выключена, в плитке был ровно чёрный
+          прямоугольник — снаружи это «вместо видео чёрный экран», и понять
+          по нему нечего: не работает камера, не дали доступ или так и
+          задумано. Подпись отвечает на этот вопрос словами. Видеоэлемент
+          при этом остаётся в разметке: снимать и возвращать его — то же
+          моргание, из-за которого плитки once уже пересоздавались. */}
+      {hint && (
+        <div style={{ position: "absolute", inset: 0, display: "flex",
+          alignItems: "center", justifyContent: "center", textAlign: "center",
+          fontSize: 11, color: C.muted, padding: 8 }}>{hint}</div>)}
       <span style={{ position: "absolute", left: 6, bottom: 6, fontSize: 10,
         color: C.text, background: "#0009", borderRadius: 4, padding: "2px 5px",
         maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis",
@@ -79,7 +89,7 @@ const Tile = React.memo(function Tile({ stream, muted, label: text, mirror, fit 
 });
 
 export default function CallRoom({
-  meetingId, meId, myName = "", onClose, nameOf, fit = false, onExpand = null,
+  meetingId, meId, myName = "", onClose, nameOf, fit = false,
   canRecord = true,
 }) {
   const [meeting, setMeeting] = useState(null);
@@ -98,6 +108,9 @@ export default function CallRoom({
   const [streams, setStreams] = useState({});   // id собеседника → MediaStream
   const cfgRef = useRef(null);
   const local = useRef(null);             // камера и микрофон
+  // Тот же поток состоянием: ref не перерисовывает, а плитку нужно
+  // показать сразу, как только камеру дали, — ещё до входа в звонок.
+  const [preview, setPreview] = useState(null);
   const screen = useRef(null);            // экран, пока он транслируется
   const outVideo = useRef(null);          // видеодорожка, которую сейчас отдаём
   const recorder = useRef(null);
@@ -279,6 +292,39 @@ export default function CallRoom({
   // рендер: иначе в звонке навсегда осталось бы состояние первого.
   onSignalRef.current = onSignal;
 
+  /* ─── доступ к камере и микрофону: до входа, а не при входе ───
+
+     Спрашивать разрешение в момент входа значило показывать человеку
+     системный запрос уже «в дверях»: собеседники ждут, а он читает
+     диалог. И до этого момента в плитке был чёрный прямоугольник, по
+     которому не понять ничего — ни работает ли камера, ни дали ли доступ.
+
+     Теперь доступ берётся сразу на предварительном экране: видно себя,
+     видно, что микрофон и камера живы, и их можно выключить ДО того, как
+     тебя увидят. Вход этот же поток и забирает — второй раз не спрашиваем.
+
+     Отказ — не беда: он попадает в строку ошибки, а кнопка входа остаётся.
+     Войти можно и без камеры, и тогда доступ спросят при входе. */
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const s = await getLocalStream({ video: true, audio: true });
+        // Пока спрашивали, окно могли закрыть: поток надо погасить, иначе
+        // на телефоне останется гореть лампочка камеры.
+        if (!live) { s.getTracks().forEach((t) => t.stop()); return; }
+        s.getAudioTracks().forEach((t) => { t.enabled = mic; });
+        s.getVideoTracks().forEach((t) => { t.enabled = cam; });
+        local.current = s;
+        setPreview(s);
+      } catch (e) {
+        if (live) setErr(e.message);
+      }
+    })();
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* ─── вход в звонок ─── */
   const join = async () => {
     setErr(""); setNote(""); setState("asking");
@@ -304,13 +350,18 @@ export default function CallRoom({
     }
     cfgRef.current = { iceServers: ice.iceServers, iceTransportPolicy: "relay" };
 
-    let stream;
-    try {
-      stream = await getLocalStream({ video: true, audio: true });
-    } catch (e) {
-      setErr(e.message); setState("idle"); return;
+    // Обычно поток уже есть — его взяли на предварительном экране. Второй
+    // раз не спрашиваем: лишний системный запрос в дверях никому не нужен.
+    let stream = local.current;
+    if (!stream) {
+      try {
+        stream = await getLocalStream({ video: true, audio: true });
+      } catch (e) {
+        setErr(e.message); setState("idle"); return;
+      }
     }
     local.current = stream;
+    setPreview(stream);
     // Выбор, сделанный до входа: если камеру или микрофон выключили на
     // экране ожидания, они и должны остаться выключенными.
     stream.getAudioTracks().forEach((t) => { t.enabled = mic; });
@@ -508,15 +559,20 @@ export default function CallRoom({
       {meeting && (
         <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
           {inCall ? `${n} из ${MAX_PEERS}` : (meeting.at || "")}</span>)}
-      {onExpand && <button aria-label="на весь экран" title="на весь экран"
-        style={ctl(false)} onClick={onExpand}>⤢</button>}
       {onClose && <button aria-label="закрыть" style={ctl(false)}
         onClick={() => { stop(); onClose(); }}>✕</button>}
     </div>);
 
+  /* Чёрный прямоугольник вместо себя объясняем словами: причин у него три,
+     и лечатся они по-разному. */
+  const selfHint = !preview
+    ? (err ? "камеру не дали" : "включаю камеру…")
+    : (!cam ? "камера выключена" : "");
+
   const tiles = (
     <>
-      <Tile stream={sharing ? screen.current : local.current} muted mirror={!sharing} fit={fit}
+      <Tile stream={sharing ? screen.current : preview} muted mirror={!sharing} fit={fit}
+        hint={sharing ? "" : selfHint}
         label={sharing ? "ваш экран" : (mic ? "вы" : "вы · микрофон выключен")} />
       {others.map(([id, st]) => (
         <Tile key={id} stream={st} muted={false} label={label(id)} fit={fit} />))}

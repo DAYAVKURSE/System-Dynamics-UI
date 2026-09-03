@@ -103,12 +103,29 @@ describe("медиа только через сервер", () => {
     await waitFor(() => expect(posted.some((p) => p.data.type === "offer" && p.to === "200")).toBe(true));
   });
 
-  it("без TURN на сервере звонок не начинается и камера не включается", async () => {
+  it("без TURN на сервере звонок не начинается", async () => {
+    // Камера к этому моменту уже включена — её просят на предварительном
+    // экране, до входа, и это осознанный размен: человек видит себя и
+    // решает, входить ли с камерой, ещё до того как его увидят. А вот
+    // соединение без ретрансляции не заводится: звонок идёт только через
+    // сервер, и молча делать вид, что вошли, нельзя.
     ice = { ...ice, turn: false };
     await join();
     expect(await screen.findByText(/не настроена ретрансляция/)).toBeInTheDocument();
-    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(pcs).toHaveLength(0);
     expect(await screen.findByText("Войти в звонок")).toBeInTheDocument();
+  });
+
+  it("доступ к камере спрашивают ДО входа, и второй раз при входе не спрашивают", async () => {
+    render(<CallRoom meetingId="m1" meId="100" myName="Я" fit />);
+    // Ещё никуда не входили, а камеру уже спросили — на предварительном экране.
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Войти в звонок")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Войти в звонок"));
+    await waitFor(() => expect(screen.getByText(/Жду остальных/)).toBeInTheDocument());
+    // Вход забирает тот же поток: второго системного запроса быть не должно.
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
   });
 
   it("статус говорит «через сервер», а не «напрямую»", async () => {
@@ -310,12 +327,14 @@ describe("до входа в звонок", () => {
 
 describe("компактный режим", () => {
   it("окно не прокручивается: колонка на всю высоту, без карточки со ссылкой", async () => {
-    render(<CallRoom meetingId="m1" meId="100" fit onExpand={() => {}} />);
+    render(<CallRoom meetingId="m1" meId="100" fit />);
     const box = await screen.findByTestId("call-fit");
     expect(box.style.height).toBe("100%");
     expect(box.style.display).toBe("flex");
     expect(screen.queryByText(/ссылка на этот звонок/)).toBeNull();
-    expect(screen.getByLabelText("на весь экран")).toBeInTheDocument();
+    // Кнопки «⤢ на весь экран» больше нет: окно и так во весь экран, а
+    // свернуть его обратно нечем — expand() односторонний.
+    expect(screen.queryByLabelText("на весь экран")).toBeNull();
   });
 
   it("в обычном режиме ссылка на звонок ведёт на отдельную страницу /call", async () => {
@@ -378,5 +397,34 @@ describe("ничего не уезжает за нижний край", () => {
     expect(line.style.whiteSpace).toBe("nowrap");
     expect(line.style.textOverflow).toBe("ellipsis");
     expect(line.title).toBeTruthy();          // целиком — по долгому нажатию
+  });
+});
+
+/* Чёрный прямоугольник вместо себя — жалоба, с которой всё началось:
+   «вместо видео вижу чёрный экран». Причин у него три, и лечатся они
+   по-разному, поэтому плитка называет причину словами. */
+describe("вместо чёрного прямоугольника — слова", () => {
+  it("пока камеру не дали, так и написано", async () => {
+    let release;
+    getUserMedia.mockImplementationOnce(() => new Promise((r) => { release = r; }));
+    render(<CallRoom meetingId="m1" meId="100" myName="Я" fit />);
+    expect(await screen.findByText("включаю камеру…")).toBeInTheDocument();
+    await act(async () => { release(fakeStream()); });
+    await waitFor(() => expect(screen.queryByText("включаю камеру…")).toBeNull());
+  });
+
+  it("отказ в доступе назван отказом, а не чёрным экраном", async () => {
+    getUserMedia.mockRejectedValueOnce(new Error("Доступ к камере запрещён."));
+    render(<CallRoom meetingId="m1" meId="100" myName="Я" fit />);
+    expect(await screen.findByText("камеру не дали")).toBeInTheDocument();
+    // И войти всё равно можно: звонок без камеры — это звонок.
+    expect(screen.getByText("Войти в звонок")).toBeInTheDocument();
+  });
+
+  it("выключенная камера тоже подписана", async () => {
+    render(<CallRoom meetingId="m1" meId="100" myName="Я" fit />);
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+    fireEvent.click(screen.getByLabelText("камера"));
+    expect(await screen.findByText("камера выключена")).toBeInTheDocument();
   });
 });

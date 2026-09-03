@@ -8,11 +8,12 @@ import { getInitData, getTelegram } from "../telegram.js";
    ОКНО ЗВОНКА · отдельное мини-приложение
 
    Открывается ссылкой из приглашения и показывает только звонок: ни
-   вкладок, ни модели. Нарочно НЕ разворачивается на весь экран при
-   запуске — Telegram открывает его на пол-экрана (mode=compact), и
-   человек сам тянет вверх или жмёт «⤢», если хочет больше. Всё окно
-   помещается в экран телефона без прокрутки: сетка видео растягивается,
-   кнопки — внизу.
+   вкладок, ни модели. Само окно не разворачивает и не сворачивает: высоту
+   решает клиент Telegram, и обратного пути всё равно нет — expand()
+   односторонний, метода «свернуть» в Mini Apps не существует. Кнопки «⤢»
+   поэтому тоже нет: она умела только в одну сторону. Всё окно помещается
+   в экран телефона без прокрутки: сетка видео растягивается, кнопки —
+   внизу.
 
    Про модель это окно не знает ничего и знать не должно: ни ролей, ни
    вкладок, ни «кто я в организации». Приглашение на звонок — это ссылка,
@@ -111,7 +112,6 @@ export default function CallApp() {
   // Сигналинг сравнивает id с тем, что видит сервер: у своего это id
   // Telegram, у гостя — его номер.
   const meId = useMemo(() => callerId(), []);
-  const expand = () => { try { getTelegram()?.expand(); } catch { /* нет Telegram */ } };
 
   const rename = (v) => {
     setName(v);
@@ -158,8 +158,7 @@ export default function CallApp() {
                 border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 8px" }} />)}
           <div data-testid="комната" style={{ flex: 1, minHeight: 0 }}>
             <CallRoom meetingId={meetingId} meId={meId} myName={name} fit
-              canRecord={Boolean(getInitData())}
-              onExpand={getTelegram() ? expand : null} />
+              canRecord={Boolean(getInitData())} />
           </div>
         </>
       ) : (

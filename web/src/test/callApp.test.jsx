@@ -36,14 +36,16 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); delete window.Telegram; setUrl(""); });
 
 describe("окно звонка", () => {
-  it("при запуске не разворачивается на весь экран — это делает человек", async () => {
+  it("окно само не разворачивается, и кнопки «⤢» больше нет", async () => {
+    // Разворот односторонний: expand() есть, «свернуть» в Mini Apps нет.
+    // Кнопка, которая умеет только в одну сторону, обещала больше, чем
+    // могла, — и владелец просил её убрать.
     setUrl("?call=m1");
     render(<CallApp />);
     expect(await screen.findByText("Разбор")).toBeInTheDocument();
     expect(tg.ready).toHaveBeenCalled();
     expect(tg.expand).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByLabelText("на весь экран"));
-    expect(tg.expand).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("на весь экран")).toBeNull();
   });
 
   it("встреча берётся из startapp, как её присылает приглашение", async () => {
