@@ -13,7 +13,7 @@ import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
-import TasksBoard, { runsOfFunc } from "./TasksBoard.jsx";
+import TasksBoard, { autoFlow, runsOfFunc } from "./TasksBoard.jsx";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
@@ -758,6 +758,13 @@ export default function SystemModel(){
   const toggleCard=useCallback((id)=>setOpenCards(p=>{
     const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n;
   }),[]);
+
+  /* Задачи, где человек один и тот же по обе стороны передачи, двигаются
+     сами: постановщик, равный исполнителю, ставит задачу без нажатия;
+     проверяющий, равный исполнителю, принимает сдачу без нажатия. Здесь, а
+     не на доске: правило одно на всё приложение, и задача не должна
+     зависеть от того, на какой вкладке человек сейчас стоит. */
+  useEffect(()=>{ setTasks(p=>autoFlow(p,{funcs,traits})); },[tasks,funcs,traits]);
 
   /* ─── РАСЧЁТ ───
      Один источник чисел на всё приложение: функции. Фактические выполнения

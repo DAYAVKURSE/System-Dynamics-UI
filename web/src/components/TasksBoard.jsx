@@ -133,6 +133,71 @@ export function taskGaps(task){
 /** Поставлена ли задача до конца — от этого зависит, можно ли её двигать. */
 export const isSet=(task)=>taskGaps(task).length===0;
 
+/* ─────── когда человек в задаче один ───────
+
+   Постановка и проверка — это не обряды, а передача работы от одного
+   человека другому: постановщик говорит исполнителю, что сделать;
+   проверяющий решает, принята ли сдача. Когда по обе стороны один и тот же
+   человек, передавать нечего — и нажатие остаётся ритуалом, который
+   спрашивает у человека то, что он и так о себе знает.
+
+   · постановщик и исполнитель совпали — задача ставится сама и сразу
+     появляется в бэклоге: её и ставить-то не у кого;
+   · исполнитель и проверяющий совпали — сдача принимается сама, и задача
+     уходит в готовые: сдал и принял один и тот же человек;
+   · все трое — один, и тогда задача просто лежит в бэклоге, а как он взял
+     её в работу и сдал — она в готовых.
+
+   Что остаётся неизменным: задача всё равно должна быть ОПИСАНА, и
+   ресурсов на неё всё равно должно хватать. Автоматическая постановка
+   избавляет от нажатия, а не от работы: пустое «что сделать» — это
+   по-прежнему работа, которую никто не поставил. */
+const same=(a,b)=>a!=null&&b!=null&&String(a)===String(b);
+export const selfSet=(t)=>same(t?.setter,t?.assignee);
+export const selfReview=(t)=>same(t?.assignee,t?.reviewer);
+
+/**
+ * Ниже какого статуса задача не опускается сама по себе.
+ *
+ * У задачи с автоматической постановкой это бэклог: возвращать её в
+ * «ожидает постановки» бессмысленно — она тут же поставится снова, а
+ * кнопка «‹» выглядела бы сломанной.
+ */
+export function floorStatus(task,{funcs=[],traits=[]}={}){
+  if(!selfSet(task)||!isSet(task)) return "wait";
+  const f=funcs.find(x=>x.id===task.funcId);
+  return f&&shortage(f,traits).length?"wait":"backlog";
+}
+
+/** Каким статус задачи становится сам собой. */
+export function autoStatus(task,{funcs=[],traits=[]}={}){
+  if(!task) return null;
+  // Сдача принята тем же, кто сдавал: принимать не у кого.
+  if(task.status==="review"&&selfReview(task)) return "done";
+  if(task.status==="wait"||task.status==="deadline"){
+    const floor=floorStatus(task,{funcs,traits});
+    if(floor!=="wait") return floor;
+  }
+  return task.status;
+}
+
+/**
+ * Развести задачи по статусам, которые они принимают сами.
+ *
+ * Возвращает ТОТ ЖЕ массив, когда двигать нечего: иначе состояние менялось
+ * бы на каждой перерисовке и приложение крутилось бы вхолостую.
+ */
+export function autoFlow(tasks=[],opts={}){
+  let moved=false;
+  const next=tasks.map(t=>{
+    const to=autoStatus(t,opts);
+    if(to===t.status) return t;
+    moved=true;
+    return {...t,status:to};
+  });
+  return moved?next:tasks;
+}
+
 /**
  * Одна сдача: сколько часов ушло и сколько ресурса взяли и выдали.
  *
@@ -197,6 +262,10 @@ export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
   const asset=entities.find(e=>e.id===func?.e)||null;
   const pool=(k)=>people.filter(p=>(asset?.[k]||[]).some(id=>String(id)===String(p.id)));
   const gaps=taskGaps(task);
+  // Ниже какого статуса задача не опустится: у автоматической постановки
+  // это бэклог, и предлагать вернуть её в «ожидает постановки» незачем —
+  // она тут же поставится снова.
+  const floor=STATUSES.findIndex(x=>x.id===floorStatus(task,{funcs,traits}));
 
   const pickFile=async(f)=>{
     setFileErr("");
@@ -219,11 +288,14 @@ export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
     setHanding(true);
   };
   const submit=()=>{
-    // Сдал — не значит принято. Задача уходит на проверку: «Готово» ставит
-    // тот, кто отчёт принял. Иначе фактом в расчёте стало бы то, что
-    // исполнитель написал сам о себе.
+    /* Сдал — не значит принято. Задача уходит на проверку: «Готово» ставит
+       тот, кто отчёт принял. Иначе фактом в расчёте стало бы то, что
+       исполнитель написал сам о себе.
+
+       Кроме случая, когда исполнитель и проверяющий — один человек: тогда
+       принимать не у кого, и задача уходит в готовые сразу. */
     upMany({submissions:[...subs,newSubmission({hours,takes:qty.takes,gives:qty.gives,
-      text:draftText,file:draftFile})],status:"review"});
+      text:draftText,file:draftFile})],status:selfReview(task)?"done":"review"});
     setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
   };
 
@@ -273,6 +345,19 @@ export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
           &&" У актива ещё нет исполнителей — добавьте их в карточке актива."}
       </div>
 
+      {/* Когда по обе стороны один и тот же человек, передавать нечего, и
+          нажатие остаётся ритуалом: он и так знает, что сам себе поставил и
+          сам у себя принял. Сказать об этом надо здесь — там, где людей и
+          выбирают, а не там, где человек потом удивится статусу. */}
+      {(selfSet(task)||selfReview(task))&&(
+        <div style={{fontSize:10.5,color:ACC,marginBottom:8,lineHeight:1.5}}>
+          {selfSet(task)&&selfReview(task)
+            ? "Всё делает один человек: задача сама встаёт в бэклог, а после сдачи — в готовые. Описать её и дождаться ресурсов всё равно надо."
+            : selfSet(task)
+              ? "Постановщик и исполнитель — один человек: задача ставится сама и сразу идёт в бэклог."
+              : "Исполнитель и проверяющий — один человек: сдача принимается сама, задача уходит в готовые."}
+        </div>)}
+
       {!!gaps.length&&(
         <div style={{fontSize:11,color:WARN,marginBottom:8,lineHeight:1.5}}>
           Задача поставлена не до конца: не хватает {gaps.join(", ")}. Все три
@@ -315,11 +400,14 @@ export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
           <div style={S.lbl}>статус</div>
           <select style={S.inp} value={task.status}
             onChange={e=>up("status",e.target.value)}>
-            {STATUSES.map(s=>(<option key={s.id} value={s.id}
-              disabled={s.id==="done"&&task.status!=="done"}>{s.name}</option>))}
+            {STATUSES.map((s,i)=>(<option key={s.id} value={s.id}
+              disabled={(s.id==="done"&&task.status!=="done")||i<floor}>
+              {s.name}</option>))}
           </select>
           <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
-            «Готово» ставит проверяющий, принимая отчёт.</div>
+            {selfReview(task)
+              ? "Исполнитель и проверяющий — один человек: сдача принимается сама."
+              : "«Готово» ставит проверяющий, принимая отчёт."}</div>
         </div>
         <div style={{flex:"1 1 170px"}}>
           <div style={S.lbl}>начать</div>
@@ -520,9 +608,13 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
     return "Не хватает ресурсов: "
       + miss.map(x=>`${x.name} — есть ${nm(x.have)}, нужно ${nm(x.need)}`).join("; ");
   };
+  // Назад — не ниже того, что задача принимает сама: иначе «‹» вернула бы
+  // её туда, откуда она тут же уйдёт обратно.
+  const floorOf=(t)=>Math.max(0,
+    STATUSES.findIndex(s=>s.id===floorStatus(t,{funcs,traits})));
   const moveStatus=(t,d)=>{
     const at=STATUSES.findIndex(s=>s.id===t.status);
-    const next=STATUSES[Math.max(0,Math.min(STATUSES.length-2,at+d))];
+    const next=STATUSES[Math.max(floorOf(t),Math.min(STATUSES.length-2,at+d))];
     if(next) setTasks(p=>p.map(x=>x.id===t.id?{...x,status:next.id}:x));
   };
   const addFor=(f)=>{
@@ -616,7 +708,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                       {nameOf?nameOf(t.assignee):t.assignee}</div>}
                     <div className="flex gap-2" style={{marginTop:6}}>
                       <button style={{...btn(false),padding:"2px 8px"}}
-                        disabled={st.id===STATUSES[0].id}
+                        disabled={STATUSES.findIndex(s=>s.id===t.status)<=floorOf(t)}
                         onClick={e=>{e.stopPropagation();moveStatus(t,-1);}}>‹</button>
                       <button style={{...btn(false),padding:"2px 8px"}}
                         disabled={!canAdvance(t)}

@@ -128,8 +128,15 @@ export async function submitTask(userId, taskId, submission) {
     text: String(submission?.text || ""),
     file: submission?.file || null,
   }];
-  // Сдал — не значит принято: задача уходит на проверку, как и в интерфейсе.
-  task.status = "review";
+  /* Сдал — не значит принято: задача уходит на проверку, как и в интерфейсе.
+
+     Кроме случая, когда исполнитель и проверяющий — один человек: принимать
+     не у кого, и задача уходит в готовые сразу. Правило то же, что в
+     интерфейсе (`selfReview` в `TasksBoard.jsx`): разойдись они — доска и
+     бот показывали бы разное про одну и ту же задачу. */
+  const selfReview = task.reviewer != null
+    && String(task.reviewer) === String(task.assignee);
+  task.status = selfReview ? "done" : "review";
   await writeModel(model);
   return { task };
 }

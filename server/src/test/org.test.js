@@ -218,6 +218,18 @@ describe("что можно изменить", () => {
       gives: { t2: 3 } });
   });
 
+  it("сдал и принял один человек — задача сразу готова", async () => {
+    /* Проверка — это передача решения другому человеку. Совпали — принимать
+       не у кого, и просить его нажать «принято» значило бы просить сообщить
+       самому себе то, что он и так знает. Правило то же, что в интерфейсе:
+       разойдись они — бот и доска говорили бы разное про одну задачу. */
+    await writeModel({ tasks: [{ id: "tk2", assignee: "200", reviewer: "200",
+      status: "progress", submissions: [], comments: [] }] });
+    const r = await submitTask("200", "tk2", { hours: 3 });
+    expect(r.task.status).toBe("done");
+    expect(r.task.submissions).toHaveLength(1);
+  });
+
   it("чужую задачу сдать нельзя", async () => {
     await seed();
     expect((await submitTask("777", "tk1", { hours: 5 })).error).toBe("not yours");
