@@ -14,6 +14,7 @@ const DOC = {
   funcs: [],
   tasks: [],
   goals: [],
+  factors: [],
 };
 
 beforeEach(() => { localStorage.clear(); delete window.Telegram; });

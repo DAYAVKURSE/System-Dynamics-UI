@@ -7,7 +7,7 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote }
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
-import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, normalizeAssets,
+import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, normalizeAssets, normalizeFactors,
   normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { normalizeGoals, perMonth } from "../lib/goals.js";
@@ -328,6 +328,9 @@ export default function SystemModel(){
      ресурса, где были одним числом, и стали записью со сроком, темпом и
      ценой (см. lib/goals.js). */
   const [goals,setGoals]=useState(GOALS0);
+  /* Факторы — то, что меняет ресурсы без человека. Часть документа наравне
+     с ресурсами: фактор один, а функций от него может быть несколько. */
+  const [factors,setFactors]=useState([]);
   const [tab,setTab]=useState("tasks");
   const [sel,setSel]=useState("usr");
   const [why,setWhy]=useState(null);
@@ -379,8 +382,8 @@ export default function SystemModel(){
   };
 
   // ─── история правок: отмена и возврат ───
-  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals}),
-    [entities,traits,kinds,tasks,funcs,goals]);
+  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors}),
+    [entities,traits,kinds,tasks,funcs,goals,factors]);
   const restoreDoc=useCallback((d)=>{
     // Документ достраивается до нынешней записи, но НЕ переносится из
     // прежних версий: модели, собранные под старый расчёт, работать не
@@ -389,6 +392,7 @@ export default function SystemModel(){
     setTraits(Array.isArray(d.traits)?d.traits:[]);
     setKinds(d.kinds); setTasks(d.tasks); setFuncs(normalizeFuncs(d.funcs));
     setGoals(normalizeGoals(d.goals));
+    setFactors(normalizeFactors(d.factors));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -455,6 +459,8 @@ export default function SystemModel(){
       gives:f.gives.filter(g=>!own.has(g.trait))})));
     // Задачи выполняли функции этого актива — выполнять больше нечего.
     setTasks(p=>p.filter(t=>!gone.has(t.funcId)));
+    // Факторы принадлежат активу так же, как ресурсы: без него им негде быть.
+    setFactors(p=>p.filter(x=>x.e!==id));
     setEntities(p=>p.filter(e=>e.id!==id));
     setSel(p=>p===id?(entities.find(e=>e.id!==id)?.id??null):p);
   };
@@ -526,6 +532,7 @@ export default function SystemModel(){
         entities:w.entities||[], traits:w.traits||[],
         kinds:(w.kinds&&w.kinds.length)?w.kinds:KINDS0,
         tasks:w.tasks||[], funcs:w.funcs, goals:w.goals||[],
+        factors:w.factors||[],
       });
     }).catch(()=>{});
   },[me.solo,me.isOwner,restoreDoc]);
@@ -588,6 +595,7 @@ export default function SystemModel(){
       tasks:arr(s.data?.tasks,docRef.current.tasks),
       funcs:fs,
       goals:normalizeGoals(arr(s.data?.goals,docRef.current.goals)),
+      factors:normalizeFactors(arr(s.data?.factors,docRef.current.factors)),
     };
     restoreDoc(loaded);
     savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -641,6 +649,7 @@ export default function SystemModel(){
         tasks:arr(s.data?.tasks,tasks),
         funcs:fs,
         goals:normalizeGoals(arr(s.data?.goals,goals)),
+        factors:normalizeFactors(arr(s.data?.factors,factors)),
       };
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -868,8 +877,9 @@ export default function SystemModel(){
               style={{fontSize:15,fontWeight:700,marginBottom:6}}
               onCommit={v=>setEntities(p=>p.map(e=>e.id===selE.id?{...e,name:v}:e))}/>
             <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
-              Актив — это его воркеры, его функции и его ресурсы. Три вкладки
-              ниже — они и есть, все три одного вида.
+              Актив — это его воркеры, его функции и его ресурсы, а ещё
+              факторы: то, что меняет ресурсы без человека. Вкладки ниже —
+              они и есть, все одного вида.
             </div>
 
             <AssetPanel entityId={selE.id}
@@ -877,6 +887,7 @@ export default function SystemModel(){
               funcs={funcs} setFuncs={setFuncs}
               traits={traits} setTraits={setTraits}
               entities={entities} kinds={kinds} kindOf={kindOf}
+              factors={factors} setFactors={setFactors}
               people={people} nameOf={personName} runsOf={runsOf}
               tasks={tasks} onOrderWorker={orderWorker} onOpenPerson={setPerson}
               focus={focus}

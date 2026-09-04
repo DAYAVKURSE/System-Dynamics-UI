@@ -45,7 +45,7 @@
    производительности; домножать на количество людей значило бы додумать
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
-import { DUR_UNITS, everyOf, hoursOf, runHours, runQty } from "./funcs.js";
+import { DUR_UNITS, everyOf, hoursOf, isFactor, runHours, runQty } from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
 export const MONTH_H = DUR_UNITS["мес"];
@@ -239,7 +239,9 @@ export function load(model, { runsOf } = {}) {
     const rs = runsOf ? runsOf(f.id) : [];
     const hours = runHours(rs) ?? hoursOf(f);
     const n = cycles(f, rs);
-    if (!f.owners.length || !(hours > 0)) return;
+    // У фактора исполнителей нет; если они там остались от прежней правки,
+    // считать их нагрузку всё равно нельзя — фактор происходит сам.
+    if (isFactor(f) || !f.owners.length || !(hours > 0)) return;
     const each = (hours * n) / f.owners.length;
     f.owners.forEach((p) => { by[p] = (by[p] || 0) + each; });
   });
@@ -372,9 +374,12 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
   const steps = Object.entries(runsBy).map(([id, n]) => {
     const f = funcs.find((x) => x.id === id);
     const step = stepHours(f, runsFor(f));
-    return { func: id, name: f.name, e: f.e, runs: n,
-      workHours: (runHours(runsFor(f)) ?? hoursOf(f)) * n,
-      calendarHours: step * n };
+    /* Часы фактора — не человеко-часы: фактор происходит сам, и в бюджет
+       человека его время не идёт. Календарный срок при этом остаётся —
+       ждать его всё равно приходится. */
+    const own = isFactor(f) ? 0 : (runHours(runsFor(f)) ?? hoursOf(f)) * n;
+    return { func: id, name: f.name, e: f.e, runs: n, factor: isFactor(f),
+      workHours: own, calendarHours: step * n };
   }).sort((a, b) => b.calendarHours - a.calendarHours);
 
   /* Календарный срок — по самой длинной цепочке: функция, ждущая чужой
@@ -460,7 +465,8 @@ export function effect(model, steps = [], { side = "hi", runsOf } = {}) {
  */
 export function scheduleOf(steps = [], { from = Date.now() } = {}) {
   const rows = [];
-  steps.forEach((st) => {
+  // Фактор происходит без человека — задачи по нему не заводятся.
+  steps.filter((st) => !st.factor).forEach((st) => {
     const per = st.runs > 0 ? st.calendarHours / st.runs : 0;
     for (let i = 0; i < st.runs; i += 1) {
       const at = from + (st.startHours + per * i) * 3600000;

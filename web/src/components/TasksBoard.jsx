@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, hoursOf, rangeText } from "../lib/funcs.js";
+import { DUR_UNITS, WORKER_KINDS, hoursOf, isFactor, rangeText } from "../lib/funcs.js";
 import { shortStat, statsOf } from "../lib/workers.js";
 import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
@@ -519,16 +519,21 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
     const end=t.end?new Date(t.end).getTime():null;
     return end!=null&&!Number.isNaN(end)&&t.status!=="done"&&end<Date.now();
   };
+  /* Фактор происходит без человека — выполнять его некому, и на доске ему
+     места нет. Показать его здесь значило бы предложить завести задачу на
+     то, что случается само. */
+  const doable=funcs.filter(f=>!isFactor(f));
   return (
     <div>
       <div style={{...S.card,marginBottom:10}}>
         <div style={S.lbl}>функции модели — под каждой её выполнения</div>
-        {!funcs.length&&<div style={{fontSize:11.5,color:C.muted,marginTop:6,
+        {!doable.length&&<div style={{fontSize:11.5,color:C.muted,marginTop:6,
           lineHeight:1.6}}>
-          Функций пока нет. Заведите их в карточке актива на вкладке «Схема»:
-          задача — это выполнение функции, и без функции ей нечего выполнять.
+          {funcs.length
+            ? "Все функции модели — факторы: они происходят без человека, и задач по ним не заводится."
+            : "Функций пока нет. Заведите их в карточке актива на вкладке «Схема»: задача — это выполнение функции, и без функции ей нечего выполнять."}
         </div>}
-        {funcs.map(f=>{
+        {doable.map(f=>{
           const mine=tasks.filter(t=>t.funcId===f.id);
           const done=mine.filter(t=>t.status==="done").length;
           return (

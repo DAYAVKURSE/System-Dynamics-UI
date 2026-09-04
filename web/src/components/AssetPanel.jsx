@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, checkFunc, checkTrait, everyOf, fromHours,
+import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, checkFunc, checkTrait, everyOf,
+  funcKind, isFactor, newFactor, fromHours,
   hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
@@ -295,12 +296,13 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
 }
 
 export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], workers,
-  people = [], nameOf, runsOf, open, setOpen, onWhy }) {
+  factors = [], people = [], nameOf, runsOf, open, setOpen, onWhy }) {
   const mine = funcs.filter((f) => f.e === entityId);
   const own = traits.filter((t) => t.e === entityId);
   const others = traits.filter((t) => t.e !== entityId);
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
   const assetName = (id) => entities.find((e) => e.id === id)?.name || "другой актив";
+  const factorName = (id) => factors.find((x) => x.id === id)?.name || "(фактор удалён)";
   // Назначить на функцию можно только воркера этого актива: люди —
   // свойство актива, и чужой человек означал бы, что список воркеров ни
   // на что не влияет.
@@ -329,7 +331,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             onTitle={(v) => up(f.id, (x) => ({ ...x, name: v }))}
             open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)}
             onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(null); }}
-            mark={<Mark text="функция" ok={checkFunc(f, { traits, entities }).ok}
+            mark={<Mark text="функция" ok={checkFunc(f, { traits, factors }).ok}
               onWhy={() => onWhy && onWhy(f.id)} />}
             summary={<>
               {f.takes.length ? f.takes.map((t) => traitName(t.trait)).join(", ") : "ничего не берёт"}
@@ -341,6 +343,9 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 }).join(", ")
                 : "ничего не выдаёт"}
               {" · "}<Timing func={f} runs={runs} />
+              {isFactor(f) && (
+                <span style={{ color: ACC }}>
+                  {" · фактор"}{f.factor ? `: ${factorName(f.factor)}` : " не выбран"}</span>)}
             </>}>
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
               hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
@@ -399,13 +404,87 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   : "чаще самой работы не выйдет — считаем по длительности"}</span>
             </div>
 
-            {WORKER_KINDS.map((k) => (
+            {/* Чем функция выполняется — людьми или сама собой. Вопрос
+                стоит ПЕРЕД ролями, потому что от ответа зависит, есть ли
+                они вообще: у фактора исполнителя нет, и показывать пустые
+                списки значило бы спрашивать, кто отвечает за погоду. */}
+            <div style={{ ...S.lbl, marginTop: 10 }}>чем выполняется</div>
+            <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+              {FUNC_KINDS.map((k) => (
+                <label key={k.id} className="flex items-center gap-2"
+                  style={{ ...btn(funcKind(f) === k.id), padding: "5px 10px",
+                    cursor: "pointer" }}>
+                  <input type="radio" name={`kind-${f.id}`} value={k.id}
+                    aria-label={k.name} checked={funcKind(f) === k.id}
+                    onChange={() => up(f.id, (x) => ({ ...x, kind: k.id }))}
+                    style={{ accentColor: ACC }} />
+                  {k.name}
+                </label>))}
+            </div>
+
+            {isFactor(f) ? (<>
+              <div style={{ ...S.lbl, marginTop: 8 }}>какой фактор</div>
+              <select value={f.factor || ""} aria-label="фактор функции"
+                onChange={(e) => up(f.id, (x) => ({ ...x, factor: e.target.value }))}
+                style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12 }}>
+                <option value="">— выберите —</option>
+                {factors.map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
+              </select>
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+                {factors.length
+                  ? "Фактор происходит без человека: ресурсы он меняет так же, но задач по нему не заводится и спрашивать за него не с кого."
+                  : "Факторов в активе ещё нет — заведите их во вкладке «Факторы»."}
+              </div>
+            </>) : WORKER_KINDS.map((k) => (
               <People key={k.id} title={k.many} ids={f[k.id] || []} people={pool(k.id)}
                 nameOf={nameOf}
                 empty={`в активе ещё нет ${k.many.toLowerCase()} — добавьте их в «воркерах актива»`}
                 onToggle={(pid) => togglePerson(f.id, k.id, pid)} />))}
           </Card>);
       })}
+    </Section>);
+}
+
+/* ═══ 4. ФАКТОРЫ ═══
+   То, что меняет ресурсы без человека: сезон, износ, курс, реклама,
+   которая крутится сама. Форма та же, что у остальных частей актива:
+   название и удаление — больше у фактора ничего и нет. */
+export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
+  const mine = factors.filter((x) => x.e === entityId);
+  const [draft, setDraft] = useState("");
+  const used = (id) => funcs.filter((f) => isFactor(f) && f.factor === id).length;
+  const add = () => {
+    setFactors((p) => [...p, newFactor(entityId, draft.trim() || "новый фактор")]);
+    setDraft("");
+  };
+  const del = (id) => {
+    setFactors((p) => p.filter((x) => x.id !== id));
+    /* Функции, ссылавшиеся на удалённый фактор, не остаются с мёртвой
+       ссылкой: они краснеют подписью «фактор не выбран», а не молча
+       считаются исправными. */
+    setFuncs((p) => p.map((f) => (f.factor === id ? { ...f, factor: "" } : f)));
+  };
+  return (
+    <Section title="факторы актива"
+      hint="Фактор — то, что меняет ресурсы без человека: сезон, износ, курс, реклама, которая крутится сама. Задач по нему не заводится и спрашивать за него не с кого."
+      empty={mine.length ? null : "Факторов пока нет."}>
+      {mine.map((x) => (
+        <div key={x.id} className="flex items-center gap-2" style={{ marginTop: 6 }}>
+          <TxtField value={x.name} aria-label="название фактора"
+            style={{ flex: "1 1 140px", padding: "5px 7px", fontSize: 12.5 }}
+            onCommit={(v) => setFactors((p) => p.map((y) => (y.id === x.id
+              ? { ...y, name: v } : y)))} />
+          <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+            {used(x.id) ? `функций: ${used(x.id)}` : "не используется"}</span>
+          <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
+            fontSize: 11, padding: "2px 6px" }} aria-label={`удалить фактор ${x.name}`}
+            onClick={() => del(x.id)}>✕</button>
+        </div>))}
+      <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+        <TxtField value={draft} placeholder="название нового фактора"
+          style={{ flex: "1 1 160px" }} onCommit={setDraft} />
+        <button style={btn(false)} onClick={add}>+ фактор</button>
+      </div>
     </Section>);
 }
 
@@ -551,12 +630,14 @@ export default function AssetPanel(props) {
   }, [focus?.id, focus?.n, focus?.kind]);
   const mineFuncs = props.funcs.filter((f) => f.e === props.entityId).length;
   const mineTraits = props.traits.filter((t) => t.e === props.entityId).length;
+  const mineFactors = (props.factors || []).filter((x) => x.e === props.entityId).length;
   const workers = WORKER_KINDS
     .reduce((n, k) => n + (props.workers[k.id] || []).length, 0);
   const TABS = [
     ["workers", "Воркеры", workers],
     ["funcs", "Функции", mineFuncs],
     ["traits", "Ресурсы", mineTraits],
+    ["factors", "Факторы", mineFactors],
   ];
   return (
     <div>
@@ -575,6 +656,10 @@ export default function AssetPanel(props) {
 
       {tab === "funcs" && (
         <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc} />)}
+
+      {tab === "factors" && (
+        <Factors entityId={props.entityId} factors={props.factors || []}
+          setFactors={props.setFactors} funcs={props.funcs} setFuncs={props.setFuncs} />)}
 
       {tab === "traits" && (
         <Traits entityId={props.entityId} traits={props.traits} setTraits={props.setTraits}
