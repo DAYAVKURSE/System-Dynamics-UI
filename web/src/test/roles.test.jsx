@@ -34,7 +34,7 @@ const fresh = async () => {
 };
 const tabNames = (container) => [...container.querySelectorAll("button")]
   .map((b) => b.textContent)
-  /* Ни «Прогноз», ни «Timeline» больше не главные вкладки: обе про ту же
+  /* Ни «Прогноз», ни «Деятельность» больше не главные вкладки: обе про ту же
      модель во времени и живут под схемой, с общим ползунком месяца. */
   .filter((t) => ["Задачи", "Проверка", "Схема", "Инструменты"].includes(t));
 
@@ -42,7 +42,7 @@ beforeEach(() => { localStorage.clear(); resetIdentity(); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; resetIdentity(); });
 
 describe("вкладки по роли", () => {
-  it("владельцу видны все четыре, а «Прогноз» и «Timeline» — под схемой", async () => {
+  it("владельцу видны все четыре, а «Прогноз» и «Деятельность» — под схемой", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
       tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
     const { container } = await fresh();
@@ -51,7 +51,7 @@ describe("вкладки по роли", () => {
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     expect(screen.getByRole("button", { name: "Управление" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Прогноз" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Timeline" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Деятельность" })).toBeTruthy();
   });
 
   it("исполнителю — только «Задачи»", async () => {

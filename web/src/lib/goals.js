@@ -319,3 +319,48 @@ export function goalRuns(model, goals = [], { runsOf, side = "hi" } = {}) {
   });
   return { perMonth, once };
 }
+
+
+/**
+ * Последовательность действий: что за чем придётся сделать.
+ *
+ * Шаги плана, разложенные по порядку начала. Функция не начинается раньше,
+ * чем созреют её входы (`startHours`), поэтому порядок здесь — не список
+ * дел вперемешку, а именно очередь: первое, второе, третье.
+ *
+ * Отдельной функцией, а не сортировкой на месте, потому что порядок нужен
+ * в двух местах — в форме цели и в общем прогнозе, — и разъехаться они не
+ * должны.
+ */
+export function actionsOf(plan) {
+  return [...(plan?.steps || [])]
+    .sort((a, b) => (a.startHours - b.startHours) || (b.runs - a.runs))
+    .map((st, i) => ({ ...st, no: i + 1 }));
+}
+
+/**
+ * Что будет с целевым ресурсом, если выполнить отмеченные шаги.
+ *
+ * Не прогноз во времени, а прямой ответ на вопрос «докуда дойдём, если
+ * сделаем вот это»: сколько целевого ресурса прибавится и хватит ли этого.
+ * Полезно ровно тем, что человек сам выбирает, во что верит: отмечает то,
+ * что точно сделает, и видит, добирает ли до цели.
+ */
+export function ifDone(model, goal, plan, chosen = []) {
+  const set = new Set(chosen);
+  const funcs = model.funcs || [];
+  const qty = num(goal?.qty);
+  let add = 0;
+  (plan?.steps || []).forEach((st) => {
+    if (!set.has(st.func)) return;
+    const f = funcs.find((x) => x.id === st.func);
+    if (!f) return;
+    f.gives.filter((g) => g.trait === goal.trait).forEach((g) => {
+      add += ((num(g.hi) || num(g.lo)) * st.runs);
+    });
+  });
+  const have = num((model.traits || []).find((t) => t.id === goal.trait)?.have);
+  const rate = rateOf(goal.rate);
+  return { add, have, after: have + add, want: qty, rate,
+    enough: rate.hours ? add + 1e-9 >= qty : have + add + 1e-9 >= qty };
+}

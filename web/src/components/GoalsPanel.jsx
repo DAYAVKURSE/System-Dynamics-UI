@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField } from "./ui.jsx";
-import { DUE_IN, DUE_ON, RATES, WEEK, newCost, newGoal, checkGoal, goalText, planGoal,
-  rateOf } from "../lib/goals.js";
+import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, newCost, newGoal, checkGoal, goalText,
+  ifDone, planGoal, rateOf } from "../lib/goals.js";
 import { DUR_UNITS } from "../lib/funcs.js";
 import { newTask, nowLocal } from "./TasksBoard.jsx";
 
@@ -31,12 +31,23 @@ import { newTask, nowLocal } from "./TasksBoard.jsx";
    считается. Показывать одно вместо другого нельзя: первое — намерение,
    второе — следствие модели, и путать их значит терять и то и другое.
 
-   ─── черновик и применённая цель ───
+   ─── три состояния цели ───
 
-   Пока цель не применена, она считается, но ни на что не влияет: это
-   прикидка, её меняют и смотрят, что выйдет. «Применить цель» заводит
-   задачи и включает её в графики. Без этой границы каждая правка числа
-   молча меняла бы доску задач, и попробовать «а что если» было бы негде.
+   Цель проходит их по порядку, и порядок этот не украшение, а сама суть
+   работы с целью:
+
+   1. **Задана** — поля заполнены, но что из этого выйдет, ещё не считали.
+      Кнопка внизу говорит «Спрогнозировать».
+   2. **Спрогнозирована** — показано всё: последовательность действий,
+      сроки, цена, что прибавится и что убавится. Кнопка меняется на
+      «Применить цель». Меняете любое поле — прогноз устарел, и кнопка
+      возвращается к «Спрогнозировать»: считать по одним числам, а
+      применять другие нельзя.
+   3. **Применена** — задачи заведены, цель попала в графики.
+
+   Прежде расчёт шёл сам, при каждом наборе цифры, и «Применить» стояло
+   рядом всегда. Разницы между «прикинул» и «решил» не было: человек
+   применял то, во что ещё не всмотрелся.
    ════════════════════════════════════════════════════════════════ */
 
 const Fig = ({ label, value, color, hint }) => (
@@ -55,15 +66,60 @@ const Row = ({ label, children, wide }) => (
   </div>
 );
 
+/**
+ * Показатель: сколько есть против того, сколько нужно.
+ *
+ * У разовой цели это уровень — до него дорастают, и полоса показывает,
+ * насколько доросли. У цели с темпом уровня нет: там мерка — сколько
+ * требуется в месяц, и сравнивать её с остатком на складе бессмысленно.
+ * Поэтому у темпа полосы нет, а есть требование — иначе полоса врала бы.
+ */
+function Gauge({ goal, traits, traitName }) {
+  const t = traits.find((x) => x.id === goal.trait);
+  const have = Number(t?.have) || 0;
+  const want = Number(goal.qty) || 0;
+  const rate = rateOf(goal.rate);
+  const part = want > 0 ? Math.min(1, have / want) : 0;
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div className="flex items-center gap-2" style={{ fontSize: 11.5 }}>
+        <span style={{ flex: 1, minWidth: 0, color: C.muted }}>
+          {traitName(goal.trait)}{t?.unit ? `, ${t.unit}` : ""}</span>
+        {rate.hours ? (
+          <span style={{ color: ACC }}>нужно {nm(want)} {rate.name}</span>
+        ) : (
+          <span style={{ color: part >= 1 ? OK : WARN }}>
+            {nm(have)} из {nm(want)}{part >= 1 ? " · взято" : ""}</span>)}
+      </div>
+      {!rate.hours && (
+        <div style={{ height: 5, borderRadius: 3, background: C.line, marginTop: 4 }}>
+          <div style={{ width: `${Math.round(part * 100)}%`, height: "100%",
+            borderRadius: 3, background: part >= 1 ? OK : ACC }} />
+        </div>)}
+    </div>);
+}
+
 const sel = { ...S.inp, padding: "6px 7px", fontSize: 12 };
 const hoursText = (h) => `${nm(Math.round(h * 10) / 10)} ч`;
 
 /** Одна цель: чем она задана и что из неё следует. */
+/* Отпечаток цели: по нему видно, изменилась ли она с тех пор, как её
+   считали. Сравниваем именно поля намерения, а не всю запись: отметка о
+   применении и порядок в списке к расчёту отношения не имеют. */
+const stamp = (g) => JSON.stringify([g.trait, g.qty, g.rate, g.dueKind, g.dueIn,
+  g.dueUnit, g.dueOn, g.days, g.hours, g.hoursPer,
+  (g.costs || []).map((c) => [c.trait, c.qty])]);
+
 function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onToggle }) {
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "ресурс не выбран";
   const ready = checkGoal(goal, traits);
-  const plan = ready ? planGoal(model, goal, { runsOf }) : null;
-  const up = (patch) => onSet(goal.id, patch);
+  /* На чём построен показанный прогноз. Пусто — не считали; не совпадает с
+     нынешним отпечатком — считали, но с тех пор цель поправили. */
+  const [shown, setShown] = useState(null);
+  const [done, setDone] = useState([]);
+  const fresh = shown != null && shown === stamp(goal);
+  const plan = ready && fresh ? planGoal(model, goal, { runsOf }) : null;
+  const up = (patch) => { setShown(null); onSet(goal.id, patch); };
   const rate = rateOf(goal.rate);
   const unit = traits.find((t) => t.id === goal.trait)?.unit || "";
   const free = traits.filter((t) => t.id !== goal.trait
@@ -87,6 +143,12 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           fontSize: 11, padding: "2px 6px" }} aria-label="удалить цель"
           onClick={() => onDel(goal.id)}>удалить</button>
       </div>
+      {/* ─── ПОКАЗАТЕЛЬ ───
+          Цель — это не только намерение, но и мерка: сколько ресурса есть
+          сейчас против того, сколько нужно. Видно и в свёрнутом виде: ради
+          этой цифры цель и ставили. */}
+      {ready && <Gauge goal={goal} traits={traits} traitName={traitName} />}
+
       {open && (<>
 
       {/* ─── ЧТО ─── */}
@@ -197,7 +259,12 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
 
       {/* ─── ЧТО ИЗ ЭТОГО СЛЕДУЕТ ─── */}
       {plan && <Verdict plan={plan} unit={unit} traits={traits} />}
-      {plan && <Apply goal={goal} plan={plan} onApply={() => onApply(goal, plan)} />}
+      {plan && (
+        <Actions plan={plan} model={model} goal={goal} traitName={traitName}
+          done={done} onDone={setDone} />)}
+      <Apply goal={goal} plan={plan} ready={ready} fresh={fresh}
+        onPredict={() => { setShown(stamp(goal)); setDone([]); }}
+        onApply={() => onApply(goal, plan)} />
       </>)}
     </div>);
 }
@@ -312,21 +379,104 @@ function Verdict({ plan, unit, traits }) {
  * прежнего применения при этом не трогаются — они уже могли уйти в работу,
  * и стирать чужую работу перерасчётом нельзя.
  */
-function Apply({ goal, plan, onApply }) {
-  const n = (plan.schedule || []).length;
+/**
+ * Две кнопки на одном месте: сперва посчитать, потом решить.
+ *
+ * Пока цель не посчитана, применять нечего — и кнопка об этом прямо
+ * говорит. Как только цель поправили, прогноз устарел, и кнопка снова
+ * зовёт считать: применять числа, которых человек не видел, нельзя.
+ */
+function Apply({ goal, plan, ready, fresh, onPredict, onApply }) {
+  const n = (plan?.schedule || []).length;
+  const can = plan && plan.ok && n > 0;
   return (
     <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 9 }}>
-      <button style={{ ...btn(true, OK), width: "100%", padding: "9px 10px",
-        fontSize: 12.5, fontWeight: 700 }}
-        disabled={!plan.ok || !n} onClick={onApply}>
-        {goal.appliedAt ? "Применить заново" : "Применить цель"}
-      </button>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-        {!plan.ok || !n
-          ? "Применять нечего: по этой модели цель не достигается."
-          : goal.appliedAt
-            ? `Цель применена ${new Date(goal.appliedAt).toLocaleString("ru-RU")}. Повторное применение заведёт ещё ${n} задач; прежние останутся как есть.`
-            : `Заведёт ${n} задач в «Ожидает постановки» и включит цель в графики. Один круг работы: следующий заводится, когда этот закрыт.`}
+      {!fresh || !plan ? (<>
+        <button style={{ ...btn(true, ACC), width: "100%", padding: "9px 10px",
+          fontSize: 12.5, fontWeight: 700 }}
+          disabled={!ready} onClick={onPredict}>Спрогнозировать</button>
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+          {!ready
+            ? "Сначала выберите ресурс, количество и срок."
+            : shownBefore(goal, fresh)
+              ? "Цель поправили — прежний прогноз уже не про неё. Посчитайте заново."
+              : "Посчитает, что для этой цели придётся сделать, в каком порядке и во что это обойдётся. Ничего не меняет."}
+        </div>
+      </>) : (<>
+        <button style={{ ...btn(true, OK), width: "100%", padding: "9px 10px",
+          fontSize: 12.5, fontWeight: 700 }}
+          disabled={!can} onClick={onApply}>
+          {goal.appliedAt ? "Применить заново" : "Применить цель"}
+        </button>
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+          {!can
+            ? "Применять нечего: по этой модели цель не достигается."
+            : goal.appliedAt
+              ? `Цель применена ${new Date(goal.appliedAt).toLocaleString("ru-RU")}. Повторное применение заведёт ещё ${n} задач; прежние останутся как есть.`
+              : `Заведёт ${n} задач в «Ожидает постановки» и включит цель в графики. Один круг работы: следующий заводится, когда этот закрыт.`}
+        </div>
+      </>)}
+    </div>);
+}
+/* Считали ли эту цель хоть раз: от этого зависит, что написать под кнопкой
+   — «посчитает» или «цель поправили». */
+const shownBefore = (goal) => Boolean(goal.appliedAt);
+
+/**
+ * Последовательность действий — и что будет, если их выполнить.
+ *
+ * Не список дел вперемешку, а очередь: функция не начинается раньше, чем
+ * созреют её входы, и порядок здесь именно этот. Номер у шага — не
+ * украшение: он и есть ответ на вопрос «с чего начать».
+ *
+ * Галочка у шага говорит «это мы сделаем». Отметил — и сразу видно, докуда
+ * дойдёт целевой ресурс: не прогноз во времени, а прямой ответ на вопрос
+ * «хватит ли этого». Человек сам выбирает, во что верит, а приложение
+ * считает следствие.
+ */
+function Actions({ plan, model, goal, traitName, done, onDone }) {
+  const rows = actionsOf(plan);
+  if (!rows.length) return null;
+  const res = ifDone(model, goal, plan, done);
+  /* Кто из шагов вообще выдаёт целевой ресурс: без этого «прибавится на 0»
+     звучит как «работа впустую», хотя она кормит следующий шаг. */
+  const gives = rows.filter((st) => (model.funcs || [])
+    .find((f) => f.id === st.func)?.gives.some((g) => g.trait === goal.trait))
+    .map((st) => st.name || "без названия");
+  const toggle = (id) => onDone(done.includes(id)
+    ? done.filter((x) => x !== id) : [...done, id]);
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={S.lbl}>последовательность действий</div>
+      {rows.map((st) => (
+        <div key={st.func} className="flex items-center gap-2"
+          style={{ fontSize: 11.5, padding: "4px 0", borderTop: `1px solid ${C.line}` }}>
+          <input type="checkbox" checked={done.includes(st.func)}
+            aria-label={`выполнить: ${st.name || "без названия"}`}
+            onChange={() => toggle(st.func)} style={{ accentColor: OK }} />
+          <span style={{ color: ACC, minWidth: 16 }}>{st.no}.</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            {st.name || "без названия"}
+            {st.factor && <span style={{ color: C.muted }}> · фактор</span>}
+          </span>
+          <span style={{ color: WARN, whiteSpace: "nowrap" }}>
+            ×{nm(Math.round(st.runs * 10) / 10)}</span>
+          <span style={{ color: C.muted, whiteSpace: "nowrap" }}>
+            {st.startHours > 0 ? `с ${durText(st.startHours)}` : "сразу"}</span>
+        </div>))}
+      <div style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.6,
+        color: done.length ? (res.enough ? OK : WARN) : C.muted }}>
+        {!done.length
+          ? "Отметьте, что из этого будет сделано, — и увидите, докуда дойдёт цель."
+          : res.add <= 0
+            /* Шаг может не давать целевой ресурс вовсе: он кормит другой
+               шаг. Сказать про такой «прибавится на 0» — значит выдать
+               промежуточную работу за бесполезную. */
+            ? `Отмеченное не даёт «${traitName(goal.trait)}» напрямую — это промежуточная работа. Цель выдаёт ${gives.map((x) => `«${x}»`).join(", ") || "другой шаг"}.`
+            : `Если выполнить отмеченное: ${traitName(goal.trait)} ${res.rate.hours
+              ? `прибавится на ${nm(Math.round(res.add * 10) / 10)} за круг`
+              : `станет ${nm(Math.round(res.after * 10) / 10)} из ${nm(res.want)}`}. `
+              + (res.enough ? "Цели хватает." : "До цели не дотягивает.")}
       </div>
     </div>);
 }

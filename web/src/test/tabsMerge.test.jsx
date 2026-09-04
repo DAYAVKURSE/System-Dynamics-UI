@@ -39,11 +39,11 @@ describe("состав вкладок", () => {
       .map((b) => b.textContent)
       .filter((t) => ["Задачи", "Проверка", "Схема",
         "Инструменты", "Звонки", "Выгрузить", "Цели", "Типы", "Отчёты"].includes(t));
-    // «Прогноз» и «Timeline» из главного ряда ушли под схему: обе про ту
+    // «Прогноз» и «Деятельность» из главного ряда ушли под схему: обе про ту
     // же модель во времени, и ползунок месяца у них общий со схемой.
     expect(bar.slice(0, 4)).toEqual(["Задачи", "Проверка", "Схема", "Инструменты"]);
     expect(screen.queryByRole("button", { name: "Прогноз" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Timeline" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Деятельность" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Цели" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Типы" })).toBeNull();
   });
@@ -110,14 +110,18 @@ describe("цель", () => {
     expect(screen.queryByPlaceholderText("без цели")).toBeNull();
   });
 
-  it("«Прогноз» показывает цели и что из них следует", () => {
+  it("«Прогноз» показывает цели, а расчёт — по кнопке", () => {
     tab("Схема"); tab("Прогноз");
     expect(screen.getByText("цели")).toBeTruthy();
     expect(screen.getByRole("button", { name: "+ цель" })).toBeTruthy();
     // Свёрнутая цель называет себя целиком: «10 … в неделю · через 3 мес».
     expect(screen.getByText(/в неделю · через 3 мес/)).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+    // Пока не посчитали — считать нечего и применять нечего.
+    expect(screen.queryByText("что из этого следует")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     expect(screen.getByText("что из этого следует")).toBeTruthy();
+    expect(screen.getByText("последовательность действий")).toBeTruthy();
   });
 
   it("цель уезжает в модель отдельной частью документа", () => {
@@ -174,6 +178,7 @@ describe("применение цели", () => {
 
   it("форма показывает полный расчёт: что прибавится, что убавится и какие задачи заведутся", () => {
     openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     expect(screen.getByText("прибавится")).toBeInTheDocument();
     expect(screen.getByText("убавится")).toBeInTheDocument();
     expect(screen.getByText(/какие задачи и когда заведутся/)).toBeInTheDocument();
@@ -183,13 +188,28 @@ describe("применение цели", () => {
     // Без этой границы каждая правка числа молча меняла бы доску задач.
     const before = dump().tasks.length;
     openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     expect(dump().tasks.length).toBe(before);
     expect(dump().goals[0].appliedAt).toBeNull();
+  });
+
+  it("поправили цель — прогноз устарел, и кнопка снова зовёт считать", () => {
+    /* Применять числа, которых человек не видел, нельзя: посчитали по
+       одному, а применили бы другое. */
+    openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
+    expect(screen.getByRole("button", { name: "Применить цель" })).toBeTruthy();
+    const qty = screen.getByLabelText("сколько ресурса");
+    fireEvent.change(qty, { target: { value: "3" } });
+    fireEvent.blur(qty);
+    expect(screen.queryByRole("button", { name: "Применить цель" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Спрогнозировать" })).toBeTruthy();
   });
 
   it("«Применить цель» заводит задачи и отмечает цель применённой", () => {
     const before = dump().tasks.length;
     openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     fireEvent.click(screen.getByRole("button", { name: "Применить цель" }));
     const m = dump();
     expect(m.tasks.length).toBeGreaterThan(before);
@@ -204,8 +224,53 @@ describe("применение цели", () => {
 
   it("применённая цель называет себя применённой и предлагает повтор", () => {
     openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     fireEvent.click(screen.getByRole("button", { name: "Применить цель" }));
     expect(screen.getByText("· применена")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Применить заново" })).toBeInTheDocument();
+  });
+});
+
+describe("цель как показатель и последовательность действий", () => {
+  const openGoal = () => {
+    tab("Схема"); tab("Прогноз");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+  };
+
+  it("цель показывает мерку: сколько нужно и сколько есть", () => {
+    // Цель — не только намерение, но и показатель: ради этой цифры её и
+    // ставили.
+    tab("Схема"); tab("Прогноз");
+    expect(screen.getByText(/нужно 10 в неделю/)).toBeInTheDocument();
+  });
+
+  it("последовательность действий — очередь, а не список вперемешку", () => {
+    openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
+    const box = screen.getByText("последовательность действий").parentElement;
+    const rows = [...box.querySelectorAll("div")]
+      .map((d) => d.textContent).filter((t) => /^\d+\./.test(t));
+    expect(rows.length).toBeGreaterThan(1);
+    // Первый шаг начинается сразу, следующий — ждёт его выхода.
+    expect(rows[0]).toMatch(/сразу/);
+    expect(rows[1]).toMatch(/^2\./);
+  });
+
+  it("отмеченный промежуточный шаг назван промежуточным, а не бесполезным", () => {
+    /* Шаг может не давать целевой ресурс вовсе: он кормит следующий. Сказать
+       про такой «прибавится на 0» значило бы выдать нужную работу за
+       пустую. */
+    openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
+    fireEvent.click(screen.getAllByLabelText(/^выполнить: /)[0]);
+    expect(screen.getByText(/промежуточная работа/)).toBeInTheDocument();
+  });
+
+  it("в «Прогнозе» есть общая очередь по применённым целям", () => {
+    openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
+    fireEvent.click(screen.getByRole("button", { name: "Применить цель" }));
+    expect(screen.getByText(/последовательность действий · по применённым целям/))
+      .toBeInTheDocument();
   });
 });

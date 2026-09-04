@@ -10,7 +10,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, countWorkers, normalizeAssets,
   normalizeFactors, normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
-import { goalRuns, normalizeGoals, perMonth } from "../lib/goals.js";
+import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { runsOfFunc } from "./TasksBoard.jsx";
@@ -309,7 +309,7 @@ function whenText(iso){
    времени, и ползунок месяца у них общий. Он живёт подвкладкой под схемой —
    рядом с «Управлением», где схему и правят. Роль по-прежнему решает,
    показывать ли его: вкладка `sim` открывает подвкладку, а не раздел. */
-/* Главных вкладок четыре. «Timeline» и «Прогноз» ушли под схему: обе про
+/* Главных вкладок четыре. «Деятельность» и «Прогноз» ушли под схему: обе про
    ту же модель, только во времени, и ползунок месяца у них общий со
    схемой. Держать их наверху значило разложить одно и то же по трём
    местам, между которыми надо помнить, где что. */
@@ -771,6 +771,20 @@ export default function SystemModel(){
      происходит, и это честный ответ, а не пустой график. */
   const runsPlan=useMemo(()=>goalRuns({traits,funcs},goals,{runsOf}),
     [traits,funcs,goals,runsOf]);
+  /* Очередь действий по применённым целям — та же, что человек видел в
+     форме цели, только собранная со всех целей сразу. */
+  const appliedSteps=useMemo(()=>{
+    const by=new Map();
+    goals.filter(g=>g.appliedAt).forEach(g=>{
+      actionsOf(planGoal({traits,funcs},g,{runsOf})).forEach(st=>{
+        const was=by.get(st.func);
+        by.set(st.func,was
+          ?{...was,runs:was.runs+st.runs,startHours:Math.min(was.startHours,st.startHours)}
+          :st);
+      });
+    });
+    return [...by.values()].sort((a,b)=>a.startHours-b.startHours||b.runs-a.runs);
+  },[traits,funcs,goals,runsOf]);
   /* Семя жребия. Факторы случаются не наверняка, и один и тот же набор
      чисел может развиться по-разному; семя выбирает, КАКОЙ именно вариант
      сейчас на экране. Оно живёт в состоянии, а не в модели: это не свойство
@@ -924,7 +938,8 @@ export default function SystemModel(){
           onOpenFunc={openFuncCard}/>
 
         {/* Под схемой три вкладки: чем схема собрана, куда она идёт и что
-            по ней уже сделано. Ползунок месяца — общий: он стоит над ними,
+            по ней уже делали — «Деятельность»: слово «Timeline» называло
+            способ показа, а не то, что показывают. Ползунок месяца — общий: он стоит над ними,
             потому что одинаково относится и к числам на блоках, и к хвостам
             графиков. */}
         <div className="flex gap-2" style={{margin:"10px 0",overflowX:"auto"}}>
@@ -935,7 +950,7 @@ export default function SystemModel(){
               Прогноз</button>)}
           {me.tabs.includes("timeline")&&(
             <button style={btn(under==="time")} onClick={()=>setUnder("time")}>
-              Timeline</button>)}
+              Деятельность</button>)}
         </div>
 
         {under==="time" && me.tabs.includes("timeline") && (
@@ -1015,6 +1030,32 @@ export default function SystemModel(){
                 выйдет.
               </div>}
         </div>
+
+        {/* Последовательность действий по применённым целям — общая, на
+            всю модель. Внутри цели видно её собственную очередь, здесь —
+            всё вместе: чем занята модель прямо сейчас и что за чем идёт. */}
+        {!!appliedSteps.length&&(
+          <div style={{...S.card,marginBottom:10}}>
+            <div style={S.lbl}>последовательность действий · по применённым целям</div>
+            {appliedSteps.map((st,i)=>(
+              <div key={st.func} className="flex items-center gap-2"
+                style={{fontSize:11.5,padding:"4px 0",
+                  borderTop:i?`1px solid ${C.line}`:"none"}}>
+                <span style={{color:ACC,minWidth:16}}>{i+1}.</span>
+                <span style={{flex:1,minWidth:0}}>
+                  {st.name||"без названия"}
+                  <span style={{color:C.muted}}> · {ent(st.e)?.name||""}</span>
+                </span>
+                <span style={{color:WARN,whiteSpace:"nowrap"}}>
+                  ×{nm(Math.round(st.runs*10)/10)}</span>
+                <span style={{color:C.muted,whiteSpace:"nowrap"}}>
+                  {st.startHours>0?`с ${durText(st.startHours)}`:"сразу"}</span>
+              </div>))}
+            <div style={{fontSize:10.5,color:C.muted,marginTop:6,lineHeight:1.5}}>
+              Функция не начинается раньше, чем созреют её входы, — поэтому
+              это очередь, а не список вперемешку.
+            </div>
+          </div>)}
 
         {/* Цели: сколько, чего, к какому сроку, каким темпом и какой ценой.
             Модель отвечает тем, что из цели следует, — см. GoalsPanel. */}
