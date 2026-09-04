@@ -7,8 +7,8 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote }
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
-import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, normalizeAssets, normalizeFactors,
-  normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
+import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, countWorkers, normalizeAssets,
+  normalizeFactors, normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { normalizeGoals, perMonth } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
@@ -278,7 +278,7 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
               <text x={e.x+52} y={e.y+43.5} textAnchor="middle" fontSize="9" fill={BAD}>?</text>
             </g>)}
             <text x={e.x+14} y={e.y+64} fontSize="10.5" fill={C.muted}>
-              {(e.owners||[]).length+(e.reviewers||[]).length} воркеров ·
+              {countWorkers(e)} воркеров ·
               {" "}{fs.length} функц. · {ts.length} ресурс.</text>
             {ts.slice(0,2).map((t,i)=>{
               const v=valuesFor(t.id);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DUR_UNITS, avgOf, everyOf, everyText, fromHours, hoursOf, newFunc, newGive,
+import { DUR_UNITS, avgOf, countWorkers, everyOf, everyText, fromHours, hoursOf,
+  newFunc, newGive,
   newPort, normalizeFunc, normalizeFuncs, okRange, pruneWorkers, rangeText,
   runHours, runQty, workersOf } from "../lib/funcs.js";
 
@@ -191,6 +192,19 @@ describe("воркеры актива", () => {
       .toEqual({ setters: [], owners: ["p7"], reviewers: [] });
     expect(workersOf(entities, "нет-такого"))
       .toEqual({ setters: [], owners: [], reviewers: [] });
+  });
+
+  it("считаются люди, а не назначения: один человек — один воркер", () => {
+    /* В маленькой команде один человек и ставит, и делает, и проверяет.
+       Складывать длины трёх списков значило бы написать «3 воркера» там,
+       где работает один. */
+    expect(countWorkers({ setters: ["p1"], owners: ["p1"], reviewers: ["p1"] })).toBe(1);
+    expect(countWorkers({ setters: ["p1"], owners: ["p2"], reviewers: ["p1", "p3"] })).toBe(3);
+    expect(countWorkers({ owners: ["p1"] })).toBe(1);
+    expect(countWorkers({})).toBe(0);
+    // Число и строка «7» — один и тот же человек: списки приходят и из
+    // сервера, и из браузера, и типы там не совпадают.
+    expect(countWorkers({ setters: [7], owners: ["7"] })).toBe(1);
   });
 
   it("человек, переставший быть воркером, уходит и с функций актива", () => {

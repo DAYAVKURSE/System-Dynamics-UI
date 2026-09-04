@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, checkFunc, checkTrait, everyOf,
+import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, checkFunc, checkTrait, countWorkers,
+  everyOf,
   funcKind, isFactor, newFactor, fromHours,
   hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
   runQty } from "../lib/funcs.js";
@@ -631,8 +632,8 @@ export default function AssetPanel(props) {
   const mineFuncs = props.funcs.filter((f) => f.e === props.entityId).length;
   const mineTraits = props.traits.filter((t) => t.e === props.entityId).length;
   const mineFactors = (props.factors || []).filter((x) => x.e === props.entityId).length;
-  const workers = WORKER_KINDS
-    .reduce((n, k) => n + (props.workers[k.id] || []).length, 0);
+  // Людей, а не назначений: один человек может быть всеми тремя сразу.
+  const workers = countWorkers(props.workers);
   const TABS = [
     ["workers", "Воркеры", workers],
     ["funcs", "Функции", mineFuncs],
