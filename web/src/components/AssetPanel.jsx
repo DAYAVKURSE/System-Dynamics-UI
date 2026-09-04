@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, checkFunc, checkTrait, countWorkers,
-  everyOf, groupsOf, sameHours,
+  chanceOf, everyOf, everyRange, groupsOf, sameEvery, sameHours,
   funcKind, isFactor, newFactor, fromHours,
   hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
   runQty } from "../lib/funcs.js";
@@ -446,25 +446,35 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               одинаковое — время известно точно, а не вилкой
             </label>
 
-            {/* Это потолок, а не расписание: сама по себе функция не
-                повторяется — она работа и происходит тогда, когда её делают.
-                Число говорит, чаще какого срока её начать не выйдет:
-                «не чаще раза в неделю». «Непрерывно» — значит упирается
-                только в собственную длительность. */}
+            {/* Через сколько будет следующая ПОПЫТКА — не «повторение»:
+                попытка может и не удаться. «Сразу» значит, что следующая
+                начинается за предыдущей и всё упирается только в саму
+                работу. Тоже вилка: срок между попытками редко бывает
+                ровным. */}
             <div className="flex items-center gap-2" style={{ marginTop: 6, flexWrap: "wrap" }}>
-              <span style={S.lbl}>как часто может повторяться</span>
-              <select value={everyOf(f) > 0 ? "every" : "flow"}
-                aria-label="как часто повторяется"
-                onChange={(e) => up(f.id, (x) => ({ ...x,
-                  every: e.target.value === "every" ? (Number(x.every) || 1) : 0 }))}
+              <span style={S.lbl}>следующая попытка через</span>
+              <select value={everyRange(f).hi > 0 ? "every" : "flow"}
+                aria-label="когда следующая попытка"
+                onChange={(e) => up(f.id, (x) => {
+                  const on = e.target.value === "every";
+                  const v = on ? (Number(x.every) || 1) : 0;
+                  return { ...x, every: v, everyHi: on ? Math.max(v, Number(x.everyHi) || 0) : 0 };
+                })}
                 style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
-                <option value="flow">непрерывно</option>
-                <option value="every">раз в…</option>
+                <option value="flow">сразу</option>
+                <option value="every">через…</option>
               </select>
-              {everyOf(f) > 0 && (<>
-                <Num value={f.every} label="как часто повторять"
-                  onChange={(v) => up(f.id, (x) => ({ ...x, every: Number(v) || 0 }))} />
-                <select value={f.everyUnit} aria-label="единица расписания"
+              {everyRange(f).hi > 0 && (<>
+                <span style={S.lbl}>от</span>
+                <Num value={f.every} label="через сколько следующая попытка"
+                  onChange={(v) => up(f.id, (x) => ({ ...x, every: Number(v) || 0,
+                    ...(sameEvery(x) ? { everyHi: Number(v) || 0 } : {}) }))} />
+                {!sameEvery(f) && (<>
+                  <span style={S.lbl}>до</span>
+                  <Num value={f.everyHi} label="через сколько следующая попытка максимум"
+                    onChange={(v) => up(f.id, (x) => ({ ...x, everyHi: Number(v) || 0 }))} />
+                </>)}
+                <select value={f.everyUnit} aria-label="единица срока попытки"
                   onChange={(e) => up(f.id, (x) => ({ ...x, everyUnit: e.target.value }))}
                   style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
                   {Object.keys(DUR_UNITS).map((u) => <option key={u} value={u}>{u}</option>)}
@@ -475,6 +485,17 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   ? "реже, чем делается: потолок считается по этому сроку"
                   : "чаще самой работы не выйдет — потолок по длительности"}</span>
             </div>
+            {everyRange(f).hi > 0 && (
+              <label className="flex items-center gap-2"
+                style={{ marginTop: 5, fontSize: 11, color: C.muted, cursor: "pointer" }}>
+                <input type="checkbox" aria-label="одинаковый срок попытки"
+                  checked={sameEvery(f)}
+                  onChange={(e) => up(f.id, (x) => ({ ...x,
+                    everyHi: e.target.checked ? Number(x.every) || 0
+                      : Math.max(Number(x.every) || 0, Number(x.everyHi) || 0) * 2 }))}
+                  style={{ accentColor: ACC }} />
+                одинаковый — срок между попытками известен точно
+              </label>)}
 
             {/* Чем функция выполняется — людьми или сама собой. Вопрос
                 стоит ПЕРЕД ролями, потому что от ответа зависит, есть ли
@@ -495,6 +516,19 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             </div>
 
             {isFactor(f) ? (<>
+              <div style={{ ...S.lbl, marginTop: 8 }}>с какой вероятностью случается</div>
+              <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
+                <Num value={chanceOf(f)} label="вероятность фактора"
+                  onChange={(v) => up(f.id, (x) => ({ ...x,
+                    chance: Math.max(0, Math.min(100, Number(v) || 0)) }))} />
+                <span style={{ fontSize: 12, color: C.muted }}>%</span>
+                <span style={{ flex: 1 }} />
+                <span style={{ fontSize: 10.5, color: C.muted, textAlign: "right" }}>
+                  {chanceOf(f) >= 100
+                    ? "удаётся каждая попытка"
+                    : `удаётся примерно каждая ${Math.round(100 / Math.max(chanceOf(f), 1))}-я`}
+                </span>
+              </div>
               <div style={{ ...S.lbl, marginTop: 8 }}>какой фактор</div>
               <select value={f.factor || ""} aria-label="фактор функции"
                 onChange={(e) => up(f.id, (x) => ({ ...x, factor: e.target.value }))}

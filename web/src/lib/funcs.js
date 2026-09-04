@@ -145,9 +145,12 @@ export const newFunc = (e, name = "новая функция") => ({
   // вилка «от 1 до 1» — это то же самое число, только сказанное дважды.
   durHi: 1,
   durUnit: DUR_DEFAULT,
-  // Пусто — «непрерывно»: следующее выполнение сразу за предыдущим.
+  // Пусто — «сразу»: следующая попытка начинается за предыдущей.
   every: 0,
+  everyHi: 0,
   everyUnit: DUR_DEFAULT,
+  // Вероятность удачной попытки, в процентах. Работает только у фактора.
+  chance: 100,
   setters: [],
   owners: [],
   reviewers: [],
@@ -191,21 +194,62 @@ export const sameHours = (f = {}) => {
   return lo === hi;
 };
 
-/**
- * Как часто функция повторяется — в часах. Ноль значит «непрерывно».
- *
- * Это НЕ длительность: работа может занимать час, но делаться раз в месяц.
- * Расписание короче самой работы ничего не ускоряет — быстрее, чем она
- * делается, она повторяться не может.
- */
-export const everyOf = ({ every, everyUnit } = {}) =>
-  num(every) * (DUR_UNITS[everyUnit] ?? 1);
+/* ─────── через сколько будет следующая попытка ───────
 
-/** По-человечески: «непрерывно» или «раз в 2 нед». */
+   Тоже вилка, и тоже не длительность: работа может занимать час, а
+   следующая попытка случаться через неделю. Ноль значит «сразу»: следующая
+   попытка начинается, как только закончилась предыдущая, и всё упирается
+   только в саму работу.
+
+   Слово «попытка», а не «повторение», — потому что попытка может и не
+   удаться: у фактора есть вероятность, и неудачная попытка просто ничего
+   не делает, дожидаясь следующей. */
+export const everyRange = ({ every, everyHi, everyUnit } = {}) => {
+  const k = DUR_UNITS[everyUnit] ?? 1;
+  const lo = num(every) * k;
+  const hi = everyHi == null ? lo : num(everyHi) * k;
+  return hi < lo ? { lo: hi, hi: lo } : { lo, hi };
+};
+
+/**
+ * Через сколько часов следующая попытка. Ноль — «сразу».
+ *
+ * `side` выбирает границу: щедрой оценке достаётся частая попытка (нижняя
+ * граница), осторожной — редкая. Без стороны — середина вилки.
+ */
+export const everyOf = (f = {}, side) => {
+  const { lo, hi } = everyRange(f);
+  if (side === "hi") return lo;
+  if (side === "lo") return hi;
+  return (lo + hi) / 2;
+};
+
+/** Задан ли срок попытки одним числом, а не вилкой. */
+export const sameEvery = (f = {}) => {
+  const { lo, hi } = everyRange(f);
+  return lo === hi;
+};
+
+/* ─────── вероятность, что попытка удастся ───────
+
+   Только у фактора: он случается сам, и «сам» не значит «наверняка». Сто
+   процентов — удаётся каждая попытка; пятьдесят — каждая вторая. У задачи
+   вероятности нет: работу делает человек, и «выйдет с вероятностью 60%»
+   про неё сказать нельзя — либо назначили, либо нет. */
+export const CHANCE_MAX = 100;
+export const chanceOf = (f = {}) => {
+  if (!isFactor(f)) return CHANCE_MAX;
+  const v = f.chance == null ? CHANCE_MAX : num(f.chance);
+  return Math.max(0, Math.min(CHANCE_MAX, v));
+};
+
+/** По-человечески: «сразу» или «через 2 нед», вилкой — «через 1–2 нед». */
 export const everyText = (f) => {
-  const h = everyOf(f);
-  if (h <= 0) return "непрерывно";
-  return `раз в ${nmDur(f.every)} ${f.everyUnit}`;
+  const { lo, hi } = everyRange(f);
+  if (lo <= 0 && hi <= 0) return "сразу";
+  return sameEvery(f)
+    ? `через ${nmDur(f.every)} ${f.everyUnit}`
+    : `через ${nmDur(f.every)}–${nmDur(f.everyHi)} ${f.everyUnit}`;
 };
 const nmDur = (v) => (Math.round(num(v) * 100) / 100);
 
@@ -250,7 +294,9 @@ export const normalizeFunc = (f = {}) => {
     durHi: f.durHi == null ? num(f.dur) : num(f.durHi),
     durUnit: unit(f.durUnit),
     every: num(f.every),
+    everyHi: f.everyHi == null ? num(f.every) : num(f.everyHi),
     everyUnit: unit(f.everyUnit),
+    chance: f.chance == null ? 100 : num(f.chance),
     ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id,
       [...new Set(Array.isArray(f[k.id]) ? f[k.id] : [])]])),
     x: num(f.x),

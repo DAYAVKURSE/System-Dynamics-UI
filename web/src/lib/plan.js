@@ -45,8 +45,8 @@
    производительности; домножать на количество людей значило бы додумать
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
-import { DUR_UNITS, everyOf, groupsOf, hoursOf, isFactor, runHours, runQty }
-  from "./funcs.js";
+import { CHANCE_MAX, DUR_UNITS, chanceOf, everyOf, groupsOf, hoursOf, isFactor,
+  runHours, runQty } from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
 export const MONTH_H = DUR_UNITS["мес"];
@@ -69,7 +69,7 @@ export function stepHours(f, runs = [], side) {
      целиком: измеренное не нуждается в границах. */
   const plan = side === "hi" ? hoursOf(f, "lo") : side === "lo" ? hoursOf(f, "hi") : hoursOf(f);
   const work = runHours(runs) ?? plan;
-  return Math.max(work, everyOf(f));
+  return Math.max(work, everyOf(f, side));
 }
 
 /**
@@ -168,8 +168,15 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan } = {}) {
 
   for (let m = 0; m < span; m += 1) {
     const wave = funcs.map((f) => {
-      // Потолок — сколько выполнений вообще помещается в месяц.
+      // Потолок — сколько попыток вообще помещается в месяц.
       const cap = cycles(f, runs(f), side);
+      /* Фактор случается сам: его не просят и не назначают, он идёт своим
+         чередом — столько попыток, сколько помещается, и из них удаются те,
+         на которые хватило вероятности. Задача — наоборот: её делают, и
+         делают ровно столько, сколько просят применённые цели. */
+      if (isFactor(f)) {
+        return { f, n: cap * (chanceOf(f) / CHANCE_MAX), k: 1, takes: [] };
+      }
       const want = perMonth[f.id] || 0;
       const budget = left[f.id] || 0;
       const n = plan ? Math.min(cap, want + budget) : cap;
@@ -201,6 +208,23 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan } = {}) {
     // не бывает, но половина выполнений за месяц — бывает.
     wave.forEach((w) => {
       w.k = w.takes.reduce((k, p) => Math.min(k, share[p.trait] ?? 1), 1);
+      /* Фактор ЖДЁТ. Он заранее знает, сколько ему нужно на одно
+         срабатывание, и берёт только тогда, когда это количество появилось:
+         на неполную порцию он не срабатывает, а ресурс копится до следующей
+         попытки. Задача так не может — работу делят и делают частями, — а
+         фактор либо случился целиком, либо не случился вовсе.
+
+         Считаем по тому, что фактору и правда достанется: доля `share`
+         учитывает, что за тот же ресурс борются другие. */
+      if (isFactor(w.f) && w.n > 0) {
+        const whole = w.takes.reduce((least, p) => {
+          const need = portQty(p, { kind: "takes", side, runs: runs(w.f) });
+          if (!(need > 0)) return least;
+          const mine = (level[p.trait] ?? 0) * (share[p.trait] ?? 1);
+          return Math.min(least, Math.floor(mine / need));
+        }, Infinity);
+        w.k = whole === Infinity ? 1 : Math.max(0, Math.min(w.k, whole / w.n));
+      }
     });
 
     wave.forEach(({ f, n, k, takes }) => {
@@ -464,7 +488,9 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
 
   const steps = Object.entries(runsBy).map(([id, n]) => {
     const f = funcs.find((x) => x.id === id);
-    const step = stepHours(f, runsFor(f));
+    // Сторона та же, что у всего плана: осторожная оценка считает по долгой
+    // работе и редкой попытке, щедрая — по быстрой и частой.
+    const step = stepHours(f, runsFor(f), side);
     /* Часы фактора — не человеко-часы: фактор происходит сам, и в бюджет
        человека его время не идёт. Календарный срок при этом остаётся —
        ждать его всё равно приходится. */

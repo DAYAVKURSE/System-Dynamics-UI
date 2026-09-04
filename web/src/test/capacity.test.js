@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hoursOf, hoursRange, normalizeFunc, newFunc, sameHours, checkFunc }
+import { chanceOf, hoursOf, hoursRange, normalizeFunc, newFunc, sameHours, checkFunc }
   from "../lib/funcs.js";
 import { cycles, forecast, load, runSide, stepHours } from "../lib/plan.js";
 import { goalRuns, newGoal, normalizeGoal } from "../lib/goals.js";
@@ -151,5 +151,70 @@ describe("прогноз целиком", () => {
     const fc = forecast(model, { span: 3, plan: { perMonth: { f1: 10 }, once: {} } });
     // Быстрая работа успевает больше — верхняя граница выше нижней.
     expect(fc.hi.out[3]).toBeGreaterThan(fc.lo.out[3]);
+  });
+});
+
+describe("фактор случается сам", () => {
+  const FX = (over) => normalizeFunc({ id: "x1", e: "A", kind: "factor", factor: "g1",
+    dur: 1, durHi: 1, durUnit: "мес",
+    takes: [{ trait: "in", lo: 4, hi: 4 }], gives: [{ trait: "out", lo: 1, hi: 1 }],
+    ...over });
+  const model = (over) => ({
+    traits: [{ id: "in", e: "A", have: 100 }, { id: "out", e: "A", have: 0 }],
+    funcs: [FX(over)],
+  });
+
+  it("идёт своим чередом, даже когда ни одна цель не применена", () => {
+    // Задачи ждут, что их поставят; фактор не спрашивает никого.
+    const out = runSide(model({}), { span: 2, side: "hi", plan: { perMonth: {}, once: {} } });
+    expect(out.out[2]).toBeCloseTo(2);
+  });
+
+  it("вероятность меньше 100% — удаётся не каждая попытка", () => {
+    const half = runSide(model({ chance: 50 }),
+      { span: 2, side: "hi", plan: { perMonth: {}, once: {} } });
+    expect(half.out[2]).toBeCloseTo(1);
+    // Нулевая вероятность — не случается вовсе.
+    const never = runSide(model({ chance: 0 }),
+      { span: 2, side: "hi", plan: { perMonth: {}, once: {} } });
+    expect(never.out[2]).toBe(0);
+  });
+
+  it("вероятность есть только у фактора: у задачи её не спрашивают", () => {
+    // «Выйдет с вероятностью 60%» про работу человека сказать нельзя —
+    // либо назначили, либо нет.
+    expect(chanceOf(normalizeFunc({ kind: "task", chance: 50 }))).toBe(100);
+    expect(chanceOf(FX({ chance: 50 }))).toBe(50);
+    // Мусор за границами шкалы приводится к ней, а не ломает расчёт.
+    expect(chanceOf(FX({ chance: 500 }))).toBe(100);
+    expect(chanceOf(FX({ chance: -5 }))).toBe(0);
+  });
+
+  it("ждёт полную порцию: на неполную не срабатывает, ресурс копится", () => {
+    /* Фактор заранее знает, сколько ему нужно на одно срабатывание. Задача
+       работу делит и делает частями, а фактор либо случился целиком, либо
+       не случился вовсе. */
+    const m = model({});
+    m.traits[0].have = 3;                      // нужно 4 — не хватает
+    const out = runSide(m, { span: 2, side: "hi", plan: { perMonth: {}, once: {} } });
+    expect(out.out[2]).toBe(0);
+    expect(out.in[2]).toBe(3);                 // и ничего не тронул
+  });
+
+  it("а задача на неполную порцию срабатывает частично — работу делят", () => {
+    const m = model({ kind: "task", factor: "" });
+    m.traits[0].have = 3;
+    const out = runSide(m, { span: 1, side: "hi", plan: { perMonth: { x1: 1 }, once: {} } });
+    expect(out.out[1]).toBeGreaterThan(0);
+    expect(out.out[1]).toBeLessThan(1);
+  });
+
+  it("не чаще, чем позволяет срок попытки", () => {
+    const rare = model({ dur: 1, durHi: 1, durUnit: "дн",
+      every: 2, everyHi: 2, everyUnit: "мес" });
+    rare.traits[0].have = 1000;
+    const out = runSide(rare, { span: 4, side: "hi", plan: { perMonth: {}, once: {} } });
+    // Раз в два месяца — за четыре месяца примерно два срабатывания.
+    expect(out.out[4]).toBeCloseTo(2, 1);
   });
 });

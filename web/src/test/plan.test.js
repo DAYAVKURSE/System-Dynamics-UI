@@ -243,7 +243,10 @@ describe("что нужно сделать, чтобы дойти до цели"
 
   it("расписание удлиняет срок, а объём работы оставляет прежним", () => {
     const slow = { ...chainModel,
-      funcs: [chainModel.funcs[0], F({ ...chainModel.funcs[1], every: 1, everyUnit: "дн" })] };
+      // Срок попытки — вилка: подменяя нижнюю границу, надо подменить и
+      // верхнюю, иначе выйдет «через 0–1 дн».
+      funcs: [chainModel.funcs[0],
+        F({ ...chainModel.funcs[1], every: 1, everyHi: 1, everyUnit: "дн" })] };
     const r = solve(slow, { trait: "act", want: 500, side: "hi" });
     expect(r.workHours).toBeCloseTo(480 * 4 + 480 * 2);
     expect(r.criticalHours).toBeGreaterThan(480 * 24);
