@@ -20,6 +20,9 @@ let container;
 beforeEach(() => { ({ container } = render(<SystemModel />)); });
 
 const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
+/* Три части актива живут во вкладках: до ресурсов надо переключиться. */
+const assetTab = (name) => fireEvent.click(
+  screen.getByRole("button", { name: new RegExp(`^${name}`) }));
 const forecast = () => { tab("Прогноз"); expandCards(container); };
 const dump = () => {
   fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
@@ -45,6 +48,7 @@ describe("состав вкладок", () => {
 describe("классификации — на «Схеме»", () => {
   it("список и добавление классификации живут под карточкой актива", () => {
     tab("Схема");
+    assetTab("Ресурсы");
     expect(screen.getByText("классификации ресурсов")).toBeTruthy();
     const add = screen.getByRole("button", { name: "+ классификация" });
     // Ниже добавления ресурса, а не выше: тип выбирается уже после того,
@@ -61,25 +65,28 @@ describe("классификации — на «Схеме»", () => {
     fireEvent.click(screen.getByRole("button", { name: "+ классификация" }));
     expect(dump().kinds.length).toBe(before + 1);
     tab("Схема");
+    assetTab("Ресурсы");
     expect(screen.getByRole("button", { name: /^\+ • новая классификация$/ }))
       .toBeInTheDocument();
   });
 });
 
 describe("три части актива — одинаковыми формами", () => {
-  it("воркеры, функции и ресурсы стоят в одном месте и в одном порядке", () => {
+  it("вкладки идут в одном порядке: сначала люди, потом их работа, потом ресурсы", () => {
     tab("Схема");
-    const order = ["воркеры актива", "функции актива", "ресурсы актива"]
-      .map((t) => [...container.querySelectorAll("*")].indexOf(screen.getByText(t)));
-    expect(order[0]).toBeLessThan(order[1]);
-    expect(order[1]).toBeLessThan(order[2]);
+    const all = [...container.querySelectorAll("*")];
+    const at = (name) => all.indexOf(
+      screen.getByRole("button", { name: new RegExp(`^${name} \\d`) }));
+    expect(at("Воркеры")).toBeLessThan(at("Функции"));
+    expect(at("Функции")).toBeLessThan(at("Ресурсы"));
   });
 
-  it("карточки всех трёх разделов раскрываются одинаково", () => {
+  it("карточки всех трёх вкладок раскрываются одинаково", () => {
     tab("Схема");
-    // Одна грамматика на все разделы: «развернуть …» + название + «удалить».
+    // Одна грамматика на все части: «развернуть …» + название + «удалить».
     expect(screen.getAllByRole("button", { name: "развернуть функции" }).length)
       .toBeGreaterThan(0);
+    assetTab("Ресурсы");
     expect(screen.getAllByRole("button", { name: "развернуть ресурса" }).length)
       .toBeGreaterThan(0);
   });
@@ -88,6 +95,7 @@ describe("три части актива — одинаковыми формам
 describe("цель ресурса", () => {
   it("задаётся в карточке ресурса и уезжает в модель", () => {
     tab("Схема");
+    assetTab("Ресурсы");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[0]);
     const want = screen.getByPlaceholderText("без цели");
     fireEvent.change(want, { target: { value: "999" } });
@@ -95,9 +103,10 @@ describe("цель ресурса", () => {
     expect(dump().traits.some((t) => Number(t.want) === 999)).toBe(true);
   });
 
-  it("«Прогноз» показывает цели и два срока — наверняка и в лучшем случае", () => {
+  it("«Прогноз» показывает цели, план под них и два срока", () => {
     tab("Прогноз");
-    expect(screen.getByText("цели")).toBeTruthy();
+    expect(screen.getByText("цели · что для них нужно сделать")).toBeTruthy();
+    expect(screen.getAllByText("что нужно сделать").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/в лучшем случае|не достигается/).length)
       .toBeGreaterThan(0);
   });

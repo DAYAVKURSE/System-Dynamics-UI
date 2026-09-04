@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DUR_UNITS, adoptAssets, adoptFuncs, avgOf, cyclesPerMonth, fromHours, hoursOf,
-  newFunc, newGive, newPort, normalizeFunc, normalizeFuncs, okRange, pruneWorkers,
-  rangeText, runHours, runQty, workersOf } from "../lib/funcs.js";
+import { DUR_UNITS, avgOf, everyOf, everyText, fromHours, hoursOf, newFunc, newGive,
+  newPort, normalizeFunc, normalizeFuncs, okRange, pruneWorkers, rangeText,
+  runHours, runQty, workersOf } from "../lib/funcs.js";
 
 /* Функция — то, что преобразует ресурсы актива: берёт одни, выдаёт другие,
    и на это уходит время. Здесь проверяется её запись, диапазоны, среднее по
@@ -59,69 +59,50 @@ describe("чужая запись достраивается, а не роняе
   });
 });
 
-describe("прежняя запись сводится к нынешней, а не выбрасывается", () => {
-  /* Прежде выходом считалась отдельная функция: срок, исполнители и
-     проверяющие висели на каждом выходе свои. Модели с таким устройством
-     уже сохранены, и открыть их надо без потерь. */
+describe("прежние записи не переносятся", () => {
+  /* Владелец сказал прямо: модели, собранные под прежний расчёт, работать не
+     должны. Молчаливый перенос был бы хуже отказа — получилась бы модель,
+     которую никто не собирал. */
   const old = {
     id: "f1", e: "usr", name: "вёрстка",
     takes: [{ trait: "t1", qty: 3 }],
-    gives: [
-      { id: "g1", trait: "t2", qty: 5, dur: 1, durUnit: "дн", owners: ["p1"], reviewers: ["p9"] },
-      { id: "g2", trait: "t3", qty: 2, dur: 3, durUnit: "дн", owners: ["p2"], reviewers: ["p9"] },
-    ],
+    gives: [{ id: "g1", trait: "t2", qty: 5, dur: 1, durUnit: "дн", owners: ["p1"] }],
   };
 
-  it("qty становится вилкой ровно того же размера — границы не выдумываются", () => {
+  it("qty не становится вилкой: чего в нынешней записи нет, то и не читается", () => {
     const f = normalizeFunc(old);
-    expect(f.takes[0]).toMatchObject({ trait: "t1", lo: 3, hi: 3 });
-    expect(f.gives[0]).toMatchObject({ trait: "t2", lo: 5, hi: 5 });
+    expect(f.takes[0]).toMatchObject({ trait: "t1", lo: 0, hi: 0 });
+    expect(f.gives[0]).toMatchObject({ trait: "t2", lo: 0, hi: 0 });
   });
 
-  it("срок функции — самый долгий из сроков её выходов", () => {
-    // Выполнение кончается тогда, когда готово всё, а не когда готова
-    // первая часть.
-    expect(hoursOf(normalizeFunc(old))).toBe(72);
-  });
-
-  it("исполнители и проверяющие складываются со всех выходов, без повторов", () => {
-    // Потерять назначенного человека нельзя: он уже в работе.
+  it("срок и люди с выходов на функцию не поднимаются", () => {
     const f = normalizeFunc(old);
-    expect(f.owners).toEqual(["p1", "p2"]);
-    expect(f.reviewers).toEqual(["p9"]);
-  });
-
-  it("выход без сроков и людей достраивается до годного", () => {
-    const f = normalizeFunc({ id: "f1", e: "usr", gives: [{ trait: "t2" }] });
-    expect(f.gives[0].id).toBeTruthy();
-    expect(f.gives[0].lo).toBe(0);
+    expect(f.dur).toBe(0);
     expect(f.owners).toEqual([]);
-    expect(f.reviewers).toEqual([]);
+  });
+
+  it("но чужая запись всё равно достраивается, а не роняет редактор", () => {
+    // Отказ работать — это пустые поля и красная подпись, а не белый экран.
+    const f = normalizeFunc(old);
+    expect(f.gives[0].to).toBe("");
     expect(DUR_UNITS[f.durUnit]).toBeTruthy();
+    expect(DUR_UNITS[f.everyUnit]).toBeTruthy();
   });
 });
 
-describe("прежние стрелки между элементами вливаются в выходы", () => {
-  /* Третья форма — «передаёт другим элементам» — была отдельным списком
-     flows. Теперь передача выражается выходом. Заложенные в стрелках числа
-     молча потерять нельзя. */
-  const funcs = [{ id: "f1", e: "A", takes: [], gives: [{ id: "g1", trait: "t2", qty: 4 }] }];
-
-  it("стрелка с ресурсом, которого в выходах не было, добавляет выход с её вилкой", () => {
-    const [f] = adoptFuncs(funcs, [{ id: "w1", from: "f1", trait: "t9", lo: 3, hi: 5 }]);
-    expect(f.gives).toHaveLength(2);
-    expect(f.gives[1]).toMatchObject({ trait: "t9", lo: 3, hi: 5 });
+describe("расписание функции", () => {
+  it("пусто значит «непрерывно» — следующее выполнение сразу за предыдущим", () => {
+    expect(everyOf(newFunc("usr"))).toBe(0);
+    expect(everyText(newFunc("usr"))).toBe("непрерывно");
   });
 
-  it("уже заданная вилка выхода сильнее стрелки — её задавали руками", () => {
-    const [f] = adoptFuncs(funcs, [{ id: "w1", from: "f1", trait: "t2", lo: 1, hi: 9 }]);
-    expect(f.gives).toHaveLength(1);
-    expect(f.gives[0]).toMatchObject({ trait: "t2", lo: 4, hi: 4 });
-  });
-
-  it("без стрелок ничего не меняется", () => {
-    expect(adoptFuncs(funcs, undefined)[0].gives).toHaveLength(1);
-    expect(adoptFuncs(funcs, [])[0].gives).toHaveLength(1);
+  it("задаётся отдельно от длительности: час работы раз в месяц — это законно", () => {
+    // Одно другого не заменяет: работа может занимать час, но делаться раз
+    // в месяц, и наоборот.
+    const f = normalizeFunc({ dur: 1, durUnit: "ч", every: 1, everyUnit: "мес" });
+    expect(hoursOf(f)).toBe(1);
+    expect(everyOf(f)).toBe(730);
+    expect(everyText(f)).toBe("раз в 1 мес");
   });
 });
 
@@ -157,16 +138,6 @@ describe("время", () => {
     expect(fromHours(36)).toEqual({ dur: 1.5, durUnit: "дн" });
     expect(fromHours(3)).toEqual({ dur: 3, durUnit: "ч" });
     expect(fromHours(0)).toEqual({ dur: 0, durUnit: "ч" });
-  });
-
-  it("цикл короче месяца повторяется, длиннее — выдаёт долю", () => {
-    // Иначе результат, на который ушло полгода, появился бы разом, и
-    // модель врала бы о сроках.
-    expect(cyclesPerMonth({ dur: 1, durUnit: "мес" })).toBeCloseTo(1);
-    expect(cyclesPerMonth({ dur: 1, durUnit: "нед" })).toBeGreaterThan(4);
-    expect(cyclesPerMonth({ dur: 6, durUnit: "мес" })).toBeCloseTo(1 / 6);
-    // Ноль длительности — не деление на бесконечность, а «не считаем».
-    expect(cyclesPerMonth({ dur: 0, durUnit: "дн" })).toBe(0);
   });
 });
 
@@ -207,19 +178,6 @@ describe("воркеры актива", () => {
     expect(workersOf(entities, "A")).toEqual({ owners: ["p1", "p2"], reviewers: ["p9"] });
     expect(workersOf(entities, "B")).toEqual({ owners: ["p7"], reviewers: [] });
     expect(workersOf(entities, "нет-такого")).toEqual({ owners: [], reviewers: [] });
-  });
-
-  it("прежние назначения поднимаются с функций в актив, без повторов", () => {
-    // В моделях, где воркеров ещё не было, люди назначались прямо на
-    // функцию. Потерять их нельзя: они уже в работе.
-    const funcs = [
-      { id: "f1", e: "A", owners: ["p1", "p2"], reviewers: ["p9"] },
-      { id: "f2", e: "A", owners: ["p2"], reviewers: [] },
-      { id: "f3", e: "B", owners: ["p7"], reviewers: [] },
-    ];
-    const [a, b] = adoptAssets([{ id: "A" }, { id: "B", owners: ["p0"] }], funcs);
-    expect(a).toMatchObject({ owners: ["p1", "p2"], reviewers: ["p9"] });
-    expect(b.owners).toEqual(["p0", "p7"]);
   });
 
   it("человек, переставший быть воркером, уходит и с функций актива", () => {

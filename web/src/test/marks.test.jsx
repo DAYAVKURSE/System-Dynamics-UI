@@ -17,6 +17,10 @@ const dialog = () => screen.queryByRole("dialog");
    подписи на стартовой модели нельзя: там все активы годные, и проверка
    молча ничего бы не проверяла. */
 const addAsset = () => { scheme(); fireEvent.click(screen.getByRole("button", { name: "+ актив" })); };
+/* Три части актива живут во вкладках: до ресурсов и воркеров надо сначала
+   переключиться. */
+const assetTab = (name) => fireEvent.click(
+  screen.getByRole("button", { name: new RegExp(`^${name}`) }));
 const asks = () => [...container.querySelectorAll("svg text")].filter((t) => t.textContent === "?");
 
 describe("подпись на схеме", () => {
@@ -101,6 +105,7 @@ describe("подпись у ресурса", () => {
     // Заводим ресурс в новом активе: его никто не выдаёт и никто не берёт,
     // значит он красный.
     addAsset();
+    assetTab("Ресурсы");
     const box = screen.getByPlaceholderText("текст нового ресурса");
     fireEvent.change(box, { target: { value: "новый ресурс" } });
     fireEvent.blur(box);
@@ -112,9 +117,17 @@ describe("подпись у ресурса", () => {
   });
 
   it("ресурс, который одна функция выдаёт, а другая берёт, — белый", () => {
-    // На стартовой модели такие есть: она собрана замкнуто.
+    // Стартовая модель замкнута: «Рынок услуг» выдаёт спрос, а «Сбор заявок»
+    // его берёт, значит у спроса красной подписи быть не должно.
     scheme();
-    expect(screen.getAllByText("ресурс").length).toBeGreaterThan(0);
+    const mkt = [...container.querySelectorAll("svg g")]
+      .find((g) => [...g.querySelectorAll("text")]
+        .some((t) => t.textContent === "Рынок услуг"));
+    fireEvent.pointerDown(mkt, { clientX: 1, clientY: 1 });
+    fireEvent.pointerUp(window, { clientX: 1, clientY: 1 });
+    assetTab("Ресурсы");
+    expect(screen.getByDisplayValue("спрос")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /почему «ресурс»/ })).toBeNull();
   });
 });
 
@@ -123,7 +136,19 @@ describe("подпись у функции", () => {
      между карточками стартовой модели. */
   const freshFunc = () => {
     addAsset();
+    assetTab("Функции");
     fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
+  };
+  // Ресурсы заводятся на своей вкладке, функция настраивается на своей.
+  const addTraits = (...names) => {
+    assetTab("Ресурсы");
+    const box = screen.getByPlaceholderText("текст нового ресурса");
+    names.forEach((name) => {
+      fireEvent.change(box, { target: { value: name } });
+      fireEvent.blur(box);
+      fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
+    });
+    assetTab("Функции");
   };
 
   it("только что заведённая функция красная — ей нечего преобразовывать", () => {
@@ -136,12 +161,7 @@ describe("подпись у функции", () => {
   it("функция с входом и выходом внутри актива становится белой", () => {
     freshFunc();
     // Два ресурса в новом активе: один во вход, другой в выход.
-    const box = screen.getByPlaceholderText("текст нового ресурса");
-    ["сырьё", "изделие"].forEach((name) => {
-      fireEvent.change(box, { target: { value: name } });
-      fireEvent.blur(box);
-      fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
-    });
+    addTraits("сырьё", "изделие");
     fireEvent.click(screen.getByRole("button", { name: "+ берёт «сырьё»" }));
     fireEvent.click(screen.getByRole("button", { name: "+ выдаёт «изделие»" }));
 
@@ -150,12 +170,7 @@ describe("подпись у функции", () => {
 
   it("функция без времени выполнения красная — она не говорит, когда будет готово", () => {
     freshFunc();
-    const box = screen.getByPlaceholderText("текст нового ресурса");
-    ["сырьё", "изделие"].forEach((name) => {
-      fireEvent.change(box, { target: { value: name } });
-      fireEvent.blur(box);
-      fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
-    });
+    addTraits("сырьё", "изделие");
     fireEvent.click(screen.getByRole("button", { name: "+ берёт «сырьё»" }));
     fireEvent.click(screen.getByRole("button", { name: "+ выдаёт «изделие»" }));
     fireEvent.change(screen.getByLabelText("время одного выполнения"),

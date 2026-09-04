@@ -31,8 +31,13 @@ const dump = () => {
   scheme();
   return m;
 };
+/* Три части актива живут во вкладках: чтобы дотянуться до ресурсов или
+   воркеров, надо сначала переключиться на них. */
+const assetTab = (name) => fireEvent.click(
+  screen.getByRole("button", { name: new RegExp(`^${name}`) }));
 const addFunc = () => {
   scheme();
+  assetTab("Функции");
   fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
 };
 const loadJson = (m) => {
@@ -46,11 +51,25 @@ const loadJson = (m) => {
 };
 
 describe("актив состоит из трёх частей", () => {
-  it("воркеры, функции и ресурсы — три раздела в одной карточке", () => {
+  it("воркеры, функции и ресурсы — три вкладки одного вида", () => {
     scheme();
+    ["Воркеры", "Функции", "Ресурсы"].forEach((name) => {
+      expect(screen.getByRole("button", { name: new RegExp(`^${name} \\d`) }))
+        .toBeInTheDocument();
+    });
+    // Открыта одна за раз: части равноправны, и ни одна не «та, до которой
+    // надо долистать».
+    assetTab("Воркеры");
     expect(screen.getByText("воркеры актива")).toBeInTheDocument();
-    expect(screen.getByText("функции актива")).toBeInTheDocument();
+    expect(screen.queryByText("ресурсы актива")).toBeNull();
+    assetTab("Ресурсы");
     expect(screen.getByText("ресурсы актива")).toBeInTheDocument();
+    expect(screen.queryByText("функции актива")).toBeNull();
+  });
+
+  it("на вкладке видно, сколько в ней всего", () => {
+    scheme();
+    expect(screen.getByRole("button", { name: /^Ресурсы 2$/ })).toBeInTheDocument();
   });
 
   it("у функции ровно две формы: «берёт» и «выдаёт»", () => {
@@ -135,6 +154,7 @@ describe("передача в другой актив", () => {
 describe("воркеры принадлежат активу", () => {
   it("без людей раздел честно говорит, что их ещё нет", () => {
     scheme();
+    assetTab("Воркеры");
     expect(screen.getByText(/Людей ещё нет/)).toBeInTheDocument();
   });
 
@@ -147,6 +167,7 @@ describe("воркеры принадлежат активу", () => {
 describe("ресурс — такая же карточка", () => {
   it("правится значением, единицей и целью", () => {
     scheme();
+    assetTab("Ресурсы");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[0]);
     const want = screen.getByPlaceholderText("без цели");
     fireEvent.change(want, { target: { value: "42" } });
@@ -160,6 +181,7 @@ describe("ресурс — такая же карточка", () => {
     expect(before).toBeGreaterThan(0);
 
     scheme();
+    assetTab("Ресурсы");
     // «заявки» — ресурс «Пользователей», его берёт функция другого актива.
     const card = screen.getByDisplayValue("заявки").closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
@@ -186,6 +208,7 @@ describe("модель переживает то, что должна", () => {
     scheme();
     const was = dump().funcs.length;
     scheme();
+    assetTab("Функции");
     const card = screen.getByDisplayValue("Сбор заявок").closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
     expect(dump().funcs.length).toBe(was - 1);
@@ -203,10 +226,10 @@ describe("модель переживает то, что должна", () => {
     expect(dump().funcs).toHaveLength(was);
   });
 
-  it("прежняя запись открывается без потерь: qty становится вилкой, срок и люди — общими", () => {
-    // Модели прежнего устройства уже сохранены: выходом там считалась
-    // отдельная функция со своим сроком и своими людьми, а воркеров у
-    // актива не было вовсе.
+  it("прежняя запись открывается, но её числа не переносятся", () => {
+    // Модели, собранные под прежний расчёт, работать не должны: перенос дал
+    // бы модель, которую никто не собирал. Но и падать приложение не должно —
+    // пустые поля и красная подпись честнее белого экрана.
     const m = dump();
     m.entities = [{ id: "a", name: "Актив", color: "#fff", x: 0, y: 0 }];
     m.traits = [{ id: "t1", e: "a", k: "res", l: "сырьё", unit: "шт.", have: 0 },
@@ -214,41 +237,21 @@ describe("модель переживает то, что должна", () => {
     m.funcs = [{
       id: "f1", e: "a", name: "старая",
       takes: [{ trait: "t1", qty: 3 }],
-      gives: [{ id: "g1", trait: "t2", qty: 5, dur: 2, durUnit: "дн",
-        owners: ["p1"], reviewers: [] }],
+      gives: [{ id: "g1", trait: "t2", qty: 5, dur: 2, durUnit: "дн", owners: ["p1"] }],
     }];
-    m.tasks = [];
-    loadJson(m);
-
-    scheme();
-    const out = dump();
-    const f = out.funcs[0];
-    expect(f.takes[0]).toMatchObject({ lo: 3, hi: 3 });
-    expect(f.gives[0]).toMatchObject({ lo: 5, hi: 5 });
-    expect(f).toMatchObject({ dur: 2, durUnit: "дн", owners: ["p1"] });
-    // Люди поднялись в актив: без этого назначение оказалось бы «не
-    // воркером» и молча пропало.
-    expect(out.entities[0].owners).toEqual(["p1"]);
-  });
-
-  it("прежняя стрелка между элементами становится выходом с получателем", () => {
-    const m = dump();
-    m.entities = [{ id: "a", name: "А", color: "#fff", x: 0, y: 0 },
-      { id: "b", name: "Б", color: "#fff", x: 300, y: 0 }];
-    m.traits = [{ id: "t1", e: "a", k: "res", l: "сырьё", unit: "шт.", have: 0 },
-      { id: "t2", e: "a", k: "res", l: "изделие", unit: "шт.", have: 0 }];
-    m.funcs = [
-      { id: "f1", e: "a", name: "источник", takes: [{ trait: "t1", qty: 1 }], gives: [] },
-      { id: "f2", e: "b", name: "приёмник", takes: [], gives: [] },
-    ];
     m.flows = [{ id: "w1", from: "f1", to: "f2", trait: "t2", lo: 3, hi: 5 }];
     m.tasks = [];
     loadJson(m);
 
     scheme();
     const out = dump();
-    expect(out.funcs[0].gives[0]).toMatchObject({ trait: "t2", lo: 3, hi: 5, to: "b" });
-    // Списка стрелок больше нет: два места про одно и то же разошлись бы.
+    const f = out.funcs[0];
+    expect(f.takes[0]).toMatchObject({ lo: 0, hi: 0 });
+    expect(f.dur).toBe(0);
+    expect(f.owners).toEqual([]);
+    expect(out.entities[0].owners).toEqual([]);
+    // И прежние стрелки между элементами никуда не вливаются.
+    expect(f.gives).toHaveLength(1);
     expect(out.flows).toBeUndefined();
   });
 
@@ -267,6 +270,7 @@ describe("модель переживает то, что должна", () => {
 
     // Стираем функцию и грузим сценарий обратно.
     scheme();
+    assetTab("Функции");
     const card = screen.getByDisplayValue("вёрстка").closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
     expect(screen.queryByDisplayValue("вёрстка")).toBeNull();
@@ -278,6 +282,7 @@ describe("модель переживает то, что должна", () => {
     await waitFor(() => expect(container.textContent).toMatch(/Загружено:/));
 
     scheme();
+    assetTab("Функции");
     expect(screen.getByDisplayValue("вёрстка")).toBeInTheDocument();
   });
 });

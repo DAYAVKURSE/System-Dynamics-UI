@@ -15,6 +15,9 @@ function entityGroup(container, name) {
   return g;
 }
 
+/* Три части актива живут во вкладках: до ресурсов надо переключиться. */
+const assetTab = (name) => fireEvent.click(
+  screen.getByRole("button", { name: new RegExp(`^${name}`) }));
 const entityRect = (container, name) => entityGroup(container, name).querySelector("rect");
 
 // TxtField отдаёт значение наружу по расфокусу — печатаем и уходим с поля.
@@ -77,19 +80,21 @@ describe("активы на схеме", () => {
   it("удаляются вместе со своими ресурсами", () => {
     openTab("Схема");
     // «Пользователи» выбраны по умолчанию, у них есть ресурс с этим названием
-    expect(screen.getAllByText(/активные пользователи/i).length).toBeGreaterThan(0);
+    assetTab("Ресурсы");
+    expect(screen.getByDisplayValue("активные пользователи")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Удалить актив/ }));
 
     expect(() => entityGroup(container, "Пользователи")).toThrow();
-    expect(screen.queryByText(/активные пользователи/i)).toBeNull();
+    expect(screen.queryByDisplayValue("активные пользователи")).toBeNull();
   });
 });
 
 describe("переименование ресурса", () => {
   it("меняет название и показывает его в модели", () => {
     openTab("Схема");
-    // Ресурсы актива — карточки в его разделе «ресурсы актива».
+    assetTab("Ресурсы");
+    // Ресурсы актива — карточки на его вкладке «Ресурсы».
     const field = screen.getByDisplayValue("активные пользователи");
     typeAndCommit(field, "ядро аудитории");
 
@@ -99,6 +104,7 @@ describe("переименование ресурса", () => {
 
   it("заводится кнопкой своей классификации и сразу принадлежит активу", () => {
     openTab("Схема");
+    assetTab("Ресурсы");
     const box = screen.getByPlaceholderText("текст нового ресурса");
     typeAndCommit(box, "новый запас");
     fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
@@ -116,6 +122,7 @@ describe("классификации ресурсов", () => {
     expect(screen.getByDisplayValue("тиражируемость")).toBeInTheDocument();
 
     // Название подхватывается там, где классификация выбирается для ресурса.
+    assetTab("Ресурсы");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[0]);
     expect(screen.getAllByRole("button", { name: /тиражируемость/ }).length)
       .toBeGreaterThan(0);
@@ -171,6 +178,7 @@ describe("классификации ресурсов", () => {
     expect(entityGroup(container, "Актив")).toBeTruthy();
     expect(screen.getByDisplayValue("Актив")).toBeInTheDocument();
     // Ресурс с неизвестной классификацией показан с заглушкой вместо значка.
+    assetTab("Ресурсы");
     expect(screen.getByDisplayValue("ресурс")).toBeInTheDocument();
     expect(screen.getAllByText(/\? без типа/).length).toBeGreaterThan(0);
   });

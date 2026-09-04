@@ -5,9 +5,9 @@ import { SOLO, whoAmI, getWorkspace, putWorkspace, reviewTaskRemote, draftTask }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, adoptAssets, adoptFuncs, checkAsset,
-  normalizeAssets, pruneWorkers, workersOf } from "../lib/funcs.js";
-import { forecast, load, reach, transfers } from "../lib/plan.js";
+import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, normalizeAssets,
+  normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
+import { forecast, load, reach, solveRange, transfers } from "../lib/plan.js";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { runsOfFunc } from "./TasksBoard.jsx";
 import Timeline from "./Timeline.jsx";
@@ -67,7 +67,10 @@ const TRAITS0=[
   T("hdl","vm","growth","обработанные заявки","шт.",0,300),
 ];
 const P=(trait,lo,hi,to)=>({id:`p_${trait}_${to||"in"}`,trait,lo,hi,...(to!==undefined?{to}:{})});
-const FUNCS0=[
+/* Стартовые функции приводим к нынешней записи здесь же: иначе первая
+   отмена правки дописала бы недостающие поля, документ перестал бы совпадать
+   с исходным, и черновик решил бы, что есть несохранённые изменения. */
+const FUNCS0=normalizeFuncs([
   {id:"f_req",e:"usr",name:"Сбор заявок",
     takes:[P("dem",2,4)],gives:[P("req",1,1,"vm")],
     dur:2,durUnit:"ч",owners:[],reviewers:[],x:0,y:0},
@@ -77,7 +80,7 @@ const FUNCS0=[
   {id:"f_dem",e:"mkt",name:"Сарафанное радио",
     takes:[P("hdl",1,1)],gives:[P("dem",1,3,"")],
     dur:1,durUnit:"дн",owners:[],reviewers:[],x:0,y:0},
-];
+]);
 
 /* ─────── график: лента гипотезы и линия факта ───────
    Лента, а не линия: вилка входов и выходов — гипотеза, и рисовать её одной
@@ -248,6 +251,17 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
     </div>);
 }
 
+/* Часы в понятное: 2 880 ч — это «4 мес», а не число, в котором надо
+   считать нули. Меньше суток остаётся часами: «3 ч» понятнее «0,1 дн». */
+function durText(h){
+  const n=Number(h)||0;
+  if(n<=0) return "—";
+  if(n<24) return `${nm(Math.round(n*10)/10)} ч`;
+  if(n<168) return `${nm(Math.round(n/24*10)/10)} дн`;
+  if(n<730) return `${nm(Math.round(n/168*10)/10)} нед`;
+  return `${nm(Math.round(n/730*10)/10)} мес`;
+}
+
 function whenText(iso){
   const d=new Date(iso);
   if(isNaN(d.getTime())) return "прошлого сеанса";
@@ -312,12 +326,12 @@ export default function SystemModel(){
   const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs}),
     [entities,traits,kinds,tasks,funcs]);
   const restoreDoc=useCallback((d)=>{
-    // Активы принимаем вместе с функциями: в моделях, где воркеров ещё не
-    // было, люди назначались прямо на функцию — их надо поднять в актив.
-    const fs=adoptFuncs(d.funcs,d.flows);
-    setEntities(adoptAssets(d.entities,fs));
+    // Документ достраивается до нынешней записи, но НЕ переносится из
+    // прежних версий: модели, собранные под старый расчёт, работать не
+    // должны — см. lib/funcs.js.
+    setEntities(normalizeAssets(d.entities));
     setTraits(Array.isArray(d.traits)?d.traits:[]);
-    setKinds(d.kinds); setTasks(d.tasks); setFuncs(fs);
+    setKinds(d.kinds); setTasks(d.tasks); setFuncs(normalizeFuncs(d.funcs));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -439,7 +453,7 @@ export default function SystemModel(){
       restoreDoc({
         entities:w.entities||[], traits:w.traits||[],
         kinds:(w.kinds&&w.kinds.length)?w.kinds:KINDS0,
-        tasks:w.tasks||[], funcs:w.funcs, flows:w.flows,
+        tasks:w.tasks||[], funcs:w.funcs,
       });
     }).catch(()=>{});
   },[me.solo,me.isOwner,restoreDoc]);
@@ -496,9 +510,9 @@ export default function SystemModel(){
       // Старые сценарии могут не знать про часть документа — недостающее
       // остаётся текущим, а не превращается в пустоту.
       const arr=(v,cur,need)=>Array.isArray(v)&&(!need||v.length)?v:cur;
-      const fs=adoptFuncs(arr(s.data?.funcs,funcs),s.data?.flows);
+      const fs=normalizeFuncs(arr(s.data?.funcs,funcs));
       const loaded={
-        entities:adoptAssets(arr(s.data?.entities,entities,true),fs),
+        entities:normalizeAssets(arr(s.data?.entities,entities,true)),
         traits:arr(s.data?.traits,traits),
         kinds:arr(s.data?.kinds,kinds,true),
         tasks:arr(s.data?.tasks,tasks),
@@ -565,6 +579,12 @@ export default function SystemModel(){
     [traits,funcs,span,runsOf]);
   const moves=useMemo(()=>transfers({funcs,traits},{runsOf}),[funcs,traits,runsOf]);
   const workload=useMemo(()=>load({funcs},{runsOf}),[funcs,runsOf]);
+  /* План под каждую цель: что нужно сделать и сколько это займёт.
+     Прогноз отвечает «куда придём сами», план — «что для этого сделать»;
+     оба считаются из одних и тех же функций, поэтому разойтись не могут. */
+  const plans=useMemo(()=>traits.filter(t=>t.want!=null)
+    .map(t=>({t,...solveRange({traits,funcs},{trait:t.id,runsOf})})),
+  [traits,funcs,runsOf]);
   const valuesFor=useCallback((tid)=>{
     const at=Math.min(simMonth,span);
     return {lo:fc.lo[tid]?.[at]??0,hi:fc.hi[tid]?.[at]??0,
@@ -705,8 +725,8 @@ export default function SystemModel(){
               style={{fontSize:15,fontWeight:700,marginBottom:6}}
               onCommit={v=>setEntities(p=>p.map(e=>e.id===selE.id?{...e,name:v}:e))}/>
             <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
-              Актив — это его воркеры, его функции и его ресурсы. Ниже все три,
-              в одном и том же порядке и в одном и том же виде.
+              Актив — это его воркеры, его функции и его ресурсы. Три вкладки
+              ниже — они и есть, все три одного вида.
             </div>
 
             <AssetPanel entityId={selE.id}
@@ -772,14 +792,77 @@ export default function SystemModel(){
 
         {!!goals.length&&(
           <div style={{...S.card,marginBottom:10}}>
-            <div style={S.lbl}>цели</div>
-            {goals.map(g=>{
-              const r=reach(fc,g);
+            <div style={S.lbl}>цели · что для них нужно сделать</div>
+            {plans.map(({t,lo,hi})=>{
+              const r=reach(fc,t);
+              const best=hi.ok?hi:null, sure=lo.ok?lo:null;
+              const show=best||sure;
               return (
-                <div key={g.id} style={{fontSize:11.5,marginTop:6,lineHeight:1.6}}>
-                  <b>{g.l}</b> — нужно {nm(Number(g.want))} {g.unit}
-                  <div style={{color:C.muted}}>
-                    {r.sure!=null?`наверняка к ${r.sure} мес`:"по нижней границе не достигается"}
+                <div key={t.id} style={{background:C.panel2,border:`1px solid ${C.line}`,
+                  borderRadius:8,padding:9,marginTop:8}}>
+                  <div style={{fontSize:12.5,fontWeight:700}}>{t.l}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2,lineHeight:1.6}}>
+                    сейчас {nm(Number(t.have)||0)} {t.unit} · нужно {nm(Number(t.want))}
+                    {hi.need>0?` · не хватает ${nm(hi.need)}`:" · цель уже взята"}
+                  </div>
+
+                  {hi.need>0&&(<>
+                    <div style={{...S.lbl,marginTop:8}}>что нужно сделать</div>
+                    {!show&&(
+                      <div style={{fontSize:11.5,color:BAD,marginTop:5,lineHeight:1.6}}>
+                        {hi.missing.length
+                          ? `Цель недостижима: ресурс «${traits.find(x=>x.id===hi.missing[0])?.l
+                            ||hi.missing[0]}» не выдаёт ни одна функция. Заведите функцию, которая его производит.`
+                          : hi.looped
+                            ? "Цепочка замкнулась сама на себя: ресурс нужен для того, чтобы получить этот же ресурс. Разорвите круг или задайте начальный запас."
+                            : "Ни одна функция не выдаёт этот ресурс."}
+                      </div>)}
+                    {show&&show.steps.map(st=>{
+                      // Осторожная оценка требует больше выполнений: у неё
+                      // функция выдаёт по нижней границе. Показываем вилку.
+                      const alt=(best&&sure)?sure.steps.find(x=>x.func===st.func):null;
+                      const from=alt?Math.min(st.runs,alt.runs):st.runs;
+                      const to=alt?Math.max(st.runs,alt.runs):st.runs;
+                      return (
+                        <div key={st.func} className="flex flex-wrap gap-2"
+                          style={{alignItems:"center",padding:"4px 0",
+                            borderTop:`1px solid ${C.line}`,fontSize:11.5}}>
+                          <span style={{flex:"1 1 140px"}}>
+                            {st.name||"без названия"}
+                            <span style={{color:C.muted}}> · {ent(st.e)?.name||""}</span>
+                          </span>
+                          <span style={{color:WARN}}>
+                            {from===to?`${nm(from)} выполнений`:`${nm(from)}–${nm(to)} выполнений`}
+                          </span>
+                          <span style={{color:C.muted}}>{durText(st.calendarHours)}</span>
+                        </div>);
+                    })}
+                    {show&&(
+                      <div style={{fontSize:11.5,marginTop:8,lineHeight:1.7}}>
+                        <div>работы всего: <b style={{color:WARN}}>
+                          {best&&sure&&Math.round(best.workHours)!==Math.round(sure.workHours)
+                            ? `${durText(best.workHours)} – ${durText(sure.workHours)}`
+                            : durText(show.workHours)}</b></div>
+                        <div>займёт по самой длинной цепочке: <b style={{color:ACC}}>
+                          {best&&sure&&Math.round(best.criticalHours)!==Math.round(sure.criticalHours)
+                            ? `${durText(best.criticalHours)} – ${durText(sure.criticalHours)}`
+                            : durText(show.criticalHours)}</b></div>
+                        {!sure&&(
+                          <div style={{color:C.muted,fontSize:10.5,marginTop:3}}>
+                            Это по верхней границе вилок. По нижней цель не
+                            достигается вовсе: {lo.missing.length
+                              ? `ресурс «${traits.find(x=>x.id===lo.missing[0])?.l
+                                ||lo.missing[0]}» по ней никто не выдаёт`
+                              : lo.looped
+                                ? "цепочка замыкается сама на себя"
+                                : "выхода не хватает"}. Называть один срок,
+                            когда вилка даёт два разных ответа, нельзя.
+                          </div>)}
+                      </div>)}
+                  </>)}
+
+                  <div style={{fontSize:11,color:C.muted,marginTop:8,lineHeight:1.6}}>
+                    по прогнозу: {r.sure!=null?`наверняка к ${r.sure} мес`:"по нижней границе не достигается"}
                     {" · "}
                     {r.best!=null?`в лучшем случае к ${r.best} мес`:"не достигается и по верхней"}
                     {r.fact!=null?` · по факту к ${r.fact} мес`:""}
@@ -787,8 +870,12 @@ export default function SystemModel(){
                 </div>);
             })}
             <div style={{fontSize:10.5,color:C.muted,marginTop:8,lineHeight:1.5}}>
-              Два срока, а не один: вилка одной даты не даёт. «Наверняка» —
-              по нижней границе, «в лучшем случае» — по верхней.
+              «Что нужно сделать» разворачивается от цели назад: сколько
+              выполнений какой функции требуется, что они возьмут на входе и
+              чем эти входы произвести. То, что уже лежит в остатках, идёт в
+              дело первым. Два числа вместо одного — потому что вилка одного
+              не даёт: сколько выполнений понадобится, зависит от того, выйдет
+              выход функции по нижней границе или по верхней.
             </div>
           </div>)}
 
@@ -873,8 +960,8 @@ export default function SystemModel(){
               setJsonMsg("Выгружено.");}}>
               Выгрузить</button>
             <button style={btn(false)} onClick={()=>{try{const d=JSON.parse(json);
-              const fs=d.funcs!==undefined?adoptFuncs(d.funcs,d.flows):funcs;
-              if(d.entities){setEntities(adoptAssets(d.entities,fs));adoptSelection(d.entities);}
+              const fs=d.funcs!==undefined?normalizeFuncs(d.funcs):funcs;
+              if(d.entities){setEntities(normalizeAssets(d.entities));adoptSelection(d.entities);}
               if(d.traits)setTraits(d.traits);
               if(Array.isArray(d.kinds)&&d.kinds.length)setKinds(d.kinds);
               if(Array.isArray(d.tasks))setTasks(d.tasks);

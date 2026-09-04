@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MONTH_H, cycles, forecast, load, portQty, reach, runSide, transfers }
-  from "../lib/plan.js";
+import { MONTH_H, cycles, forecast, load, portQty, reach, runSide, solve,
+  solveRange, stepHours, transfers } from "../lib/plan.js";
 import { normalizeFunc } from "../lib/funcs.js";
 
 /* Считает модель одно: функции. Из времени одного выполнения выходит,
@@ -164,5 +164,118 @@ describe("нагрузка исполнителей", () => {
 
   it("функция без исполнителей ни на кого не ложится", () => {
     expect(load({ funcs: [F({ dur: 1, durUnit: "мес" })] })).toEqual({});
+  });
+});
+
+describe("расписание функции", () => {
+  it("реже, чем работа: цикл считается по расписанию", () => {
+    // Работа занимает час, но делается раз в месяц — значит цикл месяц, а
+    // не час. Иначе расписание ни на что не влияло бы.
+    const f = F({ dur: 1, durUnit: "ч", every: 1, everyUnit: "мес" });
+    expect(stepHours(f)).toBe(MONTH_H);
+    expect(cycles(f)).toBeCloseTo(1);
+  });
+
+  it("чаще самой работы не выйдет: считаем по длительности", () => {
+    const f = F({ dur: 1, durUnit: "нед", every: 1, everyUnit: "ч" });
+    expect(stepHours(f)).toBe(168);
+  });
+
+  it("пусто значит непрерывно — упирается только в длительность", () => {
+    expect(stepHours(F({ dur: 2, durUnit: "дн" }))).toBe(48);
+  });
+});
+
+describe("что нужно сделать, чтобы дойти до цели", () => {
+  /* Цепочка: спрос → заявки → пользователи. Чтобы получить пользователей,
+     надо обработать заявки, а чтобы обработать — собрать. */
+  const chainModel = {
+    traits: [{ id: "dem", e: "mkt", have: 3000 }, { id: "req", e: "usr", have: 0 },
+      { id: "act", e: "usr", have: 20 }],
+    funcs: [
+      F({ id: "f_req", e: "usr", name: "Сбор", dur: 2, durUnit: "ч",
+        takes: [{ trait: "dem", lo: 2, hi: 4 }],
+        gives: [{ trait: "req", lo: 1, hi: 1, to: "vm" }] }),
+      F({ id: "f_act", e: "vm", name: "Обработка", dur: 4, durUnit: "ч",
+        takes: [{ trait: "req", lo: 1, hi: 1 }],
+        gives: [{ trait: "act", lo: 1, hi: 1, to: "usr" }] }),
+    ],
+  };
+
+  it("считает, сколько выполнений какой функции нужно", () => {
+    const r = solve(chainModel, { trait: "act", want: 500, side: "hi" });
+    // Не хватает 480 — значит 480 обработок, а под них 480 сборов.
+    expect(r.need).toBe(480);
+    expect(r.steps.find((x) => x.func === "f_act").runs).toBe(480);
+    expect(r.steps.find((x) => x.func === "f_req").runs).toBe(480);
+  });
+
+  it("то, что уже есть, идёт в дело первым — и не вычитается дважды", () => {
+    // Было 20 из 500: производить надо 480, а не 460 и не 500.
+    const r = solve(chainModel, { trait: "act", want: 500, side: "hi" });
+    expect(r.steps.find((x) => x.func === "f_act").runs).toBe(480);
+    // Запас на входе тоже тратится: спроса 3000, и его хватает.
+    expect(r.ok).toBe(true);
+  });
+
+  it("цель, которая уже взята, работы не требует", () => {
+    expect(solve(chainModel, { trait: "act", want: 10 }).need).toBe(0);
+    expect(solve(chainModel, { trait: "act", want: 10 }).steps).toEqual([]);
+  });
+
+  it("два времени: работы всего и срок по самой длинной цепочке", () => {
+    const r = solve(chainModel, { trait: "act", want: 500, side: "hi" });
+    // 480×4ч + 480×2ч работы; цепочка последовательная, поэтому срок тот же.
+    expect(r.workHours).toBeCloseTo(480 * 4 + 480 * 2);
+    expect(r.criticalHours).toBeCloseTo(480 * 4 + 480 * 2);
+  });
+
+  it("расписание удлиняет срок, а объём работы оставляет прежним", () => {
+    const slow = { ...chainModel,
+      funcs: [chainModel.funcs[0], F({ ...chainModel.funcs[1], every: 1, everyUnit: "дн" })] };
+    const r = solve(slow, { trait: "act", want: 500, side: "hi" });
+    expect(r.workHours).toBeCloseTo(480 * 4 + 480 * 2);
+    expect(r.criticalHours).toBeGreaterThan(480 * 24);
+  });
+
+  it("ресурс, который не выдаёт ни одна функция, — это дыра, а не молчание", () => {
+    const m = { traits: [{ id: "x", e: "A", have: 0 }], funcs: [] };
+    const r = solve(m, { trait: "x", want: 10 });
+    expect(r.ok).toBe(false);
+    expect(r.missing).toEqual(["x"]);
+  });
+
+  it("замкнувшаяся сама на себя цепочка обрывается и говорит об этом", () => {
+    // Ресурс нужен для того, чтобы получить этот же ресурс.
+    const m = {
+      traits: [{ id: "a", e: "A", have: 0 }, { id: "b", e: "A", have: 0 }],
+      funcs: [
+        F({ id: "f1", e: "A", takes: [{ trait: "b", lo: 1, hi: 1 }],
+          gives: [{ trait: "a", lo: 1, hi: 1 }] }),
+        F({ id: "f2", e: "A", takes: [{ trait: "a", lo: 1, hi: 1 }],
+          gives: [{ trait: "b", lo: 1, hi: 1 }] }),
+      ],
+    };
+    expect(solve(m, { trait: "a", want: 5 }).looped).toBe(true);
+  });
+
+  it("вилка даёт две оценки: по нижней границе плана может не быть вовсе", () => {
+    // Если выход по нижней границе нулевой, цель по ней недостижима, и
+    // выдавать верхнюю за единственную оценку нельзя.
+    const m = { ...chainModel,
+      funcs: [chainModel.funcs[0], F({ ...chainModel.funcs[1],
+        gives: [{ trait: "act", lo: 0, hi: 1, to: "usr" }] })] };
+    const { lo, hi } = solveRange(m, { trait: "act", want: 500 });
+    expect(hi.ok).toBe(true);
+    expect(lo.ok).toBe(false);
+  });
+
+  it("фактические выполнения вытесняют вилку и в плане тоже", () => {
+    // По факту обработка даёт по 2 пользователя — значит выполнений вдвое
+    // меньше, чем по плану.
+    const runsOf = (id) => (id === "f_act"
+      ? [{ hours: 4, takes: { req: 1 }, gives: { act: 2 } }] : []);
+    const r = solve(chainModel, { trait: "act", want: 500, side: "hi", runsOf });
+    expect(r.steps.find((x) => x.func === "f_act").runs).toBe(240);
   });
 });

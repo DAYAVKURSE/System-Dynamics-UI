@@ -46,6 +46,12 @@
    дизайнер сделает дизайн страницы». Не производительность за период.
    Время у функции одно: выполнение либо случилось целиком, либо нет, и
    раздавать разным её выходам разные сроки не за что.
+
+   `every` — как часто функция повторяется: «раз в неделю», «раз в месяц».
+   Пусто значит «непрерывно»: следующее выполнение начинается сразу за
+   предыдущим, и всё упирается только в `dur`. Одно другого не заменяет:
+   работа может занимать час, но делаться раз в месяц, и наоборот —
+   занимать неделю и идти без передышки.
    ════════════════════════════════════════════════════════════════ */
 
 /** Единицы длительности. Значение — сколько в них часов. */
@@ -94,6 +100,9 @@ export const newFunc = (e, name = "новая функция") => ({
   gives: [],
   dur: 1,
   durUnit: DUR_DEFAULT,
+  // Пусто — «непрерывно»: следующее выполнение сразу за предыдущим.
+  every: 0,
+  everyUnit: DUR_DEFAULT,
   owners: [],
   reviewers: [],
   x: 0,
@@ -105,51 +114,54 @@ export const hoursOf = ({ dur, durUnit } = {}) =>
   num(dur) * (DUR_UNITS[durUnit] ?? 1);
 
 /**
- * Приведение к нынешней записи — и починка прежней.
+ * Как часто функция повторяется — в часах. Ноль значит «непрерывно».
  *
- * Прежде у функции было три формы вместо двух: «берёт», «выдаёт» и
- * «передаёт другим». Выходом считалась отдельная функция, и срок,
- * исполнители и проверяющие висели на каждом выходе свои. Это оказалось
- * неверно: функция одна, у неё одно время выполнения и одни люди, а
- * выходов у неё может быть несколько.
+ * Это НЕ длительность: работа может занимать час, но делаться раз в месяц.
+ * Расписание короче самой работы ничего не ускоряет — быстрее, чем она
+ * делается, она повторяться не может.
+ */
+export const everyOf = ({ every, everyUnit } = {}) =>
+  num(every) * (DUR_UNITS[everyUnit] ?? 1);
+
+/** По-человечески: «непрерывно» или «раз в 2 нед». */
+export const everyText = (f) => {
+  const h = everyOf(f);
+  if (h <= 0) return "непрерывно";
+  return `раз в ${nmDur(f.every)} ${f.everyUnit}`;
+};
+const nmDur = (v) => (Math.round(num(v) * 100) / 100);
+
+/**
+ * Приведение чужой записи к нынешней.
  *
- * Поэтому старая запись сводится к новой:
- * · qty входа и выхода становится вилкой qty..qty — ровно столько,
- *   сколько было заложено, без выдумывания границ;
- * · срок функции берётся самый долгий из сроков её выходов: выполнение
- *   кончается тогда, когда готово всё, а не когда готова первая часть;
- * · исполнители и проверяющие складываются со всех выходов — терять
- *   назначенного человека нельзя, он уже в работе.
+ * Достраиваем недостающее — не более того. Записи прежних версий (стрелки
+ * между элементами, `qty` вместо вилки, сроки и люди на каждом выходе)
+ * здесь НЕ переносятся: владелец сказал прямо — прежние модели работать не
+ * должны. Молчаливый перенос был бы хуже отказа: получилась бы модель,
+ * которую никто не собирал, и разбираться в ней пришлось бы дольше, чем
+ * собрать заново.
  */
 export const normalizeFunc = (f = {}) => {
-  const port = (p = {}, out = false) => {
-    // Старая запись знает только qty; новая — вилку. Отличаем по наличию
-    // границ, а не по нулю: вилка 0..0 законна и значит «не задано».
-    const ranged = p.lo != null || p.hi != null;
-    return {
-      id: p.id ?? nextId("p"),
-      trait: p.trait ?? "",
-      lo: ranged ? num(p.lo) : num(p.qty),
-      hi: ranged ? num(p.hi ?? p.lo) : num(p.qty),
-      ...(out ? { to: p.to ?? "" } : null),
-    };
-  };
-  const olds = Array.isArray(f.gives) ? f.gives : [];
-  const legacy = Math.max(0, ...olds.map(hoursOf));
-  const legacyPeople = (k) => olds.flatMap((g) => (Array.isArray(g[k]) ? g[k] : []));
-  const time = f.dur != null
-    ? { dur: num(f.dur), durUnit: DUR_UNITS[f.durUnit] ? f.durUnit : DUR_DEFAULT }
-    : (legacy > 0 ? fromHours(legacy) : { dur: 0, durUnit: DUR_DEFAULT });
-
+  const port = (p = {}, out = false) => ({
+    id: p.id ?? nextId("p"),
+    trait: p.trait ?? "",
+    lo: num(p.lo),
+    hi: num(p.hi),
+    ...(out ? { to: p.to ?? "" } : null),
+  });
+  const unit = (u) => (DUR_UNITS[u] ? u : DUR_DEFAULT);
   return {
     ...f,
     e: f.e ?? null,
     name: f.name ?? "",
     takes: Array.isArray(f.takes) ? f.takes.map((p) => port(p)) : [],
-    gives: olds.map((p) => port(p, true)),
-    ...time,
-    owners: [...new Set(Array.isArray(f.owners) ? f.owners : legacyPeople("owners"))],
-    reviewers: [...new Set(Array.isArray(f.reviewers) ? f.reviewers : legacyPeople("reviewers"))],
+    gives: Array.isArray(f.gives) ? f.gives.map((p) => port(p, true)) : [],
+    dur: num(f.dur),
+    durUnit: unit(f.durUnit),
+    every: num(f.every),
+    everyUnit: unit(f.everyUnit),
+    owners: [...new Set(Array.isArray(f.owners) ? f.owners : [])],
+    reviewers: [...new Set(Array.isArray(f.reviewers) ? f.reviewers : [])],
     x: num(f.x),
     y: num(f.y),
   };
@@ -158,56 +170,12 @@ export const normalizeFunc = (f = {}) => {
 export const normalizeFuncs = (list) =>
   (Array.isArray(list) ? list.map(normalizeFunc) : []);
 
-/**
- * Приём документа: функции вместе с прежними стрелками между ними.
- *
- * Третья форма — «передаёт другим элементам» — была отдельным списком
- * `flows`: стрелка от элемента к элементу, несущая ресурс. Теперь передача
- * это поле выхода, и стрелке есть куда лечь целиком: ресурс становится
- * выходом, вилка — его вилкой, а актив элемента-приёмника — получателем.
- * Ничего не теряется и ничего не выдумывается.
- */
-export const adoptFuncs = (list, flows) => {
-  const fs = normalizeFuncs(list);
-  if (!Array.isArray(flows) || !flows.length) return fs;
-  const assetOf = (id) => fs.find((f) => f.id === id)?.e || "";
-  return fs.map((f) => {
-    const mine = flows.filter((w) => w && w.from === f.id && w.trait);
-    if (!mine.length) return f;
-    const gives = [...f.gives];
-    mine.forEach((w) => {
-      // Приёмник в своём же активе — значит ресурс никуда не уезжал.
-      const to = assetOf(w.to) === f.e ? "" : assetOf(w.to);
-      const at = gives.findIndex((g) => g.trait === w.trait);
-      if (at < 0) gives.push(newGive(w.trait, num(w.lo), num(w.hi), to));
-      else {
-        const g = gives[at];
-        gives[at] = { ...g, to: g.to || to,
-          ...(!g.lo && !g.hi ? { lo: num(w.lo), hi: num(w.hi) } : null) };
-      }
-    });
-    return { ...f, gives };
-  });
-};
-
 /** Обратно в удобные единицы: 36 часов — это «1.5 дн», а не «36 ч». */
 export function fromHours(h) {
   const n = num(h);
   const unit = ["мес", "нед", "дн", "ч"].find((u) => n >= DUR_UNITS[u]) || "ч";
   return { dur: Math.round((n / DUR_UNITS[unit]) * 10) / 10, durUnit: unit };
 }
-
-/**
- * Сколько выполнений функции помещается в один шаг прогноза.
- *
- * Шаг модели — месяц. Цикл короче месяца повторяется несколько раз; цикл
- * длиннее месяца выдаёт долю — иначе результат, на который ушло полгода,
- * появлялся бы разом и модель врала бы о сроках.
- */
-export const cyclesPerMonth = (f) => {
-  const h = hoursOf(f);
-  return h > 0 ? DUR_UNITS["мес"] / h : 0;
-};
 
 /**
  * Среднее арифметическое по фактическим выполнениям.
@@ -273,22 +241,6 @@ export const normalizeAsset = (e = {}) => ({
 
 export const normalizeAssets = (list) =>
   (Array.isArray(list) ? list.map(normalizeAsset) : []);
-
-/**
- * Приём активов из документа, где воркеров ещё не было.
- *
- * Прежде люди назначались прямо на функцию, минуя актив. Такие модели уже
- * сохранены, и людей из них надо поднять в актив: иначе при открытии
- * назначения оказались бы «не воркерами» и молча пропали бы из списков.
- */
-export const adoptAssets = (list, funcs) => {
-  const fs = Array.isArray(funcs) ? funcs : [];
-  return normalizeAssets(list).map((e) => {
-    const mine = fs.filter((f) => f.e === e.id);
-    const from = (k) => ids([...e[k], ...mine.flatMap((f) => (Array.isArray(f[k]) ? f[k] : []))]);
-    return { ...e, owners: from("owners"), reviewers: from("reviewers") };
-  });
-};
 
 /** Воркеры актива: исполнители и проверяющие. */
 export const workersOf = (entities = [], id) => {

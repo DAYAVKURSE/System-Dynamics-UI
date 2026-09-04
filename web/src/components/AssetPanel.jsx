@@ -1,17 +1,20 @@
 import React, { useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, checkFunc, checkTrait, fromHours, hoursOf, newFunc, newGive,
-  newPort, okRange, rangeText, runHours, runQty } from "../lib/funcs.js";
+import { DUR_UNITS, checkFunc, checkTrait, everyOf, fromHours, hoursOf, newFunc,
+  newGive, newPort, okRange, rangeText, runHours, runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    КАРТОЧКА АКТИВА · воркеры, функции, ресурсы
 
-   Актив состоит из трёх вещей, и в интерфейсе они устроены ОДИНАКОВО:
-   раздел с заголовком, список одинаковых карточек, кнопка «+». Разные на
-   вид формы для трёх равноправных частей заставляли бы каждый раз заново
-   разбираться, где что, — хотя вопрос всегда один: что здесь есть и как
-   это добавить.
+   Актив состоит из трёх вещей, и в интерфейсе они устроены ОДИНАКОВО: три
+   вкладки одного вида, в каждой — список одинаковых карточек и кнопка «+».
+   Разные на вид формы для трёх равноправных частей заставляли бы каждый раз
+   заново разбираться, где что, — хотя вопрос всегда один: что здесь есть и
+   как это добавить.
+
+   Вкладки, а не три списка подряд: части равноправны, и ни одна из них не
+   должна быть «той, до которой надо долистать».
 
    · воркеры — исполнители и проверяющие актива, его люди;
    · функции — то, что эти люди выполняют;
@@ -125,9 +128,8 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
    Люди актива. Они и выполняют его функции, поэтому стоят первыми: сначала
    кто, потом что делает. */
 export function Workers({ workers, people = [], nameOf, onToggle }) {
-  const n = workers.owners.length + workers.reviewers.length;
   return (
-    <Section title="воркеры актива" count={n ? `${n}` : null}
+    <Section title="воркеры актива"
       hint="Исполнители и проверяющие этого актива. На его функции можно ставить только их."
       empty={people.length ? null : "Людей ещё нет — заведите их во вкладке «Люди и роли»."}>
       {people.length > 0 && (
@@ -243,7 +245,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
 
   return (
     <Section title="функции актива" addLabel="+ функция" onAdd={add}
-      count={mine.length ? `${mine.length}` : null}
       empty={mine.length ? null : "Функций пока нет. Функция может только взять и дать: взять несколько ресурсов и выдать несколько других, а выданное — передать в другие активы. Сколько берёт и сколько выдаёт — диапазон: сначала закладывается, потом уточняется реальными выполнениями."}>
       {mine.map((f) => {
         const runs = runsOf ? runsOf(f.id) : [];
@@ -292,6 +293,34 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               <Timing func={f} runs={runs} />
             </div>
 
+            {/* Расписание — не то же самое, что длительность: работа может
+                занимать час, но делаться раз в месяц. Пусто значит
+                «непрерывно», следующее выполнение сразу за предыдущим. */}
+            <div className="flex items-center gap-2" style={{ marginTop: 6, flexWrap: "wrap" }}>
+              <span style={S.lbl}>повторяется</span>
+              <select value={everyOf(f) > 0 ? "every" : "flow"}
+                aria-label="как часто повторяется"
+                onChange={(e) => up(f.id, (x) => ({ ...x,
+                  every: e.target.value === "every" ? (Number(x.every) || 1) : 0 }))}
+                style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
+                <option value="flow">непрерывно</option>
+                <option value="every">раз в…</option>
+              </select>
+              {everyOf(f) > 0 && (<>
+                <Num value={f.every} label="как часто повторять"
+                  onChange={(v) => up(f.id, (x) => ({ ...x, every: Number(v) || 0 }))} />
+                <select value={f.everyUnit} aria-label="единица расписания"
+                  onChange={(e) => up(f.id, (x) => ({ ...x, everyUnit: e.target.value }))}
+                  style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
+                  {Object.keys(DUR_UNITS).map((u) => <option key={u} value={u}>{u}</option>)}
+                </select></>)}
+              <span style={{ flex: 1 }} />
+              <span style={{ fontSize: 10.5, color: C.muted }}>
+                {everyOf(f) > hoursOf(f)
+                  ? "реже, чем делается: срок цикла считается по расписанию"
+                  : "чаще самой работы не выйдет — считаем по длительности"}</span>
+            </div>
+
             <People title="исполняют" ids={f.owners} people={pool("owners")} nameOf={nameOf}
               empty="в активе ещё нет исполнителей — добавьте их в «воркерах актива»"
               onToggle={(pid) => togglePerson(f.id, "owners", pid)} />
@@ -320,7 +349,7 @@ export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open
     setDraft(""); setOpen(t.id);
   };
   return (
-    <Section title="ресурсы актива" count={mine.length ? `${mine.length}` : null}
+    <Section title="ресурсы актива"
       empty={mine.length ? null : "Ресурсов пока нет. Ресурс — это то, что есть: функции его берут и выдают."}>
       {mine.map((t) => {
         const k = kindOf(t.k);
@@ -377,18 +406,41 @@ export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open
     </Section>);
 }
 
-/* ═══ карточка актива целиком ═══ */
+/* ═══ карточка актива целиком ═══
+   Три вкладки одного вида. Какая открыта — состояние интерфейса: в модель
+   не уезжает и в историю правок не попадает. */
 export default function AssetPanel(props) {
+  const [tab, setTab] = useState("funcs");
   const [openFunc, setOpenFunc] = useState(null);
   const [openTrait, setOpenTrait] = useState(null);
+  const mineFuncs = props.funcs.filter((f) => f.e === props.entityId).length;
+  const mineTraits = props.traits.filter((t) => t.e === props.entityId).length;
+  const workers = props.workers.owners.length + props.workers.reviewers.length;
+  const TABS = [
+    ["workers", "Воркеры", workers],
+    ["funcs", "Функции", mineFuncs],
+    ["traits", "Ресурсы", mineTraits],
+  ];
   return (
     <div>
-      <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
-        onToggle={props.onToggleWorker} />
-      <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc} />
-      <Traits entityId={props.entityId} traits={props.traits} setTraits={props.setTraits}
-        funcs={props.funcs} kinds={props.kinds} kindOf={props.kindOf}
-        open={openTrait} setOpen={setOpenTrait}
-        onWhy={props.onWhyTrait} onDelete={props.onDeleteTrait} />
+      <div className="flex gap-2" style={{ marginTop: 10, overflowX: "auto" }}>
+        {TABS.map(([id, name, n]) => (
+          <button key={id} style={{ ...btn(tab === id), fontSize: 12 }}
+            onClick={() => setTab(id)}>
+            {name} <span style={{ opacity: 0.7 }}>{n}</span></button>))}
+      </div>
+
+      {tab === "workers" && (
+        <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
+          onToggle={props.onToggleWorker} />)}
+
+      {tab === "funcs" && (
+        <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc} />)}
+
+      {tab === "traits" && (
+        <Traits entityId={props.entityId} traits={props.traits} setTraits={props.setTraits}
+          funcs={props.funcs} kinds={props.kinds} kindOf={props.kindOf}
+          open={openTrait} setOpen={setOpenTrait}
+          onWhy={props.onWhyTrait} onDelete={props.onDeleteTrait} />)}
     </div>);
 }
