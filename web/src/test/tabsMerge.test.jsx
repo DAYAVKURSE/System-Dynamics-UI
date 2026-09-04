@@ -37,13 +37,13 @@ describe("состав вкладок", () => {
     // Первыми в разметке идут кнопки истории — переключатели вкладок за ними.
     const bar = [...container.querySelectorAll("button")]
       .map((b) => b.textContent)
-      .filter((t) => ["Задачи", "Проверка", "Timeline", "Схема",
+      .filter((t) => ["Задачи", "Проверка", "Схема",
         "Инструменты", "Звонки", "Выгрузить", "Цели", "Типы", "Отчёты"].includes(t));
-    // «Прогноз» из главного ряда ушёл под схему: он про ту же схему во
-    // времени, и ползунок месяца у них общий.
-    expect(bar.slice(0, 5)).toEqual(["Задачи", "Проверка", "Timeline",
-      "Схема", "Инструменты"]);
+    // «Прогноз» и «Timeline» из главного ряда ушли под схему: обе про ту
+    // же модель во времени, и ползунок месяца у них общий со схемой.
+    expect(bar.slice(0, 4)).toEqual(["Задачи", "Проверка", "Схема", "Инструменты"]);
     expect(screen.queryByRole("button", { name: "Прогноз" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Timeline" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Цели" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Типы" })).toBeNull();
   });
@@ -163,5 +163,49 @@ describe("стрелка передачи ведёт к своей функци�
     // Открылась карточка именно этой функции — со своими входами и выходами.
     expect(screen.getByDisplayValue("Сбор заявок")).toBeInTheDocument();
     expect(screen.getByLabelText("выдать ресурс")).toBeInTheDocument();
+  });
+});
+
+describe("применение цели", () => {
+  const openGoal = () => {
+    tab("Схема"); tab("Прогноз");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+  };
+
+  it("форма показывает полный расчёт: что прибавится, что убавится и какие задачи заведутся", () => {
+    openGoal();
+    expect(screen.getByText("прибавится")).toBeInTheDocument();
+    expect(screen.getByText("убавится")).toBeInTheDocument();
+    expect(screen.getByText(/какие задачи и когда заведутся/)).toBeInTheDocument();
+  });
+
+  it("до применения цель ничего не меняет — это прикидка", () => {
+    // Без этой границы каждая правка числа молча меняла бы доску задач.
+    const before = dump().tasks.length;
+    openGoal();
+    expect(dump().tasks.length).toBe(before);
+    expect(dump().goals[0].appliedAt).toBeNull();
+  });
+
+  it("«Применить цель» заводит задачи и отмечает цель применённой", () => {
+    const before = dump().tasks.length;
+    openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Применить цель" }));
+    const m = dump();
+    expect(m.tasks.length).toBeGreaterThan(before);
+    expect(m.goals[0].appliedAt).toBeTruthy();
+    // Задачи знают, откуда они взялись, и ждут постановки.
+    const made = m.tasks.filter((t) => t.goalId === m.goals[0].id);
+    expect(made.length).toBeGreaterThan(0);
+    expect(made[0]).toMatchObject({ status: "wait", funcId: expect.any(String) });
+    expect(made[0].start).toBeTruthy();
+    expect(made[0].end).toBeTruthy();
+  });
+
+  it("применённая цель называет себя применённой и предлагает повтор", () => {
+    openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Применить цель" }));
+    expect(screen.getByText("· применена")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Применить заново" })).toBeInTheDocument();
   });
 });

@@ -382,17 +382,25 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
      параллельно. Повторный заход по кругу обрываем: цепочка, которая
      кормит сама себя, длины не имеет. */
   const byId = Object.fromEntries(steps.map((x) => [x.func, x]));
-  const chain = (id, seen = new Set()) => {
-    const x = byId[id];
-    if (!x || seen.has(id)) return 0;
+  /* `before` — когда функция может начаться: не раньше, чем созреет самый
+     долгий из её входов. Это же число нужно и снаружи, чтобы разложить
+     будущие задачи по календарю, поэтому оно ложится в шаг как
+     `startHours`, а не остаётся внутри подсчёта критического пути. */
+  const before = (id, seen = new Set()) => {
     const f = funcs.find((y) => y.id === id);
+    if (!f || seen.has(id)) return 0;
     const next = new Set([...seen, id]);
-    const before = f.takes.reduce((m, p) => {
+    return f.takes.reduce((m, p) => {
       const makers = [...(producedFor[p.trait] || [])];
       return Math.max(m, ...makers.map((mid) => chain(mid, next)), 0);
     }, 0);
-    return x.calendarHours + before;
   };
+  const chain = (id, seen = new Set()) => {
+    const x = byId[id];
+    if (!x || seen.has(id)) return 0;
+    return x.calendarHours + before(id, seen);
+  };
+  steps.forEach((x) => { x.startHours = before(x.func); });
 
   return {
     need: short,
@@ -417,4 +425,48 @@ export function solveRange(model, { trait, want, runsOf, useStock = true } = {})
     lo: solve(model, { trait, want, side: "lo", runsOf, useStock }),
     hi: solve(model, { trait, want, side: "hi", runsOf, useStock }),
   };
+}
+
+
+/**
+ * Что план сделает с ресурсами: чего прибавится, чего убавится.
+ *
+ * Считается по тем же выполнениям, что и сам план: каждое берёт свои входы
+ * и выдаёт свои выходы. Итог — ЧИСТОЕ изменение по каждому ресурсу: то, что
+ * функция и производит, и потребляет, показывать двумя строками значило бы
+ * пугать числами, которые друг друга гасят.
+ */
+export function effect(model, steps = [], { side = "hi", runsOf } = {}) {
+  const funcs = model.funcs || [];
+  const by = {};
+  const add = (id, v) => { by[id] = (by[id] || 0) + v; };
+  steps.forEach((st) => {
+    const f = funcs.find((x) => x.id === st.func);
+    if (!f) return;
+    const runs = runsOf ? runsOf(f.id) : [];
+    f.gives.forEach((g) => add(g.trait, portQty(g, { kind: "gives", side, runs }) * st.runs));
+    f.takes.forEach((p) => add(p.trait, -portQty(p, { kind: "takes", side, runs }) * st.runs));
+  });
+  return by;
+}
+
+/**
+ * Когда какие выполнения придётся делать.
+ *
+ * Функция начинается не раньше, чем созреют её входы (`startHours`), а её
+ * выполнения идут одно за другим. Ответ — список будущих задач с датами:
+ * человек должен видеть, во что цель превратится на доске, ДО того как
+ * нажмёт «применить», а не после.
+ */
+export function scheduleOf(steps = [], { from = Date.now() } = {}) {
+  const rows = [];
+  steps.forEach((st) => {
+    const per = st.runs > 0 ? st.calendarHours / st.runs : 0;
+    for (let i = 0; i < st.runs; i += 1) {
+      const at = from + (st.startHours + per * i) * 3600000;
+      rows.push({ func: st.func, name: st.name, e: st.e, no: i + 1, of: st.runs,
+        start: new Date(at), end: new Date(at + per * 3600000) });
+    }
+  });
+  return rows.sort((a, b) => a.start - b.start);
 }

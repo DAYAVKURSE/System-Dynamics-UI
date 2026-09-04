@@ -3,6 +3,7 @@ import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField } from "./ui.jsx";
 import { DUE_IN, DUE_ON, RATES, WEEK, newCost, newGoal, checkGoal, goalText, planGoal,
   rateOf } from "../lib/goals.js";
 import { DUR_UNITS } from "../lib/funcs.js";
+import { newTask, nowLocal } from "./TasksBoard.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ЦЕЛИ — В ПРОГНОЗЕ, А НЕ В РЕСУРСЕ
@@ -29,6 +30,13 @@ import { DUR_UNITS } from "../lib/funcs.js";
    Расхождение между «я думал» и «выходит» и есть главное, ради чего это
    считается. Показывать одно вместо другого нельзя: первое — намерение,
    второе — следствие модели, и путать их значит терять и то и другое.
+
+   ─── черновик и применённая цель ───
+
+   Пока цель не применена, она считается, но ни на что не влияет: это
+   прикидка, её меняют и смотрят, что выйдет. «Применить цель» заводит
+   задачи и включает её в графики. Без этой границы каждая правка числа
+   молча меняла бы доску задач, и попробовать «а что если» было бы негде.
    ════════════════════════════════════════════════════════════════ */
 
 const Fig = ({ label, value, color, hint }) => (
@@ -51,7 +59,7 @@ const sel = { ...S.inp, padding: "6px 7px", fontSize: 12 };
 const hoursText = (h) => `${nm(Math.round(h * 10) / 10)} ч`;
 
 /** Одна цель: чем она задана и что из неё следует. */
-function Goal({ goal, traits, model, runsOf, onSet, onDel, open, onToggle }) {
+function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onToggle }) {
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "ресурс не выбран";
   const ready = checkGoal(goal, traits);
   const plan = ready ? planGoal(model, goal, { runsOf }) : null;
@@ -72,6 +80,8 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, open, onToggle }) {
           onClick={onToggle}>{open ? "▾" : "▸"}</button>
         <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, minWidth: 0 }}>
           {ready ? goalText(goal, traitName) : "цель не задана: выберите ресурс и количество"}
+          {goal.appliedAt && (
+            <span style={{ color: OK, fontWeight: 400, fontSize: 11 }}> · применена</span>)}
         </span>
         <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
           fontSize: 11, padding: "2px 6px" }} aria-label="удалить цель"
@@ -187,6 +197,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, open, onToggle }) {
 
       {/* ─── ЧТО ИЗ ЭТОГО СЛЕДУЕТ ─── */}
       {plan && <Verdict plan={plan} unit={unit} traits={traits} />}
+      {plan && <Apply goal={goal} plan={plan} onApply={() => onApply(goal, plan)} />}
       </>)}
     </div>);
 }
@@ -255,8 +266,14 @@ function Verdict({ plan, unit, traits }) {
           : `Темп не держится: один круг занимает ${durText(plan.readyHours)} — это дольше, чем «${plan.rate.name}». Сколько ни старайся, результат не успеет созреть.`}
       </div>)}
 
+    <Effect plan={plan} traits={traits} />
+    <Schedule plan={plan} />
+
     {(plan.costs.length > 0 || plan.extra.length > 0) && (<>
-      <div style={{ ...S.lbl, marginTop: 10 }}>цена по ресурсам</div>
+      {/* Здесь числа месячные (или «за весь срок» у разовой цели), а в
+          «прибавится/убавится» — за один круг. Разные меры в одной форме
+          обязаны быть подписаны, иначе их сложат в уме и получат чушь. */}
+      <div style={{ ...S.lbl, marginTop: 10 }}>цена по ресурсам · {budgetName}</div>
       {plan.costs.map((c) => {
         const off = c.qty > 0 && Math.abs(c.real - c.qty) / c.qty > 0.05;
         return (
@@ -284,13 +301,135 @@ function Verdict({ plan, unit, traits }) {
 }
 
 /**
+ * «Применить цель» — граница между прикидкой и решением.
+ *
+ * До нажатия цель считается, но ни на что не влияет: её крутят, смотрят,
+ * что выйдет, и меняют. После — заводятся задачи, и цель начинает
+ * показываться на графиках. Без этой границы каждая правка числа молча
+ * меняла бы доску задач, и попробовать «а что если» было бы негде.
+ *
+ * Применить второй раз можно: план мог измениться вместе с моделью. Задачи
+ * прежнего применения при этом не трогаются — они уже могли уйти в работу,
+ * и стирать чужую работу перерасчётом нельзя.
+ */
+function Apply({ goal, plan, onApply }) {
+  const n = (plan.schedule || []).length;
+  return (
+    <div style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 9 }}>
+      <button style={{ ...btn(true, OK), width: "100%", padding: "9px 10px",
+        fontSize: 12.5, fontWeight: 700 }}
+        disabled={!plan.ok || !n} onClick={onApply}>
+        {goal.appliedAt ? "Применить заново" : "Применить цель"}
+      </button>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+        {!plan.ok || !n
+          ? "Применять нечего: по этой модели цель не достигается."
+          : goal.appliedAt
+            ? `Цель применена ${new Date(goal.appliedAt).toLocaleString("ru-RU")}. Повторное применение заведёт ещё ${n} задач; прежние останутся как есть.`
+            : `Заведёт ${n} задач в «Ожидает постановки» и включит цель в графики. Один круг работы: следующий заводится, когда этот закрыт.`}
+      </div>
+    </div>);
+}
+
+const dt = (d) => d.toLocaleString("ru-RU",
+  { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+/**
+ * Что план сделает с ресурсами: чего прибавится, чего убавится.
+ *
+ * Две колонки, а не одна таблица со знаками: «прибавится» и «убавится» —
+ * разные новости, и человек читает их по-разному. Чистое изменение, а не
+ * приход и расход по отдельности: ресурс, который функция и производит, и
+ * потребляет, двумя строками только пугал бы числами, гасящими друг друга.
+ */
+function Effect({ plan, traits }) {
+  const rows = Object.entries(plan.effect || {})
+    .map(([id, v]) => ({ id, v, name: traits.find((t) => t.id === id)?.l || id }))
+    .filter((r) => Math.abs(r.v) > 1e-9)
+    .sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  if (!rows.length) return null;
+  const up = rows.filter((r) => r.v > 0);
+  const down = rows.filter((r) => r.v < 0);
+  const col = (title, list, color, sign) => (
+    <div style={{ flex: "1 1 150px", minWidth: 0 }}>
+      <div style={S.lbl}>{title}</div>
+      {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
+      {list.map((r) => (
+        <div key={r.id} className="flex items-center gap-2"
+          style={{ fontSize: 11.5, padding: "2px 0" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>{r.name}</span>
+          <span style={{ color }}>{sign}{nm(Math.round(Math.abs(r.v) * 10) / 10)}</span>
+        </div>))}
+    </div>);
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="flex flex-wrap gap-2">
+        {col("прибавится", up, OK, "+")}
+        {col("убавится", down, WARN, "−")}
+      </div>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+        За один круг работы по этой цели. Чистое изменение: если функция
+        ресурс и берёт, и выдаёт, здесь стоит разница.
+      </div>
+    </div>);
+}
+
+/**
+ * Во что цель превратится на доске задач — до того, как её применили.
+ *
+ * Показываем начало каждого выполнения, а не одно «будет N задач»: когда
+ * именно придётся работать, и есть половина ответа на вопрос «потяну ли».
+ * Длинный список подрезан: важны первые сроки и общее число.
+ */
+function Schedule({ plan }) {
+  const rows = plan.schedule || [];
+  if (!rows.length) return null;
+  const shown = rows.slice(0, 6);
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={S.lbl}>какие задачи и когда заведутся · {rows.length}</div>
+      {shown.map((r, i) => (
+        <div key={`${r.func}-${r.no}`} className="flex items-center gap-2"
+          style={{ fontSize: 11.5, padding: "3px 0",
+            borderTop: i ? `1px solid ${C.line}` : "none" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            {r.name || "без названия"}
+            {r.of > 1 && <span style={{ color: C.muted }}> · {r.no} из {r.of}</span>}
+          </span>
+          <span style={{ color: ACC, whiteSpace: "nowrap" }}>{dt(r.start)}</span>
+        </div>))}
+      {rows.length > shown.length && (
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
+          …и ещё {rows.length - shown.length}; последняя — {dt(rows[rows.length - 1].start)}.
+        </div>)}
+      {rows.length > 40 && (
+        <div style={{ fontSize: 11, color: WARN, marginTop: 4, lineHeight: 1.5 }}>
+          Это много задач сразу. Может быть, цель стоит разбить на меньшие
+          или растянуть срок.
+        </div>)}
+    </div>);
+}
+
+/**
  * Список целей. Живёт в «Прогнозе»: цель — это вопрос к будущему модели, а
  * не свойство ресурса.
  */
-export default function GoalsPanel({ goals, setGoals, traits, model, runsOf }) {
+export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onTasks }) {
   const [open, setOpen] = useState(null);
   const set = (id, patch) => setGoals((p) => p.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   const del = (id) => { setGoals((p) => p.filter((g) => g.id !== id)); setOpen(null); };
+  /* Применение — это задачи. Всё остальное («включить в графики») следует
+     из отметки `appliedAt`, а вот работа должна появиться на доске: цель,
+     после которой никто ничего не делает, ничего и не меняет. */
+  const apply = (goal, plan) => {
+    const tasks = (plan.schedule || []).map((r) => ({
+      ...newTask({ funcId: r.func, title: r.name || "выполнение функции",
+        start: nowLocal(r.start), end: nowLocal(r.end) }),
+      goalId: goal.id,
+    }));
+    onTasks?.(tasks);
+    set(goal.id, { appliedAt: new Date().toISOString() });
+  };
   const add = () => {
     const g = newGoal(traits[0]?.id || "");
     setGoals((p) => [...p, g]);
@@ -314,7 +453,7 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf }) {
         </div>)}
       {goals.map((g) => (
         <Goal key={g.id} goal={g} traits={traits} model={model} runsOf={runsOf}
-          onSet={set} onDel={del}
+          onSet={set} onDel={del} onApply={apply}
           open={open === g.id} onToggle={() => setOpen(open === g.id ? null : g.id)} />))}
     </div>);
 }

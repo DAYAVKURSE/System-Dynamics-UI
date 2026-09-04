@@ -34,24 +34,24 @@ const fresh = async () => {
 };
 const tabNames = (container) => [...container.querySelectorAll("button")]
   .map((b) => b.textContent)
-  // «Прогноз» больше не главная вкладка: он подвкладка под схемой.
-  .filter((t) => ["Задачи", "Проверка", "Timeline", "Схема",
-    "Инструменты"].includes(t));
+  /* Ни «Прогноз», ни «Timeline» больше не главные вкладки: обе про ту же
+     модель во времени и живут под схемой, с общим ползунком месяца. */
+  .filter((t) => ["Задачи", "Проверка", "Схема", "Инструменты"].includes(t));
 
 beforeEach(() => { localStorage.clear(); resetIdentity(); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; resetIdentity(); });
 
 describe("вкладки по роли", () => {
-  it("владельцу видны все пять, а «Прогноз» — под схемой", async () => {
+  it("владельцу видны все четыре, а «Прогноз» и «Timeline» — под схемой", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
       tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(5));
-    expect(tabNames(container)).toEqual(["Задачи", "Проверка", "Timeline",
-      "Схема", "Инструменты"]);
+    await waitFor(() => expect(tabNames(container)).toHaveLength(4));
+    expect(tabNames(container)).toEqual(["Задачи", "Проверка", "Схема", "Инструменты"]);
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     expect(screen.getByRole("button", { name: "Управление" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Прогноз" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Timeline" })).toBeTruthy();
   });
 
   it("исполнителю — только «Задачи»", async () => {
@@ -89,7 +89,7 @@ describe("вкладки по роли", () => {
   it("без сервера приложение остаётся одиночным и полным", async () => {
     global.fetch = vi.fn(async () => { throw new Error("нет сети"); });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(5));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(4));
   });
 
   it("сервер без токена бота — тоже одиночный режим, а не отказ", async () => {
@@ -101,7 +101,7 @@ describe("вкладки по роли", () => {
       return { ok: false, status: 401, json: async () => ({}) };
     });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(5));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(4));
   });
 });
 
@@ -188,7 +188,7 @@ describe("кому какие задачи видны", () => {
     server({ id: "1", isOwner: true, known: true, role: null,
       tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(5));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(4));
     load(container, model(TASKS));
     fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
     expect(screen.getByText("Моя задача")).toBeTruthy();

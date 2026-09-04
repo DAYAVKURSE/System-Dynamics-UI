@@ -309,8 +309,12 @@ function whenText(iso){
    времени, и ползунок месяца у них общий. Он живёт подвкладкой под схемой —
    рядом с «Управлением», где схему и правят. Роль по-прежнему решает,
    показывать ли его: вкладка `sim` открывает подвкладку, а не раздел. */
+/* Главных вкладок четыре. «Timeline» и «Прогноз» ушли под схему: обе про
+   ту же модель, только во времени, и ползунок месяца у них общий со
+   схемой. Держать их наверху значило разложить одно и то же по трём
+   местам, между которыми надо помнить, где что. */
 export const TAB_LIST=[["tasks","Задачи"],["review","Проверка"],
-  ["timeline","Timeline"],["scheme","Схема"],["tools","Инструменты"]];
+  ["scheme","Схема"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
 export default function SystemModel(){
@@ -801,11 +805,6 @@ export default function SystemModel(){
           onAccept={(t,note,mark)=>decide(t,true,note,mark)}
           onReturn={(t,note,mark)=>decide(t,false,note,mark)}/>)}
 
-      {/* ═══ TIMELINE ═══ */}
-      {tab==="timeline" && me.tabs.includes("timeline") && (
-        <Timeline tasks={myTasks} funcs={funcs} traits={traits} entities={entities}
-          nameOf={personName}/>)}
-
       {/* ═══ СХЕМА ═══ */}
       {tab==="scheme" && me.tabs.includes("scheme") && (<>
         <div style={{...S.card,padding:6,marginBottom:10}}>
@@ -838,16 +837,24 @@ export default function SystemModel(){
           assetOk={assetOk} onWhy={(kind,id)=>setWhy({kind,id})}
           onOpenFunc={openFuncCard}/>
 
-        {/* Под схемой две вкладки: чем схема собрана и куда она идёт.
-            Ползунок месяца — общий на обе: он стоит над ними, потому что
-            одинаково относится и к числам на блоках, и к хвостам графиков. */}
+        {/* Под схемой три вкладки: чем схема собрана, куда она идёт и что
+            по ней уже сделано. Ползунок месяца — общий: он стоит над ними,
+            потому что одинаково относится и к числам на блоках, и к хвостам
+            графиков. */}
         <div className="flex gap-2" style={{margin:"10px 0",overflowX:"auto"}}>
           <button style={btn(under==="edit")} onClick={()=>setUnder("edit")}>
             Управление</button>
           {me.tabs.includes("sim")&&(
             <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
               Прогноз</button>)}
+          {me.tabs.includes("timeline")&&(
+            <button style={btn(under==="time")} onClick={()=>setUnder("time")}>
+              Timeline</button>)}
         </div>
+
+        {under==="time" && me.tabs.includes("timeline") && (
+          <Timeline tasks={myTasks} funcs={funcs} traits={traits} entities={entities}
+            nameOf={personName}/>)}
 
         {under==="edit" && selE && (
           <div style={{...S.card,marginTop:10}}>
@@ -902,7 +909,8 @@ export default function SystemModel(){
         {/* Цели: сколько, чего, к какому сроку, каким темпом и какой ценой.
             Модель отвечает тем, что из цели следует, — см. GoalsPanel. */}
         <GoalsPanel goals={goals} setGoals={setGoals} traits={traits}
-          model={{traits,funcs}} runsOf={runsOf}/>
+          model={{traits,funcs}} runsOf={runsOf}
+          onTasks={list=>setTasks(p=>[...p,...list])}/>
 
         {entities.map(en=>{
           const ts=traits.filter(t=>t.e===en.id);
@@ -921,7 +929,10 @@ export default function SystemModel(){
                    уровень, до которого надо дорасти. У цели с темпом («один
                    в неделю») уровня нет вовсе, и черта на графике врала бы —
                    вместо неё сказано, сколько такой темп требует в месяц. */
-                const g=goals.find(x=>x.trait===t.id&&Number(x.qty)>0);
+                /* На графике показывается только ПРИМЕНЁННАЯ цель:
+                   неприменённая — прикидка, и рисовать её планкой значило
+                   бы выдать намерение за решение. */
+                const g=goals.find(x=>x.trait===t.id&&Number(x.qty)>0&&x.appliedAt);
                 const line=g&&g.rate==="once"?Number(g.qty):null;
                 const flow=g&&g.rate!=="once"?perMonth(g):null;
                 const r=line!=null?reach(fc,t.id,line):null;

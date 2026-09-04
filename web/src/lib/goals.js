@@ -42,7 +42,7 @@
    завести вторую правду: модель поправили, а число осталось прежним.
    ════════════════════════════════════════════════════════════════ */
 import { DUR_UNITS } from "./funcs.js";
-import { MONTH_H, solveRange } from "./plan.js";
+import { MONTH_H, effect, scheduleOf, solveRange } from "./plan.js";
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -86,6 +86,9 @@ export const newGoal = (trait = "") => ({
   costs: [],
   hours: 0,
   hoursPer: "day",
+  // Когда цель применили. Пока не применили — это черновик: он считается,
+  // но ни на графики, ни на доску задач не влияет.
+  appliedAt: null,
 });
 
 /** Затрата: столько-то другого ресурса на одну цель. */
@@ -108,6 +111,7 @@ export const normalizeGoal = (g = {}) => ({
     : [],
   hours: num(g.hours),
   hoursPer: rateOf(g.hoursPer).id === "once" ? "day" : rateOf(g.hoursPer).id,
+  appliedAt: g.appliedAt || null,
 });
 export const normalizeGoals = (list) => (Array.isArray(list) ? list.map(normalizeGoal) : []);
 
@@ -260,6 +264,13 @@ export function planGoal(model, goal, { runsOf, now = Date.now() } = {}) {
       name: traits.find((t) => t.id === c.trait)?.l || "ресурс удалён",
       real: (best.spent?.[c.trait] ?? 0) * k,
     })),
+    /* Что план сделает с ресурсами и во что превратится на доске задач.
+       Считается по щедрой стороне, если она сходится: план ведут по той же
+       стороне, по которой считают работу, иначе числа в одной форме
+       говорили бы о разных мирах. */
+    effect: effect(model, best.steps, { side: hi.ok ? "hi" : "lo", runsOf }),
+    schedule: scheduleOf(best.steps, { from: now }),
+    steps: best.steps,
     // Чего модель тратит сверх названного человеком.
     extra: Object.entries(best.spent || {})
       .filter(([id]) => id !== goal.trait && !(goal.costs || []).some((c) => c.trait === id))

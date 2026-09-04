@@ -11,13 +11,14 @@ import { normalizeFunc } from "../lib/funcs.js";
 
 const G = (over = {}) => normalizeGoal({ ...newGoal("t2"), ...over });
 
-/* Один клиент делается из двух «спросов» и занимает сутки. Спрос приходит
-   извне — от функции «реклама», иначе поток нечем кормить. */
+/* Один клиент делается из двух «спросов» и занимает 20 часов. Спрос никуда
+   не запасён — его производит «реклама», почти мгновенно и за деньги.
+   Значит цепочка настоящая: продажа не начнётся раньше рекламы. */
 const model = {
   traits: [{ id: "t0", e: "A", l: "деньги", have: 1e6 },
-    { id: "t1", e: "A", l: "спрос", have: 1000 },
+    { id: "t1", e: "A", l: "спрос", have: 0 },
     { id: "t2", e: "A", l: "клиент", have: 0 }],
-  funcs: [normalizeFunc({ id: "f1", e: "A", name: "продажа", dur: 1, durUnit: "дн",
+  funcs: [normalizeFunc({ id: "f1", e: "A", name: "продажа", dur: 20, durUnit: "ч",
     takes: [{ trait: "t1", lo: 2, hi: 2 }], gives: [{ trait: "t2", lo: 1, hi: 1 }] }),
   normalizeFunc({ id: "f0", e: "A", name: "реклама", dur: 0.001, durUnit: "ч",
     takes: [{ trait: "t0", lo: 1, hi: 1 }], gives: [{ trait: "t1", lo: 2, hi: 2 }] })],
@@ -104,11 +105,11 @@ describe("что цель означает для модели", () => {
   const plan = (over) => planGoal(model, G(over), {});
 
   it("считает работу за период темпа и приводит её к месяцу", () => {
-    // Один клиент делается сутки. Один в неделю — это ~4,3 суток работы
-    // в месяц.
+    // Один клиент — 20 часов продажи. Один в неделю — это ~4,3 таких
+    // круга в месяц.
     const p = plan({ qty: 1, rate: "week", hours: 0 });
     expect(p.ok).toBe(true);
-    expect(p.work.hi).toBeCloseTo(24 * (MONTH_H / 168), 0);
+    expect(p.work.hi).toBeCloseTo(20.001 * (MONTH_H / 168), 0);
     expect(p.perMonth).toBeCloseTo(MONTH_H / 168);
   });
 
@@ -132,8 +133,8 @@ describe("что цель означает для модели", () => {
   });
 
   it("держится ли темп: круг длиннее периода — «раз в день» не выйдет", () => {
-    // Один клиент делается сутки; «один в день» ещё держится, а «два в
-    // день» — уже нет, сколько ни старайся.
+    // Круг занимает 20 часов; «один в день» ещё держится, а «два в день» —
+    // уже нет, сколько ни старайся.
     expect(plan({ qty: 1, rate: "day" }).cycle).toBe(true);
     expect(plan({ qty: 2, rate: "day" }).cycle).toBe(false);
     // У разовой цели периода нет — и вопроса тоже.
@@ -182,5 +183,60 @@ describe("чужая запись достраивается", () => {
 
   it("отсутствующий список целей — это пусто, а не падение", () => {
     expect(normalizeGoal({}).costs).toEqual([]);
+  });
+});
+
+
+describe("что цель сделает с моделью", () => {
+  const plan = (over) => planGoal(model, G(over), { now: Date.UTC(2026, 0, 1) });
+
+  it("видно, каких ресурсов прибавится, а каких убавится", () => {
+    // Один клиент: +1 клиент, −2 спроса, а спрос производит реклама, и она
+    // ест деньги. Чистое изменение по каждому ресурсу, а не приход и
+    // расход по отдельности.
+    const e = plan({ qty: 1, rate: "once" }).effect;
+    expect(e.t2).toBe(1);
+    expect(e.t0).toBeLessThan(0);
+    // Спрос и производится, и тратится — в итоге ноль или около него.
+    expect(Math.abs(e.t1)).toBeLessThan(1e-9);
+  });
+
+  it("видно, какие задачи и когда заведутся", () => {
+    const rows = plan({ qty: 2, rate: "once" }).schedule;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0]).toMatchObject({ name: expect.any(String), no: 1 });
+    expect(rows[0].start instanceof Date).toBe(true);
+    // Список отсортирован по времени: сперва то, что делается раньше.
+    for (let i = 1; i < rows.length; i += 1) {
+      expect(rows[i].start.getTime()).toBeGreaterThanOrEqual(rows[i - 1].start.getTime());
+    }
+  });
+
+  it("функция не начинается раньше, чем созреют её входы", () => {
+    // Продажа ждёт рекламу: её задача не может стоять первой.
+    const rows = plan({ qty: 1, rate: "once" }).schedule;
+    const ad = rows.find((r) => r.name === "реклама");
+    const sale = rows.find((r) => r.name === "продажа");
+    expect(sale.start.getTime()).toBeGreaterThanOrEqual(ad.start.getTime());
+  });
+
+  it("недостижимая цель не заводит ни одной задачи", () => {
+    const alone = { traits: [{ id: "t9", e: "A", l: "чудо" }], funcs: [] };
+    expect(planGoal(alone, normalizeGoal({ ...newGoal("t9"), qty: 5 }), {}).schedule)
+      .toEqual([]);
+  });
+});
+
+describe("применение цели", () => {
+  it("новая цель не применена: сперва прикидка, потом решение", () => {
+    // Пока цель не применена, она считается, но ни на что не влияет. Без
+    // этой границы каждая правка числа молча меняла бы доску задач.
+    expect(newGoal("t2").appliedAt).toBeNull();
+  });
+
+  it("отметка о применении переживает чтение чужой записи", () => {
+    const at = "2026-01-01T00:00:00.000Z";
+    expect(normalizeGoal({ appliedAt: at }).appliedAt).toBe(at);
+    expect(normalizeGoal({}).appliedAt).toBeNull();
   });
 });
