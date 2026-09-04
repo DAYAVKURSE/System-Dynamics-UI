@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
 import { STATUSES, funcLabel } from "./TasksBoard.jsx";
+import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { reportSrc } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -13,6 +14,12 @@ import { reportSrc } from "../storage.js";
    Решение «принято» отделено от «сдано» намеренно: принятая сдача идёт в
    расчёт как фактическое выполнение функции, и если бы исполнитель
    принимал сам себя, фактом стало бы его собственное заявление.
+
+   Принять — значит поставить оценку и написать, за что. Обе вещи
+   обязательны: оценка без слов не говорит, что исправить, а слова без
+   оценки не складываются в историю человека. Из этих оценок и растёт его
+   рейтинг, по которому постановщик выбирает, кому поручить следующую
+   работу, — поэтому «принял молча» здесь не бывает.
    ════════════════════════════════════════════════════════════════ */
 
 const fmtDT = (v) => {
@@ -23,16 +30,13 @@ const fmtDT = (v) => {
       year: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
-const lastOf = (t) => {
-  const subs = t.submissions || [];
-  return subs.length ? subs[subs.length - 1] : null;
-};
+const lastOf = lastSubmission;
 
 /* Карточка вынесена из компонента намеренно: объявленная внутри рендера,
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
    на каждой букве. */
-function Card({ t, dim, openId, setOpenId, note, setNote, funcs, traits, entities,
-  nameOf, onAccept, onReturn }) {
+function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
+  funcs, traits, entities, nameOf, onAccept, onReturn }) {
     const on = openId === t.id;
     const sub = lastOf(t);
     const f = funcs.find((x) => x.id === t.funcId) || null;
@@ -88,24 +92,45 @@ function Card({ t, dim, openId, setOpenId, note, setNote, funcs, traits, entitie
 
             {t.status === "review" && (
               <>
-                <input value={note} placeholder="что доработать (обязательно при возврате)"
+                {/* Оценка обязательна и при приёме, и при возврате: она —
+                    часть истории человека, а не украшение. */}
+                <div style={S.lbl}>оценка за работу</div>
+                <div className="flex flex-wrap gap-2" style={{ margin: "5px 0 7px" }}>
+                  {Array.from({ length: MARK_MAX - MARK_MIN + 1 }, (_, i) => MARK_MIN + i)
+                    .map((v) => (
+                      <button key={v} aria-label={`оценка ${v}`}
+                        style={{ ...btn(mark === v, mark === v ? OK : null), minWidth: 38 }}
+                        onClick={() => setMark(v)}>{v}</button>))}
+                  {sub && inTime(t, sub) != null && (
+                    <span style={{ fontSize: 10.5, alignSelf: "center",
+                      color: inTime(t, sub) ? OK : BAD }}>
+                      {inTime(t, sub) ? "сдано в срок" : "сдано после срока"}</span>)}
+                </div>
+                <input value={note} placeholder="за что такая оценка — обязательно"
+                  aria-label="комментарий к оценке"
                   onChange={(e) => setNote(e.target.value)}
                   style={{ ...S.inp, marginBottom: 6 }} />
                 <div className="flex flex-wrap gap-2">
                   <button style={btn(true, OK)}
-                    onClick={() => { onAccept(t, note); setNote(""); setOpenId(null); }}>
+                    disabled={!mark || !note.trim()}
+                    title={mark && note.trim() ? "" : "Поставьте оценку и напишите, за что"}
+                    onClick={() => { onAccept(t, note, mark); setNote(""); setMark(0);
+                      setOpenId(null); }}>
                     Принять</button>
                   <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
                     disabled={!note.trim()}
                     title={note.trim() ? "" : "Напишите, что доработать"}
-                    onClick={() => { onReturn(t, note); setNote(""); setOpenId(null); }}>
+                    onClick={() => { onReturn(t, note, mark); setNote(""); setMark(0);
+                      setOpenId(null); }}>
                     Вернуть в бэклог</button>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-                  «Принять» переводит задачу в «Готово» — и её числа идут в
-                  расчёт как фактическое выполнение функции. «Вернуть» — в
-                  бэклог с текстом доработки; без текста вернуть нельзя —
-                  исполнителю нечего будет исправлять.
+                  «Принять» переводит задачу в «Готово» — её числа идут в
+                  расчёт как фактическое выполнение функции, а оценка и
+                  комментарий — в историю исполнителя. Без оценки и без слов
+                  принять нельзя: оценка без слов не говорит, что исправить, а
+                  слова без оценки не складываются в историю. «Вернуть» — в
+                  бэклог с текстом доработки.
                 </div>
               </>)}
             {!!(t.comments || []).length && (
@@ -124,6 +149,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
   meId, isOwner, onAccept, onReturn, nameOf }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
+  const [mark, setMark] = useState(0);
 
   // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
   const mine = useMemo(() => tasks.filter((t) =>
@@ -146,14 +172,14 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>
           Ничего не ждёт проверки.</div>)}
       {waiting.map((t) => <Card key={t.id} t={t} openId={openId} setOpenId={setOpenId}
-        note={note} setNote={setNote} funcs={funcs} traits={traits} entities={entities}
+        note={note} setNote={setNote} mark={mark} setMark={setMark} funcs={funcs} traits={traits} entities={entities}
         nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
 
       {!!rest.length && (
         <>
           <div style={{ ...S.lbl, margin: "12px 0 6px" }}>остальные задачи под вашей проверкой</div>
           {rest.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
-            note={note} setNote={setNote} funcs={funcs} traits={traits} entities={entities}
+            note={note} setNote={setNote} mark={mark} setMark={setMark} funcs={funcs} traits={traits} entities={entities}
             nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
         </>)}
     </div>);

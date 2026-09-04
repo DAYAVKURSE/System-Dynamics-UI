@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { WORKER_KINDS, hoursOf, rangeText } from "../lib/funcs.js";
+import { DUR_UNITS, WORKER_KINDS, hoursOf, rangeText } from "../lib/funcs.js";
+import { shortStat, statsOf } from "../lib/workers.js";
 import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -31,7 +32,18 @@ import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
    человек сам о себе написал.
    ════════════════════════════════════════════════════════════════ */
 
+/* Путь задачи, слева направо.
+
+   «Ожидает постановки» — заведена, но ещё не поставлена: нет людей, срока
+   или содержимого. «Дедлайн» — поставлена, срок назначен, ждёт, когда её
+   возьмут: она стоит ПЕРЕД бэклогом, потому что срок важнее очереди —
+   сначала видно, что горит, и только потом, что лежит.
+
+   Дальше как было: бэклог, работа, проверка, готово. «Готово» ставит
+   проверяющий, принимая отчёт с оценкой. */
 export const STATUSES=[
+  {id:"wait",name:"Ожидает постановки",color:NEU},
+  {id:"deadline",name:"Дедлайн",color:BAD},
   {id:"backlog",name:"Бэклог",color:NEU},
   {id:"progress",name:"В работе",color:ACC},
   {id:"review",name:"Проверка",color:WARN},
@@ -74,9 +86,31 @@ export const MAX_REPORT_BYTES=MAX_UPLOAD_REPORT_BYTES;
 
 /** Новая задача — выполнение функции. */
 export function newTask({funcId=null,title="Новое выполнение",body="",
-  setter=null,assignee=null,reviewer=null,start=null}){
-  return {id:uid("tk"),funcId,title,body,status:"backlog",
-    setter,assignee,reviewer,start,warn:10,submissions:[],comments:[]};
+  setter=null,assignee=null,reviewer=null,start=null,end=null}){
+  // Заводится в «ожидает постановки»: пока нет людей, срока и содержимого,
+  // это ещё не задача, а намерение её поставить.
+  // endBy — кем поставлен срок. «auto» значит «посчитан от начала»: такой
+  // срок едет за началом. «hand» — назначен человеком, и его не двигает
+  // ничто: это обещание, а не производная.
+  return {id:uid("tk"),funcId,title,body,status:"wait",
+    setter,assignee,reviewer,start,end,endBy:"auto",warn:10,
+    submissions:[],reviews:[],comments:[]};
+}
+
+/**
+ * Срок по умолчанию: начало плюс верхняя граница одного выполнения.
+ *
+ * Верхняя — потому что срок это обещание: обещать по нижней границе значит
+ * заранее назначить срыв. Цикл считается с расписанием: работа на час,
+ * которая делается раз в неделю, занимает неделю, а не час.
+ */
+export function defaultEnd(func,start){
+  if(!func) return null;
+  const from=start?new Date(start).getTime():Date.now();
+  if(Number.isNaN(from)) return null;
+  const hours=Math.max(hoursOf(func),
+    (Number(func.every)||0)*(DUR_UNITS[func.everyUnit]??1));
+  return nowLocal(new Date(from+Math.max(hours,1)*3600000));
 }
 
 /** Кто в задаче за какую роль: у задачи по одному человеку на роль. */
@@ -91,8 +125,12 @@ export const TASK_ROLE={setters:"setter",owners:"assignee",reviewers:"reviewer"}
 export function taskGaps(task){
   const gaps=WORKER_KINDS.filter(k=>!task[TASK_ROLE[k.id]]).map(k=>k.task);
   if(!String(task?.body||"").trim()) gaps.push("содержимое");
+  if(!task?.end) gaps.push("срок");
   return gaps;
 }
+
+/** Поставлена ли задача до конца — от этого зависит, можно ли её двигать. */
+export const isSet=(task)=>taskGaps(task).length===0;
 
 /**
  * Одна сдача: сколько часов ушло и сколько ресурса взяли и выдали.
@@ -135,7 +173,7 @@ export const funcLabel=(f,entities=[])=>{
    Отдельным компонентом, потому что открывается в двух местах: на доске
    задач и во вкладке «Проверка». Копия того же JSX в двух местах
    разъехалась бы на первой же правке. */
-export function TaskEditor({task,funcs=[],traits=[],entities=[],
+export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
   setTasks,onClose,onDelete,people=[],canAssign=true,nameOf}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
@@ -218,7 +256,11 @@ export function TaskEditor({task,funcs=[],traits=[],entities=[],
               aria-label={k.task}
               onChange={e=>up(TASK_ROLE[k.id],e.target.value||null)}>
               <option value="">— не назначен —</option>
-              {pool(k.id).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+              {/* Рейтинг стоит рядом с именем: постановщик выбирает человека,
+                  а не гадает, кого из них уже проверяли и как. */}
+              {pool(k.id).map(p=>(
+                <option key={p.id} value={p.id}>
+                  {p.name} · {shortStat(statsOf(tasks,funcs,p.id))}</option>))}
             </select>
           </div>))}
       </div>
@@ -281,7 +323,24 @@ export function TaskEditor({task,funcs=[],traits=[],entities=[],
         <div style={{flex:"1 1 170px"}}>
           <div style={S.lbl}>начать</div>
           <input type="datetime-local" style={S.inp} value={task.start||""}
-            onChange={e=>up("start",e.target.value||null)}/>
+            aria-label="начать"
+            onChange={e=>{
+              const start=e.target.value||null;
+              // Сдвинули начало — срок едет за ним, пока его не назначили
+              // руками: иначе он остался бы в прошлом относительно старта.
+              upMany(task.endBy==="hand"&&task.end?{start}
+                :{start,end:defaultEnd(func,start),endBy:"auto"});
+            }}/>
+        </div>
+        <div style={{flex:"1 1 170px"}}>
+          <div style={S.lbl}>закончить</div>
+          <input type="datetime-local" style={S.inp} value={task.end||""}
+            aria-label="закончить"
+            onChange={e=>upMany({end:e.target.value||null,endBy:"hand"})}/>
+          <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
+            По умолчанию — верхняя граница одного выполнения; можно менять.
+            В расчёт всё равно идёт то, сколько ушло на самом деле.
+          </div>
         </div>
       </div>
 
@@ -432,12 +491,16 @@ function Comments({task,onAdd,onDrop}){
 export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTasks,
   openId,setOpenId,people=[],canAssign=true,nameOf}){
   const open=tasks.find(t=>t.id===openId)||null;
-  // «Готово» ставит проверяющий, принимая отчёт: стрелка вправо доводит
-  // задачу только до «Проверки». Иначе исполнитель закрывал бы себя сам, и
-  // в расчёт пошло бы то, чего никто не принял.
+  /* «Готово» ставит проверяющий, принимая отчёт: стрелка вправо доводит
+     задачу только до «Проверки». Иначе исполнитель закрывал бы себя сам, и
+     в расчёт пошло бы то, чего никто не принял.
+
+     А из «ожидает постановки» она не двигается, пока не поставлена: без
+     людей, срока и содержимого делать нечего. */
   const canAdvance=(t)=>{
     const at=STATUSES.findIndex(s=>s.id===t.status);
-    return at>=0&&at<STATUSES.length-2;
+    if(at<0||at>=STATUSES.length-2) return false;
+    return t.status!=="wait"||isSet(t);
   };
   const moveStatus=(t,d)=>{
     const at=STATUSES.findIndex(s=>s.id===t.status);
@@ -445,8 +508,16 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
     if(next) setTasks(p=>p.map(x=>x.id===t.id?{...x,status:next.id}:x));
   };
   const addFor=(f)=>{
-    const t=newTask({funcId:f.id,title:f.name||"выполнение функции"});
+    // Срок ставится сразу: он и есть то, ради чего задача заводится под
+    // функцией, — сколько на неё отведено.
+    const t=newTask({funcId:f.id,title:f.name||"выполнение функции",
+      end:defaultEnd(f,null)});
     setTasks(p=>[...p,t]); setOpenId(t.id);
+  };
+  // Просрочка — не статус, а факт: срок прошёл, а работа не принята.
+  const late=(t)=>{
+    const end=t.end?new Date(t.end).getTime():null;
+    return end!=null&&!Number.isNaN(end)&&t.status!=="done"&&end<Date.now();
   };
   return (
     <div>
@@ -477,7 +548,8 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
       </div>
 
       {open&&(
-        <TaskEditor task={open} funcs={funcs} traits={traits} entities={entities}
+        <TaskEditor task={open} tasks={tasks} funcs={funcs} traits={traits}
+          entities={entities}
           people={people} canAssign={canAssign} nameOf={nameOf} setTasks={setTasks}
           onClose={()=>setOpenId(null)}
           onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==open.id));setOpenId(null);}}/>)}
@@ -504,6 +576,12 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                     <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
                       {funcLabel(f,entities)}
                     </div>
+                    {t.end&&<div style={{fontSize:10.5,marginTop:3,
+                      color:late(t)?BAD:C.muted}}>
+                      {late(t)?"просрочено · ":"до "}{fmtDT(t.end)}</div>}
+                    {t.status==="wait"&&!!taskGaps(t).length&&(
+                      <div style={{fontSize:10,color:WARN,marginTop:3,lineHeight:1.4}}>
+                        не хватает: {taskGaps(t).join(", ")}</div>)}
                     {t.assignee!=null&&<div style={{fontSize:10.5,color:ACC,marginTop:3}}>
                       {nameOf?nameOf(t.assignee):t.assignee}</div>}
                     <div className="flex gap-2" style={{marginTop:6}}>

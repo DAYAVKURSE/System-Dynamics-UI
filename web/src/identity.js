@@ -78,9 +78,9 @@ export const putWorkspace = (model) =>
 export const submitTaskRemote = (id, submission) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/submit`,
     { method: "POST", body: JSON.stringify(submission) });
-export const reviewTaskRemote = (id, { accept, comment }) =>
+export const reviewTaskRemote = (id, { accept, comment, mark }) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/review`,
-    { method: "POST", body: JSON.stringify({ accept, comment }) });
+    { method: "POST", body: JSON.stringify({ accept, comment, mark }) });
 
 /** Черновик содержимого задачи от Claude — через мост, только владельцу. */
 /** Черновик задачи от Claude. В два шага: поставить вопрос и опрашивать

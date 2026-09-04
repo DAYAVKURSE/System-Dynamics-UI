@@ -4,6 +4,7 @@ import { DUR_UNITS, WORKER_KINDS, checkFunc, checkTrait, everyOf, fromHours,
   hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
+import { byRating, shortStat, statsOf } from "../lib/workers.js";
 
 /* ════════════════════════════════════════════════════════════════
    КАРТОЧКА АКТИВА · воркеры, функции, ресурсы
@@ -127,19 +128,84 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
 
 /* ═══ 1. ВОРКЕРЫ ═══
    Люди актива. Они и выполняют его функции, поэтому стоят первыми: сначала
-   кто, потом что делает. */
-export function Workers({ workers, people = [], nameOf, onToggle }) {
+   кто, потом что делает.
+
+   У каждого рядом с именем — короткий итог: средняя оценка, доля работ,
+   сданных в срок, и сколько их было. Выбирать человека вслепую, а потом
+   искать его историю в другом месте, — значит выбирать не глядя. Полная
+   история открывается нажатием на строку.
+
+   Порядок в списке — свой: по умолчанию впереди лучшие по оценке, но его
+   можно переложить руками, и тогда он таким и сохранится. Порядок здесь
+   не украшение: он говорит, кого зовут на работу первым. */
+export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
+  onToggle, onOrder, onOpenPerson }) {
+  const [sorted, setSorted] = useState(true);
+  const stat = (id) => statsOf(tasks, funcs, id);
   return (
     <Section title="воркеры актива"
       hint="Постановщики, исполнители и проверяющие этого актива. На его функции можно ставить только их."
       empty={people.length ? null : "Людей ещё нет — заведите их во вкладке «Люди и роли»."}>
-      {people.length > 0 && (
+      {people.length > 0 && (<>
+        <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
+          <button style={{ ...btn(sorted), fontSize: 11, padding: "3px 8px" }}
+            onClick={() => setSorted(true)}>по рейтингу</button>
+          <button style={{ ...btn(!sorted), fontSize: 11, padding: "3px 8px" }}
+            onClick={() => setSorted(false)}>свой порядок</button>
+        </div>
         <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
           borderRadius: 8, padding: 8 }}>
-          {WORKER_KINDS.map((k) => (
-            <People key={k.id} title={k.many} ids={workers[k.id]} people={people}
-              nameOf={nameOf} empty="" onToggle={(pid) => onToggle(k.id, pid)} />))}
-        </div>)}
+          {WORKER_KINDS.map((k) => {
+            const ids = workers[k.id] || [];
+            const shown = sorted ? byRating(tasks, funcs, ids) : ids;
+            const free = people.filter((p) => !ids.includes(p.id));
+            return (
+              <div key={k.id} style={{ marginTop: 6 }}>
+                <div style={{ ...S.lbl, marginBottom: 3 }}>{k.many}</div>
+                {!ids.length && (
+                  <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
+                    никого — выберите ниже</div>)}
+                {shown.map((pid, i) => {
+                  const s = stat(pid);
+                  return (
+                    <div key={pid} className="flex items-center gap-2"
+                      style={{ padding: "4px 0", borderTop: `1px solid ${C.line}` }}>
+                      <button style={{ background: "none", border: "none", padding: 0,
+                        flex: 1, textAlign: "left", cursor: "pointer", color: C.text }}
+                        onClick={() => onOpenPerson && onOpenPerson(pid)}
+                        title="вся история этого человека">
+                        <span style={{ fontSize: 12 }}>{nameOf ? nameOf(pid) : pid}</span>
+                        <span style={{ fontSize: 10.5, color: s.mark == null ? C.muted
+                          : s.mark >= 4 ? OK : s.mark >= 3 ? WARN : BAD }}>
+                          {" · "}{shortStat(s)}</span>
+                      </button>
+                      {!sorted && (<>
+                        <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
+                          aria-label={`выше: ${nameOf ? nameOf(pid) : pid}`}
+                          disabled={i === 0}
+                          onClick={() => onOrder(k.id, pid, -1)}>↑</button>
+                        <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
+                          aria-label={`ниже: ${nameOf ? nameOf(pid) : pid}`}
+                          disabled={i === shown.length - 1}
+                          onClick={() => onOrder(k.id, pid, 1)}>↓</button>
+                      </>)}
+                      <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px",
+                        color: BAD }} aria-label={`убрать из ${k.many}`}
+                        onClick={() => onToggle(k.id, pid)}>×</button>
+                    </div>);
+                })}
+                {!!free.length && (
+                  <div className="flex flex-wrap gap-2" style={{ marginTop: 5 }}>
+                    {free.map((p) => (
+                      <button key={p.id} style={{ ...btn(false), fontSize: 11,
+                        padding: "3px 7px" }} onClick={() => onToggle(k.id, p.id)}>
+                        + {p.name || p.id}
+                        <span style={{ color: C.muted }}> · {shortStat(stat(p.id))}</span>
+                      </button>))}
+                  </div>)}
+              </div>);
+          })}
+        </div></>)}
     </Section>);
 }
 
@@ -432,7 +498,9 @@ export default function AssetPanel(props) {
 
       {tab === "workers" && (
         <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
-          onToggle={props.onToggleWorker} />)}
+          tasks={props.tasks} funcs={props.funcs}
+          onToggle={props.onToggleWorker} onOrder={props.onOrderWorker}
+          onOpenPerson={props.onOpenPerson} />)}
 
       {tab === "funcs" && (
         <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc} />)}

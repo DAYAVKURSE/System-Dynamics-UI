@@ -92,9 +92,11 @@ describe("назначения берутся из воркеров актива
     const names = (label) => [...screen.getByLabelText(label).options]
       .map((o) => o.textContent);
     // Владелец — постановщик актива, Иван — исполнитель, Пётр — проверяющий.
-    expect(names("постановщик")).toEqual(["— не назначен —", "Владелец"]);
-    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван"]);
-    expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр"]);
+    // Рядом с именем — краткая статистика: постановщик выбирает не
+    // вслепую, а видя, как человек работает.
+    expect(names("постановщик")).toEqual(["— не назначен —", "Владелец · без оценок · 0 работ"]);
+    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван · без оценок · 0 работ"]);
+    expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр · без оценок · 0 работ"]);
   });
 
   it("все три роли обязательны, и содержимое тоже — сказано, чего не хватает", () => {
@@ -126,9 +128,38 @@ describe("возврат с проверки", () => {
     const back = screen.getByRole("button", { name: "Вернуть в бэклог" });
     expect(back).toBeDisabled();
 
-    fireEvent.change(screen.getByPlaceholderText(/что доработать/),
+    fireEvent.change(screen.getByLabelText("комментарий к оценке"),
       { target: { value: "переделать" } });
     expect(screen.getByRole("button", { name: "Вернуть в бэклог" })).not.toBeDisabled();
+  });
+
+  it("принять без оценки и без слов нельзя", () => {
+    // Оценка без слов не говорит, что исправить; слова без оценки не
+    // складываются в историю. Приём — это и то и другое сразу.
+    const got = [];
+    render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
+      entities={ENTITIES} meId="3" isOwner={false}
+      onAccept={(t, note, mark) => got.push([note, mark])} onReturn={() => {}} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    const take = () => screen.getByRole("button", { name: "Принять" });
+    expect(take()).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("комментарий к оценке"),
+      { target: { value: "сделано" } });
+    expect(take()).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "оценка 4" }));
+    expect(take()).not.toBeDisabled();
+    fireEvent.click(take());
+    expect(got).toEqual([["сделано", 4]]);
+  });
+
+  it("сказано, сдана работа в срок или после него", () => {
+    render(<ReviewBoard tasks={[{ ...reviewTask, end: "2025-12-31T00:00:00Z" }]}
+      funcs={FUNCS} traits={TRAITS} entities={ENTITIES} meId="3" isOwner={false}
+      onAccept={() => {}} onReturn={() => {}} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByText("сдано после срока")).toBeInTheDocument();
   });
 
   it("проверяющий видит только своё, чужое не показывается", () => {

@@ -227,7 +227,8 @@ describe("что можно изменить", () => {
 
   it("проверяющий принимает отчёт — задача становится готовой", async () => {
     await seed();
-    const r = await reviewTask("300", "tk1", { accept: true, comment: "принято" });
+    const r = await reviewTask("300", "tk1",
+      { accept: true, comment: "принято", mark: 5 });
     expect(r.task.status).toBe("done");
     expect(r.task.comments).toHaveLength(1);
   });
@@ -242,11 +243,33 @@ describe("что можно изменить", () => {
   it("вернуть без текста доработки нельзя — исполнителю нечего исправлять", async () => {
     await seed();
     expect((await reviewTask("300", "tk1", { accept: false })).error).toBe("comment required");
+    // Принять молча тоже нельзя: без слов непонятно, за что оценка.
+    expect((await reviewTask("300", "tk1", { accept: true, mark: 5 })).error)
+      .toBe("comment required");
+  });
+
+  it("принять без оценки нельзя — она часть истории исполнителя", async () => {
+    await seed();
+    expect((await reviewTask("300", "tk1", { accept: true, comment: "ок" })).error)
+      .toBe("mark required");
+    // И оценка вне шкалы — не оценка.
+    expect((await reviewTask("300", "tk1", { accept: true, comment: "ок", mark: 9 })).error)
+      .toBe("mark required");
+  });
+
+  it("решение проверяющего ложится в историю задачи: кто, когда, сколько и за что", async () => {
+    await seed();
+    const { task } = await reviewTask("300", "tk1",
+      { accept: true, comment: "чисто", mark: 4 });
+    expect(task.reviews).toHaveLength(1);
+    expect(task.reviews[0]).toMatchObject({ by: "300", accept: true, mark: 4,
+      comment: "чисто" });
   });
 
   it("принять свою же задачу исполнитель не может", async () => {
     await seed();
-    expect((await reviewTask("200", "tk1", { accept: true })).error).toBe("not yours");
+    expect((await reviewTask("200", "tk1",
+      { accept: true, comment: "ок", mark: 5 })).error).toBe("not yours");
   });
 
   it("несуществующая задача — «не найдено», а не тихий успех", async () => {

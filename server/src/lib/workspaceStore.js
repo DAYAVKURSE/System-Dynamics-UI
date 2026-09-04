@@ -135,15 +135,27 @@ export async function submitTask(userId, taskId, submission) {
 }
 
 /** Приём или возврат отчёта — только назначенный проверяющий. */
-export async function reviewTask(userId, taskId, { accept, comment }) {
+export async function reviewTask(userId, taskId, { accept, comment, mark }) {
   const model = await readModel();
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.reviewer || "") !== String(userId)) return { error: "not yours" };
   // Возврат — в бэклог, а не «в работу»: задачу надо переставить заново,
   // прочитав, что именно доработать. Текст доработки — обязателен.
-  if (!accept && !String(comment || "").trim()) return { error: "comment required" };
+  if (!String(comment || "").trim()) return { error: "comment required" };
+  // Принять молча нельзя: оценка и слова — часть истории исполнителя, из
+  // которой потом растёт его рейтинг. Оценка вне шкалы — не оценка.
+  const value = Number(mark);
+  if (accept && !(value >= 1 && value <= 5)) return { error: "mark required" };
   task.status = accept ? "done" : "backlog";
+  task.reviews = [...(task.reviews || []), {
+    id: "rv" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    at: new Date().toISOString(),
+    by: String(userId),
+    accept: !!accept,
+    mark: Number.isFinite(value) ? value : null,
+    comment: String(comment || ""),
+  }];
   if (comment) {
     task.comments = [...(task.comments || []), {
       id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),

@@ -158,7 +158,7 @@ describe("сдача и приём через сервер", () => {
     await saveModel();
     await invite(300, "reviewer", "Пётр");
     const res = await request(app).post("/api/workspace/tasks/tk1/review")
-      .set(as(300)).send({ accept: true, comment: "принято" });
+      .set(as(300)).send({ accept: true, comment: "принято", mark: 5 });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("done");
   });
@@ -167,6 +167,6 @@ describe("сдача и приём через сервер", () => {
     await saveModel();
     await invite(200, "executor", "Иван");
     expect((await request(app).post("/api/workspace/tasks/tk1/review")
-      .set(as(200)).send({ accept: true })).status).toBe(403);
+      .set(as(200)).send({ accept: true, comment: "ок", mark: 5 })).status).toBe(403);
   });
 });

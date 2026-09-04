@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario,
   forgetScenario } from "../storage.js";
-import { SOLO, whoAmI, getWorkspace, putWorkspace, reviewTaskRemote }
+import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
@@ -18,6 +18,7 @@ import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 import Modal from "./Modal.jsx";
+import PersonStats from "./PersonStats.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v9
@@ -302,6 +303,8 @@ export default function SystemModel(){
   const [tab,setTab]=useState("tasks");
   const [sel,setSel]=useState("usr");
   const [why,setWhy]=useState(null);
+  // Кого раскрыли в списке воркеров: вся его история — в окне.
+  const [person,setPerson]=useState(null);
   const [horizon,setHorizon]=useState(24);
   const [zoom,setZoom]=useState(0.6);
   const [json,setJson]=useState(""); const [jsonMsg,setJsonMsg]=useState("");
@@ -326,6 +329,15 @@ export default function SystemModel(){
     whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
     return ()=>{ live=false; };
   },[]);
+  /* Люди нужны не только на своей вкладке: их выбирают в воркеры актива и
+     назначают на задачи. Пока список подтягивался открытием «Людей и
+     ролей», в воркерах было написано «людей ещё нет» — и это была
+     неправда: они были, просто их не спросили. */
+  useEffect(()=>{ let live=true;
+    if(!me.known||me.solo) return undefined;
+    listOrg().then(o=>{ if(live&&o?.users) setPeople(o.users); }).catch(()=>{});
+    return ()=>{ live=false; };
+  },[me.known,me.solo]);
   const [tool,setTool]=useState("people");
   useEffect(()=>{ if(openCall && me.tabs.includes("tools")) { setTab("tools"); setTool("calls"); } },
     [openCall,me.tabs]);
@@ -441,6 +453,21 @@ export default function SystemModel(){
         [kind]:(e[kind]||[]).filter(x=>String(x)!==String(pid))};
       return pruneWorkers(p,sel,next);
     });
+  };
+  /* Порядок людей в списке воркеров — свой, руками. По умолчанию список
+     сортируется по рейтингу, но выбирает всё равно человек: у него могут
+     быть причины, которых в цифрах нет. Поэтому порядок хранится, а
+     сортировка по рейтингу — только вид. */
+  const orderWorker=(kind,pid,delta)=>{
+    setEntities(p=>p.map(e=>{
+      if(e.id!==sel) return e;
+      const list=[...(e[kind]||[])];
+      const i=list.findIndex(x=>String(x)===String(pid));
+      const j=i+delta;
+      if(i<0||j<0||j>=list.length) return e;
+      [list[i],list[j]]=[list[j],list[i]];
+      return {...e,[kind]:list};
+    }));
   };
 
   // ─── напоминания ───
@@ -610,15 +637,24 @@ export default function SystemModel(){
     if(id==null||id==="") return "не назначен";
     return people.find(p=>String(p.id)===String(id))?.name||String(id);
   },[people]);
-  const decide=useCallback((task,accept,note)=>{
+  /* Решение проверяющего — не только статус: оценка и слова уходят в
+     историю исполнителя, из которой потом растёт его рейтинг. Пишем их
+     отдельным списком `reviews`, а не в комментарии: комментарий может
+     оставить кто угодно и когда угодно, а решение — это ровно приём или
+     возврат, с оценкой и автором. */
+  const decide=useCallback((task,accept,note,mark)=>{
+    const at=new Date().toISOString();
+    const review={id:"rv"+Date.now().toString(36),at,by:me.id??null,
+      accept:!!accept,mark:Number(mark)||null,comment:String(note||"")};
     setTasks(p=>p.map(t=>t.id===task.id?{...t,
       status:accept?"done":"backlog",
+      reviews:[...(t.reviews||[]),review],
       comments:note?[...(t.comments||[]),
-        {id:"c"+Date.now().toString(36),text:note,at:new Date().toISOString()}]
+        {id:"c"+Date.now().toString(36),text:note,at}]
         :(t.comments||[]),
     }:t));
-    reviewTaskRemote(task.id,{accept,comment:note}).catch(()=>{});
-  },[setTasks]);
+    reviewTaskRemote(task.id,{accept,comment:note,mark:review.mark}).catch(()=>{});
+  },[setTasks,me.id]);
   const toggleCard=useCallback((id)=>setOpenCards(p=>{
     const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n;
   }),[]);
@@ -727,8 +763,8 @@ export default function SystemModel(){
       {tab==="review" && me.tabs.includes("review") && (
         <ReviewBoard tasks={tasks} traits={traits} entities={entities} funcs={funcs}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
-          onAccept={(t,note)=>decide(t,true,note)}
-          onReturn={(t,note)=>decide(t,false,note)}/>)}
+          onAccept={(t,note,mark)=>decide(t,true,note,mark)}
+          onReturn={(t,note,mark)=>decide(t,false,note,mark)}/>)}
 
       {/* ═══ TIMELINE ═══ */}
       {tab==="timeline" && me.tabs.includes("timeline") && (
@@ -799,6 +835,7 @@ export default function SystemModel(){
               traits={traits} setTraits={setTraits}
               entities={entities} kinds={kinds} kindOf={kindOf}
               people={people} nameOf={personName} runsOf={runsOf}
+              tasks={tasks} onOrderWorker={orderWorker} onOpenPerson={setPerson}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}
               onDeleteTrait={delTrait}/>
@@ -1081,6 +1118,15 @@ export default function SystemModel(){
             :why.kind==="func"?"Что такое функция"
               :"Что такое ресурс"}>
           {why.kind==="asset"?WHY_ASSET:why.kind==="func"?WHY_FUNC:WHY_TRAIT}
+        </Modal>)}
+
+      {/* История человека: из списка воркеров — по нажатию на имя. Окном, а
+          не разворотом в списке: истории может быть много, а список нужен
+          целиком, чтобы сравнивать людей между собой. */}
+      {person && (
+        <Modal onClose={()=>setPerson(null)} title={personName(person)}>
+          <PersonStats tasks={tasks} funcs={funcs} personId={person}
+            traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}/>
         </Modal>)}
     </div>);
 }
