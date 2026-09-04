@@ -158,9 +158,11 @@ describe("воркеры принадлежат активу", () => {
     expect(screen.getByText(/Людей ещё нет/)).toBeInTheDocument();
   });
 
-  it("в функции исполнители берутся из воркеров актива", () => {
+  it("в функции люди берутся из воркеров актива — все три роли", () => {
     addFunc();
-    expect(screen.getByText(/в активе ещё нет исполнителей/)).toBeInTheDocument();
+    ["постановщики", "исполнители", "проверяющие"].forEach((many) => {
+      expect(screen.getByText(new RegExp(`в активе ещё нет ${many}`))).toBeInTheDocument();
+    });
   });
 });
 

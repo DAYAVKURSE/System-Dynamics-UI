@@ -63,8 +63,11 @@ export async function writeModel(model) {
 /** Задачи, до которых человеку есть дело. Владелец здесь не проходит. */
 export const tasksFor = (model, userId) => {
   const id = String(userId);
-  return (model.tasks || []).filter((t) =>
-    String(t.assignee || "") === id || String(t.reviewer || "") === id);
+  // Три роли, и все три дают право видеть задачу: постановщик написал, что
+  // сделать, исполнитель это делает, проверяющий принимает. Спрятать задачу
+  // от того, кто её поставил, значило бы отобрать у него собственную работу.
+  return (model.tasks || []).filter((t) => String(t.setter || "") === id
+    || String(t.assignee || "") === id || String(t.reviewer || "") === id);
 };
 
 /**

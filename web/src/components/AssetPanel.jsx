@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, checkFunc, checkTrait, everyOf, fromHours, hoursOf, newFunc,
-  newGive, newPort, okRange, rangeText, runHours, runQty } from "../lib/funcs.js";
+import { DUR_UNITS, WORKER_KINDS, checkFunc, checkTrait, everyOf, fromHours,
+  hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
+  runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 
 /* ════════════════════════════════════════════════════════════════
@@ -16,7 +17,7 @@ import { Mark } from "./Modal.jsx";
    Вкладки, а не три списка подряд: части равноправны, и ни одна из них не
    должна быть «той, до которой надо долистать».
 
-   · воркеры — исполнители и проверяющие актива, его люди;
+   · воркеры — постановщики, исполнители и проверяющие актива, его люди;
    · функции — то, что эти люди выполняют;
    · ресурсы — то, что функции потребляют и передают.
 
@@ -130,15 +131,14 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
 export function Workers({ workers, people = [], nameOf, onToggle }) {
   return (
     <Section title="воркеры актива"
-      hint="Исполнители и проверяющие этого актива. На его функции можно ставить только их."
+      hint="Постановщики, исполнители и проверяющие этого актива. На его функции можно ставить только их."
       empty={people.length ? null : "Людей ещё нет — заведите их во вкладке «Люди и роли»."}>
       {people.length > 0 && (
         <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
           borderRadius: 8, padding: 8 }}>
-          <People title="исполнители" ids={workers.owners} people={people} nameOf={nameOf}
-            empty="" onToggle={(pid) => onToggle("owners", pid)} />
-          <People title="проверяющие" ids={workers.reviewers} people={people} nameOf={nameOf}
-            empty="" onToggle={(pid) => onToggle("reviewers", pid)} />
+          {WORKER_KINDS.map((k) => (
+            <People key={k.id} title={k.many} ids={workers[k.id]} people={people}
+              nameOf={nameOf} empty="" onToggle={(pid) => onToggle(k.id, pid)} />))}
         </div>)}
     </Section>);
 }
@@ -321,12 +321,11 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   : "чаще самой работы не выйдет — считаем по длительности"}</span>
             </div>
 
-            <People title="исполняют" ids={f.owners} people={pool("owners")} nameOf={nameOf}
-              empty="в активе ещё нет исполнителей — добавьте их в «воркерах актива»"
-              onToggle={(pid) => togglePerson(f.id, "owners", pid)} />
-            <People title="проверяют" ids={f.reviewers} people={pool("reviewers")} nameOf={nameOf}
-              empty="в активе ещё нет проверяющих — добавьте их в «воркерах актива»"
-              onToggle={(pid) => togglePerson(f.id, "reviewers", pid)} />
+            {WORKER_KINDS.map((k) => (
+              <People key={k.id} title={k.many} ids={f[k.id] || []} people={pool(k.id)}
+                nameOf={nameOf}
+                empty={`в активе ещё нет ${k.many.toLowerCase()} — добавьте их в «воркерах актива»`}
+                onToggle={(pid) => togglePerson(f.id, k.id, pid)} />))}
           </Card>);
       })}
     </Section>);
@@ -415,7 +414,8 @@ export default function AssetPanel(props) {
   const [openTrait, setOpenTrait] = useState(null);
   const mineFuncs = props.funcs.filter((f) => f.e === props.entityId).length;
   const mineTraits = props.traits.filter((t) => t.e === props.entityId).length;
-  const workers = props.workers.owners.length + props.workers.reviewers.length;
+  const workers = WORKER_KINDS
+    .reduce((n, k) => n + (props.workers[k.id] || []).length, 0);
   const TABS = [
     ["workers", "Воркеры", workers],
     ["funcs", "Функции", mineFuncs],

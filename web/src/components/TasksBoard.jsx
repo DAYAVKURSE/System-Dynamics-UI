@@ -1,14 +1,18 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, hoursOf, rangeText } from "../lib/funcs.js";
+import { WORKER_KINDS, hoursOf, rangeText } from "../lib/funcs.js";
 import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · выполнения функций
 
    Задача в этой модели — это одно выполнение функции. Не «работа вообще»
-   и не пункт списка: у неё есть функция, исполнитель из воркеров актива и
-   проверяющий, который принимает отчёт.
+   и не пункт списка: у неё есть функция и три человека из воркеров её
+   актива — постановщик, исполнитель и проверяющий.
+
+   Все три обязательны. Постановщик пишет, что именно сделать: содержимое
+   задачи — его работа, а не догадка исполнителя и не текст, сочинённый
+   машиной. Пустое «что сделать» — это работа, которую никто не поставил.
 
    Прежде задача цеплялась к стрелке «актив → ресурс» и к ключевому
    результату OKR. Ни того, ни другого больше нет: считает модель по
@@ -70,9 +74,24 @@ export const MAX_REPORT_BYTES=MAX_UPLOAD_REPORT_BYTES;
 
 /** Новая задача — выполнение функции. */
 export function newTask({funcId=null,title="Новое выполнение",body="",
-  assignee=null,reviewer=null,start=null}){
+  setter=null,assignee=null,reviewer=null,start=null}){
   return {id:uid("tk"),funcId,title,body,status:"backlog",
-    assignee,reviewer,start,warn:10,submissions:[],comments:[]};
+    setter,assignee,reviewer,start,warn:10,submissions:[],comments:[]};
+}
+
+/** Кто в задаче за какую роль: у задачи по одному человеку на роль. */
+export const TASK_ROLE={setters:"setter",owners:"assignee",reviewers:"reviewer"};
+
+/**
+ * Чего задаче не хватает, чтобы её можно было начать.
+ *
+ * Три роли обязательны, и содержимое тоже: без него исполнителю нечего
+ * делать, а «догадайся сам» — это не постановка задачи.
+ */
+export function taskGaps(task){
+  const gaps=WORKER_KINDS.filter(k=>!task[TASK_ROLE[k.id]]).map(k=>k.task);
+  if(!String(task?.body||"").trim()) gaps.push("содержимое");
+  return gaps;
 }
 
 /**
@@ -117,7 +136,7 @@ export const funcLabel=(f,entities=[])=>{
    задач и во вкладке «Проверка». Копия того же JSX в двух местах
    разъехалась бы на первой же правке. */
 export function TaskEditor({task,funcs=[],traits=[],entities=[],
-  setTasks,onClose,onDelete,people=[],canAssign=true,onDraft=null}){
+  setTasks,onClose,onDelete,people=[],canAssign=true,nameOf}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
@@ -138,6 +157,7 @@ export function TaskEditor({task,funcs=[],traits=[],entities=[],
   // означал бы, что список воркеров ни на что не влияет.
   const asset=entities.find(e=>e.id===func?.e)||null;
   const pool=(k)=>people.filter(p=>(asset?.[k]||[]).some(id=>String(id)===String(p.id)));
+  const gaps=taskGaps(task);
 
   const pickFile=async(f)=>{
     setFileErr("");
@@ -168,30 +188,6 @@ export function TaskEditor({task,funcs=[],traits=[],entities=[],
     setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
   };
 
-  // Черновик содержимого от Claude — когда назначены оба и текста ещё нет.
-  // Один запрос на задачу: повторно — только кнопкой, иначе каждая правка
-  // назначений заново переписывала бы то, что человек уже начал менять.
-  const [drafting,setDrafting]=useState(false);
-  const [draftNote,setDraftNote]=useState("");
-  const askedFor=useRef(null);
-  const requestDraft=async(force=false)=>{
-    if(!onDraft||drafting) return;
-    if(!task.assignee||!task.reviewer) return;
-    if(!force&&(task.body||askedFor.current===task.id)) return;
-    askedFor.current=task.id;
-    setDrafting(true); setDraftNote("");
-    try{
-      const text=await onDraft({task,func,
-        assignee:people.find(p=>String(p.id)===String(task.assignee))?.name,
-        reviewer:people.find(p=>String(p.id)===String(task.reviewer))?.name});
-      if(text){ up("body",text); setDraftNote("черновик от Claude — правьте как угодно"); }
-      else setDraftNote("не вышло: Claude не ответил");
-    }catch(e){ setDraftNote(`не вышло: ${e.message}`); }
-    setDrafting(false);
-  };
-  useEffect(()=>{ requestDraft(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },
-    [task.assignee,task.reviewer,task.id]);
-
   const QtyRow=({kind,port})=>(
     <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:5}}>
       <span style={{fontSize:11.5,flex:"1 1 130px"}}>{traitName(port.trait)}</span>
@@ -215,30 +211,31 @@ export function TaskEditor({task,funcs=[],traits=[],entities=[],
         onCommit={v=>up("title",v)}/>
 
       <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
-        <div style={{flex:"1 1 150px"}}>
-          <div style={S.lbl}>исполнитель</div>
-          <select style={S.inp} value={task.assignee||""} disabled={!canAssign}
-            onChange={e=>up("assignee",e.target.value||null)}>
-            <option value="">— не назначен —</option>
-            {pool("owners").map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
-          </select>
-        </div>
-        <div style={{flex:"1 1 150px"}}>
-          <div style={S.lbl}>проверяющий</div>
-          <select style={S.inp} value={task.reviewer||""} disabled={!canAssign}
-            onChange={e=>up("reviewer",e.target.value||null)}>
-            <option value="">— не назначен —</option>
-            {pool("reviewers").map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
-          </select>
-        </div>
+        {WORKER_KINDS.map(k=>(
+          <div key={k.id} style={{flex:"1 1 150px"}}>
+            <div style={S.lbl}>{k.task}</div>
+            <select style={S.inp} value={task[TASK_ROLE[k.id]]||""} disabled={!canAssign}
+              aria-label={k.task}
+              onChange={e=>up(TASK_ROLE[k.id],e.target.value||null)}>
+              <option value="">— не назначен —</option>
+              {pool(k.id).map(p=>(<option key={p.id} value={p.id}>{p.name}</option>))}
+            </select>
+          </div>))}
       </div>
       <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
         {canAssign
-          ? "Выбирать можно только воркеров этого актива: люди — его свойство. Исполнителю задача видна во вкладке «Задачи», проверяющему — во вкладке «Проверка»."
+          ? "Выбирать можно только воркеров этого актива: люди — его свойство. Постановщик пишет, что сделать; исполнителю задача видна во вкладке «Задачи», проверяющему — во вкладке «Проверка»."
           : "Кого назначить, решает владелец."}
         {!pool("owners").length&&asset
           &&" У актива ещё нет исполнителей — добавьте их в карточке актива."}
       </div>
+
+      {!!gaps.length&&(
+        <div style={{fontSize:11,color:WARN,marginBottom:8,lineHeight:1.5}}>
+          Задача поставлена не до конца: не хватает {gaps.join(", ")}. Все три
+          роли обязательны, и содержимое пишет постановщик — без него
+          исполнителю нечего делать.
+        </div>)}
 
       {/* Какую функцию выполняет задача — задаёт то, под чем нажата
           «+ выполнение», и здесь это не меняется: иначе работа уехала бы от
@@ -385,24 +382,22 @@ export function TaskEditor({task,funcs=[],traits=[],entities=[],
         onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
 
       {/* Содержимое — последним: его удобнее писать, когда всё остальное
-          уже задано, а с назначенными исполнителем и проверяющим черновик
-          предлагает Claude. Текст правится как любой другой. */}
+          уже задано. Пишет его постановщик: это его работа, а не догадка
+          исполнителя и не текст, сочинённый машиной. */}
       <div style={{...S.lbl,marginTop:10}}>содержимое задачи</div>
-      <TxtField area value={task.body}
-        placeholder={drafting?"Claude составляет черновик — это до пары минут…":"что именно нужно сделать"}
+      <TxtField area value={task.body} placeholder="что именно нужно сделать"
         style={{minHeight:70,marginBottom:4,lineHeight:1.5}}
         onCommit={v=>up("body",v)}/>
-      <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-        {onDraft&&<button style={btn(false)}
-          disabled={drafting||!task.assignee||!task.reviewer}
-          onClick={()=>requestDraft(true)}>
-          {drafting?"составляю…":"✎ черновик от Claude"}</button>}
-        <span style={{fontSize:10.5,color:draftNote.startsWith("не")?WARN:C.muted,
-          lineHeight:1.5,whiteSpace:"pre-wrap"}}>
-          {draftNote||(onDraft
-            ?"Черновик появится сам, когда назначены исполнитель и проверяющий."
-            :"")}</span>
+      <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginBottom:8}}>
+        Пишет постановщик{task.setter?`: ${nameOf?nameOf(task.setter):task.setter}`:""}.
+        Пустое содержимое — это работа, которую никто не поставил.
       </div>
+
+      <div style={S.lbl}>комментарии</div>
+      <Comments task={task} onAdd={(text)=>up("comments",
+        [...(task.comments||[]),{id:uid("c"),text,at:new Date().toISOString()}])}
+        onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
+
     </div>);
 }
 
@@ -435,7 +430,7 @@ function Comments({task,onAdd,onDrop}){
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTasks,
-  openId,setOpenId,people=[],canAssign=true,onDraft=null,nameOf}){
+  openId,setOpenId,people=[],canAssign=true,nameOf}){
   const open=tasks.find(t=>t.id===openId)||null;
   // «Готово» ставит проверяющий, принимая отчёт: стрелка вправо доводит
   // задачу только до «Проверки». Иначе исполнитель закрывал бы себя сам, и
@@ -483,7 +478,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
 
       {open&&(
         <TaskEditor task={open} funcs={funcs} traits={traits} entities={entities}
-          people={people} canAssign={canAssign} onDraft={onDraft} setTasks={setTasks}
+          people={people} canAssign={canAssign} nameOf={nameOf} setTasks={setTasks}
           onClose={()=>setOpenId(null)}
           onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==open.id));setOpenId(null);}}/>)}
 

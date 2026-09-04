@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
-  deleteScenario, syncSchedule } from "../storage.js";
-import { SOLO, whoAmI, getWorkspace, putWorkspace, reviewTaskRemote, draftTask }
+  deleteScenario, syncSchedule, pickScenario, rememberScenario,
+  forgetScenario } from "../storage.js";
+import { SOLO, whoAmI, getWorkspace, putWorkspace, reviewTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
@@ -86,16 +87,22 @@ const FUNCS0=normalizeFuncs([
    Лента, а не линия: вилка входов и выходов — гипотеза, и рисовать её одной
    чертой значило бы показать знание, которого нет. Факт ложится поверх
    отдельной линией, когда выполнения появились. */
-function Chart({lo,hi,fact,months,goalLine,cursorMonth}){
+/* `upTo` — до какого месяца дорисован хвост. Ось всегда во весь горизонт:
+   так видно, что впереди ещё есть куда расти, а сам хвост удлиняется, когда
+   ползунок месяца едет вперёд. */
+function Chart({lo,hi,fact,months,goalLine,cursorMonth,upTo}){
   const W=700,H=240,PL=54,PB=26,PT=12,PR=12;
   const all=[...(lo||[]),...(hi||[]),...(fact||[]),...(goalLine!=null?[goalLine]:[])];
   const max=Math.max(1,...all.filter(isFinite))*1.1;
   const x=i=>PL+(i/Math.max(1,months))*(W-PL-PR);
   const y=v=>PT+(1-Math.min(v,max)/max)*(H-PT-PB);
   const step=Math.max(1,Math.ceil(months/6));
-  const band=hi&&lo
-    ?[...hi.map((v,i)=>`${x(i)},${y(v)}`),
-      ...lo.map((v,i)=>`${x(lo.length-1-i)},${y(lo[lo.length-1-i])}`)].join(" ")
+  // Ноль месяцев — это всё равно точка «сейчас», а не пустота.
+  const till=(row)=>(row||[]).slice(0,Math.max(1,(upTo??months)+1));
+  const LO=till(lo),HI=till(hi),FT=fact?till(fact):null;
+  const band=HI.length&&LO.length
+    ?[...HI.map((v,i)=>`${x(i)},${y(v)}`),
+      ...LO.map((v,i)=>`${x(LO.length-1-i)},${y(LO[LO.length-1-i])}`)].join(" ")
     :null;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
@@ -107,12 +114,12 @@ function Chart({lo,hi,fact,months,goalLine,cursorMonth}){
         <text key={i} x={x(i)} y={H-8} textAnchor="middle" fontSize="10" fill={C.muted}
           fontFamily="ui-monospace, monospace">{i}м</text>))}
       {band&&<polygon points={band} fill={`${WARN}22`} stroke="none"/>}
-      {hi&&<polyline fill="none" stroke={WARN} strokeWidth="1.6"
-        points={hi.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}/>}
-      {lo&&<polyline fill="none" stroke={WARN} strokeWidth="1.6" strokeDasharray="4 3"
-        points={lo.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}/>}
-      {fact&&<polyline fill="none" stroke={OK} strokeWidth="2.2"
-        points={fact.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}/>}
+      {!!HI.length&&<polyline fill="none" stroke={WARN} strokeWidth="1.6"
+        points={HI.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}/>}
+      {!!LO.length&&<polyline fill="none" stroke={WARN} strokeWidth="1.6"
+        strokeDasharray="4 3" points={LO.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}/>}
+      {FT&&!!FT.length&&<polyline fill="none" stroke={OK} strokeWidth="2.2"
+        points={FT.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}/>}
       {goalLine!=null&&(<><line x1={PL} y1={y(goalLine)} x2={W-PR} y2={y(goalLine)}
         stroke={ACC} strokeWidth="1.4" strokeDasharray="5 4"/>
         <text x={W-PR} y={y(goalLine)-5} textAnchor="end" fontSize="10" fill={ACC}>цель</text></>)}
@@ -277,9 +284,12 @@ function whenText(iso){
 /* Порядок вкладок один на всех: роль решает, какие из них показать, но не
    в каком порядке — иначе у двух людей приложение выглядело бы по-разному
    не только составом, но и расположением. */
+/* «Прогноз» отдельной вкладкой не стоит: он про ту же схему, только во
+   времени, и ползунок месяца у них общий. Он живёт подвкладкой под схемой —
+   рядом с «Управлением», где схему и правят. Роль по-прежнему решает,
+   показывать ли его: вкладка `sim` открывает подвкладку, а не раздел. */
 export const TAB_LIST=[["tasks","Задачи"],["review","Проверка"],
-  ["timeline","Timeline"],["scheme","Схема"],["sim","Прогноз"],
-  ["tools","Инструменты"]];
+  ["timeline","Timeline"],["scheme","Схема"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
 export default function SystemModel(){
@@ -303,6 +313,11 @@ export default function SystemModel(){
   const [savedWhere,setSavedWhere]=useState("");
   const [openTask,setOpenTask]=useState(null);
   const [simMonth,setSimMonth]=useState(0);
+  // Что открыто под схемой: правка модели или её будущее.
+  const [under,setUnder]=useState("edit");
+  // Классификации ресурсов — под спойлером: их правят редко, а место они
+  // занимают всегда.
+  const [kindsOpen,setKindsOpen]=useState(false);
   const [me,setMe]=useState(SOLO);
   const [openCards,setOpenCards]=useState(()=>new Set());
   const [openCall,setOpenCall]=useState(()=>callFromLocation());
@@ -497,10 +512,60 @@ export default function SystemModel(){
       savedDoc.current=snapshot; clearDraft(); setRecovery(null);
       setSavedMsg(`Сохранено: «${saved.name}».`);
       setSavedSel(saved.id);
+      rememberScenario(saved.id);
       await refreshSavedList();
     }catch(e){ setSavedMsg(e.message||"Не удалось сохранить."); }
     setSavedBusy(false);
   };
+  const openScenario=useCallback(async(id)=>{
+    const s=await getScenario(id);
+    if(!s) throw new Error("Сценарий не найден.");
+    // Старые сценарии могут не знать про часть документа — недостающее
+    // остаётся текущим, а не превращается в пустоту.
+    const arr=(v,cur,need)=>Array.isArray(v)&&(!need||v.length)?v:cur;
+    const fs=normalizeFuncs(arr(s.data?.funcs,docRef.current.funcs));
+    const loaded={
+      entities:normalizeAssets(arr(s.data?.entities,docRef.current.entities,true)),
+      traits:arr(s.data?.traits,docRef.current.traits),
+      kinds:arr(s.data?.kinds,docRef.current.kinds,true),
+      tasks:arr(s.data?.tasks,docRef.current.tasks),
+      funcs:fs,
+    };
+    restoreDoc(loaded);
+    savedDoc.current=loaded; clearDraft(); setRecovery(null);
+    setSaveName(s.name); setSavedSel(s.id);
+    // Эта схема теперь и есть «последняя открытая»: с неё начнётся
+    // следующий заход.
+    rememberScenario(s.id);
+    return s;
+  },[restoreDoc]);
+
+  /* ─── какая схема открывается ───
+
+     Приложение открывается на той схеме, с которой работали в прошлый раз,
+     а не на встроенной демонстрационной: она нужна ровно один раз — первому
+     заходу, когда сохранённых схем ещё нет.
+
+     Черновик несохранённых правок сильнее: если он есть, показывается плашка
+     «восстановить», и подставлять поверх неё что-то с диска нельзя — человек
+     потерял бы правки, ради которых черновик и пишется.
+
+     У не-владельца схема одна: та, где его назначил владелец. Она приезжает
+     с сервера ниже, и сценариев на диске у него нет вовсе. */
+  const opened=useRef(false);
+  useEffect(()=>{
+    if(opened.current) return;
+    if(!me.isOwner&&!me.solo) return;   // не-владельцу схему даёт сервер
+    if(recovery) { opened.current=true; return; }
+    opened.current=true;
+    let live=true;
+    pickScenario().then(s=>{
+      if(!live||!s) return;
+      openScenario(s.id).catch(()=>{});
+    }).catch(()=>{});
+    return ()=>{ live=false; };
+  },[me.isOwner,me.solo,recovery,openScenario]);
+
   const loadFromDisk=async()=>{
     if(!savedSel){ setSavedMsg("Выбери сохранённый сценарий."); return; }
     setSavedBusy(true);
@@ -521,6 +586,7 @@ export default function SystemModel(){
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
       setSaveName(s.name);
+      rememberScenario(s.id);
       setSavedMsg(`Загружено: «${s.name}».`);
     }catch(e){ setSavedMsg(e.message||"Не удалось загрузить сценарий."); }
     setSavedBusy(false);
@@ -530,6 +596,7 @@ export default function SystemModel(){
     setSavedBusy(true);
     try{
       await deleteScenario(savedSel);
+      forgetScenario(savedSel);
       setSavedSel(""); setSavedMsg("Удалено.");
       await refreshSavedList();
     }catch(e){ setSavedMsg(e.message||"Не удалось удалить сценарий."); }
@@ -552,19 +619,6 @@ export default function SystemModel(){
     }:t));
     reviewTaskRemote(task.id,{accept,comment:note}).catch(()=>{});
   },[setTasks]);
-  const onDraft=useMemo(()=>((me.solo||!me.isOwner)?null:
-    async({task,func,assignee,reviewer})=>{
-      const traitName=(id)=>traits.find(t=>t.id===id)?.l||"";
-      const r=await draftTask({
-        title:task.title,
-        goal:func?`функция «${func.name}» актива «${ent(func.e)?.name||""}»`:"",
-        move:func?`берёт ${func.takes.map(p=>traitName(p.trait)).join(", ")||"—"}`
-          +`, выдаёт ${func.gives.map(p=>traitName(p.trait)).join(", ")||"—"}`
-          +`, за ${func.dur} ${func.durUnit}`:"",
-        assignee,reviewer});
-      return r?.text||"";
-      /* eslint-disable-next-line react-hooks/exhaustive-deps */
-    }),[me.solo,me.isOwner,traits,entities]);
   const toggleCard=useCallback((id)=>setOpenCards(p=>{
     const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n;
   }),[]);
@@ -667,8 +721,7 @@ export default function SystemModel(){
         <TasksBoard funcs={funcs} entities={entities} traits={traits}
           tasks={myTasks} setTasks={setTasks}
           openId={openTask} setOpenId={setOpenTask}
-          people={people} canAssign={me.isOwner} onDraft={onDraft}
-          nameOf={personName}/>)}
+          people={people} canAssign={me.isOwner} nameOf={personName}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (
@@ -713,7 +766,18 @@ export default function SystemModel(){
           onSelectEntity={id=>setSel(id)} onMoveEntity={moveE}
           assetOk={assetOk} onWhy={(kind,id)=>setWhy({kind,id})}/>
 
-        {selE && (
+        {/* Под схемой две вкладки: чем схема собрана и куда она идёт.
+            Ползунок месяца — общий на обе: он стоит над ними, потому что
+            одинаково относится и к числам на блоках, и к хвостам графиков. */}
+        <div className="flex gap-2" style={{margin:"10px 0",overflowX:"auto"}}>
+          <button style={btn(under==="edit")} onClick={()=>setUnder("edit")}>
+            Управление</button>
+          {me.tabs.includes("sim")&&(
+            <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
+              Прогноз</button>)}
+        </div>
+
+        {under==="edit" && selE && (
           <div style={{...S.card,marginTop:10}}>
             <div className="flex items-center gap-2" style={{marginBottom:6}}>
               <span style={S.lbl}>актив</span>
@@ -741,9 +805,17 @@ export default function SystemModel(){
           </div>)}
 
         {/* Классификации ресурсов — под карточкой актива: тип задаётся
-            ресурсу при создании, значит набор типов должен быть рядом. */}
+            ресурсу при создании, значит набор типов должен быть рядом. Но
+            под спойлером: правят их редко, а место они занимали всегда. */}
+        {under==="edit" && (
         <div style={{...S.card,marginTop:10}}>
-          <div style={S.lbl}>классификации ресурсов</div>
+          <button style={{background:"none",border:"none",padding:0,width:"100%",
+            textAlign:"left",cursor:"pointer",color:C.muted}}
+            aria-expanded={kindsOpen} onClick={()=>setKindsOpen(v=>!v)}>
+            <span style={S.lbl}>{kindsOpen?"▾":"▸"} классификации ресурсов</span>
+            <span style={{fontSize:10.5,color:C.muted}}> · {kinds.length}</span>
+          </button>
+          {kindsOpen&&(<>
           <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
             Каждый ресурс относится к одной классификации: она задаёт значок и
             цвет. Удаление переводит её ресурсы в первую оставшуюся.
@@ -767,12 +839,11 @@ export default function SystemModel(){
               <button style={btn(false)} onClick={addKind}>+ классификация</button>
               {kindMsg&&<span style={{fontSize:11,color:C.muted}}>{kindMsg}</span>}
             </div>
-          </div>
-        </div>
-      </>)}
+          </div></>)}
+        </div>)}
 
-      {/* ═══ ПРОГНОЗ ═══ */}
-      {tab==="sim" && me.tabs.includes("sim") && (<div>
+        {/* ═══ ПРОГНОЗ — вторая подвкладка ═══ */}
+        {under==="sim" && me.tabs.includes("sim") && (<div>
         <div style={{...S.card,marginBottom:10}}>
           <div style={S.lbl}>прогноз по функциям</div>
           <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
@@ -910,7 +981,7 @@ export default function SystemModel(){
                       <div style={{marginTop:8}}>
                         <Chart lo={lo} hi={hi} fact={fc.fact?fc.fact[t.id]:null}
                           months={span} goalLine={t.want!=null?Number(t.want):null}
-                          cursorMonth={simMonth}/>
+                          cursorMonth={simMonth} upTo={simMonth}/>
                       </div>)}
                   </div>);
               })}
@@ -934,13 +1005,16 @@ export default function SystemModel(){
                   <span style={{color:h>160?BAD:h>120?WARN:OK}}>{nm(h)} ч/мес</span>
                 </div>))}
         </div>
-      </div>)}
+        </div>)}
+      </>)}
 
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
         <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
           {[["people","Люди и роли"],["calls","Звонки"],["export","Выгрузка"]]
-            .filter(([k])=>k!=="people"||(me.isOwner&&!me.solo)||me.solo)
+            // «Люди и роли» — дело владельца. «Выгрузка» тоже: схем у
+            // не-владельца не бывает, у него одна — та, где его назначили.
+            .filter(([k])=>(k!=="people"&&k!=="export")||me.isOwner||me.solo)
             .map(([k,t])=>(
               <button key={k} style={btn(tool===k)} onClick={()=>setTool(k)}>{t}</button>))}
         </div>)}
@@ -952,7 +1026,8 @@ export default function SystemModel(){
         <CallsBoard me={me} people={people} openCall={openCall}
           onLeaveCall={()=>setOpenCall(null)} nameOf={personName}/>)}
 
-      {tab==="tools" && me.tabs.includes("tools") && tool==="export" && (
+      {tab==="tools" && me.tabs.includes("tools") && tool==="export"
+        && (me.isOwner||me.solo) && (
         <div style={S.card}>
           <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
             <button style={btn(true)} onClick={()=>{

@@ -57,6 +57,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, funcs, traits, entitie
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.6 }}>
               {f ? funcLabel(f, entities) : "задача без функции"}
+              {" · поставил: "}{nameOf ? nameOf(t.setter) : (t.setter || "не назначен")}
               {" · исполнитель: "}{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}
             </div>
             {t.body && <div style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.5 }}>{t.body}</div>}

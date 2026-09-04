@@ -11,21 +11,21 @@ import React from "react";
    «Инструменты» с внутренними вкладками. */
 
 const ENTITIES = [{ id: "usr", name: "Пользователи",
-  owners: ["2"], reviewers: ["3"] }];
+  setters: ["1"], owners: ["2"], reviewers: ["3"] }];
 const TRAITS = [{ id: "t1", e: "usr", l: "спрос", unit: "шт." },
   { id: "t2", e: "usr", l: "заявки", unit: "шт." }];
 const FUNCS = [{ id: "f1", e: "usr", name: "Сбор заявок", dur: 2, durUnit: "ч",
   takes: [{ id: "p1", trait: "t1", lo: 2, hi: 4 }],
   gives: [{ id: "p2", trait: "t2", lo: 1, hi: 1, to: "" }],
-  owners: ["2"], reviewers: ["3"] }];
+  setters: ["1"], owners: ["2"], reviewers: ["3"] }];
 const PEOPLE = [{ id: "1", name: "Владелец" }, { id: "2", name: "Иван" }, { id: "3", name: "Пётр" }];
 
-function Board({ tasks: t0, people = PEOPLE, canAssign = true, onDraft = null }) {
+function Board({ tasks: t0, people = PEOPLE, canAssign = true }) {
   const [tasks, setTasks] = React.useState(t0);
   const [openId, setOpenId] = React.useState(null);
   return (<TasksBoard funcs={FUNCS} entities={ENTITIES} traits={TRAITS}
     tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
-    people={people} canAssign={canAssign} onDraft={onDraft} />);
+    people={people} canAssign={canAssign} nameOf={(id) => id} />);
 }
 
 describe("«Готово» — только через приём отчёта", () => {
@@ -86,15 +86,29 @@ describe("сдача записывает факт выполнения", () => 
 });
 
 describe("назначения берутся из воркеров актива", () => {
-  it("в списке исполнителей только исполнители этого актива", () => {
+  it("у каждой роли свой список — из воркеров этого актива", () => {
     render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
-    const box = screen.getAllByRole("combobox")[0];
-    const names = [...box.options].map((o) => o.textContent);
-    // Иван — исполнитель актива, Пётр — только проверяющий, Владелец не воркер.
-    expect(names).toContain("Иван");
-    expect(names).not.toContain("Пётр");
-    expect(names).not.toContain("Владелец");
+    const names = (label) => [...screen.getByLabelText(label).options]
+      .map((o) => o.textContent);
+    // Владелец — постановщик актива, Иван — исполнитель, Пётр — проверяющий.
+    expect(names("постановщик")).toEqual(["— не назначен —", "Владелец"]);
+    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван"]);
+    expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр"]);
+  });
+
+  it("все три роли обязательны, и содержимое тоже — сказано, чего не хватает", () => {
+    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий, содержимое/))
+      .toBeInTheDocument();
+  });
+
+  it("содержимое пишет постановщик, а не машина", () => {
+    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByText(/Пишет постановщик/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /черновик от Claude/ })).toBeNull();
   });
 });
 
@@ -139,37 +153,6 @@ describe("поля задачи в порядке постановки", () => {
     expect(labels.indexOf("название")).toBeLessThan(labels.indexOf("исполнитель"));
     expect(labels.indexOf("исполнитель")).toBeLessThan(labels.indexOf("статус"));
     expect(labels.indexOf("содержимое задачи")).toBe(labels.length - 1);
-  });
-
-  it("черновик от Claude просится сам, когда назначены оба, и текст правится", async () => {
-    const onDraft = vi.fn(async () => "Сделать то-то. Считать готовым тогда-то.");
-    const t = { ...newTask({ funcId: "f1", title: "Задача A" }),
-      assignee: "2", reviewer: "3" };
-    render(<Board tasks={[t]} onDraft={onDraft} />);
-    fireEvent.click(screen.getByText("Задача A"));
-    await waitFor(() => expect(onDraft).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByDisplayValue(/Сделать то-то/)).toBeTruthy());
-    expect(screen.getByText(/черновик от Claude — правьте/)).toBeTruthy();
-    // Уже написанное не переписывается заново само.
-    expect(onDraft).toHaveBeenCalledTimes(1);
-  });
-
-  it("без назначенных обоих черновик не просится", async () => {
-    const onDraft = vi.fn(async () => "текст");
-    const t = { ...newTask({ funcId: "f1", title: "Задача A" }), assignee: "2" };
-    render(<Board tasks={[t]} onDraft={onDraft} />);
-    fireEvent.click(screen.getByText("Задача A"));
-    await new Promise((r) => setTimeout(r, 50));
-    expect(onDraft).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /черновик от Claude/ })).toBeDisabled();
-  });
-
-  it("без моста кнопки черновика нет вовсе — не обещаем того, чего нет", () => {
-    const t = { ...newTask({ funcId: "f1", title: "Задача A" }),
-      assignee: "2", reviewer: "3" };
-    render(<Board tasks={[t]} onDraft={null} />);
-    fireEvent.click(screen.getByText("Задача A"));
-    expect(screen.queryByRole("button", { name: /черновик от Claude/ })).toBeNull();
   });
 });
 
@@ -231,29 +214,45 @@ describe("«Инструменты» и роли", () => {
   });
 
   it("исполнителю на «Задачах» видно только назначенное ему, а не то, что он проверяет", async () => {
+    /* Схема у не-владельца одна — та, где его назначил владелец: она
+       приезжает с сервера, а сценариев на диске у него нет вовсе. */
+    const model = {
+      entities: [{ id: "a", name: "Актив", color: "#fff", x: 0, y: 0,
+        setters: ["1"], owners: ["2"], reviewers: ["3"] }],
+      traits: [{ id: "t1", e: "a", k: "growth", l: "ресурс", unit: "шт", have: 0 }],
+      kinds: [{ id: "growth", sign: "↑", name: "рост", color: "#3DDC97", dir: "up" }],
+      funcs: [{ id: "fn1", e: "a", name: "Работа", dur: 1, durUnit: "ч",
+        takes: [], gives: [], setters: ["1"], owners: ["2"], reviewers: ["3"] }],
+      tasks: [
+        { id: "mine", funcId: "fn1", title: "Моя работа", status: "backlog",
+          setter: "1", assignee: "2", reviewer: "3", submissions: [], comments: [] },
+        { id: "review", funcId: "fn1", title: "Я проверяю", status: "review",
+          setter: "1", assignee: "3", reviewer: "2", submissions: [], comments: [] }],
+    };
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("/api/health")) {
+        return { ok: true, headers: { get: () => "application/json" },
+          json: async () => ({ ok: true, scenarios: true, org: true }) };
+      }
+      if (u.includes("/api/org/me")) {
+        return { ok: true, json: async () => ({ id: "2", isOwner: false, known: true,
+          role: { id: "executor", name: "исполнитель" }, tabs: ["tasks", "tools"] }) };
+      }
+      if (u.includes("/api/workspace")) return { ok: true, json: async () => model };
+      return { ok: true, json: async () => ({ savedAt: null }) };
+    });
+    await fresh();
+    await waitFor(() => expect(screen.getByText("Моя работа")).toBeTruthy());
+    expect(screen.queryByText("Я проверяю")).toBeNull();
+  });
+
+  it("у не-владельца нет сохранённых схем — только та, где его назначили", async () => {
     server({ id: "2", isOwner: false, known: true, role: { id: "executor", name: "исполнитель" },
       tabs: ["tasks", "tools"] }, { ownerId: "1", roles: [], users: [] });
-    const { container } = await fresh();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Задачи" })).toBeTruthy());
+    await fresh();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
-    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
-    const area = container.querySelector("textarea");
-    fireEvent.change(area, { target: { value: JSON.stringify({
-      entities: [{ id: "a", name: "Актив", color: "#fff", x: 0, y: 0 }],
-      traits: [{ id: "t1", e: "a", k: "growth", l: "ресурс", unit: "шт", have: 0, want: 10, by: 6 }],
-      edges: [{ id: "ed1", from: "a", to: "t1", gives: 1, per: "мес", sign: 1, conds: [], basis: "fact" }],
-      kinds: [{ id: "growth", sign: "↑", name: "рост", color: "#3DDC97", dir: "up" }],
-      okrs: [], hypos: [],
-      tasks: [
-        { id: "mine", goalId: "t1", edgeId: "ed1", title: "Моя работа", status: "backlog",
-          assignee: "2", reviewer: "3", submissions: [], comments: [] },
-        { id: "review", goalId: "t1", edgeId: "ed1", title: "Я проверяю", status: "review",
-          assignee: "3", reviewer: "2", submissions: [], comments: [] }],
-    }) } });
-    fireEvent.blur(area);
-    fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
-    expect(screen.getByText("Моя работа")).toBeTruthy();
-    expect(screen.queryByText("Я проверяю")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Выгрузка" })).toBeNull();
   });
 });

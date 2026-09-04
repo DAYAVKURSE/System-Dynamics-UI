@@ -103,6 +103,7 @@ export const newFunc = (e, name = "новая функция") => ({
   // Пусто — «непрерывно»: следующее выполнение сразу за предыдущим.
   every: 0,
   everyUnit: DUR_DEFAULT,
+  setters: [],
   owners: [],
   reviewers: [],
   x: 0,
@@ -160,8 +161,8 @@ export const normalizeFunc = (f = {}) => {
     durUnit: unit(f.durUnit),
     every: num(f.every),
     everyUnit: unit(f.everyUnit),
-    owners: [...new Set(Array.isArray(f.owners) ? f.owners : [])],
-    reviewers: [...new Set(Array.isArray(f.reviewers) ? f.reviewers : [])],
+    ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id,
+      [...new Set(Array.isArray(f[k.id]) ? f[k.id] : [])]])),
     x: num(f.x),
     y: num(f.y),
   };
@@ -225,27 +226,43 @@ export const okRange = (p) => {
 /* ════════════════════════════════════════════════════════════════
    ВОРКЕРЫ АКТИВА
 
-   У актива есть исполнители и проверяющие — это его воркеры. Функции
-   выполняют они же, поэтому назначить на функцию можно только воркера её
-   актива.
+   У актива три вида людей — это его воркеры:
+
+   · постановщики (`setters`) — те, кто ставит задачу и пишет, что в ней
+     сделать;
+   · исполнители (`owners`) — те, кто её выполняет;
+   · проверяющие (`reviewers`) — те, кто принимает отчёт.
+
+   Все три обязательны: без постановщика непонятно, кто описал работу; без
+   исполнителя её некому делать; без проверяющего некому принять, а значит
+   сделанное не попадёт в расчёт.
+
+   Функции выполняют они же, поэтому назначить на функцию можно только
+   воркера её актива.
    ════════════════════════════════════════════════════════════════ */
 
 const ids = (v) => (Array.isArray(v) ? [...new Set(v.filter((x) => x != null))] : []);
 
+/** Три вида воркеров — в одном месте, чтобы нигде не забыть третий. */
+export const WORKER_KINDS = [
+  { id: "setters", one: "постановщик", many: "постановщики", task: "постановщик" },
+  { id: "owners", one: "исполнитель", many: "исполнители", task: "исполнитель" },
+  { id: "reviewers", one: "проверяющий", many: "проверяющие", task: "проверяющий" },
+];
+
 /** Достраивает актив до нынешней записи: у него есть воркеры. */
 export const normalizeAsset = (e = {}) => ({
   ...e,
-  owners: ids(e.owners),
-  reviewers: ids(e.reviewers),
+  ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id, ids(e[k.id])])),
 });
 
 export const normalizeAssets = (list) =>
   (Array.isArray(list) ? list.map(normalizeAsset) : []);
 
-/** Воркеры актива: исполнители и проверяющие. */
+/** Воркеры актива: постановщики, исполнители и проверяющие. */
 export const workersOf = (entities = [], id) => {
   const e = entities.find((x) => x.id === id);
-  return { owners: ids(e?.owners), reviewers: ids(e?.reviewers) };
+  return Object.fromEntries(WORKER_KINDS.map((k) => [k.id, ids(e?.[k.id])]));
 };
 
 /**
@@ -258,8 +275,8 @@ export const pruneWorkers = (funcs = [], id, workers) => {
   const keep = (k) => new Set(ids(workers?.[k]));
   return funcs.map((f) => (f.e !== id ? f : {
     ...f,
-    owners: f.owners.filter((p) => keep("owners").has(p)),
-    reviewers: f.reviewers.filter((p) => keep("reviewers").has(p)),
+    ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id,
+      (f[k.id] || []).filter((p) => keep(k.id).has(p))])),
   }));
 };
 
@@ -281,7 +298,8 @@ export const pruneWorkers = (funcs = [], id, workers) => {
    ════════════════════════════════════════════════════════════════ */
 
 export const WHY_ASSET = "Актив — это то, что берёт один ресурс из внешней системы"
-  + " и выдаёт другой. Состоит он из воркеров — исполнителей и проверяющих, —"
+  + " и выдаёт другой. Состоит он из воркеров — постановщиков, исполнителей"
+  + " и проверяющих, —"
   + " функций, которые они выполняют, и ресурсов, которые эти функции потребляют"
   + " и передают. Подпись краснеет, когда не сходится строение: у актива должна"
   + " быть хотя бы одна функция, хотя бы одна из них должна брать ресурс другого"

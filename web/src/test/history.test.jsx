@@ -116,6 +116,8 @@ describe("отмена структурных правок", () => {
 
   it("возвращает удалённую классификацию и прежний тип ресурса", () => {
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    // Классификации под спойлером — сначала раскрыть.
+    fireEvent.click(screen.getByRole("button", { name: /классификации ресурсов/ }));
     const before = screen.getAllByDisplayValue("рост").length;
     const card = screen.getByDisplayValue("рост").closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "✕" }));

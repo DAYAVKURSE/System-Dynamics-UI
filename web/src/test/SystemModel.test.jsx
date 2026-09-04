@@ -79,6 +79,7 @@ describe("активы на схеме", () => {
 
   it("удаляются вместе со своими ресурсами", () => {
     openTab("Схема");
+    openKinds();
     // «Пользователи» выбраны по умолчанию, у них есть ресурс с этим названием
     assetTab("Ресурсы");
     expect(screen.getByDisplayValue("активные пользователи")).toBeInTheDocument();
@@ -112,12 +113,17 @@ describe("переименование ресурса", () => {
   });
 });
 
+/* Классификации — под спойлером: их правят редко. */
+const openKinds = () => fireEvent.click(
+  screen.getByRole("button", { name: /классификации ресурсов/ }));
+
 describe("классификации ресурсов", () => {
   const kindRow = (name) =>
     screen.getByDisplayValue(name).closest("div");
 
   it("переименовываются", () => {
     openTab("Схема");
+    openKinds();
     typeAndCommit(screen.getByDisplayValue("рост"), "тиражируемость");
     expect(screen.getByDisplayValue("тиражируемость")).toBeInTheDocument();
 
@@ -130,12 +136,14 @@ describe("классификации ресурсов", () => {
 
   it("добавляются", () => {
     openTab("Схема");
+    openKinds();
     fireEvent.click(screen.getByRole("button", { name: "+ классификация" }));
     expect(screen.getByDisplayValue("новая классификация")).toBeInTheDocument();
   });
 
   it("удаляются, а их ресурсы переезжают в оставшуюся классификацию", () => {
     openTab("Схема");
+    openKinds();
     fireEvent.click(within(kindRow("рост")).getByRole("button", { name: "✕" }));
 
     expect(screen.queryByDisplayValue("рост")).toBeNull();
@@ -145,6 +153,7 @@ describe("классификации ресурсов", () => {
 
   it("последнюю классификацию удалить нельзя — и сказано почему", () => {
     openTab("Схема");
+    openKinds();
     ["рост", "затрата"].forEach((name) => {
       fireEvent.click(within(kindRow(name)).getByRole("button", { name: "✕" }));
     });

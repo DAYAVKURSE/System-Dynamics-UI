@@ -70,6 +70,39 @@ export const STORAGE_LABEL = {
 
 /* ─────── публичный API ─────── */
 
+/* ─────── какая схема открывается по умолчанию ───────
+
+   Приложение — не блокнот с одним документом: схем у владельца несколько, и
+   открываться должна та, с которой он работал в прошлый раз, а не первая
+   попавшаяся и не встроенная демонстрационная. Иначе каждый заход начинается
+   с «переключить обратно на свою».
+
+   Помним id последней открытой в этом браузере. Если его нет (первый заход,
+   другое устройство, чистка данных) — берём самую свежую по времени
+   сохранения: это тоже «последняя, с которой работали», просто известная не
+   так точно. */
+const LAST_KEY = "sd_last_scenario";
+
+export function rememberScenario(id) {
+  try { if (id) localStorage.setItem(LAST_KEY, String(id)); } catch { /* нет хранилища */ }
+}
+export function forgetScenario(id) {
+  try {
+    if (!id || localStorage.getItem(LAST_KEY) === String(id)) localStorage.removeItem(LAST_KEY);
+  } catch { /* нет хранилища */ }
+}
+export function lastScenarioId() {
+  try { return localStorage.getItem(LAST_KEY) || null; } catch { return null; }
+}
+
+/** Какую схему открывать: запомненную, иначе самую свежую, иначе никакую. */
+export async function pickScenario() {
+  const list = await listScenarios();
+  if (!list.length) return null;
+  const want = lastScenarioId();
+  return list.find((s) => String(s.id) === String(want)) || list.slice().sort(byNewest)[0];
+}
+
 export async function listScenarios() {
   const kind = await detectStorage();
   if (kind === "server") return serverList();

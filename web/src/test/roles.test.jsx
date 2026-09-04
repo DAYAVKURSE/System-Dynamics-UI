@@ -7,9 +7,12 @@ import { resetIdentity } from "../identity.js";
    не показывает того, чего показывать не должен. */
 
 // Сервер отвечает ровно тем, чем ответил бы настоящий: здоровьем и «кто я».
-const server = (me) => {
+const server = (me, model = null) => {
   global.fetch = vi.fn(async (url) => {
     const u = String(url);
+    if (model && u.includes("/api/workspace")) {
+      return { ok: true, json: async () => model };
+    }
     if (u.includes("/api/health")) {
       return { ok: true, headers: { get: () => "application/json" },
         json: async () => ({ ok: true, scenarios: true, reminders: true,
@@ -31,20 +34,24 @@ const fresh = async () => {
 };
 const tabNames = (container) => [...container.querySelectorAll("button")]
   .map((b) => b.textContent)
-  .filter((t) => ["Задачи", "Проверка", "Timeline", "Схема", "Прогноз",
+  // «Прогноз» больше не главная вкладка: он подвкладка под схемой.
+  .filter((t) => ["Задачи", "Проверка", "Timeline", "Схема",
     "Инструменты"].includes(t));
 
 beforeEach(() => { localStorage.clear(); resetIdentity(); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; resetIdentity(); });
 
 describe("вкладки по роли", () => {
-  it("владельцу видны все шесть", async () => {
+  it("владельцу видны все пять, а «Прогноз» — под схемой", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
       tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(5));
     expect(tabNames(container)).toEqual(["Задачи", "Проверка", "Timeline",
-      "Схема", "Прогноз", "Инструменты"]);
+      "Схема", "Инструменты"]);
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    expect(screen.getByRole("button", { name: "Управление" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Прогноз" })).toBeTruthy();
   });
 
   it("исполнителю — только «Задачи»", async () => {
@@ -82,7 +89,7 @@ describe("вкладки по роли", () => {
   it("без сервера приложение остаётся одиночным и полным", async () => {
     global.fetch = vi.fn(async () => { throw new Error("нет сети"); });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(5));
   });
 
   it("сервер без токена бота — тоже одиночный режим, а не отказ", async () => {
@@ -94,7 +101,7 @@ describe("вкладки по роли", () => {
       return { ok: false, status: 401, json: async () => ({}) };
     });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(5));
   });
 });
 
@@ -152,20 +159,22 @@ describe("общая модель ходит через сервер", () => {
 
 describe("кому какие задачи видны", () => {
   const model = (tasks) => ({
-    entities: [{ id: "a", name: "Актив", color: "#fff", x: 0, y: 0 }],
-    traits: [{ id: "t1", e: "a", k: "growth", l: "ресурс", unit: "шт",
-      have: 0, want: 10, by: 6, flow: false }],
-    edges: [{ id: "ed1", from: "a", to: "t1", carrier: "движение", gives: 1,
-      per: "мес", sign: 1, conds: [], basis: "fact" }],
+    entities: [{ id: "a", name: "Актив", color: "#fff", x: 0, y: 0,
+      setters: ["1"], owners: ["2"], reviewers: ["3"] }],
+    traits: [{ id: "t1", e: "a", k: "growth", l: "ресурс", unit: "шт", have: 0, want: 10 }],
     kinds: [{ id: "growth", sign: "↑", name: "рост", color: "#3DDC97", dir: "up" }],
-    okrs: [], hypos: [], tasks,
+    funcs: [{ id: "fn1", e: "a", name: "Работа", dur: 1, durUnit: "ч",
+      takes: [], gives: [], setters: ["1"], owners: ["2"], reviewers: ["3"] }],
+    tasks,
   });
   const TASKS = [
-    { id: "t-mine", goalId: "t1", edgeId: "ed1", title: "Моя задача",
-      status: "backlog", assignee: "2", reviewer: "3", submissions: [], comments: [] },
-    { id: "t-alien", goalId: "t1", edgeId: "ed1", title: "Чужая задача",
-      status: "backlog", assignee: "8", reviewer: "9", submissions: [], comments: [] },
+    { id: "t-mine", funcId: "fn1", title: "Моя задача", status: "backlog",
+      setter: "1", assignee: "2", reviewer: "3", submissions: [], comments: [] },
+    { id: "t-alien", funcId: "fn1", title: "Чужая задача", status: "backlog",
+      setter: "1", assignee: "8", reviewer: "9", submissions: [], comments: [] },
   ];
+  /* Владелец грузит модель через «Выгрузку»; не-владельцу её отдаёт сервер —
+     у него схема одна, та, где его назначили, и сценариев нет вовсе. */
   const load = (container, m) => {
     fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
@@ -179,7 +188,7 @@ describe("кому какие задачи видны", () => {
     server({ id: "1", isOwner: true, known: true, role: null,
       tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
     const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toHaveLength(6));
+    await waitFor(() => expect(tabNames(container)).toHaveLength(5));
     load(container, model(TASKS));
     fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
     expect(screen.getByText("Моя задача")).toBeTruthy();
@@ -187,43 +196,40 @@ describe("кому какие задачи видны", () => {
   });
 
   it("исполнитель видит только свою — чужой нет нигде на странице", async () => {
+    // Схема у него одна и приезжает с сервера: грузить свою ему нечем.
     server({ id: "2", isOwner: false, known: true,
-      role: { id: "executor", name: "исполнитель" },
-      tabs: ["tasks", "tools"] });          // json — чтобы загрузить модель в тесте
-    const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toContain("Задачи"));
-    load(container, model(TASKS));
-    fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
-    expect(screen.getByText("Моя задача")).toBeTruthy();
+      role: { id: "executor", name: "исполнитель" }, tabs: ["tasks"] },
+    model(TASKS));
+    await fresh();
+    await waitFor(() => expect(screen.getByText("Моя задача")).toBeTruthy());
     expect(screen.queryByText("Чужая задача")).toBeNull();
   });
 
   it("проверяющий видит на «Проверке» только то, что проверяет он", async () => {
     server({ id: "3", isOwner: false, known: true,
-      role: { id: "reviewer", name: "проверяющий" }, tabs: ["review", "tools"] });
-    const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toContain("Проверка"));
-    load(container, model(TASKS));
+      role: { id: "reviewer", name: "проверяющий" }, tabs: ["review"] },
+    model(TASKS));
+    await fresh();
+    // Стартовая вкладка — «Задачи», а у него её нет: открываем свою.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Проверка" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Проверка" }));
-    expect(screen.getByText("Моя задача")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Моя задача")).toBeTruthy());
     expect(screen.queryByText("Чужая задача")).toBeNull();
   });
 
   it("принятое проверяющим становится «Готово»", async () => {
     server({ id: "3", isOwner: false, known: true,
-      role: { id: "reviewer", name: "проверяющий" }, tabs: ["review", "tools"] });
-    const { container } = await fresh();
-    await waitFor(() => expect(tabNames(container)).toContain("Проверка"));
-    load(container, model([{ ...TASKS[0], status: "review",
-      submissions: [{ id: "s1", at: new Date().toISOString(), amount: 3, text: "" }] }]));
+      role: { id: "reviewer", name: "проверяющий" }, tabs: ["review"] },
+    model([{ ...TASKS[0], status: "review",
+      submissions: [{ id: "s1", at: new Date().toISOString(), hours: 3,
+        takes: {}, gives: {}, text: "" }] }]));
+    await fresh();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Проверка" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Проверка" }));
+    await waitFor(() => expect(screen.getByText("Моя задача")).toBeTruthy());
     fireEvent.click(screen.getByText("Моя задача"));
     fireEvent.click(screen.getByRole("button", { name: "Принять" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
-    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
-    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
-    expect(JSON.parse(container.querySelector("textarea").value).tasks[0].status)
-      .toBe("done");
+    // Задача ушла из ожидающих проверки — решение принято.
+    await waitFor(() => expect(screen.getByText(/Ничего не ждёт проверки/)).toBeTruthy());
   });
 });

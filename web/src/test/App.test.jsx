@@ -16,8 +16,9 @@ describe("App", () => {
     expect(screen.getByText(/Активы: воркеры, функции, ресурсы/i)).toBeInTheDocument();
     expect(screen.getByText("Задачи")).toBeInTheDocument();
     expect(screen.getByText("Схема")).toBeInTheDocument();
-    expect(screen.getByText("Прогноз")).toBeInTheDocument();
     expect(screen.getByText("Инструменты")).toBeInTheDocument();
+    // «Прогноз» — подвкладка под схемой, в главном ряду его нет.
+    expect(screen.queryByText("Прогноз")).toBeNull();
   });
 
   it("по ссылке на звонок открывается окно звонка, а не вся модель", () => {
@@ -27,7 +28,7 @@ describe("App", () => {
     render(<App />);
     expect(screen.queryByText(/Активы: воркеры, функции, ресурсы/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Инструменты")).not.toBeInTheDocument();
-    expect(screen.queryByText("Прогноз")).not.toBeInTheDocument();
+    expect(screen.queryByText("Схема")).not.toBeInTheDocument();
     // Именно кнопка входа, а не любое слово «звонок» на странице: их там
     // теперь несколько (одно — на кнопке «вниз экрана»), и широкая
     // проверка стала бы падать от любой новой надписи.

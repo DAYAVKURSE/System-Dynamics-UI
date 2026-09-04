@@ -207,6 +207,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
             <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6,
               marginBottom: 8 }}>
               Статус: {st?.name || "—"} · функция: {funcLabel(func, entities)}
+              {t.setter ? <> · поставил: {nameOf ? nameOf(t.setter) : t.setter}</> : null}
               {t.assignee ? <> · исполнитель: {nameOf ? nameOf(t.assignee) : t.assignee}</> : null}
               {t.reviewer ? <> · проверяет: {nameOf ? nameOf(t.reviewer) : t.reviewer}</> : null}
               {t.start ? <> · начало {fmtDT(t.start)}</> : null}

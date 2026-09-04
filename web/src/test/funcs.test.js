@@ -170,21 +170,25 @@ describe("факт: среднее арифметическое по выпол�
 });
 
 describe("воркеры актива", () => {
-  it("принадлежат активу, а не функции", () => {
-    // У актива есть исполнители и проверяющие — это его воркеры. Функции
-    // выполняют они же, поэтому список один и лежит на активе.
-    const entities = [{ id: "A", owners: ["p1", "p2"], reviewers: ["p9"] },
+  it("принадлежат активу, а не функции; и их три вида", () => {
+    // У актива есть постановщики, исполнители и проверяющие — это его
+    // воркеры. Функции выполняют они же, поэтому список один и лежит на
+    // активе.
+    const entities = [{ id: "A", setters: ["p0"], owners: ["p1", "p2"], reviewers: ["p9"] },
       { id: "B", owners: ["p7"] }];
-    expect(workersOf(entities, "A")).toEqual({ owners: ["p1", "p2"], reviewers: ["p9"] });
-    expect(workersOf(entities, "B")).toEqual({ owners: ["p7"], reviewers: [] });
-    expect(workersOf(entities, "нет-такого")).toEqual({ owners: [], reviewers: [] });
+    expect(workersOf(entities, "A"))
+      .toEqual({ setters: ["p0"], owners: ["p1", "p2"], reviewers: ["p9"] });
+    expect(workersOf(entities, "B"))
+      .toEqual({ setters: [], owners: ["p7"], reviewers: [] });
+    expect(workersOf(entities, "нет-такого"))
+      .toEqual({ setters: [], owners: [], reviewers: [] });
   });
 
   it("человек, переставший быть воркером, уходит и с функций актива", () => {
     // Иначе задача висела бы на том, кого в активе уже нет.
     const funcs = [{ id: "f1", e: "A", owners: ["p1", "p2"], reviewers: ["p9"] },
       { id: "f2", e: "B", owners: ["p1"], reviewers: [] }];
-    const out = pruneWorkers(funcs, "A", { owners: ["p1"], reviewers: [] });
+    const out = pruneWorkers(funcs, "A", { setters: [], owners: ["p1"], reviewers: [] });
     expect(out[0]).toMatchObject({ owners: ["p1"], reviewers: [] });
     // Чужой актив не трогаем: там свои воркеры.
     expect(out[1].owners).toEqual(["p1"]);

@@ -274,6 +274,8 @@ describe("черновик и диск", () => {
     await waitFor(() => expect(screen.getByText(/Загружено/)).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    // Классификации теперь под спойлером: их правят редко.
+    fireEvent.click(screen.getByRole("button", { name: /классификации ресурсов/ }));
     expect(screen.getAllByDisplayValue("рост").length).toBeGreaterThan(0);
   });
 
