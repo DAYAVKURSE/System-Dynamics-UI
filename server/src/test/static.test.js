@@ -149,3 +149,25 @@ describe("страницы", () => {
     await fs.writeFile(path.join(tmp, "call.html"), "<title>Звонок</title>");
   });
 });
+describe("кеширование: страница свежая, бандлы вечные", () => {
+  /* Выкат проходит, а человек продолжает видеть старое приложение — это
+     не выдумка, а то, что случилось на живом сервере: Telegram WebView
+     держал закешированный index.html, а тот тянул прежние бандлы. */
+  it("HTML не кешируется вовсе — иначе выкат не доезжает до человека", async () => {
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    for (const p of ["/", "/call", "/что-угодно"]) {
+      const res = await request(app).get(p);
+      expect(res.headers["cache-control"]).toMatch(/no-store/);
+    }
+  });
+
+  it("файл с хешем в имени кешируется навсегда — его содержимое не меняется", async () => {
+    await fs.mkdir(path.join(tmp, "assets"), { recursive: true });
+    await fs.writeFile(path.join(tmp, "assets", "main-abc123.js"), "console.log(1)");
+    const { createApp } = await import("../app.js");
+    const res = await request(createApp()).get("/assets/main-abc123.js");
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toMatch(/immutable/);
+  });
+});

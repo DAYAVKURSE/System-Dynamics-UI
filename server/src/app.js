@@ -145,17 +145,47 @@ export function createApp() {
   // Звонок — отдельная страница с собственным входом (web/call.html): она
   // открывается как самостоятельное мини-приложение, без вкладок модели.
   const callHtml = path.join(staticDir, "call.html");
+  /* Кеширование раздаётся двумя разными правилами, и это важнее, чем кажется.
+
+     Имя файла сборки несёт хеш содержимого (`main-DL949TAp.js`): изменилось
+     содержимое — изменилось имя. Такой файл можно кешировать навсегда.
+
+     А вот HTML имени не меняет никогда, и именно он говорит, какие бандлы
+     грузить. Закешированный HTML — это закешированное ПРИЛОЖЕНИЕ: выкат
+     проходит, файлы на сервере новые, а человек продолжает открывать
+     старое и не понимает, почему ничего не изменилось. Telegram WebView на
+     телефоне держит страницу особенно цепко, и `max-age=0` его не
+     останавливает — он не обязан перепроверять, он обязан лишь не считать
+     ответ свежим. Поэтому HTML отдаётся с `no-store`: не хранить вовсе. */
+  const noStore = (res) => {
+    res.setHeader("Cache-Control", "no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+  };
+  const page = (file) => (req, res) => { noStore(res); res.sendFile(file); };
+
   if (fs.existsSync(indexHtml)) {
-    app.use(express.static(staticDir));
+    app.use(express.static(staticDir, {
+      // index.html через express.static не отдаём: у него своё правило ниже.
+      index: false,
+      setHeaders: (res, file) => {
+        if (file.endsWith(".html")) noStore(res);
+        else if (/\/assets\//.test(file)) {
+          // Имя с хешем: содержимое по этому адресу больше не изменится.
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }));
     if (fs.existsSync(callHtml)) {
       // И всё, что под /call: ссылка из приглашения бывает с хвостом, а
       // открыться по ней должно окно звонка, а не приложение модели.
       app.get(/^\/call(\/.*)?$/, (req, res) => {
         noteCallHit(req);
+        noStore(res);
         res.sendFile(callHtml);
       });
     }
-    app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(indexHtml));
+    app.get(/^(?!\/api\/).*/, page(indexHtml));
   }
 
   // eslint-disable-next-line no-unused-vars
