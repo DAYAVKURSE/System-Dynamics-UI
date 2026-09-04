@@ -36,11 +36,14 @@ export function NumField({value,onCommit,placeholder,style}){
     onBlur={()=>{setF(false);commit();}}
     onKeyDown={e=>{if(e.key==="Enter") e.currentTarget.blur();}}/>;
 }
-export function TxtField({value,onCommit,placeholder,style,area}){
+export function TxtField({value,onCommit,placeholder,style,area,...rest}){
   const [d,setD]=useState(value??"");
   const [f,setF]=useState(false);
   useEffect(()=>{ if(!f) setD(value??""); },[value,f]);
-  const p={value:d,placeholder,style:{...S.inp,...style},onFocus:()=>setF(true),
+  // Прочие атрибуты (aria-label и подобные) пробрасываем как есть: поле
+  // одно на всё приложение, и без подписи его не найти ни человеку с
+  // читалкой, ни тесту.
+  const p={...rest,value:d,placeholder,style:{...S.inp,...style},onFocus:()=>setF(true),
     onChange:e=>setD(e.target.value),onBlur:()=>{setF(false);onCommit(d);}};
   return area ? <textarea {...p}/> : <input {...p}/>;
 }

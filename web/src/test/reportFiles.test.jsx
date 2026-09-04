@@ -46,7 +46,8 @@ afterEach(() => { vi.restoreAllMocks(); delete global.fetch; });
 
 const openSubmit = () => {
   fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
-  fireEvent.click(screen.getAllByRole("button", { name: "+ задача" })[0]);
+  // Задача — выполнение функции: заводится под функцией модели.
+  fireEvent.click(screen.getAllByRole("button", { name: "+ выполнение" })[0]);
   fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 };
 const dump = () => {

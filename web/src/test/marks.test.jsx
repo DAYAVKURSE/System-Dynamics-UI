@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT } from "../lib/funcs.js";
 
-/* Подписи под названиями: «актив», «ресурс», «функциональный элемент».
+/* Подписи под названиями: «актив», «ресурс», «функция».
    Белая — строение сходится, красная — нет, и рядом «?» с объяснением.
    Проверяем не цвет ради цвета, а то, ради чего это делалось: человек
    должен видеть, что именно не так, и получать определение словами. */
@@ -17,6 +17,10 @@ const dialog = () => screen.queryByRole("dialog");
    подписи на стартовой модели нельзя: там все активы годные, и проверка
    молча ничего бы не проверяла. */
 const addAsset = () => { scheme(); fireEvent.click(screen.getByRole("button", { name: "+ актив" })); };
+/* Три части актива живут во вкладках: до ресурсов и воркеров надо сначала
+   переключиться. */
+const assetTab = (name) => fireEvent.click(
+  screen.getByRole("button", { name: new RegExp(`^${name}`) }));
 const asks = () => [...container.querySelectorAll("svg text")].filter((t) => t.textContent === "?");
 
 describe("подпись на схеме", () => {
@@ -31,9 +35,11 @@ describe("подпись на схеме", () => {
     .filter((t) => t.textContent === "актив" && t.getAttribute("fill") !== "#E6EDF7").length;
 
   it("«?» стоит ровно у красных подписей, и красные в модели есть", () => {
-    scheme();
-    // Второе условие важнее первого: без него сравнение «ноль равен нулю»
-    // проходило бы и тогда, когда подписи вообще перестали краснеть.
+    // Стартовая модель собрана верно, красных в ней нет — заводим свой
+    // актив: он ничего не берёт и ничего не отдаёт. Второе условие важнее
+    // первого: без него сравнение «ноль равен нулю» проходило бы и тогда,
+    // когда подписи вообще перестали краснеть.
+    addAsset();
     expect(reds()).toBeGreaterThan(0);
     expect(asks().length).toBe(reds());
   });
@@ -73,7 +79,11 @@ describe("подпись на схеме", () => {
   });
 
   it("тап по «?» открывает объяснение и НЕ перескакивает выбор на чужой блок", () => {
-    scheme();
+    // Красный блок нужен чужой: у своего выбор не изменился бы и без защиты.
+    addAsset();
+    const other = blocks().find((g) => g.querySelector("text").textContent !== "Новый актив");
+    fireEvent.pointerDown(other, { clientX: 1, clientY: 1 });
+    fireEvent.pointerUp(window, { clientX: 1, clientY: 1 });
     const mine = nameBox().value;
     // «?» чужого блока: у своего выбор не изменился бы и без защиты.
     const ask = asks().map((t) => t.parentElement)
@@ -91,43 +101,81 @@ describe("подпись на схеме", () => {
 });
 
 describe("подпись у ресурса", () => {
-  it("под каждым ресурсом написано «ресурс»", () => {
-    scheme();
-    expect(screen.getAllByText("ресурс").length).toBeGreaterThan(0);
-  });
-
   it("красная подпись объясняется определением ресурса", () => {
-    // Заводим ресурс в новом активе: он ни с чем не связан, значит красный.
+    // Заводим ресурс в новом активе: его никто не выдаёт и никто не берёт,
+    // значит он красный.
     addAsset();
-    const box = container.querySelector('input[placeholder="текст нового ресурса"]');
+    assetTab("Ресурсы");
+    const box = screen.getByPlaceholderText("текст нового ресурса");
     fireEvent.change(box, { target: { value: "новый ресурс" } });
     fireEvent.blur(box);
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ / })
-      .find((b) => /рост|затрат|ресурс/i.test(b.textContent)));
+    fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
 
-    const ask = screen.getAllByRole("button", { name: /почему «ресурс»/ })[0];
-    expect(ask).toBeTruthy();
+    const ask = screen.getByRole("button", { name: /почему «ресурс»/ });
     fireEvent.click(ask);
     expect(within(dialog()).getByText(WHY_TRAIT)).toBeInTheDocument();
   });
+
+  it("ресурс, который одна функция выдаёт, а другая берёт, — белый", () => {
+    // Стартовая модель замкнута: «Рынок услуг» выдаёт спрос, а «Сбор заявок»
+    // его берёт, значит у спроса красной подписи быть не должно.
+    scheme();
+    const mkt = [...container.querySelectorAll("svg g")]
+      .find((g) => [...g.querySelectorAll("text")]
+        .some((t) => t.textContent === "Рынок услуг"));
+    fireEvent.pointerDown(mkt, { clientX: 1, clientY: 1 });
+    fireEvent.pointerUp(window, { clientX: 1, clientY: 1 });
+    assetTab("Ресурсы");
+    expect(screen.getByDisplayValue("спрос")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /почему «ресурс»/ })).toBeNull();
+  });
 });
 
-describe("подпись у функционального элемента", () => {
-  it("только что заведённый элемент красный — ему нечего преобразовывать", () => {
-    scheme();
-    fireEvent.click(screen.getByRole("button", { name: "+ элемент" }));
-    expect(screen.getByText("функциональный элемент")).toBeInTheDocument();
-    const ask = screen.getByRole("button", { name: /почему «функциональный элемент»/ });
+describe("подпись у функции", () => {
+  /* Функцию заводим в новом активе: там она одна, и проверка не путается
+     между карточками стартовой модели. */
+  const freshFunc = () => {
+    addAsset();
+    assetTab("Функции");
+    fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
+  };
+  // Ресурсы заводятся на своей вкладке, функция настраивается на своей.
+  const addTraits = (...names) => {
+    assetTab("Ресурсы");
+    const box = screen.getByPlaceholderText("текст нового ресурса");
+    names.forEach((name) => {
+      fireEvent.change(box, { target: { value: name } });
+      fireEvent.blur(box);
+      fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
+    });
+    assetTab("Функции");
+  };
+
+  it("только что заведённая функция красная — ей нечего преобразовывать", () => {
+    freshFunc();
+    const ask = screen.getByRole("button", { name: /почему «функция»/ });
     fireEvent.click(ask);
     expect(within(dialog()).getByText(WHY_FUNC)).toBeInTheDocument();
   });
 
-  it("элемент с входом и выходом внутри актива становится белым", () => {
-    scheme();
-    fireEvent.click(screen.getByRole("button", { name: "+ элемент" }));
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ берёт/ })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ выдаёт/ })[1]);
-    // Красной подписи больше нет — значит и «?» рядом с ней исчез.
-    expect(screen.queryByRole("button", { name: /почему «функциональный элемент»/ })).toBeNull();
+  it("функция с входом и выходом внутри актива становится белой", () => {
+    freshFunc();
+    // Два ресурса в новом активе: один во вход, другой в выход.
+    addTraits("сырьё", "изделие");
+    fireEvent.click(screen.getByRole("button", { name: "+ берёт «сырьё»" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ выдаёт «изделие»" }));
+
+    expect(screen.queryByRole("button", { name: /почему «функция»/ })).toBeNull();
+  });
+
+  it("функция без времени выполнения красная — она не говорит, когда будет готово", () => {
+    freshFunc();
+    addTraits("сырьё", "изделие");
+    fireEvent.click(screen.getByRole("button", { name: "+ берёт «сырьё»" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ выдаёт «изделие»" }));
+    fireEvent.change(screen.getByLabelText("время одного выполнения"),
+      { target: { value: "0" } });
+
+    expect(screen.getByRole("button", { name: /почему «функция»/ })).toBeInTheDocument();
   });
 });

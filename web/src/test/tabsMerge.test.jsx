@@ -11,14 +11,18 @@ const expandCards = (container) => {
 };
 
 
-/* Разделов стало пять: «Цели» слились с «Прогнозом», «Типы» — со «Схемой».
-   Проверяем, что содержимое не потерялось при переезде и что целевым можно
-   сделать любой ресурс, а не только заранее размеченный. */
+/* Разделов шесть, и всё, что относится к активу, живёт на «Схеме»: его
+   воркеры, функции и ресурсы, а под ними — классификации. Цель ресурса
+   задаётся там же, в его карточке, а «Прогноз» её только показывает: два
+   места для одного и того же разъехались бы. */
 
 let container;
 beforeEach(() => { ({ container } = render(<SystemModel />)); });
 
 const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
+/* Три части актива живут во вкладках: до ресурсов надо переключиться. */
+const assetTab = (name) => fireEvent.click(
+  screen.getByRole("button", { name: new RegExp(`^${name}`) }));
 const forecast = () => { tab("Прогноз"); expandCards(container); };
 const dump = () => {
   fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
@@ -42,10 +46,11 @@ describe("состав вкладок", () => {
 });
 
 describe("классификации — на «Схеме»", () => {
-  it("список и добавление классификации живут под добавлением ресурса", () => {
+  it("список и добавление классификации живут под карточкой актива", () => {
     tab("Схема");
+    assetTab("Ресурсы");
     expect(screen.getByText("классификации ресурсов")).toBeTruthy();
-    const add = screen.getByRole("button", { name: "+ добавить классификацию" });
+    const add = screen.getByRole("button", { name: "+ классификация" });
     // Ниже добавления ресурса, а не выше: тип выбирается уже после того,
     // как ресурс назван.
     const all = [...container.querySelectorAll("*")];
@@ -57,64 +62,58 @@ describe("классификации — на «Схеме»", () => {
     tab("Схема");
     const before = dump().kinds.length;
     tab("Схема");
-    fireEvent.click(screen.getByRole("button", { name: "+ добавить классификацию" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ классификация" }));
     expect(dump().kinds.length).toBe(before + 1);
+    tab("Схема");
+    assetTab("Ресурсы");
+    expect(screen.getByRole("button", { name: /^\+ • новая классификация$/ }))
+      .toBeInTheDocument();
   });
 });
 
-describe("цели — на «Прогнозе»", () => {
-  it("карточка цели с планкой и сроком показана здесь же", () => {
-    forecast();
-    expect(screen.getByText("поставить цель")).toBeTruthy();
-    // Планка и срок — поля карточки цели, у нецелевых ресурсов их нет.
-    expect(screen.getAllByText("нужно").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("к месяцу").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/что поднять, чтобы успеть/).length)
+describe("три части актива — одинаковыми формами", () => {
+  it("вкладки идут в одном порядке: сначала люди, потом их работа, потом ресурсы", () => {
+    tab("Схема");
+    const all = [...container.querySelectorAll("*")];
+    const at = (name) => all.indexOf(
+      screen.getByRole("button", { name: new RegExp(`^${name} \\d`) }));
+    expect(at("Воркеры")).toBeLessThan(at("Функции"));
+    expect(at("Функции")).toBeLessThan(at("Ресурсы"));
+  });
+
+  it("карточки всех трёх вкладок раскрываются одинаково", () => {
+    tab("Схема");
+    // Одна грамматика на все части: «развернуть …» + название + «удалить».
+    expect(screen.getAllByRole("button", { name: "развернуть функции" }).length)
+      .toBeGreaterThan(0);
+    assetTab("Ресурсы");
+    expect(screen.getAllByRole("button", { name: "развернуть ресурса" }).length)
+      .toBeGreaterThan(0);
+  });
+});
+
+describe("цель ресурса", () => {
+  it("задаётся в карточке ресурса и уезжает в модель", () => {
+    tab("Схема");
+    assetTab("Ресурсы");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[0]);
+    const want = screen.getByPlaceholderText("без цели");
+    fireEvent.change(want, { target: { value: "999" } });
+    fireEvent.blur(want);
+    expect(dump().traits.some((t) => Number(t.want) === 999)).toBe(true);
+  });
+
+  it("«Прогноз» показывает цели, план под них и два срока", () => {
+    tab("Прогноз");
+    expect(screen.getByText("цели · что для них нужно сделать")).toBeTruthy();
+    expect(screen.getAllByText("что нужно сделать").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/в лучшем случае|не достигается/).length)
       .toBeGreaterThan(0);
   });
 
-  it("нецелевой ресурс показан карточкой прогноза — с графиком и без планки", () => {
-    forecast();
-    expect(screen.getByText("остальные ресурсы — по активам")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "сделать целью" }).length)
-      .toBeGreaterThan(0);
-  });
-
-  it("целью можно сделать любой ресурс, и он переезжает в карточки целей", () => {
-    forecast();
-    const before = dump().traits.filter((t) => t.want != null).length;
-    forecast();
-    fireEvent.click(screen.getAllByRole("button", { name: "сделать целью" })[0]);
-    const goals = dump().traits.filter((t) => t.want != null);
-    expect(goals.length).toBe(before + 1);
-    // Планка и срок проставлены оба: цель без срока некуда успевать.
-    const fresh = goals[goals.length - 1];
-    expect(fresh.want).not.toBeNull();
-    expect(fresh.by).toBeGreaterThan(0);
-  });
-
-  it("«убрать из целей» возвращает ресурс в обычный прогноз", () => {
-    forecast();
-    const before = dump().traits.filter((t) => t.want != null).length;
-    forecast();
-    fireEvent.click(screen.getAllByRole("button", { name: "убрать из целей" })[0]);
-    expect(dump().traits.filter((t) => t.want != null).length).toBe(before - 1);
-  });
-
-  it("став целью, ресурс уходит из карточек прогноза — не показан дважды", () => {
-    forecast();
-    // Карточки прогноза узнаются по кнопке «сделать целью»; берём первую,
-    // делаем её ресурс целью и смотрим, что второй карточки не осталось.
-    const plainNames = () => screen.queryAllByRole("button", { name: "сделать целью" })
-      .map((b) => b.closest("div").parentElement.textContent);
-    const before = plainNames();
-    expect(before.length).toBeGreaterThan(0);
-    fireEvent.click(screen.getAllByRole("button", { name: "сделать целью" })[0]);
-
-    const after = plainNames();
-    expect(after.length).toBe(before.length - 1);
-    // Именно та карточка и ушла — не какая-нибудь соседняя.
-    const gone = before.filter((t) => !after.includes(t));
-    expect(gone).toHaveLength(1);
+  it("ресурс без цели тоже показан — карточкой прогноза", () => {
+    tab("Прогноз");
+    // «заявки» — ресурс без планки: он в списке своего актива.
+    expect(screen.getAllByText("заявки").length).toBeGreaterThan(0);
   });
 });

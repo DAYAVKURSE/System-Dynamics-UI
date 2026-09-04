@@ -7,11 +7,11 @@ import { DRAFT_V, clearDraft, draftKey, readDraft, saveDraft } from "../lib/draf
    Всё, что не уехало на диск, должно пережить закрытие вкладки. */
 
 const DOC = {
-  entities: [{ id: "a", name: "Актив А", color: "#fff", x: 0, y: 0 }],
+  entities: [{ id: "a", name: "Актив А", color: "#fff", x: 0, y: 0,
+    owners: [], reviewers: [] }],
   traits: [{ id: "x", e: "a", k: "growth", l: "ресурс А", unit: "шт.", have: 3 }],
-  edges: [],
   kinds: [{ id: "growth", sign: "↑", name: "рост", color: "#3DDC97", dir: "up" }],
-  okrs: [],
+  funcs: [],
   tasks: [],
 };
 
@@ -277,20 +277,19 @@ describe("черновик и диск", () => {
     expect(screen.getAllByDisplayValue("рост").length).toBeGreaterThan(0);
   });
 
-  it("черновик, записанный до появления гипотез, всё ещё читается", () => {
-    // Обязательный список в readDraft() — это ядро документа. Расширять его
-    // задним числом нельзя: черновик предыдущей версии пропал бы ровно
-    // тогда, когда он и нужен.
-    saveDraft(DOC);           // DOC — шесть частей, без hypos
-    expect(readDraft()).not.toBeNull();
-    expect(readDraft().hypos).toBeUndefined();
+  it("черновик прежней версии не восстанавливается — документ стал другим", () => {
+    // В нём были стрелки и OKR, а расчёта по ним не осталось: собранная из
+    // него модель была бы моделью, которой это приложение не понимает.
+    localStorage.setItem(draftKey(), JSON.stringify({ v: 1, doc: DOC }));
+    expect(readDraft()).toBeNull();
   });
 
-  it("сценарий без гипотез загружается, и конструктор начинает с пустого списка",
-    async () => {
-    const { hypos, ...old } = { ...DOC };
+  it("сценарий, сохранённый до функций, загружается, а не роняет приложение", async () => {
+    // Функций в нём нет вовсе: недостающее остаётся текущим, а не
+    // превращается в пустоту.
+    const { funcs, ...old } = { ...DOC };
     localStorage.setItem("sd_scenarios", JSON.stringify({
-      index: [{ id: "s3", name: "Без гипотез", savedAt: new Date().toISOString() }],
+      index: [{ id: "s3", name: "Без функций", savedAt: new Date().toISOString() }],
       data: { s3: JSON.stringify(old) },
     }));
     const { container } = render(<SystemModel />);
@@ -302,6 +301,8 @@ describe("черновик и диск", () => {
     await waitFor(() => expect(screen.getByText(/Загружено/)).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
-    expect(JSON.parse(container.querySelector("textarea").value).hypos).toEqual([]);
+    const m = JSON.parse(container.querySelector("textarea").value);
+    expect(m.entities.map((e) => e.name)).toEqual(["Актив А"]);
+    expect(Array.isArray(m.funcs)).toBe(true);
   });
 });
