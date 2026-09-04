@@ -771,8 +771,13 @@ export default function SystemModel(){
      происходит, и это честный ответ, а не пустой график. */
   const runsPlan=useMemo(()=>goalRuns({traits,funcs},goals,{runsOf}),
     [traits,funcs,goals,runsOf]);
-  const fc=useMemo(()=>forecast({traits,funcs},{span,runsOf,plan:runsPlan}),
-    [traits,funcs,span,runsOf,runsPlan]);
+  /* Семя жребия. Факторы случаются не наверняка, и один и тот же набор
+     чисел может развиться по-разному; семя выбирает, КАКОЙ именно вариант
+     сейчас на экране. Оно живёт в состоянии, а не в модели: это не свойство
+     системы, а то, на какой её вариант мы сейчас смотрим. */
+  const [seed,setSeed]=useState(1);
+  const fc=useMemo(()=>forecast({traits,funcs,factors},{span,runsOf,plan:runsPlan,seed}),
+    [traits,funcs,factors,span,runsOf,runsPlan,seed]);
   const moves=useMemo(()=>transfers({funcs,traits},{runsOf,plan:runsPlan}),
     [funcs,traits,runsOf,runsPlan]);
   const workload=useMemo(()=>load({funcs},{runsOf,plan:runsPlan}),
@@ -984,6 +989,19 @@ export default function SystemModel(){
             {" "}её границы, <span style={{color:OK}}>зелёным</span> — факт по
             принятым выполнениям. Пересчитывается сам при каждой правке.
           </div>
+          {/* Факторы случаются не наверняка: один и тот же набор чисел может
+              развиться по-разному. Кнопка показывает следующий вариант —
+              иначе вероятность было бы видно только в среднем, а посмотреть
+              на разброс, ради которого её и заводят, негде. */}
+          {funcs.some(f=>f.kind==="factor")&&(
+            <div className="flex items-center gap-2" style={{marginTop:8}}>
+              <button style={btn(false)} onClick={()=>setSeed(v=>v+1)}>
+                ↻ другой вариант</button>
+              <span style={{fontSize:10.5,color:C.muted,lineHeight:1.5}}>
+                вариант №{seed}: факторы случаются не наверняка, и при тех же
+                числах будущее может сложиться иначе
+              </span>
+            </div>)}
           {!funcs.length
             ? <div style={{fontSize:11.5,color:WARN,marginTop:8,lineHeight:1.6}}>
                 Функций нет — считать нечего. Ресурсы останутся на своих

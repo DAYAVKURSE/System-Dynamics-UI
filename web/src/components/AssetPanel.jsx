@@ -516,19 +516,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             </div>
 
             {isFactor(f) ? (<>
-              <div style={{ ...S.lbl, marginTop: 8 }}>с какой вероятностью случается</div>
-              <div className="flex items-center gap-2" style={{ marginTop: 4 }}>
-                <Num value={chanceOf(f)} label="вероятность фактора"
-                  onChange={(v) => up(f.id, (x) => ({ ...x,
-                    chance: Math.max(0, Math.min(100, Number(v) || 0)) }))} />
-                <span style={{ fontSize: 12, color: C.muted }}>%</span>
-                <span style={{ flex: 1 }} />
-                <span style={{ fontSize: 10.5, color: C.muted, textAlign: "right" }}>
-                  {chanceOf(f) >= 100
-                    ? "удаётся каждая попытка"
-                    : `удаётся примерно каждая ${Math.round(100 / Math.max(chanceOf(f), 1))}-я`}
-                </span>
-              </div>
               <div style={{ ...S.lbl, marginTop: 8 }}>какой фактор</div>
               <select value={f.factor || ""} aria-label="фактор функции"
                 onChange={(e) => up(f.id, (x) => ({ ...x, factor: e.target.value }))}
@@ -538,7 +525,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               </select>
               <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
                 {factors.length
-                  ? "Фактор происходит без человека: ресурсы он меняет так же, но задач по нему не заводится и спрашивать за него не с кого."
+                  ? `Фактор происходит без человека: задач по нему не заводится и спрашивать за него не с кого. Вероятность — ${chanceOf(f, factors)}% — задана самому фактору, во вкладке «Факторы».`
                   : "Факторов в активе ещё нет — заведите их во вкладке «Факторы»."}
               </div>
             </>) : WORKER_KINDS.map((k) => (
@@ -574,18 +561,39 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
     <Section title="факторы актива"
       hint="Фактор — то, что меняет ресурсы без человека: сезон, износ, курс, реклама, которая крутится сама. Задач по нему не заводится и спрашивать за него не с кого."
       empty={mine.length ? null : "Факторов пока нет."}>
-      {mine.map((x) => (
-        <div key={x.id} className="flex items-center gap-2" style={{ marginTop: 6 }}>
-          <TxtField value={x.name} aria-label="название фактора"
-            style={{ flex: "1 1 140px", padding: "5px 7px", fontSize: 12.5 }}
-            onCommit={(v) => setFactors((p) => p.map((y) => (y.id === x.id
-              ? { ...y, name: v } : y)))} />
-          <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
-            {used(x.id) ? `функций: ${used(x.id)}` : "не используется"}</span>
-          <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
-            fontSize: 11, padding: "2px 6px" }} aria-label={`удалить фактор ${x.name}`}
-            onClick={() => del(x.id)}>✕</button>
-        </div>))}
+      {mine.map((x) => {
+        const chance = x.chance == null ? 100 : x.chance;
+        return (
+          <div key={x.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
+            borderRadius: 8, padding: 8, marginTop: 6 }}>
+            <div className="flex items-center gap-2">
+              <TxtField value={x.name} aria-label="название фактора"
+                style={{ flex: "1 1 140px", padding: "5px 7px", fontSize: 12.5 }}
+                onCommit={(v) => setFactors((p) => p.map((y) => (y.id === x.id
+                  ? { ...y, name: v } : y)))} />
+              <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+                {used(x.id) ? `функций: ${used(x.id)}` : "не используется"}</span>
+              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
+                fontSize: 11, padding: "2px 6px" }} aria-label={`удалить фактор ${x.name}`}
+                onClick={() => del(x.id)}>✕</button>
+            </div>
+            {/* Вероятность — свойство самого фактора: сезон удачлив одинаково,
+                сколько бы функций от него ни зависело. Спрашивать её у каждой
+                функции значило бы задавать один вопрос по нескольку раз. */}
+            <div className="flex items-center gap-2" style={{ marginTop: 6 }}>
+              <span style={S.lbl}>случается с вероятностью</span>
+              <Num value={chance} label={`вероятность фактора ${x.name}`}
+                onChange={(v) => setFactors((p) => p.map((y) => (y.id === x.id
+                  ? { ...y, chance: Math.max(0, Math.min(100, Number(v) || 0)) } : y)))} />
+              <span style={{ fontSize: 12, color: C.muted }}>%</span>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontSize: 10.5, color: C.muted, textAlign: "right" }}>
+                {chance >= 100 ? "удаётся каждая попытка"
+                  : chance <= 0 ? "не случается вовсе"
+                    : `в среднем каждая ${Math.round(100 / chance)}-я попытка`}</span>
+            </div>
+          </div>);
+      })}
       <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
         <TxtField value={draft} placeholder="название нового фактора"
           style={{ flex: "1 1 160px" }} onCommit={setDraft} />

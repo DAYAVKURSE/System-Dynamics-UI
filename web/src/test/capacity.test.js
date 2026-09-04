@@ -159,8 +159,9 @@ describe("фактор случается сам", () => {
     dur: 1, durHi: 1, durUnit: "мес",
     takes: [{ trait: "in", lo: 4, hi: 4 }], gives: [{ trait: "out", lo: 1, hi: 1 }],
     ...over });
-  const model = (over) => ({
+  const model = (over, chance = 100) => ({
     traits: [{ id: "in", e: "A", have: 100 }, { id: "out", e: "A", have: 0 }],
+    factors: [{ id: "g1", e: "A", name: "сезон", chance }],
     funcs: [FX(over)],
   });
 
@@ -170,24 +171,49 @@ describe("фактор случается сам", () => {
     expect(out.out[2]).toBeCloseTo(2);
   });
 
-  it("вероятность меньше 100% — удаётся не каждая попытка", () => {
-    const half = runSide(model({ chance: 50 }),
-      { span: 2, side: "hi", plan: { perMonth: {}, once: {} } });
-    expect(half.out[2]).toBeCloseTo(1);
-    // Нулевая вероятность — не случается вовсе.
-    const never = runSide(model({ chance: 0 }),
-      { span: 2, side: "hi", plan: { perMonth: {}, once: {} } });
+  it("каждая попытка — свой жребий: за длинный срок выходит около доли", () => {
+    /* Не «ровно половина», а как выпадет: ради этого вероятность и
+       заводят — посмотреть, как одни и те же числа могут развиться
+       по-разному. */
+    // Ресурса вдоволь — иначе не жребий решает, сколько выйдет, а склад.
+    const rich = () => { const m = model({}, 50); m.traits[0].have = 1e6; return m; };
+    const run = (seed) => runSide(rich(),
+      { span: 60, side: "hi", plan: { perMonth: {}, once: {} }, seed }).out[60];
+    const a = run(1);
+    expect(a).toBeGreaterThan(15);
+    expect(a).toBeLessThan(45);
+    // Другое семя — другой вариант развития.
+    const seeds = [1, 2, 3, 4, 5].map(run);
+    expect(new Set(seeds).size).toBeGreaterThan(1);
+  });
+
+  it("одно и то же семя даёт один и тот же прогноз", () => {
+    // Иначе подвинул мышь — и другое будущее: сравнить два варианта стало
+    // бы не с чем.
+    const run = () => runSide(model({}, 50),
+      { span: 24, side: "hi", plan: { perMonth: {}, once: {} }, seed: 7 }).out[24];
+    expect(run()).toBe(run());
+  });
+
+  it("сто процентов — удаётся каждая попытка, ноль — ни одна", () => {
+    const all = runSide(model({}, 100),
+      { span: 2, side: "hi", plan: { perMonth: {}, once: {} }, seed: 1 });
+    expect(all.out[2]).toBeCloseTo(2);
+    const never = runSide(model({}, 0),
+      { span: 2, side: "hi", plan: { perMonth: {}, once: {} }, seed: 1 });
     expect(never.out[2]).toBe(0);
   });
 
-  it("вероятность есть только у фактора: у задачи её не спрашивают", () => {
-    // «Выйдет с вероятностью 60%» про работу человека сказать нельзя —
-    // либо назначили, либо нет.
-    expect(chanceOf(normalizeFunc({ kind: "task", chance: 50 }))).toBe(100);
-    expect(chanceOf(FX({ chance: 50 }))).toBe(50);
-    // Мусор за границами шкалы приводится к ней, а не ломает расчёт.
-    expect(chanceOf(FX({ chance: 500 }))).toBe(100);
-    expect(chanceOf(FX({ chance: -5 }))).toBe(0);
+  it("вероятность — свойство фактора, а не функции", () => {
+    /* Сезон бывает удачным с одной и той же вероятностью, сколько бы
+       функций от него ни зависело. */
+    const factors = [{ id: "g1", e: "A", name: "сезон", chance: 40 }];
+    expect(chanceOf(FX({}), factors)).toBe(40);
+    // У задачи её не спрашивают вовсе.
+    expect(chanceOf(normalizeFunc({ kind: "task" }), factors)).toBe(100);
+    // Фактор без записи — сто процентов, а не ноль: неизвестное не значит
+    // «никогда».
+    expect(chanceOf(FX({ factor: "нет-такого" }), factors)).toBe(100);
   });
 
   it("ждёт полную порцию: на неполную не срабатывает, ресурс копится", () => {
@@ -211,9 +237,9 @@ describe("фактор случается сам", () => {
 
   it("не чаще, чем позволяет срок попытки", () => {
     const rare = model({ dur: 1, durHi: 1, durUnit: "дн",
-      every: 2, everyHi: 2, everyUnit: "мес" });
+      every: 2, everyHi: 2, everyUnit: "мес" }, 100);
     rare.traits[0].have = 1000;
-    const out = runSide(rare, { span: 4, side: "hi", plan: { perMonth: {}, once: {} } });
+    const out = runSide(rare, { span: 4, side: "hi", plan: { perMonth: {}, once: {} }, seed: 1 });
     // Раз в два месяца — за четыре месяца примерно два срабатывания.
     expect(out.out[4]).toBeCloseTo(2, 1);
   });

@@ -149,8 +149,6 @@ export const newFunc = (e, name = "новая функция") => ({
   every: 0,
   everyHi: 0,
   everyUnit: DUR_DEFAULT,
-  // Вероятность удачной попытки, в процентах. Работает только у фактора.
-  chance: 100,
   setters: [],
   owners: [],
   reviewers: [],
@@ -232,15 +230,19 @@ export const sameEvery = (f = {}) => {
 
 /* ─────── вероятность, что попытка удастся ───────
 
-   Только у фактора: он случается сам, и «сам» не значит «наверняка». Сто
-   процентов — удаётся каждая попытка; пятьдесят — каждая вторая. У задачи
-   вероятности нет: работу делает человек, и «выйдет с вероятностью 60%»
-   про неё сказать нельзя — либо назначили, либо нет. */
+   Свойство САМОГО ФАКТОРА, а не функции. Сезон бывает удачным с одной и
+   той же вероятностью, сколько бы функций от него ни зависело; спрашивать
+   её у каждой функции значило бы задавать один вопрос по нескольку раз и
+   получать разные ответы.
+
+   У задачи вероятности нет вовсе: работу делает человек, и «выйдет с
+   вероятностью 60%» про неё сказать нельзя — либо назначили, либо нет. */
 export const CHANCE_MAX = 100;
-export const chanceOf = (f = {}) => {
+const clampChance = (v) => Math.max(0, Math.min(CHANCE_MAX, num(v)));
+export const chanceOf = (f = {}, factors = []) => {
   if (!isFactor(f)) return CHANCE_MAX;
-  const v = f.chance == null ? CHANCE_MAX : num(f.chance);
-  return Math.max(0, Math.min(CHANCE_MAX, v));
+  const x = factors.find((y) => y.id === f.factor);
+  return x?.chance == null ? CHANCE_MAX : clampChance(x.chance);
 };
 
 /** По-человечески: «сразу» или «через 2 нед», вилкой — «через 1–2 нед». */
@@ -296,7 +298,6 @@ export const normalizeFunc = (f = {}) => {
     every: num(f.every),
     everyHi: f.everyHi == null ? num(f.every) : num(f.everyHi),
     everyUnit: unit(f.everyUnit),
-    chance: f.chance == null ? 100 : num(f.chance),
     ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id,
       [...new Set(Array.isArray(f[k.id]) ? f[k.id] : [])]])),
     x: num(f.x),
@@ -413,6 +414,45 @@ export const workersOf = (entities = [], id) => {
 export const countWorkers = (workers = {}) => new Set(
   WORKER_KINDS.flatMap((k) => ids(workers[k.id]).map(String)),
 ).size;
+
+/**
+ * Чего не хватает, чтобы функцию можно было выполнить прямо сейчас.
+ *
+ * Возвращает список нехваток: по одной на каждое требование, которое нечем
+ * закрыть. Внутри требования достаточно ОДНОГО подходящего варианта — на то
+ * оно и «или»; не хватает, только если не хватает всех сразу.
+ *
+ * Считается по верхней границе вилки — по тому, сколько может понадобиться.
+ * Взяться за работу, зная, что ресурса хватит лишь в удачном случае, —
+ * значит заранее согласиться встать на полпути.
+ */
+export function shortage(f, traits = []) {
+  if (!f) return [];
+  const have = (id) => num(traits.find((t) => t.id === id)?.have);
+  const name = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
+  return groupsOf(f.takes || [])
+    .map((g) => {
+      const ok = g.some((p) => have(p.trait) >= num(p.hi || p.lo));
+      if (ok) return null;
+      // Показываем тот вариант, которого не хватает меньше всего: до него
+      // ближе всего, и именно он подскажет, чего добирать.
+      const best = g.reduce((a, p) => {
+        const gap = num(p.hi || p.lo) - have(p.trait);
+        return a && a.gap <= gap ? a : { p, gap };
+      }, null);
+      return best && {
+        trait: best.p.trait,
+        name: name(best.p.trait),
+        need: num(best.p.hi || best.p.lo),
+        have: have(best.p.trait),
+        alts: g.length,
+      };
+    })
+    .filter(Boolean);
+}
+
+/** Хватает ли ресурсов, чтобы взяться за функцию прямо сейчас. */
+export const canRun = (f, traits = []) => shortage(f, traits).length === 0;
 
 /**
  * Людей, переставших быть воркерами актива, убираем и с его функций.
@@ -574,6 +614,8 @@ export const newFactor = (e, name = "новый фактор") => ({
   id: nextId("x"),
   e,
   name,
+  // Насколько удачлив сам фактор, в процентах. Сто — случается всегда.
+  chance: CHANCE_MAX,
 });
 
 export const normalizeFactor = (x = {}) => ({
@@ -581,6 +623,7 @@ export const normalizeFactor = (x = {}) => ({
   id: x.id ?? nextId("x"),
   e: x.e ?? null,
   name: x.name ?? "",
+  chance: x.chance == null ? CHANCE_MAX : clampChance(x.chance),
 });
 export const normalizeFactors = (list) =>
   (Array.isArray(list) ? list.map(normalizeFactor) : []);

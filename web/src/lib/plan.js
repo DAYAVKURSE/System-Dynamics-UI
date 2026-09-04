@@ -106,6 +106,36 @@ export function portQty(p, { kind, side, runs = [] }) {
   return side === "lo" ? worst : best;
 }
 
+/* ─────── жребий: удалась попытка или нет ───────
+
+   Фактор случается сам, и «сам» не значит «наверняка»: у него есть
+   вероятность, и каждая попытка — отдельный жребий. Поэтому один и тот же
+   набор чисел может развиться по-разному, и посмотреть на эти варианты —
+   ровно то, ради чего вероятность и заводят.
+
+   Жребий не настоящий, а посеянный: от одного и того же семени выходит
+   один и тот же ряд. Без этого прогноз менялся бы при каждой перерисовке —
+   подвинул мышь, и другое будущее; сравнить два варианта стало бы
+   невозможно, потому что не осталось бы ни одного, который стоит на месте.
+   Меняя семя, человек смотрит следующий вариант. */
+const hash = (s) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};
+
+/** Число в [0;1) по семени и месту: одно и то же место даёт одно и то же. */
+export const draw = (seed, key) => {
+  let x = hash(`${seed}|${key}`) || 1;
+  x ^= x << 13; x >>>= 0;
+  x ^= x >> 17;
+  x ^= x << 5; x >>>= 0;
+  return x / 4294967296;
+};
+
 /**
  * Какой из вариантов группы «или» пойдёт в дело.
  *
@@ -157,9 +187,14 @@ export const hasFact = (runs = []) => runs.some((r) => Number(r?.hours) > 0);
  * кончится. Плана нет вовсе — считаем по потолку: так прогноз отвечает на
  * вопрос «на что модель вообще способна».
  */
-export function runSide(model, { span = 24, side = "hi", runsOf, plan } = {}) {
-  const { traits = [], funcs = [] } = model;
+export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 } = {}) {
+  const { traits = [], funcs = [], factors = [] } = model;
   const runs = (f) => (runsOf ? runsOf(f.id) : []);
+  /* Недобранные попытки копятся: фактор с попыткой раз в полгода делает
+     одну попытку раз в шесть месяцев, а не шестую часть попытки каждый
+     месяц. Половины жребия не бывает. */
+  const credit = {};
+  const tries = {};
   const perMonth = plan?.perMonth || {};
   const left = { ...(plan?.once || {}) };
   const level = {};
@@ -175,7 +210,17 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan } = {}) {
          на которые хватило вероятности. Задача — наоборот: её делают, и
          делают ровно столько, сколько просят применённые цели. */
       if (isFactor(f)) {
-        return { f, n: cap * (chanceOf(f) / CHANCE_MAX), k: 1, takes: [] };
+        credit[f.id] = (credit[f.id] || 0) + cap;
+        const p = chanceOf(f, factors) / CHANCE_MAX;
+        let hit = 0;
+        while (credit[f.id] >= 1) {
+          credit[f.id] -= 1;
+          tries[f.id] = (tries[f.id] || 0) + 1;
+          // Жребий на каждую попытку — свой, и он один и тот же на обеих
+          // сторонах ленты: иначе границы говорили бы о разных вариантах.
+          if (draw(seed, `${f.id}#${tries[f.id]}`) < p) hit += 1;
+        }
+        return { f, n: hit, k: 1, takes: [] };
       }
       const want = perMonth[f.id] || 0;
       const budget = left[f.id] || 0;
@@ -255,12 +300,12 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan } = {}) {
  * выполнялась. Без выполнений её нет вовсе — иначе план показался бы
  * измерением.
  */
-export function forecast(model, { span = 24, runsOf, plan } = {}) {
+export function forecast(model, { span = 24, runsOf, plan, seed = 1 } = {}) {
   const anyFact = (model.funcs || []).some((f) => hasFact(runsOf ? runsOf(f.id) : []));
   return {
-    lo: runSide(model, { span, side: "lo", runsOf, plan }),
-    hi: runSide(model, { span, side: "hi", runsOf, plan }),
-    fact: anyFact ? runSide(model, { span, side: "fact", runsOf, plan }) : null,
+    lo: runSide(model, { span, side: "lo", runsOf, plan, seed }),
+    hi: runSide(model, { span, side: "hi", runsOf, plan, seed }),
+    fact: anyFact ? runSide(model, { span, side: "fact", runsOf, plan, seed }) : null,
     span,
   };
 }

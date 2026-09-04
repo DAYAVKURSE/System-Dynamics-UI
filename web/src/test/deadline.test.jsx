@@ -13,8 +13,10 @@ import PersonStats from "../components/PersonStats.jsx";
 
 const ENTITIES = [{ id: "usr", name: "Пользователи",
   setters: ["1"], owners: ["2"], reviewers: ["3"] }];
-const TRAITS = [{ id: "t1", e: "usr", l: "спрос", unit: "шт." },
-  { id: "t2", e: "usr", l: "заявки", unit: "шт." }];
+/* Ресурса на входе вдоволь: иначе задача ждёт его, и проверялось бы не то,
+   что задумано, — см. отдельный блок «задача ждёт ресурсов». */
+const TRAITS = [{ id: "t1", e: "usr", l: "спрос", unit: "шт.", have: 100 },
+  { id: "t2", e: "usr", l: "заявки", unit: "шт.", have: 0 }];
 const FUNCS = [{ id: "f1", e: "usr", name: "Сбор заявок", dur: 2, durUnit: "ч",
   every: 0, everyUnit: "ч",
   takes: [{ id: "p1", trait: "t1", lo: 2, hi: 4 }],
@@ -124,6 +126,49 @@ describe("«ожидает постановки» и «дедлайн»", () => 
     fireEvent.click(within(card).getByRole("button", { name: "›" }));
     const col = screen.getByText("Дедлайн").parentElement.parentElement;
     expect(within(col).getByText("Задача A")).toBeInTheDocument();
+  });
+});
+
+describe("задача ждёт ресурсов", () => {
+  /* Количество ресурсов меняется само по себе. Поэтому задачу можно описать
+     заранее — и она подождёт, пока ресурсов станет достаточно. А при
+     попытке её поставить видно, какого ресурса не хватает и сколько. */
+  const set = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
+    setter: "1", assignee: "2", reviewer: "3", body: "что делать",
+    end: "2030-03-01T11:00", ...over });
+  const poor = TRAITS.map((t) => (t.id === "t1" ? { ...t, have: 1 } : t));
+
+  const Poor = ({ tasks: t0 }) => {
+    const [tasks, setTasks] = React.useState(t0);
+    const [openId, setOpenId] = React.useState(null);
+    return (<TasksBoard funcs={FUNCS} entities={ENTITIES} traits={poor}
+      tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
+      people={PEOPLE} canAssign nameOf={(id) => id} />);
+  };
+
+  it("описать можно, а поставить — нет: и сказано, чего не хватает", () => {
+    render(<Poor tasks={[set({})]} />);
+    // «Сбор заявок» берёт до 4 «спроса», а его всего 1.
+    expect(screen.getByText(/ждёт ресурсов: спрос \(есть 1 из 4\)/)).toBeInTheDocument();
+    const card = screen.getByText("Задача A").parentElement;
+    const next = within(card).getByRole("button", { name: "›" });
+    expect(next).toBeDisabled();
+    expect(next).toHaveAttribute("title", expect.stringContaining("спрос"));
+  });
+
+  it("ресурса хватило — задача идёт дальше", () => {
+    render(<Board tasks={[set({})]} />);
+    expect(screen.queryByText(/ждёт ресурсов/)).toBeNull();
+    const card = screen.getByText("Задача A").parentElement;
+    expect(within(card).getByRole("button", { name: "›" })).not.toBeDisabled();
+  });
+
+  it("незаполненной задаче сперва называют незаполненное, а не ресурсы", () => {
+    // Пока задача не описана, разговор о ресурсах преждевременный.
+    render(<Poor tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
+    const card = screen.getByText("Задача A").parentElement;
+    expect(within(card).getByRole("button", { name: "›" }))
+      .toHaveAttribute("title", expect.stringContaining("Не хватает: постановщик"));
   });
 });
 

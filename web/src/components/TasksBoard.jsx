@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, hoursOf, isFactor, rangeText } from "../lib/funcs.js";
+import { DUR_UNITS, WORKER_KINDS, hoursOf, isFactor, rangeText, shortage }
+  from "../lib/funcs.js";
 import { shortStat, statsOf } from "../lib/workers.js";
 import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
@@ -497,10 +498,27 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
 
      А из «ожидает постановки» она не двигается, пока не поставлена: без
      людей, срока и содержимого делать нечего. */
+  /* Чего не хватает, чтобы задачу можно было поставить: заполненности и
+     ресурсов. Количество ресурсов меняется само по себе, поэтому задачу
+     можно описать заранее — и она будет ждать, пока ресурсы появятся. */
+  const lack=(t)=>{
+    if(t.status!=="wait") return [];
+    const f=funcs.find(x=>x.id===t.funcId);
+    return f?shortage(f,traits):[];
+  };
   const canAdvance=(t)=>{
     const at=STATUSES.findIndex(s=>s.id===t.status);
     if(at<0||at>=STATUSES.length-2) return false;
-    return t.status!=="wait"||isSet(t);
+    if(t.status!=="wait") return true;
+    return isSet(t)&&lack(t).length===0;
+  };
+  const whyNot=(t)=>{
+    if(t.status!=="wait") return "";
+    if(!isSet(t)) return `Не хватает: ${taskGaps(t).join(", ")}`;
+    const miss=lack(t);
+    if(!miss.length) return "";
+    return "Не хватает ресурсов: "
+      + miss.map(x=>`${x.name} — есть ${nm(x.have)}, нужно ${nm(x.need)}`).join("; ");
   };
   const moveStatus=(t,d)=>{
     const at=STATUSES.findIndex(s=>s.id===t.status);
@@ -587,6 +605,13 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                     {t.status==="wait"&&!!taskGaps(t).length&&(
                       <div style={{fontSize:10,color:WARN,marginTop:3,lineHeight:1.4}}>
                         не хватает: {taskGaps(t).join(", ")}</div>)}
+                    {/* Ресурсов может не хватать даже у полностью описанной
+                        задачи: их количество меняется само. Тогда задача
+                        ждёт, и сказано — чего именно ждёт. */}
+                    {t.status==="wait"&&isSet(t)&&!!lack(t).length&&(
+                      <div style={{fontSize:10,color:WARN,marginTop:3,lineHeight:1.4}}>
+                        ждёт ресурсов: {lack(t).map(x=>
+                          `${x.name} (есть ${nm(x.have)} из ${nm(x.need)})`).join(", ")}</div>)}
                     {t.assignee!=null&&<div style={{fontSize:10.5,color:ACC,marginTop:3}}>
                       {nameOf?nameOf(t.assignee):t.assignee}</div>}
                     <div className="flex gap-2" style={{marginTop:6}}>
@@ -595,7 +620,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                         onClick={e=>{e.stopPropagation();moveStatus(t,-1);}}>‹</button>
                       <button style={{...btn(false),padding:"2px 8px"}}
                         disabled={!canAdvance(t)}
-                        title={!canAdvance(t)?"Дальше — только через приём отчёта":""}
+                        title={whyNot(t)||(!canAdvance(t)?"Дальше — только через приём отчёта":"")}
                         onClick={e=>{e.stopPropagation();moveStatus(t,1);}}>›</button>
                     </div>
                   </div>);
