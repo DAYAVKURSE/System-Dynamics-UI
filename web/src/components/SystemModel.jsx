@@ -68,19 +68,19 @@ const TRAITS0=[
   T("req","usr","res","заявки","шт.",0,null),
   T("hdl","vm","growth","обработанные заявки","шт.",0,300),
 ];
-const P=(trait,lo,hi,to)=>({id:`p_${trait}_${to||"in"}`,trait,lo,hi,...(to!==undefined?{to}:{})});
+const P=(trait,lo,hi)=>({id:`p_${trait}`,trait,lo,hi});
 /* Стартовые функции приводим к нынешней записи здесь же: иначе первая
    отмена правки дописала бы недостающие поля, документ перестал бы совпадать
    с исходным, и черновик решил бы, что есть несохранённые изменения. */
 const FUNCS0=normalizeFuncs([
   {id:"f_req",e:"usr",name:"Сбор заявок",
-    takes:[P("dem",2,4)],gives:[P("req",1,1,"vm")],
+    takes:[P("dem",2,4)],gives:[P("req",1,1)],
     dur:2,durUnit:"ч",owners:[],reviewers:[],x:0,y:0},
   {id:"f_hdl",e:"vm",name:"Обработка заявки",
-    takes:[P("req",1,1)],gives:[P("hdl",1,1,""),P("act",0,1,"usr")],
+    takes:[P("req",1,1)],gives:[P("hdl",1,1),P("act",0,1)],
     dur:4,durUnit:"ч",owners:[],reviewers:[],x:0,y:0},
   {id:"f_dem",e:"mkt",name:"Сарафанное радио",
-    takes:[P("hdl",1,1)],gives:[P("dem",1,3,"")],
+    takes:[P("hdl",1,1)],gives:[P("dem",1,3)],
     dur:1,durUnit:"дн",owners:[],reviewers:[],x:0,y:0},
 ]);
 
@@ -417,12 +417,12 @@ export default function SystemModel(){
     const own=new Set(traits.filter(t=>t.e===id).map(t=>t.id));
     setTraits(p=>p.filter(t=>t.e!==id));
     // Функции живут внутри актива: без него они повисли бы ссылкой в
-    // никуда. А чужие функции могли брать его ресурсы и передавать сюда —
-    // такие входы и такие получатели тоже уходят.
+    // никуда. А чужие функции могли брать и выдавать его ресурсы — такие
+    // входы и выходы тоже уходят вместе с ресурсами.
     const gone=new Set(funcs.filter(f=>f.e===id).map(f=>f.id));
     setFuncs(p=>p.filter(f=>f.e!==id).map(f=>({...f,
       takes:f.takes.filter(t=>!own.has(t.trait)),
-      gives:f.gives.filter(g=>!own.has(g.trait)).map(g=>g.to===id?{...g,to:""}:g)})));
+      gives:f.gives.filter(g=>!own.has(g.trait))})));
     // Задачи выполняли функции этого актива — выполнять больше нечего.
     setTasks(p=>p.filter(t=>!gone.has(t.funcId)));
     setEntities(p=>p.filter(e=>e.id!==id));

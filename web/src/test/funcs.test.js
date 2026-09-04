@@ -84,9 +84,18 @@ describe("прежние записи не переносятся", () => {
   it("но чужая запись всё равно достраивается, а не роняет редактор", () => {
     // Отказ работать — это пустые поля и красная подпись, а не белый экран.
     const f = normalizeFunc(old);
-    expect(f.gives[0].to).toBe("");
     expect(DUR_UNITS[f.durUnit]).toBeTruthy();
     expect(DUR_UNITS[f.everyUnit]).toBeTruthy();
+  });
+
+  it("получатель с выхода не читается — его называет сам ресурс", () => {
+    // Поле «передаёт в» спрашивало то, что уже сказано выбором ресурса, и
+    // могло с ним разойтись. Оставить его в записи значило бы хранить
+    // вторую версию одного и того же.
+    const f = normalizeFunc({ gives: [{ trait: "t2", lo: 1, hi: 1, to: "B" }] });
+    expect(f.gives[0]).not.toHaveProperty("to");
+    expect(newGive("t2", 1, 2)).toEqual({ id: expect.any(String), trait: "t2",
+      lo: 1, hi: 2 });
   });
 });
 

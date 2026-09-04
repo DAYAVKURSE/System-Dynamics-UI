@@ -150,6 +150,14 @@ describe("подпись у функции", () => {
     });
     assetTab("Функции");
   };
+  /* Вход и выход добавляются одним полем: в нём все ресурсы схемы — свои и
+     чужие. Двух списков больше нет, и «свой или чужой» перестал быть
+     вопросом при добавлении. */
+  const addPort = (kind, name) => {
+    const sel = screen.getByLabelText(kind === "takes" ? "взять ресурс" : "выдать ресурс");
+    const opt = [...sel.options].find((o) => o.textContent === name);
+    fireEvent.change(sel, { target: { value: opt.value } });
+  };
 
   it("только что заведённая функция красная — ей нечего преобразовывать", () => {
     freshFunc();
@@ -162,8 +170,8 @@ describe("подпись у функции", () => {
     freshFunc();
     // Два ресурса в новом активе: один во вход, другой в выход.
     addTraits("сырьё", "изделие");
-    fireEvent.click(screen.getByRole("button", { name: "+ берёт «сырьё»" }));
-    fireEvent.click(screen.getByRole("button", { name: "+ выдаёт «изделие»" }));
+    addPort("takes", "сырьё");
+    addPort("gives", "изделие");
 
     expect(screen.queryByRole("button", { name: /почему «функция»/ })).toBeNull();
   });
@@ -171,8 +179,8 @@ describe("подпись у функции", () => {
   it("функция без времени выполнения красная — она не говорит, когда будет готово", () => {
     freshFunc();
     addTraits("сырьё", "изделие");
-    fireEvent.click(screen.getByRole("button", { name: "+ берёт «сырьё»" }));
-    fireEvent.click(screen.getByRole("button", { name: "+ выдаёт «изделие»" }));
+    addPort("takes", "сырьё");
+    addPort("gives", "изделие");
     fireEvent.change(screen.getByLabelText("время одного выполнения"),
       { target: { value: "0" } });
 

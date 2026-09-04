@@ -40,6 +40,16 @@ const addFunc = () => {
   assetTab("Функции");
   fireEvent.click(screen.getByRole("button", { name: "+ функция" }));
 };
+/* Вход и выход добавляются одним полем на всю схему: в нём и свои ресурсы,
+   и чужие. `addPort` возвращает имя выбранного — по нему потом ищутся поля
+   вилки. */
+const addPort = (kind, name) => {
+  const sel = screen.getByLabelText(kind === "takes" ? "взять ресурс" : "выдать ресурс");
+  const opt = name ? [...sel.options].find((o) => o.textContent === name)
+    : [...sel.options].find((o) => o.value);
+  fireEvent.change(sel, { target: { value: opt.value } });
+  return opt.textContent;
+};
 const loadJson = (m) => {
   const area = openExport();
   fireEvent.change(area, { target: { value: JSON.stringify(m) } });
@@ -92,8 +102,8 @@ describe("функция заводится и живёт", () => {
 
   it("рецепт задаётся: что берёт, что выдаёт и за какое время", () => {
     addFunc();
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ берёт/ })[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: /^\+ выдаёт/ })[1]);
+    addPort("takes");
+    addPort("gives");
 
     const f = dump().funcs.pop();
     expect(f.takes).toHaveLength(1);
@@ -106,9 +116,7 @@ describe("функция заводится и живёт", () => {
 
   it("сколько берёт и сколько выдаёт — диапазон, и он сохраняется", () => {
     addFunc();
-    const add = screen.getAllByRole("button", { name: /^\+ берёт/ })[0];
-    const name = add.textContent.replace(/^\+ берёт «|»$/g, "");
-    fireEvent.click(add);
+    const name = addPort("takes");
     fireEvent.change(screen.getByLabelText(`сколько минимум ${name}`), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText(`сколько максимум ${name}`), { target: { value: "5" } });
 
@@ -126,20 +134,24 @@ describe("функция заводится и живёт", () => {
 });
 
 describe("передача в другой актив", () => {
-  it("это получатель у выхода, а не отдельная стрелка", () => {
+  it("это чужой ресурс на выходе, а не поле «передаёт в»", () => {
+    // Ресурс принадлежит активу, и выдать чужой ресурс значит передать
+    // туда. Отдельное поле получателя спрашивало бы то, что уже сказано
+    // выбором ресурса, — и могло с ним разойтись.
     addFunc();
-    const add = screen.getAllByRole("button", { name: /^\+ выдаёт/ })[0];
-    const name = add.textContent.replace(/^\+ выдаёт «|»$/g, "");
-    fireEvent.click(add);
-
-    const to = screen.getByLabelText(`кому передаётся ${name}`);
-    fireEvent.change(to, { target: { value: to.options[1].value } });
+    const sel = screen.getByLabelText("выдать ресурс");
+    // Чужие ресурсы лежат в списке под названием своего актива.
+    const alien = [...sel.options].find((o) => o.parentElement.label
+      && o.parentElement.label !== "этот актив");
+    fireEvent.change(sel, { target: { value: alien.value } });
 
     const m = dump();
     const f = m.funcs.pop();
-    expect(f.gives[0].to).toBe(to.options[1].value);
-    // Получатель — другой актив, а не тот, которому функция принадлежит.
-    expect(f.gives[0].to).not.toBe(f.e);
+    expect(f.gives[0]).not.toHaveProperty("to");
+    expect(screen.queryByLabelText(/кому передаётся/)).toBeNull();
+    // Ресурс, который функция выдаёт, принадлежит другому активу — это и
+    // есть передача.
+    expect(m.traits.find((t) => t.id === f.gives[0].trait).e).not.toBe(f.e);
     expect(m.flows).toBeUndefined();
   });
 

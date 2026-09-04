@@ -214,13 +214,30 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
 /**
  * Список входов или выходов: ресурс, вилка «сколько» и факт рядом.
  *
- * У выхода есть ещё получатель: пусто — ресурс остаётся в своём активе,
- * иначе функция передаёт выданное в названный актив.
+ * Вход и выход устроены одинаково, и добавляются одинаково — одним полем,
+ * в котором лежат ВСЕ ресурсы схемы: свои и чужие. Прежде их было два —
+ * кнопки для своих и отдельный список «взять из другого актива», — и это
+ * был вопрос не по делу: функции всё равно, чей ресурс она берёт.
+ *
+ * Получателя у выхода нет. Ресурс уже принадлежит своему активу, и
+ * выдать чужой ресурс значит передать туда. Отдельное поле «передаёт в»
+ * спрашивало то, что уже сказано выбором ресурса, и могло разойтись с ним:
+ * выбран ресурс одного актива, получателем назван другой — и что тогда
+ * правда, не знал никто.
  */
-function Ports({ kind, title, hint, list, own, others, entities, assetName, traitName,
+function Ports({ kind, title, hint, list, own, others, assetName, traitName,
   runs, onAdd, onSet, onDel }) {
   const [pick, setPick] = useState("");
   const out = kind === "gives";
+  const taken = (t) => list.some((p) => p.trait === t.id);
+  const free = { own: own.filter((t) => !taken(t)), others: others.filter((t) => !taken(t)) };
+  // Чужие ресурсы в списке идут по активам: «заявки» и «заявки» из разных
+  // активов иначе не различить.
+  const byAsset = [];
+  free.others.forEach((t) => {
+    const row = byAsset.find((g) => g.e === t.e);
+    if (row) row.list.push(t); else byAsset.push({ e: t.e, list: [t] });
+  });
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ ...S.lbl, marginBottom: 4 }}>{title}</div>
@@ -232,11 +249,13 @@ function Ports({ kind, title, hint, list, own, others, entities, assetName, trai
           <div key={p.id} style={{ border: `1px solid ${okRange(p) ? C.line : BAD}`,
             borderRadius: 6, padding: 7, marginBottom: 5 }}>
             <div className="flex items-center gap-2">
-              <span style={{ flex: 1, fontSize: 12 }}>
+              <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
                 {traitName(p.trait)}
-                {at && !out && (
+                {/* Чужой ресурс — это и есть связь с другим активом: взятый
+                    приходит оттуда, выданный уходит туда. */}
+                {at && (
                   <span style={{ color: ACC, fontSize: 11 }}>
-                    {" ← из актива «"}{assetName(at.e)}»</span>)}
+                    {out ? " → в актив «" : " ← из актива «"}{assetName(at.e)}»</span>)}
               </span>
               <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD }}
                 aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
@@ -252,34 +271,26 @@ function Ports({ kind, title, hint, list, own, others, entities, assetName, trai
               <span style={{ flex: 1 }} />
               <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
             </div>
-            {/* Передача: то, что выдано, может уехать в другой актив. */}
-            {out && (
-              <div className="flex items-center gap-2" style={{ marginTop: 5, flexWrap: "wrap" }}>
-                <span style={S.lbl}>передаёт в</span>
-                <select value={p.to || ""} aria-label={`кому передаётся ${traitName(p.trait)}`}
-                  onChange={(e) => onSet(p.id, { to: e.target.value })}
-                  style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
-                  <option value="">— остаётся в этом активе —</option>
-                  {entities.map((e) => (
-                    <option key={e.id} value={e.id}>{e.name}</option>))}
-                </select>
-              </div>)}
           </div>);
       })}
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-        {own.filter((t) => !list.some((p) => p.trait === t.id)).map((t) => (
-          <button key={t.id} style={{ ...btn(false), fontSize: 11, padding: "3px 7px" }}
-            onClick={() => onAdd(t.id)}>
-            + {out ? "выдаёт" : "берёт"} «{t.l}»</button>))}
-        {!out && others.length > 0 && (
-          <select value={pick} aria-label="взять ресурс из другого актива"
-            onChange={(e) => { if (e.target.value) { onAdd(e.target.value); setPick(""); } }}
-            style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 11 }}>
-            <option value="">+ взять из другого актива…</option>
-            {others.filter((t) => !list.some((p) => p.trait === t.id)).map((t) => (
-              <option key={t.id} value={t.id}>{assetName(t.e)} · {t.l}</option>))}
-          </select>)}
-      </div>
+      {(free.own.length > 0 || free.others.length > 0) && (
+        /* Ширина — по форме, а не по самому длинному названию: у select
+           ширина считается по содержимому, и одно длинное имя ресурса
+           растягивало поле за край карточки. */
+        <select value={pick} aria-label={out ? "выдать ресурс" : "взять ресурс"}
+          onChange={(e) => { if (e.target.value) { onAdd(e.target.value); setPick(""); } }}
+          style={{ ...S.inp, width: "100%", maxWidth: "100%", minWidth: 0,
+            boxSizing: "border-box", padding: "5px 6px", fontSize: 12 }}>
+          <option value="">{out ? "+ выдаёт ресурс…" : "+ берёт ресурс…"}</option>
+          {free.own.length > 0 && (
+            <optgroup label="этот актив">
+              {free.own.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
+            </optgroup>)}
+          {byAsset.map((g) => (
+            <optgroup key={g.e} label={assetName(g.e)}>
+              {g.list.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
+            </optgroup>))}
+        </select>)}
     </div>);
 }
 
@@ -288,7 +299,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
   const mine = funcs.filter((f) => f.e === entityId);
   const own = traits.filter((t) => t.e === entityId);
   const others = traits.filter((t) => t.e !== entityId);
-  const elsewhere = entities.filter((e) => e.id !== entityId);
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
   const assetName = (id) => entities.find((e) => e.id === id)?.name || "другой актив";
   // Назначить на функцию можно только воркера этого актива: люди —
@@ -325,14 +335,16 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               {f.takes.length ? f.takes.map((t) => traitName(t.trait)).join(", ") : "ничего не берёт"}
               {" → "}
               {f.gives.length
-                ? f.gives.map((g) => traitName(g.trait)
-                  + (g.to && g.to !== f.e ? ` в «${assetName(g.to)}»` : "")).join(", ")
+                ? f.gives.map((g) => {
+                  const at = others.find((t) => t.id === g.trait);
+                  return traitName(g.trait) + (at ? ` в «${assetName(at.e)}»` : "");
+                }).join(", ")
                 : "ничего не выдаёт"}
               {" · "}<Timing func={f} runs={runs} />
             </>}>
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
               hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
-              entities={elsewhere} assetName={assetName} traitName={traitName} runs={runs}
+              assetName={assetName} traitName={traitName} runs={runs}
               onAdd={(tid) => up(f.id, (x) => ({ ...x, takes: [...x.takes, newPort(tid)] }))}
               onSet={(pid, patch) => upPort(f.id, "takes", pid, patch)}
               onDel={(pid) => up(f.id, (x) => ({
@@ -340,7 +352,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
 
             <Ports kind="gives" title="выдаёт" list={f.gives} own={own} others={others}
               hint="Функция ничего не выдаёт — значит она ничего не производит."
-              entities={elsewhere} assetName={assetName} traitName={traitName} runs={runs}
+              assetName={assetName} traitName={traitName} runs={runs}
               onAdd={(tid) => up(f.id, (x) => ({ ...x, gives: [...x.gives, newGive(tid)] }))}
               onSet={(pid, patch) => upPort(f.id, "gives", pid, patch)}
               onDel={(pid) => up(f.id, (x) => ({
