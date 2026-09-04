@@ -73,9 +73,38 @@ const num = (v) => Number(v) || 0;
  * есть в рецепте, но не расходуется», а это не то, что человек имел в
  * виду, нажимая «+ берёт».
  */
+/* ─────── сколько единиц берёт одно выполнение ───────
+
+   Обычно — столько, сколько сказано вилкой: «от 2 до 4». Но бывает два
+   других уклада, и вилкой их не выразить:
+
+   · «каждый» — одно выполнение на КАЖДУЮ единицу. Пришло семь заявок —
+     значит семь выполнений, по одному на заявку. Работа возникает от
+     появления ресурса, а не от того, что её кто-то запланировал.
+   · «всё» — одно выполнение забирает ВСЁ, что накопилось. Сколько бы ни
+     лежало, разгребается разом.
+
+   Вилка тут ни при чём: в обоих случаях количество на входе решает не
+   человек, а то, сколько ресурса есть. Поэтому это не третье число, а
+   уклад — `mode`. */
+export const PORT_MODES = [
+  { id: "range", name: "по количеству" },
+  { id: "each", name: "каждый" },
+  { id: "all", name: "всё" },
+];
+export const portMode = (p) => (PORT_MODES.some((m) => m.id === p?.mode) ? p.mode : "range");
+
+/* Сколько ресурса нужно, чтобы функция вообще могла взяться за дело.
+
+   У вилки это её верх: браться, когда хватает только на минимум, значит
+   заранее согласиться сделать по нижней границе. У «каждого» и «всего» —
+   одна единица: работа возникает от появления ресурса, и одной штуки уже
+   довольно, чтобы было что разгребать. */
+export const portNeed = (p) => (portMode(p) === "range" ? num(p?.hi || p?.lo) : 1);
+
 export const newPort = (trait = "", lo = 1, hi = 1, group = null) => {
   const id = nextId("p");
-  return { id, trait, lo: num(lo), hi: num(hi), group: group || id };
+  return { id, trait, lo: num(lo), hi: num(hi), group: group || id, mode: "range" };
 };
 
 /* ─────── «и» между группами, «или» внутри группы ───────
@@ -280,6 +309,9 @@ export const normalizeFunc = (f = {}) => {
       lo: num(p.lo),
       hi: num(p.hi),
       group: (grouped && p.group) || id,
+      // Уклад бывает только у входа: «выдать каждый» ничего не значит —
+      // сколько функция выдаёт, решает она сама, а не остаток на складе.
+      ...(grouped ? { mode: portMode(p) } : {}),
     };
   };
   const unit = (u) => (DUR_UNITS[u] ? u : DUR_DEFAULT);
@@ -336,8 +368,12 @@ export const runHours = (runs = []) => avgOf(runs.map((r) => r?.hours));
 export const runQty = (runs = [], kind, trait) =>
   avgOf(runs.map((r) => r?.[kind]?.[trait]));
 
-/** Вилка по-человечески: «от 3 до 5», «ровно 4», «от 3». */
+/** Вилка по-человечески: «от 3 до 5», «ровно 4», «от 3».
+    У «каждого» и «всего» вилки нет: сколько взять, решает не человек. */
 export const rangeText = (p) => {
+  const mode = portMode(p);
+  if (mode === "each") return "каждый";
+  if (mode === "all") return "всё, что есть";
   const lo = num(p?.lo);
   const hi = num(p?.hi);
   if (!lo && !hi) return "сколько — не задано";
@@ -432,18 +468,18 @@ export function shortage(f, traits = []) {
   const name = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
   return groupsOf(f.takes || [])
     .map((g) => {
-      const ok = g.some((p) => have(p.trait) >= num(p.hi || p.lo));
+      const ok = g.some((p) => have(p.trait) >= portNeed(p));
       if (ok) return null;
       // Показываем тот вариант, которого не хватает меньше всего: до него
       // ближе всего, и именно он подскажет, чего добирать.
       const best = g.reduce((a, p) => {
-        const gap = num(p.hi || p.lo) - have(p.trait);
+        const gap = portNeed(p) - have(p.trait);
         return a && a.gap <= gap ? a : { p, gap };
       }, null);
       return best && {
         trait: best.p.trait,
         name: name(best.p.trait),
-        need: num(best.p.hi || best.p.lo),
+        need: portNeed(best.p),
         have: have(best.p.trait),
         alts: g.length,
       };
@@ -584,7 +620,11 @@ export function checkFunc(f, { traits = [], factors = [] } = {}) {
   // Ссылка на удалённый ресурс — не «наружу», а обрыв: функция с ней не
   // преобразует ничего, и зелёной ей быть не за что.
   if (ports.some((p) => !traits.some((t) => t.id === p.trait))) return { ok: false, why: WHY_FUNC };
-  if (ports.some((p) => !okRange(p))) return { ok: false, why: WHY_FUNC };
+  /* У входа с укладом «каждый» или «всё» количество берётся из остатка, а
+     не из вилки, — и требовать от неё осмысленности не за что. */
+  if (ports.some((p) => portMode(p) === "range" && !okRange(p))) {
+    return { ok: false, why: WHY_FUNC };
+  }
   /* Обе границы времени должны быть заданы: «от 0 до 4 часов» не говорит,
      когда будет готово, — оно говорит «может быть, мгновенно». */
   const h = hoursRange(f);

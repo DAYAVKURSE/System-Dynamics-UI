@@ -3,7 +3,7 @@ import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx"
 import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, checkFunc, checkTrait, countWorkers,
   chanceOf, everyOf, everyRange, groupsOf, sameEvery, sameHours,
   funcKind, isFactor, newFactor, fromHours,
-  hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
+  hoursOf, newFunc, newGive, newPort, okRange, portMode, rangeText, runHours,
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 import { byRating, shortStat, statsOf } from "../lib/workers.js";
@@ -275,12 +275,16 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
             borderRadius: 7, padding: g.length > 1 ? 5 : 0, marginBottom: 5 }}>
             {g.map((p, i) => {
               const at = others.find((t) => t.id === p.trait);
+              /* Уклад входа: «по количеству», «каждый» или «всё». У выхода
+                 уклада нет — сколько функция выдаёт, решает она сама. */
+              const mode = out ? "range" : portMode(p);
               return (
                 <div key={p.id}>
                   {i > 0 && (
                     <div style={{ ...S.lbl, color: ACC, textAlign: "center",
                       margin: "3px 0" }}>или</div>)}
-                  <div style={{ border: `1px solid ${okRange(p) ? C.line : BAD}`,
+                  <div style={{ border: `1px solid ${
+                    mode !== "range" || okRange(p) ? C.line : BAD}`,
                     borderRadius: 6, padding: 7 }}>
                     <div className="flex items-center gap-2">
                       <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
@@ -296,17 +300,44 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                         aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
                         onClick={() => onDel(p.id)}>×</button>
                     </div>
-                    <div className="flex items-center gap-2"
-                      style={{ marginTop: 5, flexWrap: "wrap" }}>
-                      <span style={S.lbl}>от</span>
-                      <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
-                        onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
-                      <span style={S.lbl}>до</span>
-                      <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
-                        onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
-                      <span style={{ flex: 1 }} />
-                      <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
-                    </div>
+                    {mode === "range" ? (
+                      <div className="flex items-center gap-2"
+                        style={{ marginTop: 5, flexWrap: "wrap" }}>
+                        <span style={S.lbl}>от</span>
+                        <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
+                          onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
+                        <span style={S.lbl}>до</span>
+                        <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
+                          onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
+                        <span style={{ flex: 1 }} />
+                        <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5,
+                        lineHeight: 1.5 }}>
+                        {mode === "each"
+                          ? "Одно выполнение на каждую единицу: сколько единиц пришло, столько и выполнений."
+                          : "Одно выполнение забирает всё, что накопилось, сколько бы его ни было."}
+                      </div>
+                    )}
+                    {/* Уклад — не третье число, а ответ на вопрос «кто решает,
+                        сколько взять». «По количеству» — человек вилкой;
+                        «каждый» и «всё» — то, сколько ресурса есть. Поэтому
+                        это чекбоксы, и вилка при них прячется: она бы врала. */}
+                    {!out && (
+                      <div className="flex items-center gap-2"
+                        style={{ marginTop: 5, flexWrap: "wrap" }}>
+                        {[["each", "каждый"], ["all", "всё"]].map(([id, name]) => (
+                          <label key={id} className="flex items-center gap-2"
+                            style={{ fontSize: 11, color: mode === id ? ACC : C.muted,
+                              cursor: "pointer" }}>
+                            <input type="checkbox" checked={mode === id}
+                              aria-label={`${name} · ${traitName(p.trait)}`}
+                              onChange={(e) => onSet(p.id,
+                                { mode: e.target.checked ? id : "range" })} />
+                            {name}
+                          </label>))}
+                      </div>)}
                   </div>
                 </div>);
             })}
@@ -382,7 +413,8 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   прямо противоположно тому, что задано. */}
               {f.takes.length
                 ? groupsOf(f.takes)
-                  .map((g) => g.map((t) => traitName(t.trait)).join(" или "))
+                  .map((g) => g.map((t) => traitName(t.trait)
+                    + (portMode(t) === "range" ? "" : ` (${rangeText(t)})`)).join(" или "))
                   .join(", ")
                 : "ничего не берёт"}
               {" → "}

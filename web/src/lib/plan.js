@@ -46,7 +46,7 @@
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
 import { CHANCE_MAX, DUR_UNITS, chanceOf, everyOf, groupsOf, hoursOf, isFactor,
-  runHours, runQty } from "./funcs.js";
+  portMode, runHours, runQty } from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
 export const MONTH_H = DUR_UNITS["мес"];
@@ -153,7 +153,10 @@ export function pickAlt(group, { have, kind = "takes", side, runs }) {
   let best = group[0];
   let bestCover = -1;
   group.forEach((p) => {
-    const need = portQty(p, { kind, side, runs });
+    // «Каждый» и «всё» берут не по вилке, а по тому, сколько есть: на одно
+    // выполнение им довольно единицы, и мерить их вилкой нечем.
+    const need = kind === "takes" && portMode(p) !== "range"
+      ? 1 : portQty(p, { kind, side, runs });
     if (!(need > 0)) return;
     const cover = (have(p.trait) || 0) / need;
     if (cover > bestCover) { bestCover = cover; best = p; }
@@ -164,6 +167,34 @@ export function pickAlt(group, { have, kind = "takes", side, runs }) {
 /** Входы функции после выбора вариантов: по одному из каждой группы «или». */
 export const takesOf = (f, opts) =>
   groupsOf(f.takes).map((g) => pickAlt(g, opts)).filter(Boolean);
+
+/**
+ * Сколько ресурса уйдёт на все выполнения — с оглядкой на уклад входа.
+ *
+ * · «по количеству» — как задано вилкой, помноженное на число выполнений;
+ * · «каждый» — по одной единице на выполнение: их столько, сколько единиц;
+ * · «всё» — весь остаток, сколько бы его ни было и сколько бы выполнений
+ *   ни планировалось: одно выполнение разгребает накопленное разом.
+ */
+export function intakeOf(p, { level = 0, n = 0, side, runs = [] } = {}) {
+  const mode = portMode(p);
+  if (mode === "each") return n;
+  if (mode === "all") return Math.max(0, level);
+  return portQty(p, { kind: "takes", side, runs }) * n;
+}
+
+/**
+ * Сколько выполнений диктует вход «каждый».
+ *
+ * Работа на каждую единицу возникает от появления ресурса, а не от того,
+ * что её кто-то запланировал: пришло семь заявок — семь выполнений. Нет
+ * такого входа — `null`, и число выполнений решает кто-то другой.
+ */
+export function eachRuns(f, have) {
+  const each = (f.takes || []).filter((p) => portMode(p) === "each");
+  if (!each.length) return null;
+  return Math.max(0, Math.min(...each.map((p) => Math.floor(have(p.trait) || 0))));
+}
 
 /** Есть ли у функции хоть одно фактическое выполнение. */
 export const hasFact = (runs = []) => runs.some((r) => Number(r?.hours) > 0);
@@ -222,6 +253,11 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
         }
         return { f, n: hit, k: 1, takes: [] };
       }
+      /* Вход «каждый» сам диктует объём: сколько единиц пришло, столько и
+         выполнений. Цель тут ни при чём — работа возникает от появления
+         ресурса, а не от того, что её запланировали. */
+      const each = eachRuns(f, (id) => level[id] ?? 0);
+      if (each != null) return { f, n: Math.min(cap, each), k: 1, takes: [] };
       const want = perMonth[f.id] || 0;
       const budget = left[f.id] || 0;
       const n = plan ? Math.min(cap, want + budget) : cap;
@@ -242,7 +278,7 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
     const demand = {};
     wave.forEach(({ f, n, takes }) => takes.forEach((p) => {
       demand[p.trait] = (demand[p.trait] || 0)
-        + portQty(p, { kind: "takes", side, runs: runs(f) }) * n;
+        + intakeOf(p, { level: level[p.trait] ?? 0, n, side, runs: runs(f) });
     }));
     const share = {};
     Object.keys(demand).forEach((id) => {
@@ -275,7 +311,7 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
     wave.forEach(({ f, n, k, takes }) => {
       takes.forEach((p) => {
         if (level[p.trait] == null) return;
-        level[p.trait] -= portQty(p, { kind: "takes", side, runs: runs(f) }) * n * k;
+        level[p.trait] -= intakeOf(p, { level: level[p.trait], n, side, runs: runs(f) }) * k;
       });
       f.gives.forEach((g) => {
         if (level[g.trait] == null) return;
@@ -525,7 +561,13 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
        первый по списку: порядок вариантов человек задал сам, и это его
        предпочтение, а не случайность. */
     use.forEach((p) => {
-      const q = portQty(p, { kind: "takes", side, runs: runsFor(f) }) * n;
+      /* «Всё» ничего не заказывает: оно разгребает то, что уже лежит, и
+         сколько его лежит — не забота плана. Требовать под него производство
+         значило бы придумать число, которого функция не просила. */
+      if (portMode(p) === "all") { stock[p.trait] = 0; return; }
+      // «Каждый» — по единице на выполнение; иначе по вилке.
+      const q = portMode(p) === "each"
+        ? n : portQty(p, { kind: "takes", side, runs: runsFor(f) }) * n;
       if (q > 0) need[p.trait] = (need[p.trait] || 0) + q;
     });
   }
@@ -607,6 +649,7 @@ export function solveRange(model, { trait, want, runsOf, useStock = true } = {})
  */
 export function effect(model, steps = [], { side = "hi", runsOf } = {}) {
   const funcs = model.funcs || [];
+  const have = (id) => num((model.traits || []).find((t) => t.id === id)?.have);
   const by = {};
   const add = (id, v) => { by[id] = (by[id] || 0) + v; };
   steps.forEach((st) => {
@@ -615,8 +658,11 @@ export function effect(model, steps = [], { side = "hi", runsOf } = {}) {
     const runs = runsOf ? runsOf(f.id) : [];
     f.gives.forEach((g) => add(g.trait, portQty(g, { kind: "gives", side, runs }) * st.runs));
     // Тратится только выбранный вариант группы «или», а не все сразу.
+    // Сколько именно — решает уклад входа: вилка, единица на выполнение
+    // или весь остаток.
     (st.takes || takesOf(f, { have: () => 0, side, runs }))
-      .forEach((p) => add(p.trait, -portQty(p, { kind: "takes", side, runs }) * st.runs));
+      .forEach((p) => add(p.trait, -intakeOf(p,
+        { level: have(p.trait), n: st.runs, side, runs })));
   });
   return by;
 }
