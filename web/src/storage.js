@@ -77,11 +77,22 @@ export const STORAGE_LABEL = {
    попавшаяся и не встроенная демонстрационная. Иначе каждый заход начинается
    с «переключить обратно на свою».
 
-   Помним id последней открытой в этом браузере. Если его нет (первый заход,
-   другое устройство, чистка данных) — берём самую свежую по времени
-   сохранения: это тоже «последняя, с которой работали», просто известная не
-   так точно. */
+   Память об этом живёт в ДВУХ местах, и это не дублирование, а разные
+   сроки жизни:
+
+   · `openedAt` у самого сценария — там же, где лежит сам сценарий. Это
+     главный ответ: он переживает и чистку WebView (Telegram делает её без
+     предупреждения), и переход на другое устройство.
+   · id в localStorage — быстрый ответ на этот же вопрос, пока браузер
+     помнит. Он нужен только чтобы не ждать сети там, где ответ уже есть.
+
+   Раньше память была только вторая, и стоило Telegram почистить хранилище —
+   открывалась не та схема: приложение падало на «самую свежую по времени
+   СОХРАНЕНИЯ», а последняя открытая и последняя сохранённая — разные вещи.
+   Порядок ответов теперь такой: запомненный id → самая свежая по openedAt →
+   самая свежая по savedAt. */
 const LAST_KEY = "sd_last_scenario";
+const byOpened = (a, b) => String(b.openedAt || "").localeCompare(String(a.openedAt || ""));
 
 export function rememberScenario(id) {
   try { if (id) localStorage.setItem(LAST_KEY, String(id)); } catch { /* нет хранилища */ }
@@ -95,12 +106,32 @@ export function lastScenarioId() {
   try { return localStorage.getItem(LAST_KEY) || null; } catch { return null; }
 }
 
-/** Какую схему открывать: запомненную, иначе самую свежую, иначе никакую. */
+/** Какую схему открывать: запомненную, иначе последнюю открытую, иначе свежую. */
 export async function pickScenario() {
   const list = await listScenarios();
   if (!list.length) return null;
   const want = lastScenarioId();
-  return list.find((s) => String(s.id) === String(want)) || list.slice().sort(byNewest)[0];
+  const remembered = list.find((s) => String(s.id) === String(want));
+  if (remembered) return remembered;
+  const opened = list.filter((s) => s.openedAt).sort(byOpened)[0];
+  return opened || list.slice().sort(byNewest)[0];
+}
+
+/**
+ * Отметить, что схему открывали, — там же, где она лежит.
+ *
+ * Тихая операция: не получилось отметить (сеть, старый сервер) — беда не
+ * велика, останется браузерная память. Ронять открытие схемы из-за отметки
+ * о ней было бы обменом важного на второстепенное.
+ */
+export async function touchScenario(id) {
+  rememberScenario(id);
+  try {
+    const kind = await detectStorage();
+    if (kind === "server") await serverTouch(id);
+    else if (kind === "cloud") await cloudTouch(id);
+    else localTouch(id);
+  } catch { /* отметка не обязана удаваться */ }
 }
 
 export async function listScenarios() {
@@ -247,6 +278,8 @@ async function serverJson(url, opts) {
 
 const serverList = () => serverJson("/api/scenarios");
 const serverGet = (id) => serverJson(`/api/scenarios/${encodeURIComponent(id)}`);
+const serverTouch = (id) =>
+  serverJson(`/api/scenarios/${encodeURIComponent(id)}/open`, { method: "POST" });
 const serverDelete = (id) =>
   serverJson(`/api/scenarios/${encodeURIComponent(id)}`, { method: "DELETE" });
 
@@ -296,8 +329,16 @@ async function cloudIndex() {
 const chunkKeys = (entry) =>
   Array.from({ length: entry.chunks }, (_, i) => `sd_${entry.id}_${i}`);
 
+async function cloudTouch(id) {
+  const index = await cloudIndex();
+  if (!index.some((e) => e.id === id)) return;
+  const next = index.map((e) => (e.id === id ? { ...e, openedAt: nowIso() } : e));
+  await cloudSetItem(INDEX_KEY, JSON.stringify(next));
+}
+
 async function cloudList() {
-  return (await cloudIndex()).slice().sort(byNewest).map(({ id, name, savedAt }) => ({ id, name, savedAt }));
+  return (await cloudIndex()).slice().sort(byNewest)
+    .map(({ id, name, savedAt, openedAt }) => ({ id, name, savedAt, openedAt: openedAt || null }));
 }
 
 async function cloudGet(id) {
@@ -321,10 +362,12 @@ async function cloudSave({ id, name, data }) {
   for (let i = 0; i < raw.length; i += CHUNK_SIZE) parts.push(raw.slice(i, i + CHUNK_SIZE));
   if (!parts.length) parts.push("");
 
+  // Сохранение — тоже работа с этой схемой: она становится последней.
   const entry = {
     id: existing ? existing.id : newId(),
     name,
     savedAt: nowIso(),
+    openedAt: nowIso(),
     chunks: parts.length,
   };
 
@@ -343,7 +386,7 @@ async function cloudSave({ id, name, data }) {
 
   const next = existing ? index.map((e) => (e.id === entry.id ? entry : e)) : [...index, entry];
   await cloudSetItem(INDEX_KEY, JSON.stringify(next));
-  return { id: entry.id, name: entry.name, savedAt: entry.savedAt };
+  return { id: entry.id, name: entry.name, savedAt: entry.savedAt, openedAt: entry.openedAt };
 }
 
 async function cloudDelete(id) {
@@ -389,11 +432,19 @@ async function localGet(id) {
 async function localSave({ id, name, data }) {
   const store = localRead();
   const existing = id ? store.index.find((e) => e.id === id) : null;
-  const entry = { id: existing ? existing.id : newId(), name, savedAt: nowIso() };
+  const entry = { id: existing ? existing.id : newId(), name, savedAt: nowIso(),
+    openedAt: nowIso() };
   store.index = existing ? store.index.map((e) => (e.id === entry.id ? entry : e)) : [...store.index, entry];
   store.data[entry.id] = JSON.stringify(data);
   localWrite(store);
   return entry;
+}
+
+function localTouch(id) {
+  const store = localRead();
+  if (!store.index.some((e) => e.id === id)) return;
+  store.index = store.index.map((e) => (e.id === id ? { ...e, openedAt: nowIso() } : e));
+  localWrite(store);
 }
 
 async function localDelete(id) {

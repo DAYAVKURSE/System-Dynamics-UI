@@ -196,3 +196,88 @@ describe("общие правила", () => {
     await expect(s.saveScenario({ name: "   ", data: {} })).rejects.toThrow(/имя/i);
   });
 });
+
+describe("какая схема открывается", () => {
+  /* Открываться должна та, с которой работали в прошлый раз. Память об этом
+     живёт рядом с самим сценарием, а не только в браузере: Telegram чистит
+     WebView без предупреждения, а с другого устройства браузерной памяти
+     нет вовсе. */
+  const save = async (s, name) => s.saveScenario({ name, data: { entities: [] } });
+  /* Записи ложатся в одну миллисекунду, и порядок между ними был бы
+     случайностью. Проставляем времена руками — проверяем правило, а не
+     скорость машины. */
+  const stamp = (id, patch) => {
+    const store = JSON.parse(localStorage.getItem("sd_scenarios"));
+    store.index = store.index.map((e) => {
+      if (e.id !== id) return e;
+      const next = { ...e, ...patch };
+      if (patch.openedAt === null) delete next.openedAt;
+      return next;
+    });
+    localStorage.setItem("sd_scenarios", JSON.stringify(store));
+  };
+
+  it("помнит последнюю открытую — и переживает потерю браузерной памяти", async () => {
+    const s = await freshStorage();
+    const a = await save(s, "первая");
+    const b = await save(s, "вторая");
+    stamp(b.id, { savedAt: "2026-02-01T00:00:00.000Z", openedAt: "2026-02-01T00:00:00.000Z" });
+    // Открыли первую: она и есть последняя, с которой работали.
+    await s.touchScenario(a.id);
+    expect((await s.pickScenario()).id).toBe(a.id);
+
+    // Telegram почистил хранилище браузера — отметка у самого сценария
+    // осталась, и открыться должна всё та же первая.
+    localStorage.removeItem("sd_last_scenario");
+    expect((await s.pickScenario()).id).toBe(a.id);
+    expect(b.id).not.toBe(a.id);
+  });
+
+  it("сохранение — тоже работа со схемой: она становится последней", async () => {
+    const s = await freshStorage();
+    const a = await save(s, "первая");
+    const b = await save(s, "вторая");
+    // Записи ложатся в одну миллисекунду — разводим их руками, чтобы
+    // проверялся порядок, а не случайность сортировки.
+    stamp(a.id, { savedAt: "2026-01-01T00:00:00.000Z", openedAt: "2026-01-01T00:00:00.000Z" });
+    stamp(b.id, { savedAt: "2026-02-01T00:00:00.000Z", openedAt: "2026-02-01T00:00:00.000Z" });
+    localStorage.removeItem("sd_last_scenario");
+    expect((await s.pickScenario()).id).toBe(b.id);
+  });
+
+  it("последняя ОТКРЫТАЯ сильнее последней сохранённой", async () => {
+    /* Это и был давний промах: приложение падало на «самую свежую по
+       времени сохранения», а человек работал с другой — открывал её, но не
+       сохранял. */
+    const s = await freshStorage();
+    const a = await save(s, "первая");
+    const b = await save(s, "вторая");
+    stamp(a.id, { savedAt: "2026-01-01T00:00:00.000Z", openedAt: "2026-03-01T00:00:00.000Z" });
+    stamp(b.id, { savedAt: "2026-02-01T00:00:00.000Z", openedAt: "2026-02-01T00:00:00.000Z" });
+    localStorage.removeItem("sd_last_scenario");
+    expect((await s.pickScenario()).id).toBe(a.id);
+  });
+
+  it("отметок нет вовсе — берётся самая свежая по сохранению", async () => {
+    // Так открываются модели, сохранённые до появления отметки: «последняя,
+    // с которой работали», просто известная не так точно.
+    const s = await freshStorage();
+    const a = await save(s, "первая");
+    const b = await save(s, "вторая");
+    stamp(a.id, { savedAt: "2026-01-01T00:00:00.000Z", openedAt: null });
+    stamp(b.id, { savedAt: "2026-02-01T00:00:00.000Z", openedAt: null });
+    localStorage.removeItem("sd_last_scenario");
+    expect((await s.pickScenario()).id).toBe(b.id);
+  });
+
+  it("схем нет — открывать нечего, а не падать", async () => {
+    const s = await freshStorage();
+    expect(await s.pickScenario()).toBeNull();
+  });
+
+  it("отметка не роняет открытие, даже если поставить её некуда", async () => {
+    // Не получилось отметить — беда невелика: останется браузерная память.
+    const s = await freshStorage();
+    await expect(s.touchScenario("нет-такого")).resolves.toBeUndefined();
+  });
+});

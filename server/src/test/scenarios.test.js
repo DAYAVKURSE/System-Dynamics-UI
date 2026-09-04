@@ -105,3 +105,33 @@ describe("scenarios API требует initData в production", () => {
     }
   });
 });
+
+describe("какая схема открывалась последней", () => {
+  /* Приложение открывается на той схеме, с которой работали в прошлый раз.
+     Помнить это только в браузере нельзя: сценарии лежат на сервере, а
+     память о них была бы в WebView, который Telegram чистит без
+     предупреждения. Отметка живёт рядом с самим сценарием. */
+  const make = (name) => request(app).post("/api/scenarios")
+    .send({ name, data: { entities: [] } });
+
+  it("отметка об открытии ставится и видна в списке", async () => {
+    const { body: a } = await make("первая");
+    const res = await request(app).post(`/api/scenarios/${a.id}/open`).send();
+    expect(res.status).toBe(200);
+    expect(res.body.openedAt).toBeTruthy();
+
+    const list = await request(app).get("/api/scenarios");
+    expect(list.body.find((s) => s.id === a.id).openedAt).toBe(res.body.openedAt);
+  });
+
+  it("сохранение — тоже работа со схемой: отметка обновляется", async () => {
+    const { body: a } = await make("вторая");
+    expect(a.openedAt).toBeTruthy();
+    expect(a.openedAt).toBe(a.savedAt);
+  });
+
+  it("отметить несуществующую схему нельзя — это 404, а не тихий успех", async () => {
+    const res = await request(app).post("/api/scenarios/нет-такой/open").send();
+    expect(res.status).toBe(404);
+  });
+});

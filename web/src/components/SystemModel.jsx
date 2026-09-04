@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
-  deleteScenario, syncSchedule, pickScenario, rememberScenario,
+  deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote }
   from "../identity.js";
@@ -577,6 +577,7 @@ export default function SystemModel(){
       setSavedMsg(`Сохранено: «${saved.name}».`);
       setSavedSel(saved.id);
       rememberScenario(saved.id);
+
       await refreshSavedList();
     }catch(e){ setSavedMsg(e.message||"Не удалось сохранить."); }
     setSavedBusy(false);
@@ -600,9 +601,11 @@ export default function SystemModel(){
     restoreDoc(loaded);
     savedDoc.current=loaded; clearDraft(); setRecovery(null);
     setSaveName(s.name); setSavedSel(s.id);
-    // Эта схема теперь и есть «последняя открытая»: с неё начнётся
-    // следующий заход.
-    rememberScenario(s.id);
+    /* Эта схема теперь и есть «последняя открытая»: с неё начнётся
+       следующий заход. Отметка ставится и в браузере, и там, где лежит сам
+       сценарий, — браузерная память Telegram чистит без предупреждения, а
+       с другого устройства её и вовсе нет. */
+    touchScenario(s.id);
     return s;
   },[restoreDoc]);
 
@@ -622,7 +625,13 @@ export default function SystemModel(){
   useEffect(()=>{
     if(opened.current) return;
     if(!me.isOwner&&!me.solo) return;   // не-владельцу схему даёт сервер
-    if(recovery) { opened.current=true; return; }
+    /* Пока черновик не разобран, автозагрузка ждёт: подставить схему с
+       диска поверх плашки «восстановить» значило бы потерять правки, ради
+       которых черновик и пишется. Но и ставить крест на автозагрузке
+       нельзя: человек, отбросивший черновик, оставался на встроенной
+       демонстрационной схеме вместо своей последней. «Восстановить» гасит
+       автозагрузку само — оно ставит `opened` в обработчике. */
+    if(recovery) return;
     opened.current=true;
     let live=true;
     pickScenario().then(s=>{
@@ -654,7 +663,7 @@ export default function SystemModel(){
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
       setSaveName(s.name);
-      rememberScenario(s.id);
+      touchScenario(s.id);
       setSavedMsg(`Загружено: «${s.name}».`);
     }catch(e){ setSavedMsg(e.message||"Не удалось загрузить сценарий."); }
     setSavedBusy(false);
@@ -764,7 +773,14 @@ export default function SystemModel(){
           </div>
           <div className="flex flex-wrap gap-2">
             <button style={btn(true)}
-              onClick={()=>{ restoreDoc(recovery.doc); setRecovery(null); }}>
+              onClick={()=>{
+                // Черновик и есть та схема, с которой работали: подставлять
+                // поверх него что-то с диска больше не нужно.
+                opened.current=true;
+                restoreDoc(recovery.doc);
+                if(recovery.name) setSaveName(recovery.name);
+                setRecovery(null);
+              }}>
               Восстановить</button>
             <button style={btn(false)}
               onClick={()=>{ clearDraft(); setRecovery(null); }}>Отбросить</button>

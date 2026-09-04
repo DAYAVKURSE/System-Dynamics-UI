@@ -43,7 +43,27 @@ export async function listScenarios(userId) {
   return manifest
     .slice()
     .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
-    .map(({ id, name, savedAt }) => ({ id, name, savedAt }));
+    .map(({ id, name, savedAt, openedAt }) => ({ id, name, savedAt, openedAt: openedAt || null }));
+}
+
+/**
+ * Отметить, что сценарий открывали.
+ *
+ * Приложение открывается на той схеме, с которой работали в прошлый раз.
+ * Помнить это только в браузере нельзя: сценарии лежат здесь, а память о
+ * них — там, и стоит Telegram почистить WebView (а он это делает без
+ * предупреждения) или человеку зайти с другого устройства, как открывается
+ * не та схема. Метка живёт рядом с самим сценарием и поэтому переживает и
+ * то и другое.
+ */
+export async function touchScenario(userId, id) {
+  const dir = userDir(userId);
+  const manifest = await readManifest(dir);
+  const entry = manifest.find((m) => m.id === id);
+  if (!entry) return null;
+  entry.openedAt = new Date().toISOString();
+  await writeManifest(dir, manifest);
+  return { id: entry.id, name: entry.name, savedAt: entry.savedAt, openedAt: entry.openedAt };
 }
 
 // id всегда берётся из manifest.json (сгенерирован randomUUID при сохранении),
@@ -71,7 +91,9 @@ export async function saveScenario(userId, { id, name, data } = {}) {
   const existingIdx = id ? manifest.findIndex((m) => m.id === id) : -1;
   const scenarioId = existingIdx >= 0 ? id : crypto.randomUUID();
   const savedAt = new Date().toISOString();
-  const entry = { id: scenarioId, name: trimmedName, savedAt };
+  // Сохранение — это тоже работа с этой схемой: она становится последней, с
+  // которой работали, и открыться в следующий раз должна именно она.
+  const entry = { id: scenarioId, name: trimmedName, savedAt, openedAt: savedAt };
 
   if (existingIdx >= 0) {
     manifest[existingIdx] = entry;

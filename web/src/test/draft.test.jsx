@@ -181,6 +181,44 @@ describe("восстановление", () => {
     expect(readDraft()).toBeNull();
   });
 
+  it("после «Отбросить» открывается последняя схема, а не встроенная", () => {
+    /* Черновик разобран — значит автозагрузка должна пойти своим чередом.
+       Прежде она молча отменялась вместе с плашкой, и человек оставался на
+       демонстрационной модели вместо своей последней. */
+    localStorage.setItem("sd_scenarios", JSON.stringify({
+      index: [{ id: "s1", name: "Моя схема", savedAt: new Date().toISOString(),
+        openedAt: new Date().toISOString() }],
+      data: { s1: JSON.stringify({ ...DOC,
+        entities: [{ ...DOC.entities[0], name: "Схема с диска" }] }) },
+    }));
+    saveDraft(DOC);
+    const { container } = render(<SystemModel />);
+    fireEvent.click(screen.getByRole("button", { name: "Отбросить" }));
+
+    return waitFor(() => {
+      scheme();
+      expect(entityNames(container)).toContain("Схема с диска");
+    });
+  });
+
+  it("после «Восстановить» с диска ничего не подставляется", () => {
+    // Черновик и есть та схема, с которой работали: подставлять поверх него
+    // что-то с диска значило бы потерять правки, ради которых он и пишется.
+    localStorage.setItem("sd_scenarios", JSON.stringify({
+      index: [{ id: "s1", name: "Моя схема", savedAt: new Date().toISOString(),
+        openedAt: new Date().toISOString() }],
+      data: { s1: JSON.stringify({ ...DOC,
+        entities: [{ ...DOC.entities[0], name: "Схема с диска" }] }) },
+    }));
+    saveDraft({ ...DOC, entities: [{ ...DOC.entities[0], name: "Из черновика" }] });
+    const { container } = render(<SystemModel />);
+    fireEvent.click(screen.getByRole("button", { name: "Восстановить" }));
+
+    scheme();
+    expect(entityNames(container)).toContain("Из черновика");
+    expect(entityNames(container)).not.toContain("Схема с диска");
+  });
+
   it("без черновика плашки нет", () => {
     render(<SystemModel />);
     expect(screen.queryByText(/Остались правки от/)).toBeNull();
