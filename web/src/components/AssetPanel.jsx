@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, checkFunc, checkTrait, countWorkers,
-  everyOf, groupsOf,
+  everyOf, groupsOf, sameHours,
   funcKind, isFactor, newFactor, fromHours,
   hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
   runQty } from "../lib/funcs.js";
@@ -99,8 +99,12 @@ export function Timing({ func, runs = [] }) {
   const as = avg == null ? null : fromHours(avg);
   return (
     <span style={{ fontSize: 11 }}>
+      {/* План — вилка, и подписью она должна быть вилкой: одно число здесь
+          выглядело бы обещанием, которого никто не давал. */}
       <span style={{ color: WARN }} title="план: столько заложено на одно выполнение">
-        {nm(func.dur)} {func.durUnit}</span>
+        {sameHours(func)
+          ? `${nm(func.dur)} ${func.durUnit}`
+          : `${nm(func.dur)}–${nm(func.durHi)} ${func.durUnit}`}</span>
       {as && (
         <span style={{ color: OK }}
           title={`факт: среднее по ${runs.filter((r) => Number(r?.hours) > 0).length} выполнениям`}>
@@ -410,10 +414,20 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               onDel={(pid) => up(f.id, (x) => ({
                 ...x, gives: x.gives.filter((p) => p.id !== pid) }))} />
 
+            {/* Время — такая же вилка, как количества: работа редко занимает
+                ровно столько, сколько задумано. Когда занимает — галочка
+                «одинаковое» связывает границы, и число вводится одно. */}
             <div className="flex items-center gap-2" style={{ marginTop: 10, flexWrap: "wrap" }}>
               <span style={S.lbl}>выполняется за</span>
+              <span style={S.lbl}>от</span>
               <Num value={f.dur} label="время одного выполнения"
-                onChange={(v) => up(f.id, (x) => ({ ...x, dur: Number(v) || 0 }))} />
+                onChange={(v) => up(f.id, (x) => ({ ...x, dur: Number(v) || 0,
+                  ...(sameHours(x) ? { durHi: Number(v) || 0 } : {}) }))} />
+              {!sameHours(f) && (<>
+                <span style={S.lbl}>до</span>
+                <Num value={f.durHi} label="время одного выполнения максимум"
+                  onChange={(v) => up(f.id, (x) => ({ ...x, durHi: Number(v) || 0 }))} />
+              </>)}
               <select value={f.durUnit} aria-label="единица времени функции"
                 onChange={(e) => up(f.id, (x) => ({ ...x, durUnit: e.target.value }))}
                 style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
@@ -422,12 +436,23 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               <span style={{ flex: 1 }} />
               <Timing func={f} runs={runs} />
             </div>
+            <label className="flex items-center gap-2"
+              style={{ marginTop: 5, fontSize: 11, color: C.muted, cursor: "pointer" }}>
+              <input type="checkbox" aria-label="одинаковое" checked={sameHours(f)}
+                onChange={(e) => up(f.id, (x) => ({ ...x,
+                  durHi: e.target.checked ? Number(x.dur) || 0
+                    : Math.max(Number(x.dur) || 0, Number(x.durHi) || 0) * 2 }))}
+                style={{ accentColor: ACC }} />
+              одинаковое — время известно точно, а не вилкой
+            </label>
 
-            {/* Расписание — не то же самое, что длительность: работа может
-                занимать час, но делаться раз в месяц. Пусто значит
-                «непрерывно», следующее выполнение сразу за предыдущим. */}
+            {/* Это потолок, а не расписание: сама по себе функция не
+                повторяется — она работа и происходит тогда, когда её делают.
+                Число говорит, чаще какого срока её начать не выйдет:
+                «не чаще раза в неделю». «Непрерывно» — значит упирается
+                только в собственную длительность. */}
             <div className="flex items-center gap-2" style={{ marginTop: 6, flexWrap: "wrap" }}>
-              <span style={S.lbl}>повторяется</span>
+              <span style={S.lbl}>как часто может повторяться</span>
               <select value={everyOf(f) > 0 ? "every" : "flow"}
                 aria-label="как часто повторяется"
                 onChange={(e) => up(f.id, (x) => ({ ...x,
@@ -447,8 +472,8 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               <span style={{ flex: 1 }} />
               <span style={{ fontSize: 10.5, color: C.muted }}>
                 {everyOf(f) > hoursOf(f)
-                  ? "реже, чем делается: срок цикла считается по расписанию"
-                  : "чаще самой работы не выйдет — считаем по длительности"}</span>
+                  ? "реже, чем делается: потолок считается по этому сроку"
+                  : "чаще самой работы не выйдет — потолок по длительности"}</span>
             </div>
 
             {/* Чем функция выполняется — людьми или сама собой. Вопрос

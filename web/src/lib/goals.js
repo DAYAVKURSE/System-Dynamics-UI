@@ -279,3 +279,43 @@ export function planGoal(model, goal, { runsOf, now = Date.now() } = {}) {
       .filter((x) => x.real > 1e-9),
   };
 }
+
+
+/**
+ * Сколько выполнений какой функции требуют ПРИМЕНЁННЫЕ цели.
+ *
+ * Это и есть то, из чего теперь считается прогноз. Функция сама по себе не
+ * повторяется — она работа; повторяется она ровно настолько, насколько её
+ * просят цели, и не быстрее собственного потолка.
+ *
+ * Два вида нагрузки, и их нельзя складывать:
+ *
+ * · `perMonth` — цель с темпом: столько выполнений КАЖДЫЙ месяц, пока цель
+ *   стоит;
+ * · `once` — разовая цель: столько выполнений ВСЕГО, один раз.
+ *
+ * Неприменённые цели не считаются вовсе: пока цель не применена, это
+ * прикидка, и двигать ею графики значило бы выдать намерение за решение.
+ */
+export function goalRuns(model, goals = [], { runsOf, side = "hi" } = {}) {
+  const perMonth = {};
+  const once = {};
+  (goals || []).forEach((g) => {
+    if (!g?.appliedAt) return;
+    const r = rateOf(g.rate);
+    const qty = num(g.qty);
+    if (!(qty > 0) || !g.trait) return;
+    const { lo, hi } = solveRange(model,
+      { trait: g.trait, want: qty, runsOf, useStock: !r.hours });
+    // Осторожная сторона требует больше выполнений: у неё функция выдаёт по
+    // нижней границе. Берём ту, что сходится.
+    const use = side === "lo" ? (lo.ok ? lo : hi) : (hi.ok ? hi : lo);
+    if (!use.ok) return;
+    const into = r.hours ? perMonth : once;
+    const k = r.hours ? MONTH_H / r.hours : 1;
+    use.steps.forEach((st) => {
+      into[st.func] = (into[st.func] || 0) + st.runs * k;
+    });
+  });
+  return { perMonth, once };
+}

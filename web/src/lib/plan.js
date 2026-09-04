@@ -63,20 +63,29 @@ const num = (v) => Number(v) || 0;
  * час, но повторяется раз в месяц, занимает месяц на цикл. Поэтому берётся
  * большее из двух — работа и пауза до следующего раза.
  */
-export function stepHours(f, runs = []) {
-  const work = runHours(runs) ?? hoursOf(f);
+export function stepHours(f, runs = [], side) {
+  /* Сторона разводится так же, как у ресурсов: щедрая оценка берёт быструю
+     работу, осторожная — долгую. Факт, когда он есть, вытесняет вилку
+     целиком: измеренное не нуждается в границах. */
+  const plan = side === "hi" ? hoursOf(f, "lo") : side === "lo" ? hoursOf(f, "hi") : hoursOf(f);
+  const work = runHours(runs) ?? plan;
   return Math.max(work, everyOf(f));
 }
 
 /**
- * Сколько раз функция выполняется за месяц.
+ * Сколько раз функция МОЖЕТ выполниться за месяц — её потолок.
+ *
+ * Это ёмкость, а не расписание. Сама по себе функция не повторяется: она
+ * работа, и происходит тогда, когда её делают. Раньше это число означало
+ * «столько раз она и выполнится», и прогноз крутил всю модель на полную
+ * мощность вечно — показывая будущее, которого никто не планировал.
  *
  * По факту, если он есть: реальное время цикла честнее заложенного. Ноль
  * времени — не бесконечность, а «не считаем»: функция без срока ничего не
  * говорит о том, когда будет готово.
  */
-export function cycles(f, runs = []) {
-  const h = stepHours(f, runs);
+export function cycles(f, runs = [], side) {
+  const h = stepHours(f, runs, side);
   return h > 0 ? MONTH_H / h : 0;
 }
 
@@ -134,16 +143,40 @@ export const hasFact = (runs = []) => runs.some((r) => Number(r?.hours) > 0);
  *
  * Возвращает по ряду значений на каждый ресурс: значение на конец каждого
  * месяца, начиная с нулевого (то, что есть сейчас).
+ *
+ * ─── откуда берутся выполнения ───
+ *
+ * Из применённых целей, а не из самих функций. Функция — это работа, и сама
+ * по себе она не повторяется; «как часто может повторяться» — её потолок, а
+ * не расписание. Прежде прогноз крутил каждую функцию на полную мощность
+ * вечно и показывал будущее, которого никто не планировал: числа росли сами
+ * собой, и цель в них ничего не меняла.
+ *
+ * `plan` — что требуют цели: `perMonth` повторяется каждый месяц (цель с
+ * темпом), `once` — разовый запас работы, который тратится, пока не
+ * кончится. Плана нет вовсе — считаем по потолку: так прогноз отвечает на
+ * вопрос «на что модель вообще способна».
  */
-export function runSide(model, { span = 24, side = "hi", runsOf } = {}) {
+export function runSide(model, { span = 24, side = "hi", runsOf, plan } = {}) {
   const { traits = [], funcs = [] } = model;
   const runs = (f) => (runsOf ? runsOf(f.id) : []);
+  const perMonth = plan?.perMonth || {};
+  const left = { ...(plan?.once || {}) };
   const level = {};
   const out = {};
   traits.forEach((t) => { level[t.id] = num(t.have); out[t.id] = [level[t.id]]; });
 
   for (let m = 0; m < span; m += 1) {
-    const wave = funcs.map((f) => ({ f, n: cycles(f, runs(f)), k: 1, takes: [] }));
+    const wave = funcs.map((f) => {
+      // Потолок — сколько выполнений вообще помещается в месяц.
+      const cap = cycles(f, runs(f), side);
+      const want = perMonth[f.id] || 0;
+      const budget = left[f.id] || 0;
+      const n = plan ? Math.min(cap, want + budget) : cap;
+      // Разовый запас тратится тем, что сделано сверх повторяющегося.
+      if (plan) left[f.id] = Math.max(0, budget - Math.max(0, n - want));
+      return { f, n, k: 1, takes: [] };
+    });
 
     // Спрос на каждый ресурс за месяц — и доля, которая на самом деле
     // достанется, если спрос больше остатка.
@@ -198,12 +231,12 @@ export function runSide(model, { span = 24, side = "hi", runsOf } = {}) {
  * выполнялась. Без выполнений её нет вовсе — иначе план показался бы
  * измерением.
  */
-export function forecast(model, { span = 24, runsOf } = {}) {
+export function forecast(model, { span = 24, runsOf, plan } = {}) {
   const anyFact = (model.funcs || []).some((f) => hasFact(runsOf ? runsOf(f.id) : []));
   return {
-    lo: runSide(model, { span, side: "lo", runsOf }),
-    hi: runSide(model, { span, side: "hi", runsOf }),
-    fact: anyFact ? runSide(model, { span, side: "fact", runsOf }) : null,
+    lo: runSide(model, { span, side: "lo", runsOf, plan }),
+    hi: runSide(model, { span, side: "hi", runsOf, plan }),
+    fact: anyFact ? runSide(model, { span, side: "fact", runsOf, plan }) : null,
     span,
   };
 }
@@ -237,13 +270,21 @@ export function reach(fc, traitId, want) {
  * месяц уезжает из актива и сколько приезжает. Отдельного получателя у
  * выхода нет — его называет сам ресурс.
  */
-export function transfers(model, { runsOf } = {}) {
+export function transfers(model, { runsOf, plan } = {}) {
   const { funcs = [], traits = [] } = model;
   const at = (id) => traits.find((t) => t.id === id);
   const out = [];
   funcs.forEach((f) => {
     const rs = runsOf ? runsOf(f.id) : [];
-    const n = cycles(f, rs);
+    // Столько же выполнений, сколько в прогнозе: стрелка обязана говорить о
+    // том же будущем, что и график, иначе они спорят друг с другом.
+    const cap = cycles(f, rs);
+    const n = plan
+      ? Math.min(cap, (plan.perMonth?.[f.id] || 0) + (plan.once?.[f.id] || 0)) : cap;
+    /* Стрелка рисуется всегда, даже когда ничего не запланировано: она
+       говорит о СТРОЕНИИ — эта функция отдаёт ресурс в тот актив, — а числа
+       на ней уже про планы. Убрать её вместе с числами значило бы спрятать
+       связь, которая никуда не делась. */
     f.gives.forEach((g) => {
       const to = at(g.trait)?.e;
       if (!to || to === f.e) return;
@@ -270,15 +311,22 @@ export function transfers(model, { runsOf } = {}) {
  * выполнений. Это не измерение занятости, а следствие модели, — но оно
  * показывает, на кого свалено больше, чем на других.
  */
-export function load(model, { runsOf } = {}) {
+export function load(model, { runsOf, plan } = {}) {
   const by = {};
   (model.funcs || []).forEach((f) => {
     const rs = runsOf ? runsOf(f.id) : [];
     const hours = runHours(rs) ?? hoursOf(f);
-    const n = cycles(f, rs);
+    /* Столько выполнений, сколько требуют применённые цели, но не больше
+       потолка. Без целей — потолок: это ответ на вопрос «сколько выйдет,
+       если функция будет идти без остановки». */
+    const cap = cycles(f, rs);
+    const n = plan
+      ? Math.min(cap, (plan.perMonth?.[f.id] || 0) + (plan.once?.[f.id] || 0)) : cap;
     // У фактора исполнителей нет; если они там остались от прежней правки,
     // считать их нагрузку всё равно нельзя — фактор происходит сам.
-    if (isFactor(f) || !f.owners.length || !(hours > 0)) return;
+    /* Ноль выполнений — это «не назначено», а не «назначено ноль»: строка
+       «0 ч» на человеке говорила бы, что работа есть, просто пустая. */
+    if (isFactor(f) || !f.owners.length || !(hours > 0) || !(n > 0)) return;
     const each = (hours * n) / f.owners.length;
     f.owners.forEach((p) => { by[p] = (by[p] || 0) + each; });
   });

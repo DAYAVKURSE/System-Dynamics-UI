@@ -10,7 +10,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, countWorkers, normalizeAssets,
   normalizeFactors, normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
-import { normalizeGoals, perMonth } from "../lib/goals.js";
+import { goalRuns, normalizeGoals, perMonth } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { runsOfFunc } from "./TasksBoard.jsx";
@@ -765,13 +765,18 @@ export default function SystemModel(){
      расчёт не идёт. */
   const runsOf=useCallback((fid)=>runsOfFunc(tasks,fid),[tasks]);
   const span=useMemo(()=>Math.max(horizon,6),[horizon]);
-  const fc=useMemo(()=>forecast({traits,funcs},{span,runsOf}),
-    [traits,funcs,span,runsOf]);
-  const moves=useMemo(()=>transfers({funcs,traits},{runsOf}),[funcs,traits,runsOf]);
-  const workload=useMemo(()=>load({funcs},{runsOf}),[funcs,runsOf]);
-  /* План под каждую цель: что нужно сделать и сколько это займёт.
-     Прогноз отвечает «куда придём сами», план — «что для этого сделать»;
-     оба считаются из одних и тех же функций, поэтому разойтись не могут. */
+  /* Сколько выполнений требуют ПРИМЕНЁННЫЕ цели. Из этого и считается
+     прогноз: функция сама по себе не повторяется, «как часто может» — её
+     потолок, а не расписание. Нет применённых целей — ничего и не
+     происходит, и это честный ответ, а не пустой график. */
+  const runsPlan=useMemo(()=>goalRuns({traits,funcs},goals,{runsOf}),
+    [traits,funcs,goals,runsOf]);
+  const fc=useMemo(()=>forecast({traits,funcs},{span,runsOf,plan:runsPlan}),
+    [traits,funcs,span,runsOf,runsPlan]);
+  const moves=useMemo(()=>transfers({funcs,traits},{runsOf,plan:runsPlan}),
+    [funcs,traits,runsOf,runsPlan]);
+  const workload=useMemo(()=>load({funcs},{runsOf,plan:runsPlan}),
+    [funcs,runsOf,runsPlan]);
   const valuesFor=useCallback((tid)=>{
     const at=Math.min(simMonth,span);
     return {lo:fc.lo[tid]?.[at]??0,hi:fc.hi[tid]?.[at]??0,
@@ -970,18 +975,27 @@ export default function SystemModel(){
         <div style={{...S.card,marginBottom:10}}>
           <div style={S.lbl}>прогноз по функциям</div>
           <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
-            Считается по функциям и только по ним: из времени одного
-            выполнения выходит, сколько раз функция срабатывает за месяц, из
+            Считается по применённым целям: функция сама по себе не
+            повторяется — она работа, и происходит тогда, когда её делают.
+            Цель говорит, сколько её выполнений нужно, «как часто может
+            повторяться» ставит потолок, а из
             вилок — сколько ресурса при этом уходит и приходит. Поэтому
             прогноз — лента, а не линия: <span style={{color:WARN}}>жёлтым</span>
             {" "}её границы, <span style={{color:OK}}>зелёным</span> — факт по
             принятым выполнениям. Пересчитывается сам при каждой правке.
           </div>
-          {!funcs.length&&<div style={{fontSize:11.5,color:WARN,marginTop:8,
-            lineHeight:1.6}}>
-            Функций нет — считать нечего. Ресурсы останутся на своих
-            значениях: сами по себе они не меняются.
-          </div>}
+          {!funcs.length
+            ? <div style={{fontSize:11.5,color:WARN,marginTop:8,lineHeight:1.6}}>
+                Функций нет — считать нечего. Ресурсы останутся на своих
+                значениях: сами по себе они не меняются.
+              </div>
+            : !goals.some(g=>g.appliedAt)&&
+              <div style={{fontSize:11.5,color:WARN,marginTop:8,lineHeight:1.6}}>
+                Ни одна цель не применена — работать никто не просил, и
+                ресурсы остаются на своих значениях. Поставьте цель ниже и
+                нажмите «Применить цель»: тогда станет видно, что из этого
+                выйдет.
+              </div>}
         </div>
 
         {/* Цели: сколько, чего, к какому сроку, каким темпом и какой ценой.

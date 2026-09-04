@@ -141,6 +141,9 @@ export const newFunc = (e, name = "новая функция") => ({
   takes: [],
   gives: [],
   dur: 1,
+  // Верхняя граница времени. Новая функция заводится точным сроком:
+  // вилка «от 1 до 1» — это то же самое число, только сказанное дважды.
+  durHi: 1,
   durUnit: DUR_DEFAULT,
   // Пусто — «непрерывно»: следующее выполнение сразу за предыдущим.
   every: 0,
@@ -152,9 +155,41 @@ export const newFunc = (e, name = "новая функция") => ({
   y: 0,
 });
 
-/** Длительность в часах — общая мера для сравнения и усреднения. */
-export const hoursOf = ({ dur, durUnit } = {}) =>
-  num(dur) * (DUR_UNITS[durUnit] ?? 1);
+/* ─────── сколько времени уходит на одно выполнение ───────
+
+   Тоже вилка, как и количества: «от 2 до 4 часов». Одно число здесь было
+   бы обещанием, которого никто не давал, — работа редко занимает ровно
+   столько, сколько задумано. Стороны разводятся так же, как у ресурсов:
+   осторожная оценка берёт верхнюю границу времени, щедрая — нижнюю.
+
+   Когда время известно точно, границы просто равны — для этого в форме
+   стоит галочка «одинаковое». */
+export const hoursRange = ({ dur, durHi, durUnit } = {}) => {
+  const k = DUR_UNITS[durUnit] ?? 1;
+  const lo = num(dur) * k;
+  const hi = durHi == null ? lo : num(durHi) * k;
+  return hi < lo ? { lo: hi, hi: lo } : { lo, hi };
+};
+
+/**
+ * Длительность в часах — общая мера для сравнения и усреднения.
+ *
+ * `side` выбирает границу: "lo" — быстрая работа, "hi" — долгая. Без
+ * стороны берётся середина вилки: там, где нужна одна цифра (подпись,
+ * срок задачи), середина честнее любого края.
+ */
+export const hoursOf = (f = {}, side) => {
+  const { lo, hi } = hoursRange(f);
+  if (side === "lo") return lo;
+  if (side === "hi") return hi;
+  return (lo + hi) / 2;
+};
+
+/** Задано ли время одним числом, а не вилкой. */
+export const sameHours = (f = {}) => {
+  const { lo, hi } = hoursRange(f);
+  return lo === hi;
+};
 
 /**
  * Как часто функция повторяется — в часах. Ноль значит «непрерывно».
@@ -211,6 +246,8 @@ export const normalizeFunc = (f = {}) => {
     takes: Array.isArray(f.takes) ? f.takes.map((p) => port(p, true)) : [],
     gives: Array.isArray(f.gives) ? f.gives.map((p) => port(p)) : [],
     dur: num(f.dur),
+    // Записи без верхней границы — это точный срок, а не сломанная вилка.
+    durHi: f.durHi == null ? num(f.dur) : num(f.durHi),
     durUnit: unit(f.durUnit),
     every: num(f.every),
     everyUnit: unit(f.everyUnit),
@@ -462,7 +499,10 @@ export function checkFunc(f, { traits = [], factors = [] } = {}) {
   // преобразует ничего, и зелёной ей быть не за что.
   if (ports.some((p) => !traits.some((t) => t.id === p.trait))) return { ok: false, why: WHY_FUNC };
   if (ports.some((p) => !okRange(p))) return { ok: false, why: WHY_FUNC };
-  if (hoursOf(f) <= 0) return { ok: false, why: WHY_FUNC };
+  /* Обе границы времени должны быть заданы: «от 0 до 4 часов» не говорит,
+     когда будет готово, — оно говорит «может быть, мгновенно». */
+  const h = hoursRange(f);
+  if (!(h.lo > 0) || !(h.hi > 0)) return { ok: false, why: WHY_FUNC };
   const own = new Set(traits.filter((t) => t.e === f.e).map((t) => t.id));
   const outer = ports.filter((p) => !own.has(p.trait)).length;
   const inner = ports.length - outer;
