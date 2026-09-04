@@ -95,8 +95,8 @@ describe("прежние записи не переносятся", () => {
     // вторую версию одного и того же.
     const f = normalizeFunc({ gives: [{ trait: "t2", lo: 1, hi: 1, to: "B" }] });
     expect(f.gives[0]).not.toHaveProperty("to");
-    expect(newGive("t2", 1, 2)).toEqual({ id: expect.any(String), trait: "t2",
-      lo: 1, hi: 2 });
+    expect(newGive("t2", 1, 2)).toMatchObject({ trait: "t2", lo: 1, hi: 2 });
+    expect(newGive("t2", 1, 2)).not.toHaveProperty("to");
   });
 });
 

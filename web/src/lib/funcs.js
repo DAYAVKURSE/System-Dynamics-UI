@@ -73,12 +73,36 @@ const num = (v) => Number(v) || 0;
  * есть в рецепте, но не расходуется», а это не то, что человек имел в
  * виду, нажимая «+ берёт».
  */
-export const newPort = (trait = "", lo = 1, hi = 1) => ({
-  id: nextId("p"),
-  trait,
-  lo: num(lo),
-  hi: num(hi),
-});
+export const newPort = (trait = "", lo = 1, hi = 1, group = null) => {
+  const id = nextId("p");
+  return { id, trait, lo: num(lo), hi: num(hi), group: group || id };
+};
+
+/* ─────── «и» между группами, «или» внутри группы ───────
+
+   Вход функции — не плоский список. «Нужен А и Б, но вместо Б годится В»
+   плоским списком не сказать: он умеет только «и».
+
+   Поэтому у входа есть `group`. Входы с одной группой — это варианты одного
+   и того же требования, между ними «или»; разные группы соединены «и».
+   Новый вход заводится в собственной группе — то есть всё, что собрано до
+   сих пор, остаётся ровно тем же «и».
+
+   Количество у каждого варианта и есть курс обмена: «2 А» в одной группе с
+   «3 В» значит, что три В заменяют два А. Отдельного поля для курса нет —
+   оно спрашивало бы то, что уже сказано двумя числами. */
+export const groupsOf = (ports = []) => {
+  const by = new Map();
+  ports.forEach((p) => {
+    const g = p.group || p.id;
+    if (!by.has(g)) by.set(g, []);
+    by.get(g).push(p);
+  });
+  return [...by.values()];
+};
+
+/** Сколько у функции разных требований: групп, а не входов. */
+export const groupCount = (ports = []) => groupsOf(ports).length;
 
 /**
  * Выход функции — такой же порт, как и вход.
@@ -163,12 +187,20 @@ const nmDur = (v) => (Math.round(num(v) * 100) / 100);
 export const normalizeFunc = (f = {}) => {
   // Вход и выход устроены одинаково. Прежнее поле получателя `to` не
   // читается и не сохраняется: получатель — это актив самого ресурса.
-  const port = (p = {}) => ({
-    id: p.id ?? nextId("p"),
-    trait: p.trait ?? "",
-    lo: num(p.lo),
-    hi: num(p.hi),
-  });
+  /* Вход и выход устроены одинаково, кроме одного: «или» бывает только у
+     входа. У выхода группа всегда своя — функция выдаёт то, что выдаёт, и
+     «выдаст А или Б» без правила, что именно, было бы не моделью, а
+     монеткой. Поэтому поле есть, но выразить им у выхода нечего. */
+  const port = (p = {}, grouped = false) => {
+    const id = p.id ?? nextId("p");
+    return {
+      id,
+      trait: p.trait ?? "",
+      lo: num(p.lo),
+      hi: num(p.hi),
+      group: (grouped && p.group) || id,
+    };
+  };
   const unit = (u) => (DUR_UNITS[u] ? u : DUR_DEFAULT);
   return {
     ...f,
@@ -176,7 +208,7 @@ export const normalizeFunc = (f = {}) => {
     name: f.name ?? "",
     kind: funcKind(f),
     factor: f.factor ?? "",
-    takes: Array.isArray(f.takes) ? f.takes.map((p) => port(p)) : [],
+    takes: Array.isArray(f.takes) ? f.takes.map((p) => port(p, true)) : [],
     gives: Array.isArray(f.gives) ? f.gives.map((p) => port(p)) : [],
     dur: num(f.dur),
     durUnit: unit(f.durUnit),

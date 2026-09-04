@@ -45,7 +45,8 @@
    производительности; домножать на количество людей значило бы додумать
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
-import { DUR_UNITS, everyOf, hoursOf, isFactor, runHours, runQty } from "./funcs.js";
+import { DUR_UNITS, everyOf, groupsOf, hoursOf, isFactor, runHours, runQty }
+  from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
 export const MONTH_H = DUR_UNITS["мес"];
@@ -96,6 +97,35 @@ export function portQty(p, { kind, side, runs = [] }) {
   return side === "lo" ? worst : best;
 }
 
+/**
+ * Какой из вариантов группы «или» пойдёт в дело.
+ *
+ * Берётся тот, которого хватает НА ДОЛЬШЕ: не «чего больше в штуках», а
+ * чего больше относительно того, сколько его нужно. Сто единиц при нужде в
+ * пятьдесят — это два выполнения, десять при нужде в одну — десять; первое
+ * выглядит богаче, а второе богаче на самом деле.
+ *
+ * Ничего нет вовсе — берём первый по списку: порядок вариантов человек
+ * задаёт сам, и это его предпочтение. Выбор обязан быть один и тот же при
+ * каждом пересчёте, иначе прогноз прыгал бы от перерисовки к перерисовке.
+ */
+export function pickAlt(group, { have, kind = "takes", side, runs }) {
+  if (group.length < 2) return group[0];
+  let best = group[0];
+  let bestCover = -1;
+  group.forEach((p) => {
+    const need = portQty(p, { kind, side, runs });
+    if (!(need > 0)) return;
+    const cover = (have(p.trait) || 0) / need;
+    if (cover > bestCover) { bestCover = cover; best = p; }
+  });
+  return bestCover > 0 ? best : group[0];
+}
+
+/** Входы функции после выбора вариантов: по одному из каждой группы «или». */
+export const takesOf = (f, opts) =>
+  groupsOf(f.takes).map((g) => pickAlt(g, opts)).filter(Boolean);
+
 /** Есть ли у функции хоть одно фактическое выполнение. */
 export const hasFact = (runs = []) => runs.some((r) => Number(r?.hours) > 0);
 
@@ -113,12 +143,19 @@ export function runSide(model, { span = 24, side = "hi", runsOf } = {}) {
   traits.forEach((t) => { level[t.id] = num(t.have); out[t.id] = [level[t.id]]; });
 
   for (let m = 0; m < span; m += 1) {
-    const wave = funcs.map((f) => ({ f, n: cycles(f, runs(f)), k: 1 }));
+    const wave = funcs.map((f) => ({ f, n: cycles(f, runs(f)), k: 1, takes: [] }));
 
     // Спрос на каждый ресурс за месяц — и доля, которая на самом деле
     // достанется, если спрос больше остатка.
+    /* Что именно берёт функция, решается ЗДЕСЬ, до подсчёта спроса: в
+       группе «или» вариант выбирается по остатку на начало месяца. Дальше
+       функция работает уже с выбранным — иначе спрос считался бы по одному
+       ресурсу, а списывался другой. */
+    wave.forEach((w) => {
+      w.takes = takesOf(w.f, { have: (id) => level[id] ?? 0, side, runs: runs(w.f) });
+    });
     const demand = {};
-    wave.forEach(({ f, n }) => f.takes.forEach((p) => {
+    wave.forEach(({ f, n, takes }) => takes.forEach((p) => {
       demand[p.trait] = (demand[p.trait] || 0)
         + portQty(p, { kind: "takes", side, runs: runs(f) }) * n;
     }));
@@ -130,11 +167,11 @@ export function runSide(model, { span = 24, side = "hi", runsOf } = {}) {
     // Функцию держит самый дефицитный её вход: наполовину сделанной работы
     // не бывает, но половина выполнений за месяц — бывает.
     wave.forEach((w) => {
-      w.k = w.f.takes.reduce((k, p) => Math.min(k, share[p.trait] ?? 1), 1);
+      w.k = w.takes.reduce((k, p) => Math.min(k, share[p.trait] ?? 1), 1);
     });
 
-    wave.forEach(({ f, n, k }) => {
-      f.takes.forEach((p) => {
+    wave.forEach(({ f, n, k, takes }) => {
+      takes.forEach((p) => {
         if (level[p.trait] == null) return;
         level[p.trait] -= portQty(p, { kind: "takes", side, runs: runs(f) }) * n * k;
       });
@@ -328,6 +365,7 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
   // что нужно для входа, само требует входов.
   const spent = {};
   const producedFor = {};            // кто чей вход закрывал — для цепочки
+  const chosen = {};                 // что функция взяла из групп «или»
   let looped = false;
   let guard = 0;
 
@@ -357,6 +395,8 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
 
     const f = pick(id);
     if (!f) { missing.add(id); continue; }
+    const use = takesOf(f, { have: (x) => stock[x] ?? 0, side, runs: runsFor(f) });
+    chosen[f.id] = use;
     const per = givesOf(f, id, side, runsFor(f));
     // Выполнение целое: половины выполнения не бывает.
     const n = Math.ceil(rest / per);
@@ -364,7 +404,10 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
     (producedFor[id] = producedFor[id] || new Set()).add(f.id);
     // Лишнее, что вышло сверх нужного, остаётся в остатке — оно не пропадает.
     stock[id] = (stock[id] ?? 0) + (n * per - rest);
-    f.takes.forEach((p) => {
+    /* В группе «или» берётся то, чего хватает на дольше. Если пусто везде —
+       первый по списку: порядок вариантов человек задал сам, и это его
+       предпочтение, а не случайность. */
+    use.forEach((p) => {
       const q = portQty(p, { kind: "takes", side, runs: runsFor(f) }) * n;
       if (q > 0) need[p.trait] = (need[p.trait] || 0) + q;
     });
@@ -379,7 +422,7 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
        ждать его всё равно приходится. */
     const own = isFactor(f) ? 0 : (runHours(runsFor(f)) ?? hoursOf(f)) * n;
     return { func: id, name: f.name, e: f.e, runs: n, factor: isFactor(f),
-      workHours: own, calendarHours: step * n };
+      takes: chosen[id] || [], workHours: own, calendarHours: step * n };
   }).sort((a, b) => b.calendarHours - a.calendarHours);
 
   /* Календарный срок — по самой длинной цепочке: функция, ждущая чужой
@@ -395,7 +438,9 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
     const f = funcs.find((y) => y.id === id);
     if (!f || seen.has(id)) return 0;
     const next = new Set([...seen, id]);
-    return f.takes.reduce((m, p) => {
+    // Ждать надо только то, что функция и правда берёт: невыбранный вариант
+    // группы «или» ей не нужен, и удлинять цепочку им не за что.
+    return (chosen[id] || f.takes).reduce((m, p) => {
       const makers = [...(producedFor[p.trait] || [])];
       return Math.max(m, ...makers.map((mid) => chain(mid, next)), 0);
     }, 0);
@@ -450,7 +495,9 @@ export function effect(model, steps = [], { side = "hi", runsOf } = {}) {
     if (!f) return;
     const runs = runsOf ? runsOf(f.id) : [];
     f.gives.forEach((g) => add(g.trait, portQty(g, { kind: "gives", side, runs }) * st.runs));
-    f.takes.forEach((p) => add(p.trait, -portQty(p, { kind: "takes", side, runs }) * st.runs));
+    // Тратится только выбранный вариант группы «или», а не все сразу.
+    (st.takes || takesOf(f, { have: () => 0, side, runs }))
+      .forEach((p) => add(p.trait, -portQty(p, { kind: "takes", side, runs }) * st.runs));
   });
   return by;
 }

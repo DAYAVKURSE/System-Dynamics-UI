@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, checkFunc, checkTrait, countWorkers,
-  everyOf,
+  everyOf, groupsOf,
   funcKind, isFactor, newFactor, fromHours,
   hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
   runQty } from "../lib/funcs.js";
@@ -233,6 +233,9 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
   const out = kind === "gives";
   const taken = (t) => list.some((p) => p.trait === t.id);
   const free = { own: own.filter((t) => !taken(t)), others: others.filter((t) => !taken(t)) };
+  const anyFree = free.own.length > 0 || free.others.length > 0;
+  // Требования функции: между группами «и», внутри группы «или».
+  const groups = groupsOf(list);
   // Чужие ресурсы в списке идут по активам: «заявки» и «заявки» из разных
   // активов иначе не различить.
   const byAsset = [];
@@ -240,41 +243,83 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
     const row = byAsset.find((g) => g.e === t.e);
     if (row) row.list.push(t); else byAsset.push({ e: t.e, list: [t] });
   });
+  /* Один и тот же список ресурсов нужен и полю «+ берёт», и полю «или» у
+     каждой группы: собираем его один раз. */
+  const options = (<>
+    {free.own.length > 0 && (
+      <optgroup label="этот актив">
+        {free.own.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
+      </optgroup>)}
+    {byAsset.map((g) => (
+      <optgroup key={g.e} label={assetName(g.e)}>
+        {g.list.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
+      </optgroup>))}
+  </>);
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ ...S.lbl, marginBottom: 4 }}>{title}</div>
       {list.length === 0 && (
         <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{hint}</div>)}
-      {list.map((p) => {
-        const at = others.find((t) => t.id === p.trait);
-        return (
-          <div key={p.id} style={{ border: `1px solid ${okRange(p) ? C.line : BAD}`,
-            borderRadius: 6, padding: 7, marginBottom: 5 }}>
-            <div className="flex items-center gap-2">
-              <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
-                {traitName(p.trait)}
-                {/* Чужой ресурс — это и есть связь с другим активом: взятый
-                    приходит оттуда, выданный уходит туда. */}
-                {at && (
-                  <span style={{ color: ACC, fontSize: 11 }}>
-                    {out ? " → в актив «" : " ← из актива «"}{assetName(at.e)}»</span>)}
-              </span>
-              <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD }}
-                aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
-                onClick={() => onDel(p.id)}>×</button>
-            </div>
-            <div className="flex items-center gap-2" style={{ marginTop: 5, flexWrap: "wrap" }}>
-              <span style={S.lbl}>от</span>
-              <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
-                onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
-              <span style={S.lbl}>до</span>
-              <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
-                onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
-              <span style={{ flex: 1 }} />
-              <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
-            </div>
-          </div>);
-      })}
+      {groups.map((g, gi) => (
+        <div key={g[0].id}>
+          {/* «И» между требованиями: разделитель стоит МЕЖДУ группами, а не
+              подписью у каждой, — иначе первая группа выглядела бы как
+              продолжение чего-то, чего перед ней нет. */}
+          {gi > 0 && (
+            <div style={{ ...S.lbl, textAlign: "center", margin: "2px 0 4px" }}>и</div>)}
+          <div style={{ border: `1px solid ${g.length > 1 ? ACC : "transparent"}`,
+            borderRadius: 7, padding: g.length > 1 ? 5 : 0, marginBottom: 5 }}>
+            {g.map((p, i) => {
+              const at = others.find((t) => t.id === p.trait);
+              return (
+                <div key={p.id}>
+                  {i > 0 && (
+                    <div style={{ ...S.lbl, color: ACC, textAlign: "center",
+                      margin: "3px 0" }}>или</div>)}
+                  <div style={{ border: `1px solid ${okRange(p) ? C.line : BAD}`,
+                    borderRadius: 6, padding: 7 }}>
+                    <div className="flex items-center gap-2">
+                      <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
+                        {traitName(p.trait)}
+                        {/* Чужой ресурс — это и есть связь с другим активом:
+                            взятый приходит оттуда, выданный уходит туда. */}
+                        {at && (
+                          <span style={{ color: ACC, fontSize: 11 }}>
+                            {out ? " → в актив «" : " ← из актива «"}{assetName(at.e)}»</span>)}
+                      </span>
+                      <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px",
+                        color: BAD }}
+                        aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
+                        onClick={() => onDel(p.id)}>×</button>
+                    </div>
+                    <div className="flex items-center gap-2"
+                      style={{ marginTop: 5, flexWrap: "wrap" }}>
+                      <span style={S.lbl}>от</span>
+                      <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
+                        onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
+                      <span style={S.lbl}>до</span>
+                      <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
+                        onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
+                      <span style={{ flex: 1 }} />
+                      <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
+                    </div>
+                  </div>
+                </div>);
+            })}
+            {/* ДобавитьВАРИАНТ в эту группу — «или», а не «и». Отдельным полем
+                у каждой группы: иначе пришлось бы сперва завести вход, а
+                потом объяснять приложению, к чему он относится. */}
+            {!out && anyFree && (
+              <select value="" aria-label={`или вместо ${traitName(g[0].trait)}`}
+                onChange={(e) => { if (e.target.value) onAdd(e.target.value, g[0].group); }}
+                style={{ ...S.inp, width: "100%", maxWidth: "100%", minWidth: 0,
+                  boxSizing: "border-box", padding: "4px 6px", fontSize: 11,
+                  marginTop: 4, color: C.muted }}>
+                <option value="">или вместо этого…</option>
+                {options}
+              </select>)}
+          </div>
+        </div>))}
       {(free.own.length > 0 || free.others.length > 0) && (
         /* Ширина — по форме, а не по самому длинному названию: у select
            ширина считается по содержимому, и одно длинное имя ресурса
@@ -283,15 +328,8 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
           onChange={(e) => { if (e.target.value) { onAdd(e.target.value); setPick(""); } }}
           style={{ ...S.inp, width: "100%", maxWidth: "100%", minWidth: 0,
             boxSizing: "border-box", padding: "5px 6px", fontSize: 12 }}>
-          <option value="">{out ? "+ выдаёт ресурс…" : "+ берёт ресурс…"}</option>
-          {free.own.length > 0 && (
-            <optgroup label="этот актив">
-              {free.own.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
-            </optgroup>)}
-          {byAsset.map((g) => (
-            <optgroup key={g.e} label={assetName(g.e)}>
-              {g.list.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
-            </optgroup>))}
+          <option value="">{out ? "+ выдаёт ресурс…" : "+ берёт ресурс… (и)"}</option>
+          {options}
         </select>)}
     </div>);
 }
@@ -335,7 +373,14 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             mark={<Mark text="функция" ok={checkFunc(f, { traits, factors }).ok}
               onWhy={() => onWhy && onWhy(f.id)} />}
             summary={<>
-              {f.takes.length ? f.takes.map((t) => traitName(t.trait)).join(", ") : "ничего не берёт"}
+              {/* В свёрнутой строке «или» обязано быть видно: без него
+                  «спрос, пользователи» читается как «и то, и другое», а это
+                  прямо противоположно тому, что задано. */}
+              {f.takes.length
+                ? groupsOf(f.takes)
+                  .map((g) => g.map((t) => traitName(t.trait)).join(" или "))
+                  .join(", ")
+                : "ничего не берёт"}
               {" → "}
               {f.gives.length
                 ? f.gives.map((g) => {
@@ -351,7 +396,8 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
               hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
               assetName={assetName} traitName={traitName} runs={runs}
-              onAdd={(tid) => up(f.id, (x) => ({ ...x, takes: [...x.takes, newPort(tid)] }))}
+              onAdd={(tid, group) => up(f.id, (x) => ({ ...x,
+                takes: [...x.takes, newPort(tid, 1, 1, group)] }))}
               onSet={(pid, patch) => upPort(f.id, "takes", pid, patch)}
               onDel={(pid) => up(f.id, (x) => ({
                 ...x, takes: x.takes.filter((p) => p.id !== pid) }))} />
