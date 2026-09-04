@@ -519,6 +519,15 @@ export default function SystemModel(){
   /* ─── общая модель ───
      Владелец пишет модель на сервер, остальные её оттуда читают: только так
      исполнитель вообще увидит поставленную ему задачу. */
+  const fromWorkspace=useCallback((w)=>({
+    entities:w?.entities||[], traits:w?.traits||[],
+    kinds:(w?.kinds&&w.kinds.length)?w.kinds:KINDS0,
+    tasks:w?.tasks||[], funcs:w?.funcs, goals:w?.goals||[],
+    factors:w?.factors||[],
+  }),[]);
+  /* Разобрались ли, что открывать. До этого момента на экране может стоять
+     встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
+  const [ready,setReady]=useState(false);
   const pulled=useRef(false);
   useEffect(()=>{
     if(me.solo) return;
@@ -526,21 +535,26 @@ export default function SystemModel(){
     pulled.current=true;
     getWorkspace().then(w=>{
       // Владельцу подставлять серверную модель поверх открытой нельзя: он
-      // мог начать править до того, как ответ пришёл.
+      // мог начать править до того, как ответ пришёл. Ему она достаётся
+      // иначе — автозагрузкой ниже, и только когда открывать больше нечего.
       if(me.isOwner) return;
-      restoreDoc({
-        entities:w.entities||[], traits:w.traits||[],
-        kinds:(w.kinds&&w.kinds.length)?w.kinds:KINDS0,
-        tasks:w.tasks||[], funcs:w.funcs, goals:w.goals||[],
-        factors:w.factors||[],
-      });
+      restoreDoc(fromWorkspace(w));
     }).catch(()=>{});
-  },[me.solo,me.isOwner,restoreDoc]);
+  },[me.solo,me.isOwner,restoreDoc,fromWorkspace]);
+  /* Выгрузка модели на сервер ждёт, пока приложение разберётся, что вообще
+     открывать.
+
+     Иначе выходило вот что: приложение поднималось на встроенной
+     демонстрационной модели, и через полторы секунды она уезжала на сервер
+     ПОВЕРХ настоящей работы владельца — раньше, чем та успевала оттуда
+     приехать. Один заход, ничего не трогая, — и работа на сервере
+     заменена демонстрацией. Ошибка тем злее, что чинить её нечем: сервер
+     хранит одну модель, прежней там уже нет. */
   useEffect(()=>{
-    if(me.solo||!me.isOwner) return;
+    if(me.solo||!me.isOwner||!ready) return;
     const id=setTimeout(()=>{ putWorkspace(doc).catch(()=>{}); },1500);
     return ()=>clearTimeout(id);
-  },[doc,me.solo,me.isOwner]);
+  },[doc,me.solo,me.isOwner,ready]);
 
   // ─── классификации ресурсов ───
   const upK=(id,f,v)=>setKinds(p=>p.map(k=>k.id===id?{...k,[f]:v}:k));
@@ -582,9 +596,12 @@ export default function SystemModel(){
     }catch(e){ setSavedMsg(e.message||"Не удалось сохранить."); }
     setSavedBusy(false);
   };
-  const openScenario=useCallback(async(id)=>{
+  const openScenario=useCallback(async(id,{guard}={})=>{
     const s=await getScenario(id);
     if(!s) throw new Error("Сценарий не найден.");
+    // Пока схема ехала с диска, человек мог применить черновик — тогда
+    // подставлять её поверх нельзя: он потеряет свои правки.
+    if(guard&&!guard()) return null;
     // Старые сценарии могут не знать про часть документа — недостающее
     // остаётся текущим, а не превращается в пустоту.
     const arr=(v,cur,need)=>Array.isArray(v)&&(!need||v.length)?v:cur;
@@ -622,24 +639,57 @@ export default function SystemModel(){
      У не-владельца схема одна: та, где его назначил владелец. Она приезжает
      с сервера ниже, и сценариев на диске у него нет вовсе. */
   const opened=useRef(false);
+  /* Жив ли ещё компонент. Именно компонент, а не этот заход эффекта:
+     эффект перезапускается от каждой смены зависимостей — а «кто я»
+     приходит одним запросом и меняет их раньше, чем список схем успевает
+     прийти двумя. Уборка внутри эффекта гасила бы незавершённую загрузку,
+     а повторный заход упирался бы в `opened` и не делал уже ничего —
+     человек оставался на встроенной демонстрационной схеме. */
+  const alive=useRef(true);
+  useEffect(()=>()=>{ alive.current=false; },[]);
+  /* Человек уже применил черновик — значит на экране его правки, и
+     подставлять поверх них что-либо нельзя. Прежде автозагрузка вместо
+     этого просто НЕ ЗАПУСКАЛАСЬ, пока висит плашка: под ней оставалась
+     встроенная демонстрационная схема, и человек, не заметивший плашку,
+     каждый раз видел не свою модель. Теперь загрузка идёт своим чередом, а
+     «Восстановить» её перебивает. */
+  const restored=useRef(false);
   useEffect(()=>{
     if(opened.current) return;
     if(!me.isOwner&&!me.solo) return;   // не-владельцу схему даёт сервер
-    /* Пока черновик не разобран, автозагрузка ждёт: подставить схему с
-       диска поверх плашки «восстановить» значило бы потерять правки, ради
-       которых черновик и пишется. Но и ставить крест на автозагрузке
-       нельзя: человек, отбросивший черновик, оставался на встроенной
-       демонстрационной схеме вместо своей последней. «Восстановить» гасит
-       автозагрузку само — оно ставит `opened` в обработчике. */
-    if(recovery) return;
     opened.current=true;
-    let live=true;
+    const idle=()=>alive.current&&!restored.current;
+    /* Что бы ни вышло — открыли схему, не нашли ни одной, не достучались до
+       диска, — после этого выгрузка на сервер разрешена. Иначе владелец,
+       у которого хранилище недоступно, вообще перестал бы синхронизировать
+       модель. */
+    const done=()=>{ if(alive.current) setReady(true); };
     pickScenario().then(s=>{
-      if(!live||!s) return;
-      openScenario(s.id).catch(()=>{});
-    }).catch(()=>{});
-    return ()=>{ live=false; };
-  },[me.isOwner,me.solo,recovery,openScenario]);
+      if(!idle()) return undefined;
+      if(s) return openScenario(s.id,{guard:idle}).catch(()=>{});
+      /* Сохранённых схем нет — но у владельца есть его же рабочая модель на
+         сервере: она уезжает туда сама, при каждой правке. Это ровно то, с
+         чем он закончил в прошлый раз, и открывать вместо неё встроенную
+         демонстрационную — значит каждый раз терять работу человека,
+         которую сервер при этом исправно хранит. */
+      /* Дожидаемся ответа «кто я», а не подглядываем в нынешнее значение:
+         список схем приходит быстрее, и в этот момент человек ещё числится
+         одиночным — тогда за рабочей моделью никто бы не пошёл. Ответ
+         запомнен, повторный вызов ничего не стоит. */
+      return whoAmI().catch(()=>SOLO).then(m=>{
+        if(m.solo||!m.isOwner) return undefined;
+        return getWorkspace().then(w=>{
+          if(!idle()) return;
+          if(!Array.isArray(w?.entities)||!w.entities.length) return;
+          const loaded=fromWorkspace(w);
+          restoreDoc(loaded);
+          // Это не «несохранённые правки»: сервер их уже хранит.
+          savedDoc.current=loaded;
+        }).catch(()=>{});
+      });
+    }).catch(()=>{}).finally(done);
+    return undefined;
+  },[me.isOwner,me.solo,recovery,openScenario,restoreDoc,fromWorkspace]);
 
   const loadFromDisk=async()=>{
     if(!savedSel){ setSavedMsg("Выбери сохранённый сценарий."); return; }
@@ -774,9 +824,10 @@ export default function SystemModel(){
           <div className="flex flex-wrap gap-2">
             <button style={btn(true)}
               onClick={()=>{
-                // Черновик и есть та схема, с которой работали: подставлять
-                // поверх него что-то с диска больше не нужно.
-                opened.current=true;
+                // Черновик новее всего, что лежит на диске: он и должен
+                // остаться на экране, что бы ни доехало следом.
+                restored.current=true;
+                setReady(true);
                 restoreDoc(recovery.doc);
                 if(recovery.name) setSaveName(recovery.name);
                 setRecovery(null);
