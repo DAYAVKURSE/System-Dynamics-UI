@@ -5,10 +5,13 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
+  from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, normalizeAssets,
   normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
-import { forecast, load, reach, solveRange, transfers } from "../lib/plan.js";
+import { forecast, load, reach, transfers } from "../lib/plan.js";
+import { normalizeGoals, perMonth } from "../lib/goals.js";
+import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { runsOfFunc } from "./TasksBoard.jsx";
 import Timeline from "./Timeline.jsx";
@@ -61,13 +64,20 @@ const ENTITIES0=normalizeAssets([
   {id:"usr",name:"Пользователи",color:"#7CE0FF",x:398,y:24},
   {id:"vm",name:"Виртуальный менеджер",color:"#3DDC97",x:398,y:300},
 ]);
-const T=(id,e,k,l,unit,have,want)=>({id,e,k,l,unit,have,want:want??null});
+const T=(id,e,k,l,unit,have)=>({id,e,k,l,unit,have});
 const TRAITS0=[
-  T("dem","mkt","res","спрос","обращ.",3000,null),
-  T("act","usr","growth","активные пользователи","чел.",20,500),
-  T("req","usr","res","заявки","шт.",0,null),
-  T("hdl","vm","growth","обработанные заявки","шт.",0,300),
+  T("dem","mkt","res","спрос","обращ.",3000),
+  T("act","usr","growth","активные пользователи","чел.",20),
+  T("req","usr","res","заявки","шт.",0),
+  T("hdl","vm","growth","обработанные заявки","шт.",0),
 ];
+/* Стартовая цель — образец записи, а не значение по умолчанию: она
+   показывает, из чего цель состоит. Прежде цель была числом в поле
+   ресурса, и по ней нельзя было сказать ни к какому сроку, ни какой ценой. */
+const GOALS0=normalizeGoals([
+  {id:"g_act",trait:"act",qty:10,rate:"week",dueKind:"in",dueIn:3,dueUnit:"мес",
+    days:[1,2,3,4,5],costs:[],hours:2,hoursPer:"day"},
+]);
 const P=(trait,lo,hi)=>({id:`p_${trait}`,trait,lo,hi});
 /* Стартовые функции приводим к нынешней записи здесь же: иначе первая
    отмена правки дописала бы недостающие поля, документ перестал бы совпадать
@@ -133,7 +143,7 @@ function Chart({lo,hi,fact,months,goalLine,cursorMonth,upTo}){
    Активы и передачи между ними. Передача — выход функции с указанным
    получателем: другого способа ресурсу переехать в этой модели нет. */
 function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
-  onSelectEntity,onMoveEntity,assetOk,onWhy}){
+  onSelectEntity,onMoveEntity,assetOk,onWhy,onOpenFunc}){
   const DRAG_MIN=4;
   const drag=useRef(null);
   // Пока блок ведут, его положение живёт здесь, а не в модели: правка модели
@@ -220,12 +230,25 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
           const lo=78+at*28;
           const mx=(x1+x2)/2+(-dy/len)*lo,my=(y1+y2)/2+(dx/len)*lo;
           const txt=`${w.name}: ${nm(w.lo)}–${nm(w.hi)}/мес`;
-          return (<g key={w.id} style={{pointerEvents:"none"}}>
+          const fn=funcs.find(f=>f.id===w.func);
+          /* Стрелку рисует функция — значит по стрелке до неё и надо
+             доходить. Прежде передачу было видно, а дотянуться до того, что
+             её делает, приходилось через актив и вкладку. */
+          return (<g key={w.id} style={{cursor:onOpenFunc?"pointer":"default"}}
+            onPointerDown={ev=>ev.stopPropagation()}
+            onClick={ev=>{ev.stopPropagation(); if(onOpenFunc) onOpenFunc(w.func);}}>
+            <title>{fn?`${fn.name||"без названия"} — открыть функцию`:txt}</title>
+            {/* Широкая прозрачная линия под тонкой: попасть пальцем в
+                полуторапиксельную черту невозможно. */}
+            <line x1={x1+ox} y1={y1+oy} x2={x2+ox} y2={y2+oy} stroke="transparent"
+              strokeWidth="16"/>
             <line x1={x1+ox} y1={y1+oy} x2={x2+ox} y2={y2+oy} stroke={ACC}
-              strokeWidth="1.6" strokeDasharray="4 3" markerEnd="url(#aw)"/>
+              strokeWidth="1.6" strokeDasharray="4 3" markerEnd="url(#aw)"
+              style={{pointerEvents:"none"}}/>
             <rect x={mx-70} y={my-11} width="140" height="22" rx="6" fill={C.panel}
               stroke={ACC} strokeWidth="1"/>
-            <text x={mx} y={my+3.5} textAnchor="middle" fontSize="9" fill={ACC}>
+            <text x={mx} y={my+3.5} textAnchor="middle" fontSize="9" fill={ACC}
+              style={{pointerEvents:"none"}}>
               {txt.length>26?txt.slice(0,25)+"…":txt}</text></g>);})}
 
         {ents.map(e=>{
@@ -259,17 +282,6 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
     </div>);
 }
 
-/* Часы в понятное: 2 880 ч — это «4 мес», а не число, в котором надо
-   считать нули. Меньше суток остаётся часами: «3 ч» понятнее «0,1 дн». */
-function durText(h){
-  const n=Number(h)||0;
-  if(n<=0) return "—";
-  if(n<24) return `${nm(Math.round(n*10)/10)} ч`;
-  if(n<168) return `${nm(Math.round(n/24*10)/10)} дн`;
-  if(n<730) return `${nm(Math.round(n/168*10)/10)} нед`;
-  return `${nm(Math.round(n/730*10)/10)} мес`;
-}
-
 function whenText(iso){
   const d=new Date(iso);
   if(isNaN(d.getTime())) return "прошлого сеанса";
@@ -300,9 +312,17 @@ export default function SystemModel(){
   const [kindMsg,setKindMsg]=useState("");
   const [funcs,setFuncs]=useState(FUNCS0);
   const [tasks,setTasks]=useState([]);
+  /* Цели — часть документа наравне с ресурсами и функциями: они уехали с
+     ресурса, где были одним числом, и стали записью со сроком, темпом и
+     ценой (см. lib/goals.js). */
+  const [goals,setGoals]=useState(GOALS0);
   const [tab,setTab]=useState("tasks");
   const [sel,setSel]=useState("usr");
   const [why,setWhy]=useState(null);
+  /* Что попросили открыть в карточке актива — например, функцию, которая
+     рисует стрелку передачи. Метка `n` нужна, чтобы повторное нажатие на ту
+     же стрелку снова открыло карточку, а не осталось незамеченным. */
+  const [focus,setFocus]=useState(null);
   // Кого раскрыли в списке воркеров: вся его история — в окне.
   const [person,setPerson]=useState(null);
   const [horizon,setHorizon]=useState(24);
@@ -318,9 +338,6 @@ export default function SystemModel(){
   const [simMonth,setSimMonth]=useState(0);
   // Что открыто под схемой: правка модели или её будущее.
   const [under,setUnder]=useState("edit");
-  // Классификации ресурсов — под спойлером: их правят редко, а место они
-  // занимают всегда.
-  const [kindsOpen,setKindsOpen]=useState(false);
   const [me,setMe]=useState(SOLO);
   const [openCards,setOpenCards]=useState(()=>new Set());
   const [openCall,setOpenCall]=useState(()=>callFromLocation());
@@ -350,8 +367,8 @@ export default function SystemModel(){
   };
 
   // ─── история правок: отмена и возврат ───
-  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs}),
-    [entities,traits,kinds,tasks,funcs]);
+  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals}),
+    [entities,traits,kinds,tasks,funcs,goals]);
   const restoreDoc=useCallback((d)=>{
     // Документ достраивается до нынешней записи, но НЕ переносится из
     // прежних версий: модели, собранные под старый расчёт, работать не
@@ -359,6 +376,7 @@ export default function SystemModel(){
     setEntities(normalizeAssets(d.entities));
     setTraits(Array.isArray(d.traits)?d.traits:[]);
     setKinds(d.kinds); setTasks(d.tasks); setFuncs(normalizeFuncs(d.funcs));
+    setGoals(normalizeGoals(d.goals));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -495,7 +513,7 @@ export default function SystemModel(){
       restoreDoc({
         entities:w.entities||[], traits:w.traits||[],
         kinds:(w.kinds&&w.kinds.length)?w.kinds:KINDS0,
-        tasks:w.tasks||[], funcs:w.funcs,
+        tasks:w.tasks||[], funcs:w.funcs, goals:w.goals||[],
       });
     }).catch(()=>{});
   },[me.solo,me.isOwner,restoreDoc]);
@@ -557,6 +575,7 @@ export default function SystemModel(){
       kinds:arr(s.data?.kinds,docRef.current.kinds,true),
       tasks:arr(s.data?.tasks,docRef.current.tasks),
       funcs:fs,
+      goals:normalizeGoals(arr(s.data?.goals,docRef.current.goals)),
     };
     restoreDoc(loaded);
     savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -609,6 +628,7 @@ export default function SystemModel(){
         kinds:arr(s.data?.kinds,kinds,true),
         tasks:arr(s.data?.tasks,tasks),
         funcs:fs,
+        goals:normalizeGoals(arr(s.data?.goals,goals)),
       };
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -672,9 +692,6 @@ export default function SystemModel(){
   /* План под каждую цель: что нужно сделать и сколько это займёт.
      Прогноз отвечает «куда придём сами», план — «что для этого сделать»;
      оба считаются из одних и тех же функций, поэтому разойтись не могут. */
-  const plans=useMemo(()=>traits.filter(t=>t.want!=null)
-    .map(t=>({t,...solveRange({traits,funcs},{trait:t.id,runsOf})})),
-  [traits,funcs,runsOf]);
   const valuesFor=useCallback((tid)=>{
     const at=Math.min(simMonth,span);
     return {lo:fc.lo[tid]?.[at]??0,hi:fc.hi[tid]?.[at]??0,
@@ -683,9 +700,19 @@ export default function SystemModel(){
 
   const selE=ent(sel);
   const workers=useMemo(()=>workersOf(entities,sel),[entities,sel]);
+  /* Нажали на стрелку передачи — открываем функцию, которая её рисует:
+     выбираем её актив, уходим на «Управление» и просим карточку раскрыть
+     именно эту функцию. Иначе от стрелки до её причины пришлось бы идти
+     руками через актив и вкладку, гадая, какая из функций это делает. */
+  const openFuncCard=useCallback((fid)=>{
+    const f=funcs.find(x=>x.id===fid); if(!f) return;
+    setSel(f.e);
+    setUnder("edit");
+    setFocus({kind:"func",id:fid,n:Date.now()});
+  },[funcs]);
+
   const assetOk=useCallback((id)=>checkAsset(id,{funcs,traits,entities}).ok,
     [funcs,traits,entities]);
-  const goals=traits.filter(t=>t.want!=null);
 
   return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
@@ -800,7 +827,8 @@ export default function SystemModel(){
         <SchemeSVG entities={entities} traits={traits} funcs={funcs} moves={moves}
           zoom={zoom} sel={sel} valuesFor={valuesFor}
           onSelectEntity={id=>setSel(id)} onMoveEntity={moveE}
-          assetOk={assetOk} onWhy={(kind,id)=>setWhy({kind,id})}/>
+          assetOk={assetOk} onWhy={(kind,id)=>setWhy({kind,id})}
+          onOpenFunc={openFuncCard}/>
 
         {/* Под схемой две вкладки: чем схема собрана и куда она идёт.
             Ползунок месяца — общий на обе: он стоит над ними, потому что
@@ -836,48 +864,13 @@ export default function SystemModel(){
               entities={entities} kinds={kinds} kindOf={kindOf}
               people={people} nameOf={personName} runsOf={runsOf}
               tasks={tasks} onOrderWorker={orderWorker} onOpenPerson={setPerson}
+              focus={focus}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}
-              onDeleteTrait={delTrait}/>
+              onDeleteTrait={delTrait}
+              onUpKind={upK} onAddKind={addKind} onDelKind={id=>setKindMsg(delKind(id))}
+              kindMsg={kindMsg}/>
           </div>)}
-
-        {/* Классификации ресурсов — под карточкой актива: тип задаётся
-            ресурсу при создании, значит набор типов должен быть рядом. Но
-            под спойлером: правят их редко, а место они занимали всегда. */}
-        {under==="edit" && (
-        <div style={{...S.card,marginTop:10}}>
-          <button style={{background:"none",border:"none",padding:0,width:"100%",
-            textAlign:"left",cursor:"pointer",color:C.muted}}
-            aria-expanded={kindsOpen} onClick={()=>setKindsOpen(v=>!v)}>
-            <span style={S.lbl}>{kindsOpen?"▾":"▸"} классификации ресурсов</span>
-            <span style={{fontSize:10.5,color:C.muted}}> · {kinds.length}</span>
-          </button>
-          {kindsOpen&&(<>
-          <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
-            Каждый ресурс относится к одной классификации: она задаёт значок и
-            цвет. Удаление переводит её ресурсы в первую оставшуюся.
-          </div>
-          <div style={{marginTop:8}}>
-            {kinds.map(k=>(
-              <div key={k.id} className="flex flex-wrap gap-2"
-                style={{alignItems:"center",marginBottom:6}}>
-                <TxtField value={k.sign} aria-label={`значок ${k.name}`}
-                  style={{flex:"0 0 52px",textAlign:"center"}}
-                  onCommit={v=>upK(k.id,"sign",v||"•")}/>
-                <TxtField value={k.name} aria-label="название классификации"
-                  style={{flex:"1 1 130px"}} onCommit={v=>upK(k.id,"name",v)}/>
-                <input type="color" value={k.color} aria-label={`цвет ${k.name}`}
-                  onChange={e=>upK(k.id,"color",e.target.value)}
-                  style={{width:38,height:30,background:"none",border:"none"}}/>
-                <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
-                  onClick={()=>setKindMsg(delKind(k.id))}>✕</button>
-              </div>))}
-            <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-              <button style={btn(false)} onClick={addKind}>+ классификация</button>
-              {kindMsg&&<span style={{fontSize:11,color:C.muted}}>{kindMsg}</span>}
-            </div>
-          </div></>)}
-        </div>)}
 
         {/* ═══ ПРОГНОЗ — вторая подвкладка ═══ */}
         {under==="sim" && me.tabs.includes("sim") && (<div>
@@ -898,94 +891,10 @@ export default function SystemModel(){
           </div>}
         </div>
 
-        {!!goals.length&&(
-          <div style={{...S.card,marginBottom:10}}>
-            <div style={S.lbl}>цели · что для них нужно сделать</div>
-            {plans.map(({t,lo,hi})=>{
-              const r=reach(fc,t);
-              const best=hi.ok?hi:null, sure=lo.ok?lo:null;
-              const show=best||sure;
-              return (
-                <div key={t.id} style={{background:C.panel2,border:`1px solid ${C.line}`,
-                  borderRadius:8,padding:9,marginTop:8}}>
-                  <div style={{fontSize:12.5,fontWeight:700}}>{t.l}</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2,lineHeight:1.6}}>
-                    сейчас {nm(Number(t.have)||0)} {t.unit} · нужно {nm(Number(t.want))}
-                    {hi.need>0?` · не хватает ${nm(hi.need)}`:" · цель уже взята"}
-                  </div>
-
-                  {hi.need>0&&(<>
-                    <div style={{...S.lbl,marginTop:8}}>что нужно сделать</div>
-                    {!show&&(
-                      <div style={{fontSize:11.5,color:BAD,marginTop:5,lineHeight:1.6}}>
-                        {hi.missing.length
-                          ? `Цель недостижима: ресурс «${traits.find(x=>x.id===hi.missing[0])?.l
-                            ||hi.missing[0]}» не выдаёт ни одна функция. Заведите функцию, которая его производит.`
-                          : hi.looped
-                            ? "Цепочка замкнулась сама на себя: ресурс нужен для того, чтобы получить этот же ресурс. Разорвите круг или задайте начальный запас."
-                            : "Ни одна функция не выдаёт этот ресурс."}
-                      </div>)}
-                    {show&&show.steps.map(st=>{
-                      // Осторожная оценка требует больше выполнений: у неё
-                      // функция выдаёт по нижней границе. Показываем вилку.
-                      const alt=(best&&sure)?sure.steps.find(x=>x.func===st.func):null;
-                      const from=alt?Math.min(st.runs,alt.runs):st.runs;
-                      const to=alt?Math.max(st.runs,alt.runs):st.runs;
-                      return (
-                        <div key={st.func} className="flex flex-wrap gap-2"
-                          style={{alignItems:"center",padding:"4px 0",
-                            borderTop:`1px solid ${C.line}`,fontSize:11.5}}>
-                          <span style={{flex:"1 1 140px"}}>
-                            {st.name||"без названия"}
-                            <span style={{color:C.muted}}> · {ent(st.e)?.name||""}</span>
-                          </span>
-                          <span style={{color:WARN}}>
-                            {from===to?`${nm(from)} выполнений`:`${nm(from)}–${nm(to)} выполнений`}
-                          </span>
-                          <span style={{color:C.muted}}>{durText(st.calendarHours)}</span>
-                        </div>);
-                    })}
-                    {show&&(
-                      <div style={{fontSize:11.5,marginTop:8,lineHeight:1.7}}>
-                        <div>работы всего: <b style={{color:WARN}}>
-                          {best&&sure&&Math.round(best.workHours)!==Math.round(sure.workHours)
-                            ? `${durText(best.workHours)} – ${durText(sure.workHours)}`
-                            : durText(show.workHours)}</b></div>
-                        <div>займёт по самой длинной цепочке: <b style={{color:ACC}}>
-                          {best&&sure&&Math.round(best.criticalHours)!==Math.round(sure.criticalHours)
-                            ? `${durText(best.criticalHours)} – ${durText(sure.criticalHours)}`
-                            : durText(show.criticalHours)}</b></div>
-                        {!sure&&(
-                          <div style={{color:C.muted,fontSize:10.5,marginTop:3}}>
-                            Это по верхней границе вилок. По нижней цель не
-                            достигается вовсе: {lo.missing.length
-                              ? `ресурс «${traits.find(x=>x.id===lo.missing[0])?.l
-                                ||lo.missing[0]}» по ней никто не выдаёт`
-                              : lo.looped
-                                ? "цепочка замыкается сама на себя"
-                                : "выхода не хватает"}. Называть один срок,
-                            когда вилка даёт два разных ответа, нельзя.
-                          </div>)}
-                      </div>)}
-                  </>)}
-
-                  <div style={{fontSize:11,color:C.muted,marginTop:8,lineHeight:1.6}}>
-                    по прогнозу: {r.sure!=null?`наверняка к ${r.sure} мес`:"по нижней границе не достигается"}
-                    {" · "}
-                    {r.best!=null?`в лучшем случае к ${r.best} мес`:"не достигается и по верхней"}
-                    {r.fact!=null?` · по факту к ${r.fact} мес`:""}
-                  </div>
-                </div>);
-            })}
-            <div style={{fontSize:10.5,color:C.muted,marginTop:8,lineHeight:1.5}}>
-              «Что нужно сделать» разворачивается от цели назад: сколько
-              выполнений какой функции требуется, что они возьмут на входе и
-              чем эти входы произвести. То, что уже лежит в остатках, идёт в
-              дело первым. Два числа вместо одного — потому что вилка одного
-              не даёт: сколько выполнений понадобится, зависит от того, выйдет
-              выход функции по нижней границе или по верхней.
-            </div>
-          </div>)}
+        {/* Цели: сколько, чего, к какому сроку, каким темпом и какой ценой.
+            Модель отвечает тем, что из цели следует, — см. GoalsPanel. */}
+        <GoalsPanel goals={goals} setGoals={setGoals} traits={traits}
+          model={{traits,funcs}} runsOf={runsOf}/>
 
         {entities.map(en=>{
           const ts=traits.filter(t=>t.e===en.id);
@@ -1000,6 +909,14 @@ export default function SystemModel(){
                 const on=openCards.has(t.id);
                 const lo=fc.lo[t.id]||[],hi=fc.hi[t.id]||[];
                 const last=hi.length-1;
+                /* Планка на графике — только у разовой цели: у неё цель это
+                   уровень, до которого надо дорасти. У цели с темпом («один
+                   в неделю») уровня нет вовсе, и черта на графике врала бы —
+                   вместо неё сказано, сколько такой темп требует в месяц. */
+                const g=goals.find(x=>x.trait===t.id&&Number(x.qty)>0);
+                const line=g&&g.rate==="once"?Number(g.qty):null;
+                const flow=g&&g.rate!=="once"?perMonth(g):null;
+                const r=line!=null?reach(fc,t.id,line):null;
                 return (
                   <div key={t.id} style={{background:C.panel2,
                     border:`1px solid ${C.line}`,borderRadius:8,padding:9,marginBottom:6}}>
@@ -1012,12 +929,16 @@ export default function SystemModel(){
                     </div>
                     <div style={{fontSize:10.5,color:C.muted,marginTop:3}}>
                       сейчас {nm(Number(t.have)||0)} · через {span} мес
-                      {t.want!=null?` · цель ${nm(Number(t.want))}`:""}
+                      {line!=null?` · цель ${nm(line)}`:""}
+                      {flow!=null?` · цель требует ${nm(Math.round(flow*10)/10)} в месяц`:""}
+                      {r&&(r.sure!=null?` · наверняка к ${r.sure} мес`
+                        :r.best!=null?` · в лучшем случае к ${r.best} мес`
+                          :" · по прогнозу не достигается")}
                     </div>
                     {on&&(
                       <div style={{marginTop:8}}>
                         <Chart lo={lo} hi={hi} fact={fc.fact?fc.fact[t.id]:null}
-                          months={span} goalLine={t.want!=null?Number(t.want):null}
+                          months={span} goalLine={line}
                           cursorMonth={simMonth} upTo={simMonth}/>
                       </div>)}
                   </div>);

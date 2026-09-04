@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, checkFunc, checkTrait, everyOf, fromHours,
   hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
@@ -409,19 +409,70 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
     </Section>);
 }
 
+/**
+ * Классификации ресурсов — здесь же, на вкладке ресурсов.
+ *
+ * Классификация это свойство ресурса: значок и цвет, которыми он помечен.
+ * Держать её отдельно от ресурсов значило разложить одно понятие по двум
+ * местам — правишь тип, а ресурсы, которым он принадлежит, в другой
+ * вкладке. Спойлер оставлен: правят их редко, а место они занимают всегда.
+ */
+export function Kinds({ kinds, onUp, onAdd, onDel, msg }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+      <button style={{ background: "none", border: "none", padding: 0, width: "100%",
+        textAlign: "left", cursor: "pointer", color: C.muted }}
+        aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span style={S.lbl}>{open ? "▾" : "▸"} классификации ресурсов</span>
+        <span style={{ fontSize: 10.5, color: C.muted }}> · {kinds.length}</span>
+      </button>
+      {open && (<>
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+          Каждый ресурс относится к одной классификации: она задаёт значок и
+          цвет. Удаление переводит её ресурсы в первую оставшуюся.
+        </div>
+        <div style={{ marginTop: 8 }}>
+          {kinds.map((k) => (
+            <div key={k.id} className="flex flex-wrap gap-2"
+              style={{ alignItems: "center", marginBottom: 6 }}>
+              <TxtField value={k.sign} aria-label={`значок ${k.name}`}
+                style={{ flex: "0 0 52px", textAlign: "center" }}
+                onCommit={(v) => onUp(k.id, "sign", v || "•")} />
+              <TxtField value={k.name} aria-label="название классификации"
+                style={{ flex: "1 1 130px" }} onCommit={(v) => onUp(k.id, "name", v)} />
+              <input type="color" value={k.color} aria-label={`цвет ${k.name}`}
+                onChange={(e) => onUp(k.id, "color", e.target.value)}
+                style={{ width: 38, height: 30, background: "none", border: "none" }} />
+              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+                onClick={() => onDel(k.id)}>✕</button>
+            </div>))}
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+            <button style={btn(false)} onClick={onAdd}>+ классификация</button>
+            {msg && <span style={{ fontSize: 11, color: C.muted }}>{msg}</span>}
+          </div>
+        </div>
+      </>)}
+    </div>);
+}
+
 /* ═══ 3. РЕСУРСЫ ═══
-   Ресурс — это то, что есть: сколько его сейчас и сколько нужно. Сам он не
-   меняется — его берут и выдают функции, поэтому здесь нет ни стрелок, ни
-   формул: только величина, цель и тип. */
+   Ресурс — это то, что есть: сколько его сейчас. Сам он не меняется — его
+   берут и выдают функции, поэтому здесь нет ни стрелок, ни формул: только
+   величина и тип.
+
+   Цели здесь тоже нет, и это осознанно. Поле «сколько нужно» обедняло
+   цель до числа, а цель — это ещё темп («один клиент В НЕДЕЛЮ»), срок и
+   цена. Всё это живёт в «Прогнозе», где считается; здесь ему места нет. */
 export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open, setOpen,
-  onWhy, onDelete }) {
+  onWhy, onDelete, onUpKind, onAddKind, onDelKind, kindMsg }) {
   const mine = traits.filter((t) => t.e === entityId);
   const [draft, setDraft] = useState("");
   const up = (id, patch) => setTraits((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   const add = (kindId) => {
     if (!draft.trim()) return;
     const t = { id: `t${Date.now().toString(36)}`, e: entityId, k: kindId, l: draft.trim(),
-      unit: "ед.", have: 0, want: null };
+      unit: "ед.", have: 0 };
     setTraits((p) => [...p, t]);
     setDraft(""); setOpen(t.id);
   };
@@ -442,7 +493,6 @@ export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open
             summary={<>
               <span style={{ color: k.color }}>{k.sign} {k.name}</span>
               {` · есть ${nm(Number(t.have) || 0)} ${t.unit || ""}`}
-              {t.want != null ? ` · нужно ${nm(Number(t.want))}` : ""}
               {` · выдают ${made}, берут ${used}`}
             </>}>
             <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
@@ -454,11 +504,6 @@ export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open
                 <div style={S.lbl}>единица</div>
                 <TxtField value={t.unit || ""} onCommit={(v) => up(t.id, { unit: v })} />
               </div>
-              <div style={{ flex: "1 1 110px" }}>
-                <div style={S.lbl}>нужно (цель)</div>
-                <NumField value={t.want} placeholder="без цели"
-                  onCommit={(v) => up(t.id, { want: v })} />
-              </div>
             </div>
             <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
               {kinds.map((x) => (
@@ -467,8 +512,9 @@ export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open
                   {x.sign} {x.name}</button>))}
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-              Ресурс сам себя не меняет: его берут и выдают функции. Цель —
-              это планка, до которой прогноз должен его довести.
+              Ресурс сам себя не меняет: его берут и выдают функции. Цель по
+              нему ставится в «Прогнозе»: у неё есть темп, срок и цена, и
+              одним числом здесь она не выражается.
             </div>
           </Card>);
       })}
@@ -480,6 +526,9 @@ export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open
             fontSize: 11, padding: "3px 7px" }} onClick={() => add(k.id)}>
             + {k.sign} {k.name}</button>))}
       </div>
+      {onUpKind && (
+        <Kinds kinds={kinds} onUp={onUpKind} onAdd={onAddKind} onDel={onDelKind}
+          msg={kindMsg} />)}
     </Section>);
 }
 
@@ -490,6 +539,16 @@ export default function AssetPanel(props) {
   const [tab, setTab] = useState("funcs");
   const [openFunc, setOpenFunc] = useState(null);
   const [openTrait, setOpenTrait] = useState(null);
+  /* Снаружи можно попросить открыть конкретную функцию — так работает
+     нажатие на стрелку передачи в схеме. Просьба приходит с меткой `n`:
+     без неё повторное нажатие на ту же стрелку ничего бы не сделало, ведь
+     значение не изменилось. */
+  const focus = props.focus;
+  useEffect(() => {
+    if (!focus || focus.kind !== "func") return;
+    setTab("funcs");
+    setOpenFunc(focus.id);
+  }, [focus?.id, focus?.n, focus?.kind]);
   const mineFuncs = props.funcs.filter((f) => f.e === props.entityId).length;
   const mineTraits = props.traits.filter((t) => t.e === props.entityId).length;
   const workers = WORKER_KINDS
@@ -521,6 +580,8 @@ export default function AssetPanel(props) {
         <Traits entityId={props.entityId} traits={props.traits} setTraits={props.setTraits}
           funcs={props.funcs} kinds={props.kinds} kindOf={props.kindOf}
           open={openTrait} setOpen={setOpenTrait}
-          onWhy={props.onWhyTrait} onDelete={props.onDeleteTrait} />)}
+          onWhy={props.onWhyTrait} onDelete={props.onDeleteTrait}
+          onUpKind={props.onUpKind} onAddKind={props.onAddKind}
+          onDelKind={props.onDelKind} kindMsg={props.kindMsg} />)}
     </div>);
 }

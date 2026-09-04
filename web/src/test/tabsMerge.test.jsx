@@ -11,10 +11,10 @@ const expandCards = (container) => {
 };
 
 
-/* Разделов шесть, и всё, что относится к активу, живёт на «Схеме»: его
-   воркеры, функции и ресурсы, а под ними — классификации. Цель ресурса
-   задаётся там же, в его карточке, а «Прогноз» её только показывает: два
-   места для одного и того же разъехались бы. */
+/* Всё, что относится к активу, живёт на «Схеме»: его воркеры, функции и
+   ресурсы, а классификации — там же, где ресурсы, потому что классификация
+   это свойство ресурса. Цель у ресурса не хранится: она задаётся в
+   «Прогнозе», где у неё есть темп, срок и цена. */
 
 let container;
 beforeEach(() => { ({ container } = render(<SystemModel />)); });
@@ -68,6 +68,7 @@ describe("классификации — на «Схеме»", () => {
     tab("Схема");
     const before = dump().kinds.length;
     tab("Схема");
+    assetTab("Ресурсы");
     fireEvent.click(screen.getByRole("button", { name: /классификации ресурсов/ }));
     fireEvent.click(screen.getByRole("button", { name: "+ классификация" }));
     expect(dump().kinds.length).toBe(before + 1);
@@ -99,28 +100,68 @@ describe("три части актива — одинаковыми формам
   });
 });
 
-describe("цель ресурса", () => {
-  it("задаётся в карточке ресурса и уезжает в модель", () => {
+describe("цель", () => {
+  it("у ресурса её нет — она задаётся в «Прогнозе»", () => {
+    // Полем «сколько нужно» цель обеднялась до числа: ни темпа, ни срока,
+    // ни цены в нём не выражалось.
     tab("Схема");
     assetTab("Ресурсы");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[0]);
-    const want = screen.getByPlaceholderText("без цели");
-    fireEvent.change(want, { target: { value: "999" } });
-    fireEvent.blur(want);
-    expect(dump().traits.some((t) => Number(t.want) === 999)).toBe(true);
+    expect(screen.queryByPlaceholderText("без цели")).toBeNull();
   });
 
-  it("«Прогноз» показывает цели, план под них и два срока", () => {
+  it("«Прогноз» показывает цели и что из них следует", () => {
     tab("Схема"); tab("Прогноз");
-    expect(screen.getByText("цели · что для них нужно сделать")).toBeTruthy();
-    expect(screen.getAllByText("что нужно сделать").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/в лучшем случае|не достигается/).length)
-      .toBeGreaterThan(0);
+    expect(screen.getByText("цели")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "+ цель" })).toBeTruthy();
+    // Свёрнутая цель называет себя целиком: «10 … в неделю · через 3 мес».
+    expect(screen.getByText(/в неделю · через 3 мес/)).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+    expect(screen.getByText("что из этого следует")).toBeTruthy();
+  });
+
+  it("цель уезжает в модель отдельной частью документа", () => {
+    tab("Схема"); tab("Прогноз");
+    const m = dump();
+    expect(Array.isArray(m.goals)).toBe(true);
+    expect(m.goals.length).toBeGreaterThan(0);
+    expect(m.goals[0]).toMatchObject({ trait: expect.any(String), rate: expect.any(String) });
   });
 
   it("ресурс без цели тоже показан — карточкой прогноза", () => {
     tab("Схема"); tab("Прогноз");
     // «заявки» — ресурс без планки: он в списке своего актива.
     expect(screen.getAllByText("заявки").length).toBeGreaterThan(0);
+  });
+});
+
+describe("стрелка передачи ведёт к своей функции", () => {
+  it("нажатие на стрелку открывает функцию, которая её рисует", () => {
+    // Стрелку рисует функция — значит по стрелке до неё и надо доходить.
+    // Прежде передачу было видно, а дотянуться до её причины приходилось
+    // через актив и вкладку, гадая, какая из функций это делает.
+    tab("Схема");
+    // Заведём передачу: «Сбор заявок» выдаёт ресурс чужого актива.
+    assetTab("Функции");
+    fireEvent.click(screen.getAllByRole("button", { name: /^развернуть функции/ })[0]);
+    const give = screen.getByLabelText("выдать ресурс");
+    const alien = [...give.options].find((o) => o.parentElement.label
+      && o.parentElement.label !== "этот актив");
+    fireEvent.change(give, { target: { value: alien.value } });
+
+    // Уходим на другой актив, чтобы было видно, что нажатие переключает.
+    const other = [...container.querySelectorAll("svg text")]
+      .find((t) => t.textContent === "Рынок услуг");
+    fireEvent.pointerDown(other.closest("g"));
+    fireEvent.click(other.closest("g"));
+
+    const arrow = [...container.querySelectorAll("svg g")]
+      .find((g) => g.querySelector("title")?.textContent.includes("открыть функцию"));
+    expect(arrow).toBeTruthy();
+    fireEvent.click(arrow);
+
+    // Открылась карточка именно этой функции — со своими входами и выходами.
+    expect(screen.getByDisplayValue("Сбор заявок")).toBeInTheDocument();
+    expect(screen.getByLabelText("выдать ресурс")).toBeInTheDocument();
   });
 });

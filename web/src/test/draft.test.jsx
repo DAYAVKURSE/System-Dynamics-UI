@@ -13,6 +13,7 @@ const DOC = {
   kinds: [{ id: "growth", sign: "↑", name: "рост", color: "#3DDC97", dir: "up" }],
   funcs: [],
   tasks: [],
+  goals: [],
 };
 
 beforeEach(() => { localStorage.clear(); delete window.Telegram; });
@@ -274,7 +275,9 @@ describe("черновик и диск", () => {
     await waitFor(() => expect(screen.getByText(/Загружено/)).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
-    // Классификации теперь под спойлером: их правят редко.
+    // Классификации живут на вкладке ресурсов и под спойлером: это
+    // свойство ресурса, и правят его редко.
+    fireEvent.click(screen.getByRole("button", { name: /^Ресурсы/ }));
     fireEvent.click(screen.getByRole("button", { name: /классификации ресурсов/ }));
     expect(screen.getAllByDisplayValue("рост").length).toBeGreaterThan(0);
   });

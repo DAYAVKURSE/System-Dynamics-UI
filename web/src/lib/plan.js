@@ -172,21 +172,24 @@ export function forecast(model, { span = 24, runsOf } = {}) {
 }
 
 /**
- * Когда цель ресурса будет достигнута.
+ * На каком месяце прогноза ресурс дорастает до нужного уровня.
+ *
+ * Уровень приходит извне — из цели, а не из самого ресурса: у ресурса
+ * своего «сколько нужно» больше нет, потому что цель это не число, а
+ * намерение со сроком, темпом и ценой (см. `lib/goals.js`).
  *
  * Два ответа, а не один: «в лучшем случае» — по верхней границе, «наверняка»
  * — по нижней. Одна дата здесь была бы обещанием, которого вилка не даёт.
  */
-export function reach(fc, trait) {
-  const want = trait?.want;
-  if (want == null) return null;
+export function reach(fc, traitId, want) {
+  if (want == null || !(want > 0)) return null;
   const first = (row) => {
     if (!row) return null;
     const at = row.findIndex((v) => v >= want);
     return at < 0 ? null : at;
   };
-  return { best: first(fc.hi?.[trait.id]), sure: first(fc.lo?.[trait.id]),
-    fact: first(fc.fact?.[trait.id]) };
+  return { best: first(fc.hi?.[traitId]), sure: first(fc.lo?.[traitId]),
+    fact: first(fc.fact?.[traitId]) };
 }
 
 /**
@@ -286,27 +289,42 @@ const givesOf = (f, trait, side, runs) => f.gives
  * @param side  "lo" — осторожно (выдают по минимуму, берут по максимуму),
  *              "hi" — щедро. Разница между ними и есть честная вилка плана.
  */
-export function solve(model, { trait, want, side = "hi", runsOf, passes = 200 } = {}) {
+export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
+  useStock = true } = {}) {
   const { traits = [], funcs = [] } = model;
   const runsFor = (f) => (runsOf ? runsOf(f.id) : []);
   const target = traits.find((t) => t.id === trait);
-  const goal = num(want ?? target?.want);
-  const empty = { need: 0, steps: [], workHours: 0, criticalHours: 0,
+  const goal = num(want);
+  const empty = { need: 0, spent: {}, steps: [], workHours: 0, criticalHours: 0,
     missing: [], looped: false, ok: true };
   if (!target || !(goal > 0)) return empty;
 
-  // Остатки: то, что уже лежит, идёт в дело первым.
+  /* Остатки: то, что уже лежит, идёт в дело первым.
+
+     `useStock: false` обнуляет остаток ТОЛЬКО у самой цели. Так считается
+     цель с темпом: «один клиент в неделю» — это поток, и двадцать уже
+     имеющихся клиентов не делают работу сделанной. А запасы входов при
+     этом остаются: они настоящие, и тратятся они на самом деле. Обнулять
+     заодно и их значило бы потребовать производить то, что приходит
+     извне, — и тогда недостижимой оказалась бы любая цель. */
   const stock = {};
-  traits.forEach((t) => { stock[t.id] = num(t.have); });
+  traits.forEach((t) => {
+    stock[t.id] = !useStock && t.id === trait ? 0 : num(t.have);
+  });
   // Нехватка считается тем же остатком, что и тратится потом в цикле, —
   // иначе то, что уже есть, вычлось бы дважды, и план недосчитывал бы
   // ровно на текущее значение ресурса.
   const short = goal - Math.min(stock[trait] ?? 0, goal);
+
   if (short <= 1e-9) return { ...empty, need: 0 };
 
   const runsBy = {};                 // сколько выполнений какой функции
   const missing = new Set();
   const need = { [trait]: goal };
+  // Во что цель обходится по ресурсам: сколько каждого понадобилось всего.
+  // Считается здесь, а не после, потому что спрос набегает по кругам — то,
+  // что нужно для входа, само требует входов.
+  const spent = {};
   const producedFor = {};            // кто чей вход закрывал — для цепочки
   let looped = false;
   let guard = 0;
@@ -327,6 +345,7 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200 } 
     guard += 1;
     const want4 = need[id];
     need[id] = 0;
+    spent[id] = (spent[id] || 0) + want4;
 
     // Сначала берём из остатка — производить то, что уже есть, незачем.
     const fromStock = Math.min(stock[id] ?? 0, want4);
@@ -377,6 +396,7 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200 } 
 
   return {
     need: short,
+    spent,
     steps,
     workHours: steps.reduce((s, x) => s + x.workHours, 0),
     criticalHours: Math.max(0, ...steps.map((x) => chain(x.func))),
@@ -392,9 +412,9 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200 } 
  * Одно число здесь было бы обещанием: сколько выполнений понадобится,
  * зависит от того, по нижней границе выйдет выход функции или по верхней.
  */
-export function solveRange(model, { trait, want, runsOf } = {}) {
+export function solveRange(model, { trait, want, runsOf, useStock = true } = {}) {
   return {
-    lo: solve(model, { trait, want, side: "lo", runsOf }),
-    hi: solve(model, { trait, want, side: "hi", runsOf }),
+    lo: solve(model, { trait, want, side: "lo", runsOf, useStock }),
+    hi: solve(model, { trait, want, side: "hi", runsOf, useStock }),
   };
 }

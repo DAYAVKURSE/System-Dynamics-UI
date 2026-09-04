@@ -18,6 +18,17 @@ export const S={
     fontFamily:"ui-monospace, Menlo, monospace"},
   card:{background:C.panel,border:`1px solid ${C.line}`,borderRadius:10,padding:12},
 };
+/* Часы в понятное: 2 880 ч — это «4 мес», а не число, в котором надо
+   считать нули. Меньше суток остаётся часами: «3 ч» понятнее «0,1 дн». */
+export function durText(h){
+  const n=Number(h)||0;
+  if(n<=0) return "—";
+  if(n<24) return `${nm(Math.round(n*10)/10)} ч`;
+  if(n<168) return `${nm(Math.round(n/24*10)/10)} дн`;
+  if(n<730) return `${nm(Math.round(n/168*10)/10)} нед`;
+  return `${nm(Math.round(n/730*10)/10)} мес`;
+}
+
 export const btn=(on,col)=>({background:on?(col||ACC)+"22":C.panel2,
   border:`1px solid ${on?(col||ACC):C.line}`,color:on?(col||ACC):C.muted,borderRadius:6,
   padding:"6px 10px",fontSize:12,cursor:"pointer",whiteSpace:"nowrap"});
@@ -25,13 +36,13 @@ export const btn=(on,col)=>({background:on?(col||ACC)+"22":C.panel2,
 /* ─────── ПОЛЯ С ЧЕРНОВИКОМ ───────
    Значение уходит наружу по расфокусу или по Enter, поэтому пересчёт
    модели не дёргает ввод под пальцами. */
-export function NumField({value,onCommit,placeholder,style}){
+export function NumField({value,onCommit,placeholder,style,...rest}){
   const [d,setD]=useState(value==null?"":String(value));
   const [f,setF]=useState(false);
   useEffect(()=>{ if(!f) setD(value==null?"":String(value)); },[value,f]);
   const commit=()=>{ const s=String(d).trim().replace(",",".");
     onCommit(s===""?null:(isFinite(Number(s))?Number(s):null)); };
-  return <input inputMode="decimal" placeholder={placeholder} value={d}
+  return <input inputMode="decimal" placeholder={placeholder} value={d} {...rest}
     style={{...S.inp,...style}} onFocus={()=>setF(true)} onChange={e=>setD(e.target.value)}
     onBlur={()=>{setF(false);commit();}}
     onKeyDown={e=>{if(e.key==="Enter") e.currentTarget.blur();}}/>;

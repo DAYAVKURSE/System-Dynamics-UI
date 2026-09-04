@@ -179,14 +179,19 @@ describe("воркеры принадлежат активу", () => {
 });
 
 describe("ресурс — такая же карточка", () => {
-  it("правится значением, единицей и целью", () => {
+  it("правится значением и единицей, а цели у него нет", () => {
+    // Цель ушла с ресурса в «Прогноз»: полем «сколько нужно» она обеднялась
+    // до числа, а у цели есть ещё темп, срок и цена.
     scheme();
     assetTab("Ресурсы");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[0]);
-    const want = screen.getByPlaceholderText("без цели");
-    fireEvent.change(want, { target: { value: "42" } });
-    fireEvent.blur(want);
-    expect(dump().traits.some((t) => Number(t.want) === 42)).toBe(true);
+    expect(screen.queryByPlaceholderText("без цели")).toBeNull();
+    const box = screen.getByText("есть сейчас").parentElement;
+    const inp = box.querySelector("input");
+    fireEvent.change(inp, { target: { value: "42" } });
+    fireEvent.blur(inp);
+    expect(dump().traits.some((t) => Number(t.have) === 42)).toBe(true);
+    expect(dump().traits.every((t) => t.want === undefined)).toBe(true);
   });
 
   it("удалённый ресурс исчезает из входов и выходов функций", () => {

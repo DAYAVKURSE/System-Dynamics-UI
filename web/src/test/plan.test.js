@@ -119,18 +119,19 @@ describe("прогноз целиком", () => {
     expect(withRuns.fact.t2[3]).toBeGreaterThan(0);
   });
 
-  it("цель даёт два срока: наверняка и в лучшем случае", () => {
+  it("нужный уровень даёт два срока: наверняка и в лучшем случае", () => {
     // Одна дата здесь была бы обещанием, которого вилка не даёт.
     const fc = forecast(model, { span: 24 });
-    const r = reach(fc, { id: "t2", want: 100 });
+    const r = reach(fc, "t2", 100);
     expect(r.best).toBeLessThanOrEqual(r.sure);
     expect(r.best).toBeGreaterThan(0);
   });
 
-  it("недостижимая цель — это null, а не выдуманный месяц", () => {
+  it("недостижимый уровень — это null, а не выдуманный месяц", () => {
     const fc = forecast(model, { span: 3 });
-    expect(reach(fc, { id: "t2", want: 1e9 })).toMatchObject({ best: null, sure: null });
-    expect(reach(fc, { id: "t2", want: null })).toBeNull();
+    expect(reach(fc, "t2", 1e9)).toMatchObject({ best: null, sure: null });
+    // Уровень приходит из цели, а не из ресурса: нет цели — нечего и считать.
+    expect(reach(fc, "t2", null)).toBeNull();
   });
 });
 
