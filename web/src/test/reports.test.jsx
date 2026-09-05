@@ -286,6 +286,28 @@ describe("карта в форме", () => {
     expect(d.family.map((u) => u.id)).toEqual(["s1~t2", "s3~t2"]);
   });
 
+  it("сказано, на сколько единиц дана оценка", () => {
+    /* Без этого план читается как «столько будет всего», и четыре договора,
+       прошедшие цепочку, выглядят одним договором, прогнанным четырежды. */
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect(screen.getByText(/оценка на/)).toBeInTheDocument();
+    // Поле числовое по клавиатуре, но текстовое по разметке: значение строкой.
+    expect(screen.getByLabelText("на сколько единиц: Макеты")).toHaveValue("1");
+    expect(screen.getByText(/дальше всё посчитано на это число/))
+      .toBeInTheDocument();
+  });
+
+  it("оценка пересчитывается на заданное число единиц", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    const qty = screen.getByLabelText("на сколько единиц: Макеты");
+    fireEvent.change(qty, { target: { value: "3" } });
+    fireEvent.blur(qty);
+    // Три заявки — три выполнения, а не одно, повторённое трижды.
+    expect(screen.getByText(/по плану выполнений 3/)).toBeInTheDocument();
+  });
+
   it("видно, НАД ЧЕМ работала задача: этим выполнения и отличаются", () => {
     /* Четыре «Собрать макет» одинаковы только на вид: они сделаны над
        разными вещами. Пока этого не видно, список читается как повтор

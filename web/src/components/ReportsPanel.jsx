@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, nm, TxtField } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
 import { putShare } from "../identity.js";
@@ -158,7 +158,9 @@ function Steps({ plan, tasks, funcName, personName, units, unit, traitName }) {
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
               по плану выполнений {nm(s.runs)}
-              {made[s.func] ? ` · задач заведено ${made[s.func]}` : " · задач ещё нет"} ·
+              {made[s.func]
+                ? ` · задач заведено ${made[s.func]} (по всем вещам)`
+                : " · задач ещё нет"} ·
               начнётся через {timeText(s.startHours)} · займёт {timeText(s.calendarHours)}
             </div>
           </div>
@@ -437,6 +439,21 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
         {!!node.trait && (<>
           {/* ═══ 1. ГРАФИКИ ═══ */}
           <Part n={1} title="как изменятся ресурсы">
+            {/* НА СКОЛЬКО единиц дана оценка. Без этой строки план читается
+                как «столько будет всего», и человек справедливо недоумевает:
+                четыре договора прошли цепочку, а в плане одно выполнение.
+                План — на ОДИН договор; четыре договора это четыре таких
+                прохода, а не один, повторённый четырежды. */}
+            <div className="flex flex-wrap gap-2"
+              style={{ alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 10.5, color: C.muted }}>оценка на</span>
+              <NumField value={node.qty || 1} style={{ flex: "0 1 70px" }}
+                aria-label={`на сколько единиц: ${node.name || "без названия"}`}
+                onCommit={(v) => up({ qty: Math.max(1, Number(v) || 1) })} />
+              <span style={{ fontSize: 10.5, color: C.muted }}>
+                {traitName(node.trait)} · дальше всё посчитано на это число
+              </span>
+            </div>
             <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
               работы {nm(plan.lo.workHours)}–{nm(plan.hi.workHours)} ч ·
               займёт {rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours)}
