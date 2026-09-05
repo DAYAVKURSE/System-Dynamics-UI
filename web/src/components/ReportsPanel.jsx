@@ -147,7 +147,16 @@ function Steps({ plan, tasks, funcName, personName }) {
 
       {!!tasks.length && (<>
         <div style={{ ...S.lbl, margin: "10px 0 4px" }}>заведённые задачи</div>
-        {tasks.map((t) => (
+        {/* По времени: выполнения одной функции — это последовательность, и
+            читать её надо сверху вниз, а не в том порядке, в каком они
+            попали в модель. */}
+        {[...tasks].sort((a, b) => {
+          const at = (t) => {
+            const ms = t.start || t.end ? new Date(t.start || t.end).getTime() : NaN;
+            return Number.isNaN(ms) ? Infinity : ms;
+          };
+          return at(a) - at(b);
+        }).map((t) => (
           <div key={t.id} className="flex flex-wrap gap-2"
             style={{ alignItems: "center", padding: "4px 0",
               borderTop: `1px solid ${C.line}` }}>
