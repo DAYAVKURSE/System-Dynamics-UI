@@ -42,7 +42,16 @@ export const rangeTimeText = (lo, hi) => (Math.abs(num(lo) - num(hi)) < 1e-9
 export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } = {}) {
   if (!node) return null;
   const chain = chainOf(model, { from: node.trait, upto: node.upto });
-  const plan = estimateRange(model, chain, { runsOf, qty: node.qty || 1 });
+  /* Прежняя запись с одной единицей читается как список из одного: отчёт
+     не должен зависеть от того, прошла запись приведение или ещё нет. */
+  const picked = [...new Set([
+    ...(Array.isArray(node.units) ? node.units : []),
+    ...(node.unit ? [node.unit] : []),
+  ].filter(Boolean))];
+  const plan = estimateRange(model, chain, { runsOf,
+    // Выбраны конкретные единицы — считаем на них; иначе на заданное число.
+    qty: picked.length || node.qty || 1,
+    tweaks: node.tweaks || {} });
 
   /* ─── отчёт про ОДНУ единицу ───
 
@@ -55,17 +64,26 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
      было бы догадкой с видом знания: рядом идёт чужая работа, и время у
      неё то же самое. */
   const all = unitsOf(model);
-  const unit = node.unit ? all.find((u) => u.id === node.unit) || null : null;
-  const family = unit ? descendantsOf(all, unit.id) : null;
+  /* Единиц может быть несколько: прослеживают и «вот этот договор», и «вот
+     эти три». Родословная считается по каждой и складывается — вместе они
+     и есть та работа, о которой спрашивают. */
+  const chosen = picked.map((id) => all.find((u) => u.id === id)).filter(Boolean);
+  const seen = new Set();
+  const family = chosen.length
+    ? chosen.flatMap((u) => descendantsOf(all, u.id))
+      .filter((u) => (seen.has(u.id) ? false : (seen.add(u.id), true)))
+    : null;
   const onlyTasks = family
     ? new Set(family.map((u) => u.task).filter(Boolean)) : null;
-  const traced = !unit || family.length > 1 || hasLineage(all, unit.id);
+  const traced = !chosen.length
+    || family.length > chosen.length
+    || chosen.some((u) => hasLineage(all, u.id));
 
   const actual = actualOf(model, chain, { only: onlyTasks });
-  /* Созданное по выбранной единице — это её родословная, а не пересечение
-     с цепочкой: сама она сделана функцией, которая лежит ДО цепочки, и
-     отсеивать её значило бы выбросить из отчёта о вещи саму вещь. */
-  const made = unit ? family : madeIn(model, chain);
+  /* Созданное по выбранным единицам — это их родословная, а не пересечение
+     с цепочкой: сами они сделаны функцией, которая лежит ДО цепочки, и
+     отсеивать их значило бы выбросить из отчёта о вещи саму вещь. */
+  const made = chosen.length ? family : madeIn(model, chain);
   const factors = factorsIn(model, chain);
 
   /* Ресурсы, о которых в разделе вообще есть что сказать: те, что цепочка
@@ -92,9 +110,10 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
     made,
     factors,
     changes,
-    // Выбранная единица: она сама, из чего сделана и что из неё выросло.
-    unit,
-    parents: unit ? parentsOf(all, unit.id) : [],
+    // Выбранные единицы: они сами, из чего сделаны и что из них выросло.
+    units: chosen,
+    unit: chosen[0] || null,
+    parents: chosen.flatMap((u) => parentsOf(all, u.id)),
     family: family || [],
     /* Записана ли у единицы родословная. Не записана — числа по ней
        считать не из чего, и это сказано словами, а не пустотой. */
@@ -228,11 +247,9 @@ ${block(doc, 0)}
 }
 
 /**
- * Отдать файл человеку.
+ * Скачать файл ссылкой — обычный способ, работающий в браузере.
  *
- * Через ссылку с `download`, а не через переход по адресу: переход в
- * мини-приложении Telegram увёл бы человека со страницы, а вернуться назад
- * ему потом нечем.
+ * Возвращает адрес, чтобы вызывающий мог им распорядиться.
  */
 export function saveFile(name, text, type = "text/html;charset=utf-8") {
   const blob = new Blob([text], { type });
@@ -247,4 +264,47 @@ export function saveFile(name, text, type = "text/html;charset=utf-8") {
   // Освобождаем не сразу: часть браузеров читает ссылку уже после нажатия.
   setTimeout(() => URL.revokeObjectURL(url), 10000);
   return url;
+}
+
+/**
+ * Отдать отчёт человеку — там, где он его открыл.
+ *
+ * ─── почему одного способа мало ───
+ *
+ * В браузере файл отдаётся ссылкой с `download`, и это работает. А в
+ * мини-приложении Telegram — НЕ работает: его WebView такие ссылки на
+ * `blob:` просто игнорирует, ничего не скачивая и ничего не говоря. Кнопка
+ * выглядела нажатой и не делала ровно ничего — молчаливый отказ, худший из
+ * возможных: человек не знает, ждать ему или нажимать ещё раз.
+ *
+ * Поэтому внутри Telegram отчёт сперва кладётся на СВОЙ сервер (туда же,
+ * куда и файлы сдач) и открывается обычной ссылкой наружу — её Telegram
+ * отдаёт браузеру, и там уже и посмотреть, и сохранить. Не вышло и это —
+ * говорим словами, а не молчим.
+ *
+ * Зависимости переданы снаружи (`telegram`, `putFile`), чтобы это можно
+ * было проверить: иначе способ доставки проверялся бы только руками, а
+ * именно он и сломался.
+ */
+export async function deliverReport(name, html, { telegram, putFile, origin = "" } = {}) {
+  const tg = telegram;
+  const canOpen = tg && typeof tg.openLink === "function";
+  if (canOpen && typeof putFile === "function") {
+    const type = "text/html;charset=utf-8";
+    let file;
+    try {
+      file = new File([html], name, { type });
+    } catch {
+      // Старый WebView без конструктора File: имя кладём рядом с байтами.
+      file = Object.assign(new Blob([html], { type }), { name });
+    }
+    const saved = await putFile(file);
+    const url = saved?.url || saved?.data || "";
+    if (!url) throw new Error("файл сохранён, но адреса у него нет");
+    const base = origin || (typeof window === "undefined" ? "" : window.location.origin);
+    tg.openLink(/^https?:/.test(url) ? url : `${base}${url}`);
+    return { via: "link", url };
+  }
+  saveFile(name, html);
+  return { via: "download" };
 }

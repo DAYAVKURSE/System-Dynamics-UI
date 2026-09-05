@@ -8,7 +8,7 @@ import {
   childrenOf, dropNode, newProject, newSection, normalizeReports,
   pathOf, reportFromLocation, rootsOf, shareLink, subtree, summaryOf,
 } from "../lib/reports.js";
-import { reportHtml, reportOf } from "../lib/reportDoc.js";
+import { deliverReport, reportHtml, reportOf } from "../lib/reportDoc.js";
 
 /* ОТЧЁТЫ · карта проектов.
 
@@ -57,8 +57,11 @@ describe("запись карты", () => {
 
   it("чужая запись достраивается, а не ломается", () => {
     expect(normalizeReports([{ id: "x" }])[0])
-      .toEqual({ id: "x", parent: null, name: "", trait: "", unit: "",
-        file: null, upto: "", qty: 1 });
+      .toEqual({ id: "x", parent: null, name: "", trait: "", units: [],
+        file: null, upto: "", qty: 1, tweaks: {} });
+    // Прежняя запись с одной единицей читается как список из одного.
+    expect(normalizeReports([{ id: "x", unit: "s1~t2" }])[0])
+      .toMatchObject({ units: ["s1~t2"], qty: 1 });
     expect(normalizeReports(null)).toEqual([]);
   });
 
@@ -215,6 +218,46 @@ describe("карта в форме", () => {
     expect(html).not.toMatch(/<script/);
   });
 
+  it("в Telegram отчёт уходит ссылкой: blob WebView просто игнорирует", async () => {
+    /* Ссылка с download внутри мини-приложения не делает НИЧЕГО и молчит об
+       этом. Поэтому там отчёт кладётся на свой сервер и открывается
+       обычной ссылкой наружу. */
+    const opened = [];
+    const put = vi.fn(async (f) => ({ name: f.name, url: "/api/reports/x/y" }));
+    const via = await deliverReport("otchet.html", "<html></html>", {
+      telegram: { openLink: (u) => opened.push(u) }, putFile: put,
+      origin: "https://example.org",
+    });
+    expect(via).toMatchObject({ via: "link" });
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(opened).toEqual(["https://example.org/api/reports/x/y"]);
+  });
+
+  it("сервер не отдал адреса — сказано словами, а не молча", async () => {
+    await expect(deliverReport("otchet.html", "<html></html>", {
+      telegram: { openLink: () => {} }, putFile: async () => ({}),
+    })).rejects.toThrow(/адреса/);
+  });
+
+  it("вне Telegram отчёт скачивается ссылкой, как и раньше", async () => {
+    const saved = [];
+    const realCreate = URL.createObjectURL;
+    URL.createObjectURL = () => "blob:отчёт";
+    URL.revokeObjectURL = () => {};
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function click() {
+      saved.push({ name: this.download });
+    };
+    try {
+      const via = await deliverReport("otchet.html", "<html></html>", {});
+      expect(via).toMatchObject({ via: "download" });
+      expect(saved).toEqual([{ name: "otchet.html" }]);
+    } finally {
+      HTMLAnchorElement.prototype.click = realClick;
+      URL.createObjectURL = realCreate;
+    }
+  });
+
   it("нажатие «Скачать отчёт» и правда отдаёт файл", () => {
     const saved = [];
     const realCreate = URL.createObjectURL;
@@ -236,19 +279,27 @@ describe("карта в форме", () => {
     }
   });
 
-  it("можно спросить не про весь ресурс, а про одну единицу", () => {
-    /* Загрузить новый ресурс — одна дорога; спросить о том, с которым уже
-       работали, — другая, и она нужна не меньше. */
-    /* Единицы есть у того, что кто-то ПРОИЗВОДИТ: «заявка» приходит со
+  it("можно спросить про несколько определённых единиц, а не про весь ресурс", () => {
+    /* Загрузить новый ресурс — одна дорога; спросить о тех, с которыми уже
+       работали, — другая, и она нужна не меньше.
+
+       Единицы есть у того, что кто-то ПРОИЗВОДИТ: «заявка» приходит со
        стороны, и различать её экземпляры нечем — для этого и загружают
-       файл. А у «макета» единицы есть, и о каждом можно спросить. */
+       файл. А у «макета» единицы есть, и спросить можно про любые. */
     render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
       ? { ...n, trait: "t2" } : n))} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    const pick = screen.getByLabelText("с какой единицей: Макеты");
-    expect([...pick.options].map((o) => o.textContent))
-      .toEqual(["весь ресурс целиком — все единицы",
-        "№2 · Второй заход (не принято)", "№1 · Макет главной"]);
+    expect(screen.getByText(/Ничего не выбрано — отчёт про весь ресурс/))
+      .toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("единица №1: Макеты"));
+    expect(screen.getByText(/Выбрано 1/)).toBeInTheDocument();
+    // Несколько — тоже: прослеживают и «вот этот договор», и «вот эти три».
+    fireEvent.click(screen.getByLabelText("единица №2: Макеты"));
+    expect(screen.getByText(/Выбрано 2/)).toBeInTheDocument();
+    // Нажали ещё раз — сняли: выбор не в один конец.
+    fireEvent.click(screen.getByLabelText("единица №1: Макеты"));
+    expect(screen.getByText(/Выбрано 1/)).toBeInTheDocument();
   });
 
   it("отчёт по единице показывает её саму и то, что из неё выросло", () => {
@@ -284,6 +335,37 @@ describe("карта в форме", () => {
     const d = reportOf(model, node, [NODES[0], node, NODES[2]], {});
     expect(d.traced).toBe(true);
     expect(d.family.map((u) => u.id)).toEqual(["s1~t2", "s3~t2"]);
+  });
+
+  it("вилки в шаге правятся прямо в отчёте — модель при этом не трогается", () => {
+    /* Отчёт нужен для прогнозирования: «а если это займёт не день, а три?».
+       Менять ради вопроса саму схему нельзя — прикидка одного раздела стала
+       бы правдой для всей модели. */
+    const model = { ...MODEL };
+    render(<Panel nodes={NODES} model={model} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    // Строка шага — та, где сказано про выполнения.
+    const stepLine = () => screen.getByText(/по плану выполнений/).textContent;
+    expect(stepLine()).toMatch(/займёт 1 дн/);
+
+    fireEvent.click(screen.getByLabelText("прикинуть иначе: Собрать макет"));
+    /* Правим обе границы: вилка «от 3 до 1» осталась бы вилкой 1…3, а
+       щедрая сторона считает по быстрой работе — и изменения было бы не
+       видно. Это не поломка, а то самое правило вилок. */
+    const from = screen.getByLabelText("время Собрать макет от");
+    const to = screen.getByLabelText("время Собрать макет до");
+    // Пусто — значит «как в модели», а не «ноль».
+    expect(from).toHaveValue("");
+    fireEvent.change(from, { target: { value: "3" } });
+    fireEvent.blur(from);
+    fireEvent.change(to, { target: { value: "3" } });
+    fireEvent.blur(to);
+
+    // Оценка пересчиталась…
+    expect(stepLine()).toMatch(/займёт 3 дн/);
+    // …а сама функция в модели осталась прежней.
+    expect(model.funcs[0].dur).toBe(1);
+    expect(model.funcs[0].durHi).toBe(1);
   });
 
   it("сказано, на сколько единиц дана оценка", () => {

@@ -2,13 +2,16 @@ import React, { useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
+import { getTelegram } from "../telegram.js";
 import { putShare } from "../identity.js";
 import {
   childrenOf, dropNode, linkTo, newProject, newSection,
   pathOf, rootsOf, shareLink, summaryOf,
 } from "../lib/reports.js";
-import { reportHtml, reportOf, rangeTimeText, saveFile, timeText } from "../lib/reportDoc.js";
+import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
+  from "../lib/reportDoc.js";
 import { chainOf } from "../lib/chain.js";
+import { DUR_UNITS } from "../lib/funcs.js";
 import { unitsOf, unitsOfTrait } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -110,7 +113,71 @@ export function ChangeChart({ rows = [], traitName }) {
    Не диаграмма Ганта: в разделе важен порядок и состояние, а не пиксельная
    длина полосы. Сперва запланированные шаги — то, что ещё предстоит, —
    потом заведённые задачи с их сроками. */
-function Steps({ plan, tasks, funcName, personName, units, unit, traitName }) {
+/* ─────── правка вилок в шаге ───────
+
+   Отчёт нужен для ПРОГНОЗИРОВАНИЯ: «а если дизайн займёт не день, а три?
+   а если из одного договора выйдет два заказа?». Ответить на это можно
+   только числами — но менять ради вопроса саму модель нельзя: прикидка
+   одного раздела стала бы правдой для всей схемы, и соседний отчёт,
+   который её не просил, посчитался бы по чужому допущению.
+
+   Поэтому правка живёт в разделе. Поле, которое не трогали, показывает
+   значение модели и пустует: так видно, что своего значения тут нет, а
+   не «здесь ноль». */
+function Tweak({ step, func, tweak, traitName, onSet }) {
+  if (!func) return null;
+  const t = tweak || {};
+  const pair = (kind, port) => {
+    const own = t[kind]?.[port.trait] || {};
+    const set = (patch) => onSet({ ...t, [kind]: { ...(t[kind] || {}),
+      [port.trait]: { ...own, ...patch } } });
+    return (
+      <div key={`${kind}-${port.id}`} className="flex flex-wrap gap-2"
+        style={{ alignItems: "center", marginTop: 4 }}>
+        <span style={{ fontSize: 10.5, color: C.muted, flex: "1 1 110px" }}>
+          {kind === "takes" ? "берёт" : "выдаёт"} {traitName(port.trait)}</span>
+        <NumField value={own.lo ?? ""} placeholder={String(port.lo)}
+          style={{ flex: "0 1 64px", fontSize: 11, padding: "3px 5px" }}
+          aria-label={`${kind === "takes" ? "берёт" : "выдаёт"} ${traitName(port.trait)} от`}
+          onCommit={(v) => set({ lo: v })} />
+        <span style={{ fontSize: 10.5, color: C.muted }}>…</span>
+        <NumField value={own.hi ?? ""} placeholder={String(port.hi)}
+          style={{ flex: "0 1 64px", fontSize: 11, padding: "3px 5px" }}
+          aria-label={`${kind === "takes" ? "берёт" : "выдаёт"} ${traitName(port.trait)} до`}
+          onCommit={(v) => set({ hi: v })} />
+      </div>);
+  };
+  return (
+    <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 6, paddingTop: 6 }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+        <span style={{ fontSize: 10.5, color: C.muted, flex: "1 1 110px" }}>
+          одно выполнение занимает</span>
+        <NumField value={t.dur ?? ""} placeholder={String(func.dur)}
+          style={{ flex: "0 1 64px", fontSize: 11, padding: "3px 5px" }}
+          aria-label={`время ${step.name} от`}
+          onCommit={(v) => onSet({ ...t, dur: v })} />
+        <span style={{ fontSize: 10.5, color: C.muted }}>…</span>
+        <NumField value={t.durHi ?? ""} placeholder={String(func.durHi)}
+          style={{ flex: "0 1 64px", fontSize: 11, padding: "3px 5px" }}
+          aria-label={`время ${step.name} до`}
+          onCommit={(v) => onSet({ ...t, durHi: v })} />
+        <select value={t.durUnit || func.durUnit} aria-label={`единица времени ${step.name}`}
+          style={{ ...S.inp, width: "auto", padding: "3px 5px", fontSize: 11 }}
+          onChange={(e) => onSet({ ...t, durUnit: e.target.value })}>
+          {Object.keys(DUR_UNITS).map((u) => (<option key={u} value={u}>{u}</option>))}
+        </select>
+      </div>
+      {(func.takes || []).map((p) => pair("takes", p))}
+      {(func.gives || []).map((p) => pair("gives", p))}
+      <div style={{ fontSize: 10, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>
+        Пусто — значение модели. Правка живёт только в этом разделе: саму
+        схему она не трогает.
+      </div>
+    </div>);
+}
+
+function Steps({ plan, tasks, funcName, personName, units, unit, traitName,
+  funcs = [], tweaks = {}, onTweak }) {
   /* Над ЧЕМ работала задача — то, что и различает выполнения одной функции.
      Четыре «Собрать макет» одинаковы только на вид: они сделаны над разными
      вещами, и пока этого не видно, список выглядит повтором одной строки.
@@ -137,6 +204,7 @@ function Steps({ plan, tasks, funcName, personName, units, unit, traitName }) {
      списке они сливаются. Номер приписывается ЗДЕСЬ, при показе: править
      сохранённое название приложение не должно — это слова человека. */
   const twins = twinNo(tasks);
+  const [openTweak, setOpenTweak] = useState(null);
   return (
     <div>
       {!plan.steps.length && (
@@ -163,6 +231,16 @@ function Steps({ plan, tasks, funcName, personName, units, unit, traitName }) {
                 : " · задач ещё нет"} ·
               начнётся через {timeText(s.startHours)} · займёт {timeText(s.calendarHours)}
             </div>
+            {onTweak && (
+              <button style={{ ...btn(!!tweaks[s.func], tweaks[s.func] ? ACC : null),
+                fontSize: 10.5, padding: "2px 6px", marginTop: 4 }}
+                aria-label={`прикинуть иначе: ${s.name}`}
+                onClick={() => setOpenTweak(openTweak === s.func ? null : s.func)}>
+                {tweaks[s.func] ? "прикидка задана" : "прикинуть иначе"}</button>)}
+            {onTweak && openTweak === s.func && (
+              <Tweak step={s} func={funcs.find((f) => f.id === s.func)}
+                tweak={tweaks[s.func]} traitName={traitName}
+                onSet={(next) => onTweak(s.func, next)} />)}
           </div>
         </div>))}
 
@@ -218,6 +296,19 @@ function Steps({ plan, tasks, funcName, personName, units, unit, traitName }) {
 }
 
 /** Один блок карты — и проект, и раздел: они устроены одинаково. */
+/* Четыре блока раздела. Объявлен снаружи Node намеренно: объявленный
+   внутри, он был бы новым типом компонента на каждый перерисовке — React
+   разбирал бы поддерево и собирал заново, а вместе с ним терялось бы
+   всё состояние внутри (открытая форма прикидки закрывалась сама собой
+   от любой правки в разделе). */
+function Part({ n, title, children }) {
+  return (
+    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+      <div style={{ ...S.lbl, marginBottom: 6 }}>{n}. {title}</div>
+      {children}
+    </div>);
+}
+
 function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   traitName, funcName, nameOf, entities }) {
   const [open, setOpen] = useState(depth < 1);
@@ -244,6 +335,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   // Единицы этого ресурса, которые уже родились из сдач: с ними работа
   // уже происходила, и о каждой можно спросить отдельно.
   const units = node.trait ? unitsOfTrait(model, node.trait) : [];
+  const picked = Array.isArray(node.units) ? node.units.filter(Boolean) : [];
   // Все единицы модели: по ним видно, над чем работала каждая задача.
   const allUnits = unitsOf(model);
   const full = chainOf(model, { from: node.trait });
@@ -260,12 +352,23 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
     setFileBusy(false);
   };
 
-  const download = () => {
-    const html = reportHtml(doc, { traitName, funcName,
-      personName: (id) => (nameOf ? nameOf(id) : id),
-      title: node.name || "Отчёт" });
-    const safe = String(node.name || "otchet").replace(/[^\wа-яА-ЯёЁ -]+/g, "").trim();
-    saveFile(`${safe || "otchet"}.html`, html);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+  const download = async () => {
+    setSaveErr(""); setSaving(true);
+    try {
+      const html = reportHtml(doc, { traitName, funcName,
+        personName: (id) => (nameOf ? nameOf(id) : id),
+        title: node.name || "Отчёт" });
+      const safe = String(node.name || "otchet").replace(/[^\wа-яА-ЯёЁ -]+/g, "").trim();
+      await deliverReport(`${safe || "otchet"}.html`, html,
+        { telegram: getTelegram(), putFile: putReportFile });
+    } catch (e) {
+      // Молчаливый отказ здесь хуже всего: человек не знает, ждать ему или
+      // нажимать ещё раз.
+      setSaveErr(e.message || "не удалось отдать отчёт");
+    }
+    setSaving(false);
   };
 
   const makeLink = async () => {
@@ -281,12 +384,6 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
     }
     setBusy(false);
   };
-
-  const Part = ({ n, title, children }) => (
-    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
-      <div style={{ ...S.lbl, marginBottom: 6 }}>{n}. {title}</div>
-      {children}
-    </div>);
 
   return (
     <div style={{ background: depth ? "transparent" : C.panel2,
@@ -324,7 +421,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             padding: "4px 6px" }}
             aria-label={`с какого ресурса: ${node.name || "без названия"}`}
             value={node.trait}
-            onChange={(e) => up({ trait: e.target.value, upto: "", unit: "" })}>
+            onChange={(e) => up({ trait: e.target.value, upto: "", units: [] })}>
             <option value="">— с какого ресурса —</option>
             {traits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
           </select>
@@ -358,17 +455,28 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             Второе без первого оставило бы человека без входа в работу, а
             первое без второго — без возможности спросить о том, что уже
             идёт. */}
-        {!!units.length && (
-          <select style={{ ...S.inp, marginTop: 6, fontSize: 11.5, padding: "4px 6px" }}
-            aria-label={`с какой единицей: ${node.name || "без названия"}`}
-            value={node.unit || ""}
-            onChange={(e) => up({ unit: e.target.value })}>
-            <option value="">весь ресурс целиком — все единицы</option>
-            {units.map((u) => (
-              <option key={u.id} value={u.id}>
-                №{u.no} · {u.title || "без названия"}
-                {u.accepted ? "" : " (не принято)"}</option>))}
-          </select>)}
+        {!!units.length && (<>
+          <div style={{ ...S.lbl, marginTop: 8 }}>
+            какие именно единицы — можно несколько</div>
+          <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+            {units.map((u) => {
+              const on = picked.includes(u.id);
+              return (
+                <button key={u.id} style={{ ...btn(on, on ? ACC : null),
+                  fontSize: 11, padding: "3px 7px" }}
+                  aria-label={`единица №${u.no}: ${node.name || "без названия"}`}
+                  onClick={() => up({ units: on ? picked.filter((x) => x !== u.id)
+                    : [...picked, u.id] })}>
+                  №{u.no} {u.title || "без названия"}
+                  {u.accepted ? "" : " ·  не принято"}</button>);
+            })}
+          </div>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+            {picked.length
+              ? `Выбрано ${picked.length} — отчёт только про них и про то, что из них выросло.`
+              : "Ничего не выбрано — отчёт про весь ресурс целиком."}
+          </div>
+        </>)}
 
         {/* Сам ресурс — файлом. Это и есть «техническое задание»: не пересказ
             своими словами, а то, что и правда пришло от заказчика. */}
@@ -480,6 +588,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <Part n={2} title="шаги и задачи во времени">
             <Steps plan={plan.hi} tasks={actual.tasks} funcName={funcName}
               units={allUnits} unit={doc.unit} traitName={traitName}
+              funcs={model.funcs || []} tweaks={node.tweaks || {}}
+              onTweak={(fid, next) => up({ tweaks: { ...(node.tweaks || {}),
+                [fid]: next } })}
               personName={(id) => (nameOf ? nameOf(id) : id)} />
           </Part>
 
@@ -543,8 +654,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <button style={{ ...btn(false), fontSize: 11 }}
             onClick={() => setNodes((p) => [...p, newSection(node.id)])}>
             + раздел внутри</button>
-          <button style={{ ...btn(true, OK), fontSize: 11 }} onClick={download}>
-            Скачать отчёт</button>
+          <button style={{ ...btn(true, OK), fontSize: 11 }} disabled={saving}
+            onClick={download}>
+            {saving ? "Готовлю…" : "Скачать отчёт"}</button>
           <button style={{ ...btn(false), fontSize: 11 }} disabled={busy}
             onClick={makeLink}>
             {busy ? "Готовлю…" : link ? "обновить ссылку" : "ссылка на этот блок"}</button>
@@ -553,6 +665,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             borderColor: "#5A2436" }}
             onClick={() => setNodes((p) => dropNode(p, node.id))}>удалить</button>
         </div>
+        {saveErr && (
+          <div style={{ fontSize: 10.5, color: BAD, marginTop: 5, lineHeight: 1.5 }}>
+            {saveErr}</div>)}
         {link && (
           <div style={{ fontSize: 10.5, color: ACC, marginTop: 5,
             wordBreak: "break-all", lineHeight: 1.5 }}>

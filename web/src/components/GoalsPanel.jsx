@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField } from "./ui.jsx";
-import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, newCost, newGoal, checkGoal, goalText,
+import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, copyGoal, newCost, newGoal, checkGoal, goalText,
   ifDone, planGoal, rateOf } from "../lib/goals.js";
 import { DUR_UNITS } from "../lib/funcs.js";
 import { newTask, nowLocal, runTitle } from "./TasksBoard.jsx";
@@ -406,13 +406,13 @@ function Apply({ goal, plan, ready, fresh, onPredict, onApply }) {
         <button style={{ ...btn(true, OK), width: "100%", padding: "9px 10px",
           fontSize: 12.5, fontWeight: 700 }}
           disabled={!can} onClick={onApply}>
-          {goal.appliedAt ? "Применить заново" : "Применить цель"}
+          {goal.appliedAt ? "Повторить отдельной целью" : "Применить цель"}
         </button>
         <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
           {!can
             ? "Применять нечего: по этой модели цель не достигается."
             : goal.appliedAt
-              ? `Цель применена ${new Date(goal.appliedAt).toLocaleString("ru-RU")}. Повторное применение заведёт ещё ${n} задач; прежние останутся как есть.`
+              ? `Цель применена ${new Date(goal.appliedAt).toLocaleString("ru-RU")}. Повтор заведёт ОТДЕЛЬНУЮ цель со своими ${n} задачами — два применения это два разных решения, и в списке они стоят двумя строками.`
               : `Заведёт ${n} задач в «Ожидает постановки» и включит цель в графики. Один круг работы: следующий заводится, когда этот закрыт.`}
         </div>
       </>)}
@@ -564,23 +564,49 @@ function Schedule({ plan }) {
  * Список целей. Живёт в «Прогнозе»: цель — это вопрос к будущему модели, а
  * не свойство ресурса.
  */
-export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onTasks }) {
+export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onTasks,
+  onDropGoal }) {
   const [open, setOpen] = useState(null);
   const set = (id, patch) => setGoals((p) => p.map((g) => (g.id === id ? { ...g, ...patch } : g)));
-  const del = (id) => { setGoals((p) => p.filter((g) => g.id !== id)); setOpen(null); };
-  /* Применение — это задачи. Всё остальное («включить в графики») следует
-     из отметки `appliedAt`, а вот работа должна появиться на доске: цель,
-     после которой никто ничего не делает, ничего и не меняет. */
+  /* Удаление цели — это не только строка из списка. Цель влияла на прогноз
+     (её выполнения шли в расчёт) и завела работу; уходит цель — уходит и
+     то, и другое, иначе в модели остались бы числа и задачи, которых уже
+     никто не просил. Прогноз пересчитывается сам: он считается по
+     применённым целям, и стоит убрать одну — он считается заново без неё. */
+  const del = (id) => { onDropGoal?.(id); setGoals((p) => p.filter((g) => g.id !== id)); setOpen(null); };
+
+  /* ─────── цель применяется ОДИН раз ───────
+
+     Прежде «Применить заново» дописывало ещё столько же задач к той же
+     цели. Это было неправильно: два применения — это два разных решения с
+     разными сроками и разными результатами, и в списке целей они должны
+     стоять двумя строками. Одной строкой они сливались в неразличимую
+     кучу задач, а спросить «что дала вот эта цель» стало нельзя ни про
+     одну из них.
+
+     Поэтому повторное применение заводит НОВУЮ цель — копию, со своим
+     сроком применения и своей работой. Прежняя остаётся как была. */
   const apply = (goal, plan) => {
+    const fresh = goal.appliedAt ? copyGoal(goal) : goal;
     /* Номер выполнения считает `scheduleOf`, а называет его `runTitle`:
        четыре выполнения одной функции — четыре разные задачи. */
     const tasks = (plan.schedule || []).map((r) => ({
       ...newTask({ funcId: r.func, title: runTitle(r),
         start: nowLocal(r.start), end: nowLocal(r.end) }),
-      goalId: goal.id,
+      goalId: fresh.id,
     }));
     onTasks?.(tasks);
-    set(goal.id, { appliedAt: new Date().toISOString() });
+    const at = new Date().toISOString();
+    if (fresh === goal) { set(goal.id, { appliedAt: at }); return; }
+    // Копия встаёт сразу за прежней: рядом видно, что это повтор, а не
+    // случайно похожая цель, заведённая когда-то отдельно.
+    setGoals((p) => {
+      const i = p.findIndex((g) => g.id === goal.id);
+      const next = [...p];
+      next.splice(i < 0 ? p.length : i + 1, 0, { ...fresh, appliedAt: at });
+      return next;
+    });
+    setOpen(fresh.id);
   };
   const add = () => {
     const g = newGoal(traits[0]?.id || "");

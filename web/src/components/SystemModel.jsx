@@ -1166,7 +1166,13 @@ export default function SystemModel(){
             Модель отвечает тем, что из цели следует, — см. GoalsPanel. */}
         <GoalsPanel goals={goals} setGoals={setGoals} traits={traits}
           model={{traits,funcs}} runsOf={runsOf}
-          onTasks={list=>setTasks(p=>[...p,...list])}/>
+          onTasks={list=>setTasks(p=>[...p,...list])}
+          onDropGoal={id=>setTasks(p=>p.filter(t=>(
+            /* Уходит цель — уходит и заведённая ею работа. Кроме уже
+               СДЕЛАННОЙ: принятая сдача это то, что и правда произошло, и
+               стирать её значило бы переписать прошлое — а заодно и факт в
+               прогнозе, который по ней и посчитан. */
+            t.goalId!==id||t.status==="done"||(t.submissions||[]).length>0)))}/>
 
         {entities.map(en=>{
           const ts=traits.filter(t=>t.e===en.id);

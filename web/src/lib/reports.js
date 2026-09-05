@@ -46,32 +46,50 @@ const str = (v) => (v == null ? "" : String(v));
 
 /** Проект — корень карты: у него нет родителя. */
 export const newProject = (name = "новый проект") => ({
-  id: nextId("rp"), parent: null, name, trait: "", unit: "", file: null, upto: "", qty: 1,
+  id: nextId("rp"), parent: null, name, trait: "", units: [], file: null,
+  upto: "", qty: 1, tweaks: {},
 });
 
 /** Раздел — тот же блок, только внутри другого. */
 export const newSection = (parent, name = "новый раздел") => ({
   id: nextId("rs"), parent: parent ?? null, name,
-  trait: "", unit: "", file: null, upto: "", qty: 1,
+  trait: "", units: [], file: null, upto: "", qty: 1, tweaks: {},
 });
 
 /* Поля `brief` и `picks` не читаются и не сохраняются. Пересказ заказа
    расходится с делом, а список пар «функция + ресурс» отвечал на вопрос
    «что показать», когда спросить надо было другое: с чего начинаем и до
    какого звена ведём. */
-export const normalizeReport = (n = {}) => ({
-  id: n.id ?? nextId("rp"),
-  parent: n.parent ?? null,
-  name: str(n.name),
-  // Ресурс, с которого раздел начинается, и он сам — файлом.
-  trait: str(n.trait),
-  unit: str(n.unit),
-  file: n.file && typeof n.file === "object" ? n.file : null,
-  // Звено, до которого прослеживаем: ресурс или функция. Пусто — до конца.
-  upto: str(n.upto),
-  // Сколько единиц пускаем в цепочку. Одна — обычный случай: одно задание.
-  qty: Number(n.qty) > 0 ? Number(n.qty) : 1,
-});
+export const normalizeReport = (n = {}) => {
+  /* Единиц может быть несколько: прослеживают не только одну вещь, но и
+     «вот эти три договора». Прежняя запись с одной единицей читается как
+     список из одного — модели, собранные до этого, ничего не теряют. */
+  const units = [...new Set([
+    ...(Array.isArray(n.units) ? n.units : []),
+    ...(n.unit ? [n.unit] : []),
+  ].map(str).filter(Boolean))];
+  return {
+    id: n.id ?? nextId("rp"),
+    parent: n.parent ?? null,
+    name: str(n.name),
+    // Ресурс, с которого раздел начинается, и он сам — файлом.
+    trait: str(n.trait),
+    units,
+    file: n.file && typeof n.file === "object" ? n.file : null,
+    // Звено, до которого прослеживаем: ресурс или функция. Пусто — до конца.
+    upto: str(n.upto),
+    /* Сколько единиц пускаем в цепочку. Выбраны конкретные — их и столько:
+       спрашивать число отдельно значило бы позволить сказать «три
+       договора» и перечислить пять. */
+    qty: units.length || (Number(n.qty) > 0 ? Number(n.qty) : 1),
+    /* Правки вилок в шагах ЭТОГО раздела: `{функция: {dur, durHi, durUnit,
+       takes: {ресурс: {lo, hi}}, gives: {…}}}`. Отчёт — место для
+       прикидки: «а если дизайн займёт не день, а три?». Менять ради этого
+       саму модель нельзя — прикидка одного раздела стала бы правдой для
+       всей схемы. */
+    tweaks: n.tweaks && typeof n.tweaks === "object" ? n.tweaks : {},
+  };
+};
 
 export const normalizeReports = (list) =>
   (Array.isArray(list) ? list.map(normalizeReport) : []);

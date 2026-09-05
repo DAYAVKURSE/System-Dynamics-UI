@@ -227,12 +227,45 @@ describe("применение цели", () => {
     expect(new Set(sameFunc.map((t) => t.title)).size).toBe(sameFunc.length);
   });
 
-  it("применённая цель называет себя применённой и предлагает повтор", () => {
+  it("применённая цель называет себя применённой, а повтор — отдельная цель", () => {
+    /* Два применения это два разных решения: свои сроки, своя работа, свой
+       результат. Одной строкой они сливались в неразличимую кучу задач. */
+    const before = dump().goals.length;
     openGoal();
     fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     fireEvent.click(screen.getByRole("button", { name: "Применить цель" }));
     expect(screen.getByText("· применена")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Применить заново" })).toBeInTheDocument();
+
+    const repeat = screen.getByRole("button", { name: "Повторить отдельной целью" });
+    expect(repeat).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Применить заново" })).toBeNull();
+    fireEvent.click(repeat);
+
+    const m = dump();
+    // В списке целей их теперь две, и у каждой своя работа.
+    expect(m.goals.length).toBe(before + 1);
+    const ids = m.goals.filter((g) => g.appliedAt).map((g) => g.id);
+    expect(ids).toHaveLength(2);
+    ids.forEach((id) => {
+      expect(m.tasks.filter((t) => t.goalId === id).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("удаление цели уносит её незакрытую работу, а сделанное оставляет", () => {
+    openGoal();
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
+    fireEvent.click(screen.getByRole("button", { name: "Применить цель" }));
+    const applied = dump().goals.find((g) => g.appliedAt);
+    expect(dump().tasks.some((t) => t.goalId === applied.id)).toBe(true);
+
+    // `dump()` уходит в «Инструменты» и возвращается на «Управление» —
+    // до целей надо дойти заново.
+    openGoal();
+    fireEvent.click(screen.getAllByRole("button", { name: "удалить цель" })[0]);
+    const m = dump();
+    expect(m.goals.some((g) => g.id === applied.id)).toBe(false);
+    // Работа, которой никто уже не просит, уходит вместе с целью.
+    expect(m.tasks.some((t) => t.goalId === applied.id)).toBe(false);
   });
 });
 
