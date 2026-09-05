@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario } from "../storage.js";
-import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote }
+import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
+  takeTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
@@ -995,7 +996,8 @@ export default function SystemModel(){
         <TasksBoard funcs={funcs} entities={entities} traits={traits}
           tasks={myTasks} setTasks={setTasks}
           openId={openTask} setOpenId={setOpenTask}
-          people={people} canAssign={me.isOwner} nameOf={personName}/>)}
+          people={people} canAssign={me.isOwner} nameOf={personName}
+          onTake={t=>{ takeTaskRemote(t.id).catch(()=>{}); }}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (

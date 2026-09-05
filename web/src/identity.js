@@ -100,6 +100,8 @@ export const removeUser = (id) =>
 export const getWorkspace = () => json("/api/workspace");
 export const putWorkspace = (model) =>
   json("/api/workspace", { method: "PUT", body: JSON.stringify({ model }) });
+export const takeTaskRemote = (id) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(id)}/take`, { method: "POST" });
 export const submitTaskRemote = (id, submission) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/submit`,
     { method: "POST", body: JSON.stringify(submission) });

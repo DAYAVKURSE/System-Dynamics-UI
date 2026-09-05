@@ -745,7 +745,7 @@ function Comments({task,onAdd,onDrop}){
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTasks,
-  openId,setOpenId,nameOf}){
+  openId,setOpenId,nameOf,onTake}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
   /* Двигать задачи по доске нельзя, и стрелок здесь нет. У исполнителя два
@@ -756,8 +756,15 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
 
      Непоставленных задач тут нет вовсе: они ждут постановщика во вкладке
      «Проверка», и на доске исполнителя им нечего делать. */
-  const take=(t)=>setTasks(p=>p.map(x=>x.id===t.id?{...x,taken:true,
-    status:overdue(x)?"deadline":"progress"}:x));
+  const take=(t)=>{
+    setTasks(p=>p.map(x=>x.id===t.id?{...x,taken:true,
+      status:overdue(x)?"deadline":"progress"}:x));
+    /* Взятая работа должна пережить закрытие окна. Модель целиком пишет
+       владелец, поэтому у исполнителя для этого своя операция на сервере —
+       иначе нажатие жило бы только здесь и пропадало при следующей
+       загрузке. */
+    onTake?.(t);
+  };
   // Сдача — не кнопка на карточке, а форма: сколько часов ушло и сколько
   // ресурса взяли и выдали. Поэтому «Сдать» открывает задачу.
   const hand=(t)=>setOpenId(t.id);

@@ -109,6 +109,35 @@ export function viewFor(model, { id, isOwner }) {
   };
 }
 
+/**
+ * Берёт задачу в работу — только исполнитель и только свою.
+ *
+ * Отдельная операция, а не запись модели: модель целиком пишет владелец, а
+ * взять работу должен уметь тот, кто её делает. Без этого нажатие «Взять в
+ * работу» жило бы только в его окне и пропадало при следующей загрузке —
+ * то есть доска показывала бы одно, а сервер помнил другое.
+ *
+ * Правило то же, что в интерфейсе (`autoStatus` в `TasksBoard.jsx`):
+ * просроченная задача остаётся в «Дедлайне» — от того, что за неё взялись,
+ * срок назад не отматывается.
+ */
+export async function takeTask(userId, taskId, { now = Date.now() } = {}) {
+  const model = await readModel();
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  // Взять можно то, что лежит и ждёт: сданное и принятое брать не во что.
+  if (task.status !== "backlog" && task.status !== "deadline") {
+    return { error: "not in backlog" };
+  }
+  const end = task.end ? new Date(task.end).getTime() : null;
+  const late = end != null && !Number.isNaN(end) && end < now;
+  task.taken = true;
+  task.status = late ? "deadline" : "progress";
+  await writeModel(model);
+  return { task };
+}
+
 /** Записывает сдачу — только исполнитель своей задачи. */
 export async function submitTask(userId, taskId, submission) {
   const model = await readModel();
@@ -156,6 +185,9 @@ export async function reviewTask(userId, taskId, { accept, comment, mark }) {
   const value = Number(mark);
   if (accept && !(value >= 1 && value <= 5)) return { error: "mark required" };
   task.status = accept ? "done" : "backlog";
+  // Возвращённая задача снова лежит и ждёт: её берут в работу заново, как
+  // и в интерфейсе, — иначе она вернулась бы уже взятой.
+  if (!accept) task.taken = false;
   task.reviews = [...(task.reviews || []), {
     id: "rv" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     at: new Date().toISOString(),

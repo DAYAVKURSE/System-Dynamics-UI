@@ -134,6 +134,59 @@ describe("что приходит с сервера", () => {
   });
 });
 
+describe("взять в работу через сервер", () => {
+  /* Модель целиком пишет владелец, но брать работу должен тот, кто её
+     делает: иначе нажатие «Взять в работу» жило бы только в его окне и
+     пропадало при следующей загрузке. */
+  const take = (id, who) => request(app).post(`/api/workspace/tasks/${id}/take`)
+    .set(as(who));
+
+  it("исполнитель берёт свою задачу из бэклога — она уходит в работу", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    // tk1 лежит в бэклоге у Ивана.
+    await request(app).put("/api/workspace").set(as(100)).send({ model: {
+      ...MODEL,
+      tasks: MODEL.tasks.map((t) => (t.id === "tk1" ? { ...t, status: "backlog" } : t)) } });
+    const res = await take("tk1", 200);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("progress");
+    expect(res.body.taken).toBe(true);
+    // И это сохранилось, а не осталось в ответе.
+    const got = await request(app).get("/api/workspace").set(as(200));
+    expect(got.body.tasks.find((t) => t.id === "tk1").taken).toBe(true);
+  });
+
+  it("просроченная остаётся в «Дедлайне»: срок назад не отматывается", async () => {
+    await invite(200, "executor", "Иван");
+    await request(app).put("/api/workspace").set(as(100)).send({ model: {
+      ...MODEL,
+      tasks: MODEL.tasks.map((t) => (t.id === "tk1"
+        ? { ...t, status: "backlog", end: "2020-01-01T10:00" } : t)) } });
+    expect((await take("tk1", 200)).body.status).toBe("deadline");
+  });
+
+  it("чужую задачу не взять, и взятую второй раз — тоже", async () => {
+    await saveModel();
+    await invite(300, "reviewer", "Пётр");
+    // tk1 — Ивана, и Пётр её не берёт.
+    expect((await take("tk1", 300)).status).toBe(403);
+    // А сама она уже в работе: брать нечего.
+    await invite(200, "executor", "Иван");
+    expect((await take("tk1", 200)).status).toBe(400);
+    expect((await take("нет-такой", 200)).status).toBe(404);
+  });
+
+  it("возврат из проверки снова кладёт задачу в бэклог невзятой", async () => {
+    await saveModel();
+    await invite(300, "reviewer", "Пётр");
+    const res = await request(app).post("/api/workspace/tasks/tk1/review")
+      .set(as(300)).send({ accept: false, comment: "доработать" });
+    expect(res.body.status).toBe("backlog");
+    expect(res.body.taken).toBe(false);
+  });
+});
+
 describe("сдача и приём через сервер", () => {
   it("исполнитель сдаёт свою задачу", async () => {
     await saveModel();
