@@ -3,7 +3,7 @@ import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField } from "./ui.jsx";
 import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, newCost, newGoal, checkGoal, goalText,
   ifDone, planGoal, rateOf } from "../lib/goals.js";
 import { DUR_UNITS } from "../lib/funcs.js";
-import { newTask, nowLocal } from "./TasksBoard.jsx";
+import { newTask, nowLocal, runTitle } from "./TasksBoard.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ЦЕЛИ — В ПРОГНОЗЕ, А НЕ В РЕСУРСЕ
@@ -572,8 +572,10 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
      из отметки `appliedAt`, а вот работа должна появиться на доске: цель,
      после которой никто ничего не делает, ничего и не меняет. */
   const apply = (goal, plan) => {
+    /* Номер выполнения считает `scheduleOf`, а называет его `runTitle`:
+       четыре выполнения одной функции — четыре разные задачи. */
     const tasks = (plan.schedule || []).map((r) => ({
-      ...newTask({ funcId: r.func, title: r.name || "выполнение функции",
+      ...newTask({ funcId: r.func, title: runTitle(r),
         start: nowLocal(r.start), end: nowLocal(r.end) }),
       goalId: goal.id,
     }));

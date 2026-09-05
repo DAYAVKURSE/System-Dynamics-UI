@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
-import TasksBoard, { TaskSetup, newTask, runsOfFunc } from "../components/TasksBoard.jsx";
+import TasksBoard, { TaskSetup, newTask, runsOfFunc , runTitle } from "../components/TasksBoard.jsx";
 import ReviewBoard from "../components/ReviewBoard.jsx";
+import { scheduleOf } from "../lib/plan.js";
 import React from "react";
 
 /* Правила работы с задачами: задача — это выполнение функции; в «Готово»
@@ -37,6 +38,32 @@ function Setup({ task: t0, people = PEOPLE, canAssign = true }) {
     traits={TRAITS} setTasks={setTasks} people={people} canAssign={canAssign}
     nameOf={(id) => id} />);
 }
+
+/* ОДНА ФУНКЦИЯ, ЧЕТЫРЕ ВЫПОЛНЕНИЯ — ЧЕТЫРЕ РАЗНЫЕ ЗАДАЧИ.
+
+   Одно имя функции на все четыре превращало их в неразличимые близнецы: на
+   доске не понять, какую берёшь, в отчёте они сливались, а бот слал четыре
+   одинаковых напоминания подряд — он шлёт заголовок задачи как есть. */
+describe("как называется одно выполнение", () => {
+  it("выполнения одной функции различимы по номеру", () => {
+    const rows = scheduleOf([{ func: "f1", name: "Сбор заявок", runs: 4,
+      startHours: 0, calendarHours: 4 }]);
+    expect(rows.map(runTitle)).toEqual([
+      "Сбор заявок №1 из 4", "Сбор заявок №2 из 4",
+      "Сбор заявок №3 из 4", "Сбор заявок №4 из 4"]);
+    // Ни одного повтора — иначе в чате они снова слипнутся.
+    expect(new Set(rows.map(runTitle)).size).toBe(4);
+  });
+
+  it("единственное выполнение остаётся без номера: «№1 из 1» — это шум", () => {
+    expect(runTitle({ name: "Сбор заявок", no: 1, of: 1 })).toBe("Сбор заявок");
+  });
+
+  it("функция без имени всё равно называется, а не остаётся пустой строкой", () => {
+    expect(runTitle({ name: "", no: 1, of: 1 })).toBe("выполнение функции");
+    expect(runTitle({})).toBe("выполнение функции");
+  });
+});
 
 describe("«Готово» — только через приём отчёта", () => {
   const task = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }), ...over });

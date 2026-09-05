@@ -111,11 +111,23 @@ export function ChangeChart({ rows = [], traitName }) {
    длина полосы. Сперва запланированные шаги — то, что ещё предстоит, —
    потом заведённые задачи с их сроками. */
 function Steps({ plan, tasks, funcName, personName }) {
+  /* Сколько задач уже заведено на каждый шаг. Это ответ на вопрос, который
+     иначе возникает первым: «шаг один, а задач четыре — почему?». Шаг это
+     функция, задача — одно её выполнение; план говорит, сколько выполнений
+     НУЖНО на выбранный ресурс, а заведено может быть сколько угодно — их
+     заводят цели, и не только эта. */
+  const made = {};
+  tasks.forEach((t) => { made[t.funcId] = (made[t.funcId] || 0) + 1; });
   return (
     <div>
       {!plan.steps.length && (
         <div style={{ fontSize: 11, color: C.muted }}>
           Шагов нет: с этого ресурса цепочка никуда не ведёт.</div>)}
+      {!!plan.steps.length && (
+        <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
+          Шаг — это функция; задача — одно её выполнение. Одна функция,
+          выполненная четыре раза, — это один шаг и четыре задачи.
+        </div>)}
       {plan.steps.map((s, i) => (
         <div key={s.func} style={{ display: "flex", gap: 8, padding: "5px 0",
           borderTop: i ? `1px solid ${C.line}` : "none" }}>
@@ -126,8 +138,9 @@ function Steps({ plan, tasks, funcName, personName }) {
               {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор</span>}
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-              выполнений {nm(s.runs)} · начнётся через {timeText(s.startHours)} ·
-              займёт {timeText(s.calendarHours)}
+              по плану выполнений {nm(s.runs)}
+              {made[s.func] ? ` · задач заведено ${made[s.func]}` : " · задач ещё нет"} ·
+              начнётся через {timeText(s.startHours)} · займёт {timeText(s.calendarHours)}
             </div>
           </div>
         </div>))}
@@ -238,8 +251,14 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
         <span style={{ fontSize: 10, color: C.muted }}>{root ? "проект" : "раздел"}</span>
       </div>
 
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>
-        шагов: {plan.hi.steps.length} · задач: {sum.rows} · принято: {sum.accepted} ·
+      {/* «Шаг» и «задача» — не одно и то же, и коротких слов тут мало:
+          шаг это ФУНКЦИЯ цепочки, а задача — одно её выполнение. Одна
+          функция, выполненная четыре раза, — это один шаг и четыре задачи,
+          и подпись обязана говорить это словами, а не оставлять человека
+          гадать, почему числа разные. */}
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
+        функций в цепочке: {plan.hi.steps.length} ·
+        {" "}их выполнений заведено: {sum.rows} · принято: {sum.accepted} ·
         {" "}{nm(sum.hours)} ч
       </div>
 

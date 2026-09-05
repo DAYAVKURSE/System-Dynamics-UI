@@ -179,8 +179,10 @@ describe("карта в форме", () => {
   it("шаги и факт видно сразу, без единого нажатия", () => {
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    // Шаг посчитан по модели.
-    expect(screen.getByText(/выполнений/)).toBeInTheDocument();
+    // Шаг посчитан по модели, и сказано, чем он отличается от задачи.
+    expect(screen.getByText(/по плану выполнений/)).toBeInTheDocument();
+    expect(screen.getByText(/Шаг — это функция; задача — одно её выполнение/))
+      .toBeInTheDocument();
     // Задача и созданная единица — на месте.
     expect(screen.getAllByText("Макет главной").length).toBeGreaterThan(0);
     expect(screen.getByText(/принято работ/)).toBeInTheDocument();

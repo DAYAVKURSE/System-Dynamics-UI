@@ -221,6 +221,10 @@ describe("применение цели", () => {
     expect(made[0]).toMatchObject({ status: "wait", funcId: expect.any(String) });
     expect(made[0].start).toBeTruthy();
     expect(made[0].end).toBeTruthy();
+
+    // Задачи одной функции различимы по названию (правило — в `runTitle`).
+    const sameFunc = made.filter((t) => t.funcId === made[0].funcId);
+    expect(new Set(sameFunc.map((t) => t.title)).size).toBe(sameFunc.length);
   });
 
   it("применённая цель называет себя применённой и предлагает повтор", () => {
