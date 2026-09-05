@@ -91,6 +91,43 @@ describe("актив состоит из трёх частей", () => {
   });
 });
 
+describe("новое в форме функции", () => {
+  it("вход расходуется или только обрабатывается — и это переживает выгрузку", () => {
+    /* Взять ресурс можно двумя способами. Расходует — взятое исчезает у
+       всех; не расходует — остаётся и достаётся другим, но эта функция
+       второй раз ту же единицу не берёт. */
+    addFunc();
+    const name = addPort("takes");
+    // По умолчанию расходует: молчание прежних моделей их смысла не меняет.
+    expect(screen.getByLabelText(`расходует ${name}`)).toBeChecked();
+    fireEvent.click(screen.getByLabelText(`расходует ${name}`));
+    expect(screen.getByText(/Взятое остаётся и достаётся другим функциям/))
+      .toBeInTheDocument();
+    expect(dump().funcs.pop().takes[0].spend).toBe(false);
+  });
+
+  it("у функции есть описание, и оно необязательно", () => {
+    addFunc();
+    const box = screen.getByLabelText("описание функции");
+    // Пустое описание не мешает функции быть функцией.
+    expect(box.value).toBe("");
+    fireEvent.change(box, { target: { value: "разбираем заявку и пишем ТЗ" } });
+    fireEvent.blur(box);
+    expect(dump().funcs.pop().about).toBe("разбираем заявку и пишем ТЗ");
+  });
+
+  it("«точное время» называется одинаково у работы и у попытки", () => {
+    /* Точное время и точный срок — это одно и то же, и двух имён у него
+       быть не должно. */
+    addFunc();
+    expect(screen.getByLabelText("точное время")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("когда следующая попытка"),
+      { target: { value: "every" } });
+    expect(screen.getByLabelText("точное время попытки")).toBeInTheDocument();
+    expect(screen.queryByLabelText("точный срок")).toBeNull();
+  });
+});
+
 describe("функция заводится и живёт", () => {
   it("новая функция принадлежит выбранному активу и видна в выгрузке", () => {
     const before = dump().funcs.length;

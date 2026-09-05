@@ -163,6 +163,21 @@ describe("очередь постановки", () => {
     expect(screen.queryByText("постановка задачи")).toBeNull();
   });
 
+  it("форма раскрывается ПОД своей задачей, а не общим блоком внизу", () => {
+    /* Внизу страницы она отвечала бы на вопрос «какую задачу мы сейчас
+       ставим» тем, что человек должен вспомнить сам, — а он только что на
+       неё нажал. */
+    const second = { ...waiting, id: "tk2", title: "Вторая задача" };
+    const { container } = render(<Review tasks={[waiting, second]} />);
+    fireEvent.click(screen.getByText("Задача из цели"));
+    const order = [...container.querySelectorAll("div")]
+      .map((d) => d.textContent);
+    const at = (t) => order.findIndex((x) => x.trim().startsWith(t));
+    // Форма стоит между своей задачей и следующей, а не после обеих.
+    expect(at("постановка задачи")).toBeGreaterThan(at("Задача из цели"));
+    expect(at("постановка задачи")).toBeLessThan(at("Вторая задача"));
+  });
+
   it("постановщику видно своё, а не чужое", () => {
     // Владельцу — всё: в задаче из цели постановщик ещё не назван.
     render(<Review tasks={[waiting, { ...waiting, id: "tk2", title: "Чужая",

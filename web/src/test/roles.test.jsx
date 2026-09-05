@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
 
 /* Роли решают, какие вкладки видны; задачи фильтруются по человеку.
@@ -40,6 +40,51 @@ const tabNames = (container) => [...container.querySelectorAll("button")]
 
 beforeEach(() => { localStorage.clear(); resetIdentity(); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; resetIdentity(); });
+
+describe("человек открывается окном, а не уходом со схемы", () => {
+  it("нажатие на воркера показывает анкету и рейтинг и закрывается назад", async () => {
+    /* Прежде нажатие переключало вкладку, и вернуться к активу, который
+       сейчас собирают, было некуда. */
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("/api/health")) {
+        return { ok: true, headers: { get: () => "application/json" },
+          json: async () => ({ ok: true, scenarios: true, reminders: true,
+            reports: true, org: true }) };
+      }
+      if (u.includes("/api/org/me")) {
+        return { ok: true, json: async () => ({ id: "1", isOwner: true, known: true,
+          role: null, profile: { about: "" },
+          tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] }) };
+      }
+      if (u.includes("/api/org")) {
+        return { ok: true, json: async () => ({ ownerId: "1", roles: [],
+          users: [{ id: "1", name: "Владелец" }, { id: "2", name: "Иван" }] }) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    await fresh();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Схема" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Воркеры/ }));
+    // В списке сразу все люди схемы: воркер актива — выбор из них.
+    await waitFor(() =>
+      expect(screen.getByLabelText("воркер актива: Иван")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("Иван"));
+    const box = document.querySelector("[role=dialog]");
+    expect(box).not.toBeNull();
+    expect(within(box).getByText("рейтинг и работы")).toBeInTheDocument();
+    // Чужая анкета только читается: писать там нечего.
+    expect(within(box).queryByRole("button", { name: "Сохранить анкету" })).toBeNull();
+
+    fireEvent.click(within(box).getByRole("button", { name: "закрыть" }));
+    expect(document.querySelector("[role=dialog]")).toBeNull();
+    // Схема осталась на месте: с неё никуда не уходили.
+    expect(screen.getByText("воркеры актива")).toBeInTheDocument();
+  });
+});
 
 describe("вкладки по роли", () => {
   it("владельцу видны все четыре, а «Прогноз» и «Деятельность» — под схемой", async () => {
