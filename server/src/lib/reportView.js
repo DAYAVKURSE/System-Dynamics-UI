@@ -188,12 +188,14 @@ function actualOf(model, chain, only) {
   const { tasks = [], traits = [], people = [] } = model;
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "";
   const personName = (id) => people.find((p) => String(p.id) === String(id))?.name || "";
-  const ids = new Set(chain.steps.map((f) => f.id));
   const no = unitNumbers(model);
   /* Задачи родословной берутся как есть: единица — точка отсчёта, и
      работа, которая её сделала, лежит до цепочки, а не в ней. */
-  const mine = only ? tasks.filter((t) => only.has(t.id))
-    : tasks.filter((t) => ids.has(t.funcId));
+  /* Только работа по вещам этого блока. Прежде «иначе» отдавало наружу все
+     выполнения функций цепочки — то есть работу над ЧУЖИМИ вещами, о
+     которых заказчика никто не спрашивал. Вещь не выбрана — она
+     гипотетическая, работы по ней нет, и список пуст по существу. */
+  const mine = tasks.filter((t) => only.has(t.id));
   const done = mine.filter((t) => t.status === "done");
   const delta = {};
   const made = [];
@@ -244,20 +246,33 @@ export function snapshotOf(model = {}, nodeId) {
   const rows = unitRows(model);
   const block = (n) => {
     const chain = chainOf(model, n.trait, n.upto);
-    const lo = estimate(model, chain, "lo", n.qty);
-    const hi = estimate(model, chain, "hi", n.qty);
+    /* Выбранные единицы читаются так же, как в приложении: прежняя запись с
+       одной единицей — это список из одного. Сколько выбрано, на столько и
+       оценка; не выбрано ничего — на заданное число гипотетических. */
+    const picked = [...new Set([
+      ...(Array.isArray(n.units) ? n.units.map(str) : []),
+      ...(n.unit ? [str(n.unit)] : []),
+    ].filter(Boolean))];
+    const qty = picked.length || n.qty;
+    const lo = estimate(model, chain, "lo", qty);
+    const hi = estimate(model, chain, "hi", qty);
     /* Выбрана единица — наружу уходит отчёт по НЕЙ: она сама и то, что из
        неё выросло. Родословная берётся из сдач; где её не записали, там
        остаётся одна она — догадка по датам была бы выдумкой. */
-    const family = n.unit ? familyOf(rows, str(n.unit)) : null;
-    const only = family ? new Set(family.map((r) => r.task).filter(Boolean)) : null;
+    const only = new Set(picked.flatMap((id) => familyOf(rows, id))
+      .map((r) => r.task).filter(Boolean));
     const act = actualOf(model, chain, only);
-    const self = n.unit ? rows.find((r) => r.id === str(n.unit)) : null;
+    const family = picked.flatMap((id) => familyOf(rows, id));
+    const self = picked.length ? rows.find((r) => r.id === picked[0]) : null;
     const ids = [...new Set([...Object.keys(hi.delta), ...Object.keys(lo.delta),
       ...Object.keys(act.delta)])];
     return {
       name: str(n.name),
       unit: self ? { no: self.no, trait: traitName(self.trait) } : null,
+      units: picked.map((id) => rows.find((r) => r.id === id)).filter(Boolean)
+        .map((r) => ({ no: r.no, trait: traitName(r.trait) })),
+      // Вещь ещё не заведена: оценка есть, работы по ней нет и быть не может.
+      hypothetical: !self,
       traced: !self || family.length > 1 || (self.took || []).length > 0,
       from: traitName(n.trait),
       upto: n.upto ? (traitName(n.upto) || funcName(n.upto)) : "",

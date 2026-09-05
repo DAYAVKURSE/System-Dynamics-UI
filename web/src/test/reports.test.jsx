@@ -99,6 +99,10 @@ describe("запись карты", () => {
 
 describe("отчёт раздела", () => {
   const doc = () => reportOf(MODEL, NODES[1], NODES, {});
+  /* Раздел отвечает про ВЕЩИ. Выбраны единицы — считается работа над ними;
+     не выбрано ничего — вещь гипотетическая, и работы по ней нет вовсе. */
+  const WITH = [NODES[0], { ...NODES[1], units: ["s1~t2", "s2~t2"] }, NODES[2]];
+  const docU = () => reportOf(MODEL, WITH[1], WITH, {});
 
   it("считает предварительную оценку сам: шаги, время и изменение ресурсов", () => {
     const d = doc();
@@ -108,7 +112,7 @@ describe("отчёт раздела", () => {
   });
 
   it("рядом с планом стоит факт — и только по принятым сдачам", () => {
-    const d = doc();
+    const d = docU();
     expect(d.actual.hours).toBe(4);
     expect(d.actual.done).toBe(1);
     // Непринятая сдача из виду не пропадает: она отвечает «сколько осталось».
@@ -118,14 +122,32 @@ describe("отчёт раздела", () => {
   });
 
   it("созданные ресурсы — с номерами, и только свои", () => {
-    const d = doc();
+    const d = docU();
     expect(d.made.map((u) => u.no)).toEqual([2, 1]);
     expect(d.made[1]).toMatchObject({ title: "Макет главной", accepted: true });
   });
 
-  it("сводка блока считает и то, что лежит в его разделах", () => {
-    expect(summaryOf(MODEL, NODES[0], NODES))
+  it("чужая работа в отчёт не идёт: не выбрано ничего — вещь гипотетическая", () => {
+    /* Главное правило раздела: он про ТЕ САМЫЕ вещи, а не про поток по
+       функциям цепочки. Задача, сделанная над другим договором, к вопросу
+       «что будет с этим» отношения не имеет, даже если её делала та же
+       функция. Ничего не выбрано — прослеживается гипотетическая единица:
+       оценка есть, работы нет, и это ответ, а не нехватка данных. */
+    const d = doc();
+    expect(d.hypothetical).toBe(true);
+    expect(d.actual.tasks).toEqual([]);
+    expect(d.made).toEqual([]);
+    expect(d.actual.any).toBe(false);
+    // При этом оценка считается: прогноз для вещи, которой ещё нет.
+    expect(d.plan.hi.steps.map((x) => x.func)).toEqual(["f1"]);
+  });
+
+  it("сводка блока считает то же, что и раскрытый блок", () => {
+    // Иначе свёрнутая строка обещала бы работу, которой внутри не видно.
+    expect(summaryOf(MODEL, WITH[0], WITH))
       .toMatchObject({ rows: 2, accepted: 1, hours: 4 });
+    expect(summaryOf(MODEL, NODES[0], NODES))
+      .toMatchObject({ rows: 0, accepted: 0, hours: 0 });
   });
 
   it("разрыв до звена назван, а не спрятан", () => {
@@ -179,14 +201,22 @@ describe("карта в форме", () => {
     expect(names).not.toContain("спрос");
   });
 
-  it("шаги и факт видно сразу, без единого нажатия", () => {
+  /* Узлы, где прослеживают ОПРЕДЕЛЁННЫЕ вещи: два макета с номерами. */
+  const PICKED = NODES.map((n) => (n.id === "rs1"
+    ? { ...n, trait: "t2", units: ["s1~t2", "s2~t2"] } : n));
+
+  it("шаги видно сразу, без единого нажатия", () => {
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     // Шаг посчитан по модели, и сказано, чем он отличается от задачи.
     expect(screen.getByText(/по плану выполнений/)).toBeInTheDocument();
     expect(screen.getByText(/Шаг — это функция; задача — одно её выполнение/))
       .toBeInTheDocument();
-    // Задача и созданная единица — на месте.
+  });
+
+  it("работа показана только по выбранным вещам", () => {
+    render(<Panel nodes={PICKED} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getAllByText("Макет главной").length).toBeGreaterThan(0);
     expect(screen.getByText(/принято работ/)).toBeInTheDocument();
   });
@@ -201,7 +231,7 @@ describe("карта в форме", () => {
   it("отчёт скачивается файлом — и в нём те же четыре части", () => {
     /* Отчёт собирается тем же расчётом, что и экран: двум ответам на один
        вопрос неоткуда взяться. */
-    const doc = reportOf(MODEL, NODES[1], NODES, {});
+    const doc = reportOf(MODEL, PICKED[1], PICKED, {});
     const html = reportHtml(doc, {
       traitName: (id) => MODEL.traits.find((t) => t.id === id)?.l || id,
       funcName: (id) => MODEL.funcs.find((f) => f.id === id)?.name || id,
@@ -213,7 +243,9 @@ describe("карта в форме", () => {
     expect(html).toContain("3. Созданные ресурсы");
     expect(html).toContain("4. Фактическая оценка");
     expect(html).toContain("Макет главной");
-    expect(html).toContain("с ресурса «заявка»");
+    expect(html).toContain("с ресурса «макет»");
+    // В файле сказано то же, что на экране: по каким именно вещам отчёт.
+    expect(html).toContain("по единицам №1");
     // Файл самодостаточен: ни одной ссылки наружу, чтобы он не рассыпался.
     expect(html).not.toMatch(/<script/);
   });
@@ -289,7 +321,7 @@ describe("карта в форме", () => {
     render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
       ? { ...n, trait: "t2" } : n))} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByText(/Ничего не выбрано — отчёт про весь ресурс/))
+    expect(screen.getByText(/считаем ГИПОТЕТИЧЕСКУЮ единицу/))
       .toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("единица №1: Макеты"));
@@ -394,18 +426,23 @@ describe("карта в форме", () => {
     /* Четыре «Собрать макет» одинаковы только на вид: они сделаны над
        разными вещами. Пока этого не видно, список читается как повтор
        одной строки. */
-    render(<Panel nodes={NODES} />);
+    render(<Panel nodes={PICKED} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getByText(/макет №1/)).toBeInTheDocument();
     expect(screen.getByText(/макет №2/)).toBeInTheDocument();
   });
 
-  it("сказано, что это весь поток, а не путь одной вещи", () => {
+  it("чужой работы в разделе нет: не выбрано ничего — вещь гипотетическая", () => {
+    /* Прежде тут показывался весь поток по функциям цепочки, и отчёт про
+       один договор выглядел как отчёт про восемь чужих задач. Теперь
+       раздел отвечает ровно про то, о чём спросили. */
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByText(/Здесь все выполнения функций этой цепочки/))
+    expect(screen.getByText(/прослеживается вещь, которой ещё нет в системе/i))
       .toBeInTheDocument();
-    expect(screen.getByText(/выберите единицу выше/)).toBeInTheDocument();
+    // Чужая задача и чужая единица в раздел не попали.
+    expect(screen.queryByText("Макет главной")).toBeNull();
+    expect(screen.getByText(/вещь пока гипотетическая/)).toBeInTheDocument();
   });
 
   it("одинаково названные задачи различимы в отчёте — и без правки данных", () => {
@@ -413,7 +450,7 @@ describe("карта в форме", () => {
        приложение не должно. Номер приписывается при показе. */
     const twins = { ...MODEL, tasks: MODEL.tasks.map((t, i) => ({ ...t,
       title: "Собрать макет", start: `2026-02-0${i + 1}T10:00` })) };
-    render(<Panel nodes={NODES} model={twins} />);
+    render(<Panel nodes={PICKED} model={twins} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getByText(/№1 из 2/)).toBeInTheDocument();
     expect(screen.getByText(/№2 из 2/)).toBeInTheDocument();

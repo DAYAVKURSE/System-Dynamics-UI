@@ -16,7 +16,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { actualOf, chainOf, estimateRange, factorsIn } from "./chain.js";
-import { childrenOf, madeIn, pathOf } from "./reports.js";
+import { childrenOf, pathOf, pickedOf } from "./reports.js";
 import { descendantsOf, hasLineage, parentsOf, unitsOf } from "./units.js";
 import { fromHours } from "./funcs.js";
 
@@ -42,12 +42,7 @@ export const rangeTimeText = (lo, hi) => (Math.abs(num(lo) - num(hi)) < 1e-9
 export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } = {}) {
   if (!node) return null;
   const chain = chainOf(model, { from: node.trait, upto: node.upto });
-  /* Прежняя запись с одной единицей читается как список из одного: отчёт
-     не должен зависеть от того, прошла запись приведение или ещё нет. */
-  const picked = [...new Set([
-    ...(Array.isArray(node.units) ? node.units : []),
-    ...(node.unit ? [node.unit] : []),
-  ].filter(Boolean))];
+  const picked = pickedOf(node);
   const plan = estimateRange(model, chain, { runsOf,
     // Выбраны конкретные единицы — считаем на них; иначе на заданное число.
     qty: picked.length || node.qty || 1,
@@ -73,8 +68,22 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
     ? chosen.flatMap((u) => descendantsOf(all, u.id))
       .filter((u) => (seen.has(u.id) ? false : (seen.add(u.id), true)))
     : null;
-  const onlyTasks = family
-    ? new Set(family.map((u) => u.task).filter(Boolean)) : null;
+  /* ─── чужая работа в отчёт не попадает ───
+
+     Раздел прослеживает ЕДИНИЦЫ: вот этот договор, вот эти три. Задача,
+     сделанная над другой вещью, к этому вопросу отношения не имеет, даже
+     если её делала та же функция. Показывать её рядом — значит отвечать не
+     на заданный вопрос: человек спрашивал про один договор, а видел восемь
+     чужих задач и справедливо не понимал, откуда они.
+
+     Единица не выбрана — прослеживается ГИПОТЕТИЧЕСКАЯ: «что изменится,
+     если завести её в систему». У неё нет и не может быть ни задач, ни
+     созданного, ни факта — она ещё не существует. Это не пустота от
+     нехватки данных, а прямой ответ: работы по ней пока не было.
+
+     Прежде здесь стояло `only ? … : все задачи функций цепочки`, и вот
+     этот «иначе» и подмешивал в отчёт весь поток по функциям. */
+  const onlyTasks = new Set((family || []).map((u) => u.task).filter(Boolean));
   const traced = !chosen.length
     || family.length > chosen.length
     || chosen.some((u) => hasLineage(all, u.id));
@@ -83,7 +92,10 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
   /* Созданное по выбранным единицам — это их родословная, а не пересечение
      с цепочкой: сами они сделаны функцией, которая лежит ДО цепочки, и
      отсеивать их значило бы выбросить из отчёта о вещи саму вещь. */
-  const made = chosen.length ? family : madeIn(model, chain);
+  /* Новое сверху: у списка созданного порядок «свежее — выше», и таким же
+     его показывает снимок на сервере. Разный порядок в двух местах читался
+     бы как разные списки. */
+  const made = [...(family || [])].sort((a, b) => (b.no || 0) - (a.no || 0));
   const factors = factorsIn(model, chain);
 
   /* Ресурсы, о которых в разделе вообще есть что сказать: те, что цепочка
@@ -113,6 +125,8 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
     // Выбранные единицы: они сами, из чего сделаны и что из них выросло.
     units: chosen,
     unit: chosen[0] || null,
+    /* Прослеживается вещь, которой ещё нет: оценка есть, работы нет. */
+    hypothetical: !chosen.length,
     parents: chosen.flatMap((u) => parentsOf(all, u.id)),
     family: family || [],
     /* Записана ли у единицы родословная. Не записана — числа по ней
@@ -169,11 +183,17 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
 <section class="b" style="margin-left:${depth * 14}px">
   <h${h}>${esc(node.name || "без названия")}</h${h}>
   <p class="m">
-    ${d.unit ? `по единице №${d.unit.no} «${esc(d.unit.title || "без названия")}» · ` : ""}
+    ${d.units.length
+      ? `по единицам ${d.units.map((u) => `№${u.no} «${esc(u.title || "без названия")}»`).join(", ")} · `
+      : ""}
     ${node.trait ? `с ресурса «${tn(node.trait)}»` : "ресурс не выбран"}
     ${node.upto ? ` · до звена «${tn(node.upto) !== node.upto ? tn(node.upto) : fn(node.upto)}»` : " · до конца цепочки"}
     ${node.file ? ` · приложено: ${esc(node.file.name || "файл")}` : ""}
   </p>
+  ${d.hypothetical && node.trait ? `<p class="m">Прослеживается гипотетическая единица${
+    plan.hi.qty > 1 ? ` — ${nm(plan.hi.qty)} шт.` : ""}: работы по ней ещё не
+    было, и это прогноз, а не отчёт о сделанном. Чужая работа над другими
+    вещами сюда не входит.</p>` : ""}
   ${d.broken ? '<p class="w">Цепочка не доходит до звена: между ними разрыв — ни одна функция не берёт то, что выдаёт предыдущая.</p>' : ""}
   ${d.unit && !d.traced ? '<p class="w">По этой единице не записано, что из чего сделано: при сдаче не отметили взятое. Ниже — только она сама.</p>' : ""}
   ${d.parents.length ? `<p class="m">сделано из: ${d.parents.map((u) => `№${u.no} ${esc(u.title || "без названия")}`).join(", ")}</p>` : ""}
@@ -198,11 +218,13 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
       <td>${nm(s.runs)}</td><td>${esc(timeText(s.startHours))}</td>
       <td>${esc(timeText(s.calendarHours))}</td></tr>`).join("")}
   </table>` : '<p class="m">Шагов нет: цепочка пуста.</p>'}
-  ${actual.tasks.length ? `<table>
+  ${actual.tasks.length ? `<p class="m">задачи по этим единицам:</p><table>
     <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th></tr>
     ${actual.tasks.map((t) => `<tr><td>${esc(t.title)}</td><td>${pn(t.assignee)}</td>
       <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td></tr>`).join("")}
-  </table>` : '<p class="m">Задач по этой цепочке ещё нет.</p>'}
+  </table>` : `<p class="m">${d.hypothetical
+      ? "Задач нет и не должно быть: вещь ещё не заведена в систему."
+      : "Задач по этим единицам ещё нет."}</p>`}
 
   <h${h + 1}>3. Созданные ресурсы</h${h + 1}>
   ${made.length ? `<table>
@@ -210,7 +232,9 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
     ${made.map((u) => `<tr><td>${u.no}</td><td>${esc(u.title || "без названия")}</td>
       <td>${tn(u.trait)}</td><td>${esc(fmtDT(u.at))}</td><td>${pn(u.by)}</td>
       <td>${u.accepted ? "да" : "нет"}</td></tr>`).join("")}
-  </table>` : '<p class="m">Пока ничего не создано: единицы появляются из сдач.</p>'}
+  </table>` : `<p class="m">${d.hypothetical
+      ? "Ничего и не могло появиться: вещь пока гипотетическая."
+      : "Пока ничего не создано: единицы появляются из сдач."}</p>`}
 
   <h${h + 1}>4. Фактическая оценка</h${h + 1}>
   ${actual.any ? `<p class="m">принято работ: ${actual.done} из ${actual.total} ·
@@ -218,7 +242,9 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
     <table><tr><th>ресурс</th><th>изменение по факту</th></tr>
     ${Object.entries(actual.delta).map(([id, q]) =>
     `<tr><td>${tn(id)}</td><td>${nm(q)}</td></tr>`).join("")}</table>`
-    : '<p class="m">Принятых сдач ещё нет — факта пока не существует, и выдавать за него план нельзя.</p>'}
+    : `<p class="m">${d.hypothetical
+      ? "Факта нет: вещь гипотетическая, работы по ней не было. Сверять с планом будет что, когда она появится."
+      : "Принятых сдач ещё нет — факта пока не существует, и выдавать за него план нельзя."}</p>`}
 
   ${(d.sections || []).map((k) => block(k, depth + 1)).join("")}
 </section>`;

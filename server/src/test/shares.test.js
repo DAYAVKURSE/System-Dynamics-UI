@@ -73,6 +73,13 @@ beforeEach(async () => {
 
 const share = (node) => request(app).post("/api/shares").set(as(100)).send({ node });
 
+/* Раздел, где прослеживают ОПРЕДЕЛЁННЫЕ вещи. Снимок, как и экран,
+   показывает работу по ним, а не весь поток по функциям цепочки: чужая
+   работа над другими вещами заказчика не касается и в отчёт не идёт. */
+const pickUnits = (units) => request(app).put("/api/workspace").set(as(100))
+  .send({ model: { ...MODEL,
+    reports: [MODEL.reports[0], { ...MODEL.reports[1], units }] } });
+
 describe("кто заводит ссылки", () => {
   it("владелец заводит ссылку на блок и получает токен", async () => {
     const res = await share("rs1");
@@ -110,6 +117,7 @@ describe("что видно по ссылке", () => {
   it("в снимке — то же, что и на экране: оценка, шаги, созданное и факт", async () => {
     await request(app).post("/api/org/users").set(as(100))
       .send({ id: "200", name: "Иван", roleId: "worker" });
+    await pickUnits(["s1~t2", "s2~t2"]);
     const { body } = await share("rs1");
     const { body: got } = await request(app).get(`/api/shares/${body.token}`);
     const b = got.snapshot.block;
@@ -118,8 +126,10 @@ describe("что видно по ссылке", () => {
     expect(b.upto).toBe("");
     // Предварительная оценка посчитана сервером, а не принята от браузера.
     expect(b.plan.steps).toHaveLength(1);
-    expect(b.plan.steps[0]).toMatchObject({ name: "Собрать макет", runs: 1 });
-    expect(b.plan.calendarHours[1]).toBe(24);
+    // Выбраны две вещи — значит два выполнения, а не одно на двоих.
+    expect(b.plan.steps[0]).toMatchObject({ name: "Собрать макет", runs: 2 });
+    // Два выполнения по дню идут друг за другом: два дня, а не один.
+    expect(b.plan.calendarHours[1]).toBe(48);
     // Созданное — с номером, именем и файлом.
     expect(b.made).toHaveLength(1);
     expect(b.made[0]).toMatchObject({ no: 1, title: "Макет главной",
@@ -130,11 +140,28 @@ describe("что видно по ссылке", () => {
   });
 
   it("непринятая сдача в числа не идёт: это заявление, а не результат", async () => {
+    await pickUnits(["s1~t2", "s2~t2"]);
     const { body } = await share("rs1");
     const { body: got } = await request(app).get(`/api/shares/${body.token}`);
     expect(got.snapshot.block.made.map((r) => r.title)).not.toContain("Ещё не принято");
     // Но и не пропадает: заказчик видит, что работа идёт.
     expect(got.snapshot.block.tasks.map((t) => t.title)).toContain("Ещё не принято");
+  });
+
+  it("вещь не выбрана — наружу уходит прогноз, а не чужая работа", async () => {
+    /* Раздел без выбранных единиц прослеживает ГИПОТЕТИЧЕСКУЮ вещь: что
+       будет, если завести её в систему. Работы по ней нет — и показывать
+       вместо неё выполнения тех же функций над чужими вещами нельзя:
+       заказчик прочитал бы их как работу по своему заданию. */
+    const { body } = await share("rs1");
+    const { body: got } = await request(app).get(`/api/shares/${body.token}`);
+    const b = got.snapshot.block;
+    expect(b.hypothetical).toBe(true);
+    expect(b.tasks).toEqual([]);
+    expect(b.made).toEqual([]);
+    expect(b.actual).toMatchObject({ done: 0, total: 0 });
+    // Оценка при этом считается: прогноз — то, ради чего раздел и заводят.
+    expect(b.plan.steps).toHaveLength(1);
   });
 
   it("технического задания в снимке нет — только путь и сами результаты", async () => {
@@ -163,6 +190,7 @@ describe("что видно по ссылке", () => {
   });
 
   it("у созданного есть номер — тот же, каким его зовут внутри", async () => {
+    await pickUnits(["s1~t2", "s2~t2"]);
     const { body } = await share("rs1");
     const { body: got } = await request(app).get(`/api/shares/${body.token}`);
     expect(got.snapshot.block.made[0].no).toBe(1);

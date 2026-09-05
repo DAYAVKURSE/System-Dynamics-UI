@@ -176,8 +176,8 @@ function Tweak({ step, func, tweak, traitName, onSet }) {
     </div>);
 }
 
-function Steps({ plan, tasks, funcName, personName, units, unit, traitName,
-  funcs = [], tweaks = {}, onTweak }) {
+function Steps({ plan, tasks, funcName, personName, units, traitName,
+  hypothetical = false, funcs = [], tweaks = {}, onTweak }) {
   /* Над ЧЕМ работала задача — то, что и различает выполнения одной функции.
      Четыре «Собрать макет» одинаковы только на вид: они сделаны над разными
      вещами, и пока этого не видно, список выглядит повтором одной строки.
@@ -226,9 +226,7 @@ function Steps({ plan, tasks, funcName, personName, units, unit, traitName,
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
               по плану выполнений {nm(s.runs)}
-              {made[s.func]
-                ? ` · задач заведено ${made[s.func]} (по всем вещам)`
-                : " · задач ещё нет"} ·
+              {made[s.func] ? ` · задач по этим вещам ${made[s.func]}` : ""} ·
               начнётся через {timeText(s.startHours)} · займёт {timeText(s.calendarHours)}
             </div>
             {onTweak && (
@@ -244,18 +242,18 @@ function Steps({ plan, tasks, funcName, personName, units, unit, traitName,
           </div>
         </div>))}
 
+      {/* Вещь ещё не заведена — значит и работы по ней нет. Раньше на этом
+          месте показывался весь поток по функциям цепочки, и отчёт про один
+          договор выглядел как отчёт про восемь чужих задач. */}
+      {hypothetical && !!plan.steps.length && (
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+          Задач тут нет и не должно быть: прослеживается вещь, которой ещё
+          нет в системе. Это прогноз — что произойдёт, если её завести.
+          Выберите единицы выше, чтобы увидеть путь тех, что уже есть.
+        </div>)}
       {!!tasks.length && (<>
         <div style={{ ...S.lbl, margin: "10px 0 4px" }}>
-          {unit ? "задачи по этой единице" : "заведённые задачи"}</div>
-        {/* Без выбранной единицы это ВЕСЬ поток по функциям цепочки, а не
-            путь одной вещи: четыре заявки дают четыре «Собрать макет», и
-            они разные, хоть и названы одинаково. Сказать это надо прямо,
-            иначе список читается как повтор одной строки. */}
-        {!unit && tasks.length > 1 && (
-          <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, lineHeight: 1.5 }}>
-            Здесь все выполнения функций этой цепочки — над разными вещами.
-            Чтобы увидеть путь ОДНОЙ, выберите единицу выше.
-          </div>)}
+          задачи по этим единицам</div>
         {/* По времени: выполнения одной функции — это последовательность, и
             читать её надо сверху вниз, а не в том порядке, в каком они
             попали в модель. */}
@@ -474,7 +472,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <div style={{ fontSize: 10, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
             {picked.length
               ? `Выбрано ${picked.length} — отчёт только про них и про то, что из них выросло.`
-              : "Ничего не выбрано — отчёт про весь ресурс целиком."}
+              : "Ничего не выбрано — считаем ГИПОТЕТИЧЕСКУЮ единицу: что изменится, если завести её в систему. Чужая работа над другими вещами в отчёт не идёт."}
           </div>
         </>)}
 
@@ -551,15 +549,25 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
                 как «столько будет всего», и человек справедливо недоумевает:
                 четыре договора прошли цепочку, а в плане одно выполнение.
                 План — на ОДИН договор; четыре договора это четыре таких
-                прохода, а не один, повторённый четырежды. */}
+                прохода, а не один, повторённый четырежды.
+
+                Выбраны конкретные единицы — число берётся из них и руками
+                не правится: две записи про одно и то же разъехались бы, и
+                стало бы непонятно, какой верить. */}
             <div className="flex flex-wrap gap-2"
               style={{ alignItems: "center", marginBottom: 6 }}>
               <span style={{ fontSize: 10.5, color: C.muted }}>оценка на</span>
-              <NumField value={node.qty || 1} style={{ flex: "0 1 70px" }}
+              <NumField value={picked.length || node.qty || 1}
+                style={{ flex: "0 1 70px", opacity: picked.length ? 0.6 : 1 }}
+                readOnly={!!picked.length}
                 aria-label={`на сколько единиц: ${node.name || "без названия"}`}
-                onCommit={(v) => up({ qty: Math.max(1, Number(v) || 1) })} />
+                onCommit={(v) => (picked.length
+                  ? null : up({ qty: Math.max(1, Number(v) || 1) }))} />
               <span style={{ fontSize: 10.5, color: C.muted }}>
-                {traitName(node.trait)} · дальше всё посчитано на это число
+                {traitName(node.trait)}
+                {picked.length
+                  ? " · столько выбрано выше"
+                  : " · гипотетических; дальше всё посчитано на это число"}
               </span>
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
@@ -587,7 +595,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           {/* ═══ 2. TIMELINE ═══ */}
           <Part n={2} title="шаги и задачи во времени">
             <Steps plan={plan.hi} tasks={actual.tasks} funcName={funcName}
-              units={allUnits} unit={doc.unit} traitName={traitName}
+              units={allUnits} hypothetical={doc.hypothetical} traitName={traitName}
               funcs={model.funcs || []} tweaks={node.tweaks || {}}
               onTweak={(fid, next) => up({ tweaks: { ...(node.tweaks || {}),
                 [fid]: next } })}
@@ -598,8 +606,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <Part n={3} title="созданные ресурсы">
             {!made.length && (
               <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-                Пока ничего: единица появляется, когда сдают задачу, — и у неё
-                сразу есть номер, автор и файл.</div>)}
+                {doc.hypothetical
+                  ? "Ничего и не могло появиться: вещь пока гипотетическая. Заведите её — и созданное из неё встанет сюда с номерами."
+                  : "Пока ничего: единица появляется, когда сдают задачу, — и у неё сразу есть номер, автор и файл."}</div>)}
             {made.map((u) => (
               <div key={u.id} style={{ borderTop: `1px solid ${C.line}`, padding: "5px 0" }}>
                 <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
@@ -629,9 +638,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <Part n={4} title="фактическая оценка">
             {!actual.any
               ? <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-                  Принятых сдач ещё нет — факта пока не существует. Выдать за
-                  него план значило бы показать измерением то, что им не
-                  является.</div>
+                  {doc.hypothetical
+                    ? "Факта нет: вещь гипотетическая, работы по ней не было. Сверять с планом будет что, когда она появится."
+                    : "Принятых сдач ещё нет — факта пока не существует. Выдать за него план значило бы показать измерением то, что им не является."}</div>
               : (<>
                   <div style={{ fontSize: 11.5, lineHeight: 1.6 }}>
                     принято работ: <b style={{ color: OK }}>{actual.done}</b> из {actual.total}

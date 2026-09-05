@@ -37,7 +37,7 @@
    первый же день; файл — не расходится.
    ════════════════════════════════════════════════════════════════ */
 
-import { unitsOf } from "./units.js";
+import { descendantsOf, unitsOf } from "./units.js";
 import { actualOf, chainOf } from "./chain.js";
 
 let seq = 0;
@@ -131,22 +131,44 @@ export function dropNode(nodes = [], id) {
 }
 
 /**
- * Созданные в разделе ресурсы — единицы с номерами.
+ * Единицы, которые прослеживает блок, и вся их родословная.
  *
- * Не «все результаты вообще», а те, что родились в цепочке этого раздела:
- * их выдали её функции. Раздел про эту работу — и показывать он должен то,
- * что сделано ею.
+ * Блок отвечает про ВЕЩИ: вот этот договор, вот эти три. Всё, что в нём
+ * показано как работа, — работа НАД НИМИ. Ничего не выбрано — вещь
+ * гипотетическая, её ещё нет в системе, и работы по ней нет тоже: список
+ * пуст, и это ответ, а не нехватка данных.
+ *
+ * Прежде здесь стояло «всё, что выдали функции цепочки» (`madeIn`), и
+ * из-за этого в отчёт про один договор попадала чужая работа над другими.
  */
-export function madeIn(model = {}, chain = {}) {
-  const ids = new Set((chain.steps || []).map((f) => f.id));
-  return unitsOf(model).filter((u) => ids.has(u.func)).reverse();
+/* Какие единицы выбраны в блоке. Прежняя запись с одной единицей читается
+   как список из одного: отчёт не должен зависеть от того, прошла запись
+   приведение или ещё нет. Разбор один на всё приложение — два разошлись бы
+   в первый же день, и тогда экран и снимок отвечали бы по-разному. */
+export const pickedOf = (node = {}) => [...new Set([
+  ...(Array.isArray(node.units) ? node.units : []),
+  ...(node.unit ? [node.unit] : []),
+].filter(Boolean))];
+
+export function familyOf(model = {}, node = {}) {
+  const picked = pickedOf(node);
+  if (!picked.length) return [];
+  const all = unitsOf(model);
+  const seen = new Set();
+  return picked
+    .flatMap((id) => descendantsOf(all, id))
+    .filter((u) => (seen.has(u.id) ? false : (seen.add(u.id), true)));
 }
 
 /** Сводка по блоку и всему, что под ним: сделано, принято, часы. */
 export function summaryOf(model, node, nodes = []) {
+  /* Сводка считает то же, что и раскрытый блок, — работу по его единицам.
+     Иначе свёрнутая строка обещала бы восемь выполнений, а внутри не было
+     бы ни одного: одно и то же место говорило бы две разные вещи. */
   const rows = subtree(nodes, node?.id).flatMap((n) => {
     const chain = chainOf(model, { from: n.trait, upto: n.upto });
-    return actualOf(model, chain).tasks;
+    const only = new Set(familyOf(model, n).map((u) => u.task).filter(Boolean));
+    return actualOf(model, chain, { only }).tasks;
   });
   const seen = new Set();
   const uniq = rows.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));

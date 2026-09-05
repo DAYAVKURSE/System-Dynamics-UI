@@ -74,6 +74,13 @@ function Block({ block, depth = 0 }) {
       {block.broken && (
         <div style={{ fontSize: 11, color: WARN, marginTop: 5, lineHeight: 1.5 }}>
           До этого звена цепочка не доходит: между ним и ресурсом разрыв.</div>)}
+      {/* Вещь ещё не заведена: это прогноз, а не отчёт о сделанном. Сказать
+          это надо прямо — иначе пустые «созданные ресурсы» и «факта нет»
+          читаются как «работа встала», а работы и не начиналось. */}
+      {block.hypothetical && !!block.from && (
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+          Это прогноз: прослеживается вещь, которой ещё нет в системе, — что
+          произойдёт, если её завести. Работы по ней пока не было.</div>)}
 
       {!!plan.steps.length && (<>
         <div style={{ ...S.lbl, marginTop: 8 }}>предварительная оценка</div>
@@ -101,14 +108,18 @@ function Block({ block, depth = 0 }) {
       <div style={{ ...S.lbl, marginTop: 8 }}>созданные ресурсы</div>
       {!(block.made || []).length
         ? <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>
-            Здесь пока ничего не создано.</div>
+            {block.hypothetical
+              ? "Ничего и не могло появиться: вещь пока гипотетическая."
+              : "Здесь пока ничего не создано."}</div>
         : block.made.map((r, i) => (<Made key={`${r.title}-${r.at}-${i}`} r={r} />))}
 
       <div style={{ ...S.lbl, marginTop: 8 }}>фактическая оценка</div>
       <div style={{ fontSize: 11.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
         {act.done
           ? `принято работ: ${act.done} из ${act.total} · ушло ${nm(act.hours)} ч`
-          : "Принятых сдач ещё нет — факта пока не существует."}
+          : block.hypothetical
+            ? "Факта нет: работы по этой вещи ещё не было."
+            : "Принятых сдач ещё нет — факта пока не существует."}
       </div>
 
       {(block.sections || []).map((s2, i) => (
