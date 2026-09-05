@@ -6,8 +6,9 @@ import ShareView, { shareFromLocation } from "../components/ShareView.jsx";
 import SystemModel, { TAB_LIST } from "../components/SystemModel.jsx";
 import {
   childrenOf, dropNode, newProject, newSection, normalizeReports,
-  pathOf, reportFromLocation, resultsOf, rootsOf, shareLink, subtree, summaryOf,
+  pathOf, reportFromLocation, rootsOf, shareLink, subtree, summaryOf,
 } from "../lib/reports.js";
+import { reportHtml, reportOf } from "../lib/reportDoc.js";
 
 /* ОТЧЁТЫ · карта проектов.
 
@@ -18,33 +19,30 @@ import {
    в карте нет: пересказ заказа разошёлся бы с делом. */
 
 const MODEL = {
-  /* «текст» выдаёт другая функция, «спрос» — никто: на нём и проверяется,
-     что в списки не попадает то, у чего результатов быть не может. */
-  traits: [{ id: "t2", e: "e1", l: "макет" }, { id: "t3", e: "e1", l: "текст" },
-    { id: "t4", e: "e1", l: "спрос" }],
+  /* Настоящая цепочка: заявка → ТЗ → макет. «Спрос» не производит никто —
+     на нём видно, что в звенья попадает только достижимое. */
+  traits: [{ id: "t1", e: "e1", l: "заявка" }, { id: "t2", e: "e1", l: "макет" },
+    { id: "t0", e: "e1", l: "спрос" }],
   funcs: [
-    { id: "f1", e: "e1", name: "Собрать макет", takes: [{ trait: "t4" }],
-      gives: [{ trait: "t2" }] },
-    { id: "f2", e: "e1", name: "Написать текст", takes: [], gives: [{ trait: "t3" }] },
+    { id: "f1", e: "e1", name: "Собрать макет", dur: 1, durHi: 1, durUnit: "дн",
+      takes: [{ id: "p1", trait: "t1", lo: 1, hi: 1 }],
+      gives: [{ id: "g1", trait: "t2", lo: 1, hi: 1 }] },
   ],
+  factors: [],
   tasks: [
     { id: "tk1", funcId: "f1", title: "Макет главной", status: "done", assignee: "2",
       submissions: [{ id: "s1", at: "2026-02-01T10:00:00Z", hours: 4,
-        takes: {}, gives: { t2: 1 }, text: "готово",
+        takes: { t1: 1 }, gives: { t2: 1 }, text: "готово",
         file: { name: "макет.pdf", type: "application/pdf", url: "/api/reports/x/y" } }] },
     { id: "tk2", funcId: "f1", title: "Второй заход", status: "review", assignee: "2",
       submissions: [{ id: "s2", at: "2026-02-02T10:00:00Z", hours: 2,
-        takes: {}, gives: { t2: 1 } }] },
-    { id: "tk3", funcId: "f1", title: "Не про этот ресурс", status: "done", assignee: "2",
-      submissions: [{ id: "s3", at: "2026-02-03T10:00:00Z", hours: 1,
-        takes: {}, gives: {} }] },
+        takes: { t1: 1 }, gives: { t2: 1 } }] },
   ],
 };
 const NODES = [
-  { id: "rp1", parent: null, name: "Заказ «Сайт»", picks: [] },
-  { id: "rs1", parent: "rp1", name: "Макеты",
-    picks: [{ id: "pk1", func: "f1", trait: "t2" }] },
-  { id: "rs2", parent: "rs1", name: "Главная", picks: [] },
+  { id: "rp1", parent: null, name: "Заказ «Сайт»", trait: "", upto: "" },
+  { id: "rs1", parent: "rp1", name: "Макеты", trait: "t1", upto: "" },
+  { id: "rs2", parent: "rs1", name: "Главная", trait: "", upto: "" },
 ];
 
 describe("запись карты", () => {
@@ -58,7 +56,8 @@ describe("запись карты", () => {
 
   it("чужая запись достраивается, а не ломается", () => {
     expect(normalizeReports([{ id: "x" }])[0])
-      .toEqual({ id: "x", parent: null, name: "", picks: [] });
+      .toEqual({ id: "x", parent: null, name: "", trait: "", unit: "",
+        file: null, upto: "", qty: 1 });
     expect(normalizeReports(null)).toEqual([]);
   });
 
@@ -80,40 +79,54 @@ describe("запись карты", () => {
     expect(dropNode(NODES, "rp1")).toEqual([]);
   });
 
-  it("технического задания полем нет ни у проекта, ни у раздела", () => {
-    /* Заказ, описанный полем, — это пересказ, а пересказ расходится с тем,
-       что и правда сделано, в первый же день. Само задание — такой же
-       результат чьей-то работы, со своим номером. */
-    expect(newProject("Заказ")).not.toHaveProperty("brief");
-    expect(newSection("rp1", "Раздел")).not.toHaveProperty("brief");
-    // И из чужой записи оно не переносится: двух источников правды не будет.
-    expect(normalizeReports([{ id: "x", brief: "сделать сайт" }])[0])
-      .not.toHaveProperty("brief");
+  it("раздел спрашивает ДВЕ вещи, а показанное считает сам", () => {
+    /* Заказ, описанный полем, — пересказ, и он расходится с делом в первый
+       же день. Список пар «функция + ресурс» отвечал на вопрос «что
+       показать», когда спросить надо было другое: с чего начинаем и до
+       какого звена ведём. */
+    const p = newProject("Заказ");
+    expect(p).toMatchObject({ trait: "", upto: "", file: null });
+    expect(p).not.toHaveProperty("brief");
+    expect(p).not.toHaveProperty("picks");
+    expect(normalizeReports([{ id: "x", brief: "сделать сайт",
+      picks: [{ func: "f1" }] }])[0]).not.toHaveProperty("picks");
   });
 });
 
-describe("что попадает в блок", () => {
-  const picks = [{ id: "pk1", func: "f1", trait: "t2" }];
+describe("отчёт раздела", () => {
+  const doc = () => reportOf(MODEL, NODES[1], NODES, {});
 
-  it("сдачи выбранной функции по выбранному ресурсу — с числами и файлом", () => {
-    const rows = resultsOf(MODEL, picks);
-    expect(rows.map((r) => r.title)).toEqual(["Второй заход", "Макет главной"]);
-    expect(rows[1]).toMatchObject({ qty: 1, hours: 4, accepted: true });
-    expect(rows[1].file.name).toBe("макет.pdf");
+  it("считает предварительную оценку сам: шаги, время и изменение ресурсов", () => {
+    const d = doc();
+    expect(d.plan.hi.steps.map((s2) => s2.func)).toEqual(["f1"]);
+    expect(d.plan.hi.calendarHours).toBeGreaterThan(0);
+    expect(d.changes.map((c) => c.trait).sort()).toEqual(["t1", "t2"]);
   });
 
-  it("сдача, не тронувшая этот ресурс, сюда не относится", () => {
-    expect(resultsOf(MODEL, picks).map((r) => r.title)).not.toContain("Не про этот ресурс");
+  it("рядом с планом стоит факт — и только по принятым сдачам", () => {
+    const d = doc();
+    expect(d.actual.hours).toBe(4);
+    expect(d.actual.done).toBe(1);
+    // Непринятая сдача из виду не пропадает: она отвечает «сколько осталось».
+    expect(d.actual.total).toBe(2);
+    const maket = d.changes.find((c) => c.trait === "t2");
+    expect(maket.fact).toBe(1);
   });
 
-  it("принятое и непринятое различены: заявление — не результат", () => {
-    const rows = resultsOf(MODEL, picks);
-    expect(rows.find((r) => r.title === "Второй заход").accepted).toBe(false);
+  it("созданные ресурсы — с номерами, и только свои", () => {
+    const d = doc();
+    expect(d.made.map((u) => u.no)).toEqual([2, 1]);
+    expect(d.made[1]).toMatchObject({ title: "Макет главной", accepted: true });
   });
 
   it("сводка блока считает и то, что лежит в его разделах", () => {
-    const sum = summaryOf(MODEL, NODES[0], NODES);
-    expect(sum).toMatchObject({ rows: 2, accepted: 1, files: 1, hours: 6 });
+    expect(summaryOf(MODEL, NODES[0], NODES))
+      .toMatchObject({ rows: 2, accepted: 1, hours: 4 });
+  });
+
+  it("разрыв до звена назван, а не спрятан", () => {
+    const broken = { ...NODES[1], trait: "t2", upto: "t1" };
+    expect(reportOf(MODEL, broken, NODES, {}).broken).toBe(true);
   });
 });
 
@@ -134,90 +147,90 @@ describe("карта в форме", () => {
     expect(screen.getByLabelText("название раздела")).toBeInTheDocument();
   });
 
-  it("в блоке видно, что в него попадает, и что по этому сделано", () => {
+  it("в каждом разделе четыре блока — и в проекте тоже", () => {
     render(<Panel nodes={NODES} />);
-    // Вложенные блоки свёрнуты: карта должна читаться сверху, а не вываливать
-    // всю глубину сразу.
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByText("Макет главной")).toBeInTheDocument();
-    // Принятое и непринятое различены прямо в строке.
-    expect(screen.getAllByText("принято").length).toBeGreaterThan(0);
-    expect(screen.getByText("не принято")).toBeInTheDocument();
-    expect(screen.getByText(/📎 макет.pdf/)).toBeInTheDocument();
+    ["1. как изменятся ресурсы", "2. шаги и задачи во времени",
+      "3. созданные ресурсы", "4. фактическая оценка"].forEach((t) => {
+      expect(screen.getByText(t)).toBeInTheDocument();
+    });
   });
 
-  it("поля задания в блоке нет — только разделы и результаты", () => {
+  it("раздел спрашивает ресурс и звено, а не пару «функция + ресурс»", () => {
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    // У каждого раздела свои поля, и метка называет, чьи они.
+    expect(screen.getByLabelText("с какого ресурса: Макеты")).toBeInTheDocument();
+    expect(screen.getByLabelText("до какого звена: Макеты")).toBeInTheDocument();
+    expect(screen.queryByLabelText("функция результата")).toBeNull();
+  });
+
+  it("в звенья попадает только то, до чего цепочка доходит", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    const names = [...screen.getByLabelText("до какого звена: Макеты").options]
+      .map((o) => o.textContent);
+    expect(names).toContain("макет");
+    // «Спрос» не производит никто, и в цепочку он не входит.
+    expect(names).not.toContain("спрос");
+  });
+
+  it("шаги и факт видно сразу, без единого нажатия", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    // Шаг посчитан по модели.
+    expect(screen.getByText(/выполнений/)).toBeInTheDocument();
+    // Задача и созданная единица — на месте.
+    expect(screen.getAllByText("Макет главной").length).toBeGreaterThan(0);
+    expect(screen.getByText(/принято работ/)).toBeInTheDocument();
+  });
+
+  it("сам ресурс прикладывается файлом, а не пересказывается словами", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect(screen.getByLabelText("файл ресурса: Макеты")).toBeInTheDocument();
     expect(screen.queryByLabelText("техническое задание")).toBeNull();
-    expect(screen.queryByText(/задание раздела/)).toBeNull();
   });
 
-  it("ресурс выбирается из того, что функция ВЫДАЁТ, а не из всех подряд", () => {
-    /* Результат бывает только там, где функция ресурс выдаёт. Пара, у
-       которой результатов быть не может, — это предложение выбрать
-       пустоту: человек потом ищет работы, которых там никогда не было. */
-    render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    const traits = () => [...screen.getByLabelText("ресурс результата").options]
-      .map((o) => o.textContent);
-    // Выбрана «Собрать макет» — она выдаёт только макет.
-    expect(traits()).toEqual(["— что она выдаёт —", "макет"]);
-    // «Спрос» она берёт, а не выдаёт, — его в списке нет.
-    expect(traits()).not.toContain("спрос");
-
-    // И наоборот: функции — те, кто выбранный ресурс выдаёт.
-    const funcs = () => [...screen.getByLabelText("функция результата").options]
-      .map((o) => o.textContent);
-    // Список функций при выбранной функции не сужается: сменить её можно
-    // всегда, иначе человек заперт в первом же выборе.
-    expect(funcs()).toEqual(["— функция —", "Мы · Собрать макет", "Мы · Написать текст"]);
+  it("отчёт скачивается файлом — и в нём те же четыре части", () => {
+    /* Отчёт собирается тем же расчётом, что и экран: двум ответам на один
+       вопрос неоткуда взяться. */
+    const doc = reportOf(MODEL, NODES[1], NODES, {});
+    const html = reportHtml(doc, {
+      traitName: (id) => MODEL.traits.find((t) => t.id === id)?.l || id,
+      funcName: (id) => MODEL.funcs.find((f) => f.id === id)?.name || id,
+      personName: (id) => `человек ${id}`,
+      title: "Макеты",
+    });
+    expect(html).toContain("1. Предварительная оценка");
+    expect(html).toContain("2. Шаги и задачи");
+    expect(html).toContain("3. Созданные ресурсы");
+    expect(html).toContain("4. Фактическая оценка");
+    expect(html).toContain("Макет главной");
+    expect(html).toContain("с ресурса «заявка»");
+    // Файл самодостаточен: ни одной ссылки наружу, чтобы он не рассыпался.
+    expect(html).not.toMatch(/<script/);
   });
 
-  it("сменили функцию — ресурс, которого она не выдаёт, не остаётся", () => {
-    render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    fireEvent.change(screen.getByLabelText("функция результата"),
-      { target: { value: "f2" } });
-    // «Написать текст» макета не выдаёт: пара молча невозможной не станет.
-    expect(screen.getByLabelText("ресурс результата").value).toBe("");
-    expect([...screen.getByLabelText("ресурс результата").options]
-      .map((o) => o.textContent)).toEqual(["— что она выдаёт —", "текст"]);
-  });
-
-  it("можно начать и с ресурса: тогда предлагают тех, кто его делает", () => {
-    /* Путь «мне нужно вот это техническое задание — кто его делает».
-       Пока функция не выбрана, список сужается ресурсом. */
-    render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
-      ? { ...n, picks: [{ id: "pk1", func: "", trait: "t3" }] } : n))} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect([...screen.getByLabelText("функция результата").options]
-      .map((o) => o.textContent)).toEqual(["— функция —", "Мы · Написать текст"]);
-  });
-
-  it("невозможная пара из прежней записи показана, а не спрятана пустотой", () => {
-    /* Пустое поле читалось бы как «ничего не выбрано», и человек не понял
-       бы, что именно сломалось. */
-    render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
-      ? { ...n, picks: [{ id: "pk1", func: "f2", trait: "t2" }] } : n))} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByLabelText("ресурс результата").value).toBe("t2");
-    expect(screen.getByText(/Эта функция такого ресурса не выдаёт/))
-      .toBeInTheDocument();
-  });
-
-  it("результат выбирается определённой единицей — по номеру", () => {
-    render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    const pick = screen.getByLabelText("определённый результат");
-    // В списке — те единицы, что и правда получились из сдач, каждая с номером.
-    expect([...pick.options].map((o) => o.textContent))
-      .toEqual(["все результаты этой функции по этому ресурсу",
-        "№2 · Второй заход (не принято)", "№1 · Макет главной"]);
-    fireEvent.change(pick, { target: { value: "s1~t2" } });
-    // Выбрана одна — остальные из блока уходят: раздел ссылается на вещь.
-    expect(screen.getByText("Макет главной")).toBeInTheDocument();
-    expect(screen.queryByText("Второй заход")).toBeNull();
+  it("нажатие «Скачать отчёт» и правда отдаёт файл", () => {
+    const saved = [];
+    const realCreate = URL.createObjectURL;
+    URL.createObjectURL = () => "blob:отчёт";
+    URL.revokeObjectURL = () => {};
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function click() {
+      saved.push({ name: this.download, href: this.href });
+    };
+    try {
+      render(<Panel nodes={NODES} />);
+      fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "Скачать отчёт" })[1]);
+      expect(saved).toHaveLength(1);
+      expect(saved[0].name).toMatch(/\.html$/);
+    } finally {
+      HTMLAnchorElement.prototype.click = realClick;
+      URL.createObjectURL = realCreate;
+    }
   });
 
   it("удаление блока уносит вложенные разделы", () => {
@@ -256,11 +269,16 @@ describe("страница по ссылке", () => {
   afterEach(() => vi.restoreAllMocks());
   const SNAP = { name: "Макеты", at: "2026-02-05T10:00:00Z",
     snapshot: { at: "2026-02-05T10:00:00Z", path: ["Заказ «Сайт»", "Макеты"],
-      block: { name: "Макеты",
-        results: [{ title: "Макет главной", no: 1, func: "Собрать макет", trait: "макет",
-          at: "2026-02-01T10:00:00Z", by: "Иван", hours: 4, qty: 1, text: "готово",
+      block: { name: "Макеты", from: "заявка", upto: "",
+        plan: { workHours: [24, 24], calendarHours: [24, 24],
+          steps: [{ name: "Собрать макет", runs: 1, factor: false }] },
+        changes: [{ trait: "макет", lo: 1, hi: 1, fact: 1 }],
+        made: [{ no: 1, title: "Макет главной", trait: "макет", qty: 1,
+          at: "2026-02-01T10:00:00Z", by: "Иван",
           file: { name: "макет.pdf", type: "application/pdf", url: "/api/reports/x/y" } }],
-        sections: [{ name: "Главная", results: [], sections: [] }] } } };
+        tasks: [],
+        actual: { done: 1, total: 2, hours: 4 },
+        sections: [{ name: "Главная", made: [], sections: [] }] } } };
 
   it("токен читается из адреса, и только настоящий", () => {
     expect(shareFromLocation("?share=" + "a".repeat(64))).toBe("a".repeat(64));
@@ -268,13 +286,16 @@ describe("страница по ссылке", () => {
     expect(shareFromLocation("")).toBeNull();
   });
 
-  it("показывает сделанное с номерами и вложенные разделы — без входа", async () => {
+  it("снаружи видно то же, что и внутри: оценка, шаги, созданное и факт", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200,
       json: async () => SNAP })));
     render(<ShareView token={"a".repeat(64)} />);
     expect(await screen.findByText("Макет главной")).toBeInTheDocument();
     // Номер тот же, что и внутри: заказчик и исполнитель зовут вещь одинаково.
     expect(screen.getByText("№1")).toBeInTheDocument();
+    expect(screen.getByText(/с ресурса «заявка»/)).toBeInTheDocument();
+    expect(screen.getByText(/1. Собрать макет/)).toBeInTheDocument();
+    expect(screen.getByText(/принято работ: 1 из 2/)).toBeInTheDocument();
     expect(screen.getByText("Главная")).toBeInTheDocument();
     expect(screen.getByText(/📎 макет.pdf/)).toBeInTheDocument();
   });

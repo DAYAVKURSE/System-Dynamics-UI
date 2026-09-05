@@ -8,6 +8,18 @@
    Поэтому имена здесь уже развёрнуты: ресурс назван словом, человек —
    именем, функция — своим названием. Идентификаторы модели наружу не
    уходят: по ним нечего смотреть, а лишним они быть могут.
+
+   ─── почему расчёт повторён здесь ───
+
+   Цепочка и её оценка живут в `web/src/lib/chain.js`, и это же считается
+   на экране. Здесь они повторены НАРОЧНО и в самом коротком виде: сервер
+   отдаётся отдельным пакетом (деплой копирует только `server/src`), и
+   тянуть в него код фронтенда нечем. Взять готовые числа у браузера
+   нельзя — это ровно то, ради чего снимок и собирает сервер.
+
+   Цена этого — два места, которые могут разойтись, и она отдана
+   осознанно: расходиться им не даёт `reportsProd.test.js`, где числа
+   сходятся с теми же, что проверены на фронтенде.
    ════════════════════════════════════════════════════════════════ */
 
 const str = (v) => (v == null ? "" : String(v));
@@ -26,6 +38,96 @@ export function pathOf(nodes = [], id) {
     cur = nodes.find((n) => n.id === cur.parent);
   }
   return out;
+}
+
+/* ─────── цепочка от ресурса до звена ─────── */
+
+const takesTrait = (f, t) => (f.takes || []).some((p) => p.trait === t);
+const spends = (p) => p.spend !== false;
+const DUR = { "ч": 1, "дн": 24, "нед": 168, "мес": 730 };
+const hours = (f) => {
+  const k = DUR[f.durUnit] ?? 1;
+  const lo = num(f.dur) * k;
+  const hi = f.durHi == null ? lo : num(f.durHi) * k;
+  return { lo: Math.min(lo, hi), hi: Math.max(lo, hi) };
+};
+
+/** Идёт вперёд по слоям: ресурс → те функции, что его берут → их выходы. */
+function chainOf(model = {}, from, upto = "") {
+  const funcs = model.funcs || [];
+  if (!from || !funcs.length) return { traits: [], steps: [], ok: !upto };
+  const traits = [from];
+  const seen = new Set([from]);
+  const ids = [];
+  const queue = [from];
+  let reached = !upto;
+  while (queue.length) {
+    const t = queue.shift();
+    if (t === upto) { reached = true; continue; }
+    funcs.forEach((f) => {
+      if (ids.includes(f.id) || !takesTrait(f, t)) return;
+      ids.push(f.id);
+      if (f.id === upto) { reached = true; return; }
+      (f.gives || []).forEach((g) => {
+        if (!g.trait || seen.has(g.trait)) return;
+        seen.add(g.trait); traits.push(g.trait); queue.push(g.trait);
+      });
+    });
+  }
+  return { traits, steps: ids.map((id) => funcs.find((f) => f.id === id)).filter(Boolean),
+    ok: reached };
+}
+
+/** Предварительная оценка одной стороны вилки: шаги, время, изменения. */
+function estimate(model, chain, side, qty) {
+  const inChain = new Set(chain.traits);
+  const flow = {};
+  const delta = {};
+  const ready = {};
+  const steps = [];
+  flow[chain.traits[0]] = num(qty) || 1;
+  ready[chain.traits[0]] = 0;
+  const per = (p, kind) => {
+    const lo = num(p.lo);
+    const hi = num(p.hi);
+    const worst = kind === "takes" ? hi : lo;
+    return side === "lo" ? worst : (kind === "takes" ? lo : hi);
+  };
+  chain.steps.forEach((f) => {
+    const takes = (f.takes || []).filter((p) => p.trait);
+    let n = Infinity;
+    takes.forEach((p) => {
+      const q = per(p, "takes");
+      if (!(q > 0) || !inChain.has(p.trait)) return;
+      n = Math.min(n, (flow[p.trait] || 0) / q);
+    });
+    n = Math.max(0, Math.ceil((n === Infinity ? (num(qty) || 1) : n) - 1e-9));
+    if (!(n > 0)) return;
+    const start = takes.reduce((m, p) => (inChain.has(p.trait)
+      ? Math.max(m, ready[p.trait] ?? 0) : m), 0);
+    const h = hours(f);
+    const one = side === "lo" ? h.hi : h.lo;
+    const calendar = one * n;
+    takes.forEach((p) => {
+      if (!inChain.has(p.trait) || !spends(p)) return;
+      const all = per(p, "takes") * n;
+      flow[p.trait] = Math.max(0, (flow[p.trait] || 0) - all);
+      delta[p.trait] = (delta[p.trait] || 0) - all;
+    });
+    (f.gives || []).forEach((g) => {
+      if (!g.trait) return;
+      const all = per(g, "gives") * n;
+      flow[g.trait] = (flow[g.trait] || 0) + all;
+      delta[g.trait] = (delta[g.trait] || 0) + all;
+      ready[g.trait] = Math.max(ready[g.trait] ?? 0, start + calendar);
+    });
+    steps.push({ name: str(f.name), runs: n, factor: f.kind === "factor",
+      startHours: start, calendarHours: calendar,
+      workHours: f.kind === "factor" ? 0 : one * n });
+  });
+  return { steps, delta,
+    workHours: steps.reduce((a, x) => a + x.workHours, 0),
+    calendarHours: steps.reduce((m, x) => Math.max(m, x.startHours + x.calendarHours), 0) };
 }
 
 /* ─────── номера единиц ───────
@@ -53,70 +155,91 @@ function unitNumbers(model = {}) {
 }
 
 /**
- * Сделанное по выбранным результатам.
+ * Что сделано по функциям цепочки — фактическая оценка.
  *
  * Только принятые сдачи: непринятая — это заявление исполнителя, а не
  * результат, и показывать её заказчику как сделанное нельзя.
- *
- * Выбрана определённая единица — только она и уходит наружу: раздел
- * ссылается на вещь по номеру, а не на всё, что функция когда-либо выдала.
  */
-function resultsOf(model, picks = []) {
-  const { tasks = [], funcs = [], traits = [], people = [] } = model;
+function actualOf(model, chain) {
+  const { tasks = [], traits = [], people = [] } = model;
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "";
   const personName = (id) => people.find((p) => String(p.id) === String(id))?.name || "";
+  const ids = new Set(chain.steps.map((f) => f.id));
   const no = unitNumbers(model);
-  const rows = [];
-  picks.forEach((p) => {
-    const func = funcs.find((f) => f.id === p.func) || null;
-    tasks.filter((t) => t.funcId === p.func && t.status === "done").forEach((t) => {
-      (t.submissions || []).forEach((sb) => {
-        const gave = num(sb.gives?.[p.trait]);
-        const took = num(sb.takes?.[p.trait]);
-        if (p.trait && !gave && !took) return;
-        const unit = `${sb.id}~${str(p.trait)}`;
-        if (p.unit && str(p.unit) !== unit) return;
-        rows.push({
-          title: str(t.title),
-          // Номер уходит наружу нарочно: по нему заказчик и называет вещь.
-          no: no[unit] ?? null,
-          func: str(func?.name || ""),
-          trait: traitName(p.trait),
-          at: str(sb.at),
-          by: personName(t.assignee),
-          hours: num(sb.hours),
-          qty: gave || -took,
-          text: str(sb.text),
-          // Файл едет ссылкой: сами байты лежат там же, где и лежали, и
-          // читаются по адресу — переносить их в снимок незачем.
-          file: sb.file && sb.file.url
-            ? { name: str(sb.file.name), type: str(sb.file.type), url: str(sb.file.url) }
-            : null,
-        });
-      });
+  const mine = tasks.filter((t) => ids.has(t.funcId));
+  const done = mine.filter((t) => t.status === "done");
+  const delta = {};
+  const made = [];
+  let spent = 0;
+  done.forEach((t) => {
+    const subs = t.submissions || [];
+    const sb = subs.length ? subs[subs.length - 1] : null;
+    if (!sb) return;
+    spent += num(sb.hours);
+    const f = (model.funcs || []).find((x) => x.id === t.funcId);
+    Object.entries(sb.takes || {}).forEach(([id, v]) => {
+      const port = (f?.takes || []).find((p) => p.trait === id);
+      if (port && !spends(port)) return;
+      delta[id] = (delta[id] || 0) - num(v);
+    });
+    Object.entries(sb.gives || {}).forEach(([id, v]) => {
+      if (!(num(v) > 0)) return;
+      delta[id] = (delta[id] || 0) + num(v);
+      made.push({ no: no[`${sb.id}~${id}`] ?? null, title: str(t.title),
+        trait: traitName(id), qty: num(v), at: str(sb.at), by: personName(t.assignee),
+        file: sb.file && sb.file.url
+          ? { name: str(sb.file.name), type: str(sb.file.type), url: str(sb.file.url) }
+          : null });
     });
   });
-  return rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return {
+    done: done.length,
+    total: mine.length,
+    hours: Math.round(spent * 10) / 10,
+    delta,
+    made: made.sort((a, b) => (b.no || 0) - (a.no || 0)),
+    tasks: mine.map((t) => ({ title: str(t.title), by: personName(t.assignee),
+      end: str(t.end), status: str(t.status) })),
+  };
 }
 
-/**
- * Снимок блока и всего, что под ним.
- *
- * `null`, если блока нет: ссылку на несуществующее заводить не на что.
- */
 export function snapshotOf(model = {}, nodeId) {
   const nodes = Array.isArray(model.reports) ? model.reports : [];
   const root = nodes.find((n) => n.id === nodeId);
   if (!root) return null;
 
-  /* Технического задания в снимке нет, как нет его и в самой карте:
-     в блоке — разделы и определённые результаты, а описанный полем заказ
-     был бы пересказом, который расходится с делом. */
-  const block = (n) => ({
-    name: str(n.name),
-    results: resultsOf(model, n.picks || []),
-    sections: childrenOf(nodes, n.id).map(block),
-  });
+  const traitName = (id) => (model.traits || []).find((t) => t.id === id)?.l || "";
+  const funcName = (id) => (model.funcs || []).find((f) => f.id === id)?.name || "";
+
+  /* Снаружи видно ровно то же, что и внутри: с какого ресурса раздел, до
+     какого звена, предварительная оценка, шаги, созданные ресурсы и факт.
+     Технического задания полем нет — его место занял сам ресурс. */
+  const block = (n) => {
+    const chain = chainOf(model, n.trait, n.upto);
+    const lo = estimate(model, chain, "lo", n.qty);
+    const hi = estimate(model, chain, "hi", n.qty);
+    const act = actualOf(model, chain);
+    const ids = [...new Set([...Object.keys(hi.delta), ...Object.keys(lo.delta),
+      ...Object.keys(act.delta)])];
+    return {
+      name: str(n.name),
+      from: traitName(n.trait),
+      upto: n.upto ? (traitName(n.upto) || funcName(n.upto)) : "",
+      file: n.file && n.file.url
+        ? { name: str(n.file.name), type: str(n.file.type), url: str(n.file.url) }
+        : null,
+      broken: Boolean(n.trait && n.upto && !chain.ok),
+      plan: { workHours: [lo.workHours, hi.workHours],
+        calendarHours: [lo.calendarHours, hi.calendarHours], steps: hi.steps },
+      changes: ids.map((id) => ({ trait: traitName(id),
+        lo: num(lo.delta[id]), hi: num(hi.delta[id]),
+        fact: act.done ? num(act.delta[id]) : null })),
+      made: act.made,
+      tasks: act.tasks,
+      actual: { done: act.done, total: act.total, hours: act.hours },
+      sections: childrenOf(nodes, n.id).map(block),
+    };
+  };
 
   return {
     at: new Date().toISOString(),

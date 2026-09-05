@@ -25,7 +25,8 @@ const fmtDT = (v) => {
       year: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
-function Result({ r }) {
+/** Одна созданная вещь: номер, что это, кто и когда сделал. */
+function Made({ r }) {
   return (
     <div style={{ borderTop: `1px solid ${C.line}`, padding: "7px 0" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
@@ -35,44 +36,83 @@ function Result({ r }) {
           <span style={{ fontSize: 11, color: ACC, fontWeight: 700 }}>№{r.no}</span>)}
         <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>{r.title}</span>
         {!!r.trait && (
-          <span style={{ fontSize: 11, color: OK }}>
-            {r.qty >= 0 ? "+" : "−"}{nm(Math.abs(r.qty))} {r.trait}</span>)}
+          <span style={{ fontSize: 11, color: OK }}>{nm(r.qty)} {r.trait}</span>)}
       </div>
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.6 }}>
-        {fmtDT(r.at)}{r.by ? ` · ${r.by}` : ""}{r.func ? ` · ${r.func}` : ""}
-        {r.hours ? ` · ${nm(r.hours)} ч` : ""}
+        {fmtDT(r.at)}{r.by ? ` · ${r.by}` : ""}
       </div>
-      {r.text && (
-        <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.55,
-          whiteSpace: "pre-wrap" }}>{r.text}</div>)}
       {r.file && (/^image\//.test(r.file.type || "")
         ? <img src={reportSrc(r.file)} alt={r.file.name}
             style={{ maxWidth: "100%", borderRadius: 6, marginTop: 6,
               border: `1px solid ${C.line}` }} />
         : <a href={reportSrc(r.file)} target="_blank" rel="noreferrer"
-            style={{ fontSize: 11, color: ACC, display: "inline-block", marginTop: 5 }}>
+            style={{ fontSize: 10.5, color: ACC, display: "inline-block", marginTop: 4 }}>
             📎 {r.file.name}</a>)}
     </div>);
 }
 
-/** Блок и его разделы — теми же вложенными блоками, что и в самой карте. */
+/* Блок и его разделы — теми же вложенными блоками, что и в самой карте, и с
+   теми же четырьмя частями: оценка, шаги, созданное, факт. Заказчик должен
+   видеть ровно то, что видит владелец, — иначе разговор пойдёт про разное. */
 function Block({ block, depth = 0 }) {
+  const plan = block.plan || { workHours: [0, 0], calendarHours: [0, 0], steps: [] };
+  const act = block.actual || { done: 0, total: 0, hours: 0 };
+  const changes = block.changes || [];
   return (
     <div style={{ ...S.card, marginBottom: 10, marginLeft: depth ? 8 : 0,
       borderLeft: depth ? `2px solid ${C.line}` : undefined }}>
       <div style={{ fontSize: depth ? 13 : 15, fontWeight: 700 }}>
         {block.name || "без названия"}</div>
-      {!block.results?.length && !block.sections?.length && (
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>
-          Здесь пока ничего не сделано.</div>)}
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+        {block.from ? `с ресурса «${block.from}»` : "ресурс не выбран"}
+        {block.upto ? ` · до звена «${block.upto}»` : " · до конца цепочки"}
+      </div>
+      {block.file && (
+        <a href={reportSrc(block.file)} target="_blank" rel="noreferrer"
+          style={{ fontSize: 10.5, color: ACC, display: "inline-block", marginTop: 4 }}>
+          📎 {block.file.name}</a>)}
+      {block.broken && (
+        <div style={{ fontSize: 11, color: WARN, marginTop: 5, lineHeight: 1.5 }}>
+          До этого звена цепочка не доходит: между ним и ресурсом разрыв.</div>)}
 
-      {!!block.results?.length && (
-        <div style={{ marginTop: 6 }}>
-          {block.results.map((r, i) => (<Result key={`${r.title}-${r.at}-${i}`} r={r} />))}
-        </div>)}
+      {!!plan.steps.length && (<>
+        <div style={{ ...S.lbl, marginTop: 8 }}>предварительная оценка</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+          работы {nm(plan.workHours[0])}–{nm(plan.workHours[1])} ч ·
+          шагов {plan.steps.length}
+        </div>
+        {changes.map((c) => (
+          <div key={c.trait} className="flex flex-wrap gap-2"
+            style={{ alignItems: "center", fontSize: 11, marginTop: 3 }}>
+            <span style={{ flex: "1 1 110px" }}>{c.trait}</span>
+            <span style={{ color: WARN }}>
+              план {nm(Math.min(c.lo, c.hi))}…{nm(Math.max(c.lo, c.hi))}</span>
+            {c.fact != null && <span style={{ color: OK }}>факт {nm(c.fact)}</span>}
+          </div>))}
 
-      {(block.sections || []).map((s, i) => (
-        <Block key={`${s.name}-${i}`} block={s} depth={depth + 1} />))}
+        <div style={{ ...S.lbl, marginTop: 8 }}>шаги</div>
+        {plan.steps.map((s2, i) => (
+          <div key={`${s2.name}-${i}`} style={{ fontSize: 11, color: C.muted,
+            marginTop: 3, lineHeight: 1.5 }}>
+            {i + 1}. {s2.name}{s2.factor ? " · фактор" : ""} — выполнений {nm(s2.runs)}
+          </div>))}
+      </>)}
+
+      <div style={{ ...S.lbl, marginTop: 8 }}>созданные ресурсы</div>
+      {!(block.made || []).length
+        ? <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>
+            Здесь пока ничего не создано.</div>
+        : block.made.map((r, i) => (<Made key={`${r.title}-${r.at}-${i}`} r={r} />))}
+
+      <div style={{ ...S.lbl, marginTop: 8 }}>фактическая оценка</div>
+      <div style={{ fontSize: 11.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+        {act.done
+          ? `принято работ: ${act.done} из ${act.total} · ушло ${nm(act.hours)} ч`
+          : "Принятых сдач ещё нет — факта пока не существует."}
+      </div>
+
+      {(block.sections || []).map((s2, i) => (
+        <Block key={`${s2.name}-${i}`} block={s2} depth={depth + 1} />))}
     </div>);
 }
 

@@ -26,21 +26,23 @@ const as = (id, name) => ({ "X-Telegram-Init-Data": initDataFor(id, name) });
 
 const MODEL = {
   entities: [{ id: "e1", name: "Мы" }],
-  traits: [{ id: "t2", e: "e1", l: "макет" }],
-  funcs: [{ id: "f1", e: "e1", name: "Собрать макет" }],
+  traits: [{ id: "t1", e: "e1", l: "заявка" }, { id: "t2", e: "e1", l: "макет" }],
+  funcs: [{ id: "f1", e: "e1", name: "Собрать макет", dur: 1, durHi: 1, durUnit: "дн",
+    takes: [{ id: "p1", trait: "t1", lo: 1, hi: 1 }],
+    gives: [{ id: "g1", trait: "t2", lo: 1, hi: 1 }] }],
   tasks: [
     { id: "tk1", funcId: "f1", title: "Макет главной", status: "done", assignee: "200",
       submissions: [{ id: "s1", at: "2026-02-01T10:00:00Z", hours: 4,
-        takes: {}, gives: { t2: 1 }, text: "готово",
+        takes: { t1: 1 }, gives: { t2: 1 }, text: "готово",
         file: { name: "макет.pdf", type: "application/pdf", url: "/api/reports/x/y" } }] },
     { id: "tk2", funcId: "f1", title: "Ещё не принято", status: "review", assignee: "200",
       submissions: [{ id: "s2", at: "2026-02-02T10:00:00Z", hours: 2,
-        takes: {}, gives: { t2: 1 }, text: "жду проверки" }] },
+        takes: { t1: 1 }, gives: { t2: 1 }, text: "жду проверки" }] },
   ],
+  // Раздел называет две вещи: с какого ресурса и до какого звена.
   reports: [
-    { id: "rp1", parent: null, name: "Заказ «Сайт»", brief: "сделать сайт", picks: [] },
-    { id: "rs1", parent: "rp1", name: "Макеты", brief: "",
-      picks: [{ id: "pk1", func: "f1", trait: "t2" }] },
+    { id: "rp1", parent: null, name: "Заказ «Сайт»", trait: "", upto: "" },
+    { id: "rs1", parent: "rp1", name: "Макеты", trait: "t1", upto: "" },
   ],
 };
 
@@ -105,22 +107,34 @@ describe("что видно по ссылке", () => {
     expect(res.body.snapshot.block.name).toBe("Макеты");
   });
 
-  it("в снимке — сделанное с именами, а не идентификаторы модели", async () => {
+  it("в снимке — то же, что и на экране: оценка, шаги, созданное и факт", async () => {
     await request(app).post("/api/org/users").set(as(100))
       .send({ id: "200", name: "Иван", roleId: "worker" });
     const { body } = await share("rs1");
     const { body: got } = await request(app).get(`/api/shares/${body.token}`);
-    const rows = got.snapshot.block.results;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ title: "Макет главной", func: "Собрать макет",
-      trait: "макет", by: "Иван", hours: 4, qty: 1 });
-    expect(rows[0].file.url).toBe("/api/reports/x/y");
+    const b = got.snapshot.block;
+    // С какого ресурса и до какого звена — словами, а не идентификаторами.
+    expect(b.from).toBe("заявка");
+    expect(b.upto).toBe("");
+    // Предварительная оценка посчитана сервером, а не принята от браузера.
+    expect(b.plan.steps).toHaveLength(1);
+    expect(b.plan.steps[0]).toMatchObject({ name: "Собрать макет", runs: 1 });
+    expect(b.plan.calendarHours[1]).toBe(24);
+    // Созданное — с номером, именем и файлом.
+    expect(b.made).toHaveLength(1);
+    expect(b.made[0]).toMatchObject({ no: 1, title: "Макет главной",
+      trait: "макет", by: "Иван" });
+    expect(b.made[0].file.url).toBe("/api/reports/x/y");
+    // Факт — только по принятым сдачам.
+    expect(b.actual).toMatchObject({ done: 1, total: 2, hours: 4 });
   });
 
-  it("непринятая сдача наружу не идёт: это заявление, а не результат", async () => {
+  it("непринятая сдача в числа не идёт: это заявление, а не результат", async () => {
     const { body } = await share("rs1");
     const { body: got } = await request(app).get(`/api/shares/${body.token}`);
-    expect(got.snapshot.block.results.map((r) => r.title)).not.toContain("Ещё не принято");
+    expect(got.snapshot.block.made.map((r) => r.title)).not.toContain("Ещё не принято");
+    // Но и не пропадает: заказчик видит, что работа идёт.
+    expect(got.snapshot.block.tasks.map((t) => t.title)).toContain("Ещё не принято");
   });
 
   it("технического задания в снимке нет — только путь и сами результаты", async () => {
@@ -133,10 +147,10 @@ describe("что видно по ссылке", () => {
     expect(got.snapshot.path).toEqual(["Заказ «Сайт»", "Макеты"]);
   });
 
-  it("у результата есть номер — тот же, каким его зовут внутри", async () => {
+  it("у созданного есть номер — тот же, каким его зовут внутри", async () => {
     const { body } = await share("rs1");
     const { body: got } = await request(app).get(`/api/shares/${body.token}`);
-    expect(got.snapshot.block.results[0].no).toBe(1);
+    expect(got.snapshot.block.made[0].no).toBe(1);
   });
 
   it("вложенные разделы едут вместе с блоком", async () => {

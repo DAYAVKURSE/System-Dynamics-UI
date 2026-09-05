@@ -15,29 +15,30 @@
    тем же набором возможностей. Отдельный тип «подраздел» пришлось бы
    заводить на каждую глубину, а глубина заранее неизвестна.
 
-   ─── что такое «результат» ───
+   ─── что такое раздел ───
 
-   ОПРЕДЕЛЁННАЯ ЕДИНИЦА ресурса, по номеру. Не «результаты функции вообще»
-   и не количество: работают не с количеством, а с конкретной вещью — вот
-   это техническое задание, пришедшее от того заказчика, вот дизайн,
-   который к нему относится. Номер единице даёт сдача задачи (см.
-   `lib/units.js`), и он же стоит в ссылке.
+   Не «фильтр по сделанному», а ПРОСЛЕЖИВАНИЕ. У раздела две вещи, которые
+   называет человек:
 
-   Функция и ресурс остались, но теперь они — способ найти нужную единицу,
-   а не сам ответ. Не выбрана ни одна единица — в раздел попадают все, что
-   выдала эта функция по этому ресурсу: так удобно заводить раздел, пока
-   работ ещё нет.
+   · `trait` — ресурс, с которого всё начинается, и `file` — он сам,
+     загруженный: вот это техническое задание, вот этот договор;
+   · `upto` — до какого ЗВЕНА прослеживать: до готового сайта, до вёрстки,
+     до конца.
+
+   Всё остальное считается: как изменятся ресурсы, сколько это займёт, какие
+   шаги будут сделаны и какие факторы на это повлияют (`lib/chain.js`).
+   Спрашивать это у человека значило бы просить его пересчитать модель
+   руками — и разойтись с ней на первой же правке.
 
    ─── никакого технического задания полем ───
 
-   Его тут нет и не будет. В проекте только разделы и ссылки на конкретные
-   результаты: заказ, описанный в поле, — это пересказ, а пересказ
-   расходится с тем, что и правда сделано, в первый же день. Само задание
-   — такой же результат чьей-то работы, со своим номером: его и кладут в
-   раздел, а не переписывают в поле.
+   Само задание — не текст в поле, а загруженный файл ресурса, с которого
+   раздел и начинается. Пересказ заказа своими словами расходится с делом в
+   первый же день; файл — не расходится.
    ════════════════════════════════════════════════════════════════ */
 
 import { unitsOf } from "./units.js";
+import { actualOf, chainOf } from "./chain.js";
 
 let seq = 0;
 const nextId = (p) => `${p}${Date.now().toString(36)}${(seq += 1).toString(36)}`;
@@ -45,36 +46,31 @@ const str = (v) => (v == null ? "" : String(v));
 
 /** Проект — корень карты: у него нет родителя. */
 export const newProject = (name = "новый проект") => ({
-  id: nextId("rp"), parent: null, name, picks: [],
+  id: nextId("rp"), parent: null, name, trait: "", unit: "", file: null, upto: "", qty: 1,
 });
 
 /** Раздел — тот же блок, только внутри другого. */
 export const newSection = (parent, name = "новый раздел") => ({
-  id: nextId("rs"), parent: parent ?? null, name, picks: [],
+  id: nextId("rs"), parent: parent ?? null, name,
+  trait: "", unit: "", file: null, upto: "", qty: 1,
 });
 
-/**
- * Что попадает в блок: определённая единица ресурса, по номеру.
- *
- * `unit` пуст — попадают все результаты этой функции по этому ресурсу.
- * Так раздел заводят заранее, когда работ ещё не было и выбирать не из
- * чего.
- */
-export const newPick = (func = "", trait = "", unit = "") =>
-  ({ id: nextId("pk"), func, trait, unit });
-
-export const normalizePick = (p = {}) => ({
-  id: p.id ?? nextId("pk"), func: str(p.func), trait: str(p.trait), unit: str(p.unit),
-});
-
-/* Поле `brief` не читается и не сохраняется: технического задания полем в
-   проекте нет. Что было в нём написано, осталось пересказом, а в карте
-   должны лежать сами результаты. */
+/* Поля `brief` и `picks` не читаются и не сохраняются. Пересказ заказа
+   расходится с делом, а список пар «функция + ресурс» отвечал на вопрос
+   «что показать», когда спросить надо было другое: с чего начинаем и до
+   какого звена ведём. */
 export const normalizeReport = (n = {}) => ({
   id: n.id ?? nextId("rp"),
   parent: n.parent ?? null,
   name: str(n.name),
-  picks: Array.isArray(n.picks) ? n.picks.map(normalizePick) : [],
+  // Ресурс, с которого раздел начинается, и он сам — файлом.
+  trait: str(n.trait),
+  unit: str(n.unit),
+  file: n.file && typeof n.file === "object" ? n.file : null,
+  // Звено, до которого прослеживаем: ресурс или функция. Пусто — до конца.
+  upto: str(n.upto),
+  // Сколько единиц пускаем в цепочку. Одна — обычный случай: одно задание.
+  qty: Number(n.qty) > 0 ? Number(n.qty) : 1,
 });
 
 export const normalizeReports = (list) =>
@@ -117,66 +113,34 @@ export function dropNode(nodes = [], id) {
 }
 
 /**
- * Что уже сделано по выбранным парам «функция + ресурс».
+ * Созданные в разделе ресурсы — единицы с номерами.
  *
- * Строка — одна сдача: когда, кто, сколько часов ушло, сколько ресурса
- * вышло и какой файл приложен. Принятые сдачи и непринятые различены:
- * непринятая — это заявление исполнителя, а не результат, и путать их
- * нельзя, но и прятать файл, который человек уже сдал, незачем.
+ * Не «все результаты вообще», а те, что родились в цепочке этого раздела:
+ * их выдали её функции. Раздел про эту работу — и показывать он должен то,
+ * что сделано ею.
  */
-export function resultsOf(model = {}, picks = []) {
-  const { tasks = [], funcs = [] } = model;
-  // Номера единиц считаются один раз на всю модель: номер должен быть тем
-  // же самым, в каком бы разделе единицу ни показывали.
-  const no = {};
-  unitsOf(model).forEach((u) => { no[u.id] = u.no; });
-  const rows = [];
-  picks.forEach((p) => {
-    const func = funcs.find((f) => f.id === p.func) || null;
-    tasks.filter((t) => t.funcId === p.func).forEach((t) => {
-      (t.submissions || []).forEach((sb) => {
-        const gave = Number(sb.gives?.[p.trait]) || 0;
-        const took = Number(sb.takes?.[p.trait]) || 0;
-        // Ресурс не тронут вовсе — эта сдача не про него.
-        if (!gave && !took && p.trait) return;
-        const unit = `${sb.id}~${p.trait}`;
-        /* Выбрана определённая единица — показываем только её. Это и есть
-           «результат по номеру»: не всё, что функция когда-либо выдала, а
-           вот это техническое задание и вот этот дизайн к нему. */
-        if (p.unit && p.unit !== unit) return;
-        rows.push({
-          id: `${t.id}-${sb.id}-${p.id}`,
-          pick: p.id,
-          unit,
-          no: no[unit] ?? null,
-          task: t.id,
-          title: t.title,
-          func: p.func,
-          funcName: func?.name || "",
-          trait: p.trait,
-          at: sb.at,
-          by: t.assignee ?? null,
-          hours: Number(sb.hours) || 0,
-          qty: gave || -took,
-          text: str(sb.text),
-          file: sb.file || null,
-          accepted: t.status === "done",
-        });
-      });
-    });
-  });
-  return rows.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+export function madeIn(model = {}, chain = {}) {
+  const ids = new Set((chain.steps || []).map((f) => f.id));
+  return unitsOf(model).filter((u) => ids.has(u.func)).reverse();
 }
 
-/** Сводка по блоку: сколько сдач, сколько принято, сколько файлов. */
+/** Сводка по блоку и всему, что под ним: сделано, принято, часы. */
 export function summaryOf(model, node, nodes = []) {
-  const all = subtree(nodes, node?.id).flatMap((n) => n.picks || []);
-  const rows = resultsOf(model, all);
+  const rows = subtree(nodes, node?.id).flatMap((n) => {
+    const chain = chainOf(model, { from: n.trait, upto: n.upto });
+    return actualOf(model, chain).tasks;
+  });
+  const seen = new Set();
+  const uniq = rows.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+  const done = uniq.filter((t) => t.status === "done");
+  const hours = done.reduce((s, t) => {
+    const subs = t.submissions || [];
+    return s + (subs.length ? Number(subs[subs.length - 1].hours) || 0 : 0);
+  }, 0);
   return {
-    rows: rows.length,
-    accepted: rows.filter((r) => r.accepted).length,
-    files: rows.filter((r) => r.file).length,
-    hours: Math.round(rows.reduce((s, r) => s + r.hours, 0) * 10) / 10,
+    rows: uniq.length,
+    accepted: done.length,
+    hours: Math.round(hours * 10) / 10,
   };
 }
 

@@ -988,7 +988,8 @@ export default function SystemModel(){
           можно только с чужого разрешения. */}
       {tab==="reports" && (me.isOwner||me.solo) && (
         <ReportsPanel nodes={reports} setNodes={setReports}
-          model={{traits,funcs,tasks}} entities={entities} nameOf={personName}
+          model={{traits,funcs,tasks,factors}} entities={entities} nameOf={personName}
+          runsOf={runsOf}
           focus={reportFocus} onFocus={setReportFocus}/>)}
 
       {/* ═══ ЗАДАЧИ ═══ */}
