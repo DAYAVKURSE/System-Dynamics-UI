@@ -30,6 +30,14 @@ function initDataFor(id, name = "Кто-то") {
   return new URLSearchParams({ ...params, hash }).toString();
 }
 const as = (id, name) => ({ "X-Telegram-Init-Data": initDataFor(id, name) });
+/* Номер хозяина нарочно длинный и ни на что не похожий. Проверка «номер
+   не утёк» ищет его во ВСЁМ ответе — это её сила, но короткое «100»
+   находилось в самом ответе само собой: миллисекунды в `createdAt`
+   («…24.100Z») давали ложное срабатывание раз в тысячу прогонов и роняли
+   выкат на ровном месте. Ослаблять проверку до отдельных полей нельзя —
+   утечка может вылезти где угодно; поэтому меняется не проверка, а
+   число. */
+const OWNER = 5507314829;
 const GUEST = "b7f1c2d3e4a5b6c7";
 const asGuest = { "X-Call-Guest": GUEST };
 
@@ -65,7 +73,7 @@ beforeEach(async () => {
 
 /** Встреча, заведённая владельцем (он же — первый вошедший). */
 const meetingByOwner = async () => {
-  const res = await request(app).post("/api/calls").set(as(100, "Хозяин"))
+  const res = await request(app).post("/api/calls").set(as(OWNER, "Хозяин"))
     .send({ title: "Разбор" });
   expect(res.status).toBe(201);
   return res.body;
@@ -101,7 +109,7 @@ describe("вход по ссылке", () => {
     expect(sent.status).toBe(200);
 
     const seen = await request(app).get(`/api/calls/${m.id}/signal?since=0&wait=0`)
-      .set(as(100, "Хозяин"));
+      .set(as(OWNER, "Хозяин"));
     expect(seen.status).toBe(200);
     expect(seen.body.signals[0].data.type).toBe("hello");
     expect(seen.body.peers).toContain(alias);
@@ -112,13 +120,13 @@ describe("вход по ссылке", () => {
     // Войти может любой со ссылкой — значит, список участников видит тоже
     // любой. Номер Telegram в нём был бы чужими личными данными.
     const m = await meetingByOwner();
-    await request(app).post(`/api/calls/${m.id}/signal`).set(as(100, "Хозяин"))
+    await request(app).post(`/api/calls/${m.id}/signal`).set(as(OWNER, "Хозяин"))
       .send({ data: { type: "hello" } });
 
     const seen = await request(app).get(`/api/calls/${m.id}`).set(asGuest);
     const body = JSON.stringify(seen.body);
     expect(seen.body.peers).toHaveLength(1);
-    expect(body).not.toContain("100");            // ни номера
+    expect(body).not.toContain(String(OWNER));    // ни номера хозяина
     expect(body).not.toContain(GUEST);            // ни номера гостя
     expect(seen.body.me).not.toContain(GUEST);
   });
@@ -143,7 +151,7 @@ describe("ссылка-приглашение", () => {
     try {
       const m = await meetingByOwner();
       expect(m.link).toBe(`https://t.me/sdbot/call?startapp=call_${m.id}&mode=compact`);
-      const list = await request(app).get("/api/calls").set(as(100, "Хозяин"));
+      const list = await request(app).get("/api/calls").set(as(OWNER, "Хозяин"));
       expect(list.body[0].link).toBe(m.link);
     } finally {
       delete process.env.BOT_NAME;
