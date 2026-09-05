@@ -22,6 +22,8 @@ import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 import Modal from "./Modal.jsx";
 import ProfilePanel from "./ProfilePanel.jsx";
+import ReportsPanel from "./ReportsPanel.jsx";
+import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v9
@@ -319,7 +321,7 @@ function whenText(iso){
    разрешения. */
 export const SELF_TAB=["me","Анкета"];
 export const TAB_LIST=[SELF_TAB,["tasks","Задачи"],["review","Проверка"],
-  ["scheme","Схема"],["tools","Инструменты"]];
+  ["scheme","Схема"],["reports","Отчёты"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
 export default function SystemModel(){
@@ -336,7 +338,18 @@ export default function SystemModel(){
   /* Факторы — то, что меняет ресурсы без человека. Часть документа наравне
      с ресурсами: фактор один, а функций от него может быть несколько. */
   const [factors,setFactors]=useState([]);
-  const [tab,setTab]=useState("tasks");
+  /* Отчёты — карта проектов и разделов. Часть документа наравне с
+     ресурсами: она про ту же работу, только собранную по заказам, а не по
+     активам, и жить отдельно от модели ей незачем. */
+  const [reports,setReports]=useState([]);
+  // Какой блок карты просят открыть ссылкой — читается из адреса один раз.
+  const [reportFocus,setReportFocus]=useState(()=>
+    reportFromLocation(typeof window==="undefined"?"":window.location.search));
+  /* Пришли по ссылке на блок карты — открываем сразу отчёты: человек
+     просил не приложение вообще, а конкретный раздел. */
+  const [tab,setTab]=useState(()=>(
+    reportFromLocation(typeof window==="undefined"?"":window.location.search)
+      ?"reports":"tasks"));
   const [sel,setSel]=useState("usr");
   const [why,setWhy]=useState(null);
   /* Что попросили открыть в карточке актива — например, функцию, которая
@@ -387,8 +400,8 @@ export default function SystemModel(){
   };
 
   // ─── история правок: отмена и возврат ───
-  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors}),
-    [entities,traits,kinds,tasks,funcs,goals,factors]);
+  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports}),
+    [entities,traits,kinds,tasks,funcs,goals,factors,reports]);
   const restoreDoc=useCallback((d)=>{
     // Документ достраивается до нынешней записи, но НЕ переносится из
     // прежних версий: модели, собранные под старый расчёт, работать не
@@ -398,6 +411,7 @@ export default function SystemModel(){
     setKinds(d.kinds); setTasks(d.tasks); setFuncs(normalizeFuncs(d.funcs));
     setGoals(normalizeGoals(d.goals));
     setFactors(normalizeFactors(d.factors));
+    setReports(normalizeReports(d.reports));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -532,6 +546,7 @@ export default function SystemModel(){
     kinds:(w?.kinds&&w.kinds.length)?w.kinds:KINDS0,
     tasks:w?.tasks||[], funcs:w?.funcs, goals:w?.goals||[],
     factors:w?.factors||[],
+    reports:w?.reports||[],
   }),[]);
   /* Разобрались ли, что открывать. До этого момента на экране может стоять
      встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
@@ -622,6 +637,7 @@ export default function SystemModel(){
       funcs:fs,
       goals:normalizeGoals(arr(s.data?.goals,docRef.current.goals)),
       factors:normalizeFactors(arr(s.data?.factors,docRef.current.factors)),
+      reports:normalizeReports(arr(s.data?.reports,docRef.current.reports)),
     };
     restoreDoc(loaded);
     savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -717,6 +733,7 @@ export default function SystemModel(){
         funcs:fs,
         goals:normalizeGoals(arr(s.data?.goals,goals)),
         factors:normalizeFactors(arr(s.data?.factors,factors)),
+        reports:normalizeReports(arr(s.data?.reports,reports)),
       };
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -884,7 +901,8 @@ export default function SystemModel(){
         </div>)}
 
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {TAB_LIST.filter(([k])=>k===SELF_TAB[0]||me.tabs.includes(k)).map(([k,t])=>(
+        {TAB_LIST.filter(([k])=>k===SELF_TAB[0]||k==="reports"||me.tabs.includes(k))
+          .map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 
@@ -919,6 +937,16 @@ export default function SystemModel(){
             setMe(m=>({...m,profile:p}));
             setPeople(list=>list.map(u=>(String(u.id)===String(me.id)?{...u,...p}:u)));
           }}/>)}
+
+      {/* ═══ ОТЧЁТЫ · карта проектов ═══
+          Открыта всем вошедшим, как и анкета: отчёт — это то, что человек
+          показывает о своей работе, а ссылку на блок карты дают кому
+          угодно. Прятать её за ролью значило бы, что показать сделанное
+          можно только с чужого разрешения. */}
+      {tab==="reports" && (
+        <ReportsPanel nodes={reports} setNodes={setReports}
+          model={{traits,funcs,tasks}} entities={entities} nameOf={personName}
+          focus={reportFocus} onFocus={setReportFocus}/>)}
 
       {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && me.tabs.includes("tasks") && (

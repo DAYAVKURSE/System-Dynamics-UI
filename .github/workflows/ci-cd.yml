@@ -254,6 +254,7 @@ jobs:
           ORG_DIR=${DEPLOY_PATH_R}/data/org
           WORKSPACE_DIR=${DEPLOY_PATH_R}/data/workspace
           CALLS_DIR=${DEPLOY_PATH_R}/data/calls
+          SHARES_DIR=${DEPLOY_PATH_R}/data/shares
           TELEGRAM_CALL_APP=${TELEGRAM_CALL_APP:-}
           TELEGRAM_CALL_MAIN=${TELEGRAM_CALL_MAIN:-}
           PUBLIC_URL=https://${APP_DOMAIN_R}

@@ -41,7 +41,8 @@ describe("состав вкладок", () => {
         "Инструменты", "Звонки", "Выгрузить", "Цели", "Типы", "Отчёты"].includes(t));
     // «Прогноз» и «Деятельность» из главного ряда ушли под схему: обе про ту
     // же модель во времени, и ползунок месяца у них общий со схемой.
-    expect(bar.slice(0, 4)).toEqual(["Задачи", "Проверка", "Схема", "Инструменты"]);
+    expect(bar.slice(0, 5))
+      .toEqual(["Задачи", "Проверка", "Схема", "Отчёты", "Инструменты"]);
     expect(screen.queryByRole("button", { name: "Прогноз" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Деятельность" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Цели" })).toBeNull();

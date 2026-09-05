@@ -7,6 +7,7 @@ import scheduleRouter from "./routes/schedule.js";
 import reportsRouter from "./routes/reports.js";
 import orgRouter from "./routes/org.js";
 import workspaceRouter from "./routes/workspace.js";
+import sharesRouter from "./routes/shares.js";
 import callsRouter from "./routes/calls.js";
 import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import bridgeRouter from "./routes/bridge.js";
@@ -102,6 +103,9 @@ export function createApp() {
       // Роли и общая модель держатся на подписи Telegram: без токена
       // отличить владельца от кого угодно нечем.
       org: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      // Ссылки на блоки карты отчётов: заводит их владелец, а он есть
+      // только там, где есть подпись.
+      shares: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Звонки: сигналинг и ретрансляция медиа через этот же сервер.
       calls: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Мост включён, только когда задан общий секрет с воркером.
@@ -133,6 +137,10 @@ export function createApp() {
   // Люди, роли и общая модель: см. lib/orgStore.js и lib/workspaceStore.js.
   app.use("/api/org", orgRouter);
   app.use("/api/workspace", workspaceRouter);
+  /* Ссылки на блоки карты отчётов. Чтение по токену — без подписи: тому,
+     кому показывают сделанное, аккаунт заводить незачем (см.
+     lib/shareStore.js). */
+  app.use("/api/shares", sharesRouter);
   app.use("/api/calls", callsRouter);
   // Мост к Claude Code: очередь для воркера на машине владельца.
   app.use("/api/bridge", bridgeRouter);

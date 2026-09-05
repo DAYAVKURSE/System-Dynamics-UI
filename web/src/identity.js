@@ -61,6 +61,24 @@ const json = async (url, opts) => {
 export const putProfile = (fields) =>
   json("/api/org/me/profile", { method: "PUT", body: JSON.stringify(fields) });
 
+/* ─────── ссылки на блоки карты отчётов ───────
+
+   Заводит и отзывает их владелец, а ЧИТАЮТСЯ они без подписи: тому, кому
+   показывают сделанное, аккаунт заводить незачем — в этом весь смысл
+   ссылки. Поэтому чтение идёт голым fetch, без заголовка Telegram. */
+export const putShare = (node) =>
+  json("/api/shares", { method: "POST", body: JSON.stringify({ node }) });
+export const listShares = () => json("/api/shares");
+export const dropShare = (token) =>
+  json(`/api/shares/${encodeURIComponent(token)}`, { method: "DELETE" });
+
+export async function getShare(token) {
+  const r = await fetch(`/api/shares/${encodeURIComponent(token)}`,
+    { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(r.status === 404 ? "Ссылка не открывается" : `Сервер ответил ${r.status}`);
+  return r.json();
+}
+
 /* ─────── люди и роли (только владельцу) ─────── */
 
 export const listOrg = () => json("/api/org");
