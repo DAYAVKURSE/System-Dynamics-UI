@@ -147,6 +147,21 @@ describe("что видно по ссылке", () => {
     expect(got.snapshot.path).toEqual(["Заказ «Сайт»", "Макеты"]);
   });
 
+  it("снимок по одной единице показывает её и то, что из неё выросло", async () => {
+    /* Заказчик спрашивает не «покажи всё», а «что с моим заданием». */
+    await request(app).put("/api/workspace").set(as(100)).send({ model: {
+      ...MODEL,
+      reports: [MODEL.reports[0],
+        { ...MODEL.reports[1], trait: "t2", unit: "s1~t2" }] } });
+    const { body } = await share("rs1");
+    const { body: got } = await request(app).get(`/api/shares/${body.token}`);
+    const b = got.snapshot.block;
+    expect(b.unit).toMatchObject({ no: 1, trait: "макет" });
+    // Родословную никто не записывал — снимок об этом честно говорит.
+    expect(b.traced).toBe(false);
+    expect(b.made.map((r) => r.no)).toEqual([1]);
+  });
+
   it("у созданного есть номер — тот же, каким его зовут внутри", async () => {
     const { body } = await share("rs1");
     const { body: got } = await request(app).get(`/api/shares/${body.token}`);

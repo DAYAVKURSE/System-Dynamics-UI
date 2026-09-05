@@ -255,9 +255,18 @@ export function autoFlow(tasks=[],opts={}){
  * арифметическое. Числа по ресурсам лежат картой «ресурс → сколько»,
  * потому что у функции их несколько и порядок портов не обязан совпадать.
  */
-export const newSubmission=({hours=0,takes={},gives={},text="",file=null})=>
+export const newSubmission=({hours=0,takes={},gives={},took={},text="",file=null})=>
   ({id:uid("sb"),at:new Date().toISOString(),hours:Number(hours)||0,
-    takes:{...takes},gives:{...gives},text,file});
+    takes:{...takes},gives:{...gives},
+    /* КАКИЕ именно единицы взяли — карта «ресурс → номера». Количества
+       говорят, что израсходована одна заявка, и молчат о том, чья; а
+       спрашивают потом именно об этом: «покажи весь отчёт вот по этому
+       заданию». Задним числом такую связь не восстановить ничем, кроме
+       догадки, — поэтому её называет тот, кто работу делал. */
+    took:Object.fromEntries(Object.entries(took||{})
+      .map(([k,v])=>[k,[...new Set((v||[]).filter(Boolean))]])
+      .filter(([,v])=>v.length)),
+    text,file});
 
 /** Последняя сдача задачи — по ней и судят о выполнении. */
 export const lastSubmission=(t)=>{
@@ -547,6 +556,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
   const [fileBusy,setFileBusy]=useState(false);
   const [hours,setHours]=useState(0);
   const [qty,setQty]=useState({takes:{},gives:{}});
+  const [took,setTook]=useState({});
 
   const func=funcs.find(f=>f.id===task.funcId)||null;
   const subs=task.submissions||[];
@@ -557,6 +567,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
      На них потом и ссылаются разделы отчёта. */
   const unitNo={};
   unitsOf({tasks:tasks.length?tasks:[task],funcs}).forEach(u=>{unitNo[u.id]=u.no;});
+  const tasksAll=tasks.length?tasks:[task];
 
   const pickFile=async(f)=>{
     setFileErr("");
@@ -576,6 +587,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
     setHours(hoursOf(func));
     setQty({takes:Object.fromEntries(func.takes.map(p=>[p.trait,mid(p)])),
       gives:Object.fromEntries(func.gives.map(p=>[p.trait,mid(p)]))});
+    setTook({});
     setHanding(true);
   };
   const submit=()=>{
@@ -586,17 +598,47 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
        Кроме случая, когда исполнитель и проверяющий — один человек: тогда
        принимать не у кого, и задача уходит в готовые сразу. */
     upMany({submissions:[...subs,newSubmission({hours,takes:qty.takes,gives:qty.gives,
-      text:draftText,file:draftFile})],status:selfReview(task)?"done":"review"});
+      took,text:draftText,file:draftFile})],status:selfReview(task)?"done":"review"});
     setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
+    setTook({});
   };
 
-  const QtyRow=({kind,port})=>(
-    <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:5}}>
-      <span style={{fontSize:11.5,flex:"1 1 130px"}}>{traitName(port.trait)}</span>
-      <span style={{fontSize:10.5,color:WARN}}>план {rangeText(port)}</span>
-      <NumField value={qty[kind][port.trait]??0} style={{flex:"0 1 90px"}}
-        onCommit={v=>setQty(p=>({...p,[kind]:{...p[kind],[port.trait]:Number(v)||0}}))}/>
-    </div>);
+  const QtyRow=({kind,port})=>{
+    /* У входа спрашиваем не только сколько, но и ЧТО: если у ресурса есть
+       единицы с номерами, исполнитель отмечает те, которые взял. Без этого
+       потом не ответить, что выросло вот из этого задания. */
+    const own=kind==="takes"
+      ?unitsOf({tasks:tasksAll,funcs}).filter(u=>u.trait===port.trait).reverse():[];
+    const on=(id)=>(took[port.trait]||[]).includes(id);
+    const flip=(id)=>setTook(p=>{
+      const was=p[port.trait]||[];
+      return {...p,[port.trait]:was.includes(id)
+        ?was.filter(x=>x!==id):[...was,id]};
+    });
+    return (
+      <div style={{marginBottom:6}}>
+        <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+          <span style={{fontSize:11.5,flex:"1 1 130px"}}>{traitName(port.trait)}</span>
+          <span style={{fontSize:10.5,color:WARN}}>план {rangeText(port)}</span>
+          <NumField value={qty[kind][port.trait]??0} style={{flex:"0 1 90px"}}
+            onCommit={v=>setQty(p=>({...p,[kind]:{...p[kind],[port.trait]:Number(v)||0}}))}/>
+        </div>
+        {!!own.length&&(
+          <div className="flex flex-wrap gap-2" style={{marginTop:4}}>
+            {own.slice(0,12).map(u=>(
+              <button key={u.id} style={{...btn(on(u.id),on(u.id)?ACC:null),
+                fontSize:10.5,padding:"2px 6px"}}
+                aria-label={`взял ${traitName(port.trait)} №${u.no}`}
+                onClick={()=>flip(u.id)}>
+                №{u.no} {u.title||"без названия"}</button>))}
+          </div>)}
+        {!!own.length&&(
+          <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
+            отметьте, что именно взяли, — по этому потом видно, что из чего
+            выросло
+          </div>)}
+      </div>);
+  };
 
   return (
     <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
@@ -645,8 +687,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                 onClick={()=>up("submissions",subs.filter(x=>x.id!==sb.id))}>✕</button>
             </div>
             <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
-              взято: {Object.entries(sb.takes||{}).map(([id,v])=>
-                `${traitName(id)} ${nm(v)}`).join(", ")||"—"}
+              взято: {Object.entries(sb.takes||{}).map(([id,v])=>{
+                const nos=(sb.took?.[id]||[])
+                  .map(uid2=>unitNo[uid2]).filter(Boolean);
+                return `${traitName(id)} ${nm(v)}`
+                  +(nos.length?` (№${nos.join(", №")})`:"");
+              }).join(", ")||"—"}
               {" · выдано: "}
               {Object.entries(sb.gives||{}).map(([id,v])=>
                 `${traitName(id)} ${nm(v)}`

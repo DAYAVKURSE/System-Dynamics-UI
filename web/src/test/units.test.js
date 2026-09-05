@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { normalizeFunc, newPort, portSpends, shortage } from "../lib/funcs.js";
 import { runSide, solve } from "../lib/plan.js";
-import { doneBy, heldBy, unitById, unitsOf, unitsOfTrait } from "../lib/units.js";
+import { descendantsOf, doneBy, hasLineage, heldBy, parentsOf, unitById, unitsOf,
+  unitsOfTrait } from "../lib/units.js";
 
 /* ЕДИНИЦА РЕСУРСА И ЕЁ НОМЕР.
 
@@ -177,5 +178,60 @@ describe("номера единиц", () => {
     const f = normalizeFunc({ id: "f1", takes: [{ trait: "in", spend: false }] });
     expect(heldBy(tasks, f)).toEqual({ in: 2 });
     expect(heldBy(tasks, normalizeFunc({ id: "f1", takes: [{ trait: "in" }] }))).toEqual({});
+  });
+});
+
+/* РОДОСЛОВНАЯ.
+
+   Единица сделана из других единиц. Ниточка есть ровно там, где исполнитель
+   назвал взятое при сдаче: количества говорят, что израсходована одна
+   заявка, и молчат о том, чья. */
+describe("что из чего сделано", () => {
+  const funcs = [{ id: "f1", e: "A", name: "Разобрать" },
+    { id: "f2", e: "A", name: "Сверстать" }];
+  const tasks = [
+    { id: "t1", funcId: "f1", title: "Заявка Петрова", status: "done",
+      submissions: [{ id: "s1", at: "2026-02-01T00:00:00Z", hours: 1,
+        takes: {}, gives: { tz: 1 } }] },
+    { id: "t2", funcId: "f2", title: "Макет по ТЗ", status: "done",
+      submissions: [{ id: "s2", at: "2026-02-02T00:00:00Z", hours: 2,
+        takes: { tz: 1 }, gives: { maket: 1 }, took: { tz: ["s1~tz"] } }] },
+    { id: "t3", funcId: "f2", title: "Чужой макет", status: "done",
+      submissions: [{ id: "s3", at: "2026-02-03T00:00:00Z", hours: 2,
+        takes: { tz: 1 }, gives: { maket: 1 } }] },
+  ];
+  const model = { tasks, funcs };
+
+  it("взятое записано при сдаче и читается у единицы", () => {
+    const u = unitById(model, "s2~maket");
+    expect(u.took).toEqual(["s1~tz"]);
+    // Где не отметили — там пусто, а не выдумано.
+    expect(unitById(model, "s3~maket").took).toEqual([]);
+  });
+
+  it("вперёд — потомки, назад — из чего сделано", () => {
+    const all = unitsOf(model);
+    expect(parentsOf(all, "s2~maket").map((u) => u.id)).toEqual(["s1~tz"]);
+    expect(descendantsOf(all, "s1~tz").map((u) => u.id))
+      .toEqual(["s1~tz", "s2~maket"]);
+    // Чужой макет из этого ТЗ не рос: его в родословной нет.
+    expect(descendantsOf(all, "s1~tz").map((u) => u.id)).not.toContain("s3~maket");
+  });
+
+  it("кольцо не зацикливает: единица разворачивается один раз", () => {
+    const loop = unitsOf({ funcs, tasks: [
+      { id: "a", funcId: "f1", status: "done", submissions: [{ id: "sa",
+        at: "2026-01-01T00:00:00Z", gives: { x: 1 }, took: { x: ["sb~x"] } }] },
+      { id: "b", funcId: "f1", status: "done", submissions: [{ id: "sb",
+        at: "2026-01-02T00:00:00Z", gives: { x: 1 }, took: { x: ["sa~x"] } }] },
+    ] });
+    expect(descendantsOf(loop, "sa~x").map((u) => u.id).sort())
+      .toEqual(["sa~x", "sb~x"]);
+  });
+
+  it("родословной может не быть — и это видно, а не додумывается", () => {
+    const all = unitsOf(model);
+    expect(hasLineage(all, "s1~tz")).toBe(true);
+    expect(hasLineage(all, "s3~maket")).toBe(false);
   });
 });

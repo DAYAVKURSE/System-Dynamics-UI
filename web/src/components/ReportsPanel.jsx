@@ -9,6 +9,7 @@ import {
 } from "../lib/reports.js";
 import { reportHtml, reportOf, rangeTimeText, saveFile, timeText } from "../lib/reportDoc.js";
 import { chainOf } from "../lib/chain.js";
+import { unitsOfTrait } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОТЧЁТЫ · карта проектов
@@ -175,6 +176,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
      цепочке БЕЗ звена — иначе выбранное звено обрезало бы список, и
      передвинуть его дальше было бы уже нечем: человек заперся бы в первом
      же выборе. */
+  // Единицы этого ресурса, которые уже родились из сдач: с ними работа
+  // уже происходила, и о каждой можно спросить отдельно.
+  const units = node.trait ? unitsOfTrait(model, node.trait) : [];
   const full = chainOf(model, { from: node.trait });
   const uptoTraits = traits.filter((t) => t.id !== node.trait
     && (full.traits || []).includes(t.id));
@@ -270,6 +274,29 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           </select>
         </div>
 
+        {/* ─── с чем именно работаем ───
+
+            Две дороги, и обе нужны. НОВЫЙ ресурс — файлом: вот это
+            техническое задание только что пришло от заказчика, работы по
+            нему ещё не было. УЖЕ БЫВШИЙ В РАБОТЕ — выбором из единиц с
+            номерами: тогда раздел показывает весь отчёт по нему, включая
+            то, что из него уже выросло.
+
+            Второе без первого оставило бы человека без входа в работу, а
+            первое без второго — без возможности спросить о том, что уже
+            идёт. */}
+        {!!units.length && (
+          <select style={{ ...S.inp, marginTop: 6, fontSize: 11.5, padding: "4px 6px" }}
+            aria-label={`с какой единицей: ${node.name || "без названия"}`}
+            value={node.unit || ""}
+            onChange={(e) => up({ unit: e.target.value })}>
+            <option value="">весь ресурс целиком — все единицы</option>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                №{u.no} · {u.title || "без названия"}
+                {u.accepted ? "" : " (не принято)"}</option>))}
+          </select>)}
+
         {/* Сам ресурс — файлом. Это и есть «техническое задание»: не пересказ
             своими словами, а то, что и правда пришло от заказчика. */}
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
@@ -301,6 +328,39 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <div style={{ fontSize: 11, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
             До этого звена цепочка не доходит: между ним и выбранным ресурсом
             разрыв — ни одна функция не берёт то, что выдаёт предыдущая.
+          </div>)}
+
+        {!!doc.unit && (
+          <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
+            borderRadius: 8, padding: 8, marginTop: 8 }}>
+            <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: ACC, fontWeight: 700 }}>
+                №{doc.unit.no}</span>
+              <span style={{ fontSize: 12, flex: "1 1 120px" }}>
+                {doc.unit.title || "без названия"}</span>
+              <span style={{ fontSize: 10.5, color: doc.unit.accepted ? OK : WARN }}>
+                {doc.unit.accepted ? "принято" : "не принято"}</span>
+            </div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+              {fmtDT(doc.unit.at)} · {doc.unit.by == null ? "исполнитель не назначен"
+                : (nameOf ? nameOf(doc.unit.by) : doc.unit.by)}
+              {" · сделано функцией "}{funcName(doc.unit.func)}
+            </div>
+            {!!doc.parents.length && (
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+                сделано из: {doc.parents.map((u) =>
+                  `№${u.no} ${u.title || "без названия"}`).join(", ")}
+              </div>)}
+            {doc.unit.file && (
+              <a href={reportSrc(doc.unit.file)} target="_blank" rel="noreferrer"
+                style={{ fontSize: 10.5, color: ACC, display: "inline-block",
+                  marginTop: 4 }}>📎 {doc.unit.file.name}</a>)}
+            <div style={{ fontSize: 10.5, marginTop: 5, lineHeight: 1.5,
+              color: doc.traced ? C.muted : WARN }}>
+              {doc.traced
+                ? `Дальше — только то, что выросло из неё: вещей в родословной ${doc.family.length}.`
+                : "Что из чего сделано, по ней не записано: при сдаче не отметили взятое. Показана она одна — достраивать родословную по датам значило бы выдать догадку за знание."}
+            </div>
           </div>)}
 
         {!!node.trait && (<>

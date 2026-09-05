@@ -28,6 +28,7 @@ const MODEL = {
       takes: [{ id: "p1", trait: "t1", lo: 1, hi: 1 }],
       gives: [{ id: "g1", trait: "t2", lo: 1, hi: 1 }] },
   ],
+  entities: [{ id: "e1", name: "Мы" }],
   factors: [],
   tasks: [
     { id: "tk1", funcId: "f1", title: "Макет главной", status: "done", assignee: "2",
@@ -231,6 +232,56 @@ describe("карта в форме", () => {
       HTMLAnchorElement.prototype.click = realClick;
       URL.createObjectURL = realCreate;
     }
+  });
+
+  it("можно спросить не про весь ресурс, а про одну единицу", () => {
+    /* Загрузить новый ресурс — одна дорога; спросить о том, с которым уже
+       работали, — другая, и она нужна не меньше. */
+    /* Единицы есть у того, что кто-то ПРОИЗВОДИТ: «заявка» приходит со
+       стороны, и различать её экземпляры нечем — для этого и загружают
+       файл. А у «макета» единицы есть, и о каждом можно спросить. */
+    render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
+      ? { ...n, trait: "t2" } : n))} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    const pick = screen.getByLabelText("с какой единицей: Макеты");
+    expect([...pick.options].map((o) => o.textContent))
+      .toEqual(["весь ресурс целиком — все единицы",
+        "№2 · Второй заход (не принято)", "№1 · Макет главной"]);
+  });
+
+  it("отчёт по единице показывает её саму и то, что из неё выросло", () => {
+    /* Даже если раздел прослеживает ОТ неё дальше: сама она сделана
+       функцией, которая лежит до цепочки, и выбрасывать её из отчёта о ней
+       же было бы нелепо. */
+    const node = { ...NODES[1], trait: "t2", unit: "s1~t2" };
+    const d = reportOf(MODEL, node, [NODES[0], node, NODES[2]], {});
+    expect(d.unit).toMatchObject({ no: 1, title: "Макет главной" });
+    // Чужая единица в отчёт по этой не попадает.
+    expect(d.made.map((u) => u.no)).toEqual([1]);
+    expect(d.actual.total).toBe(1);
+    expect(d.actual.tasks[0].title).toBe("Макет главной");
+  });
+
+  it("не записано, что из чего сделано, — так и сказано, а не додумано", () => {
+    const node = { ...NODES[1], unit: "s1~t2" };
+    const d = reportOf(MODEL, node, [NODES[0], node, NODES[2]], {});
+    // У этой сдачи взятое не отмечено: родословной нет.
+    expect(d.traced).toBe(false);
+    expect(reportHtml(d, { traitName: (x) => x, funcName: (x) => x }))
+      .toContain("не записано, что из чего сделано");
+  });
+
+  it("а где родословная записана — виден и предок, и потомок", () => {
+    const model = { ...MODEL, tasks: [
+      MODEL.tasks[0],
+      { id: "tk3", funcId: "f1", title: "Второй слой", status: "done", assignee: "2",
+        submissions: [{ id: "s3", at: "2026-02-03T10:00:00Z", hours: 1,
+          takes: { t1: 1 }, gives: { t2: 1 }, took: { t1: ["s1~t2"] } }] },
+    ] };
+    const node = { ...NODES[1], unit: "s1~t2" };
+    const d = reportOf(model, node, [NODES[0], node, NODES[2]], {});
+    expect(d.traced).toBe(true);
+    expect(d.family.map((u) => u.id)).toEqual(["s1~t2", "s3~t2"]);
   });
 
   it("удаление блока уносит вложенные разделы", () => {

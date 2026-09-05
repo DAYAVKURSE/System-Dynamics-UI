@@ -228,9 +228,15 @@ export function factorsIn(model = {}, chain = {}) {
  * не измерение. Но задачи, которые ещё в работе, из виду не пропадают: они
  * и есть ответ на вопрос «сколько осталось».
  */
-export function actualOf({ tasks = [], funcs = [] } = {}, chain = {}) {
+export function actualOf({ tasks = [], funcs = [] } = {}, chain = {}, { only } = {}) {
   const ids = new Set((chain.steps || []).map((f) => f.id));
-  const mine = tasks.filter((t) => ids.has(t.funcId));
+  /* `only` — задачи родословной выбранной единицы. Когда он задан, цепочка
+     на отбор не влияет: единица — сама точка отсчёта, и работа, которая её
+     СДЕЛАЛА, лежит до цепочки, а не в ней. Отсеять её по цепочке значило бы
+     выбросить из отчёта о вещи ту работу, в которой вещь и родилась. */
+  const mine = only
+    ? tasks.filter((t) => only.has(t.id))
+    : tasks.filter((t) => ids.has(t.funcId));
   const done = mine.filter((t) => t.status === "done");
   const last = (t) => {
     const s = t.submissions || [];

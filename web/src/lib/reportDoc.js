@@ -17,6 +17,7 @@
 
 import { actualOf, chainOf, estimateRange, factorsIn } from "./chain.js";
 import { childrenOf, madeIn, pathOf } from "./reports.js";
+import { descendantsOf, hasLineage, parentsOf, unitsOf } from "./units.js";
 import { fromHours } from "./funcs.js";
 
 const num = (v) => Number(v) || 0;
@@ -42,8 +43,29 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
   if (!node) return null;
   const chain = chainOf(model, { from: node.trait, upto: node.upto });
   const plan = estimateRange(model, chain, { runsOf, qty: node.qty || 1 });
-  const actual = actualOf(model, chain);
-  const made = madeIn(model, chain);
+
+  /* ─── отчёт про ОДНУ единицу ───
+
+     Выбрана определённая единица — раздел показывает не всё, что делала
+     цепочка, а то, что выросло ИЗ НЕЁ: её саму, её потомков и задачи,
+     которые их сделали. Родословная берётся из сдач (`took`), где
+     исполнитель назвал взятое.
+
+     Связь не записана — так и сказано. Достроить её по количествам и датам
+     было бы догадкой с видом знания: рядом идёт чужая работа, и время у
+     неё то же самое. */
+  const all = unitsOf(model);
+  const unit = node.unit ? all.find((u) => u.id === node.unit) || null : null;
+  const family = unit ? descendantsOf(all, unit.id) : null;
+  const onlyTasks = family
+    ? new Set(family.map((u) => u.task).filter(Boolean)) : null;
+  const traced = !unit || family.length > 1 || hasLineage(all, unit.id);
+
+  const actual = actualOf(model, chain, { only: onlyTasks });
+  /* Созданное по выбранной единице — это её родословная, а не пересечение
+     с цепочкой: сама она сделана функцией, которая лежит ДО цепочки, и
+     отсеивать её значило бы выбросить из отчёта о вещи саму вещь. */
+  const made = unit ? family : madeIn(model, chain);
   const factors = factorsIn(model, chain);
 
   /* Ресурсы, о которых в разделе вообще есть что сказать: те, что цепочка
@@ -70,6 +92,13 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
     made,
     factors,
     changes,
+    // Выбранная единица: она сама, из чего сделана и что из неё выросло.
+    unit,
+    parents: unit ? parentsOf(all, unit.id) : [],
+    family: family || [],
+    /* Записана ли у единицы родословная. Не записана — числа по ней
+       считать не из чего, и это сказано словами, а не пустотой. */
+    traced,
     /* Цепочка не дошла до звена — значит между ними разрыв: ни одна функция
        не берёт то, что выдаёт предыдущая. Молчать об этом нельзя: отчёт
        выглядел бы полным, а в нём дыра. */
@@ -121,11 +150,14 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
 <section class="b" style="margin-left:${depth * 14}px">
   <h${h}>${esc(node.name || "без названия")}</h${h}>
   <p class="m">
+    ${d.unit ? `по единице №${d.unit.no} «${esc(d.unit.title || "без названия")}» · ` : ""}
     ${node.trait ? `с ресурса «${tn(node.trait)}»` : "ресурс не выбран"}
     ${node.upto ? ` · до звена «${tn(node.upto) !== node.upto ? tn(node.upto) : fn(node.upto)}»` : " · до конца цепочки"}
     ${node.file ? ` · приложено: ${esc(node.file.name || "файл")}` : ""}
   </p>
   ${d.broken ? '<p class="w">Цепочка не доходит до звена: между ними разрыв — ни одна функция не берёт то, что выдаёт предыдущая.</p>' : ""}
+  ${d.unit && !d.traced ? '<p class="w">По этой единице не записано, что из чего сделано: при сдаче не отметили взятое. Ниже — только она сама.</p>' : ""}
+  ${d.parents.length ? `<p class="m">сделано из: ${d.parents.map((u) => `№${u.no} ${esc(u.title || "без названия")}`).join(", ")}</p>` : ""}
 
   <h${h + 1}>1. Предварительная оценка</h${h + 1}>
   <p class="m">работы ${nm(plan.lo.workHours)}–${nm(plan.hi.workHours)} ч ·

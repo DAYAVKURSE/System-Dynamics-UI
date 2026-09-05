@@ -149,12 +149,23 @@ export async function submitTask(userId, taskId, submission) {
   // среднее арифметическое, которое уточняет прогноз.
   const qty = (v) => Object.fromEntries(Object.entries(v && typeof v === "object" ? v : {})
     .map(([k, n]) => [String(k), Number(n) || 0]));
+  /* КАКИЕ единицы взяли — карта «ресурс → номера единиц». Количества
+     говорят, что израсходована одна заявка, и молчат о том, чья; а
+     спрашивают потом именно об этом. Задним числом такую связь не
+     восстановить, поэтому её надо не потерять здесь. */
+  const took = Object.fromEntries(
+    Object.entries(submission?.took && typeof submission.took === "object"
+      ? submission.took : {})
+      .map(([k, v]) => [String(k),
+        [...new Set((Array.isArray(v) ? v : []).map(String).filter(Boolean))]])
+      .filter(([, v]) => v.length));
   task.submissions = [...(task.submissions || []), {
     id: "sb" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     at: new Date().toISOString(),
     hours: Number(submission?.hours) || 0,
     takes: qty(submission?.takes),
     gives: qty(submission?.gives),
+    took,
     text: String(submission?.text || ""),
     file: submission?.file || null,
   }];
