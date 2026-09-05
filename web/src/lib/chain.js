@@ -84,32 +84,6 @@ export function chainOf(model = {}, { from, upto = "" } = {}) {
   return out;
 }
 
-/* ─────── правки вилок в отчёте ───────
-
-   Отчёт нужен для ПРОГНОЗИРОВАНИЯ: «а если дизайн займёт не день, а три?
-   а если из одного договора выйдет не один заказ, а два?». Ответ на такой
-   вопрос требует поменять числа — но менять ради него саму модель нельзя:
-   прикидка одного раздела стала бы правдой для всей схемы, и соседний
-   отчёт, который её не просил, посчитался бы по чужому допущению.
-
-   Поэтому правки живут в разделе (`tweaks`) и накладываются на функцию
-   ЗДЕСЬ, при счёте. Не сказано ничего — функция берётся как есть; сказано
-   про одну вилку — меняется только она. */
-export function tweaked(f, tweak) {
-  if (!f || !tweak) return f;
-  const num2 = (v, dflt) => (v == null || v === "" ? dflt : num(v));
-  const port = (p, over) => (over
-    ? { ...p, lo: num2(over.lo, p.lo), hi: num2(over.hi, p.hi) } : p);
-  return {
-    ...f,
-    dur: num2(tweak.dur, f.dur),
-    durHi: num2(tweak.durHi, f.durHi),
-    durUnit: tweak.durUnit || f.durUnit,
-    takes: (f.takes || []).map((p) => port(p, tweak.takes?.[p.trait])),
-    gives: (f.gives || []).map((p) => port(p, tweak.gives?.[p.trait])),
-  };
-}
-
 /**
  * Предварительная оценка одной стороны вилки.
  *
@@ -123,7 +97,7 @@ export function tweaked(f, tweak) {
  * собираются в `need`.
  */
 export function estimate(model = {}, chain = {},
-  { side = "hi", runsOf, qty = 1, tweaks = {} } = {}) {
+  { side = "hi", runsOf, qty = 1 } = {}) {
   const runs = (f) => (runsOf ? runsOf(f.id) : []);
   const inChain = new Set(chain.traits || []);
   const flow = { [chain.from]: num(qty) };
@@ -133,10 +107,7 @@ export function estimate(model = {}, chain = {},
   const ready = { [chain.from]: 0 };   // когда ресурс появится
   const steps = [];
 
-  (chain.steps || []).forEach((raw) => {
-    // Правки раздела накладываются на функцию только для этого счёта:
-    // сама модель остаётся такой, какой её собрали.
-    const f = tweaked(raw, tweaks[raw.id]);
+  (chain.steps || []).forEach((f) => {
     const rs = runs(f);
     const takes = (f.takes || []).filter((p) => p.trait);
     /* Сколько раз функция сработает: столько, на сколько хватает самого
@@ -222,10 +193,10 @@ export function estimate(model = {}, chain = {},
  * Одно число здесь было бы обещанием, которого никто не давал: сколько
  * выйдет и сколько займёт, задано вилками — вилкой и остаётся.
  */
-export function estimateRange(model, chain, { runsOf, qty = 1, tweaks = {} } = {}) {
+export function estimateRange(model, chain, { runsOf, qty = 1 } = {}) {
   return {
-    lo: estimate(model, chain, { side: "lo", runsOf, qty, tweaks }),
-    hi: estimate(model, chain, { side: "hi", runsOf, qty, tweaks }),
+    lo: estimate(model, chain, { side: "lo", runsOf, qty }),
+    hi: estimate(model, chain, { side: "hi", runsOf, qty }),
   };
 }
 

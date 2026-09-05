@@ -121,7 +121,7 @@ function estimate(model, chain, side, qty) {
       delta[g.trait] = (delta[g.trait] || 0) + all;
       ready[g.trait] = Math.max(ready[g.trait] ?? 0, start + calendar);
     });
-    steps.push({ name: str(f.name), runs: n, factor: f.kind === "factor",
+    steps.push({ func: f.id, name: str(f.name), runs: n, factor: f.kind === "factor",
       startHours: start, calendarHours: calendar,
       workHours: f.kind === "factor" ? 0 : one * n });
   });
@@ -214,7 +214,7 @@ function actualOf(model, chain, only) {
     Object.entries(sb.gives || {}).forEach(([id, v]) => {
       if (!(num(v) > 0)) return;
       delta[id] = (delta[id] || 0) + num(v);
-      made.push({ no: no[`${sb.id}~${id}`] ?? null, title: str(t.title),
+      made.push({ task: t.id, no: no[`${sb.id}~${id}`] ?? null, title: str(t.title),
         trait: traitName(id), qty: num(v), at: str(sb.at), by: personName(t.assignee),
         file: sb.file && sb.file.url
           ? { name: str(sb.file.name), type: str(sb.file.type), url: str(sb.file.url) }
@@ -227,8 +227,15 @@ function actualOf(model, chain, only) {
     hours: Math.round(spent * 10) / 10,
     delta,
     made: made.sort((a, b) => (b.no || 0) - (a.no || 0)),
-    tasks: mine.map((t) => ({ title: str(t.title), by: personName(t.assignee),
-      end: str(t.end), status: str(t.status) })),
+    tasks: mine.map((t) => {
+      const subs = t.submissions || [];
+      const sb = subs.length ? subs[subs.length - 1] : null;
+      return { title: str(t.title), by: personName(t.assignee), func: str(t.funcId),
+        start: str(t.start), end: str(t.end), status: str(t.status),
+        // Часы — только у принятой работы: непринятая ещё не измерена.
+        hours: t.status === "done" && sb ? num(sb.hours) : null,
+        made: (made.filter((r) => r.task === t.id)) };
+    }),
   };
 }
 
@@ -280,8 +287,26 @@ export function snapshotOf(model = {}, nodeId) {
         ? { name: str(n.file.name), type: str(n.file.type), url: str(n.file.url) }
         : null,
       broken: Boolean(n.trait && n.upto && !chain.ok),
-      plan: { workHours: [lo.workHours, hi.workHours],
-        calendarHours: [lo.calendarHours, hi.calendarHours], steps: hi.steps },
+      /* Шаг и его работа — одно место, как и на экране: два списка рядом
+         человек сводил глазами, и первым вопросом было «почему шаг один, а
+         задач четыре». Порядок часов — от меньшего: щедрая сторона оценки
+         считается по быстрой работе, и без сортировки выходило «674–505». */
+      plan: {
+        workHours: [Math.min(lo.workHours, hi.workHours),
+          Math.max(lo.workHours, hi.workHours)],
+        calendarHours: [Math.min(lo.calendarHours, hi.calendarHours),
+          Math.max(lo.calendarHours, hi.calendarHours)],
+        steps: hi.steps.map((st) => {
+          const low = lo.steps.find((x) => x.func === st.func);
+          return { ...st,
+            workLo: Math.min(num(low?.workHours), num(st.workHours)),
+            workHi: Math.max(num(low?.workHours), num(st.workHours)),
+            tasks: act.tasks.filter((t) => t.func === st.func) };
+        }),
+      },
+      /* Работа, в которой прослеживаемые вещи родились, лежит ДО цепочки:
+         без неё не ответить, откуда они взялись. */
+      before: act.tasks.filter((t) => !hi.steps.some((st) => st.func === t.func)),
       changes: ids.map((id) => ({ trait: traitName(id),
         lo: num(lo.delta[id]), hi: num(hi.delta[id]),
         fact: act.done ? num(act.delta[id]) : null })),

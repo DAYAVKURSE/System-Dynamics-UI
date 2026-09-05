@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
 import { getTelegram } from "../telegram.js";
@@ -11,8 +11,7 @@ import {
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
   from "../lib/reportDoc.js";
 import { chainOf } from "../lib/chain.js";
-import { DUR_UNITS } from "../lib/funcs.js";
-import { unitsOf, unitsOfTrait } from "../lib/units.js";
+import { unitsOfTrait } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОТЧЁТЫ · карта проектов
@@ -38,6 +37,15 @@ import { unitsOf, unitsOfTrait } from "../lib/units.js";
    чем сходиться.
    ════════════════════════════════════════════════════════════════ */
 
+/* Вилка часов: меньшее слева, и одинаковые границы говорятся один раз.
+   «Щедрая» сторона оценки считается по БЫСТРОЙ работе, поэтому часов в ней
+   меньше — и без сортировки строка выходила задом наперёд: «674–505 ч». */
+const hoursRange = (a, b) => {
+  const lo = Math.min(Number(a) || 0, Number(b) || 0);
+  const hi = Math.max(Number(a) || 0, Number(b) || 0);
+  return lo === hi ? `${nm(hi)} ч` : `${nm(lo)}–${nm(hi)} ч`;
+};
+
 const fmtDT = (v) => {
   if (!v) return "—";
   const d = new Date(v);
@@ -46,249 +54,332 @@ const fmtDT = (v) => {
       year: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
-/* ─────── 1. график изменений ───────
+/* ─────── 1. как изменятся ресурсы ───────
 
-   Столбики, а не линии: вопрос здесь не «как менялось во времени», а
-   «насколько изменится каждый ресурс» — сравнение величин, и сравнивают их
-   длиной от общего нуля.
+   Вопрос здесь один: НАСКОЛЬКО изменится каждый ресурс и сходится ли план с
+   фактом. Поэтому у каждого ресурса своя строка и своя шкала: доход в сотнях
+   тысяч и договоры в штуках на общей шкале превращали договоры в невидимую
+   чёрточку — «график, на котором ни хрена не понятно». Сравнивать доход с
+   договорами и незачем: их не складывают. Сравнивают ПЛАН С ФАКТОМ, и это
+   сравнение внутри строки честное — обе полосы на одной шкале.
 
-   Ноль посередине, потому что величины знаковые: одно прибавляется, другое
-   расходуется, и рисовать убыль вверх значило бы врать формой. У каждого
-   ресурса две полосы: план вилкой и факт. Число подписано у каждой полосы,
-   и рядом стоит легенда — так пара «план/факт» читается и без цвета. */
+   План — вилка, и рисуется вилкой: полоса от нижней границы до верхней, а
+   не одно число, которого никто не обещал. Ноль отмечен линией: расход
+   уходит влево от него, приход — вправо, и врать формой не приходится.
+
+   Числа стоят ТЕКСТОМ рядом с названием, а не подписями внутри картинки.
+   Прежде они рисовались за краем svg с `overflow: visible` и при больших
+   значениях вылезали из формы; текст в потоке переносится и не вылезает
+   никогда. Заодно это второе кодирование к цвету: пара «план/факт»
+   читается и без цвета — так требует правило про план и факт. */
 export function ChangeChart({ rows = [], traitName }) {
   if (!rows.length) return null;
-  const top = Math.max(1, ...rows.flatMap((r) => [
-    Math.abs(r.lo), Math.abs(r.hi), Math.abs(r.fact || 0)]));
-  const W = 320;
-  const mid = W / 2;
-  const len = (v) => (Math.abs(v) / top) * (mid - 4);
-  const bar = (v, color, label) => {
-    const w = len(v);
-    const x = v >= 0 ? mid : mid - w;
-    return (<>
-      <rect x={x} y={0} width={Math.max(w, 1)} height={9} rx={2} fill={color} />
-      <text x={v >= 0 ? mid + w + 5 : mid - w - 5} y={8}
-        textAnchor={v >= 0 ? "start" : "end"} fontSize="9.5" fill={C.muted}
-        fontFamily="ui-monospace, monospace">{label}</text>
-    </>);
-  };
+  const dot = (color, label) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 10.5, color: C.muted }}>
+      <span style={{ width: 9, height: 9, borderRadius: 2, background: color }} />
+      {label}</span>);
   return (
     <div>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
-          fontSize: 10.5, color: C.muted }}>
-          <span style={{ width: 9, height: 9, borderRadius: 2, background: WARN }} />
-          план (от и до)</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
-          fontSize: 10.5, color: C.muted }}>
-          <span style={{ width: 9, height: 9, borderRadius: 2, background: OK }} />
-          факт</span>
+      <div className="flex flex-wrap gap-2"
+        style={{ alignItems: "center", marginBottom: 6 }}>
+        {dot(WARN, "план (от и до)")}{dot(OK, "факт")}
       </div>
       {rows.map((r) => {
         const lo = Math.min(r.lo, r.hi);
         const hi = Math.max(r.lo, r.hi);
+        const vals = [0, lo, hi, ...(r.fact == null ? [] : [r.fact])];
+        /* Поля по краям — чтобы нулевая линия не прижималась к самому краю:
+           «убавится на 1» иначе рисуется полосой во всю ширину, упирающейся
+           в невидимый ноль, и читается как рост. */
+        const raw = Math.max(...vals) - Math.min(...vals) || 1;
+        const min = Math.min(...vals) - raw * 0.08;
+        const max = Math.max(...vals) + raw * 0.08;
+        const span = max - min || 1;
+        const at = (v) => ((v - min) / span) * 100;
+        const zero = at(0);
+        /* Полоса растёт ОТ НУЛЯ: «убавится на 3» — это длина от нуля до −3,
+           а не невидимая точка. Верная часть вилки (до нижней границы) —
+           плотная, «а может и больше» (от нижней до верхней) — полупрозрачная:
+           обещано первое, возможно второе, и путать их нельзя. */
+        const bar = (a, b, color, title, dim) => {
+          const left = Math.min(at(a), at(b));
+          const width = Math.abs(at(b) - at(a));
+          return (
+            <div title={title} style={{ position: "absolute", left: `${left}%`,
+              width: `${width}%`, minWidth: 2, top: 0, height: 9, borderRadius: 3,
+              background: color, opacity: dim ? 0.45 : 1 }} />);
+        };
+        const planText = lo === hi ? nm(hi) : `${nm(lo)} … ${nm(hi)}`;
         return (
-          <div key={r.trait} style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 11.5, marginBottom: 2 }}>{traitName(r.trait)}</div>
-            <svg viewBox={`0 0 ${W} ${r.fact == null ? 11 : 22}`} width="100%"
-              style={{ display: "block", overflow: "visible" }}
+          <div key={r.trait} style={{ marginBottom: 9 }}>
+            <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
+              <span style={{ fontSize: 11.5, flex: "1 1 110px" }}>
+                {traitName(r.trait)}</span>
+              <span style={{ fontSize: 10.5, color: WARN }}>
+                план{" "}
+                <b style={{ fontFamily: "ui-monospace, monospace" }}>{planText}</b>
+              </span>
+              <span style={{ fontSize: 10.5, color: r.fact == null ? C.muted : OK }}>
+                {r.fact == null ? "факта нет" : (<>факт{" "}
+                  <b style={{ fontFamily: "ui-monospace, monospace" }}>
+                    {nm(r.fact)}</b></>)}
+              </span>
+            </div>
+            {/* Полоса плана и полоса факта — на одной шкале и с общим нулём. */}
+            <div style={{ position: "relative", height: r.fact == null ? 11 : 23,
+              marginTop: 3, overflow: "hidden" }}
               role="img"
-              aria-label={`${traitName(r.trait)}: план от ${nm(lo)} до ${nm(hi)}`
-                + (r.fact == null ? "" : `, факт ${nm(r.fact)}`)}>
-              <line x1={mid} y1={0} x2={mid} y2={r.fact == null ? 11 : 22}
-                stroke={C.line} strokeWidth="1" />
-              <g transform="translate(0,1)">
-                {bar(hi, WARN, lo === hi ? nm(hi) : `${nm(lo)}…${nm(hi)}`)}
-              </g>
-              {r.fact != null && (
-                <g transform="translate(0,13)">{bar(r.fact, OK, nm(r.fact))}</g>)}
-            </svg>
+              aria-label={`${traitName(r.trait)}: план ${planText}`
+                + (r.fact == null ? ", факта нет" : `, факт ${nm(r.fact)}`)}>
+              <div style={{ position: "absolute", left: `${zero}%`, top: 0, bottom: 0,
+                width: 1, background: C.line }} />
+              {lo !== 0 && bar(0, lo, WARN, `план не меньше ${nm(lo)}`)}
+              {lo !== hi && bar(lo, hi, WARN, `план до ${nm(hi)}`, true)}
+              {/* Ноль полосой не рисуется: обрубок в 2 пикселя у нулевой
+                  линии читался бы как «чуть-чуть», а вышло ровно ничего.
+                  Само число при этом стоит текстом выше. */}
+              {r.fact != null && r.fact !== 0 && (
+                <div style={{ position: "absolute", top: 14, left: 0, right: 0,
+                  height: 9 }}>
+                  {bar(0, r.fact, OK, `факт ${nm(r.fact)}`)}
+                </div>)}
+            </div>
           </div>);
       })}
     </div>);
 }
 
-/* ─────── 2. задачи во времени ───────
-   Не диаграмма Ганта: в разделе важен порядок и состояние, а не пиксельная
-   длина полосы. Сперва запланированные шаги — то, что ещё предстоит, —
-   потом заведённые задачи с их сроками. */
-/* ─────── правка вилок в шаге ───────
+/* ─────── задачи ───────
 
-   Отчёт нужен для ПРОГНОЗИРОВАНИЯ: «а если дизайн займёт не день, а три?
-   а если из одного договора выйдет два заказа?». Ответить на это можно
-   только числами — но менять ради вопроса саму модель нельзя: прикидка
-   одного раздела стала бы правдой для всей схемы, и соседний отчёт,
-   который её не просил, посчитался бы по чужому допущению.
+   Шаг и задача — не два раздела отчёта, а одно дело с двух сторон: шаг
+   говорит, что должно случиться, задача — что случилось. Пока они стояли
+   двумя списками, человеку приходилось сводить их глазами, и первый же
+   вопрос был «почему шаг один, а задач четыре». Поэтому здесь один список:
+   шаг, а под ним его работа — с ожидаемыми числами рядом с полученными.
 
-   Поэтому правка живёт в разделе. Поле, которое не трогали, показывает
-   значение модели и пустует: так видно, что своего значения тут нет, а
-   не «здесь ноль». */
-function Tweak({ step, func, tweak, traitName, onSet }) {
-  if (!func) return null;
-  const t = tweak || {};
-  const pair = (kind, port) => {
-    const own = t[kind]?.[port.trait] || {};
-    const set = (patch) => onSet({ ...t, [kind]: { ...(t[kind] || {}),
-      [port.trait]: { ...own, ...patch } } });
-    return (
-      <div key={`${kind}-${port.id}`} className="flex flex-wrap gap-2"
-        style={{ alignItems: "center", marginTop: 4 }}>
-        <span style={{ fontSize: 10.5, color: C.muted, flex: "1 1 110px" }}>
-          {kind === "takes" ? "берёт" : "выдаёт"} {traitName(port.trait)}</span>
-        <NumField value={own.lo ?? ""} placeholder={String(port.lo)}
-          style={{ flex: "0 1 64px", fontSize: 11, padding: "3px 5px" }}
-          aria-label={`${kind === "takes" ? "берёт" : "выдаёт"} ${traitName(port.trait)} от`}
-          onCommit={(v) => set({ lo: v })} />
-        <span style={{ fontSize: 10.5, color: C.muted }}>…</span>
-        <NumField value={own.hi ?? ""} placeholder={String(port.hi)}
-          style={{ flex: "0 1 64px", fontSize: 11, padding: "3px 5px" }}
-          aria-label={`${kind === "takes" ? "берёт" : "выдаёт"} ${traitName(port.trait)} до`}
-          onCommit={(v) => set({ hi: v })} />
-      </div>);
+   Созданные вещи тоже живут ЗДЕСЬ, у сделавшей их задачи. Отдельным
+   списком они отвечали на вопрос «что вообще появилось», а спрашивают
+   другое: «что вышло вот из этой работы».
+
+   У фактора задач нет вовсе: с погоды не спрашивают — на его месте так и
+   сказано, а не оставлено пустое место, которое читается как недоделка. */
+
+/* ─────── таймлайн шагов ───────
+
+   Отчёт нужен СНАЧАЛА для планирования конкретных работ: «что за чем идёт и
+   сколько тянется». Список этого не показывает — «начнётся через 1 ч» и
+   «займёт 1 мес» человеку приходится складывать в голове. Поэтому шаги
+   стоят на одной шкале времени: сдвиг полосы вправо и есть ответ на «что за
+   чем», а её длина — на «как долго».
+
+   Шкала — часы от «сейчас», потому что план считается вперёд от этого
+   мгновения. Заведённые задачи ложатся на ту же шкалу по своим срокам: так
+   видно, попадает ли назначенная работа в план или уже отстала. Задача без
+   дат полосы не получает — рисовать её «где-нибудь» значило бы придумать
+   срок, которого никто не ставил. */
+function Timeline({ steps = [], before = [] }) {
+  const now = Date.now();
+  const hrs = (v) => {
+    if (!v) return null;
+    const ms = new Date(v).getTime();
+    return Number.isNaN(ms) ? null : (ms - now) / 3600000;
   };
+  const rows = [];
+  steps.forEach((s) => {
+    rows.push({ key: s.func, name: s.name, factor: s.factor, kind: "step",
+      from: s.startHours, to: s.startHours + Math.max(s.calendarHours, 0.01),
+      note: `${nm(s.runs)} × ${timeText(s.calendarHours / Math.max(s.runs, 1))}` });
+    s.tasks.forEach((t) => {
+      const a = hrs(t.start);
+      const b = hrs(t.end);
+      rows.push({ key: t.id, name: t.title, kind: "task", done: t.hours != null,
+        from: a == null ? null : a, to: b == null ? null : b });
+    });
+  });
+  /* Работа, в которой прослеживаемые вещи родились, лежит ДО цепочки — но
+     на той же шкале: без неё не видно, откуда всё началось. */
+  before.forEach((t) => {
+    rows.unshift({ key: t.id, name: t.title, kind: "task", done: t.hours != null,
+      from: hrs(t.start), to: hrs(t.end), before: true });
+  });
+  const placed = rows.filter((r) => r.from != null && r.to != null);
+  if (!placed.length) return null;
+  const from0 = Math.min(0, ...placed.map((r) => r.from));
+  const to1 = Math.max(...placed.map((r) => r.to), from0 + 1);
+  const span = to1 - from0 || 1;
+  const at = (v) => ((v - from0) / span) * 100;
   return (
-    <div style={{ borderTop: `1px dashed ${C.line}`, marginTop: 6, paddingTop: 6 }}>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-        <span style={{ fontSize: 10.5, color: C.muted, flex: "1 1 110px" }}>
-          одно выполнение занимает</span>
-        <NumField value={t.dur ?? ""} placeholder={String(func.dur)}
-          style={{ flex: "0 1 64px", fontSize: 11, padding: "3px 5px" }}
-          aria-label={`время ${step.name} от`}
-          onCommit={(v) => onSet({ ...t, dur: v })} />
-        <span style={{ fontSize: 10.5, color: C.muted }}>…</span>
-        <NumField value={t.durHi ?? ""} placeholder={String(func.durHi)}
-          style={{ flex: "0 1 64px", fontSize: 11, padding: "3px 5px" }}
-          aria-label={`время ${step.name} до`}
-          onCommit={(v) => onSet({ ...t, durHi: v })} />
-        <select value={t.durUnit || func.durUnit} aria-label={`единица времени ${step.name}`}
-          style={{ ...S.inp, width: "auto", padding: "3px 5px", fontSize: 11 }}
-          onChange={(e) => onSet({ ...t, durUnit: e.target.value })}>
-          {Object.keys(DUR_UNITS).map((u) => (<option key={u} value={u}>{u}</option>))}
-        </select>
+    <div style={{ marginBottom: 10 }}>
+      {/* Ось: слева «сейчас», справа — когда всё кончится. Больше делений
+          не нужно: точные числа стоят у каждого шага строкой ниже. */}
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline",
+        fontSize: 10, color: C.muted, marginBottom: 3 }}>
+        <span style={{ flex: 1 }}>сейчас</span>
+        <span>весь срок: {timeText(to1)}</span>
       </div>
-      {(func.takes || []).map((p) => pair("takes", p))}
-      {(func.gives || []).map((p) => pair("gives", p))}
-      <div style={{ fontSize: 10, color: C.muted, marginTop: 4, lineHeight: 1.4 }}>
-        Пусто — значение модели. Правка живёт только в этом разделе: саму
-        схему она не трогает.
+      {rows.map((r, i) => (
+        <div key={`${r.key}-${i}`} style={{ marginBottom: 3 }}>
+          <div style={{ fontSize: r.kind === "step" ? 11 : 10.5,
+            color: r.kind === "step" ? C.text : C.muted,
+            paddingLeft: r.kind === "step" ? 0 : 12, lineHeight: 1.4 }}>
+            {r.kind === "task" ? "↳ " : ""}{r.name}
+            {r.before && <span style={{ color: C.muted }}> · до цепочки</span>}
+            {r.factor && <span style={{ color: ACC }}> · фактор</span>}
+            {r.note ? <span style={{ color: C.muted }}> · {r.note}</span> : ""}
+          </div>
+          <div style={{ position: "relative", height: r.kind === "step" ? 9 : 6,
+            marginTop: 2, marginLeft: r.kind === "step" ? 0 : 12,
+            background: C.ink, borderRadius: 3, overflow: "hidden" }}>
+            {/* Линия «сейчас»: без неё не видно, что часть работы уже позади. */}
+            <div style={{ position: "absolute", left: `${at(0)}%`, top: 0, bottom: 0,
+              width: 1, background: C.muted, opacity: 0.55 }} />
+            {r.from == null || r.to == null
+              ? null
+              : (<div title={`${r.name}: ${timeText(r.to - r.from)}`}
+                  style={{ position: "absolute", left: `${at(r.from)}%`,
+                    width: `${Math.max(at(r.to) - at(r.from), 1)}%`, minWidth: 3,
+                    top: 0, bottom: 0, borderRadius: 3,
+                    background: r.kind === "step"
+                      ? (r.factor ? ACC : WARN)
+                      : (r.done ? OK : NEU) }} />)}
+          </div>
+          {r.kind === "task" && (r.from == null || r.to == null) && (
+            <div style={{ fontSize: 10, color: C.muted, paddingLeft: 12 }}>
+              срок не поставлен — на шкале её нет</div>)}
+        </div>))}
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
+        marginTop: 4, fontSize: 10, color: C.muted }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 9, height: 6, borderRadius: 2, background: WARN }} />
+          шаг по плану</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 9, height: 6, borderRadius: 2, background: NEU }} />
+          задача в работе</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 9, height: 6, borderRadius: 2, background: OK }} />
+          принято</span>
       </div>
     </div>);
 }
 
-function Steps({ plan, tasks, funcName, personName, units, traitName,
-  hypothetical = false, funcs = [], tweaks = {}, onTweak }) {
-  /* Над ЧЕМ работала задача — то, что и различает выполнения одной функции.
-     Четыре «Собрать макет» одинаковы только на вид: они сделаны над разными
-     вещами, и пока этого не видно, список выглядит повтором одной строки.
+/** Одна созданная вещь: номер, что это, и файл, если он есть. */
+function MadeUnit({ u, traitName }) {
+  return (
+    <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
+      fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+      <span style={{ color: OK }}>вышло:</span>
+      <span style={{ color: ACC, fontWeight: 700 }}>№{u.no}</span>
+      <span>{traitName(u.trait)} · {u.title || "без названия"}</span>
+      <span style={{ color: u.accepted ? OK : WARN }}>
+        {u.accepted ? "принято" : "не принято"}</span>
+      {u.file && (/^image\//.test(u.file.type || "")
+        ? <a href={reportSrc(u.file)} target="_blank" rel="noreferrer"
+            style={{ color: ACC }}>🖼 {u.file.name}</a>
+        : <a href={reportSrc(u.file)} target="_blank" rel="noreferrer"
+            style={{ color: ACC }}>📎 {u.file.name}</a>)}
+    </div>);
+}
 
-     Взятое известно там, где исполнитель отметил его при сдаче; сделанное —
-     всегда, оно и есть единица с номером. */
-  const madeBy = {};
-  units.forEach((u) => { (madeBy[u.task] = madeBy[u.task] || []).push(u); });
-  const byId = Object.fromEntries(units.map((u) => [u.id, u]));
-  const tookBy = (t) => {
-    const subs = t.submissions || [];
-    const sb = subs.length ? subs[subs.length - 1] : null;
-    return [...new Set(Object.values(sb?.took || {}).flat().filter(Boolean))]
-      .map((id) => byId[id]).filter(Boolean);
-  };
-  /* Сколько задач уже заведено на каждый шаг. Это ответ на вопрос, который
-     иначе возникает первым: «шаг один, а задач четыре — почему?». Шаг это
-     функция, задача — одно её выполнение; план говорит, сколько выполнений
-     НУЖНО на выбранный ресурс, а заведено может быть сколько угодно — их
-     заводят цели, и не только эта. */
-  const made = {};
-  tasks.forEach((t) => { made[t.funcId] = (made[t.funcId] || 0) + 1; });
-  /* Задачи, заведённые до нумерации выполнений, названы одинаково, и в
-     списке они сливаются. Номер приписывается ЗДЕСЬ, при показе: править
+function Tasks({ steps = [], before = [], plan, actual, factors = [],
+  funcName, personName, traitName, hypothetical = false }) {
+  /* Задачи, названные одинаково, различаются номером при ПОКАЗЕ: править
      сохранённое название приложение не должно — это слова человека. */
-  const twins = twinNo(tasks);
-  const [openTweak, setOpenTweak] = useState(null);
+  const twins = twinNo([...steps.flatMap((s) => s.tasks), ...before]);
+  const portLine = (list) => (list || [])
+    .filter((x) => nm(x.qty) !== "0")
+    .map((x) => `${traitName(x.trait)} ${nm(x.qty)}`).join(", ");
+  const perRun = (s) => (s.runs > 0 ? nm(Math.round((s.workHi / s.runs) * 10) / 10) : "0");
+
+  const row = (t, planHours) => (
+    <div key={t.id} style={{ borderTop: `1px solid ${C.line}`, padding: "4px 0" }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+        <span style={{ fontSize: 11.5, flex: "1 1 130px" }}>
+          {t.title}
+          {twins[t.id] && (
+            <span style={{ color: C.muted }}>
+              {" "}№{twins[t.id].no} из {twins[t.id].of}</span>)}
+        </span>
+        <span style={{ fontSize: 10.5, color: C.muted }}>
+          {t.assignee == null ? "не назначен" : personName(t.assignee)}</span>
+        <span style={{ fontSize: 10.5, color: C.muted }}>{fmtDT(t.end)}</span>
+        <span style={{ fontSize: 10.5,
+          color: t.status === "done" ? OK : t.status === "deadline" ? BAD : WARN }}>
+          {t.status === "done" ? "принято" : t.status}</span>
+      </div>
+      {/* Ожидалось и вышло — рядом, на одной задаче: ради этого сравнения
+          отчёт и заводят. Часы у непринятой работы не показываются: их
+          ещё никто не измерил, а ноль читался бы как «сделано даром». */}
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+        {planHours === "—" ? "" : `ожидалось ${planHours} ч · `}
+        {t.hours == null ? "факта пока нет"
+          : <span style={{ color: OK }}>вышло {nm(t.hours)} ч</span>}
+        {!!t.took.length && (
+          <span style={{ color: ACC }}>
+            {" · взяла "}{t.took.map((u) => `${traitName(u.trait)} №${u.no}`).join(", ")}
+          </span>)}
+      </div>
+      {t.made.map((u) => (<MadeUnit key={u.id} u={u} traitName={traitName} />))}
+    </div>);
+
   return (
     <div>
-      {!plan.steps.length && (
+      {/* Общие числа по разделу: план вилкой, факт — только по принятому. */}
+      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
+        по плану работы {hoursRange(plan.lo.workHours, plan.hi.workHours)} ·
+        {actual.any
+          ? ` принято ${actual.done} из ${actual.total} · вышло ${nm(actual.hours)} ч`
+          : " принятых работ пока нет"}
+      </div>
+      {!steps.length && (
         <div style={{ fontSize: 11, color: C.muted }}>
           Шагов нет: с этого ресурса цепочка никуда не ведёт.</div>)}
-      {!!plan.steps.length && (
-        <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
-          Шаг — это функция; задача — одно её выполнение. Одна функция,
-          выполненная четыре раза, — это один шаг и четыре задачи.
-        </div>)}
-      {plan.steps.map((s, i) => (
-        <div key={s.func} style={{ display: "flex", gap: 8, padding: "5px 0",
-          borderTop: i ? `1px solid ${C.line}` : "none" }}>
-          <span style={{ fontSize: 10.5, color: C.muted, minWidth: 18 }}>{i + 1}.</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12 }}>
-              {s.name}
-              {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор</span>}
+      <Timeline steps={steps} before={before} />
+      {steps.map((s, i) => {
+        const own = factors.find((x) => x.func === s.func);
+        return (
+          <div key={s.func} style={{ borderTop: i ? `1px solid ${C.line}` : "none",
+            padding: "6px 0" }}>
+            <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
+              <span style={{ fontSize: 10.5, color: C.muted, minWidth: 18 }}>{i + 1}.</span>
+              <span style={{ fontSize: 12, flex: "1 1 120px" }}>
+                {s.name}
+                {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор</span>}
+              </span>
             </div>
-            <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-              по плану выполнений {nm(s.runs)}
-              {made[s.func] ? ` · задач по этим вещам ${made[s.func]}` : ""} ·
-              начнётся через {timeText(s.startHours)} · займёт {timeText(s.calendarHours)}
+            <div style={{ fontSize: 10.5, color: C.muted, marginLeft: 26,
+              lineHeight: 1.5 }}>
+              выполнений {nm(s.runs)} · начнётся через {timeText(s.startHours)} ·
+              {" "}займёт {timeText(s.calendarHours)}
+              {s.factor ? "" : ` · работы ${hoursRange(s.workLo, s.workHi)}`}
+              {portLine(s.takes) ? ` · берёт ${portLine(s.takes)}` : ""}
+              {portLine(s.gives) ? ` · даёт ${portLine(s.gives)}` : ""}
             </div>
-            {onTweak && (
-              <button style={{ ...btn(!!tweaks[s.func], tweaks[s.func] ? ACC : null),
-                fontSize: 10.5, padding: "2px 6px", marginTop: 4 }}
-                aria-label={`прикинуть иначе: ${s.name}`}
-                onClick={() => setOpenTweak(openTweak === s.func ? null : s.func)}>
-                {tweaks[s.func] ? "прикидка задана" : "прикинуть иначе"}</button>)}
-            {onTweak && openTweak === s.func && (
-              <Tweak step={s} func={funcs.find((f) => f.id === s.func)}
-                tweak={tweaks[s.func]} traitName={traitName}
-                onSet={(next) => onTweak(s.func, next)} />)}
-          </div>
-        </div>))}
-
-      {/* Вещь ещё не заведена — значит и работы по ней нет. Раньше на этом
-          месте показывался весь поток по функциям цепочки, и отчёт про один
-          договор выглядел как отчёт про восемь чужих задач. */}
-      {hypothetical && !!plan.steps.length && (
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
-          Задач тут нет и не должно быть: прослеживается вещь, которой ещё
-          нет в системе. Это прогноз — что произойдёт, если её завести.
-          Выберите единицы выше, чтобы увидеть путь тех, что уже есть.
-        </div>)}
-      {!!tasks.length && (<>
-        <div style={{ ...S.lbl, margin: "10px 0 4px" }}>
-          задачи по этим единицам</div>
-        {/* По времени: выполнения одной функции — это последовательность, и
-            читать её надо сверху вниз, а не в том порядке, в каком они
-            попали в модель. */}
-        {[...tasks].sort((a, b) => {
-          const at = (t) => {
-            const ms = t.start || t.end ? new Date(t.start || t.end).getTime() : NaN;
-            return Number.isNaN(ms) ? Infinity : ms;
-          };
-          return at(a) - at(b);
-        }).map((t) => (
-          <div key={t.id} className="flex flex-wrap gap-2"
-            style={{ alignItems: "center", padding: "4px 0",
-              borderTop: `1px solid ${C.line}` }}>
-            <span style={{ fontSize: 11.5, flex: "1 1 130px" }}>
-              {t.title}
-              {twins[t.id] && (
-                <span style={{ color: C.muted }}>
-                  {" "}№{twins[t.id].no} из {twins[t.id].of}</span>)}
-            </span>
-            {/* Над чем работала: взяла вот это, сделала вот это. Именно
-                этим выполнения одной функции и отличаются друг от друга. */}
-            <span style={{ fontSize: 10.5, color: ACC, flex: "1 1 120px" }}>
-              {tookBy(t).map((u) => `${traitName(u.trait)} №${u.no}`).join(", ")}
-              {tookBy(t).length && madeBy[t.id]?.length ? " → " : ""}
-              {(madeBy[t.id] || []).map((u) => `${traitName(u.trait)} №${u.no}`).join(", ")}
-            </span>
-            <span style={{ fontSize: 10.5, color: C.muted }}>
-              {funcName(t.funcId)}</span>
-            <span style={{ fontSize: 10.5, color: C.muted }}>
-              {t.assignee == null ? "не назначен" : personName(t.assignee)}</span>
-            <span style={{ fontSize: 10.5, color: C.muted }}>{fmtDT(t.end)}</span>
-            <span style={{ fontSize: 10.5,
-              color: t.status === "done" ? OK : t.status === "deadline" ? BAD : WARN }}>
-              {t.status === "done" ? "принято" : t.status}</span>
-          </div>))}
+            <div style={{ marginLeft: 26 }}>
+              {s.factor
+                ? (<div style={{ fontSize: 10.5, color: C.muted, marginTop: 3,
+                    lineHeight: 1.5 }}>
+                    Задач тут не бывает: фактор случается сам, и спрашивать за
+                    него не с кого.
+                    {own && own.factors.length ? ` Влияет: ${own.factors
+                      .map((y) => `${y.name} ${y.chance}%`).join(", ")}.` : ""}
+                  </div>)
+                : s.tasks.length
+                  ? s.tasks.map((t) => row(t, perRun(s)))
+                  : (<div style={{ fontSize: 10.5, color: C.muted, marginTop: 3,
+                      lineHeight: 1.5 }}>
+                      {hypothetical
+                        ? "Задач тут нет и не должно быть: прослеживается вещь, которой ещё нет в системе. Это прогноз — что произойдёт, если её завести."
+                        : "Задач по этим вещам на этот шаг ещё не заведено."}
+                    </div>)}
+            </div>
+          </div>);
+      })}
+      {!!before.length && (<>
+        <div style={{ ...S.lbl, margin: "10px 0 4px" }}>как эти вещи появились</div>
+        {/* Работа, в которой выбранные вещи родились, лежит ДО цепочки.
+            Выбросить её значило бы не ответить, откуда они взялись. */}
+        {before.map((t) => row(t, "—"))}
       </>)}
     </div>);
 }
@@ -319,7 +410,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   const up = (patch) => setNodes((p) => p.map((n) => (n.id === node.id ? { ...n, ...patch } : n)));
   const sum = summaryOf(model, node, nodes);
   const root = !node.parent;
-  const { chain, plan, actual, made, factors, changes } = doc;
+  const { chain, plan, actual, factors, changes } = doc;
 
   const traits = model.traits || [];
   const funcs = model.funcs || [];
@@ -335,7 +426,6 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   const units = node.trait ? unitsOfTrait(model, node.trait) : [];
   const picked = Array.isArray(node.units) ? node.units.filter(Boolean) : [];
   // Все единицы модели: по ним видно, над чем работала каждая задача.
-  const allUnits = unitsOf(model);
   const full = chainOf(model, { from: node.trait });
   const uptoTraits = traits.filter((t) => t.id !== node.trait
     && (full.traits || []).includes(t.id));
@@ -406,8 +496,8 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           и подпись обязана говорить это словами, а не оставлять человека
           гадать, почему числа разные. */}
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
-        функций в цепочке: {plan.hi.steps.length} ·
-        {" "}их выполнений заведено: {sum.rows} · принято: {sum.accepted} ·
+        шагов в цепочке: {plan.hi.steps.length} ·
+        {" "}работ по вещам этого блока: {sum.rows} · принято: {sum.accepted} ·
         {" "}{nm(sum.hours)} ч
       </div>
 
@@ -423,6 +513,20 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             <option value="">— с какого ресурса —</option>
             {traits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
           </select>
+          {/* Количество стоит ЗДЕСЬ, у самого ресурса: это его количество, и
+              спрашивать «сколько» отдельно от «чего» — значит заставлять
+              человека держать связь в голове. Выбраны конкретные единицы —
+              число берётся из них и руками не правится: две записи про одно
+              и то же разъехались бы, и стало бы непонятно, какой верить. */}
+          <NumField value={picked.length || node.qty || 1}
+            style={{ flex: "0 1 72px", fontSize: 11.5, padding: "4px 6px",
+              opacity: picked.length ? 0.6 : 1 }}
+            readOnly={!!picked.length}
+            aria-label={`количество: ${node.name || "без названия"}`}
+            onCommit={(v) => (picked.length
+              ? null : up({ qty: Math.max(1, Number(v) || 1) }))} />
+          <span style={{ fontSize: 10.5, color: C.muted }}>
+            {picked.length ? "шт. — столько выбрано" : "шт."}</span>
           <select style={{ ...S.inp, flex: "1 1 130px", minWidth: 0, fontSize: 11.5,
             padding: "4px 6px" }}
             aria-label={`до какого звена: ${node.name || "без названия"}`}
@@ -545,33 +649,13 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
         {!!node.trait && (<>
           {/* ═══ 1. ГРАФИКИ ═══ */}
           <Part n={1} title="как изменятся ресурсы">
-            {/* НА СКОЛЬКО единиц дана оценка. Без этой строки план читается
-                как «столько будет всего», и человек справедливо недоумевает:
-                четыре договора прошли цепочку, а в плане одно выполнение.
-                План — на ОДИН договор; четыре договора это четыре таких
-                прохода, а не один, повторённый четырежды.
-
-                Выбраны конкретные единицы — число берётся из них и руками
-                не правится: две записи про одно и то же разъехались бы, и
-                стало бы непонятно, какой верить. */}
-            <div className="flex flex-wrap gap-2"
-              style={{ alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 10.5, color: C.muted }}>оценка на</span>
-              <NumField value={picked.length || node.qty || 1}
-                style={{ flex: "0 1 70px", opacity: picked.length ? 0.6 : 1 }}
-                readOnly={!!picked.length}
-                aria-label={`на сколько единиц: ${node.name || "без названия"}`}
-                onCommit={(v) => (picked.length
-                  ? null : up({ qty: Math.max(1, Number(v) || 1) }))} />
-              <span style={{ fontSize: 10.5, color: C.muted }}>
-                {traitName(node.trait)}
-                {picked.length
-                  ? " · столько выбрано выше"
-                  : " · гипотетических; дальше всё посчитано на это число"}
-              </span>
-            </div>
+            {/* На сколько единиц посчитано — сказано у самого ресурса, полем
+                «количество». Повторять число здесь значило бы завести второе
+                место, где оно живёт. */}
             <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
-              работы {nm(plan.lo.workHours)}–{nm(plan.hi.workHours)} ч ·
+              оценка на {nm(plan.hi.qty)} × {traitName(node.trait)}
+              {doc.hypothetical ? " (гипотетических)" : ""} ·
+              {" "}работы {hoursRange(plan.lo.workHours, plan.hi.workHours)} ·
               займёт {rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours)}
             </div>
             {changes.length
@@ -592,70 +676,22 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               </div>)}
           </Part>
 
-          {/* ═══ 2. TIMELINE ═══ */}
-          <Part n={2} title="шаги и задачи во времени">
-            <Steps plan={plan.hi} tasks={actual.tasks} funcName={funcName}
-              units={allUnits} hypothetical={doc.hypothetical} traitName={traitName}
-              funcs={model.funcs || []} tweaks={node.tweaks || {}}
-              onTweak={(fid, next) => up({ tweaks: { ...(node.tweaks || {}),
-                [fid]: next } })}
+          {/* ═══ 2. ЗАДАЧИ ═══
+
+              Один раздел вместо трёх. «Шаги», «созданные ресурсы» и
+              «фактическая оценка» говорили об одном и том же деле, разложив
+              его по трём спискам, — и человеку приходилось сводить их
+              глазами. Теперь шаг, его задачи, что каждая взяла и что из неё
+              вышло, и ожидаемые числа рядом с полученными — в одном месте.
+
+              Ресурсные итоги остались в первом блоке: там план и факт стоят
+              рядом по каждому ресурсу, и повторять их числами было бы
+              вторым ответом на тот же вопрос. */}
+          <Part n={2} title="задачи">
+            <Tasks steps={doc.steps} before={doc.before} plan={plan}
+              actual={actual} factors={factors} funcName={funcName}
+              traitName={traitName} hypothetical={doc.hypothetical}
               personName={(id) => (nameOf ? nameOf(id) : id)} />
-          </Part>
-
-          {/* ═══ 3. СОЗДАННЫЕ РЕСУРСЫ ═══ */}
-          <Part n={3} title="созданные ресурсы">
-            {!made.length && (
-              <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-                {doc.hypothetical
-                  ? "Ничего и не могло появиться: вещь пока гипотетическая. Заведите её — и созданное из неё встанет сюда с номерами."
-                  : "Пока ничего: единица появляется, когда сдают задачу, — и у неё сразу есть номер, автор и файл."}</div>)}
-            {made.map((u) => (
-              <div key={u.id} style={{ borderTop: `1px solid ${C.line}`, padding: "5px 0" }}>
-                <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: ACC, fontWeight: 700 }}>№{u.no}</span>
-                  <span style={{ fontSize: 12, flex: "1 1 120px" }}>
-                    {u.title || "без названия"}</span>
-                  <span style={{ fontSize: 10.5, color: C.muted }}>
-                    {traitName(u.trait)} {nm(u.qty)}</span>
-                  <span style={{ fontSize: 10.5, color: u.accepted ? OK : WARN }}>
-                    {u.accepted ? "принято" : "не принято"}</span>
-                </div>
-                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
-                  {fmtDT(u.at)} · {u.by == null ? "исполнитель не назначен"
-                    : (nameOf ? nameOf(u.by) : u.by)}
-                </div>
-                {u.file && (/^image\//.test(u.file.type || "")
-                  ? <img src={reportSrc(u.file)} alt={u.file.name}
-                      style={{ maxWidth: "100%", borderRadius: 6, marginTop: 5,
-                        border: `1px solid ${C.line}` }} />
-                  : <a href={reportSrc(u.file)} target="_blank" rel="noreferrer"
-                      style={{ fontSize: 10.5, color: ACC, display: "inline-block",
-                        marginTop: 3 }}>📎 {u.file.name}</a>)}
-              </div>))}
-          </Part>
-
-          {/* ═══ 4. ФАКТ ═══ */}
-          <Part n={4} title="фактическая оценка">
-            {!actual.any
-              ? <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-                  {doc.hypothetical
-                    ? "Факта нет: вещь гипотетическая, работы по ней не было. Сверять с планом будет что, когда она появится."
-                    : "Принятых сдач ещё нет — факта пока не существует. Выдать за него план значило бы показать измерением то, что им не является."}</div>
-              : (<>
-                  <div style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-                    принято работ: <b style={{ color: OK }}>{actual.done}</b> из {actual.total}
-                    {" · "}ушло <b style={{ color: OK }}>{nm(actual.hours)} ч</b>
-                    <span style={{ color: C.muted }}>
-                      {" "}(по плану {nm(plan.lo.workHours)}–{nm(plan.hi.workHours)} ч)</span>
-                  </div>
-                  {Object.entries(actual.delta).map(([id, q]) => (
-                    <div key={id} className="flex flex-wrap gap-2"
-                      style={{ alignItems: "center", fontSize: 11, marginTop: 3 }}>
-                      <span style={{ flex: "1 1 110px" }}>{traitName(id)}</span>
-                      <span style={{ color: q >= 0 ? OK : WARN }}>
-                        {q >= 0 ? "+" : "−"}{nm(Math.abs(q))}</span>
-                    </div>))}
-                </>)}
           </Part>
         </>)}
 

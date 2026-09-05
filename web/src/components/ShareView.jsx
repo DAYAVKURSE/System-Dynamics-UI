@@ -51,9 +51,30 @@ function Made({ r }) {
     </div>);
 }
 
+/** Одна задача: срок, состояние, сколько вышло и что из неё родилось. */
+function Task({ t }) {
+  return (
+    <div style={{ borderTop: `1px solid ${C.line}`, padding: "5px 0",
+      marginLeft: 10 }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+        <span style={{ fontSize: 11.5, flex: "1 1 120px" }}>{t.title}</span>
+        {!!t.by && <span style={{ fontSize: 10.5, color: C.muted }}>{t.by}</span>}
+        <span style={{ fontSize: 10.5, color: C.muted }}>{fmtDT(t.end)}</span>
+        <span style={{ fontSize: 10.5, color: t.status === "done" ? OK : WARN }}>
+          {t.status === "done" ? "принято" : t.status}</span>
+      </div>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+        {t.hours == null ? "факта пока нет" : `вышло ${nm(t.hours)} ч`}
+      </div>
+      {(t.made || []).map((r, i) => (<Made key={`${r.title}-${r.at}-${i}`} r={r} />))}
+    </div>);
+}
+
 /* Блок и его разделы — теми же вложенными блоками, что и в самой карте, и с
-   теми же четырьмя частями: оценка, шаги, созданное, факт. Заказчик должен
-   видеть ровно то, что видит владелец, — иначе разговор пойдёт про разное. */
+   теми же двумя частями: как изменятся ресурсы и задачи. Заказчик должен
+   видеть ровно то, что видит владелец, — иначе разговор пойдёт про разное.
+   Поэтому и здесь работа стоит под своим шагом, а созданное — под сделавшей
+   его задачей: три отдельных списка человек сводил глазами. */
 function Block({ block, depth = 0 }) {
   const plan = block.plan || { workHours: [0, 0], calendarHours: [0, 0], steps: [] };
   const act = block.actual || { done: 0, total: 0, hours: 0 };
@@ -97,30 +118,39 @@ function Block({ block, depth = 0 }) {
             {c.fact != null && <span style={{ color: OK }}>факт {nm(c.fact)}</span>}
           </div>))}
 
-        <div style={{ ...S.lbl, marginTop: 8 }}>шаги</div>
-        {plan.steps.map((s2, i) => (
-          <div key={`${s2.name}-${i}`} style={{ fontSize: 11, color: C.muted,
-            marginTop: 3, lineHeight: 1.5 }}>
-            {i + 1}. {s2.name}{s2.factor ? " · фактор" : ""} — выполнений {nm(s2.runs)}
-          </div>))}
       </>)}
 
-      <div style={{ ...S.lbl, marginTop: 8 }}>созданные ресурсы</div>
-      {!(block.made || []).length
-        ? <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>
-            {block.hypothetical
-              ? "Ничего и не могло появиться: вещь пока гипотетическая."
-              : "Здесь пока ничего не создано."}</div>
-        : block.made.map((r, i) => (<Made key={`${r.title}-${r.at}-${i}`} r={r} />))}
-
-      <div style={{ ...S.lbl, marginTop: 8 }}>фактическая оценка</div>
-      <div style={{ fontSize: 11.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+      <div style={{ ...S.lbl, marginTop: 8 }}>задачи</div>
+      <div style={{ fontSize: 11, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
         {act.done
-          ? `принято работ: ${act.done} из ${act.total} · ушло ${nm(act.hours)} ч`
+          ? `принято работ: ${act.done} из ${act.total} · вышло ${nm(act.hours)} ч`
           : block.hypothetical
             ? "Факта нет: работы по этой вещи ещё не было."
             : "Принятых сдач ещё нет — факта пока не существует."}
       </div>
+      {plan.steps.map((s2, i) => (
+        <div key={`${s2.name}-${i}`} style={{ borderTop: `1px solid ${C.line}`,
+          padding: "6px 0" }}>
+          <div style={{ fontSize: 12 }}>
+            {i + 1}. {s2.name}{s2.factor ? " · фактор" : ""}</div>
+          <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+            выполнений {nm(s2.runs)}{s2.factor ? ""
+              : ` · работы ${nm(s2.workLo)}–${nm(s2.workHi)} ч`}
+          </div>
+          {s2.factor
+            ? (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+                Задач тут не бывает: фактор случается сам.</div>)
+            : (s2.tasks || []).length
+              ? s2.tasks.map((t, k) => (<Task key={`${t.title}-${k}`} t={t} />))
+              : (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+                  {block.hypothetical
+                    ? "Задач тут нет и не должно быть: вещь ещё не заведена — это прогноз."
+                    : "Задач на этот шаг ещё не заведено."}</div>)}
+        </div>))}
+      {!!(block.before || []).length && (<>
+        <div style={{ ...S.lbl, marginTop: 8 }}>как эти вещи появились</div>
+        {block.before.map((t, k) => (<Task key={`${t.title}-b${k}`} t={t} />))}
+      </>)}
 
       {(block.sections || []).map((s2, i) => (
         <Block key={`${s2.name}-${i}`} block={s2} depth={depth + 1} />))}

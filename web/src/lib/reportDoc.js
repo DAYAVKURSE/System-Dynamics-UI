@@ -45,8 +45,7 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
   const picked = pickedOf(node);
   const plan = estimateRange(model, chain, { runsOf,
     // Выбраны конкретные единицы — считаем на них; иначе на заданное число.
-    qty: picked.length || node.qty || 1,
-    tweaks: node.tweaks || {} });
+    qty: picked.length || node.qty || 1 });
 
   /* ─── отчёт про ОДНУ единицу ───
 
@@ -113,12 +112,70 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
     fact: actual.any ? num(actual.delta?.[id]) : null,
   })).sort((a, b) => Math.abs(b.hi) - Math.abs(a.hi));
 
+  /* ─── шаг и его работа — одно место, а не два списка ───
+
+     Шаг и задача это не разные разделы отчёта, а одно и то же дело с двух
+     сторон: шаг — что должно случиться, задача — что случилось. Пока они
+     стояли отдельными списками, человеку приходилось сводить их глазами,
+     и первый же вопрос был «почему шаг один, а задач четыре».
+
+     Поэтому у каждого шага здесь сразу лежит его работа: задачи по вещам
+     раздела, что каждая взяла и что сделала, сколько на неё ушло часов —
+     рядом с тем, сколько по плану. Фактор задач не имеет вовсе: с погоды
+     не спрашивают, и на его месте так и сказано. */
+  const byId = Object.fromEntries((made || []).map((u) => [u.id, u]));
+  const madeBy = {};
+  (made || []).forEach((u) => { (madeBy[u.task] = madeBy[u.task] || []).push(u); });
+  const lastSub = (t) => {
+    const subs = t.submissions || [];
+    return subs.length ? subs[subs.length - 1] : null;
+  };
+  const taskView = (t) => {
+    const sb = lastSub(t);
+    return {
+      id: t.id,
+      title: t.title || "без названия",
+      funcId: t.funcId,
+      status: t.status,
+      assignee: t.assignee,
+      start: t.start,
+      end: t.end,
+      // Часы факта — только у принятой работы: непринятая ещё не измерена.
+      hours: t.status === "done" && sb ? num(sb.hours) : null,
+      took: [...new Set(Object.values(sb?.took || {}).flat().filter(Boolean))]
+        .map((id) => byId[id]).filter(Boolean),
+      made: madeBy[t.id] || [],
+    };
+  };
+  const steps = plan.hi.steps.map((s) => {
+    const low = plan.lo.steps.find((x) => x.func === s.func);
+    const mine = actual.tasks.filter((t) => t.funcId === s.func).map(taskView);
+    const done = mine.filter((t) => t.hours != null);
+    return {
+      ...s,
+      // Вилка плана: время и работа считаются с обеих сторон, и обе нужны.
+      workLo: num(low?.workHours),
+      workHi: num(s.workHours),
+      runsLo: num(low?.runs),
+      tasks: mine,
+      doneCount: done.length,
+      factHours: done.reduce((x, t) => x + num(t.hours), 0),
+    };
+  });
+  /* Работа, которой в цепочке нет: та, в которой выбранные вещи и родились.
+     Она лежит ДО первого шага, и выбросить её значило бы не ответить на
+     вопрос «откуда это взялось». */
+  const inSteps = new Set(steps.flatMap((s) => s.tasks.map((t) => t.id)));
+  const before = actual.tasks.filter((t) => !inSteps.has(t.id)).map(taskView);
+
   return {
     node,
     path: pathOf(nodes, node.id).map((n) => n.name || "без названия"),
     chain,
     plan,
     actual,
+    steps,
+    before,
     made,
     factors,
     changes,
@@ -162,6 +219,108 @@ const fmtDT = (v) => {
       hour: "2-digit", minute: "2-digit" });
 };
 
+/* Одна строка «как изменится ресурс»: своя шкала, общий ноль, план вилкой и
+   факт под ним. Числа стоят текстом рядом с названием — подписи внутри
+   картинки при больших значениях вылезали за край. */
+const barRow = (c, tn) => {
+  const lo = Math.min(num(c.lo), num(c.hi));
+  const hi = Math.max(num(c.lo), num(c.hi));
+  const vals = [0, lo, hi, ...(c.fact == null ? [] : [num(c.fact)])];
+  /* Поля по краям — чтобы нулевая линия не упиралась в самый край: «убавится
+     на 1» иначе рисуется полосой во всю ширину и читается как рост. */
+  const raw = Math.max(...vals) - Math.min(...vals) || 1;
+  const min = Math.min(...vals) - raw * 0.08;
+  const max = Math.max(...vals) + raw * 0.08;
+  const span = max - min || 1;
+  const at = (v) => (((v - min) / span) * 100).toFixed(2);
+  /* Полоса растёт ОТ НУЛЯ: «убавится на 3» — это длина от нуля до −3, а не
+     невидимая точка. Верная часть вилки плотная, «а может и больше» —
+     полупрозрачная: обещано первое, возможно второе. */
+  const bar = (a, b, cls, dim) => (a === b ? "" : `<i class="${cls}" style="left:${
+    Math.min(at(a), at(b))}%;width:${Math.max(Math.abs(at(b) - at(a)), 0.6)
+    }%${dim ? ";opacity:.45" : ""}"></i>`);
+  const planText = lo === hi ? nm(hi) : `${nm(lo)} … ${nm(hi)}`;
+  return `
+  <div class="r"><b style="flex:1">${tn(c.trait)}</b>
+    <span>план ${planText}</span>
+    <span>${c.fact == null ? "факта нет" : `факт ${nm(c.fact)}`}</span></div>
+  <div class="t"><span class="z" style="left:${at(0)}%"></span>${bar(0, lo, "p")}${
+    lo === hi ? "" : bar(lo, hi, "p", true)}</div>
+  ${c.fact == null || num(c.fact) === 0 ? "" : `<div class="t"><span class="z" style="left:${
+    at(0)}%"></span>${bar(0, num(c.fact), "f")}</div>`}`;
+};
+
+/* Таймлайн: шаги на одной шкале времени от «сейчас». Сдвиг полосы вправо —
+   ответ на «что за чем», её длина — на «как долго». Ради этого отчёт и
+   заводят: сперва спланировать работы, и только потом сверять. */
+const timelineHtml = (steps = [], before = []) => {
+  const now = Date.now();
+  const hrs = (v) => {
+    if (!v) return null;
+    const ms = new Date(v).getTime();
+    return Number.isNaN(ms) ? null : (ms - now) / 3600000;
+  };
+  const rows = [];
+  steps.forEach((s) => {
+    rows.push({ name: s.name, kind: "step", factor: s.factor,
+      from: num(s.startHours), to: num(s.startHours) + Math.max(num(s.calendarHours), 0.01) });
+    (s.tasks || []).forEach((t) => {
+      rows.push({ name: t.title, kind: "task", done: t.hours != null,
+        from: hrs(t.start), to: hrs(t.end) });
+    });
+  });
+  before.forEach((t) => {
+    rows.unshift({ name: `${t.title} · до цепочки`, kind: "task",
+      done: t.hours != null, from: hrs(t.start), to: hrs(t.end) });
+  });
+  const placed = rows.filter((r) => r.from != null && r.to != null);
+  if (!placed.length) return "";
+  const from0 = Math.min(0, ...placed.map((r) => r.from));
+  const to1 = Math.max(...placed.map((r) => r.to), from0 + 1);
+  const span = to1 - from0 || 1;
+  const at = (v) => (((v - from0) / span) * 100).toFixed(2);
+  return `<p class="m">Слева «сейчас», весь срок — ${esc(timeText(to1))}.</p>`
+    + rows.map((r) => {
+      const label = `<div class="${r.kind === "task" ? "sub m" : "m"}">${
+        r.kind === "task" ? "↳ " : ""}${esc(r.name)}${r.factor ? " · фактор" : ""}</div>`;
+      if (r.from == null || r.to == null) {
+        return `${label}<div class="${r.kind === "task" ? "sub" : ""} m">срок не поставлен — на шкале её нет</div>`;
+      }
+      const cls = r.kind === "step" ? "p" : (r.done ? "f" : "n");
+      return `${label}<div class="t${r.kind === "task" ? " sub" : ""}"><i class="${cls}" style="left:${
+        at(r.from)}%;width:${Math.max(at(r.to) - at(r.from), 0.6)}%"></i></div>`;
+    }).join("");
+};
+
+/* Вилка часов: меньшее слева. «Щедрая» сторона оценки считается по быстрой
+   работе, поэтому часов в ней меньше — без сортировки строка выходила задом
+   наперёд: «674–505 ч». */
+const hoursRange = (a, b) => {
+  const lo = Math.min(num(a), num(b));
+  const hi = Math.max(num(a), num(b));
+  return lo === hi ? `${nm(hi)} ч` : `${nm(lo)}–${nm(hi)} ч`;
+};
+
+/* Что шаг берёт и что даёт — одной строкой; нули не пишутся, иначе строка
+   заполняется тем, чего не происходит. */
+const portText = (list, tn) => (list || [])
+  .filter((x) => nm(x.qty) !== "0")
+  .map((x) => `${tn(x.trait)} ${nm(x.qty)}`).join(", ");
+
+/* Сколько по плану уходит на ОДНО выполнение: с этим числом и сравнивают
+   потраченные часы задачи. Выполнений нет — сравнивать не с чем. */
+const perRun = (s) => (s.runs > 0
+  ? nm(Math.round((s.workHi / s.runs) * 10) / 10) : "—");
+
+/* Над чем работала задача: взяла вот это, сделала вот это. Именно этим
+   выполнения одной функции и отличаются друг от друга. */
+const linkText = (t, traitName) => {
+  const tn2 = (id) => (traitName ? traitName(id) : id);
+  const took = t.took.map((u) => `${tn2(u.trait)} №${u.no}`).join(", ");
+  const made = t.made.map((u) => `${tn2(u.trait)} №${u.no}`).join(", ");
+  return [took, made].filter(Boolean).join(" → ");
+};
+
 /**
  * Отчёт одним файлом.
  *
@@ -178,7 +337,7 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   const block = (d, depth = 0) => {
     if (!d) return "";
     const h = Math.min(6, depth + 2);
-    const { plan, actual, chain, made, factors, changes, node } = d;
+    const { plan, actual, chain, factors, changes, node } = d;
     return `
 <section class="b" style="margin-left:${depth * 14}px">
   <h${h}>${esc(node.name || "без названия")}</h${h}>
@@ -199,52 +358,51 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   ${d.parents.length ? `<p class="m">сделано из: ${d.parents.map((u) => `№${u.no} ${esc(u.title || "без названия")}`).join(", ")}</p>` : ""}
 
   <h${h + 1}>1. Предварительная оценка</h${h + 1}>
-  <p class="m">работы ${nm(plan.lo.workHours)}–${nm(plan.hi.workHours)} ч ·
+  <p class="m">работы ${esc(hoursRange(plan.lo.workHours, plan.hi.workHours))} ·
      займёт ${esc(rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours))} ·
      шагов ${plan.hi.steps.length}</p>
-  ${changes.length ? `<table>
-    <tr><th>ресурс</th><th>план</th><th>факт</th></tr>
-    ${changes.map((c) => `<tr><td>${tn(c.trait)}</td>
-      <td>${nm(Math.min(c.lo, c.hi))} … ${nm(Math.max(c.lo, c.hi))}</td>
-      <td>${c.fact == null ? "—" : nm(c.fact)}</td></tr>`).join("")}
-  </table>` : '<p class="m">Ресурсы по этой цепочке не меняются.</p>'}
+  ${changes.length
+    ? changes.map((c) => barRow(c, tn)).join("")
+      + `<p class="m">Полоса плана — вилка «от и до», полоса факта — то, что
+        вышло. У каждого ресурса своя шкала: доход в сотнях тысяч и договоры
+        в штуках на общей шкале несравнимы, да их и не складывают. Сравнивают
+        план с фактом — и это сравнение внутри строки честное.</p>`
+    : '<p class="m">Ресурсы по этой цепочке не меняются.</p>'}
   ${Object.keys(plan.hi.need || {}).length ? `<p class="m">нужно со стороны:
     ${Object.entries(plan.hi.need).map(([id, q]) => `${tn(id)} ${nm(q)}`).join(", ")}</p>` : ""}
 
-  <h${h + 1}>2. Шаги и задачи</h${h + 1}>
-  ${plan.hi.steps.length ? `<table>
-    <tr><th>шаг</th><th>выполнений</th><th>начнётся через</th><th>займёт</th></tr>
-    ${plan.hi.steps.map((s) => `<tr><td>${esc(s.name)}${s.factor ? " (фактор)" : ""}</td>
-      <td>${nm(s.runs)}</td><td>${esc(timeText(s.startHours))}</td>
-      <td>${esc(timeText(s.calendarHours))}</td></tr>`).join("")}
-  </table>` : '<p class="m">Шагов нет: цепочка пуста.</p>'}
-  ${actual.tasks.length ? `<p class="m">задачи по этим единицам:</p><table>
-    <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th></tr>
-    ${actual.tasks.map((t) => `<tr><td>${esc(t.title)}</td><td>${pn(t.assignee)}</td>
-      <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td></tr>`).join("")}
-  </table>` : `<p class="m">${d.hypothetical
-      ? "Задач нет и не должно быть: вещь ещё не заведена в систему."
-      : "Задач по этим единицам ещё нет."}</p>`}
-
-  <h${h + 1}>3. Созданные ресурсы</h${h + 1}>
-  ${made.length ? `<table>
-    <tr><th>№</th><th>что</th><th>ресурс</th><th>когда</th><th>кто</th><th>принято</th></tr>
-    ${made.map((u) => `<tr><td>${u.no}</td><td>${esc(u.title || "без названия")}</td>
-      <td>${tn(u.trait)}</td><td>${esc(fmtDT(u.at))}</td><td>${pn(u.by)}</td>
-      <td>${u.accepted ? "да" : "нет"}</td></tr>`).join("")}
-  </table>` : `<p class="m">${d.hypothetical
-      ? "Ничего и не могло появиться: вещь пока гипотетическая."
-      : "Пока ничего не создано: единицы появляются из сдач."}</p>`}
-
-  <h${h + 1}>4. Фактическая оценка</h${h + 1}>
-  ${actual.any ? `<p class="m">принято работ: ${actual.done} из ${actual.total} ·
-    ушло ${nm(actual.hours)} ч (по плану ${nm(plan.lo.workHours)}–${nm(plan.hi.workHours)} ч)</p>
-    <table><tr><th>ресурс</th><th>изменение по факту</th></tr>
-    ${Object.entries(actual.delta).map(([id, q]) =>
-    `<tr><td>${tn(id)}</td><td>${nm(q)}</td></tr>`).join("")}</table>`
-    : `<p class="m">${d.hypothetical
-      ? "Факта нет: вещь гипотетическая, работы по ней не было. Сверять с планом будет что, когда она появится."
-      : "Принятых сдач ещё нет — факта пока не существует, и выдавать за него план нельзя."}</p>`}
+  <h${h + 1}>2. Задачи</h${h + 1}>
+  <p class="m">по плану работы ${esc(hoursRange(plan.lo.workHours, plan.hi.workHours))} ·
+    ${actual.any
+      ? `принято ${actual.done} из ${actual.total} · вышло ${nm(actual.hours)} ч`
+      : "принятых работ пока нет"}</p>
+  ${timelineHtml(d.steps, d.before)}
+  ${d.steps.length ? d.steps.map((s2, i2) => `
+    <p class="m"><b>${i2 + 1}. ${esc(s2.name)}</b>${s2.factor ? " · фактор" : ""} —
+      выполнений ${nm(s2.runs)} · начнётся через ${esc(timeText(s2.startHours))} ·
+      займёт ${esc(timeText(s2.calendarHours))}${s2.factor ? ""
+        : ` · работы ${esc(hoursRange(s2.workLo, s2.workHi))}`}${
+      portText(s2.takes, tn) ? ` · берёт ${portText(s2.takes, tn)}` : ""}${
+      portText(s2.gives, tn) ? ` · даёт ${portText(s2.gives, tn)}` : ""}</p>
+    ${s2.factor
+      ? '<p class="m">Задач тут не бывает: фактор случается сам, и спрашивать за него не с кого.</p>'
+      : s2.tasks.length ? `<table>
+        <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th>
+          <th>ожидалось, ч</th><th>вышло, ч</th><th>взяла → вышло</th></tr>
+        ${s2.tasks.map((t) => `<tr><td>${esc(t.title)}</td><td>${pn(t.assignee)}</td>
+          <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td>
+          <td>${perRun(s2)}</td><td>${t.hours == null ? "—" : nm(t.hours)}</td>
+          <td>${esc(linkText(t, traitName))}</td></tr>`).join("")}
+      </table>` : `<p class="m">${d.hypothetical
+        ? "Задач тут нет и не должно быть: вещь ещё не заведена в систему — это прогноз."
+        : "Задач по этим вещам на этот шаг ещё не заведено."}</p>`}
+  `).join("") : '<p class="m">Шагов нет: цепочка пуста.</p>'}
+  ${d.before.length ? `<p class="m">как эти вещи появились:</p><table>
+    <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th><th>вышло</th></tr>
+    ${d.before.map((t) => `<tr><td>${esc(t.title)}</td><td>${pn(t.assignee)}</td>
+      <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td>
+      <td>${esc(linkText(t, traitName))}</td></tr>`).join("")}
+  </table>` : ""}
 
   ${(d.sections || []).map((k) => block(k, depth + 1)).join("")}
 </section>`;
@@ -262,6 +420,16 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   .m{color:#555;font-size:12.5px;margin:4px 0}
   .w{color:#a4501e;font-size:12.5px;margin:4px 0}
   table{border-collapse:collapse;margin:8px 0;font-size:12.5px;width:100%}
+  /* Полосы рисуются рамками, а не картинками: файл ничего не тянет из сети,
+     печатается как есть и не рассыпается через год. */
+  .t{position:relative;height:10px;background:#f1f1f1;border-radius:3px;
+    overflow:hidden;margin:2px 0 6px}
+  .t i{position:absolute;top:0;bottom:0;border-radius:3px;display:block}
+  .p{background:#c07a10} .f{background:#1f8f5f} .n{background:#8a93a3}
+  .z{position:absolute;top:0;bottom:0;width:1px;background:#999}
+  .r{display:flex;gap:8px;align-items:baseline;font-size:12px;margin-top:6px}
+  .r b{font-weight:600} .r span{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+  .sub{padding-left:14px}
   th,td{border:1px solid #ddd;padding:4px 7px;text-align:left}
   th{background:#f5f5f5;font-weight:600}
   @media print{body{padding:0} .b{break-inside:avoid}}
