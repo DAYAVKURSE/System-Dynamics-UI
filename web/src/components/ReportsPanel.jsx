@@ -39,6 +39,11 @@ const fmtDT = (v) => {
       year: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
+/* Что функция ВЫДАЁТ. Результат берётся с выхода, а не со входа: взятое
+   функция получила от кого-то другого, а сделала она то, что выдала.
+   Поэтому и ресурс в паре выбирается из её выходов. */
+const madeBy = (f) => (f?.gives || []).map((g) => g.trait);
+
 /** Строка результата: одна сдача — то, что и правда было сделано. */
 function Row({ r, traitName, nameOf }) {
   return (
@@ -81,6 +86,10 @@ function Node({ node, nodes, model, depth = 0, focus, onFocus, setNodes,
   const kids = childrenOf(nodes, node.id);
   const up = (patch) => setNodes((p) => p.map((n) => (n.id === node.id ? { ...n, ...patch } : n)));
   const picks = node.picks || [];
+  const allFuncs = model.funcs || [];
+  const allTraits = model.traits || [];
+  // Ресурсы, которые хоть кто-то выдаёт: только у них и бывают результаты.
+  const made = allTraits.filter((t) => allFuncs.some((f) => madeBy(f).includes(t.id)));
   const rows = resultsOf(model, picks);
   const sum = summaryOf(model, node, nodes);
   const root = !node.parent;
@@ -132,14 +141,40 @@ function Node({ node, nodes, model, depth = 0, focus, onFocus, setNodes,
         <div style={{ ...S.lbl, marginTop: 8 }}>что сюда попадает</div>
         {!picks.length && (
           <div style={{ fontSize: 11, color: C.muted, margin: "4px 0", lineHeight: 1.5 }}>
-            Пока ничего. Выберите функцию и ресурс, а потом — определённый
-            результат по номеру: вот это техническое задание, вот дизайн,
-            который к нему относится.
+            {made.length
+              ? "Пока ничего. Выберите функцию, потом — что из выданного ею сюда попадает, и наконец определённый результат по номеру: вот это техническое задание, вот дизайн, который к нему относится."
+              : "Пока ничего — и выбрать пока не из чего: ни одна функция модели ничего не выдаёт, а результат бывает только у выданного."}
           </div>)}
         {picks.map((p) => {
           // Единицы этого ресурса — те, что и правда получились из сдач.
           const units = p.trait ? unitsOfTrait(model, p.trait)
             .filter((u) => !p.func || u.func === p.func) : [];
+          const func = allFuncs.find((f) => f.id === p.func) || null;
+          /* ─── списки связаны, но не запирают ───
+
+             Функция и ресурс — не два независимых вопроса: результат бывает
+             только там, где функция этот ресурс ВЫДАЁТ. Предлагать пару, у
+             которой не может быть ни одного результата, значит предлагать
+             выбрать пустоту — и человек будет искать, куда делись работы,
+             которых там никогда и не было.
+
+             Ведёт ФУНКЦИЯ: ресурсы — это её выходы. Список функций при
+             выбранной функции не сужается ничем: сузить его выбранным
+             ресурсом значило бы запереть человека в первом же выборе —
+             сменить функцию стало бы нельзя, пока не сотрёшь ресурс.
+             Сменил функцию — ресурс, которого она не выдаёт, снимается сам.
+
+             Пока функция не выбрана, список сужается ресурсом: это путь
+             «мне нужно вот это техническое задание — кто его делает». */
+          const funcOpts = allFuncs.filter((f) => madeBy(f).length
+            && (p.func || !p.trait || madeBy(f).includes(p.trait)));
+          const traitOpts = func ? allTraits.filter((t) => madeBy(func).includes(t.id))
+            : made;
+          /* Пара, ставшая невозможной (функция перестала выдавать этот
+             ресурс), не превращается в пустое поле: она показана как есть и
+             помечена. Пустое поле выглядело бы как «ничего не выбрано», и
+             человек не понял бы, что именно сломалось. */
+          const stale = (list, id) => id && !list.some((x) => x.id === id);
           return (
             <div key={p.id} style={{ border: `1px solid ${C.line}`, borderRadius: 8,
               padding: 7, marginTop: 5 }}>
@@ -147,20 +182,34 @@ function Node({ node, nodes, model, depth = 0, focus, onFocus, setNodes,
                 <select style={{ ...S.inp, flex: "1 1 130px", minWidth: 0, fontSize: 11.5,
                   padding: "4px 6px" }}
                   aria-label="функция результата" value={p.func}
-                  onChange={(e) => up({ picks: picks.map((x) => (x.id === p.id
-                    ? { ...x, func: e.target.value, unit: "" } : x)) })}>
+                  onChange={(e) => {
+                    const next = allFuncs.find((f) => f.id === e.target.value) || null;
+                    // Ресурс, которого новая функция не выдаёт, не остаётся:
+                    // иначе пара молча стала бы невозможной.
+                    const keep = !p.trait || (next && madeBy(next).includes(p.trait));
+                    up({ picks: picks.map((x) => (x.id === p.id
+                      ? { ...x, func: e.target.value, trait: keep ? x.trait : "", unit: "" }
+                      : x)) });
+                  }}>
                   <option value="">— функция —</option>
-                  {(model.funcs || []).map((f) => (
+                  {funcOpts.map((f) => (
                     <option key={f.id} value={f.id}>{funcLabel(f, entities)}</option>))}
+                  {stale(funcOpts, p.func) && (
+                    <option value={p.func}>
+                      {funcLabel(func, entities)} — этот ресурс не выдаёт</option>)}
                 </select>
                 <select style={{ ...S.inp, flex: "1 1 110px", minWidth: 0, fontSize: 11.5,
                   padding: "4px 6px" }}
                   aria-label="ресурс результата" value={p.trait}
                   onChange={(e) => up({ picks: picks.map((x) => (x.id === p.id
                     ? { ...x, trait: e.target.value, unit: "" } : x)) })}>
-                  <option value="">— ресурс —</option>
-                  {(model.traits || []).map((t) => (
+                  <option value="">
+                    {func ? "— что она выдаёт —" : "— ресурс —"}</option>
+                  {traitOpts.map((t) => (
                     <option key={t.id} value={t.id}>{t.l}</option>))}
+                  {stale(traitOpts, p.trait) && (
+                    <option value={p.trait}>
+                      {traitName(p.trait)} — эта функция его не выдаёт</option>)}
                 </select>
                 <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD }}
                   aria-label="убрать результат"
@@ -182,7 +231,12 @@ function Node({ node, nodes, model, depth = 0, focus, onFocus, setNodes,
                     №{u.no} · {u.title || "без названия"}
                     {u.accepted ? "" : " (не принято)"}</option>))}
               </select>
-              {p.trait && !units.length && (
+              {stale(traitOpts, p.trait) && (
+                <div style={{ fontSize: 10, color: WARN, marginTop: 3, lineHeight: 1.5 }}>
+                  Эта функция такого ресурса не выдаёт — результатов тут не
+                  будет никогда. Выберите то, что она и правда делает.
+                </div>)}
+              {p.trait && !stale(traitOpts, p.trait) && !units.length && (
                 <div style={{ fontSize: 10, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
                   Единиц с номерами ещё нет: они появляются из сдач — сдали
                   работу, и её результат стал вещью, на которую можно

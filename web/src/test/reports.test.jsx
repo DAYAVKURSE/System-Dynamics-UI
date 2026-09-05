@@ -18,8 +18,15 @@ import {
    в карте нет: пересказ заказа разошёлся бы с делом. */
 
 const MODEL = {
-  traits: [{ id: "t2", e: "e1", l: "макет" }],
-  funcs: [{ id: "f1", e: "e1", name: "Собрать макет" }],
+  /* «текст» выдаёт другая функция, «спрос» — никто: на нём и проверяется,
+     что в списки не попадает то, у чего результатов быть не может. */
+  traits: [{ id: "t2", e: "e1", l: "макет" }, { id: "t3", e: "e1", l: "текст" },
+    { id: "t4", e: "e1", l: "спрос" }],
+  funcs: [
+    { id: "f1", e: "e1", name: "Собрать макет", takes: [{ trait: "t4" }],
+      gives: [{ trait: "t2" }] },
+    { id: "f2", e: "e1", name: "Написать текст", takes: [], gives: [{ trait: "t3" }] },
+  ],
   tasks: [
     { id: "tk1", funcId: "f1", title: "Макет главной", status: "done", assignee: "2",
       submissions: [{ id: "s1", at: "2026-02-01T10:00:00Z", hours: 4,
@@ -144,6 +151,59 @@ describe("карта в форме", () => {
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.queryByLabelText("техническое задание")).toBeNull();
     expect(screen.queryByText(/задание раздела/)).toBeNull();
+  });
+
+  it("ресурс выбирается из того, что функция ВЫДАЁТ, а не из всех подряд", () => {
+    /* Результат бывает только там, где функция ресурс выдаёт. Пара, у
+       которой результатов быть не может, — это предложение выбрать
+       пустоту: человек потом ищет работы, которых там никогда не было. */
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    const traits = () => [...screen.getByLabelText("ресурс результата").options]
+      .map((o) => o.textContent);
+    // Выбрана «Собрать макет» — она выдаёт только макет.
+    expect(traits()).toEqual(["— что она выдаёт —", "макет"]);
+    // «Спрос» она берёт, а не выдаёт, — его в списке нет.
+    expect(traits()).not.toContain("спрос");
+
+    // И наоборот: функции — те, кто выбранный ресурс выдаёт.
+    const funcs = () => [...screen.getByLabelText("функция результата").options]
+      .map((o) => o.textContent);
+    // Список функций при выбранной функции не сужается: сменить её можно
+    // всегда, иначе человек заперт в первом же выборе.
+    expect(funcs()).toEqual(["— функция —", "Мы · Собрать макет", "Мы · Написать текст"]);
+  });
+
+  it("сменили функцию — ресурс, которого она не выдаёт, не остаётся", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    fireEvent.change(screen.getByLabelText("функция результата"),
+      { target: { value: "f2" } });
+    // «Написать текст» макета не выдаёт: пара молча невозможной не станет.
+    expect(screen.getByLabelText("ресурс результата").value).toBe("");
+    expect([...screen.getByLabelText("ресурс результата").options]
+      .map((o) => o.textContent)).toEqual(["— что она выдаёт —", "текст"]);
+  });
+
+  it("можно начать и с ресурса: тогда предлагают тех, кто его делает", () => {
+    /* Путь «мне нужно вот это техническое задание — кто его делает».
+       Пока функция не выбрана, список сужается ресурсом. */
+    render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
+      ? { ...n, picks: [{ id: "pk1", func: "", trait: "t3" }] } : n))} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect([...screen.getByLabelText("функция результата").options]
+      .map((o) => o.textContent)).toEqual(["— функция —", "Мы · Написать текст"]);
+  });
+
+  it("невозможная пара из прежней записи показана, а не спрятана пустотой", () => {
+    /* Пустое поле читалось бы как «ничего не выбрано», и человек не понял
+       бы, что именно сломалось. */
+    render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
+      ? { ...n, picks: [{ id: "pk1", func: "f2", trait: "t2" }] } : n))} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect(screen.getByLabelText("ресурс результата").value).toBe("t2");
+    expect(screen.getByText(/Эта функция такого ресурса не выдаёт/))
+      .toBeInTheDocument();
   });
 
   it("результат выбирается определённой единицей — по номеру", () => {
