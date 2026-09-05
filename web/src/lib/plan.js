@@ -46,7 +46,7 @@
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
 import { CHANCE_MAX, DUR_UNITS, factorChance, factorsOf, everyOf, groupsOf, hoursOf, isFactor,
-  portSpends, runHours, runQty } from "./funcs.js";
+  parOf, portSpends, runHours, runQty } from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
 export const MONTH_H = DUR_UNITS["мес"];
@@ -86,7 +86,41 @@ export function stepHours(f, runs = [], side) {
  */
 export function cycles(f, runs = [], side) {
   const h = stepHours(f, runs, side);
-  return h > 0 ? MONTH_H / h : 0;
+  /* Одновременных выполнений может быть несколько: восемь дел, которые
+     ведут месяцами разом, за месяц и заканчиваются все восемь, а не одно.
+     Работа при этом быстрее не делается — часы каждого выполнения те же;
+     больше их помещается только в КАЛЕНДАРЬ. */
+  return h > 0 ? (MONTH_H / h) * parOf(f) : 0;
+}
+
+/**
+ * Сколько времени займут `n` выполнений подряд.
+ *
+ * Идут они волнами по `par` штук: восемь дел при четырёх одновременных —
+ * это две волны, а не восемь очередей. Волна неполная тоже считается
+ * целой: полдела в календаре не занимает полволны.
+ */
+export function runsHours(f, n, per) {
+  const runs = Math.max(0, num(n));
+  return per * Math.ceil(runs / parOf(f));
+}
+
+/**
+ * Сколько времени человека стоят `n` выполнений.
+ *
+ * Одно выполнение занимает `dur` календаря, но воркер ведёт `par` таких дел
+ * РАЗОМ — значит одно занимает 1/par его времени. Иначе выходило бы, что
+ * человек, который и должен вести восемь дел месяцами, перегружен
+ * восьмикратно: настройка тогда меняла бы сроки и тут же обвиняла того, для
+ * кого её и завели.
+ *
+ * Измеренное на одновременность не делится: часы из сдач — это то, что и
+ * правда потратили, и поправлять их допущением нельзя.
+ */
+export function workHours(f, n, { runs = [] } = {}) {
+  const measured = runHours(runs);
+  if (measured != null) return measured * num(n);
+  return (hoursOf(f) * num(n)) / parOf(f);
 }
 
 /**
@@ -450,12 +484,13 @@ export function load(model, { runsOf, plan } = {}) {
     const cap = cycles(f, rs);
     const n = plan
       ? Math.min(cap, (plan.perMonth?.[f.id] || 0) + (plan.once?.[f.id] || 0)) : cap;
+    const spent = workHours(f, n, { runs: rs });
     // У фактора исполнителей нет; если они там остались от прежней правки,
     // считать их нагрузку всё равно нельзя — фактор происходит сам.
     /* Ноль выполнений — это «не назначено», а не «назначено ноль»: строка
        «0 ч» на человеке говорила бы, что работа есть, просто пустая. */
     if (isFactor(f) || !f.owners.length || !(hours > 0) || !(n > 0)) return;
-    const each = (hours * n) / f.owners.length;
+    const each = spent / f.owners.length;
     f.owners.forEach((p) => { by[p] = (by[p] || 0) + each; });
   });
   return by;
@@ -618,9 +653,12 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
     /* Часы фактора — не человеко-часы: фактор происходит сам, и в бюджет
        человека его время не идёт. Календарный срок при этом остаётся —
        ждать его всё равно приходится. */
-    const own = isFactor(f) ? 0 : (runHours(runsFor(f)) ?? hoursOf(f)) * n;
+    const own = isFactor(f) ? 0 : workHours(f, n, { runs: runsFor(f) });
     return { func: id, name: f.name, e: f.e, runs: n, factor: isFactor(f),
-      takes: chosen[id] || [], workHours: own, calendarHours: step * n };
+      // Сколько выполнений идут разом: по этому же числу расписание
+      // расставляет задачи волнами, а не очередью.
+      par: parOf(f),
+      takes: chosen[id] || [], workHours: own, calendarHours: runsHours(f, n, step) };
   }).sort((a, b) => b.calendarHours - a.calendarHours);
 
   /* Календарный срок — по самой длинной цепочке: функция, ждущая чужой
@@ -716,9 +754,15 @@ export function scheduleOf(steps = [], { from = Date.now() } = {}) {
   const rows = [];
   // Фактор происходит без человека — задачи по нему не заводятся.
   steps.filter((st) => !st.factor).forEach((st) => {
-    const per = st.runs > 0 ? st.calendarHours / st.runs : 0;
+    /* Волнами, а не очередью: при четырёх одновременных выполнениях первые
+       четыре начинаются разом, пятое — после них. Длительность одного
+       считается из числа ВОЛН, а не из числа выполнений, иначе восемь дел
+       по месяцу каждое превратились бы в восемь задач по четыре дня. */
+    const par = Math.max(1, Math.round(st.par) || 1);
+    const waves = Math.ceil(st.runs / par) || 1;
+    const per = st.runs > 0 ? st.calendarHours / waves : 0;
     for (let i = 0; i < st.runs; i += 1) {
-      const at = from + (st.startHours + per * i) * 3600000;
+      const at = from + (st.startHours + per * Math.floor(i / par)) * 3600000;
       rows.push({ func: st.func, name: st.name, e: st.e, no: i + 1, of: st.runs,
         start: new Date(at), end: new Date(at + per * 3600000) });
     }

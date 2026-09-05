@@ -30,7 +30,7 @@
    где план разошёлся с делом; одно число вместо двух скрыло бы ровно это.
    ════════════════════════════════════════════════════════════════ */
 
-import { factorChance, factorsOf, hoursOf, isFactor, portSpends } from "./funcs.js";
+import { factorChance, factorsOf, hoursOf, isFactor, parOf, portSpends } from "./funcs.js";
 import { portQty, stepHours } from "./plan.js";
 
 const num = (v) => Number(v) || 0;
@@ -128,7 +128,11 @@ export function estimate(model = {}, chain = {},
     const start = takes.reduce((m, p) => (inChain.has(p.trait)
       ? Math.max(m, ready[p.trait] ?? 0) : m), 0);
     const per = stepHours(f, rs, side);
-    const calendar = per * n;
+    /* Выполнения идут волнами по `par` штук, а не строго друг за другом:
+       восемь дел, которые ведут месяцами разом, занимают не восемь месяцев,
+       а столько, сколько волн. Сама работа быстрее не делается — в
+       человеко-часах ниже ничего не меняется. */
+    const calendar = per * Math.ceil(n / parOf(f));
     startAt[f.id] = start;
 
     const usedIn = [];
@@ -162,11 +166,16 @@ export function estimate(model = {}, chain = {},
       e: f.e,
       factor: isFactor(f),
       runs: n,
+      par: parOf(f),
       startHours: start,
       calendarHours: calendar,
       // Часы фактора не человеко-часы: он происходит сам, и ничьё время
       // не тратит. Ждать его при этом всё равно приходится.
-      workHours: isFactor(f) ? 0 : (hoursOf(f, side === "hi" ? "lo" : "hi") * n),
+      /* Одно выполнение занимает 1/par времени воркера: он ведёт `par`
+         таких дел разом. Считать их полными значило бы обвинить в
+         восьмикратной перегрузке того, для кого настройку и завели. */
+      workHours: isFactor(f) ? 0
+        : (hoursOf(f, side === "hi" ? "lo" : "hi") * n) / parOf(f),
       takes: usedIn,
       gives: madeOut,
     });

@@ -114,6 +114,33 @@ describe("предварительная оценка", () => {
   });
 });
 
+describe("одновременные выполнения в оценке", () => {
+  it("волнами, а не очередью: срок делится на число одновременных", () => {
+    /* Три заявки через функцию, которую ведут по три разом, занимают время
+       ОДНОГО выполнения, а не трёх. Восемь дел при четырёх одновременных —
+       две волны. Работа при этом та же: человеко-часы не меняются. */
+    const par3 = { ...MODEL, funcs: MODEL.funcs.map((f) => (f.id === "f1"
+      ? { ...f, par: 3 } : f)) };
+    const chain = chainOf(MODEL, { from: "zayavka", upto: "tz" });
+    const one = estimate(MODEL, chain, { side: "hi", qty: 3 });
+    const many = estimate(par3, chainOf(par3, { from: "zayavka", upto: "tz" }),
+      { side: "hi", qty: 3 });
+    expect(one.steps[0].calendarHours).toBe(3);
+    expect(many.steps[0].calendarHours).toBe(1);
+    /* И времени воркера они стоят столько же, сколько одно: он ведёт их
+       разом. Считать три полных значило бы обвинить в тройной перегрузке
+       того, для кого настройку и завели. */
+    expect(many.steps[0].workHours).toBe(one.steps[0].workHours / 3);
+  });
+
+  it("неполная волна считается целой: полдела в календаре не занимает полволны", () => {
+    const par2 = { ...MODEL, funcs: MODEL.funcs.map((f) => (f.id === "f1"
+      ? { ...f, par: 2 } : f)) };
+    const chain = chainOf(par2, { from: "zayavka", upto: "tz" });
+    expect(estimate(par2, chain, { side: "hi", qty: 3 }).steps[0].calendarHours).toBe(2);
+  });
+});
+
 describe("факторы, которые влияют", () => {
   it("фактор, трогающий ресурс цепочки, назван — с его вероятностью", () => {
     const m = { ...MODEL, funcs: [...MODEL.funcs,

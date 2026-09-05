@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { chanceOf, hoursOf, hoursRange, normalizeFunc, newFunc, sameHours, checkFunc }
+import { chanceOf, hoursOf, hoursRange, normalizeFunc, newFunc, parOf, sameHours, checkFunc }
   from "../lib/funcs.js";
-import { cycles, forecast, load, runSide, stepHours } from "../lib/plan.js";
+import { cycles, forecast, load, runSide, scheduleOf, stepHours } from "../lib/plan.js";
 import { goalRuns, newGoal, normalizeGoal } from "../lib/goals.js";
 
 /* Время выполнения — вилка, а «как часто может повторяться» — потолок, а не
@@ -57,6 +57,77 @@ describe("потолок повторений", () => {
     const rare = F({ dur: 1, durHi: 1, durUnit: "дн", every: 1, everyUnit: "мес" });
     expect(cycles(rare)).toBeLessThan(cycles(fast));
     expect(cycles(rare)).toBeCloseTo(1);
+  });
+});
+
+/* ─────── одновременные выполнения ───────
+
+   Настройка про ДОЛГИЕ дела: юрист ведёт восемь дел месяцами разом, и они
+   не выстраиваются в очередь. Работа от этого быстрее не делается — час
+   работы остаётся часом; меняется только то, сколько дел помещается в
+   календарь одновременно. */
+describe("одновременные выполнения", () => {
+  it("по умолчанию одно: обещать иное без слов человека нельзя", () => {
+    expect(parOf(newFunc("A"))).toBe(1);
+    expect(normalizeFunc({ id: "f" }).par).toBe(1);
+  });
+
+  it("меньше одного и дробей не бывает: полдела в работе не держат", () => {
+    expect(parOf({ par: 0 })).toBe(1);
+    expect(parOf({ par: -3 })).toBe(1);
+    expect(parOf({ par: 2.7 })).toBe(2);
+  });
+
+  it("сколько дел ведут разом — столько и помещается в месяц", () => {
+    const one = F({ dur: 1, durHi: 1, durUnit: "мес" });
+    const eight = F({ dur: 1, durHi: 1, durUnit: "мес", par: 8 });
+    expect(cycles(one)).toBeCloseTo(1);
+    expect(cycles(eight)).toBeCloseTo(8);
+  });
+
+  it("одно дело занимает 1/par времени воркера, а не всё целиком", () => {
+    /* Воркер ведёт четыре дела РАЗОМ — значит четыре дела по месяцу стоят
+       ему месяца, а не четырёх. Считать их полными значило бы обвинить в
+       четырёхкратной перегрузке того, для кого настройку и завели. */
+    const one = { funcs: [F({ dur: 1, durHi: 1, durUnit: "мес",
+      owners: ["p1"], kind: "task" })] };
+    const four = { funcs: [F({ dur: 1, durHi: 1, durUnit: "мес", par: 4,
+      owners: ["p1"], kind: "task" })] };
+    // Без настройки за месяц успевается одно дело — месяц времени.
+    expect(load(one, { plan: { perMonth: { f1: 1 }, once: {} } })).toEqual({ p1: 730 });
+    // С четырьмя одновременными за тот же месяц успеваются четыре — и это
+    // всё тот же месяц его времени.
+    expect(load(four, { plan: { perMonth: { f1: 4 }, once: {} } })).toEqual({ p1: 730 });
+  });
+
+  it("измеренное на одновременность не делится: часы из сдач — это факт", () => {
+    /* Поправлять измеренное допущением нельзя: если человек отчитался за
+       десять часов, значит потрачено десять, сколько бы дел он ни вёл. */
+    const model = { funcs: [F({ dur: 1, durHi: 1, durUnit: "мес", par: 4,
+      owners: ["p1"], kind: "task" })] };
+    const runs = [{ hours: 10 }, { hours: 10 }];
+    expect(load(model, { runsOf: () => runs,
+      plan: { perMonth: { f1: 2 }, once: {} } })).toEqual({ p1: 20 });
+  });
+
+  it("расписание ставит задачи волнами, а не очередью", () => {
+    /* Восемь дел при четырёх одновременных — это две волны: первые четыре
+       начинаются разом, вторые четыре ждут их. Восемь очередей означали бы
+       восемь месяцев там, где выйдет два. */
+    const from = new Date("2026-01-01T00:00:00Z").getTime();
+    const rows = scheduleOf([{ func: "f1", name: "Дело", e: "A", runs: 8, par: 4,
+      startHours: 0, calendarHours: 2 * 730 }], { from });
+    expect(rows).toHaveLength(8);
+    const starts = [...new Set(rows.map((r) => r.start.getTime()))];
+    expect(starts).toHaveLength(2);
+    // Каждое дело тянется месяц — столько, сколько само дело, а не волна.
+    expect((rows[0].end - rows[0].start) / 3600000).toBeCloseTo(730);
+  });
+
+  it("прежние записи без поля читаются как «по одному»", () => {
+    const rows = scheduleOf([{ func: "f1", name: "Дело", e: "A", runs: 2,
+      startHours: 0, calendarHours: 2 }], { from: 0 });
+    expect(rows[0].start.getTime()).not.toBe(rows[1].start.getTime());
   });
 });
 

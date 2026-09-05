@@ -107,7 +107,14 @@ function estimate(model, chain, side, qty) {
       ? Math.max(m, ready[p.trait] ?? 0) : m), 0);
     const h = hours(f);
     const one = side === "lo" ? h.hi : h.lo;
-    const calendar = one * n;
+    /* Выполнения идут волнами по `par` штук, а не строго друг за другом:
+       восемь дел, которые ведут месяцами разом, занимают не восемь месяцев,
+       а столько, сколько волн. Человеко-часы при этом те же — работа от
+       одновременности быстрее не делается. Правило то же, что в
+       приложении (`parOf` в `web/src/lib/funcs.js`): снимок обязан считать
+       так же, как экран. */
+    const par = Math.max(1, Math.floor(num(f.par)) || 1);
+    const calendar = one * Math.ceil(n / par);
     takes.forEach((p) => {
       if (!inChain.has(p.trait) || !spends(p)) return;
       const all = per(p, "takes") * n;
@@ -122,8 +129,10 @@ function estimate(model, chain, side, qty) {
       ready[g.trait] = Math.max(ready[g.trait] ?? 0, start + calendar);
     });
     steps.push({ func: f.id, name: str(f.name), runs: n, factor: f.kind === "factor",
-      startHours: start, calendarHours: calendar,
-      workHours: f.kind === "factor" ? 0 : one * n });
+      par, startHours: start, calendarHours: calendar,
+      // Одно выполнение занимает 1/par времени воркера: он ведёт столько
+      // таких дел разом. Правило то же, что в приложении.
+      workHours: f.kind === "factor" ? 0 : (one * n) / par });
   });
   return { steps, delta,
     workHours: steps.reduce((a, x) => a + x.workHours, 0),
