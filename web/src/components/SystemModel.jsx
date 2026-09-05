@@ -15,7 +15,7 @@ import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
-import TasksBoard, { autoFlow, numberTwins, runsOfFunc } from "./TasksBoard.jsx";
+import TasksBoard, { autoFlow, runsOfFunc } from "./TasksBoard.jsx";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
@@ -828,10 +828,7 @@ export default function SystemModel(){
     return ()=>clearInterval(id);
   },[]);
   useEffect(()=>{ setTasks(p=>autoFlow(p,{funcs,traits})); },[tasks,funcs,traits,tick]);
-  /* Близнецы, заведённые до нумерации выполнений, получают номера — здесь,
-     одним правилом на всё приложение: одинаково названные задачи одинаково
-     нечитаемы и на доске, и в отчёте, и в напоминании бота. */
-  useEffect(()=>{ setTasks(p=>numberTwins(p)); },[tasks]);
+
 
   /* ─── РАСЧЁТ ───
      Один источник чисел на всё приложение: функции. Фактические выполнения

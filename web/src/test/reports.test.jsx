@@ -132,10 +132,10 @@ describe("отчёт раздела", () => {
 });
 
 describe("карта в форме", () => {
-  const Panel = ({ nodes: n0 = [] }) => {
+  const Panel = ({ nodes: n0 = [], model = MODEL }) => {
     const [nodes, setNodes] = React.useState(n0);
     const [focus, setFocus] = React.useState(null);
-    return (<ReportsPanel nodes={nodes} setNodes={setNodes} model={MODEL}
+    return (<ReportsPanel nodes={nodes} setNodes={setNodes} model={model}
       entities={[{ id: "e1", name: "Мы" }]} nameOf={(id) => `человек ${id}`}
       focus={focus} onFocus={setFocus} />);
   };
@@ -284,6 +284,37 @@ describe("карта в форме", () => {
     const d = reportOf(model, node, [NODES[0], node, NODES[2]], {});
     expect(d.traced).toBe(true);
     expect(d.family.map((u) => u.id)).toEqual(["s1~t2", "s3~t2"]);
+  });
+
+  it("видно, НАД ЧЕМ работала задача: этим выполнения и отличаются", () => {
+    /* Четыре «Собрать макет» одинаковы только на вид: они сделаны над
+       разными вещами. Пока этого не видно, список читается как повтор
+       одной строки. */
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect(screen.getByText(/макет №1/)).toBeInTheDocument();
+    expect(screen.getByText(/макет №2/)).toBeInTheDocument();
+  });
+
+  it("сказано, что это весь поток, а не путь одной вещи", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect(screen.getByText(/Здесь все выполнения функций этой цепочки/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/выберите единицу выше/)).toBeInTheDocument();
+  });
+
+  it("одинаково названные задачи различимы в отчёте — и без правки данных", () => {
+    /* Название задачи — слова человека, и переписывать их за него
+       приложение не должно. Номер приписывается при показе. */
+    const twins = { ...MODEL, tasks: MODEL.tasks.map((t, i) => ({ ...t,
+      title: "Собрать макет", start: `2026-02-0${i + 1}T10:00` })) };
+    render(<Panel nodes={NODES} model={twins} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect(screen.getByText(/№1 из 2/)).toBeInTheDocument();
+    expect(screen.getByText(/№2 из 2/)).toBeInTheDocument();
+    // Сами названия в модели остались нетронутыми.
+    expect(twins.tasks.every((t) => t.title === "Собрать макет")).toBe(true);
   });
 
   it("удаление блока уносит вложенные разделы", () => {

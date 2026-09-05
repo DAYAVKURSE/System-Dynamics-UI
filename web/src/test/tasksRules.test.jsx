@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
-import TasksBoard, { TaskSetup, newTask, numberTwins, runsOfFunc, runTitle } from "../components/TasksBoard.jsx";
+import TasksBoard, { TaskSetup, newTask, runsOfFunc, runTitle, twinNo } from "../components/TasksBoard.jsx";
 import ReviewBoard from "../components/ReviewBoard.jsx";
 import { scheduleOf } from "../lib/plan.js";
 import React from "react";
@@ -65,13 +65,13 @@ describe("как называется одно выполнение", () => {
   });
 });
 
-/* БЛИЗНЕЦЫ, ЗАВЕДЁННЫЕ ПРЕЖДЕ.
+/* КАК РАЗЛИЧИТЬ ОДИНАКОВО НАЗВАННЫЕ.
 
-   Задачи, созданные до нумерации выполнений, носят одно имя функции и
-   читаются как одна строка, повторённая четыре раза. Обычно переписывать
-   чужие названия нельзя — на них ссылаются; но здесь этот довод не
-   работает: сослаться на одну из четырёх одинаковых было НЕЛЬЗЯ. */
-describe("одинаковые названия чинятся задним числом", () => {
+   Задачи, заведённые до нумерации выполнений, носят одно имя функции.
+   Сохранённые названия при этом НЕ ПРАВЯТСЯ: название — слова человека, и
+   переписывать их за него приложение не должно, даже с добрым намерением.
+   Номер считается на месте, для показа, и никуда не сохраняется. */
+describe("номер у одинаково названных — только для показа", () => {
   const t = (id, over) => ({ ...newTask({ funcId: "f1", title: "Сбор заявок" }),
     id, ...over });
 
@@ -79,34 +79,33 @@ describe("одинаковые названия чинятся задним чи
     const list = [t("c", { start: "2026-03-03T10:00" }),
       t("a", { start: "2026-03-01T10:00" }),
       t("b", { start: "2026-03-02T10:00" })];
-    const out = numberTwins(list);
-    expect(out.map((x) => x.title)).toEqual([
-      "Сбор заявок №3 из 3", "Сбор заявок №1 из 3", "Сбор заявок №2 из 3"]);
+    expect(twinNo(list)).toEqual({
+      a: { no: 1, of: 3 }, b: { no: 2, of: 3 }, c: { no: 3, of: 3 } });
   });
 
-  it("одиночку и собственное название человека не трогает", () => {
-    const list = [t("a", { title: "Разобрать заявку Петрова" }),
-      t("b", { title: "Сбор заявок" })];
-    expect(numberTwins(list)).toBe(list);
+  it("сохранённые названия не трогаются вовсе", () => {
+    const list = [t("a", { start: "2026-03-01T10:00" }),
+      t("b", { start: "2026-03-02T10:00" })];
+    const before = list.map((x) => x.title);
+    twinNo(list);
+    expect(list.map((x) => x.title)).toEqual(before);
+  });
+
+  it("одиночку и собственное название человека не нумерует", () => {
+    expect(twinNo([t("a", { title: "Разобрать заявку Петрова" }),
+      t("b", { title: "Сбор заявок" })])).toEqual({});
   });
 
   it("близнецы считаются внутри своей функции, а не по всей доске", () => {
-    const list = [t("a"), t("b", { funcId: "f2" })];
-    expect(numberTwins(list)).toBe(list);
-  });
-
-  it("второй раз не срабатывает: после нумерации имена уже различны", () => {
-    const once = numberTwins([t("a", { start: "2026-03-01T10:00" }),
-      t("b", { start: "2026-03-02T10:00" })]);
-    expect(numberTwins(once)).toBe(once);
+    expect(twinNo([t("a"), t("b", { funcId: "f2" })])).toEqual({});
   });
 
   it("задача без начала не уезжает вперёд остальных", () => {
-    // Пустая дата — это НЕ полночь 1970 года: иначе безсрочная встала бы первой.
-    const out = numberTwins([t("a", { start: null, end: null }),
+    // Пустая дата — это НЕ полночь 1970 года: иначе бессрочная встала бы первой.
+    const out = twinNo([t("a", { start: null, end: null }),
       t("b", { start: "2026-03-01T10:00" })]);
-    expect(out.find((x) => x.id === "b").title).toBe("Сбор заявок №1 из 2");
-    expect(out.find((x) => x.id === "a").title).toBe("Сбор заявок №2 из 2");
+    expect(out.b.no).toBe(1);
+    expect(out.a.no).toBe(2);
   });
 });
 

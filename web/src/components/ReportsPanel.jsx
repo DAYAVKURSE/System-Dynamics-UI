@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm, TxtField } from "./ui.jsx";
-import { funcLabel } from "./TasksBoard.jsx";
+import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
 import { putShare } from "../identity.js";
 import {
@@ -9,7 +9,7 @@ import {
 } from "../lib/reports.js";
 import { reportHtml, reportOf, rangeTimeText, saveFile, timeText } from "../lib/reportDoc.js";
 import { chainOf } from "../lib/chain.js";
-import { unitsOfTrait } from "../lib/units.js";
+import { unitsOf, unitsOfTrait } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОТЧЁТЫ · карта проектов
@@ -110,7 +110,22 @@ export function ChangeChart({ rows = [], traitName }) {
    Не диаграмма Ганта: в разделе важен порядок и состояние, а не пиксельная
    длина полосы. Сперва запланированные шаги — то, что ещё предстоит, —
    потом заведённые задачи с их сроками. */
-function Steps({ plan, tasks, funcName, personName }) {
+function Steps({ plan, tasks, funcName, personName, units, unit, traitName }) {
+  /* Над ЧЕМ работала задача — то, что и различает выполнения одной функции.
+     Четыре «Собрать макет» одинаковы только на вид: они сделаны над разными
+     вещами, и пока этого не видно, список выглядит повтором одной строки.
+
+     Взятое известно там, где исполнитель отметил его при сдаче; сделанное —
+     всегда, оно и есть единица с номером. */
+  const madeBy = {};
+  units.forEach((u) => { (madeBy[u.task] = madeBy[u.task] || []).push(u); });
+  const byId = Object.fromEntries(units.map((u) => [u.id, u]));
+  const tookBy = (t) => {
+    const subs = t.submissions || [];
+    const sb = subs.length ? subs[subs.length - 1] : null;
+    return [...new Set(Object.values(sb?.took || {}).flat().filter(Boolean))]
+      .map((id) => byId[id]).filter(Boolean);
+  };
   /* Сколько задач уже заведено на каждый шаг. Это ответ на вопрос, который
      иначе возникает первым: «шаг один, а задач четыре — почему?». Шаг это
      функция, задача — одно её выполнение; план говорит, сколько выполнений
@@ -118,6 +133,10 @@ function Steps({ plan, tasks, funcName, personName }) {
      заводят цели, и не только эта. */
   const made = {};
   tasks.forEach((t) => { made[t.funcId] = (made[t.funcId] || 0) + 1; });
+  /* Задачи, заведённые до нумерации выполнений, названы одинаково, и в
+     списке они сливаются. Номер приписывается ЗДЕСЬ, при показе: править
+     сохранённое название приложение не должно — это слова человека. */
+  const twins = twinNo(tasks);
   return (
     <div>
       {!plan.steps.length && (
@@ -146,7 +165,17 @@ function Steps({ plan, tasks, funcName, personName }) {
         </div>))}
 
       {!!tasks.length && (<>
-        <div style={{ ...S.lbl, margin: "10px 0 4px" }}>заведённые задачи</div>
+        <div style={{ ...S.lbl, margin: "10px 0 4px" }}>
+          {unit ? "задачи по этой единице" : "заведённые задачи"}</div>
+        {/* Без выбранной единицы это ВЕСЬ поток по функциям цепочки, а не
+            путь одной вещи: четыре заявки дают четыре «Собрать макет», и
+            они разные, хоть и названы одинаково. Сказать это надо прямо,
+            иначе список читается как повтор одной строки. */}
+        {!unit && tasks.length > 1 && (
+          <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 5, lineHeight: 1.5 }}>
+            Здесь все выполнения функций этой цепочки — над разными вещами.
+            Чтобы увидеть путь ОДНОЙ, выберите единицу выше.
+          </div>)}
         {/* По времени: выполнения одной функции — это последовательность, и
             читать её надо сверху вниз, а не в том порядке, в каком они
             попали в модель. */}
@@ -160,7 +189,19 @@ function Steps({ plan, tasks, funcName, personName }) {
           <div key={t.id} className="flex flex-wrap gap-2"
             style={{ alignItems: "center", padding: "4px 0",
               borderTop: `1px solid ${C.line}` }}>
-            <span style={{ fontSize: 11.5, flex: "1 1 130px" }}>{t.title}</span>
+            <span style={{ fontSize: 11.5, flex: "1 1 130px" }}>
+              {t.title}
+              {twins[t.id] && (
+                <span style={{ color: C.muted }}>
+                  {" "}№{twins[t.id].no} из {twins[t.id].of}</span>)}
+            </span>
+            {/* Над чем работала: взяла вот это, сделала вот это. Именно
+                этим выполнения одной функции и отличаются друг от друга. */}
+            <span style={{ fontSize: 10.5, color: ACC, flex: "1 1 120px" }}>
+              {tookBy(t).map((u) => `${traitName(u.trait)} №${u.no}`).join(", ")}
+              {tookBy(t).length && madeBy[t.id]?.length ? " → " : ""}
+              {(madeBy[t.id] || []).map((u) => `${traitName(u.trait)} №${u.no}`).join(", ")}
+            </span>
             <span style={{ fontSize: 10.5, color: C.muted }}>
               {funcName(t.funcId)}</span>
             <span style={{ fontSize: 10.5, color: C.muted }}>
@@ -201,6 +242,8 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   // Единицы этого ресурса, которые уже родились из сдач: с ними работа
   // уже происходила, и о каждой можно спросить отдельно.
   const units = node.trait ? unitsOfTrait(model, node.trait) : [];
+  // Все единицы модели: по ним видно, над чем работала каждая задача.
+  const allUnits = unitsOf(model);
   const full = chainOf(model, { from: node.trait });
   const uptoTraits = traits.filter((t) => t.id !== node.trait
     && (full.traits || []).includes(t.id));
@@ -419,6 +462,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           {/* ═══ 2. TIMELINE ═══ */}
           <Part n={2} title="шаги и задачи во времени">
             <Steps plan={plan.hi} tasks={actual.tasks} funcName={funcName}
+              units={allUnits} unit={doc.unit} traitName={traitName}
               personName={(id) => (nameOf ? nameOf(id) : id)} />
           </Part>
 
