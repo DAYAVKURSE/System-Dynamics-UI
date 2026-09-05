@@ -64,6 +64,12 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
               {" · поставил: "}{nameOf ? nameOf(t.setter) : (t.setter || "не назначен")}
               {" · исполнитель: "}{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}
             </div>
+            {/* Описание функции — то, что за работа вообще; содержимое
+                задачи — что к этому добавил постановщик. Первое есть
+                всегда, второго может не быть. */}
+            {!!String(f?.about || "").trim() && (
+              <div style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.5,
+                whiteSpace: "pre-wrap", color: C.muted }}>{f.about}</div>)}
             {t.body && <div style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.5 }}>{t.body}</div>}
 
             {!sub && <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>

@@ -113,6 +113,26 @@ describe("назначения берутся из воркеров актива
       .toBeInTheDocument();
   });
 
+  it("описание функции видно в задаче — и постановщику, и исполнителю", () => {
+    /* Что это за работа, живёт у функции и едет в каждую её задачу:
+       переписывать его в каждое выполнение значило бы просить одно и то
+       же дважды. */
+    const funcs = [{ ...FUNCS[0], about: "разбираем заявку и пишем ТЗ" }];
+    const Board = () => {
+      const [tasks, setTasks] = React.useState([{ ...newTask({ funcId: "f1",
+        title: "Задача A" }), status: "progress", body: "" }]);
+      const [openId, setOpenId] = React.useState(null);
+      return (<TasksBoard funcs={funcs} entities={ENTITIES} traits={TRAITS}
+        tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
+        nameOf={(id) => id} />);
+    };
+    render(<Board />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByText("разбираем заявку и пишем ТЗ")).toBeInTheDocument();
+    // И пустое содержимое не выдаётся за поломку: добавлять было нечего.
+    expect(screen.queryByText(/Постановщик ещё не написал/)).toBeNull();
+  });
+
   it("содержимое не обязательно: задача ставится и без него", () => {
     /* Что это за работа, уже сказано описанием функции. Требовать
        переписывать его в каждую задачу значило бы спрашивать второй раз

@@ -612,14 +612,16 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
         {task.end?` · срок ${fmtDT(task.end)}`:" · срок не назначен"}
       </div>
 
-      {/* Содержимое — то, ради чего задача и заведена: слова постановщика.
-          Здесь они только читаются. */}
-      <div style={S.lbl}>что нужно сделать</div>
-      <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-        padding:9,margin:"5px 0 8px",fontSize:12,lineHeight:1.6,
-        whiteSpace:"pre-wrap",color:task.body?C.text:C.muted}}>
-        {task.body||"Постановщик ещё не написал, что именно сделать."}
-      </div>
+      {/* Содержимое — слова постановщика ОБ ЭТОМ выполнении. Здесь они
+          только читаются. Пусто — это не поломка: что это за работа,
+          сказано описанием функции ниже, и добавлять к нему нечего. */}
+      {!!String(task.body||"").trim()&&(<>
+        <div style={S.lbl}>что нужно сделать</div>
+        <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+          padding:9,margin:"5px 0 8px",fontSize:12,lineHeight:1.6,
+          whiteSpace:"pre-wrap"}}>
+          {task.body}
+        </div></>)}
 
       <div style={S.lbl}>функция, которую выполняет задача</div>
       <FuncCard func={func} entities={entities} traitName={traitName}/>
