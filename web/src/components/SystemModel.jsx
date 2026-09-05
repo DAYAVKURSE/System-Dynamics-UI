@@ -931,6 +931,7 @@ export default function SystemModel(){
       {tab==="review" && me.tabs.includes("review") && (
         <ReviewBoard tasks={tasks} traits={traits} entities={entities} funcs={funcs}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
+          setTasks={setTasks} people={people} canAssign={me.isOwner}
           onAccept={(t,note,mark)=>decide(t,true,note,mark)}
           onReturn={(t,note,mark)=>decide(t,false,note,mark)}/>)}
 

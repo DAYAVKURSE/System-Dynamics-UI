@@ -36,20 +36,27 @@ import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 /* Путь задачи, слева направо.
 
    «Ожидает постановки» — заведена, но ещё не поставлена: нет людей, срока
-   или содержимого. «Дедлайн» — поставлена, срок назначен, ждёт, когда её
-   возьмут: она стоит ПЕРЕД бэклогом, потому что срок важнее очереди —
-   сначала видно, что горит, и только потом, что лежит.
+   или содержимого. Это состояние ПОСТАНОВЩИКА, и на доске исполнителя ему
+   места нет: там показывалась бы работа, которой ещё не поручали. Ставят
+   задачи во вкладке «Проверка» — там же, где принимают сдачу: обе эти
+   вещи делает не исполнитель.
 
-   Дальше как было: бэклог, работа, проверка, готово. «Готово» ставит
-   проверяющий, принимая отчёт с оценкой. */
+   Дальше — то, что и правда лежит на доске: бэклог, дедлайн, работа,
+   проверка, готово. «Бэклог» — лежит и ждёт очереди; «Дедлайн» — взято на
+   срок, и срок уже горит; дальше работа. «Готово» ставит проверяющий,
+   принимая отчёт с оценкой. */
 export const STATUSES=[
   {id:"wait",name:"Ожидает постановки",color:NEU},
-  {id:"deadline",name:"Дедлайн",color:BAD},
   {id:"backlog",name:"Бэклог",color:NEU},
+  {id:"deadline",name:"Дедлайн",color:BAD},
   {id:"progress",name:"В работе",color:ACC},
   {id:"review",name:"Проверка",color:WARN},
   {id:"done",name:"Готово",color:OK},
 ];
+
+/* Колонки доски — всё, кроме ожидания постановки: непоставленная задача
+   ещё ничья, и лежать ей на доске незачем. */
+export const BOARD=STATUSES.filter(s=>s.id!=="wait");
 
 // За сколько минут до начала предупредить. null — не предупреждать.
 export const WARNS=[
@@ -235,16 +242,245 @@ export const funcLabel=(f,entities=[])=>{
   return `${e?.name||"?"} · ${f.name||"без названия"}`;
 };
 
-/* ─────── редактор одной задачи ───────
-   Отдельным компонентом, потому что открывается в двух местах: на доске
-   задач и во вкладке «Проверка». Копия того же JSX в двух местах
-   разъехалась бы на первой же правке. */
-export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
+/* ─────── чего не хватает, чтобы задачу поставить ───────
+
+   Две разные нехватки, и путать их нельзя. Первая — незаполненность: нет
+   людей, срока или содержимого, и это чинит постановщик. Вторая — ресурсы:
+   их количество меняется само по себе, поэтому задачу можно описать
+   заранее, а поставить — только когда ресурсов хватает. */
+export const lackOf=(task,funcs=[],traits=[])=>{
+  const f=funcs.find(x=>x.id===task?.funcId);
+  return f?shortage(f,traits):[];
+};
+
+/** Почему задачу нельзя поставить — словами, а не пустой кнопкой. */
+export function whyNotSet(task,funcs=[],traits=[]){
+  if(!isSet(task)) return `Не хватает: ${taskGaps(task).join(", ")}`;
+  const miss=lackOf(task,funcs,traits);
+  if(!miss.length) return "";
+  return "Не хватает ресурсов: "
+    +miss.map(x=>`${x.name} — есть ${nm(x.have)}, нужно ${nm(x.need)}`).join("; ");
+}
+
+/** Можно ли задачу поставить прямо сейчас. */
+export const canSet=(task,funcs,traits)=>!whyNotSet(task,funcs,traits);
+
+/* ─────── карточка функции задачи ───────
+   Одинаково нужна и постановщику, и исполнителю: что за функция, что она
+   берёт и выдаёт, сколько на неё заложено. */
+function FuncCard({func,entities,traitName}){
+  if(!func){
+    return (
+      <div style={{fontSize:11,color:WARN,margin:"6px 0 8px",lineHeight:1.5}}>
+        Задача ни к какой функции не привязана — в модели она ничего не
+        уточняет. Задачи заводятся из целей, под функцией.
+      </div>);
+  }
+  return (
+    <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+      padding:9,margin:"6px 0 8px",fontSize:11.5,lineHeight:1.6}}>
+      <div style={{fontSize:12.5,fontWeight:700,color:C.text}}>
+        {funcLabel(func,entities)}</div>
+      <div style={{color:C.muted,marginTop:4}}>
+        берёт: {func.takes.length
+          ? func.takes.map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")
+          : "ничего"}
+      </div>
+      <div style={{color:C.muted}}>
+        выдаёт: {func.gives.length
+          ? func.gives.map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")
+          : "ничего"}
+      </div>
+      <div style={{color:C.muted,marginTop:4}}>
+        на одно выполнение заложено <b style={{color:WARN}}>
+          {nm(func.dur)} {func.durUnit}</b>. Сколько ушло на самом деле —
+        записывается при сдаче.
+      </div>
+    </div>);
+}
+
+/* ═══ ПОСТАНОВКА ЗАДАЧИ ═══
+
+   Постановка — работа не исполнителя. Постановщик называет людей, ставит
+   срок и пишет, ЧТО именно сделать; исполнителю остаётся сделать и сдать.
+   Поэтому форма живёт во вкладке «Проверка», рядом с приёмом сдачи: и то,
+   и другое делает не тот, кто работу делает.
+
+   На доске задач её нет намеренно — там исполнитель, и поля, которые он
+   не заполняет, только предлагали бы ему поставить задачу самому себе.
+
+   Заводить задачи руками здесь тоже нельзя: они появляются из применённых
+   целей. Работа, не следующая ни из какой цели, — это работа, о которой
+   никто не спросил, зачем она. */
+export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
   setTasks,onClose,onDelete,people=[],canAssign=true,nameOf}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
+
+  const func=funcs.find(f=>f.id===task.funcId)||null;
+  const traitName=(id)=>traits.find(t=>t.id===id)?.l||"(ресурс удалён)";
+  // Назначать можно только воркеров того актива, которому принадлежит
+  // функция: люди — свойство актива, и чужой человек в его работе
+  // означал бы, что список воркеров ни на что не влияет.
+  const asset=entities.find(e=>e.id===func?.e)||null;
+  // В том порядке, который владелец задал в списке людей актива: кого
+  // поставили выше, того и предлагают первым.
+  const pool=(k)=>byCrew(asset||{},
+    people.filter(p=>(asset?.[k]||[]).some(id=>String(id)===String(p.id))));
+  const gaps=taskGaps(task);
+  const why=whyNotSet(task,funcs,traits);
+
+  return (
+    <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
+      <div className="flex items-center gap-2" style={{marginBottom:8}}>
+        <span style={S.lbl}>постановка задачи</span>
+        <span style={{flex:1}}/>
+        {onDelete&&(
+          <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
+            onClick={()=>onDelete()}>Удалить</button>)}
+        {onClose&&<button style={btn(false)} onClick={()=>onClose()}>✕</button>}
+      </div>
+
+      <div style={S.lbl}>название</div>
+      <TxtField value={task.title} style={{marginBottom:8,fontWeight:600}}
+        onCommit={v=>up("title",v)}/>
+
+      <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
+        {WORKER_KINDS.map(k=>(
+          <div key={k.id} style={{flex:"1 1 150px"}}>
+            <div style={S.lbl}>{k.task}</div>
+            <select style={S.inp} value={task[TASK_ROLE[k.id]]||""} disabled={!canAssign}
+              aria-label={k.task}
+              onChange={e=>up(TASK_ROLE[k.id],e.target.value||null)}>
+              <option value="">— не назначен —</option>
+              {/* Рейтинг стоит рядом с именем: постановщик выбирает человека,
+                  а не гадает, кого из них уже проверяли и как. */}
+              {pool(k.id).map(p=>(
+                <option key={p.id} value={p.id}>
+                  {p.name} · {shortStat(statsOf(tasks,funcs,p.id))}</option>))}
+            </select>
+          </div>))}
+      </div>
+      <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
+        {canAssign
+          ? "Выбирать можно только воркеров этого актива: люди — его свойство. Поставленная задача уходит исполнителю во вкладку «Задачи»."
+          : "Кого назначить, решает владелец."}
+        {!pool("owners").length&&asset
+          &&" У актива ещё нет исполнителей — добавьте их в карточке актива."}
+      </div>
+
+      {/* Когда по обе стороны один и тот же человек, передавать нечего, и
+          нажатие остаётся ритуалом: он и так знает, что сам себе поставил и
+          сам у себя принял. Сказать об этом надо здесь — там, где людей и
+          выбирают, а не там, где человек потом удивится статусу. */}
+      {(selfSet(task)||selfReview(task))&&(
+        <div style={{fontSize:10.5,color:ACC,marginBottom:8,lineHeight:1.5}}>
+          {selfSet(task)&&selfReview(task)
+            ? "Всё делает один человек: задача сама встаёт в бэклог, а после сдачи — в готовые. Описать её и дождаться ресурсов всё равно надо."
+            : selfSet(task)
+              ? "Постановщик и исполнитель — один человек: задача ставится сама и сразу идёт в бэклог."
+              : "Исполнитель и проверяющий — один человек: сдача принимается сама, задача уходит в готовые."}
+        </div>)}
+
+      <div style={S.lbl}>функция, которую выполняет задача</div>
+      <FuncCard func={func} entities={entities} traitName={traitName}/>
+
+      <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
+        <div style={{flex:"1 1 170px"}}>
+          <div style={S.lbl}>начать</div>
+          <input type="datetime-local" style={S.inp} value={task.start||""}
+            aria-label="начать"
+            onChange={e=>{
+              const start=e.target.value||null;
+              // Сдвинули начало — срок едет за ним, пока его не назначили
+              // руками: иначе он остался бы в прошлом относительно старта.
+              upMany(task.endBy==="hand"&&task.end?{start}
+                :{start,end:defaultEnd(func,start),endBy:"auto"});
+            }}/>
+        </div>
+        <div style={{flex:"1 1 170px"}}>
+          <div style={S.lbl}>закончить</div>
+          <input type="datetime-local" style={S.inp} value={task.end||""}
+            aria-label="закончить"
+            onChange={e=>upMany({end:e.target.value||null,endBy:"hand"})}/>
+          <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
+            По умолчанию — верхняя граница одного выполнения; можно менять.
+            В расчёт всё равно идёт то, сколько ушло на самом деле.
+          </div>
+        </div>
+      </div>
+
+      <div style={S.lbl}>предупредить</div>
+      <select style={{...S.inp,marginBottom:4}}
+        value={task.warn==null?"":String(task.warn)}
+        onChange={e=>up("warn",e.target.value===""?null:Number(e.target.value))}>
+        {WARNS.map(w=>(<option key={String(w.v)} value={w.v==null?"":String(w.v)}>
+          {w.name}</option>))}
+      </select>
+      <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
+        Напоминание придёт обычным сообщением от бота. Чтобы оно дошло,
+        у бота должен быть начат диалог — откройте его и нажмите «Начать».
+      </div>
+
+      {/* Содержимое пишет постановщик: это его работа, а не догадка
+          исполнителя и не текст, сочинённый машиной. */}
+      <div style={S.lbl}>содержимое задачи</div>
+      <TxtField area value={task.body} placeholder="что именно нужно сделать"
+        style={{minHeight:70,margin:"4px 0",lineHeight:1.5}}
+        onCommit={v=>up("body",v)}/>
+      <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginBottom:8}}>
+        Пишет постановщик{task.setter?`: ${nameOf?nameOf(task.setter):task.setter}`:""}.
+        Пустое содержимое — это работа, которую никто не поставил.
+      </div>
+
+      {task.status==="wait"?(<>
+        {!!gaps.length&&(
+          <div style={{fontSize:11,color:WARN,marginBottom:8,lineHeight:1.5}}>
+            Задача поставлена не до конца: не хватает {gaps.join(", ")}. Все три
+            роли обязательны, и содержимое пишет постановщик — без него
+            исполнителю нечего делать.
+          </div>)}
+        <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+          {/* Недоступную кнопку видно, что она недоступна: зелёная и живая
+              на вид, она предлагала бы нажать то, что не нажимается. */}
+          <button style={{...btn(true,OK),opacity:why?0.45:1,
+            cursor:why?"default":"pointer"}} disabled={!!why} title={why}
+            onClick={()=>up("status","backlog")}>Поставить</button>
+          {why
+            ? <span style={{fontSize:10.5,color:WARN,lineHeight:1.5}}>{why}</span>
+            : <span style={{fontSize:10.5,color:C.muted}}>
+                уйдёт в бэклог исполнителю</span>}
+        </div>
+      </>):(
+        <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>
+          Задача уже поставлена — сейчас она в колонке «
+          {STATUSES.find(x=>x.id===task.status)?.name||task.status}» на доске
+          исполнителя. Правки отсюда видит и он.
+        </div>)}
+
+      <div style={{...S.lbl,marginTop:10}}>комментарии</div>
+      <Comments task={task} onAdd={(text)=>up("comments",
+        [...(task.comments||[]),{id:uid("c"),text,at:new Date().toISOString()}])}
+        onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
+    </div>);
+}
+
+/* ═══ КАРТОЧКА ЗАДАЧИ У ИСПОЛНИТЕЛЯ ═══
+
+   Здесь работу делают, а не раздают. Поэтому: видно, что за задача, кто её
+   поставил и до какого срока, видно содержимое — и можно сдать и написать
+   комментарий. Ни ролей, ни сроков, ни содержимого отсюда не меняют: это
+   слова постановщика, и переписывать их за него значило бы менять
+   договорённость в одну сторону.
+
+   Сдача записывает, что вышло на самом деле: сколько часов ушло и сколько
+   каждого ресурса взяли и выдали. Из принятых сдач считается среднее
+   арифметическое — оно и уточняет прогноз. */
+export function TaskView({task,funcs=[],traits=[],entities=[],setTasks,onClose,nameOf}){
+  const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
+  const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
   const [draftText,setDraftText]=useState("");
   const [draftFile,setDraftFile]=useState(null);
@@ -256,19 +492,7 @@ export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
   const func=funcs.find(f=>f.id===task.funcId)||null;
   const subs=task.submissions||[];
   const traitName=(id)=>traits.find(t=>t.id===id)?.l||"(ресурс удалён)";
-  // Назначать можно только воркеров того актива, которому принадлежит
-  // функция: люди — свойство актива, и чужой человек в его работе
-  // означал бы, что список воркеров ни на что не влияет.
-  const asset=entities.find(e=>e.id===func?.e)||null;
-  // В том порядке, который владелец задал в списке людей актива: кого
-  // поставили выше, того и предлагают первым.
-  const pool=(k)=>byCrew(asset||{},
-    people.filter(p=>(asset?.[k]||[]).some(id=>String(id)===String(p.id))));
-  const gaps=taskGaps(task);
-  // Ниже какого статуса задача не опустится: у автоматической постановки
-  // это бэклог, и предлагать вернуть её в «ожидает постановки» незачем —
-  // она тут же поставится снова.
-  const floor=STATUSES.findIndex(x=>x.id===floorStatus(task,{funcs,traits}));
+  const who=(id)=>(id?(nameOf?nameOf(id):id):"не назначен");
 
   const pickFile=async(f)=>{
     setFileErr("");
@@ -313,140 +537,28 @@ export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
   return (
     <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
       <div className="flex items-center gap-2" style={{marginBottom:8}}>
-        <span style={S.lbl}>выполнение функции</span>
+        <span style={S.lbl}>задача</span>
         <span style={{flex:1}}/>
-        <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
-          onClick={()=>onDelete()}>Удалить</button>
-        <button style={btn(false)} onClick={()=>onClose()}>✕</button>
+        {onClose&&<button style={btn(false)} onClick={()=>onClose()}>✕</button>}
       </div>
 
-      <div style={S.lbl}>название</div>
-      <TxtField value={task.title} style={{marginBottom:8,fontWeight:600}}
-        onCommit={v=>up("title",v)}/>
-
-      <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
-        {WORKER_KINDS.map(k=>(
-          <div key={k.id} style={{flex:"1 1 150px"}}>
-            <div style={S.lbl}>{k.task}</div>
-            <select style={S.inp} value={task[TASK_ROLE[k.id]]||""} disabled={!canAssign}
-              aria-label={k.task}
-              onChange={e=>up(TASK_ROLE[k.id],e.target.value||null)}>
-              <option value="">— не назначен —</option>
-              {/* Рейтинг стоит рядом с именем: постановщик выбирает человека,
-                  а не гадает, кого из них уже проверяли и как. */}
-              {pool(k.id).map(p=>(
-                <option key={p.id} value={p.id}>
-                  {p.name} · {shortStat(statsOf(tasks,funcs,p.id))}</option>))}
-            </select>
-          </div>))}
-      </div>
-      <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-        {canAssign
-          ? "Выбирать можно только воркеров этого актива: люди — его свойство. Постановщик пишет, что сделать; исполнителю задача видна во вкладке «Задачи», проверяющему — во вкладке «Проверка»."
-          : "Кого назначить, решает владелец."}
-        {!pool("owners").length&&asset
-          &&" У актива ещё нет исполнителей — добавьте их в карточке актива."}
+      <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>{task.title}</div>
+      <div style={{fontSize:10.5,color:C.muted,lineHeight:1.6,marginBottom:8}}>
+        поставил: {who(task.setter)} · проверяет: {who(task.reviewer)}
+        {task.end?` · срок ${fmtDT(task.end)}`:" · срок не назначен"}
       </div>
 
-      {/* Когда по обе стороны один и тот же человек, передавать нечего, и
-          нажатие остаётся ритуалом: он и так знает, что сам себе поставил и
-          сам у себя принял. Сказать об этом надо здесь — там, где людей и
-          выбирают, а не там, где человек потом удивится статусу. */}
-      {(selfSet(task)||selfReview(task))&&(
-        <div style={{fontSize:10.5,color:ACC,marginBottom:8,lineHeight:1.5}}>
-          {selfSet(task)&&selfReview(task)
-            ? "Всё делает один человек: задача сама встаёт в бэклог, а после сдачи — в готовые. Описать её и дождаться ресурсов всё равно надо."
-            : selfSet(task)
-              ? "Постановщик и исполнитель — один человек: задача ставится сама и сразу идёт в бэклог."
-              : "Исполнитель и проверяющий — один человек: сдача принимается сама, задача уходит в готовые."}
-        </div>)}
+      {/* Содержимое — то, ради чего задача и заведена: слова постановщика.
+          Здесь они только читаются. */}
+      <div style={S.lbl}>что нужно сделать</div>
+      <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+        padding:9,margin:"5px 0 8px",fontSize:12,lineHeight:1.6,
+        whiteSpace:"pre-wrap",color:task.body?C.text:C.muted}}>
+        {task.body||"Постановщик ещё не написал, что именно сделать."}
+      </div>
 
-      {!!gaps.length&&(
-        <div style={{fontSize:11,color:WARN,marginBottom:8,lineHeight:1.5}}>
-          Задача поставлена не до конца: не хватает {gaps.join(", ")}. Все три
-          роли обязательны, и содержимое пишет постановщик — без него
-          исполнителю нечего делать.
-        </div>)}
-
-      {/* Какую функцию выполняет задача — задаёт то, под чем нажата
-          «+ выполнение», и здесь это не меняется: иначе работа уехала бы от
-          функции, по которой считается прогноз. */}
       <div style={S.lbl}>функция, которую выполняет задача</div>
-      {func
-        ? <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-            padding:9,margin:"6px 0 8px",fontSize:11.5,lineHeight:1.6}}>
-            <div style={{fontSize:12.5,fontWeight:700,color:C.text}}>
-              {funcLabel(func,entities)}</div>
-            <div style={{color:C.muted,marginTop:4}}>
-              берёт: {func.takes.length
-                ? func.takes.map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")
-                : "ничего"}
-            </div>
-            <div style={{color:C.muted}}>
-              выдаёт: {func.gives.length
-                ? func.gives.map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")
-                : "ничего"}
-            </div>
-            <div style={{color:C.muted,marginTop:4}}>
-              на одно выполнение заложено <b style={{color:WARN}}>
-                {nm(func.dur)} {func.durUnit}</b>. Сколько ушло на самом деле —
-              записывается при сдаче, ниже.
-            </div>
-          </div>
-        : <div style={{fontSize:11,color:WARN,margin:"6px 0 8px",lineHeight:1.5}}>
-            Задача ни к какой функции не привязана — в модели она ничего не
-            уточняет. Заведите её заново под функцией актива.
-          </div>}
-
-      <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
-        <div style={{flex:"1 1 130px"}}>
-          <div style={S.lbl}>статус</div>
-          <select style={S.inp} value={task.status}
-            onChange={e=>up("status",e.target.value)}>
-            {STATUSES.map((s,i)=>(<option key={s.id} value={s.id}
-              disabled={(s.id==="done"&&task.status!=="done")||i<floor}>
-              {s.name}</option>))}
-          </select>
-          <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
-            {selfReview(task)
-              ? "Исполнитель и проверяющий — один человек: сдача принимается сама."
-              : "«Готово» ставит проверяющий, принимая отчёт."}</div>
-        </div>
-        <div style={{flex:"1 1 170px"}}>
-          <div style={S.lbl}>начать</div>
-          <input type="datetime-local" style={S.inp} value={task.start||""}
-            aria-label="начать"
-            onChange={e=>{
-              const start=e.target.value||null;
-              // Сдвинули начало — срок едет за ним, пока его не назначили
-              // руками: иначе он остался бы в прошлом относительно старта.
-              upMany(task.endBy==="hand"&&task.end?{start}
-                :{start,end:defaultEnd(func,start),endBy:"auto"});
-            }}/>
-        </div>
-        <div style={{flex:"1 1 170px"}}>
-          <div style={S.lbl}>закончить</div>
-          <input type="datetime-local" style={S.inp} value={task.end||""}
-            aria-label="закончить"
-            onChange={e=>upMany({end:e.target.value||null,endBy:"hand"})}/>
-          <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
-            По умолчанию — верхняя граница одного выполнения; можно менять.
-            В расчёт всё равно идёт то, сколько ушло на самом деле.
-          </div>
-        </div>
-      </div>
-
-      <div style={S.lbl}>предупредить</div>
-      <select style={{...S.inp,marginBottom:4}}
-        value={task.warn==null?"":String(task.warn)}
-        onChange={e=>up("warn",e.target.value===""?null:Number(e.target.value))}>
-        {WARNS.map(w=>(<option key={String(w.v)} value={w.v==null?"":String(w.v)}>
-          {w.name}</option>))}
-      </select>
-      <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-        Напоминание придёт обычным сообщением от бота. Чтобы оно дошло,
-        у бота должен быть начат диалог — откройте его и нажмите «Начать».
-      </div>
+      <FuncCard func={func} entities={entities} traitName={traitName}/>
 
       <div style={S.lbl}>сдача — что вышло на самом деле</div>
       <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
@@ -527,28 +639,12 @@ export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
             </div>}
       </div>
 
+      {/* Комментарии — единственное, что исполнитель здесь пишет помимо
+          сдачи: спросить, уточнить, сказать, что мешает. */}
       <div style={S.lbl}>комментарии</div>
       <Comments task={task} onAdd={(text)=>up("comments",
         [...(task.comments||[]),{id:uid("c"),text,at:new Date().toISOString()}])}
         onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
-
-      {/* Содержимое — последним: его удобнее писать, когда всё остальное
-          уже задано. Пишет его постановщик: это его работа, а не догадка
-          исполнителя и не текст, сочинённый машиной. */}
-      <div style={{...S.lbl,marginTop:10}}>содержимое задачи</div>
-      <TxtField area value={task.body} placeholder="что именно нужно сделать"
-        style={{minHeight:70,marginBottom:4,lineHeight:1.5}}
-        onCommit={v=>up("body",v)}/>
-      <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginBottom:8}}>
-        Пишет постановщик{task.setter?`: ${nameOf?nameOf(task.setter):task.setter}`:""}.
-        Пустое содержимое — это работа, которую никто не поставил.
-      </div>
-
-      <div style={S.lbl}>комментарии</div>
-      <Comments task={task} onAdd={(text)=>up("comments",
-        [...(task.comments||[]),{id:uid("c"),text,at:new Date().toISOString()}])}
-        onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
-
     </div>);
 }
 
@@ -581,100 +677,49 @@ function Comments({task,onAdd,onDrop}){
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTasks,
-  openId,setOpenId,people=[],canAssign=true,nameOf}){
-  const open=tasks.find(t=>t.id===openId)||null;
-  /* «Готово» ставит проверяющий, принимая отчёт: стрелка вправо доводит
-     задачу только до «Проверки». Иначе исполнитель закрывал бы себя сам, и
-     в расчёт пошло бы то, чего никто не принял.
+  openId,setOpenId,nameOf}){
+  const shown=tasks.filter(t=>t.status!=="wait");
+  const open=shown.find(t=>t.id===openId)||null;
+  /* Движение по доске — это работа исполнителя: взять, начать, сдать.
+     Дальше «Проверки» стрелка не ведёт: «Готово» ставит проверяющий,
+     принимая отчёт, — иначе исполнитель закрывал бы себя сам, и в расчёт
+     пошло бы то, чего никто не принял.
 
-     А из «ожидает постановки» она не двигается, пока не поставлена: без
-     людей, срока и содержимого делать нечего. */
-  /* Чего не хватает, чтобы задачу можно было поставить: заполненности и
-     ресурсов. Количество ресурсов меняется само по себе, поэтому задачу
-     можно описать заранее — и она будет ждать, пока ресурсы появятся. */
-  const lack=(t)=>{
-    if(t.status!=="wait") return [];
-    const f=funcs.find(x=>x.id===t.funcId);
-    return f?shortage(f,traits):[];
-  };
-  const canAdvance=(t)=>{
-    const at=STATUSES.findIndex(s=>s.id===t.status);
-    if(at<0||at>=STATUSES.length-2) return false;
-    if(t.status!=="wait") return true;
-    return isSet(t)&&lack(t).length===0;
-  };
-  const whyNot=(t)=>{
-    if(t.status!=="wait") return "";
-    if(!isSet(t)) return `Не хватает: ${taskGaps(t).join(", ")}`;
-    const miss=lack(t);
-    if(!miss.length) return "";
-    return "Не хватает ресурсов: "
-      + miss.map(x=>`${x.name} — есть ${nm(x.have)}, нужно ${nm(x.need)}`).join("; ");
-  };
+     Непоставленных задач тут нет вовсе: они ждут постановщика во вкладке
+     «Проверка», и на доске исполнителя им нечего делать. */
+  const at=(t)=>BOARD.findIndex(s=>s.id===t.status);
+  const canAdvance=(t)=>{ const i=at(t); return i>=0&&i<BOARD.length-2; };
   // Назад — не ниже того, что задача принимает сама: иначе «‹» вернула бы
   // её туда, откуда она тут же уйдёт обратно.
-  const floorOf=(t)=>Math.max(0,
-    STATUSES.findIndex(s=>s.id===floorStatus(t,{funcs,traits})));
+  const floorOf=(t)=>Math.max(0,BOARD.findIndex(s=>s.id===floorStatus(t,{funcs,traits})));
   const moveStatus=(t,d)=>{
-    const at=STATUSES.findIndex(s=>s.id===t.status);
-    const next=STATUSES[Math.max(floorOf(t),Math.min(STATUSES.length-2,at+d))];
+    const next=BOARD[Math.max(floorOf(t),Math.min(BOARD.length-2,at(t)+d))];
     if(next) setTasks(p=>p.map(x=>x.id===t.id?{...x,status:next.id}:x));
-  };
-  const addFor=(f)=>{
-    // Срок ставится сразу: он и есть то, ради чего задача заводится под
-    // функцией, — сколько на неё отведено.
-    const t=newTask({funcId:f.id,title:f.name||"выполнение функции",
-      end:defaultEnd(f,null)});
-    setTasks(p=>[...p,t]); setOpenId(t.id);
   };
   // Просрочка — не статус, а факт: срок прошёл, а работа не принята.
   const late=(t)=>{
     const end=t.end?new Date(t.end).getTime():null;
     return end!=null&&!Number.isNaN(end)&&t.status!=="done"&&end<Date.now();
   };
-  /* Фактор происходит без человека — выполнять его некому, и на доске ему
-     места нет. Показать его здесь значило бы предложить завести задачу на
-     то, что случается само. */
-  const doable=funcs.filter(f=>!isFactor(f));
   return (
     <div>
       <div style={{...S.card,marginBottom:10}}>
-        <div style={S.lbl}>функции модели — под каждой её выполнения</div>
-        {!doable.length&&<div style={{fontSize:11.5,color:C.muted,marginTop:6,
-          lineHeight:1.6}}>
-          {funcs.length
-            ? "Все функции модели — факторы: они происходят без человека, и задач по ним не заводится."
-            : "Функций пока нет. Заведите их в карточке актива на вкладке «Схема»: задача — это выполнение функции, и без функции ей нечего выполнять."}
-        </div>}
-        {doable.map(f=>{
-          const mine=tasks.filter(t=>t.funcId===f.id);
-          const done=mine.filter(t=>t.status==="done").length;
-          return (
-            <div key={f.id} className="flex flex-wrap gap-2"
-              style={{alignItems:"center",padding:"6px 0",
-                borderBottom:`1px solid ${C.line}`}}>
-              <span style={{fontSize:12,flex:"1 1 170px"}}>
-                {funcLabel(f,entities)}
-                <span style={{color:C.muted}}> · {nm(f.dur)} {f.durUnit}</span>
-              </span>
-              <span style={{fontSize:10.5,color:done?OK:C.muted}}>
-                выполнений: {done}/{mine.length}</span>
-              {canAssign&&<button style={btn(true)} onClick={()=>addFor(f)}>
-                + выполнение</button>}
-            </div>);
-        })}
+        <div style={S.lbl}>задачи — то, что поручено</div>
+        <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
+          Задачи заводятся из применённых целей и ставятся во вкладке
+          «Проверка»: работа, не следующая ни из какой цели, — это работа, о
+          которой никто не спросил, зачем она. Здесь её делают: берут,
+          сдают и спрашивают в комментариях.
+        </div>
       </div>
 
       {open&&(
-        <TaskEditor task={open} tasks={tasks} funcs={funcs} traits={traits}
-          entities={entities}
-          people={people} canAssign={canAssign} nameOf={nameOf} setTasks={setTasks}
-          onClose={()=>setOpenId(null)}
-          onDelete={()=>{setTasks(p=>p.filter(x=>x.id!==open.id));setOpenId(null);}}/>)}
+        <TaskView task={open} funcs={funcs} traits={traits} entities={entities}
+          nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}
 
       <div className="flex gap-2" style={{overflowX:"auto",alignItems:"flex-start"}}>
-        {STATUSES.map(st=>{
-          const list=tasks.filter(t=>t.status===st.id);
+        {BOARD.map(st=>{
+          const list=shown.filter(t=>t.status===st.id);
           return (
             <div key={st.id} style={{...S.card,flex:"1 0 190px",minWidth:190}}>
               <div className="flex items-center gap-2" style={{marginBottom:8}}>
@@ -697,25 +742,15 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                     {t.end&&<div style={{fontSize:10.5,marginTop:3,
                       color:late(t)?BAD:C.muted}}>
                       {late(t)?"просрочено · ":"до "}{fmtDT(t.end)}</div>}
-                    {t.status==="wait"&&!!taskGaps(t).length&&(
-                      <div style={{fontSize:10,color:WARN,marginTop:3,lineHeight:1.4}}>
-                        не хватает: {taskGaps(t).join(", ")}</div>)}
-                    {/* Ресурсов может не хватать даже у полностью описанной
-                        задачи: их количество меняется само. Тогда задача
-                        ждёт, и сказано — чего именно ждёт. */}
-                    {t.status==="wait"&&isSet(t)&&!!lack(t).length&&(
-                      <div style={{fontSize:10,color:WARN,marginTop:3,lineHeight:1.4}}>
-                        ждёт ресурсов: {lack(t).map(x=>
-                          `${x.name} (есть ${nm(x.have)} из ${nm(x.need)})`).join(", ")}</div>)}
                     {t.assignee!=null&&<div style={{fontSize:10.5,color:ACC,marginTop:3}}>
                       {nameOf?nameOf(t.assignee):t.assignee}</div>}
                     <div className="flex gap-2" style={{marginTop:6}}>
                       <button style={{...btn(false),padding:"2px 8px"}}
-                        disabled={STATUSES.findIndex(s=>s.id===t.status)<=floorOf(t)}
+                        disabled={at(t)<=floorOf(t)}
                         onClick={e=>{e.stopPropagation();moveStatus(t,-1);}}>‹</button>
                       <button style={{...btn(false),padding:"2px 8px"}}
                         disabled={!canAdvance(t)}
-                        title={whyNot(t)||(!canAdvance(t)?"Дальше — только через приём отчёта":"")}
+                        title={canAdvance(t)?"":"Дальше — только через приём отчёта"}
                         onClick={e=>{e.stopPropagation();moveStatus(t,1);}}>›</button>
                     </div>
                   </div>);

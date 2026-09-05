@@ -41,13 +41,37 @@ const fresh = async () => {
   return render(<SystemModel />);
 };
 
-beforeEach(() => { localStorage.clear(); });
+beforeEach(() => { localStorage.clear(); seed(); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; });
 
+/* Задачи заводятся из целей, а не руками, поэтому для сдачи нужна уже
+   поставленная задача. Кладём её черновиком — как если бы человек вернулся
+   к своей работе, — и открываем на доске. */
+const DOC = {
+  entities: [{ id: "usr", name: "Пользователи", color: "#fff", x: 0, y: 0,
+    setters: ["1"], owners: ["1"], reviewers: ["1"], crew: [] }],
+  traits: [{ id: "t1", e: "usr", k: "growth", l: "спрос", unit: "шт.", have: 100 },
+    { id: "t2", e: "usr", k: "growth", l: "заявки", unit: "шт.", have: 0 }],
+  kinds: [{ id: "growth", sign: "↑", name: "рост", color: "#3DDC97", dir: "up" }],
+  funcs: [{ id: "f1", e: "usr", name: "Сбор заявок", kind: "task", factors: [],
+    dur: 2, durHi: 2, durUnit: "ч", every: 0, everyHi: 0, everyUnit: "ч",
+    takes: [{ id: "p1", trait: "t1", lo: 2, hi: 4, group: "p1" }],
+    gives: [{ id: "p2", trait: "t2", lo: 1, hi: 1, group: "p2" }],
+    setters: ["1"], owners: ["1"], reviewers: ["1"], x: 0, y: 0 }],
+  tasks: [{ id: "tk1", funcId: "f1", title: "Сбор заявок", body: "собрать",
+    status: "progress", setter: "1", assignee: "1", reviewer: "1",
+    start: null, end: "2030-01-01T10:00", endBy: "hand", warn: 10,
+    submissions: [], reviews: [], comments: [] }],
+  goals: [],
+  factors: [],
+};
+const seed = () => localStorage.setItem("sd_draft", JSON.stringify({
+  v: 5, savedAt: new Date().toISOString(), name: "", doc: DOC }));
+
 const openSubmit = () => {
+  fireEvent.click(screen.getByRole("button", { name: /Восстановить/ }));
   fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
-  // Задача — выполнение функции: заводится под функцией модели.
-  fireEvent.click(screen.getAllByRole("button", { name: "+ выполнение" })[0]);
+  fireEvent.click(screen.getByText("Сбор заявок"));
   fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 };
 const dump = () => {

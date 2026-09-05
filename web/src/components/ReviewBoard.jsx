@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
-import { STATUSES, funcLabel } from "./TasksBoard.jsx";
+import { STATUSES, TaskSetup, funcLabel, whyNotSet } from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { reportSrc } from "../storage.js";
 
@@ -146,27 +146,79 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
   }
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
-  meId, isOwner, onAccept, onReturn, nameOf }) {
+  meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
+  const [setupId, setSetupId] = useState(null);
 
   // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
   const mine = useMemo(() => tasks.filter((t) =>
     isOwner || String(t.reviewer || "") === String(meId)), [tasks, meId, isOwner]);
   const waiting = mine.filter((t) => t.status === "review");
-  const rest = mine.filter((t) => t.status !== "review");
+  const rest = mine.filter((t) => t.status !== "review" && t.status !== "wait");
+
+  /* ─── очередь постановки ───
+     Постановка и приём — работа одного и того же человека: не того, кто
+     делает. Поэтому они рядом, на одной вкладке, а не разнесены по двум.
+
+     Задачи сюда приходят из применённых целей: у них есть функция и срок,
+     но нет ни людей, ни содержимого — это и предстоит назвать. Владельцу
+     видно всё непоставленное (в задаче из цели постановщик ещё не назван),
+     остальным — то, где постановщик они. */
+  const toSet = useMemo(() => tasks.filter((t) => t.status === "wait"
+    && (isOwner || String(t.setter || "") === String(meId))), [tasks, meId, isOwner]);
+  const setup = toSet.find((t) => t.id === setupId) || null;
 
   return (
     <div>
       <div style={{ ...S.card, marginBottom: 10 }}>
-        <div style={S.lbl}>на проверке{isOwner ? " · вы владелец, вам видно всё" : ""}</div>
+        <div style={S.lbl}>постановка и проверка{isOwner ? " · вы владелец, вам видно всё" : ""}</div>
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
           {isOwner
-            ? "Здесь всё, что сдано и ждёт решения, плюс остальные задачи ниже."
-            : "Здесь только то, что проверяете вы. Чужие задачи сюда не попадают."}
+            ? "Здесь ставят задачи и принимают сдачи: и то, и другое делает не тот, кто работу делает."
+            : "Здесь то, что ставите и проверяете вы. Чужие задачи сюда не попадают."}
         </div>
       </div>
+
+      {/* Сперва то, что ещё не поручено: непоставленная задача — это работа,
+          которой пока нет, и она важнее уже сделанной. */}
+      <div style={{ ...S.card, marginBottom: 10 }}>
+        <div className="flex items-center gap-2">
+          <span style={S.lbl}>ждут постановки</span>
+          <span style={{ fontSize: 10.5, color: toSet.length ? WARN : C.muted }}>
+            {toSet.length}</span>
+        </div>
+        {!toSet.length && (
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+            Ничего не ждёт постановки. Задачи появляются здесь, когда цель
+            применена во вкладке «Схема → Прогноз»: работа берётся из целей,
+            а не заводится руками.
+          </div>)}
+        {toSet.map((t) => {
+          const why = whyNotSet(t, funcs, traits);
+          return (
+            <div key={t.id} className="flex flex-wrap gap-2"
+              style={{ alignItems: "center", padding: "7px 0",
+                borderTop: `1px solid ${C.line}`, cursor: "pointer" }}
+              onClick={() => setSetupId(setupId === t.id ? null : t.id)}>
+              <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
+                {t.title}</span>
+              <span style={{ fontSize: 10.5, color: C.muted }}>
+                {funcLabel(funcs.find((f) => f.id === t.funcId), entities)}</span>
+              {why && <span style={{ fontSize: 10.5, color: WARN }}>{why}</span>}
+              <span style={{ fontSize: 11, color: C.muted }}>
+                {setupId === t.id ? "▾" : "▸"}</span>
+            </div>);
+        })}
+      </div>
+
+      {setup && (
+        <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits}
+          entities={entities} people={people} canAssign={canAssign} nameOf={nameOf}
+          setTasks={setTasks} onClose={() => setSetupId(null)}
+          onDelete={() => { setTasks((p) => p.filter((x) => x.id !== setup.id));
+            setSetupId(null); }} />)}
 
       {!waiting.length && (
         <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>

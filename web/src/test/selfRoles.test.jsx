@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import SystemModel from "../components/SystemModel.jsx";
-import TasksBoard, { autoFlow, autoStatus, floorStatus, newTask, selfReview, selfSet }
-  from "../components/TasksBoard.jsx";
+import TasksBoard, { TaskSetup, autoFlow, autoStatus, floorStatus, newTask,
+  selfReview, selfSet } from "../components/TasksBoard.jsx";
 import { saveDraft } from "../lib/draft.js";
 
 /* КОГДА ЧЕЛОВЕК В ЗАДАЧЕ ОДИН.
@@ -134,27 +134,28 @@ describe("на доске", () => {
     expect(within(column("Проверка")).getByText("Задача A")).toBeInTheDocument();
   });
 
-  it("назад из бэклога такую задачу не вернуть: она поставится снова", () => {
+  it("из бэклога назад некуда: постановка — не колонка доски", () => {
     render(<Board tasks={[solo({ status: "backlog" })]} />);
     const card = screen.getByText("Задача A").parentElement;
     expect(within(card).getByRole("button", { name: "‹" })).toBeDisabled();
   });
 
-  it("обычную — вернуть можно", () => {
+  it("а из «дедлайна» — можно: это движение внутри работы", () => {
     render(<Board tasks={[task({ setter: "1", assignee: "2", reviewer: "1",
-      status: "backlog" })]} />);
+      status: "deadline" })]} />);
     const card = screen.getByText("Задача A").parentElement;
     expect(within(card).getByRole("button", { name: "‹" })).not.toBeDisabled();
   });
 
-  it("в форме сказано, почему статус двигается сам", () => {
-    render(<Board tasks={[solo({ status: "backlog" })]} />);
-    fireEvent.click(screen.getByText("Задача A"));
+  it("в форме постановки сказано, почему статус двигается сам", () => {
+    const List = () => {
+      const [tasks, setTasks] = React.useState([solo({ status: "wait" })]);
+      return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={[...FUNCS, ...HUNGRY]}
+        entities={ENTITIES} traits={TRAITS} setTasks={setTasks} people={PEOPLE}
+        canAssign nameOf={(id) => id} />);
+    };
+    render(<List />);
     expect(screen.getByText(/Всё делает один человек/)).toBeInTheDocument();
-    // И «ожидает постановки» руками не выбрать: задача тут же поставится.
-    const wait = [...screen.getByDisplayValue("Бэклог").options]
-      .find((o) => o.textContent === "Ожидает постановки");
-    expect(wait.disabled).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import App from "../App.jsx";
 
 const setUrl = (suffix) => {
@@ -37,8 +37,10 @@ describe("App", () => {
 
   it("стартовая модель рендерится: у неё есть функции", () => {
     render(<App />);
-    // Приложение открывается на «Задачах», а задача — это выполнение
-    // функции: список функций модели там и стоит.
-    expect(screen.getAllByText(/Сбор заявок/).length).toBeGreaterThan(0);
+    // Функции живут в карточке актива: на доске задач их списка нет —
+    // задачи берутся из целей, а не заводятся под функцией руками.
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Функции/ }));
+    expect(screen.getAllByDisplayValue(/Сбор заявок/).length).toBeGreaterThan(0);
   });
 });

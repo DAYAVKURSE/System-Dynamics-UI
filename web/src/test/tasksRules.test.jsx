@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
-import TasksBoard, { newTask, runsOfFunc } from "../components/TasksBoard.jsx";
+import TasksBoard, { TaskSetup, newTask, runsOfFunc } from "../components/TasksBoard.jsx";
 import ReviewBoard from "../components/ReviewBoard.jsx";
 import React from "react";
 
@@ -12,20 +12,30 @@ import React from "react";
 
 const ENTITIES = [{ id: "usr", name: "Пользователи",
   setters: ["1"], owners: ["2"], reviewers: ["3"] }];
-const TRAITS = [{ id: "t1", e: "usr", l: "спрос", unit: "шт." },
-  { id: "t2", e: "usr", l: "заявки", unit: "шт." }];
+/* Ресурса на входе вдоволь: иначе задача ждала бы его, и проверялось бы
+   не то, что задумано, — про нехватку есть свой блок в deadline.test.jsx. */
+const TRAITS = [{ id: "t1", e: "usr", l: "спрос", unit: "шт.", have: 100 },
+  { id: "t2", e: "usr", l: "заявки", unit: "шт.", have: 0 }];
 const FUNCS = [{ id: "f1", e: "usr", name: "Сбор заявок", dur: 2, durUnit: "ч",
   takes: [{ id: "p1", trait: "t1", lo: 2, hi: 4 }],
   gives: [{ id: "p2", trait: "t2", lo: 1, hi: 1, to: "" }],
   setters: ["1"], owners: ["2"], reviewers: ["3"] }];
 const PEOPLE = [{ id: "1", name: "Владелец" }, { id: "2", name: "Иван" }, { id: "3", name: "Пётр" }];
 
-function Board({ tasks: t0, people = PEOPLE, canAssign = true }) {
+function Board({ tasks: t0 }) {
   const [tasks, setTasks] = React.useState(t0);
   const [openId, setOpenId] = React.useState(null);
   return (<TasksBoard funcs={FUNCS} entities={ENTITIES} traits={TRAITS}
     tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
-    people={people} canAssign={canAssign} nameOf={(id) => id} />);
+    nameOf={(id) => id} />);
+}
+
+/* Постановка — во вкладке «Проверка»: её делает не исполнитель. */
+function Setup({ task: t0, people = PEOPLE, canAssign = true }) {
+  const [tasks, setTasks] = React.useState([t0]);
+  return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={FUNCS} entities={ENTITIES}
+    traits={TRAITS} setTasks={setTasks} people={people} canAssign={canAssign}
+    nameOf={(id) => id} />);
 }
 
 describe("«Готово» — только через приём отчёта", () => {
@@ -47,12 +57,13 @@ describe("«Готово» — только через приём отчёта",
     expect(within(moved).getByRole("button", { name: "›" })).toBeDisabled();
   });
 
-  it("в редакторе статус «Готово» руками не выбрать", () => {
+  it("статуса руками нет вовсе: его двигают работой, а не выпадающим списком", () => {
+    /* Прежде в форме задачи стоял список статусов, и «Готово» в нём
+       приходилось запрещать отдельно. Теперь статус меняют стрелками на
+       доске и приёмом сдачи — запрещать нечего. */
     render(<Board tasks={[task({ status: "review" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
-    const done = [...screen.getByDisplayValue("Проверка").options]
-      .find((o) => o.textContent === "Готово");
-    expect(done.disabled).toBe(true);
+    expect(screen.queryByDisplayValue("Проверка")).toBeNull();
   });
 });
 
@@ -87,8 +98,7 @@ describe("сдача записывает факт выполнения", () => 
 
 describe("назначения берутся из воркеров актива", () => {
   it("у каждой роли свой список — из воркеров этого актива", () => {
-    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
-    fireEvent.click(screen.getByText("Задача A"));
+    render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     const names = (label) => [...screen.getByLabelText(label).options]
       .map((o) => o.textContent);
     // Владелец — постановщик актива, Иван — исполнитель, Пётр — проверяющий.
@@ -100,17 +110,62 @@ describe("назначения берутся из воркеров актива
   });
 
   it("все три роли обязательны, и содержимое тоже — сказано, чего не хватает", () => {
-    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
-    fireEvent.click(screen.getByText("Задача A"));
+    render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий, содержимое/))
       .toBeInTheDocument();
   });
 
   it("содержимое пишет постановщик, а не машина", () => {
-    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
-    fireEvent.click(screen.getByText("Задача A"));
+    render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     expect(screen.getByText(/Пишет постановщик/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /черновик от Claude/ })).toBeNull();
+  });
+});
+
+/* ПОСТАНОВКА ЖИВЁТ ВО ВКЛАДКЕ «ПРОВЕРКА».
+
+   Постановка и приём — работа одного и того же человека: не того, кто
+   делает. Поэтому они рядом, а на доске исполнителя постановки нет. */
+describe("очередь постановки", () => {
+  const waiting = { ...newTask({ funcId: "f1", title: "Задача из цели" }),
+    goalId: "g1", end: "2030-01-01T10:00" };
+  const Review = ({ tasks: t0, meId = "1", isOwner = true }) => {
+    const [tasks, setTasks] = React.useState(t0);
+    return (<ReviewBoard tasks={tasks} setTasks={setTasks} funcs={FUNCS} traits={TRAITS}
+      entities={ENTITIES} people={PEOPLE} meId={meId} isOwner={isOwner}
+      nameOf={(id) => id} onAccept={() => {}} onReturn={() => {}} />);
+  };
+
+  it("непоставленные задачи ждут здесь, и сказано, чего им не хватает", () => {
+    render(<Review tasks={[waiting]} />);
+    expect(screen.getByText("ждут постановки")).toBeInTheDocument();
+    expect(screen.getByText("Задача из цели")).toBeInTheDocument();
+    expect(screen.getAllByText(/Не хватает: постановщик/).length).toBeGreaterThan(0);
+  });
+
+  it("форма постановки открывается здесь же, и задача уходит в бэклог", () => {
+    render(<Review tasks={[{ ...waiting, setter: "1", assignee: "2", reviewer: "3",
+      body: "собрать заявки" }]} />);
+    fireEvent.click(screen.getByText("Задача из цели"));
+    expect(screen.getByText("постановка задачи")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
+    // Поставленная уходит из очереди: она теперь на доске исполнителя, а
+    // здесь остаётся только тем, что этот человек проверяет.
+    expect(screen.getByText(/Ничего не ждёт постановки/)).toBeInTheDocument();
+    expect(screen.queryByText("постановка задачи")).toBeNull();
+  });
+
+  it("постановщику видно своё, а не чужое", () => {
+    // Владельцу — всё: в задаче из цели постановщик ещё не назван.
+    render(<Review tasks={[waiting, { ...waiting, id: "tk2", title: "Чужая",
+      setter: "9" }]} meId="1" isOwner={false} />);
+    expect(screen.queryByText("Чужая")).toBeNull();
+  });
+
+  it("ничего не ждёт — сказано, откуда задачи вообще берутся", () => {
+    render(<Review tasks={[]} />);
+    expect(screen.getByText(/Задачи появляются здесь, когда цель применена/))
+      .toBeInTheDocument();
   });
 });
 
@@ -173,17 +228,35 @@ describe("возврат с проверки", () => {
 });
 
 describe("поля задачи в порядке постановки", () => {
-  it("исполнитель и проверяющий сразу после названия, содержимое — последним", () => {
-    const t = newTask({ funcId: "f1", title: "Задача A" });
-    const { container } = render(<Board tasks={[t]} />);
-    fireEvent.click(screen.getByText("Задача A"));
+  it("сперва название и люди, потом сроки, содержимое — перед «Поставить»", () => {
+    const { container } = render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     const labels = [...container.querySelectorAll("div")]
       .map((d) => d.textContent)
-      .filter((x) => ["название", "исполнитель", "проверяющий", "содержимое задачи",
-        "статус", "сдача"].includes(x));
+      .filter((x) => ["название", "исполнитель", "проверяющий", "начать",
+        "содержимое задачи", "комментарии"].includes(x));
     expect(labels.indexOf("название")).toBeLessThan(labels.indexOf("исполнитель"));
-    expect(labels.indexOf("исполнитель")).toBeLessThan(labels.indexOf("статус"));
-    expect(labels.indexOf("содержимое задачи")).toBe(labels.length - 1);
+    expect(labels.indexOf("исполнитель")).toBeLessThan(labels.indexOf("начать"));
+    expect(labels.indexOf("начать")).toBeLessThan(labels.indexOf("содержимое задачи"));
+    // Комментарии — ровно один раз: две формы подряд спрашивали одно и то же.
+    expect(labels.filter((x) => x === "комментарии")).toHaveLength(1);
+  });
+
+  it("у исполнителя формы постановки нет — только содержимое, сдача и комментарии", () => {
+    const t = { ...newTask({ funcId: "f1", title: "Задача A" }), status: "backlog",
+      setter: "1", assignee: "2", reviewer: "3", body: "собрать заявки",
+      end: "2030-01-01T10:00" };
+    render(<Board tasks={[t]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByText("собрать заявки")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "СДАТЬ" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("исполнитель")).toBeNull();
+    expect(screen.queryByLabelText("начать")).toBeNull();
+  });
+
+  it("заводить задачи руками нельзя: они берутся из целей", () => {
+    render(<Board tasks={[]} />);
+    expect(screen.queryByRole("button", { name: "+ выполнение" })).toBeNull();
+    expect(screen.getByText(/Задачи заводятся из применённых целей/)).toBeInTheDocument();
   });
 });
 

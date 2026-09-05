@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
-import TasksBoard, { STATUSES, defaultEnd, isSet, newTask, nowLocal, taskGaps }
-  from "../components/TasksBoard.jsx";
+import TasksBoard, { BOARD, STATUSES, TaskSetup, defaultEnd, isSet, newTask,
+  nowLocal, taskGaps } from "../components/TasksBoard.jsx";
 import { Workers } from "../components/AssetPanel.jsx";
 import PersonStats from "../components/PersonStats.jsx";
 
@@ -30,7 +30,16 @@ function Board({ tasks: t0 }) {
   const [openId, setOpenId] = React.useState(null);
   return (<TasksBoard funcs={FUNCS} entities={ENTITIES} traits={TRAITS}
     tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
-    people={PEOPLE} canAssign nameOf={(id) => id} />);
+    nameOf={(id) => id} />);
+}
+
+/* Постановка живёт во вкладке «Проверка»: её делает не исполнитель.
+   Форма та же, поэтому здесь она поднимается отдельно. */
+function Setup({ task: t0, traits = TRAITS }) {
+  const [tasks, setTasks] = React.useState([t0]);
+  const t = tasks[0];
+  return (<TaskSetup task={t} tasks={tasks} funcs={FUNCS} entities={ENTITIES}
+    traits={traits} setTasks={setTasks} people={PEOPLE} canAssign nameOf={(id) => id} />);
 }
 
 afterEach(() => vi.useRealTimers());
@@ -53,8 +62,7 @@ describe("срок задачи", () => {
   });
 
   it("сдвинули начало — срок едет следом, пока его не трогали руками", () => {
-    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
-    fireEvent.click(screen.getByText("Задача A"));
+    render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     fireEvent.change(screen.getByLabelText("начать"),
       { target: { value: "2026-03-01T09:00" } });
     expect(screen.getByLabelText("закончить").value).toBe("2026-03-01T11:00");
@@ -62,8 +70,7 @@ describe("срок задачи", () => {
 
   it("а поставленный руками срок начало уже не двигает", () => {
     // Иначе исправление начала молча стирало бы обещание, данное человеку.
-    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
-    fireEvent.click(screen.getByText("Задача A"));
+    render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     fireEvent.change(screen.getByLabelText("закончить"),
       { target: { value: "2026-04-01T18:00" } });
     fireEvent.change(screen.getByLabelText("начать"),
@@ -77,8 +84,7 @@ describe("срок задачи", () => {
     // позади старта — обещание, просроченное в момент постановки.
     const t = { ...newTask({ funcId: "f1", title: "Задача A" }),
       end: defaultEnd(FUNCS[0], null) };
-    render(<Board tasks={[t]} />);
-    fireEvent.click(screen.getByText("Задача A"));
+    render(<Setup task={t} />);
     fireEvent.change(screen.getByLabelText("начать"),
       { target: { value: "2026-03-01T09:00" } });
     expect(screen.getByLabelText("закончить").value).toBe("2026-03-01T11:00");
@@ -92,22 +98,35 @@ describe("срок задачи", () => {
   });
 });
 
-describe("«ожидает постановки» и «дедлайн»", () => {
+describe("постановка задачи и доска исполнителя", () => {
   it("новая задача начинается с ожидания постановки", () => {
     // Пока нет людей, срока и содержимого — это ещё не задача, а намерение.
     expect(newTask({ funcId: "f1" }).status).toBe("wait");
   });
 
-  it("«дедлайн» стоит перед бэклогом — сперва видно, что горит", () => {
-    expect(STATUSES.map((s) => s.id))
-      .toEqual(["wait", "deadline", "backlog", "progress", "review", "done"]);
+  it("на доске исполнителя непоставленных задач нет вовсе", () => {
+    /* Постановка — работа постановщика, и она живёт во вкладке «Проверка».
+       Показывать её колонкой здесь значило бы предлагать исполнителю
+       поставить задачу самому себе. */
+    expect(BOARD.map((s) => s.id))
+      .toEqual(["backlog", "deadline", "progress", "review", "done"]);
+    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
+    expect(screen.queryByText("Задача A")).toBeNull();
+    expect(screen.queryByText("Ожидает постановки")).toBeNull();
   });
 
-  it("непоставленную задачу дальше не двинуть, и сказано, чего не хватает", () => {
-    render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
-    const card = screen.getByText("Задача A").parentElement;
-    expect(within(card).getByRole("button", { name: "›" })).toBeDisabled();
-    expect(screen.getByText(/не хватает: постановщик, исполнитель, проверяющий, содержимое, срок/))
+  it("«дедлайн» — после бэклога: сперва очередь, потом то, что горит", () => {
+    expect(STATUSES.map((s) => s.id))
+      .toEqual(["wait", "backlog", "deadline", "progress", "review", "done"]);
+  });
+
+  it("непоставленную задачу не поставить, и сказано, чего не хватает", () => {
+    render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
+    const put = screen.getByRole("button", { name: "Поставить" });
+    expect(put).toBeDisabled();
+    expect(put).toHaveAttribute("title",
+      expect.stringContaining("Не хватает: постановщик"));
+    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий, содержимое, срок/))
       .toBeInTheDocument();
   });
 
@@ -118,12 +137,21 @@ describe("«ожидает постановки» и «дедлайн»", () => 
     expect(taskGaps({ ...full, end: null })).toEqual(["срок"]);
   });
 
-  it("поставленную — двинуть можно", () => {
+  it("поставленная уходит в бэклог — исполнителю", () => {
     const t = { ...newTask({ funcId: "f1", title: "Задача A" }), setter: "1",
       assignee: "2", reviewer: "3", body: "что делать", end: "2030-03-01T11:00" };
+    render(<Setup task={t} />);
+    fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
+    expect(screen.getByText(/сейчас она в колонке «Бэклог»/)).toBeInTheDocument();
+  });
+
+  it("с доски задача идёт до проверки, а дальше — только через приём", () => {
+    const t = { ...newTask({ funcId: "f1", title: "Задача A" }), status: "backlog",
+      setter: "1", assignee: "2", reviewer: "3", body: "что делать",
+      end: "2030-03-01T11:00" };
     render(<Board tasks={[t]} />);
-    const card = screen.getByText("Задача A").parentElement;
-    fireEvent.click(within(card).getByRole("button", { name: "›" }));
+    const card = () => screen.getByText("Задача A").parentElement;
+    fireEvent.click(within(card()).getByRole("button", { name: "›" }));
     const col = screen.getByText("Дедлайн").parentElement.parentElement;
     expect(within(col).getByText("Задача A")).toBeInTheDocument();
   });
@@ -138,36 +166,24 @@ describe("задача ждёт ресурсов", () => {
     end: "2030-03-01T11:00", ...over });
   const poor = TRAITS.map((t) => (t.id === "t1" ? { ...t, have: 1 } : t));
 
-  const Poor = ({ tasks: t0 }) => {
-    const [tasks, setTasks] = React.useState(t0);
-    const [openId, setOpenId] = React.useState(null);
-    return (<TasksBoard funcs={FUNCS} entities={ENTITIES} traits={poor}
-      tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
-      people={PEOPLE} canAssign nameOf={(id) => id} />);
-  };
-
   it("описать можно, а поставить — нет: и сказано, чего не хватает", () => {
-    render(<Poor tasks={[set({})]} />);
+    render(<Setup task={set({})} traits={poor} />);
     // «Сбор заявок» берёт до 4 «спроса», а его всего 1.
-    expect(screen.getByText(/ждёт ресурсов: спрос \(есть 1 из 4\)/)).toBeInTheDocument();
-    const card = screen.getByText("Задача A").parentElement;
-    const next = within(card).getByRole("button", { name: "›" });
-    expect(next).toBeDisabled();
-    expect(next).toHaveAttribute("title", expect.stringContaining("спрос"));
+    const put = screen.getByRole("button", { name: "Поставить" });
+    expect(put).toBeDisabled();
+    expect(screen.getByText(/спрос — есть 1, нужно 4/)).toBeInTheDocument();
   });
 
-  it("ресурса хватило — задача идёт дальше", () => {
-    render(<Board tasks={[set({})]} />);
-    expect(screen.queryByText(/ждёт ресурсов/)).toBeNull();
-    const card = screen.getByText("Задача A").parentElement;
-    expect(within(card).getByRole("button", { name: "›" })).not.toBeDisabled();
+  it("ресурса хватило — задачу можно поставить", () => {
+    render(<Setup task={set({})} />);
+    expect(screen.queryByText(/Не хватает ресурсов/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Поставить" })).not.toBeDisabled();
   });
 
   it("незаполненной задаче сперва называют незаполненное, а не ресурсы", () => {
     // Пока задача не описана, разговор о ресурсах преждевременный.
-    render(<Poor tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
-    const card = screen.getByText("Задача A").parentElement;
-    expect(within(card).getByRole("button", { name: "›" }))
+    render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} traits={poor} />);
+    expect(screen.getByRole("button", { name: "Поставить" }))
       .toHaveAttribute("title", expect.stringContaining("Не хватает: постановщик"));
   });
 });
