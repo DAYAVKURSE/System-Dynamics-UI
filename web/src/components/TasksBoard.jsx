@@ -3,6 +3,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui
 import { DUR_UNITS, WORKER_KINDS, byCrew, hoursOf, isFactor, rangeText, shortage }
   from "../lib/funcs.js";
 import { shortStat, statsOf } from "../lib/workers.js";
+import { heldBy, unitsOf } from "../lib/units.js";
 import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -35,16 +36,30 @@ import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* Путь задачи, слева направо.
 
-   «Ожидает постановки» — заведена, но ещё не поставлена: нет людей, срока
-   или содержимого. Это состояние ПОСТАНОВЩИКА, и на доске исполнителя ему
-   места нет: там показывалась бы работа, которой ещё не поручали. Ставят
-   задачи во вкладке «Проверка» — там же, где принимают сдачу: обе эти
-   вещи делает не исполнитель.
+   «Ожидает постановки» — заведена, но ещё не поставлена: нет людей или
+   срока. Это состояние ПОСТАНОВЩИКА, и на доске исполнителя ему места нет:
+   там показывалась бы работа, которой ещё не поручали. Ставят задачи во
+   вкладке «Проверка» — там же, где принимают сдачу: обе эти вещи делает не
+   исполнитель.
 
    Дальше — то, что и правда лежит на доске: бэклог, дедлайн, работа,
-   проверка, готово. «Бэклог» — лежит и ждёт очереди; «Дедлайн» — взято на
-   срок, и срок уже горит; дальше работа. «Готово» ставит проверяющий,
-   принимая отчёт с оценкой. */
+   проверка, готово.
+
+   ─── задачи не перекладывают, они переходят сами ───
+
+   Ни одной стрелки «влево-вправо» здесь нет и быть не должно: колонка —
+   это не полка, куда работу можно переложить, а ОТВЕТ на вопрос, что с
+   ней сейчас. У исполнителя ровно два действия, и оба — про работу, а не
+   про доску:
+
+   · задача в бэклоге — «Взять в работу»;
+   · задача в работе — «Сдать».
+
+   Остальное происходит само. «Дедлайн» — не полка и не решение: туда
+   задача попадает ровно тогда, когда её срок прошёл, а работа ещё не
+   сдана. «Проверка» — следствие сдачи, «Готово» — следствие приёма:
+   ставит его проверяющий, принимая отчёт с оценкой, иначе исполнитель
+   закрывал бы себя сам. */
 export const STATUSES=[
   {id:"wait",name:"Ожидает постановки",color:NEU},
   {id:"backlog",name:"Бэклог",color:NEU},
@@ -100,7 +115,11 @@ export function newTask({funcId=null,title="Новое выполнение",bod
   // endBy — кем поставлен срок. «auto» значит «посчитан от начала»: такой
   // срок едет за началом. «hand» — назначен человеком, и его не двигает
   // ничто: это обещание, а не производная.
-  return {id:uid("tk"),funcId,title,body,status:"wait",
+  // taken — взял ли исполнитель задачу в работу. Отдельно от статуса
+  // нарочно: просроченная задача показывается в «Дедлайне», и без этого
+  // признака было бы не сказать, лежит она там нетронутой или её уже
+  // делают.
+  return {id:uid("tk"),funcId,title,body,status:"wait",taken:false,
     setter,assignee,reviewer,start,end,endBy:"auto",warn:10,
     submissions:[],reviews:[],comments:[]};
 }
@@ -127,12 +146,14 @@ export const TASK_ROLE={setters:"setter",owners:"assignee",reviewers:"reviewer"}
 /**
  * Чего задаче не хватает, чтобы её можно было начать.
  *
- * Три роли обязательны, и содержимое тоже: без него исполнителю нечего
- * делать, а «догадайся сам» — это не постановка задачи.
+ * Три роли обязательны и срок обязателен — без них некому работать и не к
+ * чему успеть. Содержимое НЕ обязательно: что это за работа, уже сказано
+ * описанием функции, и требовать переписывать его в каждую задачу значило
+ * бы просить второй раз то, что уже есть. Постановщику есть что добавить —
+ * добавит; нечего — задача ставится и так.
  */
 export function taskGaps(task){
   const gaps=WORKER_KINDS.filter(k=>!task[TASK_ROLE[k.id]]).map(k=>k.task);
-  if(!String(task?.body||"").trim()) gaps.push("содержимое");
   if(!task?.end) gaps.push("срок");
   return gaps;
 }
@@ -167,26 +188,48 @@ export const selfReview=(t)=>same(t?.assignee,t?.reviewer);
  * Ниже какого статуса задача не опускается сама по себе.
  *
  * У задачи с автоматической постановкой это бэклог: возвращать её в
- * «ожидает постановки» бессмысленно — она тут же поставится снова, а
- * кнопка «‹» выглядела бы сломанной.
+ * «ожидает постановки» бессмысленно — она тут же поставится снова.
  */
-export function floorStatus(task,{funcs=[],traits=[]}={}){
+export function floorStatus(task,{funcs=[],traits=[],tasks=[]}={}){
   if(!selfSet(task)||!isSet(task)) return "wait";
   const f=funcs.find(x=>x.id===task.funcId);
-  return f&&shortage(f,traits).length?"wait":"backlog";
+  return f&&shortage(f,traits,heldBy(tasks,f)).length?"wait":"backlog";
 }
 
-/** Каким статус задачи становится сам собой. */
-export function autoStatus(task,{funcs=[],traits=[]}={}){
+/** Просрочена ли задача: срок прошёл, а работа ещё не сдана. */
+export const overdue=(task,now=Date.now())=>{
+  if(!task?.end) return false;
+  const end=new Date(task.end).getTime();
+  if(Number.isNaN(end)) return false;
+  return end<now&&task.status!=="review"&&task.status!=="done";
+};
+
+/**
+ * Каким статус задачи становится сам собой.
+ *
+ * Здесь и живёт всё движение по доске, кроме двух нажатий исполнителя.
+ * Колонка — не полка: «Дедлайн» это не место, куда задачу кладут, а то,
+ * что с ней случилось, — срок прошёл, а работа не сдана. Поэтому она туда
+ * попадает сама и сама же оттуда уходит, когда срок передвинут.
+ */
+export function autoStatus(task,{funcs=[],traits=[],tasks=[],now=Date.now()}={}){
   if(!task) return null;
   // Сдача принята тем же, кто сдавал: принимать не у кого.
   if(task.status==="review"&&selfReview(task)) return "done";
-  if(task.status==="wait"||task.status==="deadline"){
-    const floor=floorStatus(task,{funcs,traits});
-    if(floor!=="wait") return floor;
-  }
-  return task.status;
+  const work=task.status==="backlog"||task.status==="progress"
+    ||task.status==="deadline";
+  if(task.status==="wait"&&floorStatus(task,{funcs,traits,tasks})==="wait") return "wait";
+  if(task.status!=="wait"&&!work) return task.status;
+  /* Взятая в работу задача остаётся работой, невзятая лежит в бэклоге — и
+     та, и другая уходит в «Дедлайн», как только срок прошёл. Задача,
+     которая УЖЕ в работе, взятой и считается: так открываются записи,
+     заведённые до появления этого признака. */
+  if(overdue(task,now)) return "deadline";
+  return isTaken(task)?"progress":"backlog";
 }
+
+/** Взята ли задача в работу. Статус «в работе» — это и есть «взята». */
+export const isTaken=(t)=>!!(t?.taken||t?.status==="progress");
 
 /**
  * Развести задачи по статусам, которые они принимают сами.
@@ -197,7 +240,7 @@ export function autoStatus(task,{funcs=[],traits=[]}={}){
 export function autoFlow(tasks=[],opts={}){
   let moved=false;
   const next=tasks.map(t=>{
-    const to=autoStatus(t,opts);
+    const to=autoStatus(t,{...opts,tasks:opts.tasks||tasks});
     if(to===t.status) return t;
     moved=true;
     return {...t,status:to};
@@ -248,22 +291,28 @@ export const funcLabel=(f,entities=[])=>{
    людей, срока или содержимого, и это чинит постановщик. Вторая — ресурсы:
    их количество меняется само по себе, поэтому задачу можно описать
    заранее, а поставить — только когда ресурсов хватает. */
-export const lackOf=(task,funcs=[],traits=[])=>{
+export const lackOf=(task,funcs=[],traits=[],tasks=[])=>{
   const f=funcs.find(x=>x.id===task?.funcId);
-  return f?shortage(f,traits):[];
+  /* Своё «уже обработано» у каждой функции: вход, который не расходуется,
+     остаётся на полке и достаётся другим — но этой второй раз не даётся,
+     работа по нему уже сделана. */
+  return f?shortage(f,traits,heldBy(tasks,f)):[];
 };
 
 /** Почему задачу нельзя поставить — словами, а не пустой кнопкой. */
-export function whyNotSet(task,funcs=[],traits=[]){
+export function whyNotSet(task,funcs=[],traits=[],tasks=[]){
   if(!isSet(task)) return `Не хватает: ${taskGaps(task).join(", ")}`;
-  const miss=lackOf(task,funcs,traits);
+  const miss=lackOf(task,funcs,traits,tasks);
   if(!miss.length) return "";
   return "Не хватает ресурсов: "
-    +miss.map(x=>`${x.name} — есть ${nm(x.have)}, нужно ${nm(x.need)}`).join("; ");
+    +miss.map(x=>(x.spend
+      ? `${x.name} — есть ${nm(x.have)}, нужно ${nm(x.need)}`
+      : `${x.name} — необработанного ${nm(x.have)}, нужно ${nm(x.need)}`
+        +(x.done?` (${nm(x.done)} эта функция уже обработала)`:""))).join("; ");
 }
 
 /** Можно ли задачу поставить прямо сейчас. */
-export const canSet=(task,funcs,traits)=>!whyNotSet(task,funcs,traits);
+export const canSet=(task,funcs,traits,tasks)=>!whyNotSet(task,funcs,traits,tasks);
 
 /* ─────── карточка функции задачи ───────
    Одинаково нужна и постановщику, и исполнителю: что за функция, что она
@@ -281,9 +330,16 @@ function FuncCard({func,entities,traitName}){
       padding:9,margin:"6px 0 8px",fontSize:11.5,lineHeight:1.6}}>
       <div style={{fontSize:12.5,fontWeight:700,color:C.text}}>
         {funcLabel(func,entities)}</div>
+      {/* Описание функции — то, что за работа вообще. Оно живёт у функции и
+          едет в каждую её задачу: переписывать его в каждую задачу руками
+          значило бы спрашивать второй раз то, что уже сказано. */}
+      {!!String(func.about||"").trim()&&(
+        <div style={{color:C.text,marginTop:4,whiteSpace:"pre-wrap"}}>
+          {func.about}</div>)}
       <div style={{color:C.muted,marginTop:4}}>
         берёт: {func.takes.length
-          ? func.takes.map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")
+          ? func.takes.map(p=>`${traitName(p.trait)} ${rangeText(p)}`
+            +(p.spend===false?" (не расходует)":"")).join(", ")
           : "ничего"}
       </div>
       <div style={{color:C.muted}}>
@@ -330,7 +386,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
   const pool=(k)=>byCrew(asset||{},
     people.filter(p=>(asset?.[k]||[]).some(id=>String(id)===String(p.id))));
   const gaps=taskGaps(task);
-  const why=whyNotSet(task,funcs,traits);
+  const why=whyNotSet(task,funcs,traits,tasks);
 
   return (
     <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
@@ -426,21 +482,23 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
 
       {/* Содержимое пишет постановщик: это его работа, а не догадка
           исполнителя и не текст, сочинённый машиной. */}
-      <div style={S.lbl}>содержимое задачи</div>
-      <TxtField area value={task.body} placeholder="что именно нужно сделать"
+      <div style={S.lbl}>содержимое задачи — необязательно</div>
+      <TxtField area value={task.body}
+        placeholder="что добавить к описанию функции — если есть что"
         style={{minHeight:70,margin:"4px 0",lineHeight:1.5}}
         onCommit={v=>up("body",v)}/>
       <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginBottom:8}}>
         Пишет постановщик{task.setter?`: ${nameOf?nameOf(task.setter):task.setter}`:""}.
-        Пустое содержимое — это работа, которую никто не поставил.
+        Заполнять не обязательно: что это за работа, уже сказано описанием
+        функции — здесь только то, что относится к этому выполнению.
       </div>
 
       {task.status==="wait"?(<>
         {!!gaps.length&&(
           <div style={{fontSize:11,color:WARN,marginBottom:8,lineHeight:1.5}}>
             Задача поставлена не до конца: не хватает {gaps.join(", ")}. Все три
-            роли обязательны, и содержимое пишет постановщик — без него
-            исполнителю нечего делать.
+            роли обязательны, и срок тоже: без него нечему сорваться и нечего
+            успевать.
           </div>)}
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
           {/* Недоступную кнопку видно, что она недоступна: зелёная и живая
@@ -680,27 +738,20 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
   openId,setOpenId,nameOf}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
-  /* Движение по доске — это работа исполнителя: взять, начать, сдать.
-     Дальше «Проверки» стрелка не ведёт: «Готово» ставит проверяющий,
-     принимая отчёт, — иначе исполнитель закрывал бы себя сам, и в расчёт
-     пошло бы то, чего никто не принял.
+  /* Двигать задачи по доске нельзя, и стрелок здесь нет. У исполнителя два
+     действия, и оба про работу: взять в работу и сдать. Всё остальное —
+     следствие, а не выбор: срок прошёл — «Дедлайн», сдал — «Проверка»,
+     приняли — «Готово». Стрелка «переложить» предлагала бы объявить
+     работу сделанной, ничего не сделав.
 
      Непоставленных задач тут нет вовсе: они ждут постановщика во вкладке
      «Проверка», и на доске исполнителя им нечего делать. */
-  const at=(t)=>BOARD.findIndex(s=>s.id===t.status);
-  const canAdvance=(t)=>{ const i=at(t); return i>=0&&i<BOARD.length-2; };
-  // Назад — не ниже того, что задача принимает сама: иначе «‹» вернула бы
-  // её туда, откуда она тут же уйдёт обратно.
-  const floorOf=(t)=>Math.max(0,BOARD.findIndex(s=>s.id===floorStatus(t,{funcs,traits})));
-  const moveStatus=(t,d)=>{
-    const next=BOARD[Math.max(floorOf(t),Math.min(BOARD.length-2,at(t)+d))];
-    if(next) setTasks(p=>p.map(x=>x.id===t.id?{...x,status:next.id}:x));
-  };
-  // Просрочка — не статус, а факт: срок прошёл, а работа не принята.
-  const late=(t)=>{
-    const end=t.end?new Date(t.end).getTime():null;
-    return end!=null&&!Number.isNaN(end)&&t.status!=="done"&&end<Date.now();
-  };
+  const take=(t)=>setTasks(p=>p.map(x=>x.id===t.id?{...x,taken:true,
+    status:overdue(x)?"deadline":"progress"}:x));
+  // Сдача — не кнопка на карточке, а форма: сколько часов ушло и сколько
+  // ресурса взяли и выдали. Поэтому «Сдать» открывает задачу.
+  const hand=(t)=>setOpenId(t.id);
+  const late=(t)=>overdue(t);
   return (
     <div>
       <div style={{...S.card,marginBottom:10}}>
@@ -744,14 +795,23 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                       {late(t)?"просрочено · ":"до "}{fmtDT(t.end)}</div>}
                     {t.assignee!=null&&<div style={{fontSize:10.5,color:ACC,marginTop:3}}>
                       {nameOf?nameOf(t.assignee):t.assignee}</div>}
+                    {/* Ровно одно действие на карточке — то, которое сейчас
+                        и есть работа. Ни «назад», ни «дальше»: колонка
+                        говорит, что с задачей, а не куда её положить. */}
                     <div className="flex gap-2" style={{marginTop:6}}>
-                      <button style={{...btn(false),padding:"2px 8px"}}
-                        disabled={at(t)<=floorOf(t)}
-                        onClick={e=>{e.stopPropagation();moveStatus(t,-1);}}>‹</button>
-                      <button style={{...btn(false),padding:"2px 8px"}}
-                        disabled={!canAdvance(t)}
-                        title={canAdvance(t)?"":"Дальше — только через приём отчёта"}
-                        onClick={e=>{e.stopPropagation();moveStatus(t,1);}}>›</button>
+                      {!isTaken(t)&&(t.status==="backlog"||t.status==="deadline")&&(
+                        <button style={{...btn(true,ACC),padding:"3px 9px",fontSize:11}}
+                          onClick={e=>{e.stopPropagation();take(t);}}>
+                          Взять в работу</button>)}
+                      {isTaken(t)&&(t.status==="progress"||t.status==="deadline")&&(
+                        <button style={{...btn(true,OK),padding:"3px 9px",fontSize:11}}
+                          onClick={e=>{e.stopPropagation();hand(t);}}>
+                          Сдать</button>)}
+                      {t.status==="review"&&(
+                        <span style={{fontSize:10.5,color:C.muted}}>
+                          ждёт проверяющего</span>)}
+                      {t.status==="done"&&(
+                        <span style={{fontSize:10.5,color:OK}}>принято</span>)}
                     </div>
                   </div>);
               })}

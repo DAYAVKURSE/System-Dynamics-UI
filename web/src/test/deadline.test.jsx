@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
-import TasksBoard, { BOARD, STATUSES, TaskSetup, defaultEnd, isSet, newTask,
+import TasksBoard, { BOARD, STATUSES, TaskSetup, autoFlow, defaultEnd, isSet, newTask,
   nowLocal, taskGaps } from "../components/TasksBoard.jsx";
 import { Workers } from "../components/AssetPanel.jsx";
 import PersonStats from "../components/PersonStats.jsx";
@@ -126,11 +126,11 @@ describe("постановка задачи и доска исполнителя
     expect(put).toBeDisabled();
     expect(put).toHaveAttribute("title",
       expect.stringContaining("Не хватает: постановщик"));
-    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий, содержимое, срок/))
+    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий, срок/))
       .toBeInTheDocument();
   });
 
-  it("срок — такое же обязательное поле постановки, как роли и содержимое", () => {
+  it("срок — такое же обязательное поле постановки, как роли", () => {
     const full = { ...newTask({ funcId: "f1" }), setter: "1", assignee: "2",
       reviewer: "3", body: "что делать", end: "2026-03-01T11:00" };
     expect(isSet(full)).toBe(true);
@@ -145,13 +145,16 @@ describe("постановка задачи и доска исполнителя
     expect(screen.getByText(/сейчас она в колонке «Бэклог»/)).toBeInTheDocument();
   });
 
-  it("с доски задача идёт до проверки, а дальше — только через приём", () => {
+  it("в «Дедлайн» задача попадает сама — по сроку, а не нажатием", () => {
+    /* Колонку не выбирают: срок прошёл, а работа не сдана — вот и весь
+       повод. Переложить туда задачу нечем, стрелок на доске нет. */
     const t = { ...newTask({ funcId: "f1", title: "Задача A" }), status: "backlog",
       setter: "1", assignee: "2", reviewer: "3", body: "что делать",
-      end: "2030-03-01T11:00" };
-    render(<Board tasks={[t]} />);
-    const card = () => screen.getByText("Задача A").parentElement;
-    fireEvent.click(within(card()).getByRole("button", { name: "›" }));
+      end: new Date(Date.now() - 864e5).toISOString().slice(0, 16) };
+    // Развод по статусам делает autoFlow — одно правило на всё приложение,
+    // а не отдельная логика доски.
+    render(<Board tasks={autoFlow([t], { funcs: FUNCS, traits: TRAITS })} />);
+    expect(screen.queryByRole("button", { name: "›" })).toBeNull();
     const col = screen.getByText("Дедлайн").parentElement.parentElement;
     expect(within(col).getByText("Задача A")).toBeInTheDocument();
   });

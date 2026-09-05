@@ -46,7 +46,7 @@
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
 import { CHANCE_MAX, DUR_UNITS, factorChance, factorsOf, everyOf, groupsOf, hoursOf, isFactor,
-  runHours, runQty } from "./funcs.js";
+  portSpends, runHours, runQty } from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
 export const MONTH_H = DUR_UNITS["мес"];
@@ -139,11 +139,14 @@ export const draw = (seed, key) => {
 /**
  * Удалась ли одна попытка фактора.
  *
- * Факторов у функции бывает несколько, и в одной попытке они применяются
- * ПО ПОРЯДКУ: сперва должен случиться первый, потом второй. Не случился
- * первый — до второго дело не доходит, и жребий по нему не бросается: так
- * оно и бывает в жизни, и так цепочка честно оказывается реже каждого
- * своего звена.
+ * Факторов у функции бывает несколько, и это просто СПИСОК: за попытку
+ * функция пробует применить первый; вышло — попытка удалась и до второго
+ * дело не доходит. Не вышло — пробует второй, потом третий, и так до конца
+ * списка. Не удался ни один — не случилось ничего.
+ *
+ * Не «должны случиться все»: запасной вариант обязан помогать, а не мешать.
+ * От «всех сразу» цепочка выходила бы тем реже, чем больше у неё запасных
+ * путей, — то есть каждый добавленный фактор ухудшал бы дело.
  *
  * Жребий на каждый фактор — свой и посеянный, как и прежде: от одного
  * семени выходит один и тот же ряд, и обе стороны ленты говорят об одном
@@ -152,7 +155,7 @@ export const draw = (seed, key) => {
 export function factorHit(f, factors = [], seed = 1, key = "") {
   const ids = factorsOf(f);
   if (!ids.length) return draw(seed, key) < 1;
-  return ids.every((id, i) => {
+  return ids.some((id, i) => {
     const x = factors.find((y) => y.id === id);
     return draw(seed, `${key}@${i}:${id}`) < factorChance(x) / CHANCE_MAX;
   });
@@ -177,7 +180,9 @@ export function pickAlt(group, { have, kind = "takes", side, runs }) {
   group.forEach((p) => {
     const need = portQty(p, { kind, side, runs });
     if (!(need > 0)) return;
-    const cover = (have(p.trait) || 0) / need;
+    /* Вторым доводом идёт сам порт: у входа, который не расходует, своё
+       «сколько доступно» — то, чего эта функция ещё не обрабатывала. */
+    const cover = (have(p.trait, p) || 0) / need;
     if (cover > bestCover) { bestCover = cover; best = p; }
   });
   return bestCover > 0 ? best : group[0];
@@ -223,6 +228,16 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
   const out = {};
   traits.forEach((t) => { level[t.id] = num(t.have); out[t.id] = [level[t.id]]; });
 
+  /* Сколько единиц ресурса функция уже ОБРАБОТАЛА, не расходуя.
+     Обработанное лежит на месте и достаётся другим функциям — но этой
+     второй раз не даётся: работа по нему уже сделана. Ключ — функция и
+     ресурс вместе: ограничение принадлежит одной функции, а не всем. */
+  const seen = {};
+  const seenKey = (f, p) => `${f.id}|${p.trait}`;
+  const fresh = (f, p) => (portSpends(p)
+    ? (level[p.trait] ?? 0)
+    : Math.max(0, (level[p.trait] ?? 0) - (seen[seenKey(f, p)] || 0)));
+
   for (let m = 0; m < span; m += 1) {
     const wave = funcs.map((f) => {
       // Потолок — сколько попыток вообще помещается в месяц.
@@ -256,10 +271,14 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
        функция работает уже с выбранным — иначе спрос считался бы по одному
        ресурсу, а списывался другой. */
     wave.forEach((w) => {
-      w.takes = takesOf(w.f, { have: (id) => level[id] ?? 0, side, runs: runs(w.f) });
+      w.takes = takesOf(w.f, { have: (id, p) => (p ? fresh(w.f, p) : level[id] ?? 0),
+        side, runs: runs(w.f) });
     });
+    /* За общий остаток борются только те входы, которые его ТРАТЯТ. Вход,
+       который не расходует, ни у кого ничего не отнимает: он ограничен
+       сам по себе — тем, чего эта функция ещё не обрабатывала. */
     const demand = {};
-    wave.forEach(({ f, n, takes }) => takes.forEach((p) => {
+    wave.forEach(({ f, n, takes }) => takes.filter(portSpends).forEach((p) => {
       demand[p.trait] = (demand[p.trait] || 0)
         + portQty(p, { kind: "takes", side, runs: runs(f) }) * n;
     }));
@@ -268,10 +287,18 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
       const have = level[id] ?? 0;
       share[id] = demand[id] > have ? (have > 0 ? have / demand[id] : 0) : 1;
     });
+    // Своя доля у входа, который не расходует: сколько его выполнений
+    // вообще обеспечено новым, ещё не обработанным.
+    const mine = (f, p, n) => {
+      const need = portQty(p, { kind: "takes", side, runs: runs(f) }) * n;
+      if (!(need > 0)) return 1;
+      return Math.min(1, fresh(f, p) / need);
+    };
     // Функцию держит самый дефицитный её вход: наполовину сделанной работы
     // не бывает, но половина выполнений за месяц — бывает.
     wave.forEach((w) => {
-      w.k = w.takes.reduce((k, p) => Math.min(k, share[p.trait] ?? 1), 1);
+      w.k = w.takes.reduce((k, p) => Math.min(k,
+        portSpends(p) ? (share[p.trait] ?? 1) : mine(w.f, p, w.n)), 1);
       /* Фактор ЖДЁТ. Он заранее знает, сколько ему нужно на одно
          срабатывание, и берёт только тогда, когда это количество появилось:
          на неполную порцию он не срабатывает, а ресурс копится до следующей
@@ -284,8 +311,10 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
         const whole = w.takes.reduce((least, p) => {
           const need = portQty(p, { kind: "takes", side, runs: runs(w.f) });
           if (!(need > 0)) return least;
-          const mine = (level[p.trait] ?? 0) * (share[p.trait] ?? 1);
-          return Math.min(least, Math.floor(mine / need));
+          const got = portSpends(p)
+            ? (level[p.trait] ?? 0) * (share[p.trait] ?? 1)
+            : fresh(w.f, p);
+          return Math.min(least, Math.floor(got / need));
         }, Infinity);
         w.k = whole === Infinity ? 1 : Math.max(0, Math.min(w.k, whole / w.n));
       }
@@ -294,7 +323,11 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
     wave.forEach(({ f, n, k, takes }) => {
       takes.forEach((p) => {
         if (level[p.trait] == null) return;
-        level[p.trait] -= portQty(p, { kind: "takes", side, runs: runs(f) }) * n * k;
+        const q = portQty(p, { kind: "takes", side, runs: runs(f) }) * n * k;
+        // Расходует — взятое исчезает у всех. Не расходует — остаётся на
+        // месте, но этой функцией уже обработано.
+        if (portSpends(p)) level[p.trait] -= q;
+        else seen[seenKey(f, p)] = (seen[seenKey(f, p)] || 0) + q;
       });
       f.gives.forEach((g) => {
         if (level[g.trait] == null) return;
@@ -307,6 +340,13 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
       // чего нет, не должно тянуть график под ноль.
       level[t.id] = Math.max(0, level[t.id]);
       out[t.id].push(level[t.id]);
+    });
+    /* Обработанного не бывает больше, чем есть вообще: единицы, которые
+       эта функция когда-то обработала, могла израсходовать соседняя — и
+       тогда они не должны навсегда закрывать ей дорогу. */
+    Object.keys(seen).forEach((k) => {
+      const id = k.slice(k.indexOf("|") + 1);
+      seen[k] = Math.min(seen[k], level[id] ?? 0);
     });
   }
   return out;
@@ -470,7 +510,7 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
   const runsFor = (f) => (runsOf ? runsOf(f.id) : []);
   const target = traits.find((t) => t.id === trait);
   const goal = num(want);
-  const empty = { need: 0, spent: {}, steps: [], workHours: 0, criticalHours: 0,
+  const empty = { need: 0, spent: {}, held: {}, steps: [], workHours: 0, criticalHours: 0,
     missing: [], looped: false, ok: true };
   if (!target || !(goal > 0)) return empty;
 
@@ -496,6 +536,14 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
   const runsBy = {};                 // сколько выполнений какой функции
   const missing = new Set();
   const need = { [trait]: goal };
+  /* Отдельная очередь для входов, которые НЕ расходуются. Их всё равно
+     надо иметь: каждое выполнение обрабатывает свою единицу, и если её
+     нет — её кто-то должен произвести. Но остаток они не тратят: то же
+     самое достанется и другой функции, и обнулять им склад значило бы
+     объявить нехваткой то, что лежит на месте. */
+  const keep = {};
+  // Сколько чего понадобилось иметь, ничего не тратя.
+  const held = {};
   // Во что цель обходится по ресурсам: сколько каждого понадобилось всего.
   // Считается здесь, а не после, потому что спрос набегает по кругам — то,
   // что нужно для входа, само требует входов.
@@ -516,16 +564,19 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
   };
 
   while (guard < passes) {
-    const id = Object.keys(need).find((k) => need[k] > 1e-9);
+    const spending = Object.keys(need).find((k) => need[k] > 1e-9);
+    const id = spending || Object.keys(keep).find((k) => keep[k] > 1e-9);
     if (!id) break;
     guard += 1;
-    const want4 = need[id];
-    need[id] = 0;
-    spent[id] = (spent[id] || 0) + want4;
+    const holds = !spending;
+    const want4 = holds ? keep[id] : need[id];
+    if (holds) { keep[id] = 0; held[id] = (held[id] || 0) + want4; }
+    else { need[id] = 0; spent[id] = (spent[id] || 0) + want4; }
 
     // Сначала берём из остатка — производить то, что уже есть, незачем.
+    // То, что не расходуется, остаток не уменьшает: оно там и останется.
     const fromStock = Math.min(stock[id] ?? 0, want4);
-    stock[id] = (stock[id] ?? 0) - fromStock;
+    if (!holds) stock[id] = (stock[id] ?? 0) - fromStock;
     const rest = want4 - fromStock;
     if (rest <= 1e-9) continue;
 
@@ -538,14 +589,18 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
     const n = Math.ceil(rest / per);
     runsBy[f.id] = (runsBy[f.id] || 0) + n;
     (producedFor[id] = producedFor[id] || new Set()).add(f.id);
-    // Лишнее, что вышло сверх нужного, остаётся в остатке — оно не пропадает.
-    stock[id] = (stock[id] ?? 0) + (n * per - rest);
+    /* Лишнее, что вышло сверх нужного, остаётся в остатке — оно не
+       пропадает. А то, что нужно было только ИМЕТЬ, остаётся целиком:
+       обработали и положили обратно. */
+    stock[id] = (stock[id] ?? 0) + (holds ? n * per : n * per - rest);
     /* В группе «или» берётся то, чего хватает на дольше. Если пусто везде —
        первый по списку: порядок вариантов человек задал сам, и это его
        предпочтение, а не случайность. */
     use.forEach((p) => {
       const q = portQty(p, { kind: "takes", side, runs: runsFor(f) }) * n;
-      if (q > 0) need[p.trait] = (need[p.trait] || 0) + q;
+      if (!(q > 0)) return;
+      if (portSpends(p)) need[p.trait] = (need[p.trait] || 0) + q;
+      else keep[p.trait] = (keep[p.trait] || 0) + q;
     });
   }
   if (guard >= passes) looped = true;
@@ -593,6 +648,7 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
   return {
     need: short,
     spent,
+    held,
     steps,
     workHours: steps.reduce((s, x) => s + x.workHours, 0),
     criticalHours: Math.max(0, ...steps.map((x) => chain(x.func))),
@@ -633,8 +689,11 @@ export function effect(model, steps = [], { side = "hi", runsOf } = {}) {
     if (!f) return;
     const runs = runsOf ? runsOf(f.id) : [];
     f.gives.forEach((g) => add(g.trait, portQty(g, { kind: "gives", side, runs }) * st.runs));
-    // Тратится только выбранный вариант группы «или», а не все сразу.
+    /* Тратится только выбранный вариант группы «или», а не все сразу, — и
+       только тот вход, который и правда расходуется: обработанное, но не
+       израсходованное, никуда с полки не девается. */
     (st.takes || takesOf(f, { have: () => 0, side, runs }))
+      .filter(portSpends)
       .forEach((p) => add(p.trait, -portQty(p, { kind: "takes", side, runs }) * st.runs));
   });
   return by;

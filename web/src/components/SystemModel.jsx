@@ -773,6 +773,9 @@ export default function SystemModel(){
       accept:!!accept,mark:Number(mark)||null,comment:String(note||"")};
     setTasks(p=>p.map(t=>t.id===task.id?{...t,
       status:accept?"done":"backlog",
+      // Возвращённая задача снова лежит и ждёт: её берут в работу заново,
+      // иначе она вернулась бы уже взятой и «Взять в работу» не появилось.
+      taken:accept?t.taken:false,
       reviews:[...(t.reviews||[]),review],
       comments:note?[...(t.comments||[]),
         {id:"c"+Date.now().toString(36),text:note,at}]

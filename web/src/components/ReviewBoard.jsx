@@ -195,30 +195,36 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
             применена во вкладке «Схема → Прогноз»: работа берётся из целей,
             а не заводится руками.
           </div>)}
+        {/* Форма постановки раскрывается ПОД своей задачей, а не общим
+            блоком в самом низу страницы. Внизу она отвечала бы на вопрос
+            «какую задачу мы сейчас ставим» тем, что человек должен
+            вспомнить сам, — а он только что на неё нажал. */}
         {toSet.map((t) => {
-          const why = whyNotSet(t, funcs, traits);
+          const why = whyNotSet(t, funcs, traits, tasks);
+          const on = setupId === t.id;
           return (
-            <div key={t.id} className="flex flex-wrap gap-2"
-              style={{ alignItems: "center", padding: "7px 0",
-                borderTop: `1px solid ${C.line}`, cursor: "pointer" }}
-              onClick={() => setSetupId(setupId === t.id ? null : t.id)}>
-              <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
-                {t.title}</span>
-              <span style={{ fontSize: 10.5, color: C.muted }}>
-                {funcLabel(funcs.find((f) => f.id === t.funcId), entities)}</span>
-              {why && <span style={{ fontSize: 10.5, color: WARN }}>{why}</span>}
-              <span style={{ fontSize: 11, color: C.muted }}>
-                {setupId === t.id ? "▾" : "▸"}</span>
+            <div key={t.id}>
+              <div className="flex flex-wrap gap-2"
+                style={{ alignItems: "center", padding: "7px 0",
+                  borderTop: `1px solid ${C.line}`, cursor: "pointer" }}
+                onClick={() => setSetupId(on ? null : t.id)}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
+                  {t.title}</span>
+                <span style={{ fontSize: 10.5, color: C.muted }}>
+                  {funcLabel(funcs.find((f) => f.id === t.funcId), entities)}</span>
+                {why && <span style={{ fontSize: 10.5, color: WARN }}>{why}</span>}
+                <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
+              </div>
+              {on && setup && (
+                <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits}
+                  entities={entities} people={people} canAssign={canAssign}
+                  nameOf={nameOf} setTasks={setTasks}
+                  onClose={() => setSetupId(null)}
+                  onDelete={() => { setTasks((p) => p.filter((x) => x.id !== setup.id));
+                    setSetupId(null); }} />)}
             </div>);
         })}
       </div>
-
-      {setup && (
-        <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits}
-          entities={entities} people={people} canAssign={canAssign} nameOf={nameOf}
-          setTasks={setTasks} onClose={() => setSetupId(null)}
-          onDelete={() => { setTasks((p) => p.filter((x) => x.id !== setup.id));
-            setSetupId(null); }} />)}
 
       {!waiting.length && (
         <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>

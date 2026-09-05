@@ -197,20 +197,26 @@ describe("факторов может быть несколько", () => {
     expect(normalizeFunc({ kind: "factor", factor: "x1" }).factor).toBeUndefined();
   });
 
-  it("вероятности перемножаются: два события подряд случаются реже одного", () => {
+  it("список, а не цепочка: хватает любого фактора из списка", () => {
+    /* Функция пробует первый; не вышло — пробует второй, и так далее.
+       Перемножение означало бы «нужны все сразу» — тогда запасной вариант
+       вредил бы, а он на то и запасной, чтобы помогать. */
     expect(chanceOf(F({ factors: ["x1"] }), FACTORS)).toBe(50);
-    expect(chanceOf(F({ factors: ["x1", "x2"] }), FACTORS)).toBeCloseTo(20, 6);
+    // 50% и 40%: не выйдет ни один — 0.5·0.6 = 30%, значит выйдет 70%.
+    expect(chanceOf(F({ factors: ["x1", "x2"] }), FACTORS)).toBeCloseTo(70, 6);
     // У задачи вероятности нет вовсе: либо назначили, либо нет.
     expect(chanceOf(F({ kind: "task", factors: ["x1"] }), FACTORS)).toBe(100);
   });
 
-  it("невероятное звено делает невозможной всю цепочку", () => {
+  it("невозможный фактор в списке ничего не портит — просто не срабатывает", () => {
     const none = [...FACTORS, { id: "x3", e: "A", name: "чудо", chance: 0 }];
-    expect(chanceOf(F({ factors: ["x1", "x3"] }), none)).toBe(0);
-    expect(factorHit(F({ factors: ["x1", "x3"] }), none, 7, "k")).toBe(false);
+    expect(chanceOf(F({ factors: ["x1", "x3"] }), none)).toBeCloseTo(50, 6);
+    // А когда в списке только он — не происходит ничего.
+    expect(chanceOf(F({ factors: ["x3"] }), none)).toBe(0);
+    expect(factorHit(F({ factors: ["x3"] }), none, 7, "k")).toBe(false);
   });
 
-  it("верные факторы срабатывают всегда — и по одному, и цепочкой", () => {
+  it("верные факторы срабатывают всегда — и по одному, и списком", () => {
     const sure = [{ id: "x1", e: "A", name: "всегда", chance: 100 },
       { id: "x2", e: "A", name: "тоже всегда", chance: 100 }];
     expect(factorHit(F({ factors: ["x1", "x2"] }), sure, 3, "k")).toBe(true);
@@ -225,14 +231,15 @@ describe("факторов может быть несколько", () => {
     expect(new Set(many).size).toBe(2);
   });
 
-  it("цепочка выпадает реже, чем каждое её звено", () => {
+  it("второй фактор — запасной путь: с ним выпадает чаще, а не реже", () => {
     const hits = (ids) => Array.from({ length: 400 },
       (_, i) => factorHit(F({ factors: ids }), FACTORS, 5, `f1#${i}`)).filter(Boolean).length;
     const one = hits(["x1"]);
     const both = hits(["x1", "x2"]);
-    expect(both).toBeLessThan(one);
-    expect(both / 400).toBeGreaterThan(0.1);
-    expect(both / 400).toBeLessThan(0.3);
+    expect(both).toBeGreaterThan(one);
+    // 50% и 40% по отдельности — вместе около 70%.
+    expect(both / 400).toBeGreaterThan(0.6);
+    expect(both / 400).toBeLessThan(0.8);
   });
 
   it("фактор без единого фактора — обрыв: не сказано, от чего это происходит", () => {

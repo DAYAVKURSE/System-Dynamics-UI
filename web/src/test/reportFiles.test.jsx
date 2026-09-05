@@ -102,7 +102,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
     // Тело — сам файл, а не base64-строка: диску незачем лишняя треть.
     expect(upload.opts.body).toBeInstanceOf(File);
 
-    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     const saved = dump().tasks[0].submissions[0].file;
     expect(saved.url).toMatch(/^\/api\/reports\//);
     expect(saved.data).toBeUndefined();     // никакого data:-URL в сценарии
@@ -116,7 +116,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
       await attach(file());
 
       await waitFor(() => expect(screen.getByText(/📎/)).toBeTruthy());
-      fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
       const saved = dump().tasks[0].submissions[0].file;
       expect(saved.data).toMatch(/^data:/);
       expect(saved.url).toBeUndefined();
@@ -136,7 +136,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
 
     await waitFor(() => expect(screen.getByText(/не удалось загрузить файл/)).toBeTruthy());
     // Сдача без файла всё равно возможна: отчёт текстом — тоже отчёт.
-    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     expect(dump().tasks[0].submissions[0].file).toBeFalsy();
   });
 

@@ -41,26 +41,23 @@ function Setup({ task: t0, people = PEOPLE, canAssign = true }) {
 describe("«Готово» — только через приём отчёта", () => {
   const task = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }), ...over });
 
-  it("стрелка › на доске не переводит дальше «Проверки»", () => {
+  it("на проверке исполнителю нажимать нечего — дело за проверяющим", () => {
     render(<Board tasks={[task({ status: "review" })]} />);
-    // Название лежит внутри карточки — стрелки её соседи.
     const card = screen.getByText("Задача A").parentElement;
-    expect(within(card).getByRole("button", { name: "›" })).toBeDisabled();
+    expect(within(card).queryByRole("button")).toBeNull();
+    expect(within(card).getByText("ждёт проверяющего")).toBeInTheDocument();
   });
 
-  it("из «В работе» стрелка ведёт на «Проверку», а не дальше", () => {
-    render(<Board tasks={[task({ status: "progress" })]} />);
-    const card = screen.getByText("Задача A").parentElement;
-    fireEvent.click(within(card).getByRole("button", { name: "›" }));
-    // Карточка переехала в колонку «Проверка», и дальше её не двинуть.
-    const moved = screen.getByText("Задача A").parentElement;
-    expect(within(moved).getByRole("button", { name: "›" })).toBeDisabled();
+  it("«Готово» не нажимается ниоткуда: его ставит приём отчёта", () => {
+    render(<Board tasks={[task({ status: "review" })]} />);
+    expect(screen.queryByRole("button", { name: "›" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Готово" })).toBeNull();
   });
 
   it("статуса руками нет вовсе: его двигают работой, а не выпадающим списком", () => {
     /* Прежде в форме задачи стоял список статусов, и «Готово» в нём
-       приходилось запрещать отдельно. Теперь статус меняют стрелками на
-       доске и приёмом сдачи — запрещать нечего. */
+       приходилось запрещать отдельно. Теперь статус — следствие работы:
+       взяли, сдали, приняли. Запрещать нечего. */
     render(<Board tasks={[task({ status: "review" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     expect(screen.queryByDisplayValue("Проверка")).toBeNull();
@@ -79,7 +76,8 @@ describe("сдача записывает факт выполнения", () => 
     const hours = screen.getByDisplayValue("2");
     fireEvent.change(hours, { target: { value: "5" } });
     fireEvent.blur(hours);
-    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
+    // Их две: одна в форме сдачи, другая на карточке в колонке.
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
 
     expect(screen.getByText(/5 ч/)).toBeInTheDocument();
     expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
@@ -109,10 +107,20 @@ describe("назначения берутся из воркеров актива
     expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр · без оценок · 0 работ"]);
   });
 
-  it("все три роли обязательны, и содержимое тоже — сказано, чего не хватает", () => {
+  it("все три роли обязательны — сказано, чего не хватает", () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
-    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий, содержимое/))
+    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий/))
       .toBeInTheDocument();
+  });
+
+  it("содержимое не обязательно: задача ставится и без него", () => {
+    /* Что это за работа, уже сказано описанием функции. Требовать
+       переписывать его в каждую задачу значило бы спрашивать второй раз
+       то, что уже есть. */
+    const t = { ...newTask({ funcId: "f1", title: "Задача A" }), setter: "1",
+      assignee: "2", reviewer: "3", body: "", end: "2030-03-01T11:00" };
+    render(<Setup task={t} />);
+    expect(screen.getByRole("button", { name: "Поставить" })).not.toBeDisabled();
   });
 
   it("содержимое пишет постановщик, а не машина", () => {
@@ -233,10 +241,11 @@ describe("поля задачи в порядке постановки", () => {
     const labels = [...container.querySelectorAll("div")]
       .map((d) => d.textContent)
       .filter((x) => ["название", "исполнитель", "проверяющий", "начать",
-        "содержимое задачи", "комментарии"].includes(x));
+        "содержимое задачи — необязательно", "комментарии"].includes(x));
     expect(labels.indexOf("название")).toBeLessThan(labels.indexOf("исполнитель"));
     expect(labels.indexOf("исполнитель")).toBeLessThan(labels.indexOf("начать"));
-    expect(labels.indexOf("начать")).toBeLessThan(labels.indexOf("содержимое задачи"));
+    expect(labels.indexOf("начать"))
+      .toBeLessThan(labels.indexOf("содержимое задачи — необязательно"));
     // Комментарии — ровно один раз: две формы подряд спрашивали одно и то же.
     expect(labels.filter((x) => x === "комментарии")).toHaveLength(1);
   });

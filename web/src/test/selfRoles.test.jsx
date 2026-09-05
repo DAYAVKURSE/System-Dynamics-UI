@@ -27,8 +27,13 @@ const HUNGRY = [{ ...FUNCS[0], id: "f2",
 const PEOPLE = [{ id: "1", name: "Иван" }, { id: "2", name: "Пётр" }];
 const opts = { funcs: [...FUNCS, ...HUNGRY], traits: TRAITS };
 
+/* Срок — в будущем: просроченная задача сама уходит в «Дедлайн», и на
+   таком сроке проверялось бы не то, что задумано. Прошедший срок берётся
+   отдельно, там, где дедлайн и проверяется. */
+const soon = () => new Date(Date.now() + 864e5).toISOString().slice(0, 16);
+const past = () => new Date(Date.now() - 864e5).toISOString().slice(0, 16);
 const task = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
-  body: "что сделать", end: "2026-01-01T10:00", ...over });
+  body: "что сделать", end: soon(), ...over });
 const solo = (over) => task({ setter: "1", assignee: "1", reviewer: "1", ...over });
 
 describe("кто с кем совпал", () => {
@@ -51,18 +56,33 @@ describe("что происходит само", () => {
   it("постановщик и исполнитель — один: задача сразу в бэклоге", () => {
     expect(autoStatus(task({ setter: "1", assignee: "1", reviewer: "2",
       status: "wait" }), opts)).toBe("backlog");
+    // И обратно: срок передвинули — задача из «Дедлайна» вернулась в бэклог.
     expect(autoStatus(task({ setter: "1", assignee: "1", reviewer: "2",
       status: "deadline" }), opts)).toBe("backlog");
   });
 
-  it("но только описанная: автоматическая постановка избавляет от нажатия, не от работы", () => {
-    const empty = task({ setter: "1", assignee: "1", status: "wait", body: "" });
-    expect(autoStatus(empty, opts)).toBe("wait");
-    const noEnd = task({ setter: "1", assignee: "1", status: "wait", end: null });
+  it("содержимое не обязательно: что за работа, сказано описанием функции", () => {
+    const empty = task({ setter: "1", assignee: "1", reviewer: "2",
+      status: "wait", body: "" });
+    expect(autoStatus(empty, opts)).toBe("backlog");
+    // А вот без срока задача не поставлена: нечему сорваться и нечего успеть.
+    const noEnd = task({ setter: "1", assignee: "1", reviewer: "2",
+      status: "wait", end: null });
     expect(autoStatus(noEnd, opts)).toBe("wait");
     // Проверяющего нет — задача не поставлена, и ставить её нечего.
     expect(autoStatus(task({ setter: "1", assignee: "1", status: "wait",
       reviewer: null }), opts)).toBe("wait");
+  });
+
+  it("срок прошёл — задача сама уходит в «Дедлайн», и взятая, и лежащая", () => {
+    /* «Дедлайн» — не полка, куда работу перекладывают, а то, что с ней
+       случилось. Поэтому туда попадают сами и лежащая в бэклоге, и уже
+       взятая в работу. */
+    expect(autoStatus(solo({ status: "backlog", end: past() }), opts)).toBe("deadline");
+    expect(autoStatus(solo({ status: "progress", end: past() }), opts)).toBe("deadline");
+    // Сданное уже не срывается: работа сделана, дело за проверяющим.
+    expect(autoStatus(task({ assignee: "1", reviewer: "2", status: "review",
+      end: past() }), opts)).toBe("review");
   });
 
   it("и только когда ресурсов хватает: они меняются сами по себе", () => {
@@ -120,7 +140,8 @@ describe("на доске", () => {
     render(<Board tasks={[solo({ status: "progress" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
-    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
+    // Их две: одна в форме сдачи, другая на карточке в колонке.
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     closeEditor();
     expect(within(column("Готово")).getByText("Задача A")).toBeInTheDocument();
   });
@@ -129,22 +150,36 @@ describe("на доске", () => {
     render(<Board tasks={[solo({ status: "progress", reviewer: "2" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
-    fireEvent.click(screen.getByRole("button", { name: "Сдать" }));
+    // Их две: одна в форме сдачи, другая на карточке в колонке.
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     closeEditor();
     expect(within(column("Проверка")).getByText("Задача A")).toBeInTheDocument();
   });
 
-  it("из бэклога назад некуда: постановка — не колонка доски", () => {
+  it("двигать задачи по доске нечем: стрелок нет ни в одной колонке", () => {
+    /* Колонка — это ответ на вопрос, что с задачей, а не полка. Стрелка
+       «переложить» предлагала бы объявить работу сделанной, ничего не
+       сделав. */
     render(<Board tasks={[solo({ status: "backlog" })]} />);
-    const card = screen.getByText("Задача A").parentElement;
-    expect(within(card).getByRole("button", { name: "‹" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "‹" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "›" })).toBeNull();
   });
 
-  it("а из «дедлайна» — можно: это движение внутри работы", () => {
-    render(<Board tasks={[task({ setter: "1", assignee: "2", reviewer: "1",
-      status: "deadline" })]} />);
-    const card = screen.getByText("Задача A").parentElement;
-    expect(within(card).getByRole("button", { name: "‹" })).not.toBeDisabled();
+  it("в бэклоге — «Взять в работу», и задача уезжает в «В работе»", () => {
+    render(<Board tasks={[solo({ status: "backlog" })]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Взять в работу" }));
+    expect(within(column("В работе")).getByText("Задача A")).toBeInTheDocument();
+    // Взятая задача предлагает уже другое действие — сдать.
+    expect(screen.queryByRole("button", { name: "Взять в работу" })).toBeNull();
+  });
+
+  it("в «Дедлайне» кнопка та же — работа не отменяется тем, что срок прошёл", () => {
+    render(<Board tasks={[solo({ status: "deadline", end: past() })]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Взять в работу" }));
+    // Задача остаётся в «Дедлайне»: срок прошёл, и от того, что за неё
+    // взялись, он назад не отмотается.
+    expect(within(column("Дедлайн")).getByText("Задача A")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Сдать" })).toBeInTheDocument();
   });
 
   it("в форме постановки сказано, почему статус двигается сам", () => {

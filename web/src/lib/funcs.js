@@ -75,7 +75,7 @@ const num = (v) => Number(v) || 0;
  */
 export const newPort = (trait = "", lo = 1, hi = 1, group = null) => {
   const id = nextId("p");
-  return { id, trait, lo: num(lo), hi: num(hi), group: group || id };
+  return { id, trait, lo: num(lo), hi: num(hi), group: group || id, spend: true };
 };
 
 /* ─────── «и» между группами, «или» внутри группы ───────
@@ -103,6 +103,22 @@ export const groupsOf = (ports = []) => {
 
 /** Сколько у функции разных требований: групп, а не входов. */
 export const groupCount = (ports = []) => groupsOf(ports).length;
+
+/* ─────── расходует вход или только обрабатывает ───────
+
+   Взять ресурс можно двумя способами, и они разные.
+
+   · РАСХОДУЕТ — взятое исчезает. Ткань, из которой сшили платье, больше
+     ничья: ни эта функция, ни соседняя её уже не получат.
+   · НЕ РАСХОДУЕТ — взятое остаётся на месте, но ЭТА функция его уже
+     обработала. Заявку прочитали и оценили — заявка никуда не делась, её
+     прочитает и другая функция; но второй раз оценивать ту же заявку
+     незачем, работа по ней уже сделана.
+
+   Прежде расходовалось всё и всегда, и получалось, что прочитанная заявка
+   пропадала у всех остальных. Ограничение «второй раз не берём» относится
+   к ОДНОЙ функции, а не ко всем сразу. */
+export const portSpends = (p = {}) => p.spend !== false;
 
 /**
  * Выход функции — такой же порт, как и вход.
@@ -138,6 +154,10 @@ export const newFunc = (e, name = "новая функция") => ({
   name,
   kind: "task",
   factors: [],
+  // Описание — необязательное: чем функция занята, своими словами. Оно
+  // едет в каждую её задачу, чтобы исполнителю не приходилось спрашивать,
+  // что вообще за работа.
+  about: "",
   takes: [],
   gives: [],
   dur: 1,
@@ -240,10 +260,18 @@ export const sameEvery = (f = {}) => {
 export const CHANCE_MAX = 100;
 const clampChance = (v) => Math.max(0, Math.min(CHANCE_MAX, num(v)));
 
-/* Факторов у функции может быть несколько, и в одной попытке они
-   применяются ПО ПОРЯДКУ: сперва должен случиться первый, потом второй.
-   «Реклама сработала, и при этом был сезон» — это два разных события, и
-   каждое со своей вероятностью.
+/** Вероятность одного фактора — так, как она у него записана. */
+export const factorChance = (x) => (x?.chance == null ? CHANCE_MAX : clampChance(x.chance));
+
+/* Факторов у функции может быть несколько, и это ПРОСТО СПИСОК, который
+   она перебирает за одну попытку. Функция пробует применить первый; не
+   вышло — пробует второй, потом третий, и так до конца списка. Хватило
+   любого — попытка удалась; не удался ни один — не случилось ничего.
+
+   Перемножения здесь нет и быть не может: перемножение означало бы «нужны
+   все сразу», а сказано другое — нужен хоть какой-нибудь. От перемножения
+   цепочка выходила бы тем реже, чем больше у неё запасных вариантов, то
+   есть запасной вариант вредил бы.
 
    Прежняя запись — один фактор полем `factor` — читается как список из
    одного: модели, собранные до этого, ничего не теряют. */
@@ -251,21 +279,23 @@ export const factorsOf = (f = {}) => (Array.isArray(f.factors)
   ? f.factors.filter(Boolean)
   : (f.factor ? [f.factor] : []));
 
-/** Сколько процентов выпадает функции: попытка удаётся, если удались все. */
+/**
+ * Сколько процентов выпадает функции: попытка удаётся, если удался ХОТЬ ОДИН
+ * фактор из списка.
+ *
+ * Считается через обратное — вероятность, что не удался ни один: у «или»
+ * прямой суммы не бывает, два фактора по 60% дают 84%, а не 120%.
+ */
 export const chanceOf = (f = {}, factors = []) => {
   if (!isFactor(f)) return CHANCE_MAX;
   const ids = factorsOf(f);
   if (!ids.length) return CHANCE_MAX;
-  // Перемножение, а не среднее: два события подряд случаются реже, чем
-  // каждое из них по отдельности, — иначе цепочка выглядела бы легче звена.
-  return ids.reduce((p, id) => {
+  const miss = ids.reduce((p, id) => {
     const x = factors.find((y) => y.id === id);
-    return p * (x?.chance == null ? CHANCE_MAX : clampChance(x.chance)) / CHANCE_MAX;
+    return p * (CHANCE_MAX - factorChance(x)) / CHANCE_MAX;
   }, CHANCE_MAX);
+  return CHANCE_MAX - miss;
 };
-
-/** Вероятность одного фактора — так, как она у него записана. */
-export const factorChance = (x) => (x?.chance == null ? CHANCE_MAX : clampChance(x.chance));
 
 /** По-человечески: «сразу» или «через 2 нед», вилкой — «через 1–2 нед». */
 export const everyText = (f) => {
@@ -302,6 +332,11 @@ export const normalizeFunc = (f = {}) => {
       lo: num(p.lo),
       hi: num(p.hi),
       group: (grouped && p.group) || id,
+      /* Расходует ли вход взятое. Записи, собранные до этого, расходовали
+         всегда — поэтому «не сказано» читается как «расходует», а не как
+         «нет»: молчание прежней модели не должно менять её смысл. У выхода
+         поля нет вовсе — выдавать, не выдавая, нечего. */
+      ...(grouped ? { spend: p.spend !== false } : {}),
     };
   };
   const unit = (u) => (DUR_UNITS[u] ? u : DUR_DEFAULT);
@@ -312,6 +347,7 @@ export const normalizeFunc = (f = {}) => {
     ...rest,
     e: f.e ?? null,
     name: f.name ?? "",
+    about: f.about == null ? "" : String(f.about),
     kind: funcKind(f),
     factors: factorsOf(f),
     takes: Array.isArray(f.takes) ? f.takes.map((p) => port(p, true)) : [],
@@ -440,30 +476,37 @@ export const workersOf = (entities = [], id) => {
  * «3 воркера» там, где работает один. Число на вкладке отвечает на вопрос
  * «сколько нас», а не «сколько галочек проставлено».
  */
-export const countWorkers = (workers = {}) => new Set(
-  WORKER_KINDS.flatMap((k) => ids(workers[k.id]).map(String)),
-).size;
+export const countWorkers = (workers = {}) => crewOf(workers).length;
 
-/* ─────── люди актива одним списком ───────
+/* ─────── воркеры актива одним списком ───────
 
-   Роли — это про то, кто чем занят, а список людей отвечает на другой
-   вопрос: КТО ЭТО ВООБЩЕ. Один человек может быть и постановщиком, и
-   исполнителем, и проверяющим — в списке он один раз.
+   Роли — это про то, кто чем занят, а список воркеров отвечает на другой
+   вопрос: КТО ВООБЩЕ РАБОТАЕТ В ЭТОМ АКТИВЕ. Один человек может быть и
+   постановщиком, и исполнителем, и проверяющим — в списке он один раз.
 
-   Порядок задаёт человек и хранит его в `crew`. Это только порядок, а не
-   членство: кто в активе — по-прежнему решают роли. Иначе удаление из
-   ролей пришлось бы повторять во втором списке, и рано или поздно они
-   разошлись бы. */
+   Членство хранится в `crew` и задаётся прямо: сперва отмечают воркеров
+   актива из всех людей схемы, и уже из отмеченных выбирают постановщиков,
+   исполнителей и проверяющих. Обратный порядок — «стал воркером, потому
+   что его куда-то назначили» — заставлял бы называть роль раньше, чем
+   человека, и список воркеров был бы подписью под тем, что задано в
+   другом месте.
+
+   Назначенный в роль считается воркером и без отметки: так открываются
+   модели, собранные прежним порядком, — иначе люди из ролей просто
+   исчезли бы из актива. */
 export const crewOf = (workers = {}) => {
-  const member = new Set(WORKER_KINDS.flatMap((k) => ids(workers[k.id]).map(String)));
   const out = [];
   const push = (id) => {
-    if (member.has(String(id)) && !out.some((x) => String(x) === String(id))) out.push(id);
+    if (id != null && !out.some((x) => String(x) === String(id))) out.push(id);
   };
   ids(workers.crew).forEach(push);
   WORKER_KINDS.forEach((k) => ids(workers[k.id]).forEach(push));
   return out;
 };
+
+/** Воркер ли человек в этом активе. */
+export const isCrew = (workers = {}, id) =>
+  crewOf(workers).some((x) => String(x) === String(id));
 
 /** Место человека в порядке актива: чем меньше, тем выше в списках. */
 export const crewRank = (workers = {}) => {
@@ -490,26 +533,39 @@ export const byCrew = (workers, people = []) => {
  * Считается по верхней границе вилки — по тому, сколько может понадобиться.
  * Взяться за работу, зная, что ресурса хватит лишь в удачном случае, —
  * значит заранее согласиться встать на полпути.
+ *
+ * `done` — сколько единиц каждого ресурса ЭТА функция уже обработала, не
+ * расходуя. Обработанное лежит на месте и достаётся другим функциям, но
+ * этой второй раз не даётся: работа по нему уже сделана.
  */
-export function shortage(f, traits = []) {
+export function shortage(f, traits = [], done = {}) {
   if (!f) return [];
-  const have = (id) => num(traits.find((t) => t.id === id)?.have);
+  const left = (id) => num(done?.[id]);
+  const have = (id) => {
+    const all = num(traits.find((t) => t.id === id)?.have);
+    return all;
+  };
+  const free = (p) => (portSpends(p) ? have(p.trait)
+    : Math.max(0, have(p.trait) - left(p.trait)));
   const name = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
   return groupsOf(f.takes || [])
     .map((g) => {
-      const ok = g.some((p) => have(p.trait) >= num(p.hi || p.lo));
+      const ok = g.some((p) => free(p) >= num(p.hi || p.lo));
       if (ok) return null;
       // Показываем тот вариант, которого не хватает меньше всего: до него
       // ближе всего, и именно он подскажет, чего добирать.
       const best = g.reduce((a, p) => {
-        const gap = num(p.hi || p.lo) - have(p.trait);
+        const gap = num(p.hi || p.lo) - free(p);
         return a && a.gap <= gap ? a : { p, gap };
       }, null);
       return best && {
         trait: best.p.trait,
         name: name(best.p.trait),
         need: num(best.p.hi || best.p.lo),
-        have: have(best.p.trait),
+        have: free(best.p),
+        // Обработанное этой функцией: не «нет ресурса», а «нет НОВОГО».
+        done: portSpends(best.p) ? 0 : Math.min(left(best.p.trait), have(best.p.trait)),
+        spend: portSpends(best.p),
         alts: g.length,
       };
     })
@@ -517,7 +573,7 @@ export function shortage(f, traits = []) {
 }
 
 /** Хватает ли ресурсов, чтобы взяться за функцию прямо сейчас. */
-export const canRun = (f, traits = []) => shortage(f, traits).length === 0;
+export const canRun = (f, traits = [], done = {}) => shortage(f, traits, done).length === 0;
 
 /**
  * Людей, переставших быть воркерами актива, убираем и с его функций.
