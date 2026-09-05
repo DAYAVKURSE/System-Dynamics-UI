@@ -4,9 +4,10 @@ import { funcLabel } from "./TasksBoard.jsx";
 import { reportSrc } from "../storage.js";
 import { putShare } from "../identity.js";
 import {
-  briefOf, childrenOf, dropNode, linkTo, newPick, newProject, newSection,
+  childrenOf, dropNode, linkTo, newPick, newProject, newSection,
   pathOf, resultsOf, rootsOf, shareLink, summaryOf,
 } from "../lib/reports.js";
+import { unitsOfTrait } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОТЧЁТЫ · карта проектов
@@ -17,11 +18,17 @@ import {
    вложенных, как они и заданы. На телефоне это и есть самая честная карта:
    ветку видно целиком, и никуда не надо тащить холст.
 
-   Внутри блока говорится, что в него попадает: результаты какой функции и
-   по какому ресурсу. Дальше приложение собирает их само — из сдач, которые
-   уже сделаны: дата, кто, сколько часов, сколько ресурса и приложенный
-   файл. Ничего не переписывается руками: переписанное разошлось бы с тем,
-   что было на самом деле.
+   Внутри блока — ссылки на ОПРЕДЕЛЁННЫЕ результаты: вот это техническое
+   задание №3, вот дизайн №7, который к нему относится. Функция и ресурс
+   тут — способ найти нужную единицу, а не сам ответ; сам результат
+   приложение достаёт из сдачи, которая уже сделана: дата, кто, сколько
+   часов и приложенный файл. Ничего не переписывается руками: переписанное
+   разошлось бы с тем, что было на самом деле.
+
+   Поля «техническое задание» здесь нет и не будет. Заказ, описанный полем,
+   — это пересказ, а пересказ расходится с делом в первый же день. Само
+   задание — такой же результат чьей-то работы, со своим номером: его и
+   кладут в раздел.
    ════════════════════════════════════════════════════════════════ */
 
 const fmtDT = (v) => {
@@ -37,6 +44,10 @@ function Row({ r, traitName, nameOf }) {
   return (
     <div style={{ borderTop: `1px solid ${C.line}`, padding: "6px 0" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+        {/* Номер единицы — то, чем результаты и различаются: «задание №3»
+            можно назвать вслух и найти. */}
+        {r.no != null && (
+          <span style={{ fontSize: 11, color: ACC, fontWeight: 700 }}>№{r.no}</span>)}
         <span style={{ fontSize: 12, fontWeight: 600, flex: "1 1 130px" }}>{r.title}</span>
         <span style={{ fontSize: 11, color: r.qty >= 0 ? OK : WARN }}>
           {r.qty >= 0 ? "+" : "−"}{nm(Math.abs(r.qty))} {traitName(r.trait)}</span>
@@ -72,8 +83,6 @@ function Node({ node, nodes, model, depth = 0, focus, onFocus, setNodes,
   const picks = node.picks || [];
   const rows = resultsOf(model, picks);
   const sum = summaryOf(model, node, nodes);
-  const brief = briefOf(nodes, node.id);
-  const own = brief && brief.node.id === node.id;
   const root = !node.parent;
 
   /* Ссылка наружу — это снимок блока на сервере, а не адрес приложения:
@@ -119,54 +128,68 @@ function Node({ node, nodes, model, depth = 0, focus, onFocus, setNodes,
       </div>
 
       {open && (<>
-        {/* Задание. У проекта — своё; раздел показывает ближайшее сверху,
-            пока не заведёт собственное. */}
-        <div style={{ ...S.lbl, marginTop: 8 }}>
-          {root ? "техническое задание" : "задание раздела"}</div>
-        <TxtField area value={node.brief}
-          aria-label={root ? "техническое задание" : `задание раздела ${node.name}`}
-          placeholder={own || root ? "что заказано: своими словами или текстом заказчика"
-            : "своё задание — если у раздела оно отдельное"}
-          style={{ minHeight: 52, margin: "4px 0", lineHeight: 1.5 }}
-          onCommit={(v) => up({ brief: v })} />
-        {brief && !own && (
-          <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-            Действует задание «{brief.node.name}»: всё, что здесь лежит,
-            относится к нему.
-          </div>)}
-
-        {/* Что сюда попадает: результаты функции по конкретному ресурсу. */}
+        {/* Что сюда попадает: определённая единица ресурса, по номеру. */}
         <div style={{ ...S.lbl, marginTop: 8 }}>что сюда попадает</div>
         {!picks.length && (
           <div style={{ fontSize: 11, color: C.muted, margin: "4px 0", lineHeight: 1.5 }}>
-            Пока ничего. Выберите функцию и ресурс: сюда попадут её сдачи по
-            этому ресурсу — с числами и приложенными файлами.
+            Пока ничего. Выберите функцию и ресурс, а потом — определённый
+            результат по номеру: вот это техническое задание, вот дизайн,
+            который к нему относится.
           </div>)}
-        {picks.map((p) => (
-          <div key={p.id} className="flex flex-wrap gap-2"
-            style={{ alignItems: "center", marginTop: 4 }}>
-            <select style={{ ...S.inp, flex: "1 1 130px", minWidth: 0, fontSize: 11.5,
-              padding: "4px 6px" }}
-              aria-label="функция результата" value={p.func}
-              onChange={(e) => up({ picks: picks.map((x) => (x.id === p.id
-                ? { ...x, func: e.target.value } : x)) })}>
-              <option value="">— функция —</option>
-              {(model.funcs || []).map((f) => (
-                <option key={f.id} value={f.id}>{funcLabel(f, entities)}</option>))}
-            </select>
-            <select style={{ ...S.inp, flex: "1 1 110px", minWidth: 0, fontSize: 11.5,
-              padding: "4px 6px" }}
-              aria-label="ресурс результата" value={p.trait}
-              onChange={(e) => up({ picks: picks.map((x) => (x.id === p.id
-                ? { ...x, trait: e.target.value } : x)) })}>
-              <option value="">— ресурс —</option>
-              {(model.traits || []).map((t) => (
-                <option key={t.id} value={t.id}>{t.l}</option>))}
-            </select>
-            <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD }}
-              aria-label="убрать результат"
-              onClick={() => up({ picks: picks.filter((x) => x.id !== p.id) })}>×</button>
-          </div>))}
+        {picks.map((p) => {
+          // Единицы этого ресурса — те, что и правда получились из сдач.
+          const units = p.trait ? unitsOfTrait(model, p.trait)
+            .filter((u) => !p.func || u.func === p.func) : [];
+          return (
+            <div key={p.id} style={{ border: `1px solid ${C.line}`, borderRadius: 8,
+              padding: 7, marginTop: 5 }}>
+              <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+                <select style={{ ...S.inp, flex: "1 1 130px", minWidth: 0, fontSize: 11.5,
+                  padding: "4px 6px" }}
+                  aria-label="функция результата" value={p.func}
+                  onChange={(e) => up({ picks: picks.map((x) => (x.id === p.id
+                    ? { ...x, func: e.target.value, unit: "" } : x)) })}>
+                  <option value="">— функция —</option>
+                  {(model.funcs || []).map((f) => (
+                    <option key={f.id} value={f.id}>{funcLabel(f, entities)}</option>))}
+                </select>
+                <select style={{ ...S.inp, flex: "1 1 110px", minWidth: 0, fontSize: 11.5,
+                  padding: "4px 6px" }}
+                  aria-label="ресурс результата" value={p.trait}
+                  onChange={(e) => up({ picks: picks.map((x) => (x.id === p.id
+                    ? { ...x, trait: e.target.value, unit: "" } : x)) })}>
+                  <option value="">— ресурс —</option>
+                  {(model.traits || []).map((t) => (
+                    <option key={t.id} value={t.id}>{t.l}</option>))}
+                </select>
+                <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD }}
+                  aria-label="убрать результат"
+                  onClick={() => up({ picks: picks.filter((x) => x.id !== p.id) })}>×</button>
+              </div>
+              {/* Определённый результат по номеру — то, ради чего всё и
+                  затевалось. Пусто — попадут все: так раздел заводят
+                  заранее, когда работ ещё не было. */}
+              <select style={{ ...S.inp, marginTop: 5, fontSize: 11.5, padding: "4px 6px" }}
+                aria-label="определённый результат" value={p.unit || ""}
+                disabled={!p.trait}
+                onChange={(e) => up({ picks: picks.map((x) => (x.id === p.id
+                  ? { ...x, unit: e.target.value } : x)) })}>
+                <option value="">
+                  {p.trait ? "все результаты этой функции по этому ресурсу"
+                    : "— сначала выберите ресурс —"}</option>
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    №{u.no} · {u.title || "без названия"}
+                    {u.accepted ? "" : " (не принято)"}</option>))}
+              </select>
+              {p.trait && !units.length && (
+                <div style={{ fontSize: 10, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
+                  Единиц с номерами ещё нет: они появляются из сдач — сдали
+                  работу, и её результат стал вещью, на которую можно
+                  сослаться.
+                </div>)}
+            </div>);
+        })}
         <button style={{ ...btn(false), fontSize: 11, marginTop: 6 }}
           onClick={() => up({ picks: [...picks, newPick()] })}>+ результат</button>
 
@@ -195,7 +218,7 @@ function Node({ node, nodes, model, depth = 0, focus, onFocus, setNodes,
             <div style={{ color: linkErr ? WARN : C.muted }}>
               {linkErr
                 ? `Снимок не сохранился (${linkErr}) — эта ссылка откроется только у тех, у кого модель уже есть.`
-                : "Открывается у кого угодно и без входа: там снимок этого блока — задание, разделы и принятые работы, и ничего сверх. Нажмите «обновить ссылку», чтобы показать сегодняшнее; чтобы закрыть доступ — удалите ссылку в списке."}
+                : "Открывается у кого угодно и без входа: там снимок этого блока — разделы и принятые работы, и ничего сверх. Нажмите «обновить ссылку», чтобы показать сегодняшнее; чтобы закрыть доступ — удалите ссылку в списке."}
             </div>
           </div>)}
 
@@ -225,9 +248,10 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
         </div>
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
           Проект и раздел — один и тот же блок, вложенный в другой: карта
-          собирается из одинаковых блоков без предела глубины. В блоке
-          говорится, результаты какой функции и по какому ресурсу в него
-          попадают, — остальное приложение соберёт из уже сделанных сдач.
+          собирается из одинаковых блоков без предела глубины. В блоке —
+          ссылки на определённые результаты по номерам: вот это техническое
+          задание, вот дизайн к нему. Сами результаты приложение достанет из
+          уже сделанных сдач.
         </div>
         {!!path.length && (
           <div className="flex flex-wrap gap-2" style={{ marginTop: 8, alignItems: "center" }}>
@@ -240,8 +264,9 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
 
       {!nodes.length && (
         <div style={{ ...S.card, fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
-          Проектов пока нет. Проект — это заказ или направление работы: у него
-          есть техническое задание, и всё, что в нём лежит, относится к нему.
+          Проектов пока нет. Проект — это заказ или направление работы: в нём
+          разделы и ссылки на определённые результаты, каждый со своим
+          номером.
         </div>)}
 
       {focus && !path.length && (

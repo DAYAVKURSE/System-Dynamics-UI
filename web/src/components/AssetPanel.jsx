@@ -8,6 +8,7 @@ import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, cou
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 import { byRating, shortStat, statsOf } from "../lib/workers.js";
+import { unitsOf } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
    КАРТОЧКА АКТИВА · воркеры, функции, ресурсы
@@ -461,7 +462,8 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   прямо противоположно тому, что задано. */}
               {f.takes.length
                 ? groupsOf(f.takes)
-                  .map((g) => g.map((t) => traitName(t.trait)).join(" или "))
+                  .map((g) => g.map((t) => traitName(t.trait)
+                    + (portSpends(t) ? "" : " (не расходует)")).join(" или "))
                   .join(", ")
                 : "ничего не берёт"}
               {" → "}
@@ -780,9 +782,12 @@ export function Kinds({ kinds, onUp, onAdd, onDel, msg }) {
    Цели здесь тоже нет, и это осознанно. Поле «сколько нужно» обедняло
    цель до числа, а цель — это ещё темп («один клиент В НЕДЕЛЮ»), срок и
    цена. Всё это живёт в «Прогнозе», где считается; здесь ему места нет. */
-export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open, setOpen,
+export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, kindOf,
+  open, setOpen,
   onWhy, onDelete, onUpKind, onAddKind, onDelKind, kindMsg }) {
   const mine = traits.filter((t) => t.e === entityId);
+  // Единицы с номерами: их не заводят руками, они рождаются сдачами.
+  const units = unitsOf({ tasks, funcs });
   const [draft, setDraft] = useState("");
   const up = (id, patch) => setTraits((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   const add = (kindId) => {
@@ -827,6 +832,38 @@ export function Traits({ entityId, traits, setTraits, funcs, kinds, kindOf, open
                   padding: "3px 7px" }} onClick={() => up(t.id, { k: x.id })}>
                   {x.sign} {x.name}</button>))}
             </div>
+            {/* ─── единицы с номерами ───
+                Количество говорит, сколько всего, и молчит о том, ЧТО
+                именно. Работают же не с количеством: вот это техническое
+                задание от того заказчика, вот дизайн к нему. Номера тут
+                не заводятся руками — единица рождается сдачей задачи, и
+                это единственный честный способ: заведённый руками номер
+                означал бы вещь, которой никто не делал. */}
+            <div style={{ ...S.lbl, marginTop: 8 }}>единицы с номерами</div>
+            {(() => {
+              const own = units.filter((u) => u.trait === t.id);
+              if (!own.length) {
+                return (
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4,
+                    lineHeight: 1.5 }}>
+                    Пока ни одной: единица появляется, когда сдают задачу, —
+                    и на неё уже можно сослаться в отчёте.
+                  </div>);
+              }
+              return [...own].reverse().slice(0, 8).map((u) => (
+                <div key={u.id} className="flex flex-wrap gap-2"
+                  style={{ alignItems: "center", fontSize: 11, marginTop: 4 }}>
+                  <span style={{ color: ACC, fontWeight: 700 }}>№{u.no}</span>
+                  <span style={{ flex: "1 1 110px", minWidth: 0 }}>
+                    {u.title || "без названия"}</span>
+                  <span style={{ color: u.accepted ? OK : WARN, fontSize: 10 }}>
+                    {u.accepted ? "принято" : "не принято"}</span>
+                </div>));
+            })()}
+            {units.filter((u) => u.trait === t.id).length > 8 && (
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>
+                показаны последние 8 — остальные видно в отчётах.</div>)}
+
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
               Ресурс сам себя не меняет: его берут и выдают функции. Цель по
               нему ставится в «Прогнозе»: у неё есть темп, срок и цена, и
@@ -901,7 +938,7 @@ export default function AssetPanel(props) {
 
       {tab === "traits" && (
         <Traits entityId={props.entityId} traits={props.traits} setTraits={props.setTraits}
-          funcs={props.funcs} kinds={props.kinds} kindOf={props.kindOf}
+          funcs={props.funcs} tasks={props.tasks} kinds={props.kinds} kindOf={props.kindOf}
           open={openTrait} setOpen={setOpenTrait}
           onWhy={props.onWhyTrait} onDelete={props.onDeleteTrait}
           onUpKind={props.onUpKind} onAddKind={props.onAddKind}

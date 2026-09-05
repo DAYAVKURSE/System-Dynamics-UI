@@ -536,7 +536,8 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
    Сдача записывает, что вышло на самом деле: сколько часов ушло и сколько
    каждого ресурса взяли и выдали. Из принятых сдач считается среднее
    арифметическое — оно и уточняет прогноз. */
-export function TaskView({task,funcs=[],traits=[],entities=[],setTasks,onClose,nameOf}){
+export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
+  onClose,nameOf}){
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
@@ -551,6 +552,11 @@ export function TaskView({task,funcs=[],traits=[],entities=[],setTasks,onClose,n
   const subs=task.submissions||[];
   const traitName=(id)=>traits.find(t=>t.id===id)?.l||"(ресурс удалён)";
   const who=(id)=>(id?(nameOf?nameOf(id):id):"не назначен");
+  /* Номера единиц, которые получились из сдач. Сдача — это не «плюс одна
+     штука», а появление ВЕЩИ: вот это техническое задание, вот этот макет.
+     На них потом и ссылаются разделы отчёта. */
+  const unitNo={};
+  unitsOf({tasks:tasks.length?tasks:[task],funcs}).forEach(u=>{unitNo[u.id]=u.no;});
 
   const pickFile=async(f)=>{
     setFileErr("");
@@ -641,7 +647,9 @@ export function TaskView({task,funcs=[],traits=[],entities=[],setTasks,onClose,n
                 `${traitName(id)} ${nm(v)}`).join(", ")||"—"}
               {" · выдано: "}
               {Object.entries(sb.gives||{}).map(([id,v])=>
-                `${traitName(id)} ${nm(v)}`).join(", ")||"—"}
+                `${traitName(id)} ${nm(v)}`
+                +(unitNo[`${sb.id}~${id}`]?` №${unitNo[`${sb.id}~${id}`]}`:""))
+                .join(", ")||"—"}
             </div>
             {sb.text&&<div style={{fontSize:11.5,marginTop:4,lineHeight:1.5}}>{sb.text}</div>}
             {sb.file&&<div style={{fontSize:10.5,color:ACC,marginTop:4}}>
@@ -765,7 +773,8 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
       </div>
 
       {open&&(
-        <TaskView task={open} funcs={funcs} traits={traits} entities={entities}
+        <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits}
+          entities={entities}
           nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}
 
       <div className="flex gap-2" style={{overflowX:"auto",alignItems:"flex-start"}}>

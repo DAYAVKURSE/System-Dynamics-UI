@@ -5,16 +5,17 @@ import ReportsPanel from "../components/ReportsPanel.jsx";
 import ShareView, { shareFromLocation } from "../components/ShareView.jsx";
 import SystemModel, { TAB_LIST } from "../components/SystemModel.jsx";
 import {
-  briefOf, childrenOf, dropNode, newProject, newSection, normalizeReports,
+  childrenOf, dropNode, newProject, newSection, normalizeReports,
   pathOf, reportFromLocation, resultsOf, rootsOf, shareLink, subtree, summaryOf,
 } from "../lib/reports.js";
 
 /* ОТЧЁТЫ · карта проектов.
 
    Проект и раздел — один и тот же блок, вложенный в другой: карта
-   складывается фрактально, без предела глубины. В блоке сказано, результаты
-   какой функции и по какому ресурсу в него попадают; остальное собирается
-   из уже сделанных сдач, а не переписывается руками. */
+   складывается фрактально, без предела глубины. В блоке — ссылки на
+   ОПРЕДЕЛЁННЫЕ результаты по номерам; сами результаты собираются из уже
+   сделанных сдач, а не переписываются руками. Технического задания полем
+   в карте нет: пересказ заказа разошёлся бы с делом. */
 
 const MODEL = {
   traits: [{ id: "t2", e: "e1", l: "макет" }],
@@ -33,10 +34,10 @@ const MODEL = {
   ],
 };
 const NODES = [
-  { id: "rp1", parent: null, name: "Заказ «Сайт»", brief: "сделать сайт", picks: [] },
-  { id: "rs1", parent: "rp1", name: "Макеты", brief: "",
+  { id: "rp1", parent: null, name: "Заказ «Сайт»", picks: [] },
+  { id: "rs1", parent: "rp1", name: "Макеты",
     picks: [{ id: "pk1", func: "f1", trait: "t2" }] },
-  { id: "rs2", parent: "rs1", name: "Главная", brief: "", picks: [] },
+  { id: "rs2", parent: "rs1", name: "Главная", picks: [] },
 ];
 
 describe("запись карты", () => {
@@ -50,7 +51,7 @@ describe("запись карты", () => {
 
   it("чужая запись достраивается, а не ломается", () => {
     expect(normalizeReports([{ id: "x" }])[0])
-      .toEqual({ id: "x", parent: null, name: "", brief: "", picks: [] });
+      .toEqual({ id: "x", parent: null, name: "", picks: [] });
     expect(normalizeReports(null)).toEqual([]);
   });
 
@@ -72,12 +73,15 @@ describe("запись карты", () => {
     expect(dropNode(NODES, "rp1")).toEqual([]);
   });
 
-  it("задание наследуется сверху, а не копируется в каждый раздел", () => {
-    // Копии разошлись бы: в одном месте поправили, в другом забыли.
-    expect(briefOf(NODES, "rs2").node.id).toBe("rp1");
-    const own = NODES.map((n) => (n.id === "rs1" ? { ...n, brief: "своё" } : n));
-    expect(briefOf(own, "rs1").brief).toBe("своё");
-    expect(briefOf(own, "rs2").brief).toBe("своё");
+  it("технического задания полем нет ни у проекта, ни у раздела", () => {
+    /* Заказ, описанный полем, — это пересказ, а пересказ расходится с тем,
+       что и правда сделано, в первый же день. Само задание — такой же
+       результат чьей-то работы, со своим номером. */
+    expect(newProject("Заказ")).not.toHaveProperty("brief");
+    expect(newSection("rp1", "Раздел")).not.toHaveProperty("brief");
+    // И из чужой записи оно не переносится: двух источников правды не будет.
+    expect(normalizeReports([{ id: "x", brief: "сделать сайт" }])[0])
+      .not.toHaveProperty("brief");
   });
 });
 
@@ -135,10 +139,25 @@ describe("карта в форме", () => {
     expect(screen.getByText(/📎 макет.pdf/)).toBeInTheDocument();
   });
 
-  it("раздел показывает задание проекта, пока не завёл своё", () => {
+  it("поля задания в блоке нет — только разделы и результаты", () => {
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByText(/Действует задание «Заказ «Сайт»»/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("техническое задание")).toBeNull();
+    expect(screen.queryByText(/задание раздела/)).toBeNull();
+  });
+
+  it("результат выбирается определённой единицей — по номеру", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    const pick = screen.getByLabelText("определённый результат");
+    // В списке — те единицы, что и правда получились из сдач, каждая с номером.
+    expect([...pick.options].map((o) => o.textContent))
+      .toEqual(["все результаты этой функции по этому ресурсу",
+        "№2 · Второй заход (не принято)", "№1 · Макет главной"]);
+    fireEvent.change(pick, { target: { value: "s1~t2" } });
+    // Выбрана одна — остальные из блока уходят: раздел ссылается на вещь.
+    expect(screen.getByText("Макет главной")).toBeInTheDocument();
+    expect(screen.queryByText("Второй заход")).toBeNull();
   });
 
   it("удаление блока уносит вложенные разделы", () => {
@@ -177,12 +196,11 @@ describe("страница по ссылке", () => {
   afterEach(() => vi.restoreAllMocks());
   const SNAP = { name: "Макеты", at: "2026-02-05T10:00:00Z",
     snapshot: { at: "2026-02-05T10:00:00Z", path: ["Заказ «Сайт»", "Макеты"],
-      brief: { name: "Заказ «Сайт»", text: "сделать сайт" },
-      block: { name: "Макеты", brief: "",
-        results: [{ title: "Макет главной", func: "Собрать макет", trait: "макет",
+      block: { name: "Макеты",
+        results: [{ title: "Макет главной", no: 1, func: "Собрать макет", trait: "макет",
           at: "2026-02-01T10:00:00Z", by: "Иван", hours: 4, qty: 1, text: "готово",
           file: { name: "макет.pdf", type: "application/pdf", url: "/api/reports/x/y" } }],
-        sections: [{ name: "Главная", brief: "", results: [], sections: [] }] } } };
+        sections: [{ name: "Главная", results: [], sections: [] }] } } };
 
   it("токен читается из адреса, и только настоящий", () => {
     expect(shareFromLocation("?share=" + "a".repeat(64))).toBe("a".repeat(64));
@@ -190,12 +208,13 @@ describe("страница по ссылке", () => {
     expect(shareFromLocation("")).toBeNull();
   });
 
-  it("показывает задание, сделанное и вложенные разделы — без входа", async () => {
+  it("показывает сделанное с номерами и вложенные разделы — без входа", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200,
       json: async () => SNAP })));
     render(<ShareView token={"a".repeat(64)} />);
     expect(await screen.findByText("Макет главной")).toBeInTheDocument();
-    expect(screen.getByText(/сделать сайт/)).toBeInTheDocument();
+    // Номер тот же, что и внутри: заказчик и исполнитель зовут вещь одинаково.
+    expect(screen.getByText("№1")).toBeInTheDocument();
     expect(screen.getByText("Главная")).toBeInTheDocument();
     expect(screen.getByText(/📎 макет.pdf/)).toBeInTheDocument();
   });

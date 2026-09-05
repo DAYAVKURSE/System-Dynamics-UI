@@ -29,6 +29,10 @@ function Result({ r }) {
   return (
     <div style={{ borderTop: `1px solid ${C.line}`, padding: "7px 0" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+        {/* Номер — то же самое, что и внутри: заказчик и исполнитель должны
+            звать вещь одинаково. */}
+        {r.no != null && (
+          <span style={{ fontSize: 11, color: ACC, fontWeight: 700 }}>№{r.no}</span>)}
         <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>{r.title}</span>
         {!!r.trait && (
           <span style={{ fontSize: 11, color: OK }}>
@@ -58,10 +62,6 @@ function Block({ block, depth = 0 }) {
       borderLeft: depth ? `2px solid ${C.line}` : undefined }}>
       <div style={{ fontSize: depth ? 13 : 15, fontWeight: 700 }}>
         {block.name || "без названия"}</div>
-      {block.brief && (
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 5, lineHeight: 1.6,
-          whiteSpace: "pre-wrap" }}>{block.brief}</div>)}
-
       {!block.results?.length && !block.sections?.length && (
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>
           Здесь пока ничего не сделано.</div>)}
@@ -106,11 +106,6 @@ export default function ShareView({ token }) {
             {!!state.data.snapshot?.path?.length && (
               <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>
                 {state.data.snapshot.path.join(" → ")}</div>)}
-            {state.data.snapshot?.brief && (
-              <div style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6 }}>
-                <span style={{ color: C.muted }}>задание «{state.data.snapshot.brief.name}»: </span>
-                <span style={{ whiteSpace: "pre-wrap" }}>{state.data.snapshot.brief.text}</span>
-              </div>)}
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
               Снимок на {fmtDT(state.data.snapshot?.at)}. Показано только то,
               что выбрано в этом блоке; принятые работы — и ничего больше.

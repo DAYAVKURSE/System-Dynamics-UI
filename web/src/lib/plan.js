@@ -540,8 +540,12 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
      надо иметь: каждое выполнение обрабатывает свою единицу, и если её
      нет — её кто-то должен произвести. Но остаток они не тратят: то же
      самое достанется и другой функции, и обнулять им склад значило бы
-     объявить нехваткой то, что лежит на месте. */
-  const keep = {};
+     объявить нехваткой то, что лежит на месте.
+
+     Очередь ведётся ПО ФУНКЦИЯМ: ограничение «второй раз не берём»
+     принадлежит одной функции, и лежащие четыре единицы закрывают нужду
+     каждой из двух, а не половину общей нужды в восьми. */
+  const keep = {};                   // "функция|ресурс" → сколько надо иметь
   // Сколько чего понадобилось иметь, ничего не тратя.
   const held = {};
   // Во что цель обходится по ресурсам: сколько каждого понадобилось всего.
@@ -565,12 +569,13 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
 
   while (guard < passes) {
     const spending = Object.keys(need).find((k) => need[k] > 1e-9);
-    const id = spending || Object.keys(keep).find((k) => keep[k] > 1e-9);
-    if (!id) break;
+    const holding = spending ? null : Object.keys(keep).find((k) => keep[k] > 1e-9);
+    if (!spending && !holding) break;
     guard += 1;
     const holds = !spending;
-    const want4 = holds ? keep[id] : need[id];
-    if (holds) { keep[id] = 0; held[id] = (held[id] || 0) + want4; }
+    const id = holds ? holding.slice(holding.indexOf("|") + 1) : spending;
+    const want4 = holds ? keep[holding] : need[spending];
+    if (holds) { keep[holding] = 0; held[id] = Math.max(held[id] || 0, want4); }
     else { need[id] = 0; spent[id] = (spent[id] || 0) + want4; }
 
     // Сначала берём из остатка — производить то, что уже есть, незачем.
@@ -600,7 +605,7 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
       const q = portQty(p, { kind: "takes", side, runs: runsFor(f) }) * n;
       if (!(q > 0)) return;
       if (portSpends(p)) need[p.trait] = (need[p.trait] || 0) + q;
-      else keep[p.trait] = (keep[p.trait] || 0) + q;
+      else keep[`${f.id}|${p.trait}`] = (keep[`${f.id}|${p.trait}`] || 0) + q;
     });
   }
   if (guard >= passes) looped = true;

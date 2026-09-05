@@ -28,25 +28,44 @@ export function pathOf(nodes = [], id) {
   return out;
 }
 
-/** Чьё задание действует в блоке: своё или ближайшего предка. */
-function briefOf(nodes, id) {
-  const path = pathOf(nodes, id);
-  for (let i = path.length - 1; i >= 0; i -= 1) {
-    if (str(path[i].brief).trim()) return { name: str(path[i].name), text: str(path[i].brief) };
-  }
-  return null;
+/* ─────── номера единиц ───────
+
+   Единица ресурса рождается сдачей задачи, и номер у неё — порядковый
+   внутри своего ресурса, от старых к новым. Считается тем же правилом, что
+   и в приложении (`web/src/lib/units.js`): снимок обязан называть вещь тем
+   же номером, каким её зовут внутри, — иначе заказчик и исполнитель будут
+   говорить про «задание №3» о разных заданиях. */
+function unitNumbers(model = {}) {
+  const rows = [];
+  (model.tasks || []).forEach((t) => {
+    const subs = t.submissions || [];
+    const sb = subs.length ? subs[subs.length - 1] : null;
+    if (!sb) return;
+    Object.entries(sb.gives || {}).forEach(([trait, v]) => {
+      if (num(v) > 0) rows.push({ id: `${sb.id}~${trait}`, trait, at: str(sb.at) });
+    });
+  });
+  rows.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  const seq = {};
+  const no = {};
+  rows.forEach((r) => { seq[r.trait] = (seq[r.trait] || 0) + 1; no[r.id] = seq[r.trait]; });
+  return no;
 }
 
 /**
- * Сделанное по выбранным парам «функция + ресурс».
+ * Сделанное по выбранным результатам.
  *
  * Только принятые сдачи: непринятая — это заявление исполнителя, а не
  * результат, и показывать её заказчику как сделанное нельзя.
+ *
+ * Выбрана определённая единица — только она и уходит наружу: раздел
+ * ссылается на вещь по номеру, а не на всё, что функция когда-либо выдала.
  */
 function resultsOf(model, picks = []) {
   const { tasks = [], funcs = [], traits = [], people = [] } = model;
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "";
   const personName = (id) => people.find((p) => String(p.id) === String(id))?.name || "";
+  const no = unitNumbers(model);
   const rows = [];
   picks.forEach((p) => {
     const func = funcs.find((f) => f.id === p.func) || null;
@@ -55,8 +74,12 @@ function resultsOf(model, picks = []) {
         const gave = num(sb.gives?.[p.trait]);
         const took = num(sb.takes?.[p.trait]);
         if (p.trait && !gave && !took) return;
+        const unit = `${sb.id}~${str(p.trait)}`;
+        if (p.unit && str(p.unit) !== unit) return;
         rows.push({
           title: str(t.title),
+          // Номер уходит наружу нарочно: по нему заказчик и называет вещь.
+          no: no[unit] ?? null,
           func: str(func?.name || ""),
           trait: traitName(p.trait),
           at: str(sb.at),
@@ -86,9 +109,11 @@ export function snapshotOf(model = {}, nodeId) {
   const root = nodes.find((n) => n.id === nodeId);
   if (!root) return null;
 
+  /* Технического задания в снимке нет, как нет его и в самой карте:
+     в блоке — разделы и определённые результаты, а описанный полем заказ
+     был бы пересказом, который расходится с делом. */
   const block = (n) => ({
     name: str(n.name),
-    brief: str(n.brief),
     results: resultsOf(model, n.picks || []),
     sections: childrenOf(nodes, n.id).map(block),
   });
@@ -96,9 +121,6 @@ export function snapshotOf(model = {}, nodeId) {
   return {
     at: new Date().toISOString(),
     path: pathOf(nodes, nodeId).map((n) => str(n.name)),
-    // Задание действует и на разделе, который взяли из середины карты:
-    // без него результаты — это список без вопроса, на который он отвечает.
-    brief: briefOf(nodes, nodeId),
     block: block(root),
   };
 }

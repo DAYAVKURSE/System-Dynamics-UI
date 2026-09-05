@@ -123,11 +123,20 @@ describe("что видно по ссылке", () => {
     expect(got.snapshot.block.results.map((r) => r.title)).not.toContain("Ещё не принято");
   });
 
-  it("задание наследуется сверху: без него результаты — список без вопроса", async () => {
+  it("технического задания в снимке нет — только путь и сами результаты", async () => {
+    /* Заказ, описанный полем, — пересказ, а наружу должно уходить то, что
+       и правда сделано. Куда попал человек, говорит путь по карте. */
     const { body } = await share("rs1");
     const { body: got } = await request(app).get(`/api/shares/${body.token}`);
-    expect(got.snapshot.brief).toMatchObject({ name: "Заказ «Сайт»", text: "сделать сайт" });
+    expect(got.snapshot.brief).toBeUndefined();
+    expect(got.snapshot.block.brief).toBeUndefined();
     expect(got.snapshot.path).toEqual(["Заказ «Сайт»", "Макеты"]);
+  });
+
+  it("у результата есть номер — тот же, каким его зовут внутри", async () => {
+    const { body } = await share("rs1");
+    const { body: got } = await request(app).get(`/api/shares/${body.token}`);
+    expect(got.snapshot.block.results[0].no).toBe(1);
   });
 
   it("вложенные разделы едут вместе с блоком", async () => {
