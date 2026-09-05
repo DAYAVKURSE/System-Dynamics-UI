@@ -901,7 +901,13 @@ export default function SystemModel(){
         </div>)}
 
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {TAB_LIST.filter(([k])=>k===SELF_TAB[0]||k==="reports"||me.tabs.includes(k))
+        {/* «Анкета» — всем: это единственное место, где человек говорит о
+            себе. «Отчёты» — владельцу: карту проектов пишет он, а
+            остальным сервер её и не отдаёт — рисовать пустую карту с
+            кнопками, которые ничего не сохранят, значило бы обещать
+            работу, которой не будет. Наружу отчёт уходит ссылкой. */}
+        {TAB_LIST.filter(([k])=>k===SELF_TAB[0]
+          ||(k==="reports"?(me.isOwner||me.solo):me.tabs.includes(k)))
           .map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
@@ -943,7 +949,7 @@ export default function SystemModel(){
           показывает о своей работе, а ссылку на блок карты дают кому
           угодно. Прятать её за ролью значило бы, что показать сделанное
           можно только с чужого разрешения. */}
-      {tab==="reports" && (
+      {tab==="reports" && (me.isOwner||me.solo) && (
         <ReportsPanel nodes={reports} setNodes={setReports}
           model={{traits,funcs,tasks}} entities={entities} nameOf={personName}
           focus={reportFocus} onFocus={setReportFocus}/>)}
