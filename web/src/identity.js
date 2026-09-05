@@ -54,6 +54,13 @@ const json = async (url, opts) => {
   return r.status === 204 ? null : r.json();
 };
 
+/* ─────── своя анкета ───────
+   Единственное, что человек меняет о себе сам: про себя он знает точнее,
+   а анкета, заполненная кем-то другим, была бы чужим мнением под чужим
+   именем. Поэтому маршрут открыт всем позванным, а не владельцу. */
+export const putProfile = (fields) =>
+  json("/api/org/me/profile", { method: "PUT", body: JSON.stringify(fields) });
+
 /* ─────── люди и роли (только владельцу) ─────── */
 
 export const listOrg = () => json("/api/org");

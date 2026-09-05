@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, hoursOf, isFactor, rangeText, shortage }
+import { DUR_UNITS, WORKER_KINDS, byCrew, hoursOf, isFactor, rangeText, shortage }
   from "../lib/funcs.js";
 import { shortStat, statsOf } from "../lib/workers.js";
 import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
@@ -260,7 +260,10 @@ export function TaskEditor({task,tasks=[],funcs=[],traits=[],entities=[],
   // функция: люди — свойство актива, и чужой человек в его работе
   // означал бы, что список воркеров ни на что не влияет.
   const asset=entities.find(e=>e.id===func?.e)||null;
-  const pool=(k)=>people.filter(p=>(asset?.[k]||[]).some(id=>String(id)===String(p.id)));
+  // В том порядке, который владелец задал в списке людей актива: кого
+  // поставили выше, того и предлагают первым.
+  const pool=(k)=>byCrew(asset||{},
+    people.filter(p=>(asset?.[k]||[]).some(id=>String(id)===String(p.id))));
   const gaps=taskGaps(task);
   // Ниже какого статуса задача не опустится: у автоматической постановки
   // это бэклог, и предлагать вернуть её в «ожидает постановки» незачем —

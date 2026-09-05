@@ -7,7 +7,7 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote }
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
-import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, countWorkers, normalizeAssets,
+import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, countWorkers, crewOf, normalizeAssets,
   normalizeFactors, normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
@@ -21,7 +21,7 @@ import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 import Modal from "./Modal.jsx";
-import PersonStats from "./PersonStats.jsx";
+import ProfilePanel from "./ProfilePanel.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v9
@@ -313,7 +313,12 @@ function whenText(iso){
    ту же модель, только во времени, и ползунок месяца у них общий со
    схемой. Держать их наверху значило разложить одно и то же по трём
    местам, между которыми надо помнить, где что. */
-export const TAB_LIST=[["tasks","Задачи"],["review","Проверка"],
+/* «Анкета» стоит первой и открыта всем вошедшим, а не по роли: это
+   единственное место, где человек говорит о СЕБЕ, а не о работе. Спрятать
+   её за ролью значило бы, что свою же анкету нельзя открыть без чужого
+   разрешения. */
+export const SELF_TAB=["me","Анкета"];
+export const TAB_LIST=[SELF_TAB,["tasks","Задачи"],["review","Проверка"],
   ["scheme","Схема"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
@@ -490,19 +495,22 @@ export default function SystemModel(){
       return pruneWorkers(p,sel,next);
     });
   };
-  /* Порядок людей в списке воркеров — свой, руками. По умолчанию список
-     сортируется по рейтингу, но выбирает всё равно человек: у него могут
-     быть причины, которых в цифрах нет. Поэтому порядок хранится, а
-     сортировка по рейтингу — только вид. */
-  const orderWorker=(kind,pid,delta)=>{
+  /* Порядок людей актива — свой, руками, и он же решает, кого показывать
+     первым в формах выбора: у выбирающего бывают причины, которых в цифрах
+     нет. Роли при этом всегда сортируются по рейтингу — там вопрос «кому
+     поручить», и первым должен стоять тот, кто лучше справлялся.
+
+     Хранится только ПОРЯДОК (`crew`), а членство — по-прежнему за ролями:
+     иначе удаление из ролей пришлось бы повторять во втором списке. */
+  const orderWorker=(pid,delta)=>{
     setEntities(p=>p.map(e=>{
       if(e.id!==sel) return e;
-      const list=[...(e[kind]||[])];
+      const list=crewOf(e);
       const i=list.findIndex(x=>String(x)===String(pid));
       const j=i+delta;
       if(i<0||j<0||j>=list.length) return e;
       [list[i],list[j]]=[list[j],list[i]];
-      return {...e,[kind]:list};
+      return {...e,crew:list};
     }));
   };
 
@@ -876,7 +884,7 @@ export default function SystemModel(){
         </div>)}
 
       <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {TAB_LIST.filter(([k])=>me.tabs.includes(k)).map(([k,t])=>(
+        {TAB_LIST.filter(([k])=>k===SELF_TAB[0]||me.tabs.includes(k)).map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 
@@ -897,6 +905,20 @@ export default function SystemModel(){
           Ваша роль ничего не открывает — возможно, её удалили. Попросите
           владельца назначить роль заново.
         </div>)}
+
+      {/* ═══ АНКЕТА · страница человека ═══
+          Своя — по умолчанию; чужая открывается нажатием на человека в
+          списке воркеров. Вкладкой, а не окном: страница длинная, и в
+          окне её пришлось бы листать поверх того, что под ним. */}
+      {tab==="me" && (
+        <ProfilePanel me={me} personId={person} people={people}
+          tasks={tasks} funcs={funcs}
+          traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
+          onPerson={setPerson}
+          onSaved={p=>{
+            setMe(m=>({...m,profile:p}));
+            setPeople(list=>list.map(u=>(String(u.id)===String(me.id)?{...u,...p}:u)));
+          }}/>)}
 
       {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && me.tabs.includes("tasks") && (
@@ -988,7 +1010,8 @@ export default function SystemModel(){
               entities={entities} kinds={kinds} kindOf={kindOf}
               factors={factors} setFactors={setFactors}
               people={people} nameOf={personName} runsOf={runsOf}
-              tasks={tasks} onOrderWorker={orderWorker} onOpenPerson={setPerson}
+              tasks={tasks} onOrderWorker={orderWorker}
+              onOpenPerson={id=>{setPerson(id);setTab("me");}}
               focus={focus}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}
@@ -1218,13 +1241,6 @@ export default function SystemModel(){
           {why.kind==="asset"?WHY_ASSET:why.kind==="func"?WHY_FUNC:WHY_TRAIT}
         </Modal>)}
 
-      {/* История человека: из списка воркеров — по нажатию на имя. Окном, а
-          не разворотом в списке: истории может быть много, а список нужен
-          целиком, чтобы сравнивать людей между собой. */}
-      {person && (
-        <Modal onClose={()=>setPerson(null)} title={personName(person)}>
-          <PersonStats tasks={tasks} funcs={funcs} personId={person}
-            traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}/>
-        </Modal>)}
+
     </div>);
 }

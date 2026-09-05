@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, checkFunc, checkTrait, countWorkers,
-  chanceOf, everyOf, everyRange, groupsOf, sameEvery, sameHours,
+import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, countWorkers,
+  crewOf,
+  chanceOf, everyOf, everyRange, factorChance, factorsOf, groupsOf, sameEvery, sameHours,
   funcKind, isFactor, newFactor, fromHours,
-  hoursOf, newFunc, newGive, newPort, okRange, portMode, rangeText, runHours,
+  hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 import { byRating, shortStat, statsOf } from "../lib/workers.js";
@@ -146,24 +147,63 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
    не украшение: он говорит, кого зовут на работу первым. */
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
   onToggle, onOrder, onOpenPerson }) {
-  const [sorted, setSorted] = useState(true);
   const stat = (id) => statsOf(tasks, funcs, id);
+  // Люди актива одним списком — без деления на роли: сперва «кто это
+  // вообще», и только потом «кто чем занят».
+  const crew = crewOf(workers);
+  const name = (id) => (nameOf ? nameOf(id) : id);
   return (
     <Section title="воркеры актива"
       hint="Постановщики, исполнители и проверяющие этого актива. На его функции можно ставить только их."
       empty={people.length ? null : "Людей ещё нет — заведите их во вкладке «Люди и роли»."}>
       {people.length > 0 && (<>
-        <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
-          <button style={{ ...btn(sorted), fontSize: 11, padding: "3px 8px" }}
-            onClick={() => setSorted(true)}>по рейтингу</button>
-          <button style={{ ...btn(!sorted), fontSize: 11, padding: "3px 8px" }}
-            onClick={() => setSorted(false)}>свой порядок</button>
+        {/* ─── люди актива ───
+            Список без ролей: нажатие открывает страницу человека — его
+            рейтинг и то, из чего он сложился. Порядок здесь задаёт
+            человек, и именно в этом порядке люди показываются потом в
+            формах выбора: у выбирающего бывают причины, которых в цифрах
+            нет. */}
+        <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
+          borderRadius: 8, padding: 8, marginBottom: 8 }}>
+          <div style={{ ...S.lbl, marginBottom: 4 }}>люди актива</div>
+          {!crew.length && (
+            <div style={{ fontSize: 11, color: C.muted }}>
+              Пока никого: выберите людей в ролях ниже.</div>)}
+          {crew.map((pid, i) => {
+            const s = stat(pid);
+            return (
+              <div key={pid} className="flex items-center gap-2"
+                style={{ padding: "4px 0", borderTop: i ? `1px solid ${C.line}` : "none" }}>
+                <button style={{ background: "none", border: "none", padding: 0,
+                  flex: 1, textAlign: "left", cursor: "pointer", color: C.text }}
+                  onClick={() => onOpenPerson && onOpenPerson(pid)}
+                  title="страница человека: рейтинг и из чего он сложился">
+                  <span style={{ fontSize: 12.5 }}>{name(pid)}</span>
+                  <span style={{ fontSize: 10.5, color: s.mark == null ? C.muted
+                    : s.mark >= 4 ? OK : s.mark >= 3 ? WARN : BAD }}>
+                    {" · "}{shortStat(s)}</span>
+                </button>
+                <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
+                  aria-label={`выше: ${name(pid)}`} disabled={i === 0}
+                  onClick={() => onOrder && onOrder(pid, -1)}>↑</button>
+                <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
+                  aria-label={`ниже: ${name(pid)}`} disabled={i === crew.length - 1}
+                  onClick={() => onOrder && onOrder(pid, 1)}>↓</button>
+              </div>);
+          })}
+          {crew.length > 1 && (
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+              В этом порядке люди показываются в формах выбора — кого
+              поставили выше, того и предлагают первым.</div>)}
         </div>
         <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
           borderRadius: 8, padding: 8 }}>
           {WORKER_KINDS.map((k) => {
             const ids = workers[k.id] || [];
-            const shown = sorted ? byRating(tasks, funcs, ids) : ids;
+            /* Роли всегда по рейтингу: здесь вопрос «кому поручить», и
+               первым должен стоять тот, кто лучше справлялся. Свой порядок
+               задаётся выше, в списке людей. */
+            const shown = byRating(tasks, funcs, ids);
             const free = people.filter((p) => !ids.includes(p.id));
             return (
               <div key={k.id} style={{ marginTop: 6 }}>
@@ -180,21 +220,11 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                         flex: 1, textAlign: "left", cursor: "pointer", color: C.text }}
                         onClick={() => onOpenPerson && onOpenPerson(pid)}
                         title="вся история этого человека">
-                        <span style={{ fontSize: 12 }}>{nameOf ? nameOf(pid) : pid}</span>
+                        <span style={{ fontSize: 12 }}>{name(pid)}</span>
                         <span style={{ fontSize: 10.5, color: s.mark == null ? C.muted
                           : s.mark >= 4 ? OK : s.mark >= 3 ? WARN : BAD }}>
                           {" · "}{shortStat(s)}</span>
                       </button>
-                      {!sorted && (<>
-                        <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
-                          aria-label={`выше: ${nameOf ? nameOf(pid) : pid}`}
-                          disabled={i === 0}
-                          onClick={() => onOrder(k.id, pid, -1)}>↑</button>
-                        <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
-                          aria-label={`ниже: ${nameOf ? nameOf(pid) : pid}`}
-                          disabled={i === shown.length - 1}
-                          onClick={() => onOrder(k.id, pid, 1)}>↓</button>
-                      </>)}
                       <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px",
                         color: BAD }} aria-label={`убрать из ${k.many}`}
                         onClick={() => onToggle(k.id, pid)}>×</button>
@@ -275,16 +305,12 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
             borderRadius: 7, padding: g.length > 1 ? 5 : 0, marginBottom: 5 }}>
             {g.map((p, i) => {
               const at = others.find((t) => t.id === p.trait);
-              /* Уклад входа: «по количеству», «каждый» или «всё». У выхода
-                 уклада нет — сколько функция выдаёт, решает она сама. */
-              const mode = out ? "range" : portMode(p);
               return (
                 <div key={p.id}>
                   {i > 0 && (
                     <div style={{ ...S.lbl, color: ACC, textAlign: "center",
                       margin: "3px 0" }}>или</div>)}
-                  <div style={{ border: `1px solid ${
-                    mode !== "range" || okRange(p) ? C.line : BAD}`,
+                  <div style={{ border: `1px solid ${okRange(p) ? C.line : BAD}`,
                     borderRadius: 6, padding: 7 }}>
                     <div className="flex items-center gap-2">
                       <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
@@ -300,44 +326,17 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                         aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
                         onClick={() => onDel(p.id)}>×</button>
                     </div>
-                    {mode === "range" ? (
-                      <div className="flex items-center gap-2"
-                        style={{ marginTop: 5, flexWrap: "wrap" }}>
-                        <span style={S.lbl}>от</span>
-                        <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
-                          onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
-                        <span style={S.lbl}>до</span>
-                        <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
-                          onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
-                        <span style={{ flex: 1 }} />
-                        <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5,
-                        lineHeight: 1.5 }}>
-                        {mode === "each"
-                          ? "Одно выполнение на каждую единицу: сколько единиц пришло, столько и выполнений."
-                          : "Одно выполнение забирает всё, что накопилось, сколько бы его ни было."}
-                      </div>
-                    )}
-                    {/* Уклад — не третье число, а ответ на вопрос «кто решает,
-                        сколько взять». «По количеству» — человек вилкой;
-                        «каждый» и «всё» — то, сколько ресурса есть. Поэтому
-                        это чекбоксы, и вилка при них прячется: она бы врала. */}
-                    {!out && (
-                      <div className="flex items-center gap-2"
-                        style={{ marginTop: 5, flexWrap: "wrap" }}>
-                        {[["each", "каждый"], ["all", "всё"]].map(([id, name]) => (
-                          <label key={id} className="flex items-center gap-2"
-                            style={{ fontSize: 11, color: mode === id ? ACC : C.muted,
-                              cursor: "pointer" }}>
-                            <input type="checkbox" checked={mode === id}
-                              aria-label={`${name} · ${traitName(p.trait)}`}
-                              onChange={(e) => onSet(p.id,
-                                { mode: e.target.checked ? id : "range" })} />
-                            {name}
-                          </label>))}
-                      </div>)}
+                    <div className="flex items-center gap-2"
+                      style={{ marginTop: 5, flexWrap: "wrap" }}>
+                      <span style={S.lbl}>от</span>
+                      <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
+                        onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
+                      <span style={S.lbl}>до</span>
+                      <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
+                        onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
+                      <span style={{ flex: 1 }} />
+                      <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
+                    </div>
                   </div>
                 </div>);
             })}
@@ -380,7 +379,10 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
   // Назначить на функцию можно только воркера этого актива: люди —
   // свойство актива, и чужой человек означал бы, что список воркеров ни
   // на что не влияет.
-  const pool = (k) => people.filter((p) => workers[k].some((id) => String(id) === String(p.id)));
+  /* В том порядке, который человек задал в списке людей актива: кого
+     поставили выше, того и предлагают первым. */
+  const pool = (k) => byCrew(workers,
+    people.filter((p) => workers[k].some((id) => String(id) === String(p.id))));
 
   const up = (id, make) => setFuncs((p) => p.map((f) => (f.id === id ? make(f) : f)));
   const upPort = (id, kind, pid, patch) => up(id, (f) => ({
@@ -413,8 +415,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   прямо противоположно тому, что задано. */}
               {f.takes.length
                 ? groupsOf(f.takes)
-                  .map((g) => g.map((t) => traitName(t.trait)
-                    + (portMode(t) === "range" ? "" : ` (${rangeText(t)})`)).join(" или "))
+                  .map((g) => g.map((t) => traitName(t.trait)).join(" или "))
                   .join(", ")
                 : "ничего не берёт"}
               {" → "}
@@ -427,7 +428,9 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               {" · "}<Timing func={f} runs={runs} />
               {isFactor(f) && (
                 <span style={{ color: ACC }}>
-                  {" · фактор"}{f.factor ? `: ${factorName(f.factor)}` : " не выбран"}</span>)}
+                  {" · фактор"}{factorsOf(f).length
+                    ? `: ${factorsOf(f).map(factorName).join(", затем ")}`
+                    : " не выбран"}</span>)}
             </>}>
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
               hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
@@ -451,7 +454,9 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 «одинаковое» связывает границы, и число вводится одно. */}
             <div className="flex items-center gap-2" style={{ marginTop: 10, flexWrap: "wrap" }}>
               <span style={S.lbl}>выполняется за</span>
-              <span style={S.lbl}>от</span>
+              {/* «От» — только когда есть «до»: «выполняется за от 2 часа»
+                  при точном времени читается как обрывок фразы. */}
+              {!sameHours(f) && <span style={S.lbl}>от</span>}
               <Num value={f.dur} label="время одного выполнения"
                 onChange={(v) => up(f.id, (x) => ({ ...x, dur: Number(v) || 0,
                   ...(sameHours(x) ? { durHi: Number(v) || 0 } : {}) }))} />
@@ -470,12 +475,12 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             </div>
             <label className="flex items-center gap-2"
               style={{ marginTop: 5, fontSize: 11, color: C.muted, cursor: "pointer" }}>
-              <input type="checkbox" aria-label="одинаковое" checked={sameHours(f)}
+              <input type="checkbox" aria-label="точное время" checked={sameHours(f)}
                 onChange={(e) => up(f.id, (x) => ({ ...x,
                   durHi: e.target.checked ? Number(x.dur) || 0
                     : Math.max(Number(x.dur) || 0, Number(x.durHi) || 0) * 2 }))}
                 style={{ accentColor: ACC }} />
-              одинаковое — время известно точно, а не вилкой
+              точное время
             </label>
 
             {/* Через сколько будет следующая ПОПЫТКА — не «повторение»:
@@ -497,7 +502,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 <option value="every">через…</option>
               </select>
               {everyRange(f).hi > 0 && (<>
-                <span style={S.lbl}>от</span>
+                {!sameEvery(f) && <span style={S.lbl}>от</span>}
                 <Num value={f.every} label="через сколько следующая попытка"
                   onChange={(v) => up(f.id, (x) => ({ ...x, every: Number(v) || 0,
                     ...(sameEvery(x) ? { everyHi: Number(v) || 0 } : {}) }))} />
@@ -520,13 +525,13 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             {everyRange(f).hi > 0 && (
               <label className="flex items-center gap-2"
                 style={{ marginTop: 5, fontSize: 11, color: C.muted, cursor: "pointer" }}>
-                <input type="checkbox" aria-label="одинаковый срок попытки"
+                <input type="checkbox" aria-label="точный срок"
                   checked={sameEvery(f)}
                   onChange={(e) => up(f.id, (x) => ({ ...x,
                     everyHi: e.target.checked ? Number(x.every) || 0
                       : Math.max(Number(x.every) || 0, Number(x.everyHi) || 0) * 2 }))}
                   style={{ accentColor: ACC }} />
-                одинаковый — срок между попытками известен точно
+                точный срок
               </label>)}
 
             {/* Чем функция выполняется — людьми или сама собой. Вопрос
@@ -548,17 +553,46 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             </div>
 
             {isFactor(f) ? (<>
-              <div style={{ ...S.lbl, marginTop: 8 }}>какой фактор</div>
-              <select value={f.factor || ""} aria-label="фактор функции"
-                onChange={(e) => up(f.id, (x) => ({ ...x, factor: e.target.value }))}
-                style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12 }}>
-                <option value="">— выберите —</option>
-                {factors.map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
-              </select>
+              {/* Факторов может быть несколько, и в одной попытке они идут
+                  ПО ПОРЯДКУ: сперва должен случиться первый, потом второй.
+                  Поэтому список, а не одно поле, и между строками стоит
+                  «затем» — порядок здесь значит ровно то, что написано. */}
+              <div style={{ ...S.lbl, marginTop: 8 }}>от каких факторов</div>
+              {factorsOf(f).map((id, i) => (
+                <div key={`${id}-${i}`}>
+                  {i > 0 && (
+                    <div style={{ ...S.lbl, color: ACC, textAlign: "center",
+                      margin: "3px 0" }}>затем</div>)}
+                  <div className="flex items-center gap-2"
+                    style={{ background: C.panel2, border: `1px solid ${C.line}`,
+                      borderRadius: 6, padding: "5px 7px", marginTop: 4 }}>
+                    <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
+                      {factorName(id)}
+                      <span style={{ color: C.muted }}>
+                        {" · "}{factorChance(factors.find((x) => x.id === id))}%</span>
+                    </span>
+                    <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px",
+                      color: BAD }} aria-label={`убрать фактор ${factorName(id)}`}
+                      onClick={() => up(f.id, (x) => ({ ...x,
+                        factors: factorsOf(x).filter((_, j) => j !== i) }))}>×</button>
+                  </div>
+                </div>))}
+              {factors.length > 0 && (
+                <select value="" aria-label="фактор функции"
+                  onChange={(e) => { if (e.target.value) {
+                    up(f.id, (x) => ({ ...x, factors: [...factorsOf(x), e.target.value] }));
+                  } }}
+                  style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12 }}>
+                  <option value="">{factorsOf(f).length ? "+ затем фактор…" : "+ фактор…"}</option>
+                  {factors.filter((x) => !factorsOf(f).includes(x.id))
+                    .map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
+                </select>)}
               <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-                {factors.length
-                  ? `Фактор происходит без человека: задач по нему не заводится и спрашивать за него не с кого. Вероятность — ${chanceOf(f, factors)}% — задана самому фактору, во вкладке «Факторы».`
-                  : "Факторов в активе ещё нет — заведите их во вкладке «Факторы»."}
+                {!factors.length
+                  ? "Факторов в активе ещё нет — заведите их во вкладке «Факторы»."
+                  : !factorsOf(f).length
+                    ? "Пока не сказано, от чего это происходит: выберите хотя бы один фактор."
+                    : `Фактор происходит без человека: задач по нему не заводится и спрашивать за него не с кого. Вероятности заданы самим факторам, во вкладке «Факторы»; за одну попытку должны случиться все по порядку — вместе это ${Math.round(chanceOf(f, factors) * 100) / 100}%.`}
               </div>
             </>) : WORKER_KINDS.map((k) => (
               <People key={k.id} title={k.many} ids={f[k.id] || []} people={pool(k.id)}
@@ -577,7 +611,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
 export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
   const mine = factors.filter((x) => x.e === entityId);
   const [draft, setDraft] = useState("");
-  const used = (id) => funcs.filter((f) => isFactor(f) && f.factor === id).length;
+  const used = (id) => funcs.filter((f) => isFactor(f) && factorsOf(f).includes(id)).length;
   const add = () => {
     setFactors((p) => [...p, newFactor(entityId, draft.trim() || "новый фактор")]);
     setDraft("");
@@ -587,7 +621,8 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
     /* Функции, ссылавшиеся на удалённый фактор, не остаются с мёртвой
        ссылкой: они краснеют подписью «фактор не выбран», а не молча
        считаются исправными. */
-    setFuncs((p) => p.map((f) => (f.factor === id ? { ...f, factor: "" } : f)));
+    setFuncs((p) => p.map((f) => (factorsOf(f).includes(id)
+      ? { ...f, factors: factorsOf(f).filter((x) => x !== id) } : f)));
   };
   return (
     <Section title="факторы актива"

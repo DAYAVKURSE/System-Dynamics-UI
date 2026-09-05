@@ -3,7 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  addRole, addUser, identify, listOrg, removeRole, removeUser, setRoleTabs, setUserRole,
+  addRole, addUser, identify, listOrg, removeRole, removeUser, setProfile,
+  setRoleTabs, setUserRole,
 } from "../lib/orgStore.js";
 import {
   readModel, reviewTask, submitTask, tasksFor, viewFor, writeModel,
@@ -297,5 +298,46 @@ describe("что можно изменить", () => {
     expect(m.savedAt).toBeTruthy();
     // Посторонние ключи не сохраняются: документ модели — семь массивов.
     expect(m).not.toHaveProperty("лишнее");
+  });
+});
+
+/* АНКЕТА ЧЕЛОВЕКА.
+
+   Рейтинг говорит, как человек работал, но не говорит, кто он. Анкету
+   пишет он сам: заполненная кем-то другим, она была бы чужим мнением под
+   чужим именем. */
+describe("анкета", () => {
+  it("новый человек начинается с пустой анкеты, а не с её отсутствия", async () => {
+    const me = await identify("100", { name: "Первый" });
+    expect(me.profile).toEqual({ title: "", about: "", skills: "", contact: "" });
+  });
+
+  it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
+    await identify("100", { name: "Первый" });
+    const saved = await setProfile("100", { title: "аналитик", about: "делаю отчёты" });
+    expect(saved).toMatchObject({ title: "аналитик", about: "делаю отчёты" });
+    expect((await identify("100", {})).profile.title).toBe("аналитик");
+  });
+
+  it("незаполненные поля не стираются: правится то, что прислали", async () => {
+    await identify("100", {});
+    await setProfile("100", { title: "аналитик", contact: "@ivan" });
+    await setProfile("100", { title: "инженер" });
+    const me = await identify("100", {});
+    expect(me.profile.title).toBe("инженер");
+    expect(me.profile.contact).toBe("@ivan");
+  });
+
+  it("анкета лежит рядом с человеком — её видно в списке организации", async () => {
+    await identify("100", { name: "Первый" });
+    await addUser({ id: "200", name: "Второй", roleId: "worker", addedBy: "100" });
+    await setProfile("200", { skills: "верстает" });
+    const org = await listOrg();
+    expect(org.users.find((u) => u.id === "200").skills).toBe("верстает");
+  });
+
+  it("человека, которого нет, анкетой не завести", async () => {
+    await identify("100", {});
+    expect(await setProfile("999", { title: "никто" })).toBeNull();
   });
 });

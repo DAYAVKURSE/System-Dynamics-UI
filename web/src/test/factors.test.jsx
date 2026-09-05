@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
-import { FUNC_KINDS, isFactor, funcKind, newFactor, newFunc, normalizeFunc,
-  normalizeFactors, checkFunc } from "../lib/funcs.js";
-import { scheduleOf, solve } from "../lib/plan.js";
+import { FUNC_KINDS, chanceOf, factorsOf, isFactor, funcKind, newFactor, newFunc,
+  normalizeFunc, normalizeFactors, checkFunc } from "../lib/funcs.js";
+import { factorHit, scheduleOf, solve } from "../lib/plan.js";
 
 /* Функция выполняется либо людьми, либо сама собой.
 
@@ -23,7 +23,7 @@ describe("запись функции", () => {
     // Прежние функции вида не знали — и все они были работой людей.
     expect(funcKind(normalizeFunc({ id: "f1" }))).toBe("task");
     expect(normalizeFunc({ kind: "фактор?" }).kind).toBe("task");
-    expect(normalizeFunc({ kind: "factor" })).toMatchObject({ kind: "factor", factor: "" });
+    expect(normalizeFunc({ kind: "factor" })).toMatchObject({ kind: "factor", factors: [] });
   });
 
   it("фактор — своя запись, а не галочка на функции", () => {
@@ -44,7 +44,7 @@ describe("проверка строения", () => {
 
   it("фактор без названного фактора — обрыв: сказано «само», но не сказано от чего", () => {
     const factors = [{ id: "x1", e: "A", name: "сезон" }];
-    expect(checkFunc(F({ kind: "factor", factor: "" }), { traits, factors }).ok).toBe(false);
+    expect(checkFunc(F({ kind: "factor", factors: [] }), { traits, factors }).ok).toBe(false);
     expect(checkFunc(F({ kind: "factor", factor: "x1" }), { traits, factors }).ok).toBe(true);
     expect(checkFunc(F({ kind: "factor", factor: "нет-такого" }), { traits, factors }).ok)
       .toBe(false);
@@ -123,7 +123,7 @@ describe("в интерфейсе", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Фактор" }));
     expect(screen.queryByText("исполнители")).toBeNull();
     expect(screen.queryByText("постановщики")).toBeNull();
-    expect(screen.getByLabelText("фактор функции")).toBeInTheDocument();
+    expect(screen.getByText("от каких факторов")).toBeInTheDocument();
     // И обратно — роли возвращаются.
     fireEvent.click(screen.getByRole("radio", { name: "Задача" }));
     expect(screen.getByText("исполнители")).toBeInTheDocument();
@@ -144,7 +144,7 @@ describe("в интерфейсе", () => {
     const m = dump();
     const f = m.funcs.find((x) => x.kind === "factor");
     expect(f).toBeTruthy();
-    expect(m.factors.some((x) => x.id === f.factor)).toBe(true);
+    expect(m.factors.some((x) => x.id === f.factors[0])).toBe(true);
   });
 
   it("на доске задач фактора нет — выполнять его некому", () => {
@@ -171,6 +171,127 @@ describe("в интерфейсе", () => {
     fireEvent.click(screen.getByRole("button", { name: "удалить фактор сезон" }));
     const m = dump();
     expect(m.factors).toHaveLength(0);
-    expect(m.funcs.find((x) => x.kind === "factor").factor).toBe("");
+    expect(m.funcs.find((x) => x.kind === "factor").factors).toEqual([]);
+  });
+});
+
+/* НЕСКОЛЬКО ФАКТОРОВ У ОДНОЙ ФУНКЦИИ.
+
+   «Реклама сработала, и при этом был сезон» — это два разных события,
+   каждое со своей вероятностью. В одной попытке они применяются ПО
+   ПОРЯДКУ: не случился первый — до второго дело не доходит. Поэтому
+   цепочка честно оказывается реже каждого своего звена. */
+describe("факторов может быть несколько", () => {
+  const FACTORS = [{ id: "x1", e: "A", name: "реклама", chance: 50 },
+    { id: "x2", e: "A", name: "сезон", chance: 40 }];
+  const F = (over) => normalizeFunc({ id: "f1", e: "A", kind: "factor",
+    dur: 1, durHi: 1, durUnit: "ч",
+    takes: [{ trait: "t1", lo: 1, hi: 1 }], gives: [{ trait: "t2", lo: 1, hi: 1 }],
+    ...over });
+
+  it("прежняя запись с одним фактором читается как список из одного", () => {
+    expect(factorsOf({ factor: "x1" })).toEqual(["x1"]);
+    expect(normalizeFunc({ kind: "factor", factor: "x1" }).factors).toEqual(["x1"]);
+    // И одного поля рядом со списком не остаётся: двум местам для одного и
+    // того же разойтись — вопрос первой правки.
+    expect(normalizeFunc({ kind: "factor", factor: "x1" }).factor).toBeUndefined();
+  });
+
+  it("вероятности перемножаются: два события подряд случаются реже одного", () => {
+    expect(chanceOf(F({ factors: ["x1"] }), FACTORS)).toBe(50);
+    expect(chanceOf(F({ factors: ["x1", "x2"] }), FACTORS)).toBeCloseTo(20, 6);
+    // У задачи вероятности нет вовсе: либо назначили, либо нет.
+    expect(chanceOf(F({ kind: "task", factors: ["x1"] }), FACTORS)).toBe(100);
+  });
+
+  it("невероятное звено делает невозможной всю цепочку", () => {
+    const none = [...FACTORS, { id: "x3", e: "A", name: "чудо", chance: 0 }];
+    expect(chanceOf(F({ factors: ["x1", "x3"] }), none)).toBe(0);
+    expect(factorHit(F({ factors: ["x1", "x3"] }), none, 7, "k")).toBe(false);
+  });
+
+  it("верные факторы срабатывают всегда — и по одному, и цепочкой", () => {
+    const sure = [{ id: "x1", e: "A", name: "всегда", chance: 100 },
+      { id: "x2", e: "A", name: "тоже всегда", chance: 100 }];
+    expect(factorHit(F({ factors: ["x1", "x2"] }), sure, 3, "k")).toBe(true);
+  });
+
+  it("жребий посеян: одно и то же семя даёт один и тот же ответ", () => {
+    const once = factorHit(F({ factors: ["x1", "x2"] }), FACTORS, 11, "f1#3");
+    expect(factorHit(F({ factors: ["x1", "x2"] }), FACTORS, 11, "f1#3")).toBe(once);
+    // Разные попытки — разные жребии, иначе фактор либо всегда, либо никогда.
+    const many = Array.from({ length: 40 },
+      (_, i) => factorHit(F({ factors: ["x1", "x2"] }), FACTORS, 11, `f1#${i}`));
+    expect(new Set(many).size).toBe(2);
+  });
+
+  it("цепочка выпадает реже, чем каждое её звено", () => {
+    const hits = (ids) => Array.from({ length: 400 },
+      (_, i) => factorHit(F({ factors: ids }), FACTORS, 5, `f1#${i}`)).filter(Boolean).length;
+    const one = hits(["x1"]);
+    const both = hits(["x1", "x2"]);
+    expect(both).toBeLessThan(one);
+    expect(both / 400).toBeGreaterThan(0.1);
+    expect(both / 400).toBeLessThan(0.3);
+  });
+
+  it("фактор без единого фактора — обрыв: не сказано, от чего это происходит", () => {
+    const traits = [{ id: "t1", e: "A" }, { id: "t2", e: "A" }];
+    expect(checkFunc(F({ factors: [] }), { traits, factors: FACTORS }).ok).toBe(false);
+    // И ссылка на несуществующий фактор — тоже обрыв, даже рядом с живой.
+    expect(checkFunc(F({ factors: ["x1", "нет"] }), { traits, factors: FACTORS }).ok)
+      .toBe(false);
+    expect(checkFunc(F({ factors: ["x1", "x2"] }), { traits, factors: FACTORS }).ok)
+      .toBe(true);
+  });
+});
+
+describe("несколько факторов в форме", () => {
+  beforeEach(() => { localStorage.clear(); });
+  const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+  const assetTab = (name) =>
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${name}`) }));
+  const addFactor = (name) => {
+    scheme(); assetTab("Факторы");
+    const box = screen.getByPlaceholderText("название нового фактора");
+    fireEvent.change(box, { target: { value: name } });
+    fireEvent.blur(box);
+    fireEvent.click(screen.getByRole("button", { name: "+ фактор" }));
+  };
+  const openFunc = () => {
+    scheme(); assetTab("Функции");
+    fireEvent.click(screen.getAllByRole("button", { name: /^развернуть функции/ })[0]);
+  };
+  const pick = () => {
+    const sel = screen.getByLabelText("фактор функции");
+    fireEvent.change(sel, { target: { value: [...sel.options][1].value } });
+  };
+
+  it("выбранные факторы идут списком и по порядку — «затем»", () => {
+    let container;
+    ({ container } = render(<SystemModel />));
+    addFactor("реклама");
+    addFactor("сезон");
+    openFunc();
+    fireEvent.click(screen.getByRole("radio", { name: "Фактор" }));
+    pick();
+    pick();
+
+    expect(screen.getByText("затем")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
+    const m = JSON.parse(container.querySelector("textarea").value);
+    expect(m.funcs.find((x) => x.kind === "factor").factors).toHaveLength(2);
+  });
+
+  it("выбранный фактор из списка убирается", () => {
+    render(<SystemModel />);
+    addFactor("реклама");
+    openFunc();
+    fireEvent.click(screen.getByRole("radio", { name: "Фактор" }));
+    pick();
+    fireEvent.click(screen.getByRole("button", { name: "убрать фактор реклама" }));
+    expect(screen.getByText(/выберите хотя бы один фактор/)).toBeInTheDocument();
   });
 });

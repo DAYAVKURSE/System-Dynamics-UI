@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DUR_UNITS, avgOf, countWorkers, everyOf, everyText, fromHours, hoursOf,
+import { DUR_UNITS, avgOf, byCrew, countWorkers, crewOf, everyOf, everyText,
+  fromHours, hoursOf,
   newFunc, newGive,
   newPort, normalizeFunc, normalizeFuncs, okRange, pruneWorkers, rangeText,
   runHours, runQty, workersOf } from "../lib/funcs.js";
@@ -194,12 +195,14 @@ describe("воркеры актива", () => {
     // активе.
     const entities = [{ id: "A", setters: ["p0"], owners: ["p1", "p2"], reviewers: ["p9"] },
       { id: "B", owners: ["p7"] }];
+    // Рядом с ролями — порядок людей актива: он тоже свойство актива, и
+    // собирать его отдельно значило бы держать ответ в двух местах.
     expect(workersOf(entities, "A"))
-      .toEqual({ setters: ["p0"], owners: ["p1", "p2"], reviewers: ["p9"] });
+      .toEqual({ crew: [], setters: ["p0"], owners: ["p1", "p2"], reviewers: ["p9"] });
     expect(workersOf(entities, "B"))
-      .toEqual({ setters: [], owners: ["p7"], reviewers: [] });
+      .toEqual({ crew: [], setters: [], owners: ["p7"], reviewers: [] });
     expect(workersOf(entities, "нет-такого"))
-      .toEqual({ setters: [], owners: [], reviewers: [] });
+      .toEqual({ crew: [], setters: [], owners: [], reviewers: [] });
   });
 
   it("считаются люди, а не назначения: один человек — один воркер", () => {
@@ -223,5 +226,38 @@ describe("воркеры актива", () => {
     expect(out[0]).toMatchObject({ owners: ["p1"], reviewers: [] });
     // Чужой актив не трогаем: там свои воркеры.
     expect(out[1].owners).toEqual(["p1"]);
+  });
+});
+
+/* ЛЮДИ АКТИВА ОДНИМ СПИСКОМ.
+
+   Роли отвечают на вопрос «кто чем занят», а список людей — на другой:
+   «кто это вообще». Порядок в нём задаёт человек, и в этом же порядке
+   людей предлагают потом в формах выбора. */
+describe("порядок людей актива", () => {
+  const W = { setters: ["b"], owners: ["a", "b"], reviewers: ["c"] };
+
+  it("человек в списке один раз, сколько бы ролей он ни занимал", () => {
+    expect(crewOf(W)).toEqual(["b", "a", "c"]);
+    expect(crewOf(W)).toHaveLength(countWorkers(W));
+  });
+
+  it("заданный порядок идёт первым, новые люди — следом", () => {
+    expect(crewOf({ ...W, crew: ["c", "a"] })).toEqual(["c", "a", "b"]);
+  });
+
+  it("порядок — это только порядок: членство решают роли", () => {
+    // Иначе удаление из ролей пришлось бы повторять во втором списке, и
+    // рано или поздно они разошлись бы.
+    expect(crewOf({ ...W, crew: ["ушёл", "a"] })).toEqual(["a", "b", "c"]);
+  });
+
+  it("тем же порядком выстраиваются люди в формах выбора", () => {
+    const people = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    expect(byCrew({ ...W, crew: ["c", "b", "a"] }, people).map((p) => p.id))
+      .toEqual(["c", "b", "a"]);
+    // Кого в активе нет вовсе — в конец: выдумывать ему место не из чего.
+    expect(byCrew({ ...W, crew: ["c"] }, [{ id: "нет" }, { id: "c" }]).map((p) => p.id))
+      .toEqual(["c", "нет"]);
   });
 });

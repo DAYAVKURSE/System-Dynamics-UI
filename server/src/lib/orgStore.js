@@ -121,11 +121,44 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
     id, isOwner,
     known: isOwner || !!user,
     name: user?.name || profile.name || "",
+    // Своя анкета приходит вместе с «кто я»: она нужна на первой же
+    // вкладке, и отдельный запрос за ней был бы вторым кругом за тем же.
+    profile: profileOf(user || {}),
     role: role || null,
     // Владельцу доступно всё; остальным — то, что даёт роль. Не найдена
     // роль (её удалили) — не показываем ничего, кроме объяснения.
     tabs: isOwner ? [...TABS] : (role ? normTabs(role.tabs) : []),
   };
+}
+
+/* ─────── анкета человека ───────
+
+   Рейтинг говорит, как человек работал, но не говорит, кто он: чем
+   занимается, что умеет, как с ним связаться. Это и есть анкета, и пишет
+   её сам человек — не владелец за него: про себя он знает точнее, а
+   заполненная кем-то другим анкета была бы чужим мнением под чужим именем.
+
+   Лежит она рядом с человеком, в списке организации: анкета — свойство
+   человека, а не модели, и переезжать из сценария в сценарий вместе с
+   моделью ей незачем. */
+export const PROFILE_FIELDS = ["title", "about", "skills", "contact"];
+const LIMIT = 2000;
+const profileOf = (user = {}) => Object.fromEntries(
+  PROFILE_FIELDS.map((k) => [k, String(user[k] || "")]),
+);
+
+/** Свою анкету человек пишет сам. Чужую — никто. */
+export async function setProfile(userId, patch = {}) {
+  const org = await readOrg();
+  const id = String(userId);
+  const user = org.users.find((u) => u.id === id);
+  if (!user) return null;
+  PROFILE_FIELDS.forEach((k) => {
+    if (patch[k] == null) return;
+    user[k] = String(patch[k]).slice(0, LIMIT);
+  });
+  await writeOrg(org);
+  return profileOf(user);
 }
 
 export async function listOrg() {

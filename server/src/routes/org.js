@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import {
-  addRole, addUser, identify, listOrg, removeRole, removeUser, setRoleTabs,
-  setUserRole, TABS,
+  addRole, addUser, identify, listOrg, removeRole, removeUser, setProfile,
+  setRoleTabs, setUserRole, TABS,
 } from "../lib/orgStore.js";
 
 const router = Router();
@@ -14,6 +14,19 @@ router.get("/me", async (req, res, next) => {
   try {
     const me = await identify(req.telegramUserId, req.telegramProfile || {});
     res.json(me);
+  } catch (e) { next(e); }
+});
+
+/* Своя анкета — единственное, что человек меняет о себе сам, поэтому
+   маршрут стоит ДО проверки на владельца: чинить свою анкету через
+   владельца значило бы просить его пересказывать твои же слова. */
+router.put("/me/profile", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    if (!me.known) return res.status(403).json({ error: "you are not invited yet" });
+    const saved = await setProfile(me.id, req.body || {});
+    if (!saved) return res.status(404).json({ error: "not found" });
+    res.json({ profile: saved });
   } catch (e) { next(e); }
 });
 

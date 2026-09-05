@@ -186,42 +186,56 @@ describe("список воркеров: кого ставить", () => {
     onToggle: () => {}, onOrder: () => {}, onOpenPerson: () => {}, ...over };
     return render(<Workers {...props} />);
   };
+  // Два списка на форме: сперва люди актива без ролей, потом роли.
+  const crewCard = () => screen.getByText("люди актива").parentElement;
+  const roleBlock = (name) => screen.getByText(name).parentElement;
+  const namesIn = (el) => [...el.querySelectorAll("button")]
+    .map((b) => b.textContent).filter((t) => t.startsWith("Иван") || t.startsWith("Пётр"));
 
   it("рядом с каждым — краткая статистика, а не одно имя", () => {
     mount();
-    // Строка стоит и у назначенных, и у тех, кого можно назначить.
     expect(screen.getAllByText(/5 · в срок 100% · 1 работа/).length).toBeGreaterThan(0);
   });
 
-  it("по умолчанию сверху лучшие, а не порядок в записи", () => {
-    const { container } = mount();
-    const names = [...container.querySelectorAll("button")]
-      .map((b) => b.textContent).filter((t) => t.startsWith("Иван") || t.startsWith("Пётр"));
-    expect(names[0]).toMatch(/^Иван/);
+  it("люди актива — одним списком, без деления на роли", () => {
+    // Один человек может быть и постановщиком, и исполнителем: в списке
+    // людей он один раз, потому что вопрос здесь — «кто это вообще».
+    mount({ workers: { setters: ["2"], owners: ["3", "2"], reviewers: ["2"] } });
+    expect(namesIn(crewCard())).toHaveLength(2);
   });
 
-  it("свой порядок — тот, что записан, и его можно менять", () => {
+  it("порядок людей — тот, что записан, и его можно менять", () => {
     const moves = [];
-    const { container } = mount({ onOrder: (k, p, d) => moves.push([k, p, d]) });
-    fireEvent.click(screen.getByRole("button", { name: "свой порядок" }));
-    const names = [...container.querySelectorAll("button")]
-      .map((b) => b.textContent).filter((t) => t.startsWith("Иван") || t.startsWith("Пётр"));
-    expect(names[0]).toMatch(/^Пётр/);
+    mount({ onOrder: (p, d) => moves.push([p, d]) });
+    expect(namesIn(crewCard())[0]).toMatch(/^Пётр/);
     fireEvent.click(screen.getByRole("button", { name: "ниже: Пётр" }));
-    expect(moves).toEqual([["owners", "3", 1]]);
+    expect(moves).toEqual([["3", 1]]);
   });
 
-  it("стрелки показываются только в своём порядке — сортировку ими не двигают", () => {
-    // В сортировке по рейтингу порядок задан цифрами, и «выше» означало бы
-    // подделать цифры.
+  it("заданный порядок сильнее порядка ролей", () => {
+    mount({ workers: { ...W, crew: ["2", "3"] } });
+    expect(namesIn(crewCard())[0]).toMatch(/^Иван/);
+  });
+
+  it("в ролях всегда сверху лучшие — и переключателя вида больше нет", () => {
+    /* В ролях вопрос другой: кому поручить. Первым должен стоять тот, кто
+       лучше справлялся, и выбор вида тут только сбивал бы. */
     mount();
-    expect(screen.queryByRole("button", { name: "выше: Иван" })).toBeNull();
+    expect(namesIn(roleBlock("исполнители"))[0]).toMatch(/^Иван/);
+    expect(screen.queryByRole("button", { name: "по рейтингу" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "свой порядок" })).toBeNull();
   });
 
-  it("нажатие на человека открывает его историю", () => {
+  it("стрелки — только в списке людей: рейтинг ими не двигают", () => {
+    mount();
+    expect(within(roleBlock("исполнители"))
+      .queryByRole("button", { name: /^выше: / })).toBeNull();
+  });
+
+  it("нажатие на человека открывает его страницу", () => {
     const opened = [];
     mount({ onOpenPerson: (id) => opened.push(id) });
-    fireEvent.click(screen.getByText("Иван").closest("button"));
+    fireEvent.click(within(crewCard()).getByText("Иван").closest("button"));
     expect(opened).toEqual(["2"]);
   });
 });

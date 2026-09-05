@@ -73,38 +73,9 @@ const num = (v) => Number(v) || 0;
  * есть в рецепте, но не расходуется», а это не то, что человек имел в
  * виду, нажимая «+ берёт».
  */
-/* ─────── сколько единиц берёт одно выполнение ───────
-
-   Обычно — столько, сколько сказано вилкой: «от 2 до 4». Но бывает два
-   других уклада, и вилкой их не выразить:
-
-   · «каждый» — одно выполнение на КАЖДУЮ единицу. Пришло семь заявок —
-     значит семь выполнений, по одному на заявку. Работа возникает от
-     появления ресурса, а не от того, что её кто-то запланировал.
-   · «всё» — одно выполнение забирает ВСЁ, что накопилось. Сколько бы ни
-     лежало, разгребается разом.
-
-   Вилка тут ни при чём: в обоих случаях количество на входе решает не
-   человек, а то, сколько ресурса есть. Поэтому это не третье число, а
-   уклад — `mode`. */
-export const PORT_MODES = [
-  { id: "range", name: "по количеству" },
-  { id: "each", name: "каждый" },
-  { id: "all", name: "всё" },
-];
-export const portMode = (p) => (PORT_MODES.some((m) => m.id === p?.mode) ? p.mode : "range");
-
-/* Сколько ресурса нужно, чтобы функция вообще могла взяться за дело.
-
-   У вилки это её верх: браться, когда хватает только на минимум, значит
-   заранее согласиться сделать по нижней границе. У «каждого» и «всего» —
-   одна единица: работа возникает от появления ресурса, и одной штуки уже
-   довольно, чтобы было что разгребать. */
-export const portNeed = (p) => (portMode(p) === "range" ? num(p?.hi || p?.lo) : 1);
-
 export const newPort = (trait = "", lo = 1, hi = 1, group = null) => {
   const id = nextId("p");
-  return { id, trait, lo: num(lo), hi: num(hi), group: group || id, mode: "range" };
+  return { id, trait, lo: num(lo), hi: num(hi), group: group || id };
 };
 
 /* ─────── «и» между группами, «или» внутри группы ───────
@@ -166,7 +137,7 @@ export const newFunc = (e, name = "новая функция") => ({
   e,
   name,
   kind: "task",
-  factor: "",
+  factors: [],
   takes: [],
   gives: [],
   dur: 1,
@@ -268,11 +239,33 @@ export const sameEvery = (f = {}) => {
    вероятностью 60%» про неё сказать нельзя — либо назначили, либо нет. */
 export const CHANCE_MAX = 100;
 const clampChance = (v) => Math.max(0, Math.min(CHANCE_MAX, num(v)));
+
+/* Факторов у функции может быть несколько, и в одной попытке они
+   применяются ПО ПОРЯДКУ: сперва должен случиться первый, потом второй.
+   «Реклама сработала, и при этом был сезон» — это два разных события, и
+   каждое со своей вероятностью.
+
+   Прежняя запись — один фактор полем `factor` — читается как список из
+   одного: модели, собранные до этого, ничего не теряют. */
+export const factorsOf = (f = {}) => (Array.isArray(f.factors)
+  ? f.factors.filter(Boolean)
+  : (f.factor ? [f.factor] : []));
+
+/** Сколько процентов выпадает функции: попытка удаётся, если удались все. */
 export const chanceOf = (f = {}, factors = []) => {
   if (!isFactor(f)) return CHANCE_MAX;
-  const x = factors.find((y) => y.id === f.factor);
-  return x?.chance == null ? CHANCE_MAX : clampChance(x.chance);
+  const ids = factorsOf(f);
+  if (!ids.length) return CHANCE_MAX;
+  // Перемножение, а не среднее: два события подряд случаются реже, чем
+  // каждое из них по отдельности, — иначе цепочка выглядела бы легче звена.
+  return ids.reduce((p, id) => {
+    const x = factors.find((y) => y.id === id);
+    return p * (x?.chance == null ? CHANCE_MAX : clampChance(x.chance)) / CHANCE_MAX;
+  }, CHANCE_MAX);
 };
+
+/** Вероятность одного фактора — так, как она у него записана. */
+export const factorChance = (x) => (x?.chance == null ? CHANCE_MAX : clampChance(x.chance));
 
 /** По-человечески: «сразу» или «через 2 нед», вилкой — «через 1–2 нед». */
 export const everyText = (f) => {
@@ -309,18 +302,18 @@ export const normalizeFunc = (f = {}) => {
       lo: num(p.lo),
       hi: num(p.hi),
       group: (grouped && p.group) || id,
-      // Уклад бывает только у входа: «выдать каждый» ничего не значит —
-      // сколько функция выдаёт, решает она сама, а не остаток на складе.
-      ...(grouped ? { mode: portMode(p) } : {}),
     };
   };
   const unit = (u) => (DUR_UNITS[u] ? u : DUR_DEFAULT);
+  // Прежнее поле одного фактора не остаётся рядом со списком: два места
+  // для одного и того же разошлись бы на первой же правке.
+  const { factor, ...rest } = f;
   return {
-    ...f,
+    ...rest,
     e: f.e ?? null,
     name: f.name ?? "",
     kind: funcKind(f),
-    factor: f.factor ?? "",
+    factors: factorsOf(f),
     takes: Array.isArray(f.takes) ? f.takes.map((p) => port(p, true)) : [],
     gives: Array.isArray(f.gives) ? f.gives.map((p) => port(p)) : [],
     dur: num(f.dur),
@@ -368,12 +361,8 @@ export const runHours = (runs = []) => avgOf(runs.map((r) => r?.hours));
 export const runQty = (runs = [], kind, trait) =>
   avgOf(runs.map((r) => r?.[kind]?.[trait]));
 
-/** Вилка по-человечески: «от 3 до 5», «ровно 4», «от 3».
-    У «каждого» и «всего» вилки нет: сколько взять, решает не человек. */
+/** Вилка по-человечески: «от 3 до 5», «ровно 4», «от 3». */
 export const rangeText = (p) => {
-  const mode = portMode(p);
-  if (mode === "each") return "каждый";
-  if (mode === "all") return "всё, что есть";
   const lo = num(p?.lo);
   const hi = num(p?.hi);
   if (!lo && !hi) return "сколько — не задано";
@@ -423,9 +412,10 @@ export const WORKER_KINDS = [
   { id: "reviewers", one: "проверяющий", many: "проверяющие", task: "проверяющий" },
 ];
 
-/** Достраивает актив до нынешней записи: у него есть воркеры. */
+/** Достраивает актив до нынешней записи: у него есть воркеры и их порядок. */
 export const normalizeAsset = (e = {}) => ({
   ...e,
+  crew: ids(e.crew),
   ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id, ids(e[k.id])])),
 });
 
@@ -435,7 +425,10 @@ export const normalizeAssets = (list) =>
 /** Воркеры актива: постановщики, исполнители и проверяющие. */
 export const workersOf = (entities = [], id) => {
   const e = entities.find((x) => x.id === id);
-  return Object.fromEntries(WORKER_KINDS.map((k) => [k.id, ids(e?.[k.id])]));
+  // Порядок людей — часть того же ответа: без него список воркеров пришлось
+  // бы собирать в двух местах и надеяться, что они не разойдутся.
+  return { crew: ids(e?.crew),
+    ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id, ids(e?.[k.id])])) };
 };
 
 /**
@@ -450,6 +443,42 @@ export const workersOf = (entities = [], id) => {
 export const countWorkers = (workers = {}) => new Set(
   WORKER_KINDS.flatMap((k) => ids(workers[k.id]).map(String)),
 ).size;
+
+/* ─────── люди актива одним списком ───────
+
+   Роли — это про то, кто чем занят, а список людей отвечает на другой
+   вопрос: КТО ЭТО ВООБЩЕ. Один человек может быть и постановщиком, и
+   исполнителем, и проверяющим — в списке он один раз.
+
+   Порядок задаёт человек и хранит его в `crew`. Это только порядок, а не
+   членство: кто в активе — по-прежнему решают роли. Иначе удаление из
+   ролей пришлось бы повторять во втором списке, и рано или поздно они
+   разошлись бы. */
+export const crewOf = (workers = {}) => {
+  const member = new Set(WORKER_KINDS.flatMap((k) => ids(workers[k.id]).map(String)));
+  const out = [];
+  const push = (id) => {
+    if (member.has(String(id)) && !out.some((x) => String(x) === String(id))) out.push(id);
+  };
+  ids(workers.crew).forEach(push);
+  WORKER_KINDS.forEach((k) => ids(workers[k.id]).forEach(push));
+  return out;
+};
+
+/** Место человека в порядке актива: чем меньше, тем выше в списках. */
+export const crewRank = (workers = {}) => {
+  const order = crewOf(workers).map(String);
+  return (id) => {
+    const i = order.indexOf(String(id));
+    return i < 0 ? order.length : i;
+  };
+};
+
+/** Тот же порядок, но применённый к готовому списку людей. */
+export const byCrew = (workers, people = []) => {
+  const rank = crewRank(workers);
+  return [...people].sort((a, b) => rank(a?.id ?? a) - rank(b?.id ?? b));
+};
 
 /**
  * Чего не хватает, чтобы функцию можно было выполнить прямо сейчас.
@@ -468,18 +497,18 @@ export function shortage(f, traits = []) {
   const name = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
   return groupsOf(f.takes || [])
     .map((g) => {
-      const ok = g.some((p) => have(p.trait) >= portNeed(p));
+      const ok = g.some((p) => have(p.trait) >= num(p.hi || p.lo));
       if (ok) return null;
       // Показываем тот вариант, которого не хватает меньше всего: до него
       // ближе всего, и именно он подскажет, чего добирать.
       const best = g.reduce((a, p) => {
-        const gap = portNeed(p) - have(p.trait);
+        const gap = num(p.hi || p.lo) - have(p.trait);
         return a && a.gap <= gap ? a : { p, gap };
       }, null);
       return best && {
         trait: best.p.trait,
         name: name(best.p.trait),
-        need: portNeed(best.p),
+        need: num(best.p.hi || best.p.lo),
         have: have(best.p.trait),
         alts: g.length,
       };
@@ -612,19 +641,20 @@ export function checkTrait(id, { traits = [], funcs = [] } = {}) {
 export function checkFunc(f, { traits = [], factors = [] } = {}) {
   if (!f || !f.takes?.length || !f.gives?.length) return { ok: false, why: WHY_FUNC };
   /* Фактор без названного фактора — обрыв: сказано «происходит само», но
-     не сказано, от чего. Список факторов дают не всегда: там, где его нет,
+     не сказано, от чего. Названы должны быть все, и все они должны
+     существовать. Список факторов дают не всегда: там, где его нет,
      ссылку не проверяем. */
-  if (isFactor(f) && factors.length > 0
-    && !factors.some((x) => x.id === f.factor)) return { ok: false, why: WHY_FUNC };
+  if (isFactor(f) && factors.length > 0) {
+    const ids = factorsOf(f);
+    if (!ids.length || ids.some((id) => !factors.some((x) => x.id === id))) {
+      return { ok: false, why: WHY_FUNC };
+    }
+  }
   const ports = [...f.takes, ...f.gives];
   // Ссылка на удалённый ресурс — не «наружу», а обрыв: функция с ней не
   // преобразует ничего, и зелёной ей быть не за что.
   if (ports.some((p) => !traits.some((t) => t.id === p.trait))) return { ok: false, why: WHY_FUNC };
-  /* У входа с укладом «каждый» или «всё» количество берётся из остатка, а
-     не из вилки, — и требовать от неё осмысленности не за что. */
-  if (ports.some((p) => portMode(p) === "range" && !okRange(p))) {
-    return { ok: false, why: WHY_FUNC };
-  }
+  if (ports.some((p) => !okRange(p))) return { ok: false, why: WHY_FUNC };
   /* Обе границы времени должны быть заданы: «от 0 до 4 часов» не говорит,
      когда будет готово, — оно говорит «может быть, мгновенно». */
   const h = hoursRange(f);
