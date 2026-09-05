@@ -7,7 +7,8 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote }
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
-import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, checkAsset, countWorkers, crewOf, normalizeAssets,
+import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, checkAsset, countWorkers, crewOf,
+  normalizeAssets,
   normalizeFactors, normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
@@ -358,6 +359,11 @@ export default function SystemModel(){
   const [focus,setFocus]=useState(null);
   // Кого раскрыли в списке воркеров: вся его история — в окне.
   const [person,setPerson]=useState(null);
+  /* Кого показывают карточкой поверх схемы. Окно, а не вкладка: человека
+     смотрят, не отходя от того, что сейчас собирают, — и закрывают,
+     возвращаясь ровно туда, где были. Прежде нажатие уносило на страницу
+     человека, и вернуться было некуда. */
+  const [card,setCard]=useState(null);
   const [horizon,setHorizon]=useState(24);
   const [zoom,setZoom]=useState(0.6);
   const [json,setJson]=useState(""); const [jsonMsg,setJsonMsg]=useState("");
@@ -509,13 +515,32 @@ export default function SystemModel(){
       return pruneWorkers(p,sel,next);
     });
   };
-  /* Порядок людей актива — свой, руками, и он же решает, кого показывать
+  /* Воркер актива — прямой выбор из всех людей схемы, а не следствие
+     назначения: сперва отмечают, кто здесь работает, и уже из отмеченных
+     выбирают постановщиков, исполнителей и проверяющих.
+
+     Снятая отметка уносит человека и из ролей, и с функций этого актива:
+     иначе он остался бы назначенным, не значась в активе, и задача висела
+     бы на том, кого здесь нет. */
+  const toggleCrew=(pid)=>{
+    const e=entities.find(x=>x.id===sel);
+    if(!e) return;
+    const has=crewOf(e).some(x=>String(x)===String(pid));
+    setEntities(p=>p.map(x=>{
+      if(x.id!==sel) return x;
+      if(!has) return {...x,crew:[...crewOf(x),pid]};
+      const drop=(list)=>(list||[]).filter(z=>String(z)!==String(pid));
+      return {...x,crew:drop(crewOf(x)),
+        ...Object.fromEntries(WORKER_KINDS.map(k=>[k.id,drop(x[k.id])]))};
+    }));
+    if(has) setFuncs(p=>pruneWorkers(p,sel,
+      Object.fromEntries(WORKER_KINDS.map(k=>[k.id,
+        (e[k.id]||[]).filter(z=>String(z)!==String(pid))]))));
+  };
+  /* Порядок воркеров — свой, руками, и он же решает, кого показывать
      первым в формах выбора: у выбирающего бывают причины, которых в цифрах
      нет. Роли при этом всегда сортируются по рейтингу — там вопрос «кому
-     поручить», и первым должен стоять тот, кто лучше справлялся.
-
-     Хранится только ПОРЯДОК (`crew`), а членство — по-прежнему за ролями:
-     иначе удаление из ролей пришлось бы повторять во втором списке. */
+     поручить», и первым должен стоять тот, кто лучше справлялся. */
   const orderWorker=(pid,delta)=>{
     setEntities(p=>p.map(e=>{
       if(e.id!==sel) return e;
@@ -941,7 +966,6 @@ export default function SystemModel(){
         <ProfilePanel me={me} personId={person} people={people}
           tasks={tasks} funcs={funcs}
           traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
-          onPerson={setPerson}
           onSaved={p=>{
             setMe(m=>({...m,profile:p}));
             setPeople(list=>list.map(u=>(String(u.id)===String(me.id)?{...u,...p}:u)));
@@ -1048,8 +1072,8 @@ export default function SystemModel(){
               entities={entities} kinds={kinds} kindOf={kindOf}
               factors={factors} setFactors={setFactors}
               people={people} nameOf={personName} runsOf={runsOf}
-              tasks={tasks} onOrderWorker={orderWorker}
-              onOpenPerson={id=>{setPerson(id);setTab("me");}}
+              tasks={tasks} onOrderWorker={orderWorker} onToggleCrew={toggleCrew}
+              onOpenPerson={id=>setCard(id)}
               focus={focus}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}
@@ -1270,6 +1294,22 @@ export default function SystemModel(){
             {savedMsg&&<div style={{fontSize:12,color:C.muted}}>{savedMsg}</div>}
           </div>
         </div>)}
+
+      {/* ═══ КАРТОЧКА ЧЕЛОВЕКА ═══
+          Окном поверх того, что человек сейчас делает, а не переходом на
+          страницу: он открывает воркера, чтобы посмотреть анкету и рейтинг,
+          и должен вернуться туда же, откуда смотрел. Прежде нажатие
+          переключало вкладку, и обратной дороги не было. */}
+      {card!=null && (
+        <Modal onClose={()=>setCard(null)} title={personName(card)}>
+          <ProfilePanel me={me} personId={card} people={people}
+            tasks={tasks} funcs={funcs}
+            traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
+            onSaved={p=>{
+              setMe(m=>({...m,profile:p}));
+              setPeople(list=>list.map(u=>(String(u.id)===String(me.id)?{...u,...p}:u)));
+            }}/>
+        </Modal>)}
 
       {why && (
         <Modal onClose={()=>setWhy(null)}

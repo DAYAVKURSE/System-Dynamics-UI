@@ -205,8 +205,8 @@ describe("список воркеров: кого ставить", () => {
     onToggle: () => {}, onOrder: () => {}, onOpenPerson: () => {}, ...over };
     return render(<Workers {...props} />);
   };
-  // Два списка на форме: сперва люди актива без ролей, потом роли.
-  const crewCard = () => screen.getByText("люди актива").parentElement;
+  // Два списка на форме: сперва воркеры без ролей, потом роли.
+  const crewCard = () => screen.getByText("воркеры").parentElement;
   const roleBlock = (name) => screen.getByText(name).parentElement;
   const namesIn = (el) => [...el.querySelectorAll("button")]
     .map((b) => b.textContent).filter((t) => t.startsWith("Иван") || t.startsWith("Пётр"));
@@ -216,14 +216,35 @@ describe("список воркеров: кого ставить", () => {
     expect(screen.getAllByText(/5 · в срок 100% · 1 работа/).length).toBeGreaterThan(0);
   });
 
-  it("люди актива — одним списком, без деления на роли", () => {
+  it("воркеры — одним списком, без деления на роли", () => {
     // Один человек может быть и постановщиком, и исполнителем: в списке
-    // людей он один раз, потому что вопрос здесь — «кто это вообще».
+    // воркеров он один раз, потому что вопрос здесь — «кто здесь работает».
     mount({ workers: { setters: ["2"], owners: ["3", "2"], reviewers: ["2"] } });
     expect(namesIn(crewCard())).toHaveLength(2);
   });
 
-  it("порядок людей — тот, что записан, и его можно менять", () => {
+  it("в списке сразу все люди схемы: воркер — это выбор из них", () => {
+    /* Обратный порядок — «стал воркером, потому что его куда-то
+       назначили» — заставлял бы называть роль раньше человека. */
+    mount({ workers: { setters: [], owners: ["3"], reviewers: [] } });
+    // Отметка стоит у каждого человека схемы, а не только у назначенных.
+    expect(crewCard().querySelectorAll("input[type=checkbox]"))
+      .toHaveLength(PEOPLE.length);
+    // Отмечен только тот, кто и правда воркер этого актива.
+    expect(screen.getByLabelText("воркер актива: Пётр")).toBeChecked();
+    expect(screen.getByLabelText("воркер актива: Иван")).not.toBeChecked();
+  });
+
+  it("роли предлагают только из отмеченных воркеров", () => {
+    const free = (name) => [...roleBlock(name).querySelectorAll("button")]
+      .map((b) => b.textContent).filter((t) => t.startsWith("+ "));
+    mount({ workers: { setters: [], owners: ["3"], reviewers: [] } });
+    // Иван не отмечен воркером — в роли его и не предлагают.
+    expect(free("постановщики").join(" ")).not.toMatch(/Иван/);
+    expect(free("постановщики").join(" ")).toMatch(/Пётр/);
+  });
+
+  it("порядок воркеров — тот, что записан, и его можно менять", () => {
     const moves = [];
     mount({ onOrder: (p, d) => moves.push([p, d]) });
     expect(namesIn(crewCard())[0]).toMatch(/^Пётр/);
@@ -245,13 +266,13 @@ describe("список воркеров: кого ставить", () => {
     expect(screen.queryByRole("button", { name: "свой порядок" })).toBeNull();
   });
 
-  it("стрелки — только в списке людей: рейтинг ими не двигают", () => {
+  it("стрелки — только в списке воркеров: рейтинг ими не двигают", () => {
     mount();
     expect(within(roleBlock("исполнители"))
       .queryByRole("button", { name: /^выше: / })).toBeNull();
   });
 
-  it("нажатие на человека открывает его страницу", () => {
+  it("нажатие на человека открывает его карточку", () => {
     const opened = [];
     mount({ onOpenPerson: (id) => opened.push(id) });
     fireEvent.click(within(crewCard()).getByText("Иван").closest("button"));

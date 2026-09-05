@@ -5,28 +5,31 @@ import ProfilePanel, { PROFILE_FIELDS, filled, profileOf }
   from "../components/ProfilePanel.jsx";
 import { resetIdentity } from "../identity.js";
 
-/* СТРАНИЦА ЧЕЛОВЕКА: анкета и рейтинг.
+/* ЧЕЛОВЕК: анкета и рейтинг.
 
    Рейтинг говорит, КАК человек работал, но не говорит, кто он. Анкету
    пишет он сам и только свою: про себя он знает точнее, а заполненная
-   кем-то другим она была бы чужим мнением под чужим именем. */
+   кем-то другим она была бы чужим мнением под чужим именем.
+
+   Поле в анкете ОДНО. Прежде их было четыре — «чем занимается», «о себе»,
+   «что умеет», «как связаться»: это была не анкета, а допрос по форме,
+   которую никто не заказывал. */
 
 const ME = { id: "2", name: "Иван", isOwner: false, known: true, tabs: ["tasks"],
-  profile: { title: "аналитик", about: "", skills: "", contact: "" } };
-const PEOPLE = [{ id: "2", name: "Иван", title: "аналитик" },
-  { id: "3", name: "Пётр", title: "верстальщик", about: "делаю макеты" }];
+  profile: { about: "" } };
+const PEOPLE = [{ id: "2", name: "Иван" },
+  { id: "3", name: "Пётр", about: "делаю макеты" }];
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("анкета", () => {
-  it("полей немного: анкета должна заполняться, а не отпугивать", () => {
-    expect(PROFILE_FIELDS.map((f) => f.id))
-      .toEqual(["title", "about", "skills", "contact"]);
+  it("поле одно: что о себе писать, решает человек, а не форма", () => {
+    expect(PROFILE_FIELDS.map((f) => f.id)).toEqual(["about"]);
   });
 
   it("пустая анкета — это пусто, а не отсутствие человека", () => {
     expect(filled(profileOf({ id: "9" }))).toBe(false);
-    expect(filled(profileOf({ title: "аналитик" }))).toBe(true);
+    expect(filled(profileOf({ about: "аналитик" }))).toBe(true);
   });
 
   it("свою можно править, и она уходит на сервер", async () => {
@@ -36,7 +39,7 @@ describe("анкета", () => {
       return { ok: true, status: 200, json: async () => ({ profile: JSON.parse(opts.body) }) };
     }));
     render(<ProfilePanel me={ME} people={PEOPLE} tasks={[]} funcs={[]} />);
-    const about = screen.getByLabelText("о себе");
+    const about = screen.getByLabelText("анкета");
     fireEvent.change(about, { target: { value: "делаю отчёты" } });
     fireEvent.blur(about);
     fireEvent.click(screen.getByRole("button", { name: "Сохранить анкету" }));
@@ -50,16 +53,16 @@ describe("анкета", () => {
     render(<ProfilePanel me={ME} personId="3" people={PEOPLE} tasks={[]} funcs={[]} />);
     expect(screen.getByText("Пётр")).toBeInTheDocument();
     expect(screen.getByText("делаю макеты")).toBeInTheDocument();
-    expect(screen.queryByLabelText("о себе")).toBeNull();
+    expect(screen.queryByLabelText("анкета")).toBeNull();
     expect(screen.queryByRole("button", { name: "Сохранить анкету" })).toBeNull();
   });
 
-  it("с чужой страницы видно, как вернуться к своей", () => {
-    const opened = [];
-    render(<ProfilePanel me={ME} personId="3" people={PEOPLE} tasks={[]} funcs={[]}
-      onPerson={(id) => opened.push(id)} />);
-    fireEvent.click(screen.getByRole("button", { name: "← моя анкета" }));
-    expect(opened).toEqual(["2"]);
+  it("чужих анкет на странице нет: она про одного человека", () => {
+    /* Список остальных превращал страницу в справочник и предлагал уйти с
+       неё ровно тогда, когда её открыли, чтобы прочитать. */
+    render(<ProfilePanel me={ME} personId="3" people={PEOPLE} tasks={[]} funcs={[]} />);
+    expect(screen.queryByText("другие люди")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Иван" })).toBeNull();
   });
 
   it("рейтинг — на той же странице, а не в отдельном окне", () => {
@@ -91,9 +94,7 @@ describe("вкладка «Анкета»", () => {
     expect(screen.getByText("моя анкета")).toBeInTheDocument();
   });
 
-  it("страница человека — вкладкой, а не окном поверх работы", () => {
-    // Истории может быть много: в окне её пришлось бы листать поверх того,
-    // что под ним, и закрывать, чтобы вернуться к делу.
+  it("своя анкета — вкладка, и открывается она сразу, а не окном", () => {
     render(<SystemModel />);
     fireEvent.click(screen.getByRole("button", { name: "Анкета" }));
     expect(screen.getByText("рейтинг и работы")).toBeInTheDocument();

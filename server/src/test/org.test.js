@@ -309,35 +309,44 @@ describe("что можно изменить", () => {
 describe("анкета", () => {
   it("новый человек начинается с пустой анкеты, а не с её отсутствия", async () => {
     const me = await identify("100", { name: "Первый" });
-    expect(me.profile).toEqual({ title: "", about: "", skills: "", contact: "" });
+    // Поле одно: что о себе писать, решает человек, а не форма.
+    expect(me.profile).toEqual({ about: "" });
   });
 
   it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
     await identify("100", { name: "Первый" });
-    const saved = await setProfile("100", { title: "аналитик", about: "делаю отчёты" });
-    expect(saved).toMatchObject({ title: "аналитик", about: "делаю отчёты" });
-    expect((await identify("100", {})).profile.title).toBe("аналитик");
+    const saved = await setProfile("100", { about: "делаю отчёты" });
+    expect(saved).toEqual({ about: "делаю отчёты" });
+    expect((await identify("100", {})).profile.about).toBe("делаю отчёты");
   });
 
-  it("незаполненные поля не стираются: правится то, что прислали", async () => {
+  it("прежние четыре поля не пропадают: пустая анкета читается как их склейка", async () => {
+    /* Молча выбросить то, что человек уже о себе написал, было бы хуже
+       всего. Первое же сохранение перенесёт текст в анкету насовсем. */
     await identify("100", {});
-    await setProfile("100", { title: "аналитик", contact: "@ivan" });
-    await setProfile("100", { title: "инженер" });
-    const me = await identify("100", {});
-    expect(me.profile.title).toBe("инженер");
-    expect(me.profile.contact).toBe("@ivan");
+    // Так выглядит запись, собранная прежней версией: четыре поля вместо
+    // анкеты. Правим файл, потому что писать в эти поля больше нечем.
+    const file = path.join(process.env.ORG_DIR, "org.json");
+    const org = JSON.parse(await fs.readFile(file, "utf8"));
+    Object.assign(org.users.find((u) => u.id === "100"),
+      { title: "аналитик", contact: "@ivan" });
+    await fs.writeFile(file, JSON.stringify(org));
+    expect((await identify("100", {})).profile.about).toBe("аналитик\n@ivan");
+    // А первое же сохранение переносит текст в анкету насовсем.
+    await setProfile("100", { about: "аналитик, @ivan" });
+    expect((await identify("100", {})).profile.about).toBe("аналитик, @ivan");
   });
 
   it("анкета лежит рядом с человеком — её видно в списке организации", async () => {
     await identify("100", { name: "Первый" });
     await addUser({ id: "200", name: "Второй", roleId: "worker", addedBy: "100" });
-    await setProfile("200", { skills: "верстает" });
+    await setProfile("200", { about: "верстает" });
     const org = await listOrg();
-    expect(org.users.find((u) => u.id === "200").skills).toBe("верстает");
+    expect(org.users.find((u) => u.id === "200").about).toBe("верстает");
   });
 
   it("человека, которого нет, анкетой не завести", async () => {
     await identify("100", {});
-    expect(await setProfile("999", { title: "никто" })).toBeNull();
+    expect(await setProfile("999", { about: "никто" })).toBeNull();
   });
 });

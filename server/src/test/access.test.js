@@ -178,24 +178,24 @@ describe("своя анкета", () => {
   it("позванный человек пишет свою анкету, не будучи владельцем", async () => {
     await invite(200, "executor", "Иван");
     const res = await request(app).put("/api/org/me/profile")
-      .set(as(200, "Иван")).send({ title: "исполнитель", skills: "верстает" });
+      .set(as(200, "Иван")).send({ about: "исполнитель, верстает" });
     expect(res.status).toBe(200);
-    expect(res.body.profile).toMatchObject({ title: "исполнитель", skills: "верстает" });
+    expect(res.body.profile).toEqual({ about: "исполнитель, верстает" });
     const me = await request(app).get("/api/org/me").set(as(200, "Иван"));
-    expect(me.body.profile.skills).toBe("верстает");
+    expect(me.body.profile.about).toBe("исполнитель, верстает");
   });
 
   it("непозванному писать нечего: его в организации нет", async () => {
     expect((await request(app).put("/api/org/me/profile")
-      .set(as(777, "Чужой")).send({ title: "кто-то" })).status).toBe(403);
+      .set(as(777, "Чужой")).send({ about: "кто-то" })).status).toBe(403);
   });
 
   it("чужую анкету не переписать — маршрут только про свою", async () => {
     await invite(200, "executor", "Иван");
-    await request(app).put("/api/org/me/profile").set(as(200)).send({ title: "Иван" });
-    await request(app).put("/api/org/me/profile").set(as(100)).send({ title: "Владелец" });
+    await request(app).put("/api/org/me/profile").set(as(200)).send({ about: "Иван" });
+    await request(app).put("/api/org/me/profile").set(as(100)).send({ about: "Владелец" });
     const org = await request(app).get("/api/org").set(as(100));
-    expect(org.body.users.find((u) => u.id === "200").title).toBe("Иван");
-    expect(org.body.users.find((u) => u.id === "100").title).toBe("Владелец");
+    expect(org.body.users.find((u) => u.id === "200").about).toBe("Иван");
+    expect(org.body.users.find((u) => u.id === "100").about).toBe("Владелец");
   });
 });

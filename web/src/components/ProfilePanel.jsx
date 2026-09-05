@@ -4,37 +4,41 @@ import PersonStats from "./PersonStats.jsx";
 import { putProfile } from "../identity.js";
 
 /* ════════════════════════════════════════════════════════════════
-   СТРАНИЦА ЧЕЛОВЕКА · анкета и рейтинг
+   ЧЕЛОВЕК · анкета и рейтинг
 
-   Рейтинг говорит, КАК человек работал. Он не говорит, кто это: чем
-   занимается, что умеет, как с ним связаться. Прежде этого не было нигде,
-   и человек в модели был именем со средней оценкой.
+   Две вещи, и ровно две. АНКЕТА — то, что человек сам о себе сказал.
+   РЕЙТИНГ — то, как он работал: оценки, сроки, работы, из которых он
+   сложился.
 
-   Здесь обе половины сразу: анкета сверху, история под ней. Разводить их
-   по разным местам значило бы заставлять сличать две страницы, чтобы
-   ответить на один вопрос — «кто это и стоит ли ему поручать».
+   ─── почему поле одно ───
 
-   ─── кто пишет анкету ───
+   Прежде их было четыре: «чем занимается», «о себе», «что умеет», «как
+   связаться». Это была не анкета, а допрос по форме, которую никто не
+   заказывал: приложение решало за человека, что о себе рассказывать, и
+   заранее знало, что вопрос «как с тобой связаться» важнее всего
+   остального. Анкета — это анкета: одно поле, и что в нём написать,
+   решает тот, кто пишет.
+
+   ─── кто пишет ───
 
    Сам человек, и только свою. Про себя он знает точнее, а анкета,
    заполненная кем-то другим, была бы чужим мнением под чужим именем.
-   Поэтому чужая страница здесь только читается: поля показаны как текст,
-   а не как поля ввода, — и не потому, что «нет прав», а потому что писать
-   там нечего.
+   Поэтому чужая страница здесь только читается: поле показано текстом, а
+   не полем ввода, — и не потому, что «нет прав», а потому что писать там
+   нечего.
 
-   ─── почему вкладка первая ───
+   ─── чужих анкет тут нет ───
 
-   Это единственное место, где человек говорит о СЕБЕ. Всё остальное в
-   приложении — про работу; если бы своя анкета лежала внутри инструментов
-   владельца, до неё нельзя было бы дойти тому, кто не владелец.
+   Список «другие люди» отсюда убран. Страница отвечает на вопрос про
+   ОДНОГО человека — того, которого открыли; список остальных превращал её
+   в справочник и предлагал уйти с неё ровно тогда, когда её открыли,
+   чтобы прочитать.
    ════════════════════════════════════════════════════════════════ */
 
-/** Поля анкеты. Их немного: анкета должна заполняться, а не отпугивать. */
+/** Поле анкеты одно. Что в него писать — решает человек, а не форма. */
 export const PROFILE_FIELDS = [
-  { id: "title", name: "чем занимается", hint: "коротко: роль, специальность, должность" },
-  { id: "about", name: "о себе", area: true, hint: "что о себе стоит знать тому, кто ставит задачу" },
-  { id: "skills", name: "что умеет", area: true, hint: "то, за чем к нему приходят" },
-  { id: "contact", name: "как связаться", hint: "почта, телеграм, телефон — как удобно" },
+  { id: "about", name: "анкета", area: true,
+    hint: "что о себе стоит знать тому, кто выбирает, кому поручить работу" },
 ];
 
 export const emptyProfile = () => Object.fromEntries(PROFILE_FIELDS.map((f) => [f.id, ""]));
@@ -44,23 +48,23 @@ export const profileOf = (person = {}) => Object.fromEntries(
   PROFILE_FIELDS.map((f) => [f.id, String(person?.[f.id] || "")]),
 );
 
-/** Заполнена ли анкета хоть чем-нибудь. */
+/** Заполнена ли анкета. */
 export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "").trim());
 
 export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = [],
-  traitName, onPerson, onSaved }) {
-  // Чья страница открыта. По умолчанию — своя: с себя человек и начинает.
+  traitName, onSaved }) {
+  // Чья анкета открыта. По умолчанию — своя: с себя человек и начинает.
   const id = personId == null ? me?.id : personId;
   const mine = String(id) === String(me?.id);
   const person = people.find((p) => String(p.id) === String(id)) || null;
-  const name = person?.name || me?.name || String(id ?? "");
+  const name = person?.name || (mine ? me?.name : "") || String(id ?? "");
 
   const [draft, setDraft] = useState(emptyProfile());
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
   /* Своя анкета приходит вместе с «кто я», чужая — из списка людей.
-     Пересобираем при смене человека: иначе в чужой странице остались бы
+     Пересобираем при смене человека: иначе в чужой анкете остались бы
      твои слова. */
   useEffect(() => {
     setMsg("");
@@ -77,19 +81,12 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
     setBusy(false);
   };
 
-  const others = people.filter((p) => String(p.id) !== String(id));
-
   return (
     <div>
       <div style={{ ...S.card, marginBottom: 10 }}>
-        <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
-          <span style={S.lbl}>{mine ? "моя анкета" : "анкета"}</span>
-          <span style={{ flex: 1 }} />
-          {!mine && (
-            <button style={btn(false)} onClick={() => onPerson && onPerson(me?.id)}>
-              ← моя анкета</button>)}
-        </div>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{name || "—"}</div>
+        <div style={S.lbl}>{mine ? "моя анкета" : "анкета"}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, margin: "6px 0 2px" }}>
+          {name || "—"}</div>
         <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>
           {mine
             ? "Пишете только вы и только о себе: про себя вы знаете точнее, чем кто-либо. Это видно тем, кто выбирает, кому поручить работу."
@@ -98,13 +95,12 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
 
         {PROFILE_FIELDS.map((fld) => (
           <div key={fld.id} style={{ marginBottom: 8 }}>
-            <div style={S.lbl}>{fld.name}</div>
-            {mine ? (<>
+            {mine ? (
               <TxtField area={fld.area} value={draft[fld.id] || ""} placeholder={fld.hint}
                 aria-label={fld.name}
-                style={fld.area ? { minHeight: 56, lineHeight: 1.5 } : undefined}
+                style={fld.area ? { minHeight: 96, lineHeight: 1.5 } : undefined}
                 onCommit={(v) => setDraft((p) => ({ ...p, [fld.id]: v }))} />
-            </>) : (
+            ) : (
               <div style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap",
                 color: draft[fld.id] ? C.text : C.muted }}>
                 {draft[fld.id] || "не заполнено"}</div>)}
@@ -126,15 +122,5 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
         <div style={{ ...S.lbl, marginBottom: 8 }}>рейтинг и работы</div>
         <PersonStats tasks={tasks} funcs={funcs} personId={id} traitName={traitName} />
       </div>
-
-      {others.length > 0 && (
-        <div style={{ ...S.card, marginBottom: 10 }}>
-          <div style={{ ...S.lbl, marginBottom: 6 }}>другие люди</div>
-          <div className="flex flex-wrap gap-2">
-            {others.map((p) => (
-              <button key={p.id} style={{ ...btn(false), fontSize: 11.5 }}
-                onClick={() => onPerson && onPerson(p.id)}>{p.name || p.id}</button>))}
-          </div>
-        </div>)}
     </div>);
 }

@@ -4,7 +4,7 @@ import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, cou
   crewOf,
   chanceOf, everyOf, everyRange, factorChance, factorsOf, groupsOf, sameEvery, sameHours,
   funcKind, isFactor, newFactor, fromHours,
-  hoursOf, newFunc, newGive, newPort, okRange, rangeText, runHours,
+  hoursOf, newFunc, newGive, newPort, okRange, portSpends, rangeText, runHours,
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 import { byRating, shortStat, statsOf } from "../lib/workers.js";
@@ -146,55 +146,75 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
    можно переложить руками, и тогда он таким и сохранится. Порядок здесь
    не украшение: он говорит, кого зовут на работу первым. */
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
-  onToggle, onOrder, onOpenPerson }) {
+  onToggle, onToggleCrew, onOrder, onOpenPerson }) {
   const stat = (id) => statsOf(tasks, funcs, id);
-  // Люди актива одним списком — без деления на роли: сперва «кто это
-  // вообще», и только потом «кто чем занят».
+  // Воркеры актива одним списком — без деления на роли: сперва «кто здесь
+  // работает», и только потом «кто чем занят».
   const crew = crewOf(workers);
+  const inCrew = (id) => crew.some((x) => String(x) === String(id));
   const name = (id) => (nameOf ? nameOf(id) : id);
   return (
     <Section title="воркеры актива"
-      hint="Постановщики, исполнители и проверяющие этого актива. На его функции можно ставить только их."
+      hint="Сначала отметьте, кто вообще работает в этом активе, — из отмеченных потом и выбираются постановщики, исполнители и проверяющие."
       empty={people.length ? null : "Людей ещё нет — заведите их во вкладке «Люди и роли»."}>
       {people.length > 0 && (<>
-        {/* ─── люди актива ───
-            Список без ролей: нажатие открывает страницу человека — его
-            рейтинг и то, из чего он сложился. Порядок здесь задаёт
-            человек, и именно в этом порядке люди показываются потом в
-            формах выбора: у выбирающего бывают причины, которых в цифрах
-            нет. */}
+        {/* ─── воркеры ───
+            ВСЕ люди схемы сразу: воркер актива — это выбор из них, а не
+            следствие того, что человека куда-то назначили. Обратный
+            порядок заставлял бы называть роль раньше человека.
+
+            Нажатие на имя открывает окно человека — анкету и рейтинг. Окно,
+            а не страницу: со страницы человек уезжал бы из актива, который
+            сейчас собирает, и возвращаться было бы некуда.
+
+            Порядок здесь задаёт человек, и именно в этом порядке воркеры
+            показываются потом в формах выбора: у выбирающего бывают
+            причины, которых в цифрах нет. */}
         <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
           borderRadius: 8, padding: 8, marginBottom: 8 }}>
-          <div style={{ ...S.lbl, marginBottom: 4 }}>люди актива</div>
+          <div style={{ ...S.lbl, marginBottom: 4 }}>воркеры</div>
           {!crew.length && (
-            <div style={{ fontSize: 11, color: C.muted }}>
-              Пока никого: выберите людей в ролях ниже.</div>)}
-          {crew.map((pid, i) => {
-            const s = stat(pid);
-            return (
-              <div key={pid} className="flex items-center gap-2"
-                style={{ padding: "4px 0", borderTop: i ? `1px solid ${C.line}` : "none" }}>
-                <button style={{ background: "none", border: "none", padding: 0,
-                  flex: 1, textAlign: "left", cursor: "pointer", color: C.text }}
-                  onClick={() => onOpenPerson && onOpenPerson(pid)}
-                  title="страница человека: рейтинг и из чего он сложился">
-                  <span style={{ fontSize: 12.5 }}>{name(pid)}</span>
-                  <span style={{ fontSize: 10.5, color: s.mark == null ? C.muted
-                    : s.mark >= 4 ? OK : s.mark >= 3 ? WARN : BAD }}>
-                    {" · "}{shortStat(s)}</span>
-                </button>
-                <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
-                  aria-label={`выше: ${name(pid)}`} disabled={i === 0}
-                  onClick={() => onOrder && onOrder(pid, -1)}>↑</button>
-                <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
-                  aria-label={`ниже: ${name(pid)}`} disabled={i === crew.length - 1}
-                  onClick={() => onOrder && onOrder(pid, 1)}>↓</button>
-              </div>);
-          })}
-          {crew.length > 1 && (
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-              В этом порядке люди показываются в формах выбора — кого
-              поставили выше, того и предлагают первым.</div>)}
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
+              Пока никого: отметьте, кто работает в этом активе.</div>)}
+          {[...crew, ...people.map((p) => p.id).filter((id) => !inCrew(id))]
+            .map((pid, i, all) => {
+              const s = stat(pid);
+              const on = inCrew(pid);
+              return (
+                <div key={pid} className="flex items-center gap-2"
+                  style={{ padding: "4px 0", opacity: on ? 1 : 0.55,
+                    borderTop: i ? `1px solid ${C.line}` : "none" }}>
+                  <input type="checkbox" checked={on}
+                    aria-label={`воркер актива: ${name(pid)}`}
+                    onChange={() => onToggleCrew && onToggleCrew(pid)}
+                    style={{ accentColor: ACC }} />
+                  <button style={{ background: "none", border: "none", padding: 0,
+                    flex: 1, textAlign: "left", cursor: "pointer", color: C.text }}
+                    onClick={() => onOpenPerson && onOpenPerson(pid)}
+                    title="анкета и рейтинг — окном, не уходя со схемы">
+                    <span style={{ fontSize: 12.5 }}>{name(pid)}</span>
+                    <span style={{ fontSize: 10.5, color: s.mark == null ? C.muted
+                      : s.mark >= 4 ? OK : s.mark >= 3 ? WARN : BAD }}>
+                      {" · "}{shortStat(s)}</span>
+                  </button>
+                  {on && (<>
+                    <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
+                      aria-label={`выше: ${name(pid)}`} disabled={i === 0}
+                      onClick={() => onOrder && onOrder(pid, -1)}>↑</button>
+                    <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
+                      aria-label={`ниже: ${name(pid)}`}
+                      disabled={i >= crew.length - 1}
+                      onClick={() => onOrder && onOrder(pid, 1)}>↓</button>
+                  </>)}
+                </div>);
+            })}
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+            Здесь все, кого вообще добавили на эту схему. Отмеченные — воркеры
+            этого актива: из них и только из них выбираются роли ниже.
+            {crew.length > 1
+              ? " Порядок задаёте вы: кого поставили выше, того и предлагают первым."
+              : ""}
+          </div>
         </div>
         <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
           borderRadius: 8, padding: 8 }}>
@@ -202,15 +222,19 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
             const ids = workers[k.id] || [];
             /* Роли всегда по рейтингу: здесь вопрос «кому поручить», и
                первым должен стоять тот, кто лучше справлялся. Свой порядок
-               задаётся выше, в списке людей. */
+               задаётся выше, в списке воркеров. */
             const shown = byRating(tasks, funcs, ids);
-            const free = people.filter((p) => !ids.includes(p.id));
+            /* Выбирать роль можно только из воркеров актива: это и значит
+               «сначала люди, потом их работа». Кого не отметили выше — того
+               здесь и не предлагают. */
+            const free = people.filter((p) => inCrew(p.id) && !ids.includes(p.id));
             return (
               <div key={k.id} style={{ marginTop: 6 }}>
                 <div style={{ ...S.lbl, marginBottom: 3 }}>{k.many}</div>
                 {!ids.length && (
                   <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
-                    никого — выберите ниже</div>)}
+                    {crew.length ? "никого — выберите ниже"
+                      : "сначала отметьте воркеров актива выше"}</div>)}
                 {shown.map((pid, i) => {
                   const s = stat(pid);
                   return (
@@ -337,6 +361,28 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                       <span style={{ flex: 1 }} />
                       <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
                     </div>
+                    {/* Расходует или только обрабатывает. Вопрос стоит у
+                        входа, а не у ресурса: одна функция ткань режет, а
+                        другая на неё смотрит — и это про функции, а не про
+                        ткань. */}
+                    {!out && (<>
+                      <label className="flex items-center gap-2"
+                        style={{ marginTop: 6, fontSize: 11, color: C.muted,
+                          cursor: "pointer" }}>
+                        <input type="checkbox"
+                          aria-label={`расходует ${traitName(p.trait)}`}
+                          checked={portSpends(p)}
+                          onChange={(e) => onSet(p.id, { spend: e.target.checked })}
+                          style={{ accentColor: ACC }} />
+                        расходует
+                      </label>
+                      <div style={{ fontSize: 10, color: C.muted, marginTop: 3,
+                        lineHeight: 1.5 }}>
+                        {portSpends(p)
+                          ? "Взятое исчезает: ни эта функция, ни соседняя больше его не получат."
+                          : "Взятое остаётся и достаётся другим функциям. Но эта второй раз ту же единицу не берёт — работа по ней уже сделана."}
+                      </div>
+                    </>)}
                   </div>
                 </div>);
             })}
@@ -432,6 +478,16 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                     ? `: ${factorsOf(f).map(factorName).join(", затем ")}`
                     : " не выбран"}</span>)}
             </>}>
+            {/* Описание — чем функция занята, своими словами. Необязательное:
+                функция может быть понятна и по названию. Зато написанное
+                здесь едет в КАЖДУЮ её задачу, и постановщику не приходится
+                переписывать одно и то же в каждое выполнение. */}
+            <div style={{ ...S.lbl, marginTop: 8 }}>описание — необязательно</div>
+            <TxtField area value={f.about || ""} aria-label="описание функции"
+              placeholder="что это за работа — увидит исполнитель в каждой задаче"
+              style={{ minHeight: 52, margin: "4px 0", lineHeight: 1.5 }}
+              onCommit={(v) => up(f.id, (x) => ({ ...x, about: v }))} />
+
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
               hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
               assetName={assetName} traitName={traitName} runs={runs}
@@ -525,13 +581,13 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             {everyRange(f).hi > 0 && (
               <label className="flex items-center gap-2"
                 style={{ marginTop: 5, fontSize: 11, color: C.muted, cursor: "pointer" }}>
-                <input type="checkbox" aria-label="точный срок"
+                <input type="checkbox" aria-label="точное время попытки"
                   checked={sameEvery(f)}
                   onChange={(e) => up(f.id, (x) => ({ ...x,
                     everyHi: e.target.checked ? Number(x.every) || 0
                       : Math.max(Number(x.every) || 0, Number(x.everyHi) || 0) * 2 }))}
                   style={{ accentColor: ACC }} />
-                точный срок
+                точное время
               </label>)}
 
             {/* Чем функция выполняется — людьми или сама собой. Вопрос
@@ -832,7 +888,8 @@ export default function AssetPanel(props) {
       {tab === "workers" && (
         <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
           tasks={props.tasks} funcs={props.funcs}
-          onToggle={props.onToggleWorker} onOrder={props.onOrderWorker}
+          onToggle={props.onToggleWorker} onToggleCrew={props.onToggleCrew}
+          onOrder={props.onOrderWorker}
           onOpenPerson={props.onOpenPerson} />)}
 
       {tab === "funcs" && (
