@@ -41,7 +41,7 @@
    остальное выводится из модели. Записать сюда «нужно 40 часов» значило бы
    завести вторую правду: модель поправили, а число осталось прежним.
    ════════════════════════════════════════════════════════════════ */
-import { DUR_UNITS } from "./funcs.js";
+import { DUR_UNITS, WEEK } from "./funcs.js";
 import { MONTH_H, effect, scheduleOf, solveRange } from "./plan.js";
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -61,12 +61,10 @@ export const RATES = [
 ];
 export const rateOf = (id) => RATES.find((r) => r.id === id) || RATES[0];
 
-/** Дни недели с понедельника: неделя начинается с рабочего дня. */
-export const WEEK = [
-  { id: 1, short: "пн" }, { id: 2, short: "вт" }, { id: 3, short: "ср" },
-  { id: 4, short: "чт" }, { id: 5, short: "пт" }, { id: 6, short: "сб" },
-  { id: 0, short: "вс" },
-];
+/* Дни недели — общий список приложения (`lib/funcs.js`): цель и рабочий
+   график человека обязаны называть их одинаково. Здесь он только
+   переизлучается: прежние места читают его отсюда. */
+export { WEEK };
 
 /** Куда считать срок: через столько-то или к названному числу. */
 export const DUE_IN = "in";

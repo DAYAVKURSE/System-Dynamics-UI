@@ -191,85 +191,101 @@ describe("задача ждёт ресурсов", () => {
   });
 });
 
+/* ─── СПИСОК ВОРКЕРОВ АКТИВА ───
+
+   Один список, и только он: «кто здесь вообще работает». Прежде тут же
+   стояли три списка ролей — постановщики, исполнители, проверяющие
+   актива, — и они отвечали на вопрос, которого никто не задавал: роль
+   человек исполняет НЕ В АКТИВЕ ВООБЩЕ, а в конкретной работе. Роли
+   выставляются у каждой функции отдельно. */
 describe("список воркеров: кого ставить", () => {
   const done = (id, person, mark) => ({ id, funcId: "f1", assignee: person,
     status: "done", end: "2026-01-02T09:00:00Z",
     submissions: [{ at: "2026-01-01T09:00:00Z", hours: 2, takes: {}, gives: {} }],
     reviews: [{ accept: true, mark, comment: `за ${mark}` }] });
   const TASKS = [done("a", "2", 5), done("b", "3", 3)];
-  const W = { setters: [], owners: ["3", "2"], reviewers: [] };
+  const W = { crew: ["3", "2"] };
 
   const mount = (over = {}) => {
     const props = { workers: W, people: PEOPLE, nameOf: (id) =>
       PEOPLE.find((p) => p.id === id)?.name || id, tasks: TASKS, funcs: FUNCS,
-    onToggle: () => {}, onOrder: () => {}, onOpenPerson: () => {}, ...over };
+    roleOf: (id) => (id === "2" ? "Исполнитель" : "Проверяющий"),
+    onOrder: () => {}, onOpenPerson: () => {}, ...over };
     return render(<Workers {...props} />);
   };
-  // Два списка на форме: сперва воркеры без ролей, потом роли.
   const crewCard = () => screen.getByText("воркеры").parentElement;
-  const roleBlock = (name) => screen.getByText(name).parentElement;
   const namesIn = (el) => [...el.querySelectorAll("button")]
-    .map((b) => b.textContent).filter((t) => t.startsWith("Иван") || t.startsWith("Пётр"));
+    .map((b) => b.textContent).filter((t) => /Иван|Пётр/.test(t));
 
-  it("рядом с каждым — краткая статистика, а не одно имя", () => {
-    mount();
-    expect(screen.getAllByText(/5 · в срок 100% · 1 работа/).length).toBeGreaterThan(0);
+  it("в строке пять вещей и в этом порядке: должность, имя, сроки, рейтинг, работы",
+    () => {
+      /* Свалить это в одну серую строку через точки значило бы заставить
+         искать нужное число глазами. */
+      mount();
+      const row = within(crewCard()).getByText("Иван").closest("button");
+      // Только конечные ячейки: внешняя обёртка содержит весь текст сразу.
+      const parts = [...row.querySelectorAll("span")]
+        .filter((x) => !x.querySelector("span"))
+        .map((x) => x.textContent).filter(Boolean);
+      const at = (t) => parts.findIndex((x) => x.includes(t));
+      expect(at("Исполнитель")).toBeGreaterThanOrEqual(0);
+      expect(at("Исполнитель")).toBeLessThan(at("Иван"));
+      expect(at("Иван")).toBeLessThan(at("в срок"));
+      expect(at("в срок")).toBeLessThan(at("рейтинг"));
+      expect(at("рейтинг")).toBeLessThan(at("сдано"));
+      expect(row.textContent).toMatch(/рейтинг 5/);
+      expect(row.textContent).toMatch(/1 сдано/);
+    });
+
+  it("чего нет — сказано словом, а не нулём", () => {
+    // Ноль читается как «оценили на ноль», а человека ещё не оценивали.
+    mount({ tasks: [], roleOf: () => "" });
+    const row = within(crewCard()).getByText("Иван").closest("button");
+    expect(row.textContent).toMatch(/без должности/);
+    expect(row.textContent).toMatch(/без оценок/);
+    expect(row.textContent).toMatch(/сроков нет/);
   });
 
-  it("воркеры — одним списком, без деления на роли", () => {
-    // Один человек может быть и постановщиком, и исполнителем: в списке
-    // воркеров он один раз, потому что вопрос здесь — «кто здесь работает».
-    mount({ workers: { setters: ["2"], owners: ["3", "2"], reviewers: ["2"] } });
+  it("статус видно прямо в списке: можно ли поручить сейчас", () => {
+    /* Узнавать это, открыв карточку, поздно — выбирают-то здесь. */
+    mount({ people: PEOPLE.map((p) => (p.id === "2"
+      ? { ...p, status: "off" } : p)) });
+    const row = within(crewCard()).getByText("Иван").closest("button");
+    expect(row.textContent).toMatch(/сегодня не работаю/);
+  });
+
+  it("воркеры — одним списком, и списков ролей у актива больше нет", () => {
+    mount();
     expect(namesIn(crewCard())).toHaveLength(2);
+    ["постановщики", "исполнители", "проверяющие"].forEach((t) => {
+      expect(screen.queryByText(t)).toBeNull();
+    });
   });
 
   it("в списке сразу все люди схемы: воркер — это выбор из них", () => {
     /* Обратный порядок — «стал воркером, потому что его куда-то
        назначили» — заставлял бы называть роль раньше человека. */
-    mount({ workers: { setters: [], owners: ["3"], reviewers: [] } });
-    // Отметка стоит у каждого человека схемы, а не только у назначенных.
+    mount({ workers: { crew: ["3"] } });
     expect(crewCard().querySelectorAll("input[type=checkbox]"))
       .toHaveLength(PEOPLE.length);
-    // Отмечен только тот, кто и правда воркер этого актива.
     expect(screen.getByLabelText("воркер актива: Пётр")).toBeChecked();
     expect(screen.getByLabelText("воркер актива: Иван")).not.toBeChecked();
-  });
-
-  it("роли предлагают только из отмеченных воркеров", () => {
-    const free = (name) => [...roleBlock(name).querySelectorAll("button")]
-      .map((b) => b.textContent).filter((t) => t.startsWith("+ "));
-    mount({ workers: { setters: [], owners: ["3"], reviewers: [] } });
-    // Иван не отмечен воркером — в роли его и не предлагают.
-    expect(free("постановщики").join(" ")).not.toMatch(/Иван/);
-    expect(free("постановщики").join(" ")).toMatch(/Пётр/);
   });
 
   it("порядок воркеров — тот, что записан, и его можно менять", () => {
     const moves = [];
     mount({ onOrder: (p, d) => moves.push([p, d]) });
-    expect(namesIn(crewCard())[0]).toMatch(/^Пётр/);
+    expect(namesIn(crewCard())[0]).toMatch(/Пётр/);
     fireEvent.click(screen.getByRole("button", { name: "ниже: Пётр" }));
     expect(moves).toEqual([["3", 1]]);
   });
 
-  it("заданный порядок сильнее порядка ролей", () => {
-    mount({ workers: { ...W, crew: ["2", "3"] } });
-    expect(namesIn(crewCard())[0]).toMatch(/^Иван/);
-  });
-
-  it("в ролях всегда сверху лучшие — и переключателя вида больше нет", () => {
-    /* В ролях вопрос другой: кому поручить. Первым должен стоять тот, кто
-       лучше справлялся, и выбор вида тут только сбивал бы. */
-    mount();
-    expect(namesIn(roleBlock("исполнители"))[0]).toMatch(/^Иван/);
-    expect(screen.queryByRole("button", { name: "по рейтингу" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "свой порядок" })).toBeNull();
-  });
-
-  it("стрелки — только в списке воркеров: рейтинг ими не двигают", () => {
-    mount();
-    expect(within(roleBlock("исполнители"))
-      .queryByRole("button", { name: /^выше: / })).toBeNull();
+  it("прежние роли актива читаются как членство: люди не пропадают", () => {
+    /* У моделей, собранных раньше, людей записывали в три списка ролей.
+       Выбросить их значило бы стереть воркеров у всех прежних активов. */
+    mount({ workers: { setters: ["2"], owners: ["3"], reviewers: [] } });
+    expect(screen.getByLabelText("воркер актива: Иван")).toBeChecked();
+    expect(screen.getByLabelText("воркер актива: Пётр")).toBeChecked();
   });
 
   it("нажатие на человека открывает его карточку", () => {

@@ -233,7 +233,7 @@ describe("своя анкета", () => {
     const res = await request(app).put("/api/org/me/profile")
       .set(as(200, "Иван")).send({ about: "исполнитель, верстает" });
     expect(res.status).toBe(200);
-    expect(res.body.profile).toEqual({ about: "исполнитель, верстает" });
+    expect(res.body.profile).toMatchObject({ about: "исполнитель, верстает" });
     const me = await request(app).get("/api/org/me").set(as(200, "Иван"));
     expect(me.body.profile.about).toBe("исполнитель, верстает");
   });

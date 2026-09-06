@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { avg, byRating, historyOf, inTime, lastReview, lastSubmission, shortStat,
-  statsOf } from "../lib/workers.js";
+import { WORK_STATUSES, avg, byRating, hasSchedule, historyOf, inTime, lastReview,
+  lastSubmission, scheduleOfPerson, scheduleText, shortStat, statsOf, statusOf,
+  workTime } from "../lib/workers.js";
+import { WEEK } from "../lib/funcs.js";
 
 /* История воркера — то, чего нельзя увидеть в одной задаче: как человек
    работает вообще. Здесь проверяется, что считается по фактам и молчит там,
@@ -132,5 +134,48 @@ describe("строка о человеке", () => {
 
   it("без единой оценки так и сказано", () => {
     expect(shortStat(statsOf([], FUNCS, "p1"))).toBe("без оценок · 0 работ");
+  });
+});
+
+/* ─────── РАБОЧИЙ ГРАФИК И СТАТУС ───────
+
+   Рейтинг говорит, как человек работает. Прежде него спрашивают куда более
+   простое: работает ли он сейчас. */
+describe("рабочий график и статус", () => {
+  it("статус — один из четырёх, выдумка приводится к «готов»", () => {
+    expect(WORK_STATUSES.map((s) => s.id))
+      .toEqual(["ready", "break", "off", "busy"]);
+    expect(statusOf("off").name).toBe("сегодня не работаю");
+    expect(statusOf("выдумка").id).toBe("ready");
+  });
+
+  it("часы — «ЧЧ:ММ» или пусто: выдуманное время честнее не записывать", () => {
+    expect(workTime("09:30")).toBe("09:30");
+    expect(workTime("25:00")).toBe("");
+    expect(workTime("9:00")).toBe("");
+    expect(workTime("")).toBe("");
+  });
+
+  it("дни разбираются: только 0–6, без повторов и без выдумки", () => {
+    expect(scheduleOfPerson({ days: [1, 1, 5, 9, -2, "вт"] }).days)
+      .toEqual([1, 5]);
+    // Пусто — это «дни не названы», а не «все семь»: у графика нет
+    // разумного значения по умолчанию, и дописать семидневку за человека
+    // нельзя.
+    expect(scheduleOfPerson({}).days).toEqual([]);
+    expect(hasSchedule(scheduleOfPerson({}))).toBe(false);
+    expect(hasSchedule(scheduleOfPerson({ from: "09:00" }))).toBe(true);
+  });
+
+  it("подряд идущие дни склеиваются в отрезок, а разрозненные — нет", () => {
+    const text = (p) => scheduleText(scheduleOfPerson(p), WEEK);
+    expect(text({ days: [1, 2, 3, 4, 5], from: "09:00", to: "18:00" }))
+      .toBe("пн–пт · 09:00–18:00");
+    expect(text({ days: [1, 3, 5] })).toBe("пн, ср, пт");
+    // Два дня подряд — всё ещё перечисление: «сб–вс» не короче «сб, вс».
+    expect(text({ days: [6, 0] })).toBe("сб, вс");
+    // Названа одна граница — так и сказано, а не додумана вторая.
+    expect(text({ days: [1], from: "10:00" })).toBe("пн · с 10:00");
+    expect(text({ days: [1], to: "18:00" })).toBe("пн · до 18:00");
   });
 });

@@ -309,15 +309,60 @@ describe("что можно изменить", () => {
 describe("анкета", () => {
   it("новый человек начинается с пустой анкеты, а не с её отсутствия", async () => {
     const me = await identify("100", { name: "Первый" });
-    // Поле одно: что о себе писать, решает человек, а не форма.
-    expect(me.profile).toEqual({ about: "" });
+    /* Поле анкеты одно: что о себе писать, решает человек. Рядом с ней —
+       рабочий график и статус: они отвечают не «кто это», а «работает ли
+       он сейчас», и спрашивают их раньше. */
+    expect(me.profile).toEqual({ about: "", days: [], from: "", to: "",
+      status: "ready" });
   });
 
   it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
     await identify("100", { name: "Первый" });
     const saved = await setProfile("100", { about: "делаю отчёты" });
-    expect(saved).toEqual({ about: "делаю отчёты" });
+    expect(saved).toMatchObject({ about: "делаю отчёты" });
     expect((await identify("100", {})).profile.about).toBe("делаю отчёты");
+  });
+
+  /* ─── рабочий график и статус ───
+
+     Со слов самого человека, тем же маршрутом, что и анкета. Сюда приходит
+     то, что прислал браузер, поэтому всё разбирается: «понедельник» или
+     «25:00» в записи означали бы график, по которому нельзя сказать
+     ничего. */
+  it("график и статус человек пишет сам, и они разбираются, а не берутся", async () => {
+    await identify("100", { name: "Первый" });
+    const saved = await setProfile("100", {
+      days: [1, 2, 3, 4, 5, 5, 9, -1, "вторник"], from: "09:00", to: "25:00",
+      status: "выдумка",
+    });
+    expect(saved.days).toEqual([1, 2, 3, 4, 5]);
+    expect(saved.from).toBe("09:00");
+    // Час вне суток — это не час: пусто честнее выдуманного времени.
+    expect(saved.to).toBe("");
+    expect(saved.status).toBe("ready");
+    expect((await identify("100", {})).profile.status).toBe("ready");
+  });
+
+  it("статус меняется отдельно от графика: одно постоянное, другое сиюминутное",
+    async () => {
+      await identify("100", {});
+      await setProfile("100", { days: [1, 2, 3], from: "10:00", to: "19:00" });
+      const saved = await setProfile("100", { status: "off" });
+      expect(saved.status).toBe("off");
+      // График при этом на месте: статус его не отменяет.
+      expect(saved.days).toEqual([1, 2, 3]);
+      expect(saved.to).toBe("19:00");
+    });
+
+  it("график и статус приходят вместе со списком людей", async () => {
+    /* Их спрашивают там же, где выбирают, кому поручить работу. Собирать
+       их вторым запросом на каждого человека значило бы спрашивать по
+       одному то, что уже лежит рядом. */
+    await identify("100", { name: "Первый" });
+    await setProfile("100", { days: [1, 2], from: "09:00", status: "break" });
+    const org = await listOrg();
+    expect(org.users.find((u) => u.id === "100"))
+      .toMatchObject({ days: [1, 2], from: "09:00", status: "break" });
   });
 
   it("прежние четыре поля не пропадают: пустая анкета читается как их склейка", async () => {

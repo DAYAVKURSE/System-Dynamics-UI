@@ -30,6 +30,90 @@
 export const MARK_MIN = 1;
 export const MARK_MAX = 5;
 
+/* ════════════════════════════════════════════════════════════════
+   РАБОЧИЙ ГРАФИК И СТАТУС
+
+   Рейтинг отвечает на вопрос «как он работает». Прежде чем его задавать,
+   спрашивают другое, и куда более простое: РАБОТАЕТ ЛИ ОН СЕЙЧАС. Ставить
+   задачу тому, у кого сегодня выходной, — значит назначить срок, который
+   никто не обещал; а «он вообще-то в отпуске» узнаётся уже из просрочки.
+
+   Две вещи, и они разные:
+
+   · **график** — постоянное: в какие дни и с какого по какой час человек
+     работает. Меняется редко и говорит о том, чего ждать вообще;
+   · **статус** — сиюминутное: готов ли он взять работу прямо сейчас.
+     График не отменяет: можно быть в рабочий день на коротком перерыве.
+
+   Обе — со слов самого человека, как и анкета. Догадываться о чужом
+   графике по времени его сообщений значило бы выдавать наблюдение за
+   договорённость.
+   ════════════════════════════════════════════════════════════════ */
+
+/** Чем человек занят прямо сейчас — его собственными словами. */
+export const WORK_STATUSES = [
+  { id: "ready", name: "готов взять задачу", free: true },
+  { id: "break", name: "короткий перерыв", free: false },
+  { id: "off", name: "сегодня не работаю", free: false },
+  { id: "busy", name: "не готов брать задачи", free: false },
+];
+export const statusOf = (id) =>
+  WORK_STATUSES.find((s) => s.id === id) || WORK_STATUSES[0];
+
+/* Часы — «ЧЧ:ММ» или пусто. Пусто это ответ: «часы не названы», а не
+   полночь; подставлять за человека 00:00 значило бы записать за него
+   рабочую ночь. */
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const workTime = (v) => (HHMM.test(String(v || "")) ? String(v) : "");
+
+/**
+ * Рабочий график человека — в том виде, в каком его показывают.
+ *
+ * Дни пусты — это «дни не названы», а не «все семь»: у графика, в отличие
+ * от бюджета цели, нет разумного значения по умолчанию. Молча дописать
+ * человеку семидневку нельзя.
+ */
+export const scheduleOfPerson = (p = {}) => ({
+  days: Array.isArray(p.days) ? [...new Set(p.days.map(Number)
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))] : [],
+  from: workTime(p.from),
+  to: workTime(p.to),
+  status: statusOf(p.status).id,
+});
+
+/** Задан ли график вообще: без дней и без часов говорить не о чем. */
+export const hasSchedule = (sc = {}) =>
+  Boolean((sc.days || []).length || sc.from || sc.to);
+
+/**
+ * График словами: «пн–пт · 09:00–18:00».
+ *
+ * Идущие подряд дни склеиваются в отрезок: «пн, вт, ср, чт, пт» человек
+ * читает как перечисление и пересчитывает в уме, а «пн–пт» — сразу.
+ */
+export function scheduleText(sc = {}, week = []) {
+  const order = week.map((w) => w.id);
+  const on = order.filter((id) => (sc.days || []).includes(id));
+  const parts = [];
+  if (on.length) {
+    const runs = [];
+    on.forEach((id) => {
+      const last = runs[runs.length - 1];
+      const i = order.indexOf(id);
+      if (last && order.indexOf(last[last.length - 1]) === i - 1) last.push(id);
+      else runs.push([id]);
+    });
+    const short = (id) => week.find((w) => w.id === id)?.short || id;
+    parts.push(runs.map((r) => (r.length > 2
+      ? `${short(r[0])}–${short(r[r.length - 1])}`
+      : r.map(short).join(", "))).join(", "));
+  }
+  if (sc.from && sc.to) parts.push(`${sc.from}–${sc.to}`);
+  else if (sc.from) parts.push(`с ${sc.from}`);
+  else if (sc.to) parts.push(`до ${sc.to}`);
+  return parts.join(" · ");
+}
+
 const num = (v) => Number(v) || 0;
 const time = (v) => {
   if (v == null || v === "") return null;

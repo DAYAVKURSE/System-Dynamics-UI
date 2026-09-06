@@ -382,6 +382,10 @@ export default function SystemModel(){
   const [openCards,setOpenCards]=useState(()=>new Set());
   const [openCall,setOpenCall]=useState(()=>callFromLocation());
   const [people,setPeople]=useState([]);
+  /* Должности (роли организации) — чтобы в списке воркеров было видно, кем
+     человек вообще числится. Приходят тем же запросом, что и люди: два
+     запроса за одним ответом расходились бы. */
+  const [roles,setRoles]=useState([]);
   useEffect(()=>{ let live=true;
     whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
     return ()=>{ live=false; };
@@ -392,7 +396,10 @@ export default function SystemModel(){
      неправда: они были, просто их не спросили. */
   useEffect(()=>{ let live=true;
     if(!me.known||me.solo) return undefined;
-    listOrg().then(o=>{ if(live&&o?.users) setPeople(o.users); }).catch(()=>{});
+    listOrg().then(o=>{ if(!live||!o) return;
+      if(o.users) setPeople(o.users);
+      if(o.roles) setRoles(o.roles);
+    }).catch(()=>{});
     return ()=>{ live=false; };
   },[me.known,me.solo]);
   const [tool,setTool]=useState("people");
@@ -498,31 +505,15 @@ export default function SystemModel(){
       takes:f.takes.filter(t=>t.trait!==id),
       gives:f.gives.filter(g=>g.trait!==id)})));
   };
-  const toggleWorker=(kind,pid)=>{
-    setEntities(p=>p.map(e=>{
-      if(e.id!==sel) return e;
-      const has=(e[kind]||[]).some(x=>String(x)===String(pid));
-      return {...e,[kind]:has?(e[kind]||[]).filter(x=>String(x)!==String(pid))
-        :[...(e[kind]||[]),pid]};
-    }));
-    // Человек, переставший быть воркером, не должен остаться назначенным на
-    // функции этого актива: задача висела бы на том, кого в активе нет.
-    setFuncs(p=>{
-      const e=entities.find(x=>x.id===sel); if(!e) return p;
-      const has=(e[kind]||[]).some(x=>String(x)===String(pid));
-      if(!has) return p;
-      const next={owners:e.owners||[],reviewers:e.reviewers||[],
-        [kind]:(e[kind]||[]).filter(x=>String(x)!==String(pid))};
-      return pruneWorkers(p,sel,next);
-    });
-  };
-  /* Воркер актива — прямой выбор из всех людей схемы, а не следствие
-     назначения: сперва отмечают, кто здесь работает, и уже из отмеченных
-     выбирают постановщиков, исполнителей и проверяющих.
+  /* Воркер актива — прямой выбор из всех людей схемы: сперва отмечают, кто
+     здесь работает, и уже из отмеченных выбирают постановщика, исполнителя
+     и проверяющего У КАЖДОЙ ФУНКЦИИ.
 
-     Снятая отметка уносит человека и из ролей, и с функций этого актива:
-     иначе он остался бы назначенным, не значась в активе, и задача висела
-     бы на том, кого здесь нет. */
+     Снятая отметка уносит человека со всех функций этого актива: иначе он
+     остался бы назначенным, не значась в активе, и задача висела бы на
+     том, кого здесь нет. Прежние списки ролей у самого актива при этом
+     тоже чистятся — они больше не редактируются, но у старых моделей
+     остались, и `crewOf` читает их как членство. */
   const toggleCrew=(pid)=>{
     const e=entities.find(x=>x.id===sel);
     if(!e) return;
@@ -788,6 +779,12 @@ export default function SystemModel(){
     if(id==null||id==="") return "не назначен";
     return people.find(p=>String(p.id)===String(id))?.name||String(id);
   },[people]);
+  /* Должность человека — роль, которую ему дали в организации. Не задана —
+     так и сказано словом: пустое место читалось бы как «ещё грузится». */
+  const roleName=useCallback((id)=>{
+    const u=people.find(p=>String(p.id)===String(id));
+    return roles.find(r=>r.id===u?.roleId)?.name||"";
+  },[people,roles]);
   /* Решение проверяющего — не только статус: оценка и слова уходят в
      историю исполнителя, из которой потом растёт его рейтинг. Пишем их
      отдельным списком `reviews`, а не в комментарии: комментарий может
@@ -1079,7 +1076,7 @@ export default function SystemModel(){
             </div>
 
             <AssetPanel entityId={selE.id}
-              workers={workers} onToggleWorker={toggleWorker}
+              workers={workers} roleOf={roleName}
               funcs={funcs} setFuncs={setFuncs}
               traits={traits} setTraits={setTraits}
               entities={entities} kinds={kinds} kindOf={kindOf}

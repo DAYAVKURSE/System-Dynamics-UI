@@ -146,6 +146,29 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
    человека, а не модели, и переезжать из сценария в сценарий вместе с
    моделью ей незачем. */
 export const PROFILE_FIELDS = ["about"];
+
+/* ─────── рабочий график и статус ───────
+
+   Анкета говорит, ЧТО человек умеет; график и статус — РАБОТАЕТ ЛИ ОН
+   СЕЙЧАС. Второе спрашивают раньше первого: ставить задачу тому, у кого
+   сегодня выходной, значит назначить срок, которого никто не обещал.
+
+   Пишет их сам человек, тем же маршрутом, что и анкету: чужой график,
+   записанный за человека, — это догадка под его именем. Правила разбора
+   те же, что на клиенте (`scheduleOfPerson` в `web/src/lib/workers.js`):
+   день это 0–6, часы — «ЧЧ:ММ» или пусто, статус — один из четырёх. */
+export const WORK_STATUSES = ["ready", "break", "off", "busy"];
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const hhmm = (v) => (HHMM.test(String(v || "")) ? String(v) : "");
+const weekDays = (v) => (Array.isArray(v)
+  ? [...new Set(v.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
+  : []);
+const scheduleOf = (user = {}) => ({
+  days: weekDays(user.days),
+  from: hhmm(user.from),
+  to: hhmm(user.to),
+  status: WORK_STATUSES.includes(user.status) ? user.status : "ready",
+});
 /* Что было написано в прежних четырёх полях, не пропадает: пока анкета
    пуста, она читается как их склейка — а первое же сохранение переносит
    текст в неё насовсем. Молча выбросить чужие слова было бы хуже всего. */
@@ -154,7 +177,7 @@ const LIMIT = 2000;
 const profileOf = (user = {}) => {
   const about = String(user.about || "");
   const old = LEGACY_FIELDS.map((k) => String(user[k] || "").trim()).filter(Boolean);
-  return { about: about || old.join("\n") };
+  return { about: about || old.join("\n"), ...scheduleOf(user) };
 };
 
 /** Свою анкету человек пишет сам. Чужую — никто. */
@@ -167,13 +190,30 @@ export async function setProfile(userId, patch = {}) {
     if (patch[k] == null) return;
     user[k] = String(patch[k]).slice(0, LIMIT);
   });
+  /* График и статус разбираются, а не берутся как есть: сюда приходит то,
+     что прислал браузер, и «понедельник» или «25:00» в записи человека
+     означали бы график, по которому нельзя сказать ничего. */
+  if (patch.days != null) user.days = weekDays(patch.days);
+  if (patch.from != null) user.from = hhmm(patch.from);
+  if (patch.to != null) user.to = hhmm(patch.to);
+  if (patch.status != null) {
+    user.status = WORK_STATUSES.includes(patch.status) ? patch.status : "ready";
+  }
   await writeOrg(org);
   return profileOf(user);
 }
 
 export async function listOrg() {
   const org = await readOrg();
-  return { ownerId: org.ownerId, roles: org.roles, users: org.users };
+  /* Люди уходят наружу вместе с разобранной анкетой: график и статус нужны
+     там же, где список, — при выборе, кому поручить работу. Собирать их
+     вторым запросом на каждого человека значило бы спрашивать по одному то,
+     что уже лежит рядом. */
+  return {
+    ownerId: org.ownerId,
+    roles: org.roles,
+    users: org.users.map((u) => ({ ...u, ...profileOf(u) })),
+  };
 }
 
 export async function addUser({ id, name, username, roleId, addedBy }) {

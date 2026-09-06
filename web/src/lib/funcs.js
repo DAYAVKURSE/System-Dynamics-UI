@@ -493,6 +493,18 @@ export const missingGives = (f, files = {}) =>
 const ids = (v) => (Array.isArray(v) ? [...new Set(v.filter((x) => x != null))] : []);
 
 /** Три вида воркеров — в одном месте, чтобы нигде не забыть третий. */
+/* ─────── неделя ───────
+
+   Дни считаются с понедельника: неделя начинается с рабочего дня. Список
+   один на всё приложение — и цель, и рабочий график человека называют дни
+   одинаково; два списка разошлись бы в порядке или в сокращениях, и «пн»
+   в одном месте значило бы не то, что в другом. */
+export const WEEK = [
+  { id: 1, short: "пн" }, { id: 2, short: "вт" }, { id: 3, short: "ср" },
+  { id: 4, short: "чт" }, { id: 5, short: "пт" }, { id: 6, short: "сб" },
+  { id: 0, short: "вс" },
+];
+
 export const WORKER_KINDS = [
   { id: "setters", one: "постановщик", many: "постановщики", task: "постановщик" },
   { id: "owners", one: "исполнитель", many: "исполнители", task: "исполнитель" },
@@ -633,11 +645,15 @@ export const canRun = (f, traits = [], done = {}) => shortage(f, traits, done).l
  * висела бы на человеке, которого в этом активе уже нет.
  */
 export const pruneWorkers = (funcs = [], id, workers) => {
-  const keep = (k) => new Set(ids(workers?.[k]));
+  /* Кого оставляем — ВОРКЕРОВ актива, одинаково для всех трёх ролей: роли
+     живут у функции, и списков ролей у актива больше нет. Сняли человека с
+     актива — он уходит отовсюду, где был назначен; остался — назначения
+     не трогаются. */
+  const keep = new Set(crewOf(workers || {}).map(String));
   return funcs.map((f) => (f.e !== id ? f : {
     ...f,
     ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id,
-      (f[k.id] || []).filter((p) => keep(k.id).has(p))])),
+      (f[k.id] || []).filter((p) => keep.has(String(p)))])),
   }));
 };
 

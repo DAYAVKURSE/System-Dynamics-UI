@@ -77,7 +77,7 @@ describe("человек открывается окном, а не уходом
     expect(box).not.toBeNull();
     expect(within(box).getByText("рейтинг и работы")).toBeInTheDocument();
     // Чужая анкета только читается: писать там нечего.
-    expect(within(box).queryByRole("button", { name: "Сохранить анкету" })).toBeNull();
+    expect(within(box).queryByRole("button", { name: "Сохранить анкету и график" })).toBeNull();
 
     fireEvent.click(within(box).getByRole("button", { name: "закрыть" }));
     expect(document.querySelector("[role=dialog]")).toBeNull();
