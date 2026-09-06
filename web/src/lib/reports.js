@@ -164,10 +164,10 @@ export function summaryOf(model, node, nodes = []) {
      бы ни одного: одно и то же место говорило бы две разные вещи. */
   const rows = subtree(nodes, node?.id).flatMap((n) => {
     const chain = chainOf(model, { from: n.trait, upto: n.upto });
-    /* Выбраны конкретные вещи — считаем работу по ним; не выбрано ничего —
-       всю работу цепочки, ровно как её показывает раскрытый блок. Иначе
-       свёрнутая строка и раскрытый блок отвечали бы по-разному. */
-    if (!pickedOf(n).length) return actualOf(model, chain, {}).tasks;
+    /* Считается ровно то же, что показывает раскрытый блок, — работа по его
+       единицам. Иначе свёрнутая строка обещала бы восемь выполнений, а
+       внутри не было бы ни одного: одно и то же место говорило бы две
+       разные вещи. Единица не выбрана — работы нет: это прогноз. */
     const only = new Set(familyOf(model, n).map((u) => u.task).filter(Boolean));
     return actualOf(model, chain, { only }).tasks;
   });
