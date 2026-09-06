@@ -125,6 +125,58 @@ describe("цель", () => {
     expect(screen.getByText("последовательность действий")).toBeTruthy();
   });
 
+  /* ─── бюджет времени и дни недели ───
+
+     Дни недели трогают ровно одно — бюджет времени: «час в день» по будням
+     это пять часов в неделю, а не семь. Без заданного бюджета они не делают
+     ничего, и отдельным блоком «по каким дням идёт работа» читались как
+     расписание задач, которым не являются. */
+  it("время ограничивается флажком, и без него дни не выбираются", () => {
+    tab("Схема"); tab("Прогноз");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+    // В этой модели бюджет задан — флажок стоит, поле и дни на месте.
+    expect(screen.getByLabelText("ограничить время").checked).toBe(true);
+    expect(screen.getByLabelText("сколько времени")).toBeInTheDocument();
+    expect(screen.getByLabelText("день пн")).not.toBeDisabled();
+
+    // Сняли — поле ушло, дни погасли и прямо сказано, почему.
+    fireEvent.click(screen.getByLabelText("ограничить время"));
+    expect(screen.getByLabelText("ограничить время").checked).toBe(false);
+    expect(screen.queryByLabelText("сколько времени")).toBeNull();
+    expect(screen.getByLabelText("день пн")).toBeDisabled();
+    expect(screen.getByText(/Время не ограничено — дни ничего не меняют/))
+      .toBeInTheDocument();
+
+    // Вернули — набранное число не потерялось, и дни снова нажимаются.
+    fireEvent.click(screen.getByLabelText("ограничить время"));
+    expect(screen.getByLabelText("сколько времени")).toHaveValue("2");
+    expect(screen.getByLabelText("день пн")).not.toBeDisabled();
+  });
+
+  it("дни стоят под самим временем, а не отдельным блоком выше", () => {
+    /* Прежнее название «по каким дням идёт работа» обещало расписание
+       задач. На деле дни — множитель бюджета времени, и стоять им у
+       времени. */
+    tab("Схема"); tab("Прогноз");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+    expect(screen.queryByText("по каким дням идёт работа")).toBeNull();
+    expect(screen.getByText("в какие дни недели это время тратится"))
+      .toBeInTheDocument();
+  });
+
+  it("под кнопкой прогноза не объясняют очевидное", () => {
+    /* «Цель поправили — прежний прогноз уже не про неё, посчитайте заново»
+       говорило то же, что и сама кнопка, которая в этот момент зовёт
+       считать. */
+    tab("Схема"); tab("Прогноз");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
+    // Правка цели возвращает кнопку к «Спрогнозировать» — и молча.
+    fireEvent.click(screen.getByLabelText("ограничить время"));
+    expect(screen.getByRole("button", { name: "Спрогнозировать" })).toBeTruthy();
+    expect(screen.queryByText(/прежний прогноз уже не про неё/)).toBeNull();
+  });
+
   it("цель уезжает в модель отдельной частью документа", () => {
     tab("Схема"); tab("Прогноз");
     const m = dump();

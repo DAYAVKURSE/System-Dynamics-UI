@@ -5,6 +5,8 @@ import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, copyGoal, newCost, newGoal, che
 import { DUR_UNITS } from "../lib/funcs.js";
 import { newTask, nowLocal, runTitle } from "./TasksBoard.jsx";
 
+const num = (v) => Number(v) || 0;
+
 /* ════════════════════════════════════════════════════════════════
    ЦЕЛИ — В ПРОГНОЗЕ, А НЕ В РЕСУРСЕ
 
@@ -120,6 +122,12 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
   const fresh = shown != null && shown === stamp(goal);
   const plan = ready && fresh ? planGoal(model, goal, { runsOf }) : null;
   const up = (patch) => { setShown(null); onSet(goal.id, patch); };
+  /* Ограничен ли бюджет времени — это и есть «часов больше нуля». Второй
+     записи о том же в цели нет: она рано или поздно разошлась бы с числом.
+     А набранное число помнится, чтобы флажок можно было снять и вернуть,
+     не набирая его заново. */
+  const capped = num(goal.hours) > 0;
+  const [lastHours, setLastHours] = useState(() => num(goal.hours) || 1);
   const rate = rateOf(goal.rate);
   const unit = traits.find((t) => t.id === goal.trait)?.unit || "";
   const free = traits.filter((t) => t.id !== goal.trait
@@ -204,38 +212,75 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
         значит, что через месяц темп уже держится.
       </div>
 
-      {/* ─── ПО КАКИМ ДНЯМ ─── */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>по каким дням идёт работа</div>
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+      {/* ─── ЦЕНА ─── */}
+      <div style={{ ...S.lbl, marginTop: 10 }}>какой ценой</div>
+      {/* ─── бюджет времени: сперва «ограничивать ли», потом «сколько» ───
+
+          Ноль в поле времени означал «не ограничиваем», и это приходилось
+          знать: пустое поле читается как «забыл заполнить», а не как
+          решение. Флажок говорит то же самое словами и заодно гасит всё,
+          что от бюджета зависит.
+
+          Второго поля «ограничивать ли» в записи цели НЕТ: бюджет — это
+          `hours`, и ноль в нём и есть «не ограничен». Отдельный признак
+          рядом с числом рано или поздно разошёлся бы с ним, и стало бы
+          непонятно, какой записи верить. Набранное число не теряется: пока
+          форма открыта, оно помнится и возвращается при включении. */}
+      <label className="flex items-center gap-2"
+        style={{ marginTop: 4, fontSize: 11.5, cursor: "pointer" }}>
+        <input type="checkbox" checked={capped} aria-label="ограничить время"
+          style={{ accentColor: ACC }}
+          onChange={(e) => {
+            if (e.target.checked) up({ hours: lastHours });
+            else { setLastHours(num(goal.hours) || lastHours); up({ hours: 0 }); }
+          }} />
+        <span>ограничить время</span>
+        <span style={{ color: C.muted, fontSize: 10.5 }}>
+          {capped ? "" : "— считаем без ограничения по времени"}</span>
+      </label>
+      {capped && (
+        <div className="flex flex-wrap gap-2" style={{ marginTop: 5 }}>
+          <Row label="времени">
+            <NumField value={goal.hours} aria-label="сколько времени"
+              onCommit={(v) => up({ hours: v ?? 0 })} />
+          </Row>
+          <Row label="за период">
+            <select style={sel} value={goal.hoursPer} aria-label="период времени"
+              onChange={(e) => up({ hoursPer: e.target.value })}>
+              {RATES.filter((r) => r.hours).map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>))}
+            </select>
+          </Row>
+        </div>)}
+
+      {/* ─── ДНИ НЕДЕЛИ ───
+
+          Дни стоят ЗДЕСЬ, под самим временем, потому что только его они и
+          трогают: «час в день» по будням — это пять часов в неделю, а не
+          семь (`budgetHours` в lib/goals.js). Отдельным блоком выше они
+          назывались «по каким дням идёт работа» и читались как расписание
+          задач, которым не являются, — а без заданного бюджета не делали
+          ровно ничего. Поэтому без флажка они и не нажимаются. */}
+      <div style={{ ...S.lbl, marginTop: 8, opacity: capped ? 1 : 0.5 }}>
+        в какие дни недели это время тратится</div>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: 4,
+        opacity: capped ? 1 : 0.5 }}>
         {WEEK.map((d) => {
           const on = (goal.days || []).includes(d.id);
           return (
-            <button key={d.id} aria-label={`день ${d.short}`}
-              style={{ ...btn(on), fontSize: 11, padding: "4px 8px" }}
+            <button key={d.id} aria-label={`день ${d.short}`} disabled={!capped}
+              style={{ ...btn(on && capped), fontSize: 11, padding: "4px 8px",
+                cursor: capped ? "pointer" : "default" }}
               onClick={() => up({ days: on ? goal.days.filter((x) => x !== d.id)
                 : [...(goal.days || []), d.id] })}>{d.short}</button>);
         })}
       </div>
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-        {goal.days?.length
-          ? `${goal.days.length} дн в неделю — по ним и считается бюджет времени.`
-          : "Ничего не выбрано — значит все дни."}
-      </div>
-
-      {/* ─── ЦЕНА ─── */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>какой ценой</div>
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
-        <Row label="времени">
-          <NumField value={goal.hours} aria-label="сколько времени"
-            onCommit={(v) => up({ hours: v ?? 0 })} />
-        </Row>
-        <Row label="за период">
-          <select style={sel} value={goal.hoursPer} aria-label="период времени"
-            onChange={(e) => up({ hoursPer: e.target.value })}>
-            {RATES.filter((r) => r.hours).map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>))}
-          </select>
-        </Row>
+        {!capped
+          ? "Время не ограничено — дни ничего не меняют и не выбираются."
+          : goal.days?.length
+            ? `${goal.days.length} дн в неделю — по ним и считается бюджет времени.`
+            : "Ничего не выбрано — значит все семь дней."}
       </div>
       {(goal.costs || []).map((c) => (
         <div key={c.id} className="flex items-center gap-2" style={{ marginTop: 5 }}>
@@ -395,12 +440,13 @@ function Apply({ goal, plan, ready, fresh, onPredict, onApply }) {
         <button style={{ ...btn(true, ACC), width: "100%", padding: "9px 10px",
           fontSize: 12.5, fontWeight: 700 }}
           disabled={!ready} onClick={onPredict}>Спрогнозировать</button>
+        {/* Что делает кнопка — сказано один раз. Строки «цель поправили,
+            посчитайте заново» здесь нет: кнопка и так зовёт считать, и
+            повторять это словами значит объяснять очевидное. */}
         <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
           {!ready
             ? "Сначала выберите ресурс, количество и срок."
-            : shownBefore(goal, fresh)
-              ? "Цель поправили — прежний прогноз уже не про неё. Посчитайте заново."
-              : "Посчитает, что для этой цели придётся сделать, в каком порядке и во что это обойдётся. Ничего не меняет."}
+            : "Посчитает, что для этой цели придётся сделать, в каком порядке и во что это обойдётся. Ничего не меняет."}
         </div>
       </>) : (<>
         <button style={{ ...btn(true, OK), width: "100%", padding: "9px 10px",
@@ -420,7 +466,6 @@ function Apply({ goal, plan, ready, fresh, onPredict, onApply }) {
 }
 /* Считали ли эту цель хоть раз: от этого зависит, что написать под кнопкой
    — «посчитает» или «цель поправили». */
-const shownBefore = (goal) => Boolean(goal.appliedAt);
 
 /**
  * Последовательность действий — и что будет, если их выполнить.
