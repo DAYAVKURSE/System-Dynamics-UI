@@ -1,12 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { putShare } from "../identity.js";
 import {
-  childrenOf, dropNode, linkTo, newProject, newSection,
-  pathOf, rootsOf, shareLink, summaryOf,
+  childrenOf, dropNode, linkTo, newProject,
+  pathOf, rootsOf, shareLink, stepAnchor, stepLink, summaryOf,
 } from "../lib/reports.js";
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
   from "../lib/reportDoc.js";
@@ -23,18 +23,20 @@ import { unitsOfTrait } from "../lib/units.js";
    сколько это займёт, какие шаги будут сделаны и какие факторы на это
    повлияют.
 
-   Четыре блока, и в каждом разделе одни и те же — включая корневой проект,
+   Три части, и в каждом разделе одни и те же — включая корневой проект,
    потому что проект и раздел это одна и та же запись:
 
-     1. графики количественных изменений в ресурсах;
-     2. задачи во времени;
-     3. созданные ресурсы — единицы с номерами;
-     4. фактическая оценка: что сделано и чего это стоило.
+     1. созданные ресурсы — единицы с номерами и файлами, которые скачивают;
+     2. как изменятся ресурсы: прогноз по модели рядом с фактом;
+     3. работа по шагам, и каждый шаг — тоже раздел, со своим адресом.
 
-   Порядок не случаен: сперва что должно случиться, потом когда, потом что
-   из этого уже родилось, и лишь затем — чего это стоило на самом деле.
-   Начать с факта значило бы спрашивать «сошлось ли» раньше, чем сказано, с
-   чем сходиться.
+   Первыми стоят созданные ресурсы: ради них работу и заказывают, и
+   спрашивают в первую очередь «что вышло», а не «что обещали». Порядок
+   один и в проекте, и в шаге — шаг такой же раздел.
+
+   Разделы руками никто не размечает: раздел — это шаг цепочки, и он
+   размечается сам. Поэтому кнопки «+ раздел внутри» здесь нет, а у каждого
+   шага есть свой якорь и ссылка на него.
    ════════════════════════════════════════════════════════════════ */
 
 /* Вилка часов: меньшее слева, и одинаковые границы говорятся один раз.
@@ -276,7 +278,7 @@ function Timeline({ steps = [], before = [] }) {
     </div>);
 }
 
-/** Одна созданная вещь: номер, что это, и файл, если он есть. */
+/** Одна созданная вещь: номер, что это, и файл — его и скачивают. */
 function MadeUnit({ u, traitName }) {
   return (
     <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
@@ -286,16 +288,143 @@ function MadeUnit({ u, traitName }) {
       <span>{traitName(u.trait)} · {u.title || "без названия"}</span>
       <span style={{ color: u.accepted ? OK : WARN }}>
         {u.accepted ? "принято" : "не принято"}</span>
-      {u.file && (/^image\//.test(u.file.type || "")
+      {/* Файл — сама вещь, а не отчёт о ней: ради неё работу и заказывали,
+          и скачать её надо прямо отсюда. */}
+      {u.file
         ? <a href={reportSrc(u.file)} target="_blank" rel="noreferrer"
-            style={{ color: ACC }}>🖼 {u.file.name}</a>
-        : <a href={reportSrc(u.file)} target="_blank" rel="noreferrer"
-            style={{ color: ACC }}>📎 {u.file.name}</a>)}
+            download={u.file.name} style={{ color: ACC }}>
+            {/^image\//.test(u.file.type || "") ? "🖼" : "📎"} скачать · {u.file.name}</a>
+        : <span style={{ color: WARN }}>файла нет — при сдаче не приложили</span>}
     </div>);
 }
 
+/**
+ * Созданные ресурсы — первым пунктом.
+ *
+ * Раздел заводят ради того, что из работы вышло: вот это техническое
+ * задание, вот этот макет. Поэтому список стоит первым и в проекте, и в
+ * каждом шаге — проект такой же раздел, и порядок в них один.
+ */
+function MadeList({ made = [], traitName, empty }) {
+  if (!made.length) {
+    return (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>{empty}</div>);
+  }
+  return (
+    <div>
+      {made.map((u) => (
+        <div key={u.id} style={{ borderTop: `1px solid ${C.line}`, padding: "3px 0" }}>
+          <MadeUnit u={u} traitName={traitName} />
+        </div>))}
+    </div>);
+}
+
+/* ─────── прогноз и факт стоят рядом и подписаны ───────
+
+   Число без подписи — худшее, что может быть в отчёте: человек видит
+   «работы 40 ч» и не знает, обещание это или измерение. Поэтому у каждой
+   стороны своё слово и свой цвет, и говорятся всегда обе: факта нет — так
+   и сказано словами, а не пустым местом, которое читается как ноль. */
+function PlanFact({ plan, fact }) {
+  return (
+    <div style={{ fontSize: 10.5, lineHeight: 1.6, marginTop: 2 }}>
+      <div style={{ color: WARN }}>
+        <b>прогноз по модели:</b> {plan}</div>
+      <div style={{ color: fact ? OK : C.muted }}>
+        <b>фактически:</b>{" "}
+        {fact || "принятых работ пока нет — измерять нечего"}</div>
+    </div>);
+}
+
+/* Кнопка «ссылка на этот раздел». Раздел размечается сам — значит и адрес
+   у него свой: без него на шаг нельзя сослаться, а именно про шаг чаще
+   всего и спрашивают. */
+function AnchorLink({ href, label }) {
+  const [copied, setCopied] = useState("");
+  const go = async () => {
+    try {
+      await navigator.clipboard.writeText(href);
+      setCopied("ссылка скопирована");
+    } catch { setCopied(href); }
+  };
+  return (
+    <span className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+      <button style={{ ...btn(false), fontSize: 10, padding: "1px 6px" }}
+        aria-label={`ссылка на раздел: ${label}`} onClick={go}>🔗</button>
+      {copied && (<span style={{ fontSize: 10, color: ACC, wordBreak: "break-all" }}>
+        {copied}</span>)}
+    </span>);
+}
+
+/**
+ * Один шаг цепочки — отдельный раздел со своим адресом.
+ *
+ * Разделы больше не заводят руками: шаг И ЕСТЬ раздел, и размечается он
+ * сам. Внутри порядок тот же, что и в проекте: сперва то, что вышло, потом
+ * прогноз рядом с фактом, и только потом сама работа.
+ */
+function StepSection({ s, no, nodeId, own, traitName, personName, row, perRun,
+  portLine }) {
+  const factHours = Math.round((s.factHours || 0) * 10) / 10;
+  return (
+    <section id={stepAnchor(nodeId, s.func)}
+      style={{ borderTop: `1px solid ${C.line}`, padding: "8px 0" }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
+        <span style={{ fontSize: 10.5, color: C.muted, minWidth: 18 }}>{no}.</span>
+        <span style={{ fontSize: 12, flex: "1 1 120px", fontWeight: 600 }}>
+          {s.name}
+          {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор</span>}
+        </span>
+        <AnchorLink href={stepLink(nodeId, s.func)} label={s.name} />
+      </div>
+
+      <div style={{ marginLeft: 26 }}>
+        {/* 1. Созданные ресурсы — первыми: ради них шаг и делается. */}
+        <div style={{ ...S.lbl, marginTop: 6 }}>созданные ресурсы</div>
+        <MadeList made={s.made} traitName={traitName}
+          empty={s.factor
+            ? "Фактор ничего не выдаёт вещью: он случается сам."
+            : "Пока ничего не создано: принятых сдач по этому шагу нет."} />
+
+        {/* 2. Прогноз и факт — подписанные, рядом. */}
+        <div style={{ ...S.lbl, marginTop: 8 }}>оценка</div>
+        {s.short?.length ? (
+          <div style={{ fontSize: 10.5, color: WARN, lineHeight: 1.5 }}>
+            не выполнится: не хватает{" "}
+            {s.short.map((x) => `${traitName(x.trait)}${x.spentBy
+              ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
+          </div>
+        ) : (
+          <PlanFact
+            plan={`выполнений ${nm(s.runs)} · начнётся через ${timeText(s.startHours)}`
+              + ` · займёт ${timeText(s.calendarHours)}`
+              + (s.factor ? "" : ` · работы ${hoursRange(s.workLo, s.workHi)}`)
+              + (portLine(s.takes) ? ` · берёт ${portLine(s.takes)}` : "")
+              + (portLine(s.gives) ? ` · даёт ${portLine(s.gives)}` : "")}
+            fact={s.doneCount
+              ? `принято выполнений ${nm(s.doneCount)} из ${nm(s.tasks.length)}`
+                + ` · ушло ${nm(factHours)} ч`
+              : ""} />)}
+        {s.factor && own && own.factors.length ? (
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
+            влияет: {own.factors.map((y) => `${y.name} ${y.chance}%`).join(", ")}
+          </div>) : null}
+
+        {/* 3. Сама работа. */}
+        <div style={{ ...S.lbl, marginTop: 8 }}>задачи</div>
+        {s.factor
+          ? (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+              Задач тут не бывает: фактор случается сам, и спрашивать за него
+              не с кого.</div>)
+          : s.tasks.length
+            ? s.tasks.map((t) => row(t, perRun(s)))
+            : (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+                Задач на этот шаг ещё не заведено.</div>)}
+      </div>
+    </section>);
+}
+
 function Tasks({ steps = [], before = [], plan, actual, factors = [],
-  funcName, personName, traitName, hypothetical = false }) {
+  funcName, personName, traitName, nodeId }) {
   /* Задачи, названные одинаково, различаются номером при ПОКАЗЕ: править
      сохранённое название приложение не должно — это слова человека. */
   const twins = twinNo([...steps.flatMap((s) => s.tasks), ...before]);
@@ -324,9 +453,9 @@ function Tasks({ steps = [], before = [], plan, actual, factors = [],
           отчёт и заводят. Часы у непринятой работы не показываются: их
           ещё никто не измерил, а ноль читался бы как «сделано даром». */}
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
-        {planHours === "—" ? "" : `ожидалось ${planHours} ч · `}
+        {planHours === "—" ? "" : `прогноз ${planHours} ч · `}
         {t.hours == null ? "факта пока нет"
-          : <span style={{ color: OK }}>вышло {nm(t.hours)} ч</span>}
+          : <span style={{ color: OK }}>факт {nm(t.hours)} ч</span>}
         {!!t.took.length && (
           <span style={{ color: ACC }}>
             {" · взяла "}{t.took.map((u) => `${traitName(u.trait)} №${u.no}`).join(", ")}
@@ -337,69 +466,24 @@ function Tasks({ steps = [], before = [], plan, actual, factors = [],
 
   return (
     <div>
-      {/* Общие числа по разделу: план вилкой, факт — только по принятому. */}
-      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
-        по плану работы {hoursRange(plan.lo.workHours, plan.hi.workHours)} ·
-        {actual.any
-          ? ` принято ${actual.done} из ${actual.total} · вышло ${nm(actual.hours)} ч`
-          : " принятых работ пока нет"}
-      </div>
+      {/* Общие числа по разделу: прогноз и факт — обе стороны подписаны. */}
+      <PlanFact
+        plan={`работы ${hoursRange(plan.lo.workHours, plan.hi.workHours)}`
+          + ` · шагов ${plan.hi.steps.length}`}
+        fact={actual.any
+          ? `принято ${actual.done} из ${actual.total} · ушло ${nm(actual.hours)} ч`
+          : ""} />
       {!steps.length && (
-        <div style={{ fontSize: 11, color: C.muted }}>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
           Шагов нет: с этого ресурса цепочка никуда не ведёт.</div>)}
-      <Timeline steps={steps} before={before} />
-      {steps.map((s, i) => {
-        const own = factors.find((x) => x.func === s.func);
-        return (
-          <div key={s.func} style={{ borderTop: i ? `1px solid ${C.line}` : "none",
-            padding: "6px 0" }}>
-            <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
-              <span style={{ fontSize: 10.5, color: C.muted, minWidth: 18 }}>{i + 1}.</span>
-              <span style={{ fontSize: 12, flex: "1 1 120px" }}>
-                {s.name}
-                {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор</span>}
-              </span>
-            </div>
-            {/* Шаг, который не выполнится, остаётся в списке — но обещать по
-                нему сроки нельзя, поэтому вместо чисел названа причина.
-                Прежде такой шаг молча пропадал вместе со всем, что идёт за
-                ним, и цепочка из четырёх звеньев выглядела одной задачей. */}
-            {s.short?.length ? (
-              <div style={{ fontSize: 10.5, color: WARN, marginLeft: 26,
-                lineHeight: 1.5 }}>
-                не выполнится: не хватает{" "}
-                {s.short.map((x) => `${traitName(x.trait)}${x.spentBy
-                  ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
-              </div>
-            ) : (
-              <div style={{ fontSize: 10.5, color: C.muted, marginLeft: 26,
-                lineHeight: 1.5 }}>
-                выполнений {nm(s.runs)} · начнётся через {timeText(s.startHours)} ·
-                {" "}займёт {timeText(s.calendarHours)}
-                {s.factor ? "" : ` · работы ${hoursRange(s.workLo, s.workHi)}`}
-                {portLine(s.takes) ? ` · берёт ${portLine(s.takes)}` : ""}
-                {portLine(s.gives) ? ` · даёт ${portLine(s.gives)}` : ""}
-              </div>)}
-            <div style={{ marginLeft: 26 }}>
-              {s.factor
-                ? (<div style={{ fontSize: 10.5, color: C.muted, marginTop: 3,
-                    lineHeight: 1.5 }}>
-                    Задач тут не бывает: фактор случается сам, и спрашивать за
-                    него не с кого.
-                    {own && own.factors.length ? ` Влияет: ${own.factors
-                      .map((y) => `${y.name} ${y.chance}%`).join(", ")}.` : ""}
-                  </div>)
-                : s.tasks.length
-                  ? s.tasks.map((t) => row(t, perRun(s)))
-                  : (<div style={{ fontSize: 10.5, color: C.muted, marginTop: 3,
-                      lineHeight: 1.5 }}>
-                      {hypothetical
-                        ? "Задач тут нет и не должно быть: прослеживается вещь, которой ещё нет в системе. Это прогноз — что произойдёт, если её завести."
-                        : "Задач по этим вещам на этот шаг ещё не заведено."}
-                    </div>)}
-            </div>
-          </div>);
-      })}
+      <div style={{ marginTop: 8 }}>
+        <Timeline steps={steps} before={before} />
+      </div>
+      {steps.map((s, i) => (
+        <StepSection key={s.func} s={s} no={i + 1} nodeId={nodeId}
+          own={factors.find((x) => x.func === s.func)}
+          traitName={traitName} personName={personName} row={row}
+          perRun={perRun} portLine={portLine} />))}
       {!!before.length && (<>
         <div style={{ ...S.lbl, margin: "10px 0 4px" }}>как эти вещи появились</div>
         {/* Работа, в которой выбранные вещи родились, лежит ДО цепочки.
@@ -410,17 +494,24 @@ function Tasks({ steps = [], before = [], plan, actual, factors = [],
 }
 
 /** Один блок карты — и проект, и раздел: они устроены одинаково. */
-/* Четыре блока раздела. Объявлен снаружи Node намеренно: объявленный
-   внутри, он был бы новым типом компонента на каждый перерисовке — React
-   разбирал бы поддерево и собирал заново, а вместе с ним терялось бы
-   всё состояние внутри (открытая форма прикидки закрывалась сама собой
-   от любой правки в разделе). */
-function Part({ n, title, children }) {
+/* Части раздела. Объявлен снаружи Node намеренно: объявленный внутри, он
+   был бы новым типом компонента на каждой перерисовке — React разбирал бы
+   поддерево и собирал заново, а вместе с ним терялось бы всё состояние
+   внутри.
+
+   У части есть свой адрес: разделы никто не размечает руками, они
+   размечаются сами — значит и сослаться на любой из них можно. */
+function Part({ n, title, id, children }) {
   return (
-    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
-      <div style={{ ...S.lbl, marginBottom: 6 }}>{n}. {title}</div>
+    <section id={id}
+      style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
+        marginBottom: 6 }}>
+        <span style={S.lbl}>{n}. {title}</span>
+        {id && <AnchorLink href={`${linkTo(id.split("~")[0])}#${id}`} label={title} />}
+      </div>
       {children}
-    </div>);
+    </section>);
 }
 
 function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
@@ -429,8 +520,6 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   const [link, setLink] = useState(null);
   const [linkErr, setLinkErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [fileErr, setFileErr] = useState("");
-  const [fileBusy, setFileBusy] = useState(false);
   const kids = childrenOf(nodes, node.id);
   const up = (patch) => setNodes((p) => p.map((n) => (n.id === node.id ? { ...n, ...patch } : n)));
   const sum = summaryOf(model, node, nodes);
@@ -455,15 +544,6 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   const uptoTraits = traits.filter((t) => t.id !== node.trait
     && (full.traits || []).includes(t.id));
   const uptoFuncs = full.steps || [];
-
-  const pickFile = async (f) => {
-    setFileErr("");
-    if (!f) return;
-    setFileBusy(true);
-    try { up({ file: await putReportFile(f) }); }
-    catch (e) { setFileErr(e.message || "не удалось сохранить файл"); }
-    setFileBusy(false);
-  };
 
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
@@ -573,56 +653,44 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
 
         {/* ─── с чем именно работаем ───
 
-            Две дороги, и обе нужны. НОВЫЙ ресурс — файлом: вот это
-            техническое задание только что пришло от заказчика, работы по
-            нему ещё не было. УЖЕ БЫВШИЙ В РАБОТЕ — выбором из единиц с
-            номерами: тогда раздел показывает весь отчёт по нему, включая
-            то, что из него уже выросло.
+            Ресурс сюда не ЗАГРУЖАЮТ. Новые вещи рождаются только там, где
+            их и делают, — при сдаче выполненной задачи, вместе с отчётом по
+            ней. Кнопка «загрузить сам ресурс» заводила вещь мимо работы: у
+            неё не было ни задачи, ни автора, ни номера, и на неё нельзя было
+            сослаться, а в остатках модели её не было вовсе.
 
-            Второе без первого оставило бы человека без входа в работу, а
-            первое без второго — без возможности спросить о том, что уже
-            идёт. */}
-        {!!units.length && (<>
+            Здесь её ВЫБИРАЮТ из уже имеющихся единиц — тех, что и правда
+            вышли из чьей-то работы. Тогда раздел показывает отчёт по ним:
+            их самих и всё, что из них выросло. */}
+        {!!node.trait && (<>
           <div style={{ ...S.lbl, marginTop: 8 }}>
-            какие именно единицы — можно несколько</div>
-          <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
-            {units.map((u) => {
-              const on = picked.includes(u.id);
-              return (
-                <button key={u.id} style={{ ...btn(on, on ? ACC : null),
-                  fontSize: 11, padding: "3px 7px" }}
-                  aria-label={`единица №${u.no}: ${node.name || "без названия"}`}
-                  onClick={() => up({ units: on ? picked.filter((x) => x !== u.id)
-                    : [...picked, u.id] })}>
-                  №{u.no} {u.title || "без названия"}
-                  {u.accepted ? "" : " ·  не принято"}</button>);
-            })}
-          </div>
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-            {picked.length
-              ? `Выбрано ${picked.length} — отчёт только про них и про то, что из них выросло.`
-              : "Ничего не выбрано — считаем ГИПОТЕТИЧЕСКУЮ единицу: что изменится, если завести её в систему. Чужая работа над другими вещами в отчёт не идёт."}
-          </div>
+            какая именно единица ресурса — можно несколько</div>
+          {units.length ? (<>
+            <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+              {units.map((u) => {
+                const on = picked.includes(u.id);
+                return (
+                  <button key={u.id} style={{ ...btn(on, on ? ACC : null),
+                    fontSize: 11, padding: "3px 7px" }}
+                    aria-label={`единица №${u.no}: ${node.name || "без названия"}`}
+                    onClick={() => up({ units: on ? picked.filter((x) => x !== u.id)
+                      : [...picked, u.id] })}>
+                    №{u.no} {u.title || "без названия"}
+                    {u.accepted ? "" : " ·  не принято"}</button>);
+              })}
+            </div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+              {picked.length
+                ? `Выбрано ${picked.length} — отчёт только про них и про то, что из них выросло.`
+                : "Ничего не выбрано — раздел показывает всю работу по этой цепочке, а прогноз считает на указанное количество."}
+            </div>
+          </>) : (
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+              Единиц этого ресурса пока нет: они появляются, когда исполнитель
+              сдаёт задачу и прикладывает то, что вышло. Пока их нет, раздел
+              считает прогноз на указанное количество.
+            </div>)}
         </>)}
-
-        {/* Сам ресурс — файлом. Это и есть «техническое задание»: не пересказ
-            своими словами, а то, что и правда пришло от заказчика. */}
-        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
-          <label style={{ ...btn(false), fontSize: 11,
-            cursor: fileBusy ? "default" : "pointer", opacity: fileBusy ? 0.6 : 1 }}>
-            {fileBusy ? "Загружаю…" : node.file ? "Заменить файл" : "Загрузить сам ресурс"}
-            <input type="file" style={{ display: "none" }} disabled={fileBusy}
-              aria-label={`файл ресурса: ${node.name || "без названия"}`}
-              onChange={(e) => pickFile(e.target.files?.[0])} />
-          </label>
-          {node.file && (
-            <a href={reportSrc(node.file)} target="_blank" rel="noreferrer"
-              style={{ fontSize: 10.5, color: ACC }}>📎 {node.file.name}</a>)}
-          {node.file && (
-            <button style={{ ...btn(false), fontSize: 11, color: BAD }}
-              aria-label="убрать файл" onClick={() => up({ file: null })}>×</button>)}
-          {fileErr && <span style={{ fontSize: 10.5, color: BAD }}>{fileErr}</span>}
-        </div>
 
         {!node.trait && (
           <div style={{ fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
@@ -672,17 +740,36 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           </div>)}
 
         {!!node.trait && (<>
-          {/* ═══ 1. ГРАФИКИ ═══ */}
-          <Part n={1} title="как изменятся ресурсы">
+          {/* ═══ 1. СОЗДАННЫЕ РЕСУРСЫ ═══
+
+              Первыми — и в проекте, и в каждом шаге. Ради того, что вышло,
+              работу и заказывают, и спрашивают в первую очередь «что уже
+              есть», а не «что обещали». Файл здесь — сама вещь: её
+              скачивают отсюда, а не ищут по задачам. */}
+          <Part n={1} title="созданные ресурсы" id={`${node.id}~sozdano`}>
+            <MadeList made={doc.made} traitName={traitName}
+              empty={"Пока ничего не создано: по этой цепочке нет ни одной"
+                + " принятой сдачи с приложенным результатом."} />
+          </Part>
+
+          {/* ═══ 2. ГРАФИКИ ═══ */}
+          <Part n={2} title="как изменятся ресурсы" id={`${node.id}~resursy`}>
             {/* На сколько единиц посчитано — сказано у самого ресурса, полем
                 «количество». Повторять число здесь значило бы завести второе
                 место, где оно живёт. */}
-            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
-              оценка на {nm(plan.hi.qty)} × {traitName(node.trait)}
-              {doc.hypothetical ? " (гипотетических)" : ""} ·
-              {" "}работы {hoursRange(plan.lo.workHours, plan.hi.workHours)} ·
-              займёт {rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours)}
+            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6,
+              lineHeight: 1.5 }}>
+              считано на {nm(plan.hi.qty)} × {traitName(node.trait)}
+              {doc.hypothetical ? " (единицы не выбраны — прогноз гипотетический)" : ""}
             </div>
+            <PlanFact
+              plan={`работы ${hoursRange(plan.lo.workHours, plan.hi.workHours)}`
+                + ` · займёт ${rangeTimeText(plan.lo.calendarHours,
+                  plan.hi.calendarHours)}`}
+              fact={actual.any
+                ? `принято ${actual.done} из ${actual.total} · ушло ${nm(actual.hours)} ч`
+                : ""} />
+            <div style={{ height: 6 }} />
             {changes.length
               ? <ChangeChart rows={changes} traitName={traitName} />
               : <div style={{ fontSize: 11, color: C.muted }}>
@@ -701,29 +788,21 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               </div>)}
           </Part>
 
-          {/* ═══ 2. ЗАДАЧИ ═══
+          {/* ═══ 3. РАБОТА ПО ШАГАМ ═══
 
-              Один раздел вместо трёх. «Шаги», «созданные ресурсы» и
-              «фактическая оценка» говорили об одном и том же деле, разложив
-              его по трём спискам, — и человеку приходилось сводить их
-              глазами. Теперь шаг, его задачи, что каждая взяла и что из неё
-              вышло, и ожидаемые числа рядом с полученными — в одном месте.
-
-              Ресурсные итоги остались в первом блоке: там план и факт стоят
-              рядом по каждому ресурсу, и повторять их числами было бы
-              вторым ответом на тот же вопрос. */}
-          <Part n={2} title="задачи">
+              Каждый шаг — отдельный раздел со своим адресом: разделы никто
+              не размечает руками, они размечаются сами. Внутри шага порядок
+              тот же, что и здесь: сперва созданные ресурсы, потом прогноз
+              рядом с фактом, потом задачи. */}
+          <Part n={3} title="работа по шагам" id={`${node.id}~shagi`}>
             <Tasks steps={doc.steps} before={doc.before} plan={plan}
               actual={actual} factors={factors} funcName={funcName}
-              traitName={traitName} hypothetical={doc.hypothetical}
+              traitName={traitName} nodeId={node.id}
               personName={(id) => (nameOf ? nameOf(id) : id)} />
           </Part>
         </>)}
 
         <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
-          <button style={{ ...btn(false), fontSize: 11 }}
-            onClick={() => setNodes((p) => [...p, newSection(node.id)])}>
-            + раздел внутри</button>
           <button style={{ ...btn(true, OK), fontSize: 11 }} disabled={saving}
             onClick={download}>
             {saving ? "Готовлю…" : "Скачать отчёт"}</button>
@@ -768,6 +847,20 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
   };
   const path = focus ? pathOf(nodes, focus) : [];
   const shown = focus && path.length ? [path[path.length - 1]] : rootsOf(nodes);
+
+  /* Ссылка на шаг ведёт к якорю, а браузер ищет его в тот момент, когда
+     разметки ещё нет: React рисует после. Поэтому к якорю едем сами, когда
+     блоки уже нарисованы. Нет такого якоря — молчим: ссылка могла прийти из
+     другой модели, и прыгать в случайное место хуже, чем остаться на месте. */
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const id = decodeURIComponent(String(window.location.hash || "").slice(1));
+    if (!id) return undefined;
+    const t = setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [focus, nodes.length]);
 
   return (
     <div>

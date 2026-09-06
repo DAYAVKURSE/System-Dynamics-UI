@@ -1,13 +1,15 @@
 /* ════════════════════════════════════════════════════════════════
    ОТЧЁТ РАЗДЕЛА · один расчёт на экран и на скачивание
 
-   Раздел показывает четыре вещи, и всегда одни и те же — и проект, и любой
+   Раздел показывает три вещи, и всегда одни и те же — и проект, и любой
    раздел внутри него устроены одинаково:
 
-     1. предварительная оценка: как изменятся ресурсы и сколько это займёт;
-     2. что и когда будет сделано — задачи во времени;
-     3. созданные ресурсы: единицы с номерами;
-     4. фактическая оценка: что и правда сделано и чего это стоило.
+     1. созданные ресурсы: единицы с номерами и файлами;
+     2. как изменятся ресурсы: прогноз по модели рядом с фактом;
+     3. работа по шагам — и каждый шаг тоже раздел, со своим якорем.
+
+   Созданное стоит первым: ради него работу и заказывают, и спрашивают
+   сперва «что уже есть», а не «что обещали».
 
    Считается это ЗДЕСЬ, а не в разметке. Иначе скачанный отчёт пришлось бы
    собирать вторым кодом по тем же правилам, и в первый же день он разошёлся
@@ -16,7 +18,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { actualOf, chainOf, estimateRange, factorsIn } from "./chain.js";
-import { childrenOf, pathOf, pickedOf } from "./reports.js";
+import { childrenOf, pathOf, pickedOf, stepAnchor } from "./reports.js";
 import { descendantsOf, hasLineage, parentsOf, unitsOf } from "./units.js";
 import { fromHours } from "./funcs.js";
 
@@ -87,14 +89,25 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
     || family.length > chosen.length
     || chosen.some((u) => hasLineage(all, u.id));
 
-  const actual = actualOf(model, chain, { only: onlyTasks });
+  /* ─── единицы не выбраны — раздел про ВСЮ работу этой цепочки ───
+
+     Выбраны конкретные вещи — отбор по ним: вопрос был про них, и чужая
+     работа к нему отношения не имеет. Не выбрано ничего — вопрос другой:
+     «что вообще делается по этой цепочке». Отвечать на него пустотой
+     нельзя: задачи есть, вещи из них вышли, часы посчитаны — и всё это
+     молча пропадало, а на их месте стояла надпись «задач тут нет и не
+     должно быть». Прогноз при этом никуда не девается: он считается на
+     заданное число единиц и стоит рядом с фактом, подписанный. */
+  const actual = actualOf(model, chain, chosen.length ? { only: onlyTasks } : {});
   /* Созданное по выбранным единицам — это их родословная, а не пересечение
      с цепочкой: сами они сделаны функцией, которая лежит ДО цепочки, и
      отсеивать их значило бы выбросить из отчёта о вещи саму вещь. */
   /* Новое сверху: у списка созданного порядок «свежее — выше», и таким же
      его показывает снимок на сервере. Разный порядок в двух местах читался
      бы как разные списки. */
-  const made = [...(family || [])].sort((a, b) => (b.no || 0) - (a.no || 0));
+  const inActual = new Set(actual.tasks.map((t) => t.id));
+  const made = [...(family || all.filter((u) => inActual.has(u.task)))]
+    .sort((a, b) => (b.no || 0) - (a.no || 0));
   const factors = factorsIn(model, chain);
 
   /* Ресурсы, о которых в разделе вообще есть что сказать: те, что цепочка
@@ -123,7 +136,11 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
      раздела, что каждая взяла и что сделала, сколько на неё ушло часов —
      рядом с тем, сколько по плану. Фактор задач не имеет вовсе: с погоды
      не спрашивают, и на его месте так и сказано. */
-  const byId = Object.fromEntries((made || []).map((u) => [u.id, u]));
+  /* Взятое ищется по ВСЕМ единицам, а не только по показанным: задача,
+     сделавшая прослеживаемую вещь, взяла то, что лежит до цепочки, — и
+     назвать это по имени можно, а промолчать значило бы потерять ответ на
+     «из чего». */
+  const byId = Object.fromEntries(all.map((u) => [u.id, u]));
   const madeBy = {};
   (made || []).forEach((u) => { (madeBy[u.task] = madeBy[u.task] || []).push(u); });
   const lastSub = (t) => {
@@ -158,6 +175,9 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
       workHi: num(s.workHours),
       runsLo: num(low?.runs),
       tasks: mine,
+      /* Что этот шаг создал. Стоит у шага, потому что шаг — это раздел, а
+         созданные ресурсы в разделе идут первыми: ради них он и делается. */
+      made: mine.flatMap((t) => t.made),
       doneCount: done.length,
       factHours: done.reduce((x, t) => x + num(t.hours), 0),
     };
@@ -182,7 +202,9 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
     // Выбранные единицы: они сами, из чего сделаны и что из них выросло.
     units: chosen,
     unit: chosen[0] || null,
-    /* Прослеживается вещь, которой ещё нет: оценка есть, работы нет. */
+    /* Прослеживается вещь, которой ещё нет в системе: конкретные единицы
+       не выбраны, и раздел считает прогноз на гипотетические. Работа по
+       цепочке при этом показывается вся — она есть, и прятать её незачем. */
     hypothetical: !chosen.length,
     parents: chosen.flatMap((u) => parentsOf(all, u.id)),
     family: family || [],
@@ -359,18 +381,32 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
     ${node.upto ? ` · до звена «${tn(node.upto) !== node.upto ? tn(node.upto) : fn(node.upto)}»` : " · до конца цепочки"}
     ${node.file ? ` · приложено: ${esc(node.file.name || "файл")}` : ""}
   </p>
-  ${d.hypothetical && node.trait ? `<p class="m">Прослеживается гипотетическая единица${
-    plan.hi.qty > 1 ? ` — ${nm(plan.hi.qty)} шт.` : ""}: работы по ней ещё не
-    было, и это прогноз, а не отчёт о сделанном. Чужая работа над другими
-    вещами сюда не входит.</p>` : ""}
+  ${d.hypothetical && node.trait ? `<p class="m">Определённые единицы не выбраны:
+    прогноз посчитан на ${nm(plan.hi.qty)} гипотетическ${plan.hi.qty > 1 ? "их" : "ую"},
+    а работа показана вся, какая по этой цепочке есть.</p>` : ""}
   ${d.broken ? '<p class="w">Цепочка не доходит до звена: между ними разрыв — ни одна функция не берёт то, что выдаёт предыдущая.</p>' : ""}
   ${d.unit && !d.traced ? '<p class="w">По этой единице не записано, что из чего сделано: при сдаче не отметили взятое. Ниже — только она сама.</p>' : ""}
   ${d.parents.length ? `<p class="m">сделано из: ${d.parents.map((u) => `№${u.no} ${esc(u.title || "без названия")}`).join(", ")}</p>` : ""}
 
-  <h${h + 1}>1. Предварительная оценка</h${h + 1}>
-  <p class="m">работы ${esc(hoursRange(plan.lo.workHours, plan.hi.workHours))} ·
+  <h${h + 1}>1. Созданные ресурсы</h${h + 1}>
+  ${d.made.length ? `<table>
+    <tr><th>№</th><th>что это</th><th>из какой работы</th><th>состояние</th><th>файл</th></tr>
+    ${d.made.map((u) => `<tr><td>${u.no}</td><td>${tn(u.trait)}</td>
+      <td>${esc(u.title || "без названия")}</td>
+      <td>${u.accepted ? "принято" : "не принято"}</td>
+      <td>${u.file
+        ? `<a href="${esc(u.file.url || u.file.data || "")}">${esc(u.file.name || "файл")}</a>`
+        : "файла нет"}</td></tr>`).join("")}
+  </table>` : '<p class="m">Пока ничего не создано: принятых сдач с приложенным результатом по этой цепочке нет.</p>'}
+
+  <h${h + 1}>2. Как изменятся ресурсы</h${h + 1}>
+  <p class="m"><b>прогноз по модели:</b>
+     работы ${esc(hoursRange(plan.lo.workHours, plan.hi.workHours))} ·
      займёт ${esc(rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours))} ·
      шагов ${plan.hi.steps.length}</p>
+  <p class="m"><b>фактически:</b> ${actual.any
+    ? `принято ${actual.done} из ${actual.total} · ушло ${nm(actual.hours)} ч`
+    : "принятых работ пока нет — измерять нечего"}</p>
   ${changes.length
     ? changes.map((c) => barRow(c, tn)).join("")
       + `<p class="m">Полоса плана — вилка «от и до», полоса факта — то, что
@@ -381,35 +417,46 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   ${Object.keys(plan.hi.need || {}).length ? `<p class="m">нужно со стороны:
     ${Object.entries(plan.hi.need).map(([id, q]) => `${tn(id)} ${nm(q)}`).join(", ")}</p>` : ""}
 
-  <h${h + 1}>2. Задачи</h${h + 1}>
-  <p class="m">по плану работы ${esc(hoursRange(plan.lo.workHours, plan.hi.workHours))} ·
-    ${actual.any
-      ? `принято ${actual.done} из ${actual.total} · вышло ${nm(actual.hours)} ч`
-      : "принятых работ пока нет"}</p>
+  <h${h + 1}>3. Работа по шагам</h${h + 1}>
   ${timelineHtml(d.steps, d.before)}
   ${d.steps.length ? d.steps.map((s2, i2) => `
-    <p class="m"><b>${i2 + 1}. ${esc(s2.name)}</b>${s2.factor ? " · фактор" : ""} —
-      ${(s2.short || []).length
-        ? `<span class="w">не выполнится: не хватает ${esc((s2.short || [])
-          .map((x) => `${tnRaw(x.trait, traitName)}${x.spentBy
-            ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", "))}</span>`
-        : `выполнений ${nm(s2.runs)} · начнётся через ${esc(timeText(s2.startHours))} ·
+    <h${Math.min(6, h + 2)} id="${esc(stepAnchor(node.id, s2.func))}">${
+      i2 + 1}. ${esc(s2.name)}${s2.factor ? " · фактор" : ""}</h${Math.min(6, h + 2)}>
+    ${(s2.made || []).length ? `<table>
+      <tr><th>№</th><th>что это</th><th>из какой работы</th><th>состояние</th><th>файл</th></tr>
+      ${s2.made.map((u) => `<tr><td>${u.no}</td><td>${tn(u.trait)}</td>
+        <td>${esc(u.title || "без названия")}</td>
+        <td>${u.accepted ? "принято" : "не принято"}</td>
+        <td>${u.file
+          ? `<a href="${esc(u.file.url || u.file.data || "")}">${esc(u.file.name || "файл")}</a>`
+          : "файла нет"}</td></tr>`).join("")}
+    </table>` : `<p class="m">${s2.factor
+      ? "Фактор ничего не выдаёт вещью: он случается сам."
+      : "Созданных ресурсов пока нет: принятых сдач по этому шагу не было."}</p>`}
+    <p class="m">${(s2.short || []).length
+      ? `<span class="w">не выполнится: не хватает ${esc((s2.short || [])
+        .map((x) => `${tnRaw(x.trait, traitName)}${x.spentBy
+          ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", "))}</span>`
+      : `<b>прогноз по модели:</b> выполнений ${nm(s2.runs)} ·
+      начнётся через ${esc(timeText(s2.startHours))} ·
       займёт ${esc(timeText(s2.calendarHours))}${s2.factor ? ""
         : ` · работы ${esc(hoursRange(s2.workLo, s2.workHi))}`}${
       portText(s2.takes, tn) ? ` · берёт ${portText(s2.takes, tn)}` : ""}${
       portText(s2.gives, tn) ? ` · даёт ${portText(s2.gives, tn)}` : ""}`}</p>
+    ${(s2.short || []).length ? "" : `<p class="m"><b>фактически:</b> ${s2.doneCount
+      ? `принято выполнений ${nm(s2.doneCount)} из ${nm(s2.tasks.length)} · ушло ${
+        nm(Math.round(num(s2.factHours) * 10) / 10)} ч`
+      : "принятых работ по этому шагу пока нет"}</p>`}
     ${s2.factor
       ? '<p class="m">Задач тут не бывает: фактор случается сам, и спрашивать за него не с кого.</p>'
       : s2.tasks.length ? `<table>
         <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th>
-          <th>ожидалось, ч</th><th>вышло, ч</th><th>взяла → вышло</th></tr>
+          <th>прогноз, ч</th><th>факт, ч</th><th>взяла → вышло</th></tr>
         ${s2.tasks.map((t) => `<tr><td>${esc(t.title)}</td><td>${pn(t.assignee)}</td>
           <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td>
           <td>${perRun(s2)}</td><td>${t.hours == null ? "—" : nm(t.hours)}</td>
           <td>${esc(linkText(t, traitName))}</td></tr>`).join("")}
-      </table>` : `<p class="m">${d.hypothetical
-        ? "Задач тут нет и не должно быть: вещь ещё не заведена в систему — это прогноз."
-        : "Задач по этим вещам на этот шаг ещё не заведено."}</p>`}
+      </table>` : '<p class="m">Задач на этот шаг ещё не заведено.</p>'}
   `).join("") : '<p class="m">Шагов нет: цепочка пуста.</p>'}
   ${d.before.length ? `<p class="m">как эти вещи появились:</p><table>
     <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th><th>вышло</th></tr>

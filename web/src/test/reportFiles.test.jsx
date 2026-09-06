@@ -80,20 +80,28 @@ const dump = () => {
   fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);
 };
-const attach = async (f) => {
-  const input = container.querySelector('input[type="file"]');
+/* Полей файла в форме сдачи теперь несколько: у каждого выданного ресурса
+   своё (это сам результат), и отдельное — отчёт о работе. Поэтому поле
+   называется по имени, а не берётся первым попавшимся. */
+const attachTo = async (label, f) => {
+  const input = screen.getByLabelText(label);
   Object.defineProperty(input, "files", { value: [f], configurable: true });
   fireEvent.change(input);
 };
+const attach = (f) => attachTo("отчёт о работе файлом", f);
+/* Результат работы: без него задача не сдаётся — «заявки» функция обещала
+   выдать (минимум в вилке 1). */
+const attachResult = (f) => attachTo("результат: заявки", f);
 
 describe("файл отчёта — на диске, ссылка в сценарии", () => {
   it("с сервером файл уходит на бэкенд, а в задаче остаётся ссылка", async () => {
     const calls = mockFetch({ reports: true });
     ({ container } = await fresh());
     openSubmit();
+    await attachResult(file("заявка.png"));
     await attach(file());
 
-    await waitFor(() => expect(screen.getByText(/📎/)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/📎/).length).toBeGreaterThan(0));
     const upload = calls.find((c) => c.url.includes("/api/reports"));
     expect(upload).toBeTruthy();
     expect(upload.opts.method).toBe("POST");
@@ -113,9 +121,10 @@ describe("файл отчёта — на диске, ссылка в сцена�
       mockFetch({ reports: false });
       ({ container } = await fresh());
       openSubmit();
+      await attachResult(file("заявка.png"));
       await attach(file());
 
-      await waitFor(() => expect(screen.getByText(/📎/)).toBeTruthy());
+      await waitFor(() => expect(screen.getAllByText(/📎/).length).toBeGreaterThan(0));
       fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
       const saved = dump().tasks[0].submissions[0].file;
       expect(saved.data).toMatch(/^data:/);
@@ -134,10 +143,15 @@ describe("файл отчёта — на диске, ссылка в сцена�
     openSubmit();
     await attach(file());
 
-    await waitFor(() => expect(screen.getByText(/не удалось загрузить файл/)).toBeTruthy());
-    // Сдача без файла всё равно возможна: отчёт текстом — тоже отчёт.
+    await waitFor(() => expect(screen.getAllByText(/не удалось загрузить файл/).length)
+      .toBeGreaterThan(0));
+    /* Отказ не проглатывается молча — и сдача не проходит: функция обещала
+       выдать «заявки», а результата нет. Сказано словами, а не пустой
+       кнопкой. */
+    expect(screen.getByText(/Задача не выполнена, пока не приложено/))
+      .toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
-    expect(dump().tasks[0].submissions[0].file).toBeFalsy();
+    expect(dump().tasks[0].submissions.length).toBe(0);
   });
 
   it("слишком большой файл отвергается до отправки", async () => {

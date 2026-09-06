@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, byCrew, hoursOf, isFactor, rangeText, shortage }
-  from "../lib/funcs.js";
+import { DUR_UNITS, WORKER_KINDS, byCrew, hoursOf, isFactor, missingGives,
+  rangeText, requiredGives, shortage } from "../lib/funcs.js";
 import { shortStat, statsOf } from "../lib/workers.js";
 import { heldBy, unitsOf } from "../lib/units.js";
-import { putReportFile, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
+import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · выполнения функций
@@ -305,9 +305,18 @@ export function autoFlow(tasks=[],opts={}){
  * арифметическое. Числа по ресурсам лежат картой «ресурс → сколько»,
  * потому что у функции их несколько и порядок портов не обязан совпадать.
  */
-export const newSubmission=({hours=0,takes={},gives={},took={},text="",file=null})=>
+export const newSubmission=({hours=0,takes={},gives={},took={},files={},
+  text="",file=null})=>
   ({id:uid("sb"),at:new Date().toISOString(),hours:Number(hours)||0,
     takes:{...takes},gives:{...gives},
+    /* ЧТО именно выдали — файлом, по каждому выданному ресурсу. Число
+       говорит «одна штука» и молчит о том, какая: скачать сам макет было
+       неоткуда, хотя ради него работу и заказывали. Обязательным выход
+       считается там, где нижняя граница вилки больше нуля (см.
+       `requiredGives` в lib/funcs.js): функция обещала выдать хотя бы
+       столько, и без этого работа не сделана. */
+    files:Object.fromEntries(Object.entries(files||{})
+      .filter(([k,v])=>k&&v)),
     /* КАКИЕ именно единицы взяли — карта «ресурс → номера». Количества
        говорят, что израсходована одна заявка, и молчат о том, чья; а
        спрашивают потом именно об этом: «покажи весь отчёт вот по этому
@@ -607,6 +616,13 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
   const [hours,setHours]=useState(0);
   const [qty,setQty]=useState({takes:{},gives:{}});
   const [took,setTook]=useState({});
+  /* Вещи, которые вышли из работы: по одной на каждый выданный ресурс.
+     Отдельно от `draftFile` нарочно — тот отчёт О РАБОТЕ, а это сами
+     результаты, на которые потом ссылаются разделы отчёта и по которым их
+     скачивают. */
+  const [giveFiles,setGiveFiles]=useState({});
+  const [giveBusy,setGiveBusy]=useState("");
+  const [giveErr,setGiveErr]=useState({});
 
   const func=funcs.find(f=>f.id===task.funcId)||null;
   const subs=task.submissions||[];
@@ -638,8 +654,29 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
     setQty({takes:Object.fromEntries(func.takes.map(p=>[p.trait,mid(p)])),
       gives:Object.fromEntries(func.gives.map(p=>[p.trait,mid(p)]))});
     setTook({});
+    setGiveFiles({}); setGiveErr({}); setGiveBusy("");
     setHanding(true);
   };
+
+  /* Приложить вышедшую вещь. Ресурс назван явно: одна сдача выдаёт и макет,
+     и смету, и класть их в одно поле значило бы потерять, что где. */
+  const pickGiveFile=async(trait,f)=>{
+    setGiveErr(p=>({...p,[trait]:""}));
+    if(!f) return;
+    setGiveBusy(trait);
+    try{
+      const saved=await putReportFile(f);
+      setGiveFiles(p=>({...p,[trait]:saved}));
+    }catch(e){
+      setGiveErr(p=>({...p,[trait]:e.message||"не удалось сохранить файл"}));
+    }
+    setGiveBusy("");
+  };
+
+  /* Чего не хватает, чтобы работа считалась сделанной: обязательный выход
+     без приложенной вещи. Пока список непуст, «Сдать» не нажимается — и
+     сказано, что именно приложить, а не просто «нельзя». */
+  const missing=func?missingGives(func,giveFiles):[];
   const submit=()=>{
     /* Сдал — не значит принято. Задача уходит на проверку: «Готово» ставит
        тот, кто отчёт принял. Иначе фактом в расчёте стало бы то, что
@@ -647,10 +684,14 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
 
        Кроме случая, когда исполнитель и проверяющий — один человек: тогда
        принимать не у кого, и задача уходит в готовые сразу. */
+    /* Без обязательных вещей сдачи не бывает: работа, от которой ждали
+       макет, без макета не сделана, сколько бы часов на неё ни ушло. */
+    if(missing.length) return;
     upMany({submissions:[...subs,newSubmission({hours,takes:qty.takes,gives:qty.gives,
-      took,text:draftText,file:draftFile})],status:selfReview(task)?"done":"review"});
+      took,files:giveFiles,text:draftText,file:draftFile})],
+    status:selfReview(task)?"done":"review"});
     setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
-    setTook({});
+    setTook({}); setGiveFiles({}); setGiveErr({});
   };
 
   const QtyRow=({kind,port})=>{
@@ -665,6 +706,11 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
       return {...p,[port.trait]:was.includes(id)
         ?was.filter(x=>x!==id):[...was,id]};
     });
+    /* Выход обязателен, если нижняя граница вилки больше нуля: функция
+       обещала выдать хотя бы столько. Ноль внизу — прямое разрешение не
+       выдать ничего, и требовать вещь там не за что. */
+    const must=kind==="gives"&&(Number(port.lo)||0)>0;
+    const got=kind==="gives"?giveFiles[port.trait]:null;
     return (
       <div style={{marginBottom:6}}>
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
@@ -673,6 +719,35 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
           <NumField value={qty[kind][port.trait]??0} style={{flex:"0 1 90px"}}
             onCommit={v=>setQty(p=>({...p,[kind]:{...p[kind],[port.trait]:Number(v)||0}}))}/>
         </div>
+        {/* Сама вышедшая вещь — файлом. Ради неё работу и заказывали:
+            число «1» не откроешь и не покажешь заказчику. */}
+        {kind==="gives"&&(
+          <div className="flex flex-wrap gap-2"
+            style={{alignItems:"center",marginTop:4}}>
+            <label style={{...btn(false),fontSize:10.5,padding:"2px 7px",
+              cursor:giveBusy===port.trait?"default":"pointer",
+              opacity:giveBusy===port.trait?0.6:1,
+              borderColor:must&&!got?"#5A2436":undefined}}>
+              {giveBusy===port.trait?"Загружаю…"
+                :got?`Заменить ${traitName(port.trait)}`
+                  :`Загрузить ${traitName(port.trait)}`}
+              <input type="file" style={{display:"none"}}
+                disabled={giveBusy===port.trait}
+                aria-label={`результат: ${traitName(port.trait)}`}
+                onChange={e=>pickGiveFile(port.trait,e.target.files?.[0])}/>
+            </label>
+            {got&&(<span style={{fontSize:10.5,color:ACC}}>
+              📎 {got.name} · {Math.round((got.size||0)/1024)} КБ</span>)}
+            {got&&(<button style={{...btn(false),fontSize:10.5,padding:"2px 6px",
+              color:BAD}} aria-label={`убрать ${traitName(port.trait)}`}
+              onClick={()=>setGiveFiles(p=>{const q={...p};delete q[port.trait];
+                return q;})}>×</button>)}
+            {!got&&(<span style={{fontSize:10,color:must?WARN:C.muted}}>
+              {must?"без него работа не сдаётся"
+                :"можно не прикладывать: минимум по этому ресурсу — 0"}</span>)}
+            {giveErr[port.trait]&&(
+              <span style={{fontSize:10.5,color:BAD}}>{giveErr[port.trait]}</span>)}
+          </div>)}
         {!!own.length&&(
           <div className="flex flex-wrap gap-2" style={{marginTop:4}}>
             {own.slice(0,12).map(u=>(
@@ -749,6 +824,14 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                 +(unitNo[`${sb.id}~${id}`]?` №${unitNo[`${sb.id}~${id}`]}`:""))
                 .join(", ")||"—"}
             </div>
+            {/* Сами вышедшие вещи — ссылками: их и скачивают. */}
+            {!!Object.keys(sb.files||{}).length&&(
+              <div className="flex flex-wrap gap-2" style={{marginTop:4}}>
+                {Object.entries(sb.files).map(([id,f])=>(
+                  <a key={id} href={reportSrc(f)} target="_blank" rel="noreferrer"
+                    style={{fontSize:10.5,color:ACC}}>
+                    📎 {traitName(id)}: {f.name}</a>))}
+              </div>)}
             {sb.text&&<div style={{fontSize:11.5,marginTop:4,lineHeight:1.5}}>{sb.text}</div>}
             {sb.file&&<div style={{fontSize:10.5,color:ACC,marginTop:4}}>
               📎 {sb.file.name} · {Math.round((sb.file.size||0)/1024)} КБ</div>}
@@ -777,7 +860,13 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                   {func.takes.map(p=>(<QtyRow key={p.id} kind="takes" port={p}/>))}
                 </div></>}
               {!!func.gives.length&&<>
-                <div style={S.lbl}>сколько выдали</div>
+                <div style={S.lbl}>что выдали — и сами результаты</div>
+                <div style={{fontSize:10,color:C.muted,margin:"3px 0 5px",
+                  lineHeight:1.5}}>
+                  Приложите то, что вышло: по этим файлам работу потом и
+                  смотрят, и скачивают. Обязательны те ресурсы, у которых
+                  минимум в вилке больше нуля.
+                </div>
                 <div style={{margin:"5px 0 8px"}}>
                   {func.gives.map(p=>(<QtyRow key={p.id} kind="gives" port={p}/>))}
                 </div></>}
@@ -789,6 +878,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                   opacity:fileBusy?0.6:1}}>
                   {fileBusy?"Загружаю…":"Загрузить отчёт"}
                   <input type="file" style={{display:"none"}} disabled={fileBusy}
+                    aria-label="отчёт о работе файлом"
                     onChange={e=>pickFile(e.target.files?.[0])}/>
                 </label>
                 {draftFile&&<span style={{fontSize:10.5,color:ACC}}>
@@ -797,9 +887,21 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                 <span style={{flex:1}}/>
                 <button style={btn(false)} onClick={()=>{setHanding(false);
                   setDraftFile(null);setFileErr("");}}>Отмена</button>
-                <button style={btn(true,OK)} disabled={fileBusy}
+                <button style={btn(true,OK)}
+                  disabled={fileBusy||!!giveBusy||!!missing.length}
+                  title={missing.length
+                    ?`Приложите: ${missing.map(p=>traitName(p.trait)).join(", ")}`
+                    :""}
                   onClick={submit}>Сдать</button>
               </div>
+              {/* Молчаливо неактивная кнопка — худшее из возможного: человек
+                  не знает, чего от него хотят. Поэтому сказано словами. */}
+              {!!missing.length&&(
+                <div style={{fontSize:10.5,color:WARN,marginTop:6,lineHeight:1.5}}>
+                  Задача не выполнена, пока не приложено:{" "}
+                  {missing.map(p=>traitName(p.trait)).join(", ")}. Это
+                  результат работы, а не отчёт о ней.
+                </div>)}
             </div>}
       </div>
 

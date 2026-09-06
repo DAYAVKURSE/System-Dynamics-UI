@@ -164,6 +164,10 @@ export function summaryOf(model, node, nodes = []) {
      бы ни одного: одно и то же место говорило бы две разные вещи. */
   const rows = subtree(nodes, node?.id).flatMap((n) => {
     const chain = chainOf(model, { from: n.trait, upto: n.upto });
+    /* Выбраны конкретные вещи — считаем работу по ним; не выбрано ничего —
+       всю работу цепочки, ровно как её показывает раскрытый блок. Иначе
+       свёрнутая строка и раскрытый блок отвечали бы по-разному. */
+    if (!pickedOf(n).length) return actualOf(model, chain, {}).tasks;
     const only = new Set(familyOf(model, n).map((u) => u.task).filter(Boolean));
     return actualOf(model, chain, { only }).tasks;
   });
@@ -191,6 +195,21 @@ export function linkTo(id, origin = "") {
   const base = origin || (typeof window === "undefined" ? "" : `${window.location.origin}${window.location.pathname}`);
   return `${base}?report=${encodeURIComponent(id)}`;
 }
+
+/* ─────── шаг — тоже раздел ───────
+
+   Разделы карты никто больше не размечает руками: шаг цепочки И ЕСТЬ
+   раздел, и размечается он сам. Поэтому у каждого шага есть свой якорь —
+   постоянный адрес внутри блока, по которому на этот шаг можно дать
+   ссылку. Считается он из блока и функции, а не из порядкового номера:
+   номер шага меняется от любой правки модели, и вчерашняя ссылка вела бы
+   назавтра в другое место. */
+export const stepAnchor = (nodeId, funcId) =>
+  `shag-${String(nodeId || "")}-${String(funcId || "")}`;
+
+/** Ссылка на шаг: тот же блок, но открытый на нужном месте. */
+export const stepLink = (nodeId, funcId, origin = "") =>
+  `${linkTo(nodeId, origin)}#${stepAnchor(nodeId, funcId)}`;
 
 /**
  * Ссылка наружу — на СНИМОК блока, а не на приложение.

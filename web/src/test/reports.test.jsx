@@ -135,18 +135,22 @@ describe("отчёт раздела", () => {
     expect(d.made[1]).toMatchObject({ title: "Макет главной", accepted: true });
   });
 
-  it("чужая работа в отчёт не идёт: не выбрано ничего — вещь гипотетическая", () => {
-    /* Главное правило раздела: он про ТЕ САМЫЕ вещи, а не про поток по
-       функциям цепочки. Задача, сделанная над другим договором, к вопросу
-       «что будет с этим» отношения не имеет, даже если её делала та же
-       функция. Ничего не выбрано — прослеживается гипотетическая единица:
-       оценка есть, работы нет, и это ответ, а не нехватка данных. */
+  it("выбраны вещи — работа только по ним; не выбрано — вся работа цепочки", () => {
+    /* Спросили про определённые вещи — отвечаем про них: чужая задача над
+       другим договором к этому вопросу отношения не имеет.
+
+       Не выбрано ничего — вопрос другой: «что вообще делается по этой
+       цепочке». Отвечать на него пустотой нельзя: задачи есть, вещи из них
+       вышли, часы посчитаны. Прогноз при этом остаётся прогнозом — он
+       считается на гипотетические единицы и подписан. */
     const d = doc();
     expect(d.hypothetical).toBe(true);
-    expect(d.actual.tasks).toEqual([]);
-    expect(d.made).toEqual([]);
-    expect(d.actual.any).toBe(false);
-    // При этом оценка считается: прогноз для вещи, которой ещё нет.
+    expect(d.actual.tasks.map((t) => t.id)).toEqual(["tk1", "tk2"]);
+    expect(d.made.map((u) => u.no)).toEqual([2, 1]);
+    expect(d.actual.any).toBe(true);
+    // Созданное лежит у сделавшего его шага: шаг — это раздел.
+    expect(d.steps[0].made.map((u) => u.no)).toEqual([1, 2]);
+    // И оценка считается: прогноз для вещи, которой ещё нет.
     expect(d.plan.hi.steps.map((x) => x.func)).toEqual(["f1"]);
   });
 
@@ -155,7 +159,7 @@ describe("отчёт раздела", () => {
     expect(summaryOf(MODEL, WITH[0], WITH))
       .toMatchObject({ rows: 2, accepted: 1, hours: 4 });
     expect(summaryOf(MODEL, NODES[0], NODES))
-      .toMatchObject({ rows: 0, accepted: 0, hours: 0 });
+      .toMatchObject({ rows: 2, accepted: 1, hours: 4 });
   });
 
   it("разрыв до звена назван, а не спрятан", () => {
@@ -173,27 +177,59 @@ describe("карта в форме", () => {
       focus={focus} onFocus={setFocus} />);
   };
 
-  it("проект заводится кнопкой, раздел — внутри блока", () => {
+  it("проект заводится кнопкой, а разделы размечаются сами", () => {
+    /* Кнопки «+ раздел внутри» больше нет: раздел — это шаг цепочки, и
+       размечать его руками не за что. Заводят только проект, всё
+       остальное считается по модели. */
     render(<Panel />);
     fireEvent.click(screen.getByRole("button", { name: "+ проект" }));
     expect(screen.getByLabelText("название проекта")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "+ раздел внутри" }));
-    expect(screen.getByLabelText("название раздела")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ раздел внутри" })).toBeNull();
   });
 
-  it("в разделе два блока: ресурсы и задачи — и в проекте тоже", () => {
-    /* Прежде их было четыре: «шаги», «созданные ресурсы» и «фактическая
-       оценка» говорили об одном и том же деле тремя списками, и сводить их
-       приходилось глазами. Шаг и задача — одно дело с двух сторон, а
-       созданное принадлежит сделавшей его задаче. */
+  it("в разделе три части, и созданные ресурсы — первая", () => {
+    /* Ради того, что вышло, работу и заказывают: спрашивают сперва «что уже
+       есть», а не «что обещали». Порядок один и в проекте, и в шаге —
+       проект такой же раздел. */
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    ["1. как изменятся ресурсы", "2. задачи"].forEach((t) => {
-      expect(screen.getByText(t)).toBeInTheDocument();
+    ["1. созданные ресурсы", "2. как изменятся ресурсы", "3. работа по шагам"]
+      .forEach((t) => { expect(screen.getByText(t)).toBeInTheDocument(); });
+  });
+
+  it("каждый шаг — раздел со своим адресом, и ссылку на него можно взять",
+    async () => {
+      const copied = [];
+      Object.defineProperty(navigator, "clipboard", { configurable: true,
+        value: { writeText: async (v) => { copied.push(v); } } });
+      const { container } = render(<Panel nodes={NODES} />);
+      fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+      // Якорь у шага постоянный: он считается из блока и функции, а не из
+      // порядкового номера, который меняется от любой правки модели.
+      expect(container.querySelector("#shag-rs1-f1")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button",
+        { name: "ссылка на раздел: Собрать макет" }));
+      await waitFor(() => expect(copied).toHaveLength(1));
+      expect(copied[0]).toMatch(/\?report=rs1#shag-rs1-f1$/);
     });
-    ["3. созданные ресурсы", "4. фактическая оценка"].forEach((t) => {
-      expect(screen.queryByText(t)).toBeNull();
-    });
+
+  it("созданное лежит и у шага, и первой частью раздела — со скачиванием", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    // Файл — сама вещь, а не отчёт о ней: её скачивают прямо отсюда.
+    const links = screen.getAllByText(/скачать · макет\.pdf/);
+    expect(links.length).toBeGreaterThan(0);
+    expect(links[0].closest("a")).toHaveAttribute("href", "/api/reports/x/y");
+    // Где файла нет — так и сказано, а не пусто.
+    expect(screen.getAllByText(/файла нет — при сдаче не приложили/).length)
+      .toBeGreaterThan(0);
+  });
+
+  it("прогноз и факт подписаны — иначе непонятно, где что", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect(screen.getAllByText("прогноз по модели:").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("фактически:").length).toBeGreaterThan(0);
   });
 
   it("раздел спрашивает ресурс и звено, а не пару «функция + ресурс»", () => {
@@ -231,19 +267,23 @@ describe("карта в форме", () => {
     render(<Panel nodes={PICKED} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getAllByText("Макет главной").length).toBeGreaterThan(0);
-    // Числа плана и факта стоят рядом, а не в разных разделах.
-    expect(screen.getByText(/по плану работы .* принято 2 из 2/))
-      .toBeInTheDocument();
+    // Числа прогноза и факта стоят рядом и подписаны.
+    expect(screen.getAllByText(/принято 2 из 2 · ушло/).length).toBeGreaterThan(0);
     // Работа, в которой сама заявка появилась, названа отдельно.
     expect(screen.getByText("как эти вещи появились")).toBeInTheDocument();
     expect(screen.getAllByText("Заявка от Иванова").length).toBeGreaterThan(0);
   });
 
-  it("сам ресурс прикладывается файлом, а не пересказывается словами", () => {
+  it("ресурс не загружают в отчёте — его выбирают из уже сделанных единиц", () => {
+    /* Кнопка «Загрузить сам ресурс» заводила вещь мимо работы: без задачи,
+       без автора и без номера, и сослаться на неё было нечем. Новые вещи
+       рождаются только при сдаче выполненной задачи. */
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByLabelText("файл ресурса: Макеты")).toBeInTheDocument();
-    expect(screen.queryByLabelText("техническое задание")).toBeNull();
+    expect(screen.queryByLabelText("файл ресурса: Макеты")).toBeNull();
+    expect(screen.queryByText(/Загрузить сам ресурс/)).toBeNull();
+    // На его месте — выбор из тех единиц, которые и правда есть.
+    expect(screen.getByText(/какая именно единица ресурса/)).toBeInTheDocument();
   });
 
   it("отчёт скачивается файлом — и в нём то же, что на экране", () => {
@@ -256,17 +296,21 @@ describe("карта в форме", () => {
       personName: (id) => `человек ${id}`,
       title: "Макеты",
     });
-    expect(html).toContain("1. Предварительная оценка");
-    expect(html).toContain("2. Задачи");
-    // Тех же двух блоков, что на экране, — не больше и не меньше.
-    expect(html).not.toContain("3. Созданные ресурсы");
-    expect(html).not.toContain("4. Фактическая оценка");
+    // Те же три части и в том же порядке, что и на экране.
+    expect(html).toContain("1. Созданные ресурсы");
+    expect(html).toContain("2. Как изменятся ресурсы");
+    expect(html).toContain("3. Работа по шагам");
     expect(html).toContain("Макет главной");
     expect(html).toContain("с ресурса «заявка»");
     // В файле сказано то же, что на экране: по каким именно вещам отчёт.
     expect(html).toContain("по единицам №1");
-    // И у задачи — ожидалось против вышло, а не одно из двух.
-    expect(html).toContain("ожидалось, ч");
+    // Прогноз и факт подписаны — иначе непонятно, где что.
+    expect(html).toContain("прогноз по модели:");
+    expect(html).toContain("фактически:");
+    expect(html).toContain("прогноз, ч");
+    expect(html).toContain("факт, ч");
+    // У шага свой якорь: разделы размечаются сами, и на каждый есть ссылка.
+    expect(html).toContain('id="shag-rs1-f1"');
     // Файл самодостаточен: ни одной ссылки наружу, чтобы он не рассыпался.
     expect(html).not.toMatch(/<script/);
   });
@@ -333,16 +377,13 @@ describe("карта в форме", () => {
   });
 
   it("можно спросить про несколько определённых единиц, а не про весь ресурс", () => {
-    /* Загрузить новый ресурс — одна дорога; спросить о тех, с которыми уже
-       работали, — другая, и она нужна не меньше.
-
-       Единицы есть у того, что кто-то ПРОИЗВОДИТ: «заявка» приходит со
-       стороны, и различать её экземпляры нечем — для этого и загружают
-       файл. А у «макета» единицы есть, и спросить можно про любые. */
+    /* Единицы есть у того, что кто-то ПРОИЗВОДИТ: они рождаются сдачей
+       выполненной задачи. У «макета» они есть, и спросить можно про
+       любые — по одной, по нескольким или ни про одну. */
     render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
       ? { ...n, trait: "t2" } : n))} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByText(/считаем ГИПОТЕТИЧЕСКУЮ единицу/))
+    expect(screen.getByText(/раздел показывает всю работу по этой цепочке/))
       .toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("единица №1: Макеты"));
@@ -426,9 +467,11 @@ describe("карта в форме", () => {
        одной строки. */
     render(<Panel nodes={PICKED} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    // Что задача взяла — и что из неё вышло, прямо под ней.
+    // Что задача взяла — и что из неё вышло, прямо под ней. Вышедшее
+    // названо дважды нарочно: у задачи и первым пунктом её шага.
     expect(screen.getByText(/взяла заявка №1/)).toBeInTheDocument();
-    expect(screen.getByText(/макет · Макет главной/)).toBeInTheDocument();
+    expect(screen.getAllByText(/макет · Макет главной/).length)
+      .toBeGreaterThan(0);
   });
 
   it("шаг, который не выполнится, виден в разделе с причиной", () => {
@@ -451,17 +494,17 @@ describe("карта в форме", () => {
       .toBeInTheDocument();
   });
 
-  it("чужой работы в разделе нет: не выбрано ничего — вещь гипотетическая", () => {
-    /* Прежде тут показывался весь поток по функциям цепочки, и отчёт про
-       один договор выглядел как отчёт про восемь чужих задач. Теперь
-       раздел отвечает ровно про то, о чём спросили. */
+  it("единицы не выбраны — видно всю работу цепочки, а не пустое место", () => {
+    /* Прежде здесь стояло «задач тут нет и не должно быть»: раздел без
+       выбранных единиц показывал один прогноз, а задачи, созданные вещи и
+       часы молча пропадали. Теперь прогноз остаётся прогнозом и подписан,
+       а работа показана вся, какая есть. */
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByText(/прослеживается вещь, которой ещё нет в системе/i))
-      .toBeInTheDocument();
-    // Чужая задача и чужая единица в раздел не попали.
-    expect(screen.queryByText("Макет главной")).toBeNull();
-    expect(screen.queryByText("Заявка от Иванова")).toBeNull();
+    expect(screen.queryByText(/Задач тут нет и не должно быть/)).toBeNull();
+    expect(screen.getAllByText("Макет главной").length).toBeGreaterThan(0);
+    // Прогноз при этом честно назван прогнозом на гипотетические единицы.
+    expect(screen.getByText(/прогноз гипотетический/)).toBeInTheDocument();
   });
 
   it("одинаково названные задачи различимы в отчёте — и без правки данных", () => {
@@ -525,7 +568,12 @@ describe("страница по ссылке", () => {
            созданное — под сделавшей его задачей. */
         plan: { workHours: [24, 24], calendarHours: [24, 24],
           steps: [{ func: "f1", name: "Собрать макет", runs: 1, factor: false,
-            workLo: 24, workHi: 24,
+            workLo: 24, workHi: 24, anchor: "shag-rs1-f1",
+            doneCount: 1, factHours: 4,
+            made: [{ no: 1, title: "Макет главной", trait: "макет", qty: 1,
+              at: "2026-02-01T10:00:00Z", by: "Иван",
+              file: { name: "макет.pdf", type: "application/pdf",
+                url: "/api/reports/x/y" } }],
             tasks: [{ title: "Сделать макет", by: "Иван", func: "f1",
               end: "2026-02-01T10:00:00Z", status: "done", hours: 4,
               made: [{ no: 1, title: "Макет главной", trait: "макет", qty: 1,
@@ -534,6 +582,10 @@ describe("страница по ссылке", () => {
                   url: "/api/reports/x/y" } }] }] }] },
         changes: [{ trait: "макет", lo: 1, hi: 1, fact: 1 }],
         before: [],
+        made: [{ no: 1, title: "Макет главной", trait: "макет", qty: 1,
+          at: "2026-02-01T10:00:00Z", by: "Иван",
+          file: { name: "макет.pdf", type: "application/pdf",
+            url: "/api/reports/x/y" } }],
         actual: { done: 1, total: 2, hours: 4 },
         sections: [{ name: "Главная", sections: [] }] } } };
 
@@ -543,19 +595,31 @@ describe("страница по ссылке", () => {
     expect(shareFromLocation("")).toBeNull();
   });
 
-  it("снаружи видно то же, что и внутри: оценка, шаги, созданное и факт", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200,
-      json: async () => SNAP })));
-    render(<ShareView token={"a".repeat(64)} />);
-    expect(await screen.findByText("Макет главной")).toBeInTheDocument();
-    // Номер тот же, что и внутри: заказчик и исполнитель зовут вещь одинаково.
-    expect(screen.getByText("№1")).toBeInTheDocument();
-    expect(screen.getByText(/с ресурса «заявка»/)).toBeInTheDocument();
-    expect(screen.getByText(/1. Собрать макет/)).toBeInTheDocument();
-    expect(screen.getByText(/принято работ: 1 из 2/)).toBeInTheDocument();
-    expect(screen.getByText("Главная")).toBeInTheDocument();
-    expect(screen.getByText(/📎 макет.pdf/)).toBeInTheDocument();
-  });
+  it("снаружи видно то же, что и внутри: созданное, оценка, шаги и факт",
+    async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200,
+        json: async () => SNAP })));
+      const { container } = render(<ShareView token={"a".repeat(64)} />);
+      expect((await screen.findAllByText("Макет главной")).length)
+        .toBeGreaterThan(0);
+      // Номер тот же, что и внутри: заказчик и исполнитель зовут вещь одинаково.
+      expect(screen.getAllByText("№1").length).toBeGreaterThan(0);
+      expect(screen.getByText(/с ресурса «заявка»/)).toBeInTheDocument();
+      // Те же три части и в том же порядке, что и на экране владельца.
+      // Вложенный раздел устроен так же — потому части и находятся дважды.
+      expect(screen.getAllByText("1. созданные ресурсы").length).toBe(2);
+      expect(screen.getAllByText("2. как изменятся ресурсы").length).toBe(2);
+      expect(screen.getAllByText("3. работа по шагам").length).toBe(2);
+      expect(screen.getByText(/1. Собрать макет/)).toBeInTheDocument();
+      // Прогноз и факт подписаны — иначе непонятно, где что.
+      expect(screen.getAllByText("прогноз по модели:").length).toBeGreaterThan(0);
+      expect(screen.getByText(/принято работ 1 из 2 · ушло 4 ч/))
+        .toBeInTheDocument();
+      // У шага свой якорь: ссылка снаружи ведёт в то же место, что и внутри.
+      expect(container.querySelector("#shag-rs1-f1")).toBeTruthy();
+      expect(screen.getByText("Главная")).toBeInTheDocument();
+      expect(screen.getAllByText(/скачать · макет.pdf/).length).toBeGreaterThan(0);
+    });
 
   it("отозванная ссылка говорит об этом, а не показывает пустоту", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404,
@@ -568,7 +632,7 @@ describe("страница по ссылке", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200,
       json: async () => SNAP })));
     const { container } = render(<ShareView token={"a".repeat(64)} />);
-    await screen.findByText("Макет главной");
+    await screen.findAllByText("Макет главной");
     expect(container.querySelectorAll("input, textarea, select")).toHaveLength(0);
   });
 });

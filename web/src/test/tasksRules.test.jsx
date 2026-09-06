@@ -31,6 +31,17 @@ function Board({ tasks: t0 }) {
     nameOf={(id) => id} />);
 }
 
+/* Результат работы прикладывается файлом по каждому выданному ресурсу.
+   Без сервера файл ложится инлайном — поэтому дожидаемся, а не считаем
+   запись мгновенной. */
+const attachResult = async (label, name = "результат.txt") => {
+  const input = screen.getByLabelText(label);
+  const f = new File(["x"], name, { type: "text/plain" });
+  Object.defineProperty(input, "files", { value: [f], configurable: true });
+  fireEvent.change(input);
+  await waitFor(() => expect(screen.getByText(new RegExp(name))).toBeTruthy());
+};
+
 /* Постановка — во вкладке «Проверка»: её делает не исполнитель. */
 function Setup({ task: t0, people = PEOPLE, canAssign = true }) {
   const [tasks, setTasks] = React.useState([t0]);
@@ -138,21 +149,69 @@ describe("«Готово» — только через приём отчёта",
 describe("сдача записывает факт выполнения", () => {
   const task = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }), ...over });
 
-  it("сдача — это часы и сколько чего взяли и выдали; после неё задача на проверке", () => {
+  it("сдача — это часы и сколько чего взяли и выдали; после неё задача на проверке",
+    async () => {
+      render(<Board tasks={[task({ status: "progress" })]} />);
+      fireEvent.click(screen.getByText("Задача A"));
+      fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+
+      // Поля предзаполнены планом — переписать одно число проще, чем набирать все.
+      const hours = screen.getByDisplayValue("2");
+      fireEvent.change(hours, { target: { value: "5" } });
+      fireEvent.blur(hours);
+      // Функция обещала выдать «заявки» — без самой заявки работа не сдана.
+      await attachResult("результат: заявки");
+      // Их две: одна в форме сдачи, другая на карточке в колонке.
+      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+
+      expect(screen.getByText(/5 ч/)).toBeInTheDocument();
+      expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
+    });
+
+  /* ─── результат — часть выполнения, а не приложение к нему ───
+
+     Функция выдаёт не число, а вещь: заявку, макет, договор. Пока её не
+     приложили, задача не выполнена — сколько бы часов на неё ни ушло.
+     Исключение одно и оно записано в самой функции: минимум в вилке равен
+     нулю, то есть выдать могло и ничего. */
+  it("без обязательного результата задача не сдаётся", async () => {
     render(<Board tasks={[task({ status: "progress" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 
-    // Поля предзаполнены планом — переписать одно число проще, чем набирать все.
-    const hours = screen.getByDisplayValue("2");
-    fireEvent.change(hours, { target: { value: "5" } });
-    fireEvent.blur(hours);
-    // Их две: одна в форме сдачи, другая на карточке в колонке.
+    expect(screen.getByText(/Задача не выполнена, пока не приложено/))
+      .toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    // Сдачи не появилось: числа записаны, а результата нет.
+    expect(screen.queryByText(/взято: спрос/)).toBeNull();
 
-    expect(screen.getByText(/5 ч/)).toBeInTheDocument();
+    await attachResult("результат: заявки");
+    expect(screen.queryByText(/Задача не выполнена, пока не приложено/)).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
   });
+
+  it("минимум ноль — сдать можно и без результата: выдать могло и ничего",
+    async () => {
+      const FREE = [{ ...FUNCS[0], id: "f9",
+        gives: [{ id: "p9", trait: "t2", lo: 0, hi: 1, to: "" }] }];
+      const Free = () => {
+        const [tasks, setTasks] = React.useState([
+          { ...newTask({ funcId: "f9", title: "Задача B" }), status: "progress" }]);
+        const [openId, setOpenId] = React.useState(null);
+        return (<TasksBoard funcs={FREE} entities={ENTITIES} traits={TRAITS}
+          tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
+          nameOf={(id) => id} />);
+      };
+      render(<Free />);
+      fireEvent.click(screen.getByText("Задача B"));
+      fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+
+      expect(screen.queryByText(/Задача не выполнена, пока не приложено/)).toBeNull();
+      expect(screen.getByText(/минимум по этому ресурсу — 0/)).toBeInTheDocument();
+      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+      expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
+    });
 
   it("выполнения считаются только по принятым задачам", () => {
     // Непринятая сдача — заявление исполнителя, а не измерение.

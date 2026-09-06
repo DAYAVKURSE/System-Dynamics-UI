@@ -235,12 +235,18 @@ function actualOf(model, chain, only) {
   const personName = (id) => people.find((p) => String(p.id) === String(id))?.name || "";
   const no = unitNumbers(model);
   /* Задачи родословной берутся как есть: единица — точка отсчёта, и
-     работа, которая её сделала, лежит до цепочки, а не в ней. */
-  /* Только работа по вещам этого блока. Прежде «иначе» отдавало наружу все
-     выполнения функций цепочки — то есть работу над ЧУЖИМИ вещами, о
-     которых заказчика никто не спрашивал. Вещь не выбрана — она
-     гипотетическая, работы по ней нет, и список пуст по существу. */
-  const mine = tasks.filter((t) => only.has(t.id));
+     работа, которая её сделала, лежит до цепочки, а не в ней.
+
+     Выбраны конкретные вещи — только работа по ним: заказчик спросил про
+     своё задание, и чужие выполнения тех же функций он прочитал бы как
+     работу по нему. Не выбрано ничего — вопрос другой, «что вообще
+     делается по этой цепочке», и отвечать на него пустотой нельзя. Правило
+     то же, что в приложении (`reportOf` в `web/src/lib/reportDoc.js`):
+     снимок обязан показывать ровно то же, что и экран. */
+  const ids = new Set((chain.steps || []).map((f) => f.id));
+  const mine = only && only.size
+    ? tasks.filter((t) => only.has(t.id))
+    : tasks.filter((t) => ids.has(t.funcId));
   const done = mine.filter((t) => t.status === "done");
   const delta = {};
   const made = [];
@@ -259,10 +265,14 @@ function actualOf(model, chain, only) {
     Object.entries(sb.gives || {}).forEach(([id, v]) => {
       if (!(num(v) > 0)) return;
       delta[id] = (delta[id] || 0) + num(v);
+      /* Файл ИМЕННО ЭТОЙ вещи: исполнитель прикладывает каждый выданный
+         ресурс отдельно. Старый общий файл отчёта остаётся запасным — у
+         сдач, сделанных до этого, других файлов нет. */
+      const own = (sb.files || {})[id] || sb.file;
       made.push({ task: t.id, no: no[`${sb.id}~${id}`] ?? null, title: str(t.title),
         trait: traitName(id), qty: num(v), at: str(sb.at), by: personName(t.assignee),
-        file: sb.file && sb.file.url
-          ? { name: str(sb.file.name), type: str(sb.file.type), url: str(sb.file.url) }
+        file: own && own.url
+          ? { name: str(own.name), type: str(own.type), url: str(own.url) }
           : null });
     });
   });
@@ -343,10 +353,21 @@ export function snapshotOf(model = {}, nodeId) {
           Math.max(lo.calendarHours, hi.calendarHours)],
         steps: hi.steps.map((st) => {
           const low = lo.steps.find((x) => x.func === st.func);
+          const mine = act.tasks.filter((t) => t.func === st.func);
           return { ...st,
+            /* Якорь шага — тот же, что и в приложении (`stepAnchor` в
+               `web/src/lib/reports.js`): по ссылке снаружи человек должен
+               попадать в то же место, что и владелец внутри. */
+            anchor: `shag-${str(n.id)}-${str(st.func)}`,
             workLo: Math.min(num(low?.workHours), num(st.workHours)),
             workHi: Math.max(num(low?.workHours), num(st.workHours)),
-            tasks: act.tasks.filter((t) => t.func === st.func) };
+            tasks: mine,
+            /* Созданное лежит у сделавшего его шага: шаг — это раздел, а в
+               разделе созданные ресурсы идут первыми. */
+            made: mine.flatMap((t) => t.made || []),
+            doneCount: mine.filter((t) => t.hours != null).length,
+            factHours: Math.round(mine
+              .reduce((a, t) => a + num(t.hours), 0) * 10) / 10 };
         }),
       },
       /* Работа, в которой прослеживаемые вещи родились, лежит ДО цепочки:

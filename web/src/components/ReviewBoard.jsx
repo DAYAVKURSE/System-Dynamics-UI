@@ -86,6 +86,15 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
                     Проверяющий должен видеть их до того, как примет. */}
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
                   взято: {qty(sb.takes)} · выдано: {qty(sb.gives)}</div>
+                {/* Сами результаты — до того, как их примут: принимают
+                    работу по тому, что вышло, а не по числу «1». */}
+                {!!Object.keys(sb.files || {}).length && (
+                  <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+                    {Object.entries(sb.files).map(([id, f]) => (
+                      <a key={id} href={reportSrc(f)} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 10.5, color: ACC }}>
+                        📎 {traitName(id)}: {f.name}</a>))}
+                  </div>)}
                 {sb.text && <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
                   {sb.text}</div>}
                 {sb.file && (/^image\//.test(sb.file.type || "")
