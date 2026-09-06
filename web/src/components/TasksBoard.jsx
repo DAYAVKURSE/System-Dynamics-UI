@@ -706,10 +706,11 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
       return {...p,[port.trait]:was.includes(id)
         ?was.filter(x=>x!==id):[...was,id]};
     });
-    /* Выход обязателен, если нижняя граница вилки больше нуля: функция
-       обещала выдать хотя бы столько. Ноль внизу — прямое разрешение не
-       выдать ничего, и требовать вещь там не за что. */
-    const must=kind==="gives"&&(Number(port.lo)||0)>0;
+    /* Обязателен ли выход, решает одно место на всё приложение
+       (`requiredGives`): второе такое же правило разошлось бы с первым, и
+       кнопка запрещала бы одно, а подпись обещала другое. */
+    const must=kind==="gives"
+      &&requiredGives(func).some(x=>x.trait===port.trait);
     const got=kind==="gives"?giveFiles[port.trait]:null;
     return (
       <div style={{marginBottom:6}}>
