@@ -153,6 +153,37 @@ describe("цель", () => {
     expect(screen.getByLabelText("день пн")).not.toBeDisabled();
   });
 
+  it("раздел про время и называется временем, а затрат в нём нет", () => {
+    /* «Какой ценой» спрашивал две разные вещи сразу: сколько времени
+       человек готов тратить и во сколько других ресурсов это обойдётся.
+       Второе он называл наугад, а модель тут же считала настоящее. */
+    tab("Схема"); tab("Прогноз");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+    expect(screen.getByText("время на достижение")).toBeInTheDocument();
+    expect(screen.queryByText("какой ценой")).toBeNull();
+    expect(screen.queryByLabelText("добавить затрату ресурса")).toBeNull();
+    expect(screen.queryByText(/затрата другого ресурса/)).toBeNull();
+  });
+
+  it("у числа времени есть единица, и она идёт в расчёт прогноза", () => {
+    /* «2 в день» не читается вовсе: два часа или два дня — разные вещи, а
+       поле молча считало часы. */
+    tab("Схема"); tab("Прогноз");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
+    const unitField = screen.getByLabelText("единица времени");
+    expect(unitField).toHaveValue("ч");
+
+    // Пересчёт в месяц сказан прямо — с этим числом прогноз и сравнивает.
+    const monthly = () => screen.getByText(/в месяц — с этим числом и сравнивается/);
+    const was = monthly().textContent;
+    fireEvent.change(unitField, { target: { value: "дн" } });
+    expect(monthly().textContent).not.toBe(was);
+
+    // И само сравнение в прогнозе меняется вместе с единицей.
+    fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
+    expect(screen.getByText(/времени на это есть/)).toBeInTheDocument();
+  });
+
   it("дни стоят под самим временем, а не отдельным блоком выше", () => {
     /* Прежнее название «по каким дням идёт работа» обещало расписание
        задач. На деле дни — множитель бюджета времени, и стоять им у

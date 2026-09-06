@@ -99,6 +99,34 @@ describe("бюджет времени", () => {
   it("не задан — null: «сколько угодно» и «нисколько» не одно и то же", () => {
     expect(budgetHours(G({ hours: 0 }))).toBeNull();
   });
+
+  /* ─── у числа есть единица ───
+
+     «2 в день» не читается вовсе: два часа или два дня — разные вещи, а
+     поле молча считало часы. Мера та же, что у сроков функций: день это 24
+     часа, неделя — 168. Двух разных «дней» в одной модели быть не должно. */
+  it("единица у числа считается: два дня в неделю — это 48 часов, а не два", () => {
+    const hours = budgetHours(G({ hours: 2, hoursUnit: "ч", hoursPer: "week" }));
+    const days = budgetHours(G({ hours: 2, hoursUnit: "дн", hoursPer: "week" }));
+    expect(days).toBeCloseTo(hours * 24);
+  });
+
+  it("единицы нет — считаем часы, как и прежние цели", () => {
+    expect(budgetHours(G({ hours: 3, hoursPer: "week" })))
+      .toBeCloseTo(budgetHours(G({ hours: 3, hoursUnit: "ч", hoursPer: "week" })));
+  });
+
+  it("бюджет идёт в прогноз: с единицей «дн» цель влезает, с «ч» — нет", () => {
+    /* Ради этого сравнения время и спрашивают. Единица меняет его в 24
+       раза — значит и ответ «влезает ли» обязана менять. */
+    const tight = planGoal(model, G({ qty: 1, rate: "week",
+      hours: 1, hoursUnit: "ч", hoursPer: "week" }), {});
+    const roomy = planGoal(model, G({ qty: 1, rate: "week",
+      hours: 1, hoursUnit: "нед", hoursPer: "week" }), {});
+    expect(tight.fits).toBe(false);
+    expect(roomy.fits).toBe(true);
+    expect(roomy.budget).toBeCloseTo(tight.budget * 168);
+  });
 });
 
 describe("что цель означает для модели", () => {
@@ -153,15 +181,18 @@ describe("что цель означает для модели", () => {
     expect(planGoal(held, G({ qty: 1, rate: "week" }), {}).work.hi).toBeGreaterThan(0);
   });
 
-  it("цена по ресурсам: названное человеком рядом с посчитанным", () => {
-    // Человек думал, что уйдёт 1 «спрос», а по модели уходит 2.
+  it("цена по ресурсам считается, а не называется человеком", () => {
+    /* Прежде цель просила назвать «затраты другого ресурса», и модель тут
+       же считала настоящие: рядом стояли два ответа на один вопрос, причём
+       один — догадка. Спрашивать перестали; остался посчитанный. */
     const p = planGoal(model, G({ qty: 1, rate: "once",
       costs: [{ id: "c1", trait: "t1", qty: 1 }] }), {});
-    expect(p.costs[0]).toMatchObject({ name: "спрос", qty: 1, real: 2 });
+    expect(p.costs).toEqual([]);
+    expect(p.extra.find((x) => x.name === "спрос")).toMatchObject({ real: 2 });
   });
 
-  it("и то, чего человек не назвал вовсе", () => {
-    const p = planGoal(model, G({ qty: 1, rate: "once", costs: [] }), {});
+  it("и считается по всем ресурсам, а не по не названным человеком", () => {
+    const p = planGoal(model, G({ qty: 1, rate: "once" }), {});
     expect(p.extra.map((x) => x.name)).toContain("спрос");
   });
 
@@ -181,8 +212,13 @@ describe("чужая запись достраивается", () => {
     expect(g.days).toEqual([1]);
   });
 
-  it("отсутствующий список целей — это пусто, а не падение", () => {
-    expect(normalizeGoal({}).costs).toEqual([]);
+  it("единица времени у прежних целей — часы: их числа не меняются", () => {
+    /* Поле единицы завели позже, и старые записи считали часы. «ч» и есть
+       их значение по умолчанию — иначе прежний бюджет молча вырос бы в
+       сутки. */
+    expect(normalizeGoal({}).hoursUnit).toBe("ч");
+    expect(normalizeGoal({ hoursUnit: "выдумка" }).hoursUnit).toBe("ч");
+    expect(normalizeGoal({ hoursUnit: "дн" }).hoursUnit).toBe("дн");
   });
 });
 
