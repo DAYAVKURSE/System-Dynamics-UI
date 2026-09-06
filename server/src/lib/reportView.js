@@ -78,6 +78,10 @@ function chainOf(model = {}, from, upto = "") {
     ok: reached };
 }
 
+/** Имя ресурса словами: наружу уходят названия, а не идентификаторы. */
+const traitLabel = (model, id) =>
+  (model.traits || []).find((t) => t.id === id)?.l || "";
+
 /** Предварительная оценка одной стороны вилки: шаги, время, изменения. */
 function estimate(model, chain, side, qty) {
   const inChain = new Set(chain.traits);
@@ -93,7 +97,26 @@ function estimate(model, chain, side, qty) {
     const worst = kind === "takes" ? hi : lo;
     return side === "lo" ? worst : (kind === "takes" ? lo : hi);
   };
-  chain.steps.forEach((f) => {
+  /* Порядок счёта — как в приложении (`estimate` в `web/src/lib/chain.js`):
+     следующей считается та функция, все входы которой ИЗ ЦЕПОЧКИ уже кто-то
+     выдал. Цепочка кладёт функцию в список по первому достигнутому входу, а
+     входов у неё бывает несколько из разной глубины — считать в том же
+     порядке значило бы спросить о договоре раньше, чем его сделали. */
+  const made = new Set([chain.traits[0]]);
+  const rest = [...chain.steps];
+  const order = [];
+  for (let guard = rest.length; rest.length && guard >= 0; guard -= 1) {
+    const i = rest.findIndex((f) => (f.takes || []).every((p) => !p.trait
+      || !inChain.has(p.trait) || made.has(p.trait)));
+    if (i < 0) break;
+    const [f] = rest.splice(i, 1);
+    order.push(f);
+    (f.gives || []).forEach((g) => { if (g.trait) made.add(g.trait); });
+  }
+  order.push(...rest);
+  const spentBy = {};
+
+  order.forEach((f) => {
     const takes = (f.takes || []).filter((p) => p.trait);
     let n = Infinity;
     takes.forEach((p) => {
@@ -102,7 +125,19 @@ function estimate(model, chain, side, qty) {
       n = Math.min(n, (flow[p.trait] || 0) / q);
     });
     n = Math.max(0, Math.ceil((n === Infinity ? (num(qty) || 1) : n) - 1e-9));
-    if (!(n > 0)) return;
+    /* Шаг, который не выполнится, из снимка не исчезает: вместе с ним
+       пропадало бы и всё, что идёт за ним, и заказчик видел бы обрубок
+       цепочки без единого слова о причине. */
+    if (!(n > 0)) {
+      steps.push({ func: f.id, name: str(f.name), runs: 0,
+        factor: f.kind === "factor", par: 1, startHours: 0, calendarHours: 0,
+        workHours: 0,
+        short: takes.filter((p) => inChain.has(p.trait)
+          && per(p, "takes") > (flow[p.trait] || 0))
+          .map((p) => ({ trait: traitLabel(model, p.trait),
+            spentBy: spentBy[p.trait] || "" })) });
+      return;
+    }
     const start = takes.reduce((m, p) => (inChain.has(p.trait)
       ? Math.max(m, ready[p.trait] ?? 0) : m), 0);
     const h = hours(f);
@@ -120,6 +155,7 @@ function estimate(model, chain, side, qty) {
       const all = per(p, "takes") * n;
       flow[p.trait] = Math.max(0, (flow[p.trait] || 0) - all);
       delta[p.trait] = (delta[p.trait] || 0) - all;
+      spentBy[p.trait] = str(f.name);
     });
     (f.gives || []).forEach((g) => {
       if (!g.trait) return;
@@ -129,7 +165,7 @@ function estimate(model, chain, side, qty) {
       ready[g.trait] = Math.max(ready[g.trait] ?? 0, start + calendar);
     });
     steps.push({ func: f.id, name: str(f.name), runs: n, factor: f.kind === "factor",
-      par, startHours: start, calendarHours: calendar,
+      par, short: [], startHours: start, calendarHours: calendar,
       // Одно выполнение занимает 1/par времени воркера: он ведёт столько
       // таких дел разом. Правило то же, что в приложении.
       workHours: f.kind === "factor" ? 0 : (one * n) / par });

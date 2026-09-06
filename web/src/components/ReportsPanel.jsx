@@ -187,9 +187,15 @@ function Timeline({ steps = [], before = [] }) {
   };
   const rows = [];
   steps.forEach((s) => {
+    /* Шаг, который не выполнится, полосы не получает: нарисовать ему срок
+       значило бы пообещать работу, которая не начнётся. */
+    const stuck = !!s.short?.length;
     rows.push({ key: s.func, name: s.name, factor: s.factor, kind: "step",
-      from: s.startHours, to: s.startHours + Math.max(s.calendarHours, 0.01),
-      note: `${nm(s.runs)} × ${timeText(s.calendarHours / Math.max(s.runs, 1))}` });
+      stuck,
+      from: stuck ? null : s.startHours,
+      to: stuck ? null : s.startHours + Math.max(s.calendarHours, 0.01),
+      note: stuck ? "не выполнится"
+        : `${nm(s.runs)} × ${timeText(s.calendarHours / Math.max(s.runs, 1))}` });
     s.tasks.forEach((t) => {
       const a = hrs(t.start);
       const b = hrs(t.end);
@@ -228,6 +234,10 @@ function Timeline({ steps = [], before = [] }) {
             {r.factor && <span style={{ color: ACC }}> · фактор</span>}
             {r.note ? <span style={{ color: C.muted }}> · {r.note}</span> : ""}
           </div>
+          {/* Пустой жёлоб у шага, которого на шкале нет, читался бы как
+              полоса нулевой длины — то есть как работа, которая всё-таки
+              случится мгновенно. Поэтому жёлоба у него нет вовсе. */}
+          {!r.stuck && (
           <div style={{ position: "relative", height: r.kind === "step" ? 9 : 6,
             marginTop: 2, marginLeft: r.kind === "step" ? 0 : 12,
             background: C.ink, borderRadius: 3, overflow: "hidden" }}>
@@ -243,10 +253,13 @@ function Timeline({ steps = [], before = [] }) {
                     background: r.kind === "step"
                       ? (r.factor ? ACC : WARN)
                       : (r.done ? OK : NEU) }} />)}
-          </div>
+          </div>)}
           {r.kind === "task" && (r.from == null || r.to == null) && (
             <div style={{ fontSize: 10, color: C.muted, paddingLeft: 12 }}>
               срок не поставлен — на шкале её нет</div>)}
+          {r.stuck && (
+            <div style={{ fontSize: 10, color: WARN }}>
+              на шкале его нет: он не начнётся</div>)}
         </div>))}
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
         marginTop: 4, fontSize: 10, color: C.muted }}>
@@ -347,14 +360,26 @@ function Tasks({ steps = [], before = [], plan, actual, factors = [],
                 {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор</span>}
               </span>
             </div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginLeft: 26,
-              lineHeight: 1.5 }}>
-              выполнений {nm(s.runs)} · начнётся через {timeText(s.startHours)} ·
-              {" "}займёт {timeText(s.calendarHours)}
-              {s.factor ? "" : ` · работы ${hoursRange(s.workLo, s.workHi)}`}
-              {portLine(s.takes) ? ` · берёт ${portLine(s.takes)}` : ""}
-              {portLine(s.gives) ? ` · даёт ${portLine(s.gives)}` : ""}
-            </div>
+            {/* Шаг, который не выполнится, остаётся в списке — но обещать по
+                нему сроки нельзя, поэтому вместо чисел названа причина.
+                Прежде такой шаг молча пропадал вместе со всем, что идёт за
+                ним, и цепочка из четырёх звеньев выглядела одной задачей. */}
+            {s.short?.length ? (
+              <div style={{ fontSize: 10.5, color: WARN, marginLeft: 26,
+                lineHeight: 1.5 }}>
+                не выполнится: не хватает{" "}
+                {s.short.map((x) => `${traitName(x.trait)}${x.spentBy
+                  ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
+              </div>
+            ) : (
+              <div style={{ fontSize: 10.5, color: C.muted, marginLeft: 26,
+                lineHeight: 1.5 }}>
+                выполнений {nm(s.runs)} · начнётся через {timeText(s.startHours)} ·
+                {" "}займёт {timeText(s.calendarHours)}
+                {s.factor ? "" : ` · работы ${hoursRange(s.workLo, s.workHi)}`}
+                {portLine(s.takes) ? ` · берёт ${portLine(s.takes)}` : ""}
+                {portLine(s.gives) ? ` · даёт ${portLine(s.gives)}` : ""}
+              </div>)}
             <div style={{ marginLeft: 26 }}>
               {s.factor
                 ? (<div style={{ fontSize: 10.5, color: C.muted, marginTop: 3,

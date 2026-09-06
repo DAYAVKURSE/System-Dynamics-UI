@@ -262,8 +262,12 @@ const timelineHtml = (steps = [], before = []) => {
   };
   const rows = [];
   steps.forEach((s) => {
-    rows.push({ name: s.name, kind: "step", factor: s.factor,
-      from: num(s.startHours), to: num(s.startHours) + Math.max(num(s.calendarHours), 0.01) });
+    // Шаг, который не выполнится, полосы не получает: обещать срок работе,
+    // которая не начнётся, нельзя.
+    const stuck = (s.short || []).length > 0;
+    rows.push({ name: s.name, kind: "step", factor: s.factor, stuck,
+      from: stuck ? null : num(s.startHours),
+      to: stuck ? null : num(s.startHours) + Math.max(num(s.calendarHours), 0.01) });
     (s.tasks || []).forEach((t) => {
       rows.push({ name: t.title, kind: "task", done: t.hours != null,
         from: hrs(t.start), to: hrs(t.end) });
@@ -284,13 +288,19 @@ const timelineHtml = (steps = [], before = []) => {
       const label = `<div class="${r.kind === "task" ? "sub m" : "m"}">${
         r.kind === "task" ? "↳ " : ""}${esc(r.name)}${r.factor ? " · фактор" : ""}</div>`;
       if (r.from == null || r.to == null) {
-        return `${label}<div class="${r.kind === "task" ? "sub" : ""} m">срок не поставлен — на шкале её нет</div>`;
+        return `${label}<div class="${r.kind === "task" ? "sub" : ""} m">${r.stuck
+          ? "на шкале его нет: он не начнётся"
+          : "срок не поставлен — на шкале её нет"}</div>`;
       }
       const cls = r.kind === "step" ? "p" : (r.done ? "f" : "n");
       return `${label}<div class="t${r.kind === "task" ? " sub" : ""}"><i class="${cls}" style="left:${
         at(r.from)}%;width:${Math.max(at(r.to) - at(r.from), 0.6)}%"></i></div>`;
     }).join("");
 };
+
+/* Имя ресурса без экранирования — оно уходит внутрь строки, которую
+   экранируют целиком. */
+const tnRaw = (id, traitName) => (traitName ? traitName(id) : id);
 
 /* Вилка часов: меньшее слева. «Щедрая» сторона оценки считается по быстрой
    работе, поэтому часов в ней меньше — без сортировки строка выходила задом
@@ -379,11 +389,15 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   ${timelineHtml(d.steps, d.before)}
   ${d.steps.length ? d.steps.map((s2, i2) => `
     <p class="m"><b>${i2 + 1}. ${esc(s2.name)}</b>${s2.factor ? " · фактор" : ""} —
-      выполнений ${nm(s2.runs)} · начнётся через ${esc(timeText(s2.startHours))} ·
+      ${(s2.short || []).length
+        ? `<span class="w">не выполнится: не хватает ${esc((s2.short || [])
+          .map((x) => `${tnRaw(x.trait, traitName)}${x.spentBy
+            ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", "))}</span>`
+        : `выполнений ${nm(s2.runs)} · начнётся через ${esc(timeText(s2.startHours))} ·
       займёт ${esc(timeText(s2.calendarHours))}${s2.factor ? ""
         : ` · работы ${esc(hoursRange(s2.workLo, s2.workHi))}`}${
       portText(s2.takes, tn) ? ` · берёт ${portText(s2.takes, tn)}` : ""}${
-      portText(s2.gives, tn) ? ` · даёт ${portText(s2.gives, tn)}` : ""}</p>
+      portText(s2.gives, tn) ? ` · даёт ${portText(s2.gives, tn)}` : ""}`}</p>
     ${s2.factor
       ? '<p class="m">Задач тут не бывает: фактор случается сам, и спрашивать за него не с кого.</p>'
       : s2.tasks.length ? `<table>

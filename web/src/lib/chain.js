@@ -104,10 +104,40 @@ export function estimate(model = {}, chain = {},
   const delta = {};
   const need = {};
   const startAt = {};             // когда функция может начаться, в часах
+  /* Кто израсходовал ресурс. Нужно ровно для одного ответа: «не хватает
+     контактов лида» без продолжения «их израсходовал созвон» оставляет
+     человека гадать, куда они делись. */
+  const spentBy = {};
   const ready = { [chain.from]: 0 };   // когда ресурс появится
   const steps = [];
 
-  (chain.steps || []).forEach((f) => {
+  /* ─── порядок счёта: сперва то, что даёт, потом то, что берёт ───
+
+     Цепочка собирается слоями и кладёт функцию в список, как только достигнут
+     ХОТЬ ОДИН её вход. Но у функции входов бывает несколько, из разной
+     глубины: «передать заказ разработчикам» берёт и договор, и контакты
+     лида. Считать её в том порядке, в каком она попала в список, значит
+     спросить о договоре раньше, чем его кто-то сделал, — и получить ноль
+     выполнений.
+
+     Поэтому здесь очередь строится заново: следующей считается та функция,
+     все входы которой ИЗ ЦЕПОЧКИ уже кто-то выдал. Кольцо (ни один вход не
+     готов) очередь не подвешивает — остаток считается как есть, и то, чего
+     не хватило, будет названо вслух ниже. */
+  const ready0 = new Set([chain.from]);
+  const rest = [...(chain.steps || [])];
+  const order = [];
+  for (let guard = rest.length; rest.length && guard >= 0; guard -= 1) {
+    const i = rest.findIndex((f) => (f.takes || []).every((p) => !p.trait
+      || !inChain.has(p.trait) || ready0.has(p.trait)));
+    if (i < 0) break;
+    const [f] = rest.splice(i, 1);
+    order.push(f);
+    (f.gives || []).forEach((g) => { if (g.trait) ready0.add(g.trait); });
+  }
+  order.push(...rest);
+
+  order.forEach((f) => {
     const rs = runs(f);
     const takes = (f.takes || []).filter((p) => p.trait);
     /* Сколько раз функция сработает: столько, на сколько хватает самого
@@ -122,7 +152,42 @@ export function estimate(model = {}, chain = {},
     });
     n = n === Infinity ? num(qty) : n;
     n = Math.max(0, Math.ceil(n - 1e-9));
-    if (!(n > 0)) return;
+
+    /* ─── шаг, который не выполнится, не исчезает ───
+
+       Раньше такой шаг просто пропускался, и вместе с ним пропадало всё, что
+       шло после него: отчёт про цепочку из четырёх звеньев показывал одну
+       задачу и молчал о причине. Молчание тут хуже всего — человек видит
+       обрубок и не знает, у него модель такая или программа врёт.
+
+       Поэтому шаг остаётся в списке с нулём выполнений, и рядом названо, чего
+       не хватило. Ресурсов он при этом не трогает: чего не было, то не
+       израсходовано, и выдать он тоже ничего не мог. */
+    if (!(n > 0)) {
+      const short = takes
+        .filter((p) => inChain.has(p.trait)
+          && portQty(p, { kind: "takes", side, runs: rs }) > (flow[p.trait] || 0))
+        .map((p) => p.trait);
+      steps.push({
+        func: f.id,
+        name: f.name || "без названия",
+        e: f.e,
+        factor: isFactor(f),
+        runs: 0,
+        par: parOf(f),
+        startHours: takes.reduce((m, p) => (inChain.has(p.trait)
+          ? Math.max(m, ready[p.trait] ?? 0) : m), 0),
+        calendarHours: 0,
+        workHours: 0,
+        takes: [],
+        gives: [],
+        // Чего не хватило, чтобы шаг случился. Пусто не бывает: без нехватки
+        // шаг бы выполнился.
+        short: (short.length ? short : takes.filter((p) => inChain.has(p.trait))
+          .map((p) => p.trait)).map((id) => ({ trait: id, spentBy: spentBy[id] || "" })),
+      });
+      return;
+    }
 
     // Начинается не раньше, чем созреют её входы из цепочки.
     const start = takes.reduce((m, p) => (inChain.has(p.trait)
@@ -146,6 +211,7 @@ export function estimate(model = {}, chain = {},
       if (portSpends(p)) {
         flow[p.trait] = Math.max(0, (flow[p.trait] || 0) - all);
         delta[p.trait] = (delta[p.trait] || 0) - all;
+        spentBy[p.trait] = f.name || "без названия";
       }
     });
 
@@ -167,6 +233,7 @@ export function estimate(model = {}, chain = {},
       factor: isFactor(f),
       runs: n,
       par: parOf(f),
+      short: [],
       startHours: start,
       calendarHours: calendar,
       // Часы фактора не человеко-часы: он происходит сам, и ничьё время

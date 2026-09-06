@@ -133,10 +133,20 @@ function Block({ block, depth = 0 }) {
           padding: "6px 0" }}>
           <div style={{ fontSize: 12 }}>
             {i + 1}. {s2.name}{s2.factor ? " · фактор" : ""}</div>
-          <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-            выполнений {nm(s2.runs)}{s2.factor ? ""
-              : ` · работы ${nm(s2.workLo)}–${nm(s2.workHi)} ч`}
-          </div>
+          {/* Шаг, который не выполнится, остаётся в снимке — но со словами
+              вместо сроков: обещать заказчику работу, которая не начнётся,
+              нельзя, а молчать о ней ещё хуже. */}
+          {(s2.short || []).length ? (
+            <div style={{ fontSize: 10.5, color: WARN, lineHeight: 1.5 }}>
+              не выполнится: не хватает{" "}
+              {s2.short.map((x) => `${x.trait}${x.spentBy
+                ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
+            </div>
+          ) : (
+            <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+              выполнений {nm(s2.runs)}{s2.factor ? ""
+                : ` · работы ${nm(s2.workLo)}–${nm(s2.workHi)} ч`}
+            </div>)}
           {s2.factor
             ? (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
                 Задач тут не бывает: фактор случается сам.</div>)
