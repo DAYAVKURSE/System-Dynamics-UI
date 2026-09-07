@@ -124,6 +124,34 @@ export function formatWarn(minutes) {
   return `${minutes} ${plural(minutes, "минуту", "минуты", "минут")}`;
 }
 
+/* ─────── две кнопки под уведомлением ───────
+
+   Уведомление говорило «Начинается: …» и на этом заканчивалось — а человек
+   в этот момент решает ровно одно: начинает он сейчас или нет. Без кнопок
+   решение оставалось в голове: доска показывала задачу лежащей в бэклоге и
+   тогда, когда за неё уже взялись, и тогда, когда её отложили, — по
+   доске эти два случая были неразличимы.
+
+   Кнопки ровно две, и обе про работу, а не про доску: «Начать» переводит
+   задачу в работу, «Отложить» оставляет её в бэклоге, но помечает
+   отложенной. Третьей — «удалить», «перенести» — здесь нет: срок и
+   содержимое задачи меняет постановщик, а не тот, кого позвали.
+
+   Предупреждение «через час» кнопок НЕ получает: начинать раньше времени
+   нечего, и «отложить» то, что ещё не наступило, тоже нечего. */
+export const TASK_START = "task:start:";
+export const TASK_DEFER = "task:defer:";
+
+export const taskButtons = (taskId) => ({
+  inline_keyboard: [[
+    { text: "Начать", callback_data: TASK_START + taskId },
+    { text: "Отложить", callback_data: TASK_DEFER + taskId },
+  ]],
+});
+
+/** Клавиатура уведомления — только у самого начала работы. */
+export const keyboardFor = (n) => (n.kind === "start" ? taskButtons(n.taskId) : null);
+
 // Обычное текстовое сообщение — без разметки, чтобы произвольное название
 // задачи не могло сломать парсер Telegram и не требовало экранирования.
 export function formatMessage(n) {
@@ -134,6 +162,13 @@ export function formatMessage(n) {
   const lines = [head];
   if (time) lines.push(`Начало: ${time}`);
   if (n.body) lines.push("", n.body);
+  /* Сказано, что делают кнопки: «Отложить» не откладывает срок и не
+     переносит задачу — она остаётся в бэклоге, но уже с отметкой, что за
+     неё не взялись. Молчаливая кнопка обещала бы перенос. */
+  if (n.kind === "start") {
+    lines.push("", "«Начать» — задача уйдёт в работу."
+      + " «Отложить» — останется в бэклоге как отложенная.");
+  }
   return lines.join("\n");
 }
 
@@ -152,7 +187,7 @@ export async function runTick({ store, send, now = Date.now(), log = () => {} })
 
     for (const n of due) {
       try {
-        await send(chatId, formatMessage(n));
+        await send(chatId, formatMessage(n), keyboardFor(n));
         await store.markSent(userId, n.key, now);
         sentCount++;
       } catch (e) {

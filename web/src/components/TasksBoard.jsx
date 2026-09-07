@@ -62,16 +62,45 @@ import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js
    закрывал бы себя сам. */
 export const STATUSES=[
   {id:"wait",name:"Ожидает постановки",color:NEU},
-  {id:"backlog",name:"Бэклог",color:NEU},
+  {id:"backlog",name:"Ожидает",color:NEU},
+  {id:"deferred",name:"Отложено",color:WARN},
   {id:"deadline",name:"Дедлайн",color:BAD},
   {id:"progress",name:"В работе",color:ACC},
   {id:"review",name:"Проверка",color:WARN},
   {id:"done",name:"Готово",color:OK},
 ];
+export const statusName=(id)=>STATUSES.find(s=>s.id===id)?.name||id;
+/* В какой КОЛОНКЕ лежит задача с таким статусом. Колонка и статус — не
+   одно и то же: в «Бэклоге» два состояния, и говорить «она в колонке
+   „Ожидает“» значило бы назвать колонку, которой на доске нет. */
+export const columnName=(id)=>
+  BOARD.find(c=>c.states.includes(id))?.name||statusName(id);
+
+/* ─────── два состояния бэклога ───────
+
+   Бэклог отвечает на вопрос «что лежит и ждёт», но лежат там задачи по
+   двум разным причинам, и путать их нельзя:
+
+   · **ожидает** — время ещё не пришло, спрашивать не с кого;
+   · **отложено** — время пришло, человека позвали, а работа не началась.
+
+   Второе — это не «ещё не дошли руки», а решение: либо человек нажал
+   «Отложить» в уведомлении, либо промолчал, когда его позвали. Одним
+   словом «бэклог» на обоих написано, что задача просто лежит, — и
+   отложенная терялась среди тех, чьё время ещё не наступило.
+
+   Колонка при этом ОДНА: перекладывать отложенное в отдельное место
+   значило бы завести полку «потом», а его никто не откладывал навсегда. */
+export const BACKLOG_STATES=["backlog","deferred"];
 
 /* Колонки доски — всё, кроме ожидания постановки: непоставленная задача
-   ещё ничья, и лежать ей на доске незачем. */
-export const BOARD=STATUSES.filter(s=>s.id!=="wait");
+   ещё ничья, и лежать ей на доске незачем. Бэклог собирает оба своих
+   состояния в одну колонку, а карточка называет своё словом. */
+export const BOARD=[
+  {id:"backlog",name:"Бэклог",color:NEU,states:BACKLOG_STATES},
+  ...STATUSES.filter(s=>!["wait",...BACKLOG_STATES].includes(s.id))
+    .map(s=>({...s,states:[s.id]})),
+];
 
 // За сколько минут до начала предупредить. null — не предупреждать.
 export const WARNS=[
@@ -119,7 +148,11 @@ export function newTask({funcId=null,title="Новое выполнение",bod
   // нарочно: просроченная задача показывается в «Дедлайне», и без этого
   // признака было бы не сказать, лежит она там нетронутой или её уже
   // делают.
+  // deferredAt — когда работу отложили. Отдельно от статуса нарочно:
+  // просроченная задача показывается в «Дедлайне», и без этой отметки было
+  // бы не сказать, отложили её или просто до неё не дошли.
   return {id:uid("tk"),funcId,title,body,status:"wait",taken:false,
+    deferredAt:null,
     setter,assignee,reviewer,start,end,endBy:"auto",warn:10,
     submissions:[],reviews:[],comments:[]};
 }
@@ -262,11 +295,24 @@ export const overdue=(task,now=Date.now())=>{
  * что с ней случилось, — срок прошёл, а работа не сдана. Поэтому она туда
  * попадает сама и сама же оттуда уходит, когда срок передвинут.
  */
+/**
+ * Позвали ли уже за эту задачу.
+ *
+ * Момент начала — это и есть тот момент, когда человеку приходит
+ * уведомление. Прошёл он, а работа не началась — задача не «просто лежит»,
+ * она отложена: либо человек нажал «Отложить», либо промолчал.
+ */
+export const called=(task,now=Date.now())=>{
+  if(task?.deferredAt) return true;
+  const at=task?.start?new Date(task.start).getTime():NaN;
+  return Number.isFinite(at)&&at<=now;
+};
+
 export function autoStatus(task,{funcs=[],traits=[],tasks=[],now=Date.now()}={}){
   if(!task) return null;
   // Сдача принята тем же, кто сдавал: принимать не у кого.
   if(task.status==="review"&&selfReview(task)) return "done";
-  const work=task.status==="backlog"||task.status==="progress"
+  const work=BACKLOG_STATES.includes(task.status)||task.status==="progress"
     ||task.status==="deadline";
   if(task.status==="wait"&&floorStatus(task,{funcs,traits,tasks})==="wait") return "wait";
   if(task.status!=="wait"&&!work) return task.status;
@@ -275,7 +321,12 @@ export function autoStatus(task,{funcs=[],traits=[],tasks=[],now=Date.now()}={})
      которая УЖЕ в работе, взятой и считается: так открываются записи,
      заведённые до появления этого признака. */
   if(overdue(task,now)) return "deadline";
-  return isTaken(task)?"progress":"backlog";
+  if(isTaken(task)) return "progress";
+  /* Бэклог различает два состояния: время ещё не пришло — «ожидает»; уже
+     позвали, а работа не началась — «отложено». Это не полка, куда задачу
+     кладут: она сама переходит туда, когда наступает её начало, и сама
+     уходит, как только за неё взялись. */
+  return called(task,now)?"deferred":"backlog";
 }
 
 /** Взята ли задача в работу. Статус «в работе» — это и есть «взята». */
@@ -581,9 +632,10 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
         </div>
       </>):(
         <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>
-          Задача уже поставлена — сейчас она в колонке «
-          {STATUSES.find(x=>x.id===task.status)?.name||task.status}» на доске
-          исполнителя. Правки отсюда видит и он.
+          Задача уже поставлена — сейчас она в колонке «{columnName(task.status)}»
+          на доске исполнителя{task.status==="deferred"
+            ? ", со статусом «отложено»: время пришло, а работа не начата"
+            : ""}. Правки отсюда видит и он.
         </div>)}
 
       <div style={{...S.lbl,marginTop:10}}>комментарии</div>
@@ -956,7 +1008,10 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
      Непоставленных задач тут нет вовсе: они ждут постановщика во вкладке
      «Проверка», и на доске исполнителя им нечего делать. */
   const take=(t)=>{
-    setTasks(p=>p.map(x=>x.id===t.id?{...x,taken:true,
+    /* Взялись — отложенности больше нет: отметка о том, что работу
+       отложили, осталась бы висеть и вернула бы задачу в «отложено» на
+       следующем же пересчёте. */
+    setTasks(p=>p.map(x=>x.id===t.id?{...x,taken:true,deferredAt:null,
       status:overdue(x)?"deadline":"progress"}:x));
     /* Взятая работа должна пережить закрытие окна. Модель целиком пишет
        владелец, поэтому у исполнителя для этого своя операция на сервере —
@@ -987,7 +1042,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
 
       <div className="flex gap-2" style={{overflowX:"auto",alignItems:"flex-start"}}>
         {BOARD.map(st=>{
-          const list=shown.filter(t=>t.status===st.id);
+          const list=shown.filter(t=>st.states.includes(t.status));
           return (
             <div key={st.id} style={{...S.card,flex:"1 0 190px",minWidth:190}}>
               <div className="flex items-center gap-2" style={{marginBottom:8}}>
@@ -1004,6 +1059,15 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                     padding:8,marginBottom:6,cursor:"pointer"}}
                     onClick={()=>setOpenId(t.id===openId?null:t.id)}>
                     <div style={{fontSize:12,fontWeight:600,lineHeight:1.4}}>{t.title}</div>
+                    {/* В колонке два состояния — карточка называет своё:
+                        «ожидает» и «отложено» лежат рядом, и молчание
+                        стирало бы между ними разницу. */}
+                    {st.states.length>1&&(
+                      <div style={{fontSize:10.5,marginTop:3,
+                        color:t.status==="deferred"?WARN:C.muted}}>
+                        {statusName(t.status)}
+                        {t.status==="deferred"?" — время пришло, работа не начата":""}
+                      </div>)}
                     <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
                       {funcLabel(f,entities)}
                     </div>
@@ -1016,7 +1080,8 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                         и есть работа. Ни «назад», ни «дальше»: колонка
                         говорит, что с задачей, а не куда её положить. */}
                     <div className="flex gap-2" style={{marginTop:6}}>
-                      {!isTaken(t)&&(t.status==="backlog"||t.status==="deadline")&&(
+                      {!isTaken(t)&&(BACKLOG_STATES.includes(t.status)
+                        ||t.status==="deadline")&&(
                         <button style={{...btn(true,ACC),padding:"3px 9px",fontSize:11}}
                           onClick={e=>{e.stopPropagation();take(t);}}>
                           Взять в работу</button>)}

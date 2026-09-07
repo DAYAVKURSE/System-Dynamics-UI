@@ -11,6 +11,7 @@ import * as calls from "./lib/callStore.js";
 import * as bridge from "./lib/bridgeStore.js";
 import * as login from "./lib/loginFlow.js";
 import { setSetting } from "./lib/envStore.js";
+import { deferTask, takeTask } from "./lib/workspaceStore.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -27,7 +28,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   const tick = async () => {
     try {
       const sent = await runTick({
-        store, send: sendMessage, log: (m) => console.warn(`[scheduler] ${m}`),
+        /* Уведомление о начале работы приходит с кнопками «Начать» и
+           «Отложить», поэтому отправка та же, что и у бота. */
+        store, send: sendWithKeyboard, log: (m) => console.warn(`[scheduler] ${m}`),
       });
       if (sent) console.log(`[scheduler] отправлено напоминаний: ${sent}`);
     } catch (e) {
@@ -114,6 +117,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
           try {
             await handleUpdate(u, {
               org, calls,
+              /* Кнопки «Начать» и «Отложить» под уведомлением двигают
+                 задачу на общем складе работы — там же, где её двигает
+                 нажатие на доске. */
+              work: { take: takeTask, defer: deferTask },
               bridge: process.env.BRIDGE_TOKEN ? bridge : null,
               // Вход в Claude Code из чата — только когда мост вообще включён:
               // логинить некого, если воркеру нечем подключиться.

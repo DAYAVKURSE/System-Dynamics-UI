@@ -121,19 +121,59 @@ export function viewFor(model, { id, isOwner }) {
  * просроченная задача остаётся в «Дедлайне» — от того, что за неё взялись,
  * срок назад не отматывается.
  */
+/* Два состояния бэклога: «ожидает» — время ещё не пришло, «отложено» —
+   уже позвали, а работа не началась. Список один на весь сервер, чтобы не
+   разойтись с интерфейсом (`BACKLOG_STATES` в `TasksBoard.jsx`). */
+export const BACKLOG = ["backlog", "deferred"];
+
 export async function takeTask(userId, taskId, { now = Date.now() } = {}) {
   const model = await readModel();
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
-  // Взять можно то, что лежит и ждёт: сданное и принятое брать не во что.
-  if (task.status !== "backlog" && task.status !== "deadline") {
+  /* Взять можно то, что лежит и ждёт: сданное и принятое брать не во что.
+     У бэклога два состояния — «ожидает» и «отложено», — и берутся оба:
+     отложенная задача не выбывает из работы, её просто ещё не начали. */
+  if (!BACKLOG.includes(task.status) && task.status !== "deadline") {
     return { error: "not in backlog" };
   }
   const end = task.end ? new Date(task.end).getTime() : null;
   const late = end != null && !Number.isNaN(end) && end < now;
   task.taken = true;
+  // Взялись — отметка об отложенности снимается, иначе задача вернулась бы
+  // в «отложено» на первом же пересчёте доски.
+  task.deferredAt = null;
   task.status = late ? "deadline" : "progress";
+  await writeModel(model);
+  return { task };
+}
+
+/**
+ * Откладывает задачу — только исполнитель и только свою.
+ *
+ * Задача остаётся в бэклоге и никуда не переносится: «отложено» — это не
+ * полка «потом», а честная отметка о том, что человека позвали, а работа
+ * не началась. Перенести срок отсюда нельзя: срок ставит постановщик, и
+ * менять его нажатием того, кто исполняет, значило бы переписывать
+ * договорённость в одну сторону.
+ *
+ * Правило то же, что в интерфейсе (`autoStatus` в `TasksBoard.jsx`):
+ * просроченная остаётся в «Дедлайне» — от того, что её отложили, срок
+ * назад не отматывается.
+ */
+export async function deferTask(userId, taskId, { now = Date.now() } = {}) {
+  const model = await readModel();
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  if (!BACKLOG.includes(task.status) && task.status !== "deadline") {
+    return { error: "not in backlog" };
+  }
+  const end = task.end ? new Date(task.end).getTime() : null;
+  const late = end != null && !Number.isNaN(end) && end < now;
+  task.taken = false;
+  task.deferredAt = new Date(now).toISOString();
+  task.status = late ? "deadline" : "deferred";
   await writeModel(model);
   return { task };
 }

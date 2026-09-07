@@ -379,3 +379,62 @@ describe("звонок главным приложением", () => {
     expect(lastText()).toMatch(/только владельцу/);
   });
 });
+
+/* ─────── «Начать» и «Отложить» под уведомлением ───────
+
+   Уведомление приходит тому, кому работа поручена, — значит и кнопка под
+   ним обязана работать у него, а не у одного владельца. Нажатие должно
+   ДВИГАТЬ задачу: иначе доска показывала бы её лежащей в бэклоге и когда
+   за неё взялись, и когда её отложили. */
+describe("кнопки задачи под уведомлением", () => {
+  const worker = { id: 200, first_name: "Иван" };
+  const press = (from, data) => handleUpdate(
+    { update_id: 9, callback_query: { id: "cb1", from, data } },
+    { ...deps, work },
+  );
+  let calls;
+  let work;
+  beforeEach(async () => {
+    calls = [];
+    work = {
+      take: async (u, id) => { calls.push(["take", String(u), id]);
+        return { task: { id, title: "Сбор заявок" } }; },
+      defer: async (u, id) => { calls.push(["defer", String(u), id]);
+        return { task: { id, title: "Сбор заявок" } }; },
+    };
+    await org.addRole("Исполнитель").catch(() => {});
+    const roles = (await org.listOrg()).roles;
+    await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+  });
+
+  it("«Начать» переводит задачу в работу — и у не-владельца тоже", async () => {
+    const r = await press(worker, "task:start:tk1");
+    expect(r).toMatchObject({ task: "tk1", action: "take" });
+    expect(calls).toEqual([["take", "200", "tk1"]]);
+    // Подтверждение на кнопке гаснет через секунду — говорим и в переписке.
+    expect(lastText()).toMatch(/Взял в работу: Сбор заявок/);
+  });
+
+  it("«Отложить» оставляет задачу в бэклоге, и это сказано словами", async () => {
+    const r = await press(worker, "task:defer:tk1");
+    expect(r).toMatchObject({ task: "tk1", action: "defer" });
+    expect(calls).toEqual([["defer", "200", "tk1"]]);
+    expect(lastText()).toMatch(/Осталась в бэклоге как отложенная/);
+    // Отложить — не перенести: срок ставит постановщик, а не исполнитель.
+    expect(lastText()).toMatch(/срок при этом не сдвинулся/);
+  });
+
+  it("отказ называется словами, а не молча гасит часики", async () => {
+    work.take = async () => ({ error: "not yours" });
+    const r = await press(worker, "task:start:tk1");
+    expect(r).toMatchObject({ error: "not yours" });
+    expect(answered[answered.length - 1].text).toBe("Эта задача не ваша");
+    expect(lastText()).toMatch(/ничего не поменял/);
+  });
+
+  it("непозванному кнопки не отвечают: модель ему не показывали", async () => {
+    const r = await press({ id: 777, first_name: "Чужой" }, "task:start:tk1");
+    expect(r).toMatchObject({ ignored: "not invited" });
+    expect(calls).toEqual([]);
+  });
+});

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify } from "../lib/orgStore.js";
-import { readModel, reviewTask, submitTask, takeTask, viewFor, writeModel }
+import { deferTask, readModel, reviewTask, submitTask, takeTask, viewFor, writeModel }
   from "../lib/workspaceStore.js";
 import { ask, find, pending } from "../lib/bridgeStore.js";
 
@@ -40,6 +40,18 @@ router.put("/", async (req, res, next) => {
 router.post("/tasks/:id/take", async (req, res, next) => {
   try {
     const r = await takeTask(req.telegramUserId, req.params.id);
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
+    if (r.error) return res.status(403).json({ error: r.error });
+    res.json(r.task);
+  } catch (e) { next(e); }
+});
+
+/* Отложить — то же право, что и взять: решает тот, кого позвали. Задача
+   остаётся в бэклоге, но уже с отметкой, что за неё не взялись. */
+router.post("/tasks/:id/defer", async (req, res, next) => {
+  try {
+    const r = await deferTask(req.telegramUserId, req.params.id);
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });

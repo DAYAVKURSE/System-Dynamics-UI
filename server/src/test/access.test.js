@@ -187,6 +187,64 @@ describe("взять в работу через сервер", () => {
   });
 });
 
+/* ─────── отложить ───────
+
+   «Отложено» — не полка «потом», а честная отметка: человека позвали, а
+   работа не началась. Задача остаётся в бэклоге, и срок не сдвигается:
+   срок ставит постановщик, и менять его нажатием исполнителя значило бы
+   переписывать договорённость в одну сторону. */
+describe("отложить через сервер", () => {
+  const defer = (id, who) => request(app).post(`/api/workspace/tasks/${id}/defer`)
+    .set(as(who));
+  const backlog = async () => {
+    await request(app).put("/api/workspace").set(as(100)).send({ model: {
+      ...MODEL,
+      tasks: MODEL.tasks.map((t) => (t.id === "tk1"
+        ? { ...t, status: "backlog", taken: false } : t)) } });
+  };
+
+  it("отложенная остаётся в бэклоге — но уже отложенной", async () => {
+    await invite(200, "executor", "Иван");
+    await backlog();
+    const res = await defer("tk1", 200);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("deferred");
+    expect(res.body.taken).toBe(false);
+    expect(res.body.deferredAt).toBeTruthy();
+    // И это сохранилось, а не осталось в ответе.
+    const got = await request(app).get("/api/workspace").set(as(200));
+    expect(got.body.tasks.find((t) => t.id === "tk1").status).toBe("deferred");
+  });
+
+  it("отложенную можно взять, и отметка об отложенности снимается", async () => {
+    await invite(200, "executor", "Иван");
+    await backlog();
+    await defer("tk1", 200);
+    const res = await request(app).post("/api/workspace/tasks/tk1/take").set(as(200));
+    expect(res.body.status).toBe("progress");
+    expect(res.body.deferredAt).toBeNull();
+  });
+
+  it("просроченную откладывают, но она остаётся в «Дедлайне»", async () => {
+    await invite(200, "executor", "Иван");
+    await request(app).put("/api/workspace").set(as(100)).send({ model: {
+      ...MODEL,
+      tasks: MODEL.tasks.map((t) => (t.id === "tk1"
+        ? { ...t, status: "backlog", taken: false, end: "2020-01-01T10:00" } : t)) } });
+    expect((await defer("tk1", 200)).body.status).toBe("deadline");
+  });
+
+  it("чужую не отложить, и сданную — тоже", async () => {
+    await saveModel();
+    await invite(300, "reviewer", "Пётр");
+    expect((await defer("tk1", 300)).status).toBe(403);
+    await invite(200, "executor", "Иван");
+    // tk1 уже в работе: откладывать нечего — за неё взялись.
+    expect((await defer("tk1", 200)).status).toBe(400);
+    expect((await defer("нет-такой", 200)).status).toBe(404);
+  });
+});
+
 describe("сдача и приём через сервер", () => {
   it("исполнитель сдаёт свою задачу", async () => {
     await saveModel();

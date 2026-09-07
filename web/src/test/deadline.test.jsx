@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
-import TasksBoard, { BOARD, STATUSES, TaskSetup, autoFlow, defaultEnd, isSet, newTask,
-  nowLocal, taskGaps } from "../components/TasksBoard.jsx";
+import TasksBoard, { BOARD, STATUSES, TaskSetup, autoFlow, autoStatus, defaultEnd,
+  isSet, newTask, nowLocal, taskGaps } from "../components/TasksBoard.jsx";
 import { Workers } from "../components/AssetPanel.jsx";
 import PersonStats from "../components/PersonStats.jsx";
 
@@ -116,8 +116,14 @@ describe("постановка задачи и доска исполнителя
   });
 
   it("«дедлайн» — после бэклога: сперва очередь, потом то, что горит", () => {
+    /* У бэклога два состояния, и они идут подряд: «ожидает» — время ещё не
+       пришло, «отложено» — уже позвали, а работа не началась. */
     expect(STATUSES.map((s) => s.id))
-      .toEqual(["wait", "backlog", "deadline", "progress", "review", "done"]);
+      .toEqual(["wait", "backlog", "deferred", "deadline", "progress", "review", "done"]);
+    // Колонка при этом одна: отложенное не уносят на отдельную полку.
+    expect(BOARD.map((c) => c.name))
+      .toEqual(["Бэклог", "Дедлайн", "В работе", "Проверка", "Готово"]);
+    expect(BOARD[0].states).toEqual(["backlog", "deferred"]);
   });
 
   it("непоставленную задачу не поставить, и сказано, чего не хватает", () => {
@@ -198,6 +204,56 @@ describe("задача ждёт ресурсов", () => {
    актива, — и они отвечали на вопрос, которого никто не задавал: роль
    человек исполняет НЕ В АКТИВЕ ВООБЩЕ, а в конкретной работе. Роли
    выставляются у каждой функции отдельно. */
+/* ─────── ДВА СОСТОЯНИЯ БЭКЛОГА ───────
+
+   Бэклог отвечает на «что лежит и ждёт», но лежат там задачи по двум
+   разным причинам: у одной время ещё не пришло, у другой — уже пришло, а
+   работа не началась. Одним словом «бэклог» на обеих написано, что задача
+   просто лежит, и отложенная терялась среди тех, чьё время не наступило. */
+describe("бэклог: ожидает и отложено", () => {
+  const soon = (h) => new Date(Date.now() + h * 3600e3).toISOString().slice(0, 16);
+  const t = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
+    setter: "1", assignee: "2", reviewer: "3", body: "что делать",
+    status: "backlog", end: soon(48), ...over });
+
+  it("время не пришло — «ожидает»; пришло, а работы нет — «отложено»", () => {
+    expect(autoStatus(t({ start: soon(5) }))).toBe("backlog");
+    expect(autoStatus(t({ start: soon(-1) }))).toBe("deferred");
+  });
+
+  it("нажали «Отложить» — отложена, даже если время ещё не пришло", () => {
+    /* Это решение человека, а не следствие часов: он сказал «не сейчас», и
+       доска обязана это показать. */
+    expect(autoStatus(t({ start: soon(5), deferredAt: new Date().toISOString() })))
+      .toBe("deferred");
+  });
+
+  it("взялись — задача уходит в работу, отложенности больше нет", () => {
+    expect(autoStatus(t({ start: soon(-1), taken: true }))).toBe("progress");
+  });
+
+  it("срок прошёл — «Дедлайн» сильнее обоих: его отложенностью не отменить", () => {
+    expect(autoStatus(t({ start: soon(-50), end: soon(-1) }))).toBe("deadline");
+    expect(autoStatus(t({ start: soon(-50), end: soon(-1),
+      deferredAt: new Date().toISOString() }))).toBe("deadline");
+  });
+
+  it("обе живут в одной колонке: отложенное не уносят на отдельную полку", () => {
+    const list = [t({ id: "a", start: soon(5) }), t({ id: "b", start: soon(-1) })];
+    render(<Board tasks={autoFlow(list, { funcs: FUNCS, traits: TRAITS })} />);
+    const col = screen.getByText("Бэклог").closest("div").parentElement;
+    expect(within(col).getAllByText("Задача A")).toHaveLength(2);
+    // И каждая карточка называет своё состояние словом.
+    expect(within(col).getByText("Ожидает")).toBeInTheDocument();
+    expect(within(col).getByText(/Отложено/)).toBeInTheDocument();
+  });
+
+  it("отложенную можно взять в работу прямо с доски", () => {
+    render(<Board tasks={[t({ start: soon(-1), status: "deferred" })]} />);
+    expect(screen.getByRole("button", { name: "Взять в работу" })).toBeTruthy();
+  });
+});
+
 describe("список воркеров: кого ставить", () => {
   const done = (id, person, mark) => ({ id, funcId: "f1", assignee: person,
     status: "done", end: "2026-01-02T09:00:00Z",

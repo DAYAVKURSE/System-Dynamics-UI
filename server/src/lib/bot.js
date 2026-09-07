@@ -204,6 +204,22 @@ export async function handleUpdate(update, deps) {
   }
 
   const me = await org.identify(String(from.id), { name: nameOf(from), username: from.username });
+
+  /* ─── кнопки под уведомлением о задаче ───
+
+     Отвечают ВСЕМ позванным, а не одному владельцу: уведомление приходит
+     тому, кому работа поручена, и кнопка под ним обязана работать у него.
+     Проверку «своя ли задача» делает сам склад работы (`deferTask`,
+     `takeTask` в `workspaceStore.js`) — там же, где она делается для
+     нажатия на доске, чтобы два места не разошлись в правилах. */
+  if (cb && deps.work && isTaskAction(cb.data)) {
+    if (!me.known) {
+      await answer(cb.id, "Вас ещё не звали в модель");
+      return { ignored: "not invited" };
+    }
+    return onTaskButton(cb, from, deps);
+  }
+
   if (!me.isOwner) {
     // Чужим не отвечаем содержательно: бот не должен рассказывать
     // постороннему, что у него вообще есть роли и люди.
@@ -492,6 +508,51 @@ async function askBridge(text, from, { send, bridge }) {
 }
 
 export function resetBridgeMode() { bridgeMode.clear(); }
+
+/* ─────── «Начать» и «Отложить» ───────
+
+   Человека позвали, и он решает ровно одно: начинает он сейчас или нет.
+   Нажатие обязано ДВИГАТЬ задачу, а не просто гасить часики на кнопке:
+   иначе доска показывала бы её лежащей в бэклоге и тогда, когда за неё уже
+   взялись, и тогда, когда её отложили, — по доске эти два случая были бы
+   неразличимы.
+
+   Ответ приходит и текстом: подтверждение только на кнопке Telegram
+   показывает секунду и исчезает, а человек должен видеть в переписке, что
+   он выбрал. */
+export const TASK_START = "task:start:";
+export const TASK_DEFER = "task:defer:";
+export const isTaskAction = (data) => {
+  const s = String(data || "");
+  return s.startsWith(TASK_START) || s.startsWith(TASK_DEFER);
+};
+
+async function onTaskButton(cb, from, { work, send, answer }) {
+  const data = String(cb.data || "");
+  const start = data.startsWith(TASK_START);
+  const id = data.slice((start ? TASK_START : TASK_DEFER).length);
+  const r = start ? await work.take(from.id, id) : await work.defer(from.id, id);
+  if (r?.error) {
+    /* Отказ называется словами. «Не ваша» и «уже не в бэклоге» — разные
+       вещи: первое значит, что задачу передали, второе — что она уже
+       двинулась, и человеку надо знать, что именно. */
+    const why = r.error === "not found" ? "Такой задачи уже нет"
+      : r.error === "not yours" ? "Эта задача не ваша"
+        : r.error === "not in backlog" ? "Задача уже в работе или сдана"
+          : "Не вышло";
+    await answer(cb.id, why);
+    await send(from.id, `${why}: ничего не поменял.`);
+    return { error: r.error };
+  }
+  const title = r?.task?.title || "Задача";
+  const word = start ? "Взял в работу" : "Отложил";
+  await answer(cb.id, word);
+  await send(from.id, start
+    ? `Взял в работу: ${title}. Она в колонке «В работе».`
+    : `Отложил: ${title}. Осталась в бэклоге как отложенная —`
+      + " срок при этом не сдвинулся.");
+  return { task: id, action: start ? "take" : "defer" };
+}
 
 async function onCallback(cb, from, { org, send, answer }) {
   const data = String(cb.data || "");

@@ -208,8 +208,32 @@ describe("проход планировщика", () => {
     const n = await runTick({ store, send, now: at("2026-09-15T09:50") });
 
     expect(n).toBe(1);
-    expect(send).toHaveBeenCalledWith("42", expect.stringContaining("Через 10 минут"));
+    /* Предупреждение «через 10 минут» кнопок не получает: начинать раньше
+       времени нечего, и откладывать ещё не наступившее — тоже. */
+    expect(send).toHaveBeenCalledWith("42",
+      expect.stringContaining("Через 10 минут"), null);
     expect(store.marked).toHaveLength(1);
+  });
+
+  /* ─── две кнопки под уведомлением о начале ───
+
+     Человека позвали, и он решает ровно одно: начинает он сейчас или нет.
+     Без кнопок решение оставалось в голове, и доска показывала задачу
+     лежащей в бэклоге и когда за неё взялись, и когда её отложили. */
+  it("уведомление о начале приходит с кнопками «Начать» и «Отложить»", async () => {
+    const store = makeStore([{ userId: "42", schedule }]);
+    const send = vi.fn().mockResolvedValue({});
+
+    await runTick({ store, send, now: at("2026-09-15T10:00") });
+
+    const [, text, keyboard] = send.mock.calls[0];
+    expect(text).toContain("Начинается:");
+    // Сказано, что кнопки делают: молчаливая «Отложить» обещала бы перенос.
+    expect(text).toContain("останется в бэклоге как отложенная");
+    expect(keyboard.inline_keyboard[0].map((b) => b.text))
+      .toEqual(["Начать", "Отложить"]);
+    expect(keyboard.inline_keyboard[0].map((b) => b.callback_data))
+      .toEqual(["task:start:t1", "task:defer:t1"]);
   });
 
   it("без chatId не отправляет", async () => {
