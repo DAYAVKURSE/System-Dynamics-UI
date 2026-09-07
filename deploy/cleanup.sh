@@ -125,7 +125,7 @@ echo "освобождено: $(human "$freed")"
 if [ -d "$DATA_DIR" ]; then
   echo "данные модели (НЕ тронуты, удаляются только по вашему слову):"
   echo "  всего: $(size_of "$DATA_DIR")"
-  for sub in reports scenarios calls workspace org schedules; do
+  for sub in reports scenarios calls workspace org schedules memory; do
     if [ -d "$DATA_DIR/$sub" ]; then echo "  $sub: $(size_of "$DATA_DIR/$sub")"; fi
   done
   # Записи созвонов — самое крупное из того, что может накопиться.
