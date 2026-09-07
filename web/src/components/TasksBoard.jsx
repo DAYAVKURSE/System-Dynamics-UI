@@ -1025,16 +1025,6 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
   const late=(t)=>overdue(t);
   return (
     <div>
-      <div style={{...S.card,marginBottom:10}}>
-        <div style={S.lbl}>задачи — то, что поручено</div>
-        <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
-          Задачи заводятся из применённых целей и ставятся во вкладке
-          «Проверка»: работа, не следующая ни из какой цели, — это работа, о
-          которой никто не спросил, зачем она. Здесь её делают: берут,
-          сдают и спрашивают в комментариях.
-        </div>
-      </div>
-
       {open&&(
         <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits}
           entities={entities}
