@@ -1,0 +1,157 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+/* Склад модели — один файл, а писателей у него много: владелец целиком,
+   исполнитель — «взять»/«отложить»/сдача, проверяющий — приём, участники —
+   комментарии, планировщик — публикация оценок. Каждый из них читает файл,
+   меняет своё и пишет обратно; без очереди два таких нажатия, пришедшие
+   в одну миллисекунду, затирают друг друга — и одно из них пропадает
+   молча. Здесь проверяется, что не пропадает ни одно. */
+
+let tmp, store;
+
+beforeAll(async () => {
+  tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sd-store-"));
+  process.env.WORKSPACE_DIR = path.join(tmp, "ws");
+  store = await import("../lib/workspaceStore.js");
+});
+afterAll(async () => {
+  await fs.rm(tmp, { recursive: true, force: true });
+});
+beforeEach(async () => {
+  await fs.rm(process.env.WORKSPACE_DIR, { recursive: true, force: true });
+});
+
+const task = (id, status = "backlog") => ({
+  id, assignee: "200", reviewer: "300", setter: "100", title: `Задача ${id}`,
+  status, submissions: [], comments: [], reviews: [],
+});
+const ids = (n, prefix) => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
+
+describe("одновременные правки модели", () => {
+  it("сто параллельных «взять», «отложить» и комментариев не теряют ни одной записи", async () => {
+    const toTake = ids(40, "take");
+    const toDefer = ids(30, "defer");
+    await store.writeModel({
+      tasks: [...toTake, ...toDefer].map((id) => task(id)).concat([task("talk", "progress")]),
+    });
+
+    const results = await Promise.all([
+      ...toTake.map((id) => store.takeTask("200", id)),
+      ...toDefer.map((id) => store.deferTask("200", id)),
+      ...ids(30, "слово ").map((text) => store.addComment("300", "talk", { text, to: null })),
+    ]);
+    results.forEach((r) => expect(r.error).toBeUndefined());
+
+    const model = await store.readModel();
+    const byId = Object.fromEntries(model.tasks.map((t) => [t.id, t]));
+    toTake.forEach((id) => expect(byId[id]).toMatchObject({ taken: true, status: "progress" }));
+    toDefer.forEach((id) => expect(byId[id]).toMatchObject({ taken: false, status: "deferred" }));
+    expect(byId.talk.comments.map((c) => c.text).sort())
+      .toEqual(ids(30, "слово ").sort());
+  });
+
+  it("сдача, приём и удаление комментария тоже стоят в той же очереди", async () => {
+    await store.writeModel({
+      tasks: [task("s1", "progress"), task("s2", "progress"), task("r1", "review"),
+        { ...task("d1", "progress"),
+          comments: ids(20, "c").map((id) => ({ id, text: id, at: "2026-01-01T00:00:00Z",
+            by: "300", to: null, hidden: false })) }],
+    });
+    const results = await Promise.all([
+      store.submitTask("200", "s1", { hours: 1 }),
+      store.submitTask("200", "s2", { hours: 2 }),
+      store.reviewTask("300", "r1", { accept: true, mark: 4, comment: "принято" }),
+      ...ids(20, "c").map((cid) => store.dropComment("300", "d1", cid, { isOwner: false })),
+    ]);
+    results.forEach((r) => expect(r.error).toBeUndefined());
+
+    const model = await store.readModel();
+    const byId = Object.fromEntries(model.tasks.map((t) => [t.id, t]));
+    expect(byId.s1.submissions).toHaveLength(1);
+    expect(byId.s2.submissions).toHaveLength(1);
+    expect(byId.r1).toMatchObject({ status: "done" });
+    expect(byId.r1.reviews).toHaveLength(1);
+    expect(byId.d1.comments).toEqual([]);
+  });
+
+  it("withModel выполняет работы по очереди, а не вперемешку", async () => {
+    await store.writeModel({ tasks: [] });
+    const order = [];
+    const slow = store.withModel(async (model) => {
+      await new Promise((r) => setTimeout(r, 30));
+      order.push("медленная");
+      model.tasks = [task("a")];
+      await store.writeModel(model);
+      return "a";
+    });
+    const fast = store.withModel(async (model) => {
+      order.push("быстрая");
+      // Быстрая работа видит то, что записала медленная: очередь, а не гонка.
+      expect(model.tasks.map((t) => t.id)).toEqual(["a"]);
+      return "b";
+    });
+    expect(await Promise.all([slow, fast])).toEqual(["a", "b"]);
+    expect(order).toEqual(["медленная", "быстрая"]);
+  });
+
+  it("упавшая работа не останавливает очередь", async () => {
+    await store.writeModel({ tasks: [] });
+    await expect(store.withModel(async () => { throw new Error("сломалась"); }))
+      .rejects.toThrow("сломалась");
+    expect(await store.withModel(async (m) => m.tasks.length)).toBe(0);
+  });
+});
+
+describe("запись файла модели", () => {
+  it("пишется через временный файл: после записи в папке только model.json", async () => {
+    await store.writeModel({ tasks: [task("x")] });
+    const names = (await fs.readdir(process.env.WORKSPACE_DIR)).sort();
+    expect(names).toEqual(["model.json"]);
+    expect((await store.readModel()).tasks.map((t) => t.id)).toEqual(["x"]);
+  });
+
+  it("параллельные записи целиком не оставляют обрезанного файла", async () => {
+    // Сто записей подряд без очереди (PUT целиком владельцем): каждая —
+    // отдельный временный файл, поэтому последнее переименование побеждает
+    // целым файлом, а не половиной.
+    const big = { tasks: ids(200, "t").map((id) => task(id)) };
+    await Promise.all(ids(20, "w").map(() => store.writeModel(big)));
+    const model = await store.readModel();
+    expect(model.tasks).toHaveLength(200);
+    expect((await fs.readdir(process.env.WORKSPACE_DIR))).toEqual(["model.json"]);
+  });
+});
+
+describe("удаление комментария", () => {
+  const withComments = () => store.writeModel({
+    tasks: [{ ...task("t1"),
+      comments: [
+        { id: "c1", text: "своё", at: "2026-01-01T00:00:00Z", by: "200", to: null, hidden: false },
+        { id: "c2", text: "чужое", at: "2026-01-01T00:00:00Z", by: "300", to: "200", hidden: true },
+      ] }],
+  });
+
+  it("автор убирает своё, а чужое — нет", async () => {
+    await withComments();
+    expect(await store.dropComment("200", "t1", "c2", { isOwner: false }))
+      .toEqual({ error: "not yours" });
+    const r = await store.dropComment("200", "t1", "c1", { isOwner: false });
+    expect(r.task.comments.map((c) => c.id)).toEqual(["c2"]);
+    expect((await store.readModel()).tasks[0].comments.map((c) => c.id)).toEqual(["c2"]);
+  });
+
+  it("владелец убирает любое", async () => {
+    await withComments();
+    const r = await store.dropComment("100", "t1", "c2", { isOwner: true });
+    expect(r.task.comments.map((c) => c.id)).toEqual(["c1"]);
+  });
+
+  it("нет задачи или комментария — «не найдено», а не тихий успех", async () => {
+    await withComments();
+    expect(await store.dropComment("100", "нет", "c1", { isOwner: true })).toEqual({ error: "not found" });
+    expect(await store.dropComment("100", "t1", "нет", { isOwner: true })).toEqual({ error: "not found" });
+  });
+});

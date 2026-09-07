@@ -16,8 +16,20 @@ import path from "node:path";
      ссылаются, — чтобы подписи читались. Остальная структура системы его
      не касается.
 
-   Что не-владелец может изменить: свою сдачу (исполнитель) и приём
-   отчёта (проверяющий). Больше ничего — запись модели целиком закрыта.
+   Что не-владелец может изменить: взять, отложить и сдать свою задачу
+   (исполнитель), принять или вернуть отчёт (проверяющий), написать и
+   убрать свой комментарий (участник). Больше ничего — запись модели
+   целиком закрыта.
+
+   Файл модели один, а писателей много: владелец пишет её целиком, каждое
+   нажатие исполнителя и проверяющего меняет свою задачу, планировщик
+   публикует оценки. Каждый из них читает файл, меняет своё и пишет
+   обратно, поэтому все такие правки идут через одну очередь в процессе
+   (`withModel`): два нажатия в одну миллисекунду иначе затирали бы друг
+   друга, и одно из них пропадало бы молча. Сама запись — через временный
+   файл и переименование: обрыв на середине записи не оставляет
+   обрезанного файла, из которого следующее чтение вернуло бы ПУСТУЮ
+   модель.
    ════════════════════════════════════════════════════════════════ */
 
 /* Модель — это активы (со своими воркерами), их ресурсы, их функции и
@@ -74,8 +86,33 @@ export async function writeModel(model) {
   if (!Array.isArray(model.published)) out.published = (await readModel()).published;
   out.savedAt = new Date().toISOString();
   await fs.mkdir(baseDir(), { recursive: true });
-  await fs.writeFile(file(), JSON.stringify(out), "utf8");
+  /* Сначала во временный файл, потом переименование: оно атомарно, и
+     читающий в этот момент видит либо прежнюю модель, либо новую — но не
+     половину. Имя временного файла — своё у каждой записи, чтобы две
+     записи целиком (их владелец шлёт без очереди) не писали в один. */
+  const tmp = `${file()}.${process.pid}.${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.tmp`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(out), "utf8");
+    await fs.rename(tmp, file());
+  } catch (e) {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  }
   return out;
+}
+
+/* Очередь правок модели — одна на процесс, цепочка обещаний, как
+   `inOrder` в `memoryStore.js`. Работа получает свежепрочитанную модель,
+   меняет её и сама решает, писать ли (`writeModel`): отказ «не твоя
+   задача» ничего не пишет. Что работа вернула — то и наружу; упавшая
+   работа очередь не останавливает. Процесс один, поэтому очереди в памяти
+   достаточно — файла-замка не нужно. */
+let chain = Promise.resolve();
+export function withModel(job) {
+  const run = async () => job(await readModel());
+  const next = chain.then(run, run);
+  chain = next.then(() => {}, () => {});
+  return next;
 }
 
 /* Пространство позванного — отдельный файл на человека. Не в модели:
@@ -201,8 +238,7 @@ export function viewFor(model, { id, isOwner }) {
    разойтись с интерфейсом (`BACKLOG_STATES` в `TasksBoard.jsx`). */
 export const BACKLOG = ["backlog", "deferred"];
 
-export async function takeTask(userId, taskId, { now = Date.now() } = {}) {
-  const model = await readModel();
+export const takeTask = (userId, taskId, { now = Date.now() } = {}) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
@@ -223,7 +259,7 @@ export async function takeTask(userId, taskId, { now = Date.now() } = {}) {
   task.status = late ? "deadline" : "progress";
   await writeModel(model);
   return { task };
-}
+});
 
 /**
  * Откладывает задачу — только исполнитель и только свою.
@@ -245,8 +281,7 @@ export async function takeTask(userId, taskId, { now = Date.now() } = {}) {
  * задача отложена без срока напоминания, и прежний срок, если был,
  * снимается: новое «отложить» ничего о времени не сказало.
  */
-export async function deferTask(userId, taskId, { now = Date.now(), until = null } = {}) {
-  const model = await readModel();
+export const deferTask = (userId, taskId, { now = Date.now(), until = null } = {}) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
@@ -263,7 +298,7 @@ export async function deferTask(userId, taskId, { now = Date.now(), until = null
   task.status = late ? "deadline" : "deferred";
   await writeModel(model);
   return { task };
-}
+});
 
 /**
  * Задача вместе с тем, что нужно, чтобы её сдать: функция и ресурсы, на
@@ -313,8 +348,7 @@ const setterRatingOf = (r, { self }) => {
 };
 
 /** Записывает сдачу — только исполнитель своей задачи. */
-export async function submitTask(userId, taskId, submission) {
-  const model = await readModel();
+export const submitTask = (userId, taskId, submission) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
@@ -369,11 +403,10 @@ export async function submitTask(userId, taskId, submission) {
   task.status = selfReview ? "done" : "review";
   await writeModel(model);
   return { task };
-}
+});
 
 /** Приём или возврат отчёта — только назначенный проверяющий. */
-export async function reviewTask(userId, taskId, { accept, comment, mark, hidden }) {
-  const model = await readModel();
+export const reviewTask = (userId, taskId, { accept, comment, mark, hidden }) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.reviewer || "") !== String(userId)) return { error: "not yours" };
@@ -411,7 +444,7 @@ export async function reviewTask(userId, taskId, { accept, comment, mark, hidden
   }
   await writeModel(model);
   return { task };
-}
+});
 
 /** Кто в задаче есть: постановщик, исполнитель, проверяющий. */
 const participants = (task) => [task.setter, task.assignee, task.reviewer]
@@ -426,9 +459,8 @@ const participants = (task) => [task.setter, task.assignee, task.reviewer]
  * Автор у комментария есть всегда (в отличие от оценки): это разговор в
  * задаче, а не суждение о человеке.
  */
-export async function addComment(userId, taskId, { text, to, hidden } = {},
-  { isOwner = false } = {}) {
-  const model = await readModel();
+export const addComment = (userId, taskId, { text, to, hidden } = {},
+  { isOwner = false } = {}) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   const me = String(userId);
@@ -446,4 +478,23 @@ export async function addComment(userId, taskId, { text, to, hidden } = {},
   task.comments = [...(task.comments || []), comment];
   await writeModel(model);
   return { task, comment };
-}
+});
+
+/**
+ * Убирает комментарий из ленты задачи: владелец — любой (модель его),
+ * остальные — только свой. Чужие слова не твои, даже если они тебе
+ * адресованы: убрать их значило бы переписать чужую реплику в разговоре.
+ * Нет задачи или комментария — «не найдено», а не тихий успех: кнопка в
+ * интерфейсе должна знать, что сервер ничего не сделал.
+ */
+export const dropComment = (userId, taskId, commentId, { isOwner = false } = {}) =>
+  withModel(async (model) => {
+    const task = (model.tasks || []).find((t) => t.id === taskId);
+    if (!task) return { error: "not found" };
+    const comment = (task.comments || []).find((c) => c && c.id === commentId);
+    if (!comment) return { error: "not found" };
+    if (!isOwner && String(comment.by ?? "") !== String(userId)) return { error: "not yours" };
+    task.comments = task.comments.filter((c) => c !== comment);
+    await writeModel(model);
+    return { task, comment };
+  });

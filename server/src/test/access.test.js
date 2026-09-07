@@ -510,6 +510,133 @@ describe("комментарии к задаче", () => {
     expect((await comment(200, { text: "тайна", to: "999", hidden: true })).status).toBe(400);
     expect((await comment(200, { text: "   " })).status).toBe(400);
   });
+
+  /* Убрать комментарий — операция сервера, а не окна: иначе после
+     перезагрузки он возвращался бы. Владелец убирает любой, остальные —
+     только свой. */
+  const drop = (who, cid) => request(app)
+    .delete(`/api/workspace/tasks/tk1/comments/${cid}`).set(as(who));
+  const texts = async (who) => (await request(app).get("/api/workspace").set(as(who)))
+    .body.tasks[0].comments.map((c) => c.text);
+
+  it("автор убирает свой комментарий, и после перечитывания его нет", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    const mine = (await comment(200, { text: "передумал" })).body.comment;
+    const res = await drop(200, mine.id);
+    expect(res.status).toBe(200);
+    expect(res.body.comments).toEqual([]);
+    expect(await texts(200)).toEqual([]);
+  });
+
+  it("чужой комментарий участнику не убрать — 403, и он остаётся", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+    const petrs = (await comment(300, { text: "замечание", to: "200" })).body.comment;
+    expect((await drop(200, petrs.id)).status).toBe(403);
+    expect(await texts(200)).toEqual(["замечание"]);
+  });
+
+  it("владелец убирает любой", async () => {
+    await saveModel();
+    await invite(300, "reviewer", "Пётр");
+    const petrs = (await comment(300, { text: "замечание", to: "200" })).body.comment;
+    expect((await drop(100, petrs.id)).status).toBe(200);
+    expect(await texts(300)).toEqual([]);
+  });
+
+  it("нет задачи или комментария — 404", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    expect((await drop(200, "нет-такого")).status).toBe(404);
+    expect((await request(app).delete("/api/workspace/tasks/нет/comments/c1")
+      .set(as(100))).status).toBe(404);
+  });
+
+  it("в ответе на удаление — срез: чужих скрытых слов участник не получает", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+    await comment(100, { text: "только Петру", to: "300", hidden: true });
+    const mine = (await comment(200, { text: "своё" })).body.comment;
+    const res = await drop(200, mine.id);
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.body)).not.toContain("только Петру");
+  });
+});
+
+/* ─────── ответ на нажатие — тоже срез ───────
+
+   Ответ на POST виден в отладчике так же, как ответ на GET, поэтому
+   задача в нём — глазами нажавшего: без своих оценок и чужих скрытых слов.
+   Владельцу — целиком. */
+describe("что приходит в ответ на нажатие", () => {
+  const post = (who, action, body = {}) => request(app)
+    .post(`/api/workspace/tasks/tk1/${action}`).set(as(who)).send(body);
+  const marks = (task) => task.reviews.map((r) => r.mark);
+  const hiddenNotMine = (task, me) => task.comments
+    .filter((c) => c.hidden && String(c.by) !== me && String(c.to) !== me);
+
+  it("исполнитель в ответах на «взять», «отложить» и сдачу не видит оценок и чужих скрытых слов", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+    // Проверяющий вернул задачу с оценкой; владелец шепнул проверяющему.
+    expect((await post(300, "review", { accept: false, comment: "доработать", mark: 2 })).status)
+      .toBe(200);
+    await post(100, "comments", { text: "между нами", to: "300", hidden: true });
+
+    const defer = await post(200, "defer");
+    expect(defer.status).toBe(200);
+    expect(marks(defer.body)).toEqual([null]);
+    expect(hiddenNotMine(defer.body, "200")).toEqual([]);
+    // Публичные слова возврата исполнителю видны — они ему и адресованы.
+    expect(defer.body.comments.map((c) => c.text)).toEqual(["доработать"]);
+
+    const take = await post(200, "take");
+    expect(take.status).toBe(200);
+    expect(marks(take.body)).toEqual([null]);
+    expect(hiddenNotMine(take.body, "200")).toEqual([]);
+
+    const submit = await post(200, "submit", { hours: 1, text: "готово" });
+    expect(submit.status).toBe(200);
+    expect(marks(submit.body)).toEqual([null]);
+    expect(hiddenNotMine(submit.body, "200")).toEqual([]);
+    expect(JSON.stringify(submit.body)).not.toContain("между нами");
+  });
+
+  it("постановщик-проверяющий в ответе на приём не видит оценки своей постановки", async () => {
+    // Пётр поставил задачу и он же принимает: оценка постановки — про
+    // него, и до публикации ему не показывается.
+    await request(app).put("/api/workspace").set(as(100)).send({ model: { ...MODEL,
+      tasks: MODEL.tasks.map((t) => (t.id === "tk1" ? { ...t, setter: "300" } : t)) } });
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+    const sub = await post(200, "submit", { hours: 1,
+      setterRating: { mark: 2, comment: "поставлено плохо", hidden: true } });
+    // Исполнителю своя оценка постановки видна — он её и написал.
+    expect(sub.body.submissions[0].setterRating).toMatchObject({ mark: 2 });
+
+    const res = await post(300, "review", { accept: true, comment: "принято", mark: 5 });
+    expect(res.status).toBe(200);
+    expect(res.body.submissions[0].setterRating).toBeNull();
+    expect(JSON.stringify(res.body)).not.toContain("поставлено плохо");
+    // Своё решение автор видит целиком.
+    expect(res.body.reviews[0].mark).toBe(5);
+  });
+
+  it("владельцу — целиком", async () => {
+    await request(app).put("/api/workspace").set(as(100)).send({ model: { ...MODEL,
+      tasks: MODEL.tasks.map((t) => (t.id === "tk1" ? { ...t, setter: "100" } : t)) } });
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+    await post(300, "review", { accept: false, comment: "доработать", mark: 2, hidden: true });
+    const res = await post(100, "comments", { text: "вижу всё" });
+    expect(res.status).toBe(201);
+    expect(res.body.task.reviews[0].mark).toBe(2);
+    expect(res.body.task.comments.map((c) => c.text)).toEqual(["доработать", "вижу всё"]);
+  });
 });
 
 /* Анкета — единственное, что человек меняет о себе сам. Поэтому маршрут
