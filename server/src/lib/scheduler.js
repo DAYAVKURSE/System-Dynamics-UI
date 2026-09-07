@@ -11,7 +11,7 @@
    нужно прибавить к местному времени, чтобы получить UTC.
    ════════════════════════════════════════════════════════════════ */
 
-import { taskKeyboard } from "./botTasks.js";
+import { DEFERRABLE, taskKeyboard } from "./botTasks.js";
 
 // Окно, внутри которого просроченное напоминание всё ещё отправляется.
 // Нужно, чтобы перезапуск сервера или подвисший тик не съедали уведомление
@@ -101,7 +101,7 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
     for (const occ of occurrencesNear(task, nowMs, tzOffset)) {
       // Отложенное напоминает о себе, только пока лежит: взятую или сданную
       // за это время задачу «начинать» второй раз нечего.
-      if (occ.deferred && !["backlog", "deferred", "deadline"].includes(task.status)) continue;
+      if (occ.deferred && !DEFERRABLE.includes(task.status)) continue;
       const moments = [{ kind: "start", at: occ.ms }];
       const warn = Number(task.warn);
       // 0 означает «в момент начала» — отдельного предупреждения не нужно.
@@ -121,6 +121,7 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
           taskId: task.id, title: task.title || "Задача",
           body: task.body || "", warn: m.warn ?? null,
           deferred: Boolean(occ.deferred),
+          assignee: task.assignee == null || task.assignee === "" ? null : String(task.assignee),
           startWall: occ.deferred ? wallStamp(wallDate(occ.ms, tzOffset))
             : task.repeat === "once" || !task.repeat ? task.start : occ.key,
         });
@@ -170,12 +171,21 @@ export function formatWarn(minutes) {
    подписи, и только им.
 
    Предупреждение «через час» кнопок НЕ получает: начинать раньше времени
-   нечего, и «отложить» то, что ещё не наступило, тоже нечего. */
-export const keyboardFor = (n) => (n.kind === "start" ? taskKeyboard(n.taskId) : null);
+   нечего, и «отложить» то, что ещё не наступило, тоже нечего.
+
+   Кнопки — только ИСПОЛНИТЕЛЮ. Уведомление о той же задаче приходит и
+   владельцу (у него в расписании вся модель), и постановщику с
+   проверяющим (у них — задачи, где они участвуют), но взять или отложить
+   её может лишь тот, кому она поручена: у остальных кнопка отвечала бы
+   отказом «не ваша». Задача без исполнителя кнопок не получает вовсе. */
+export const forAssignee = (n, userId) => n.kind === "start" && n.assignee != null
+  && String(n.assignee) === String(userId);
+export const keyboardFor = (n, userId) => (forAssignee(n, userId) ? taskKeyboard(n.taskId) : null);
 
 // Обычное текстовое сообщение — без разметки, чтобы произвольное название
 // задачи не могло сломать парсер Telegram и не требовало экранирования.
-export function formatMessage(n) {
+// Абзац про кнопки — только там, где есть сами кнопки (см. keyboardFor).
+export function formatMessage(n, userId = null) {
   const time = n.startWall ? n.startWall.replace("T", " ") : "";
   const head = n.kind === "warn"
     ? `Через ${formatWarn(n.warn)}: ${n.title}`
@@ -188,7 +198,7 @@ export function formatMessage(n) {
      «Отложить» не переносит срок — задача остаётся в бэклоге с отметкой,
      что за неё не взялись, а в названный момент уведомление приходит
      снова. Молчаливая кнопка обещала бы перенос. */
-  if (n.kind === "start") {
+  if (forAssignee(n, userId)) {
     lines.push("", "«🔴 Отложить» — спрошу, на сколько: задача останется в бэклоге как"
       + " отложенная, срок не сдвинется, а когда время выйдет, напомню снова."
       + " «🟢 Начать» — задача уйдёт в работу, и под этим сообщением появится"
@@ -212,7 +222,7 @@ export async function runTick({ store, send, now = Date.now(), log = () => {} })
 
     for (const n of due) {
       try {
-        await send(chatId, formatMessage(n), keyboardFor(n));
+        await send(chatId, formatMessage(n, userId), keyboardFor(n, userId));
         await store.markSent(userId, n.key, now);
         sentCount++;
       } catch (e) {

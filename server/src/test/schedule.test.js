@@ -88,6 +88,15 @@ describe("хранилище расписаний", () => {
     expect(saved.tasks[0].title).toBe("Задача");
   });
 
+  it("исполнителя оставляет — по нему решается, кому кнопки под уведомлением", async () => {
+    await store.saveSchedule("u6", {
+      chatId: "u6", tzOffset: 0,
+      tasks: [task({ assignee: 200 }), task({ id: "t2" }), task({ id: "t3", assignee: "" })],
+    });
+    const saved = await store.readSchedule("u6");
+    expect(saved.tasks.map((t) => t.assignee)).toEqual(["200", null, null]);
+  });
+
   /* «До какого момента отложена» едет с доски вместе с задачей, а бот,
      отложив задачу, ставит его в расписание сам — не дожидаясь, пока
      человек откроет приложение. */

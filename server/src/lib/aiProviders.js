@@ -49,6 +49,11 @@ export const ENDPOINTS = {
    статья, и одинаковый предел делает провайдеров взаимозаменяемыми. */
 export const MAX_TOKENS = 2048;
 const ERROR_TEXT_LIMIT = 300;
+/* Предел ожидания ответа. Без него fetch ждёт заголовки столько, сколько
+   решит undici (минуты), и всё это время очередь вопросов стоит, а бот
+   не отвечает никому. Полторы минуты — с запасом больше, чем отвечает
+   любая из трёх моделей на абзац-два. */
+export const FETCH_TIMEOUT_MS = 90 * 1000;
 
 export const isProvider = (p) => PROVIDERS.includes(String(p || ""));
 
@@ -135,9 +140,13 @@ export async function complete(p, doFetch = globalThis.fetch) {
   let res;
   try {
     res = await doFetch(ENDPOINTS[provider], { method: "POST", headers,
-      body: JSON.stringify(body) });
+      body: JSON.stringify(body), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   } catch (e) {
-    // Сеть, DNS, таймаут: у ошибки нет статуса, но есть слова.
+    // Истёкший предел — по-русски: у самого AbortSignal слова английские.
+    if (e?.name === "TimeoutError" || e?.name === "AbortError") {
+      throw new Error(`${PROVIDER_NAMES[provider]} не ответил за ${Math.round(FETCH_TIMEOUT_MS / 1000)} секунд`);
+    }
+    // Сеть, DNS: у ошибки нет статуса, но есть слова.
     throw new Error(`${PROVIDER_NAMES[provider]} недоступен: ${scrub(e?.message, apiKey) || "сеть не ответила"}`);
   }
 

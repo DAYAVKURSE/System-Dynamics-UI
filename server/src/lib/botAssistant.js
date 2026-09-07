@@ -14,6 +14,13 @@
    тоже в память (открытый шаг сдачи перехватывает botTasks.js раньше).
    Байты документа даёт `deps.tg.getFile`; если его нет — запоминается
    имя и подпись, и об этом говорится прямо.
+
+   Ответа модели здесь НЕ ждут. Бот разбирает обновления по одному, и
+   пока он ждал бы модель (секунды, а при зависшем провайдере минуты),
+   кнопки и файлы всех остальных лежали бы у Telegram. Поэтому сразу
+   уходит «Думаю…», а ответ — потом, отдельным сообщением: отдельным, а не
+   правкой «Думаю…», потому что правку Telegram не показывает уведомлением,
+   и человек, отложивший телефон, ответа бы не заметил.
    ════════════════════════════════════════════════════════════════ */
 
 const REMEMBER = /^запомни\s*[:\-—]\s*/iu;
@@ -52,7 +59,9 @@ export function splitMessage(text, limit = TG_MESSAGE_LIMIT) {
  * @param from  кто пишет
  * @param deps  { assistant: { ask(userId, question) → Promise<string>, memory }, send, tg? }
  *              либо те же поля на верхнем уровне
- * @returns null, если сообщение не для помощника
+ * @returns null, если сообщение не для помощника. На вопрос —
+ *          { answered: "queued", done }: done — обещание, что ответ или
+ *          ошибка уже ушли в чат; бот его не ждёт, тесты — ждут.
  */
 export async function onAssistantMessage(msg, from, deps = {}) {
   if (!msg || !from) return null;
@@ -129,18 +138,27 @@ export async function onAssistantMessage(msg, from, deps = {}) {
     await send(from.id, "Помощник здесь не подключён.");
     return { error: "no ask" };
   }
-  try {
-    const answer = await ask(userId, text.slice(0, MAX_QUESTION));
-    const parts = splitMessage(String(answer || "").trim() || "Ответ пуст.");
-    for (const part of parts) {
-      // eslint-disable-next-line no-await-in-loop
-      await send(from.id, part);
+  await send(from.id, "Думаю…");
+  const done = (async () => {
+    try {
+      const answer = await ask(userId, text.slice(0, MAX_QUESTION));
+      const parts = splitMessage(String(answer || "").trim() || "Ответ пуст.");
+      for (const part of parts) {
+        // eslint-disable-next-line no-await-in-loop
+        await send(from.id, part);
+      }
+      return { answered: true, parts: parts.length };
+    } catch (e) {
+      // Ошибка — словами: «не настроен», «OpenAI ответил 401», «не ответил
+      // за 90 секунд». Молчание было бы хуже любой из них.
+      await send(from.id, e.message || "Помощник не ответил.");
+      return { error: e.message };
     }
-    return { answered: true, parts: parts.length };
-  } catch (e) {
-    // Ошибка — словами: «не настроен», «OpenAI ответил 401», «сеть не
-    // ответила». Молчание было бы хуже любой из них.
-    await send(from.id, e.message || "Помощник не ответил.");
+  })().catch((e) => {
+    // Не ушло даже слово об ошибке (Telegram не отвечает) — остаётся
+    // журнал; необработанным отказом это стать не должно.
+    (deps.log || ((m) => console.warn(`[bot] ${m}`)))(`ответ помощника не отправлен: ${e.message}`);
     return { error: e.message };
-  }
+  });
+  return { answered: "queued", done };
 }

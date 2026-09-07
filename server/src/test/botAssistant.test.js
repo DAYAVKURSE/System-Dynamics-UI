@@ -3,7 +3,11 @@ import { onAssistantMessage, splitMessage } from "../lib/botAssistant.js";
 import { NOT_CONFIGURED } from "../lib/assistantSettings.js";
 
 /* Помощник в чате: обычный текст → ответ, «запомни:» → память, документ →
-   память. Команды и пересылки — не его: на них null, их разбирает bot.js. */
+   память. Команды и пересылки — не его: на них null, их разбирает bot.js.
+
+   Ответа модели бот не ждёт: сразу «Думаю…», ответ — потом, отдельным
+   сообщением. Возвращаемое `done` — обещание, что ответ или ошибка уже
+   ушли в чат; тесты ждут его, бот — нет. */
 
 const from = { id: 200, first_name: "Иван" };
 let sent, asked, remembered;
@@ -25,11 +29,26 @@ const deps = () => ({
 beforeEach(() => { sent = []; asked = []; remembered = []; });
 
 describe("что помощник берёт, а что нет", () => {
-  it("обычный текст — вопрос от имени спросившего, ответ в чат", async () => {
+  it("обычный текст — сразу «Думаю…», ответ от имени спросившего приходит потом", async () => {
     const r = await onAssistantMessage({ text: "что у меня сегодня?" }, from, deps());
-    expect(r).toEqual({ answered: true, parts: 1 });
+    expect(r.answered).toBe("queued");
+    // «Думаю…» ушло первым, ответ — отдельным сообщением следом.
+    expect(sent[0].text).toBe("Думаю…");
+    expect(await r.done).toEqual({ answered: true, parts: 1 });
     expect(asked).toEqual([{ userId: "200", q: "что у меня сегодня?" }]);
-    expect(sent[0].text).toBe("ответ на «что у меня сегодня?»");
+    expect(sent[1].text).toBe("ответ на «что у меня сегодня?»");
+  });
+
+  it("пока модель думает, бот не занят: ответ уходит, когда придёт", async () => {
+    let release;
+    const d = deps();
+    d.assistant.ask = () => new Promise((r) => { release = r; });
+    const r = await onAssistantMessage({ text: "?" }, from, d);
+    expect(r.answered).toBe("queued");
+    expect(sent).toHaveLength(1);
+    release("вот ответ");
+    await r.done;
+    expect(sent[1].text).toBe("вот ответ");
   });
 
   it("команды, пересылки и пустые сообщения — не его", async () => {
@@ -44,26 +63,38 @@ describe("что помощник берёт, а что нет", () => {
   it("не настроен — тот самый текст, а не тишина и не stack trace", async () => {
     const d = deps();
     d.assistant.ask = async () => { throw new Error(NOT_CONFIGURED); };
-    await onAssistantMessage({ text: "?" }, from, d);
-    expect(sent[0].text).toBe("Помощник не настроен: владелец должен указать ключ в Инструментах");
+    const r = await onAssistantMessage({ text: "?" }, from, d);
+    await r.done;
+    expect(sent[1].text).toBe("Помощник не настроен: владелец должен указать ключ в Инструментах");
   });
 
   it("ошибка провайдера — словами", async () => {
     const d = deps();
     d.assistant.ask = async () => { throw new Error("OpenAI ответил 429: rate limit"); };
     const r = await onAssistantMessage({ text: "?" }, from, d);
-    expect(r.error).toMatch(/429/);
-    expect(sent[0].text).toMatch(/OpenAI ответил 429/);
+    expect((await r.done).error).toMatch(/429/);
+    expect(sent[1].text).toMatch(/OpenAI ответил 429/);
+  });
+
+  it("не ушла даже ошибка — журнал, а не необработанный отказ", async () => {
+    const d = deps();
+    const logged = [];
+    d.log = (m) => logged.push(m);
+    d.assistant.ask = async () => { throw new Error("модель молчит"); };
+    d.send = async (chatId, text) => { if (text !== "Думаю…") throw new Error("Telegram лежит"); };
+    const r = await onAssistantMessage({ text: "?" }, from, d);
+    expect((await r.done).error).toBe("Telegram лежит");
+    expect(logged[0]).toMatch(/Telegram лежит/);
   });
 
   it("длинный ответ уходит несколькими сообщениями, целыми абзацами", async () => {
     const d = deps();
     const para = "абзац ".repeat(300).trim();
     d.assistant.ask = async () => [para, para, para].join("\n\n");
-    const r = await onAssistantMessage({ text: "?" }, from, d);
+    const r = await (await onAssistantMessage({ text: "?" }, from, d)).done;
     expect(r.parts).toBeGreaterThan(1);
     sent.forEach((m) => expect(m.text.length).toBeLessThanOrEqual(4000));
-    expect(sent.map((m) => m.text).join("\n\n").replace(/\s+/g, " "))
+    expect(sent.slice(1).map((m) => m.text).join("\n\n").replace(/\s+/g, " "))
       .toBe([para, para, para].join(" "));
   });
 });
