@@ -3,7 +3,8 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
-  takeTaskRemote, submitTaskRemote, commentTaskRemote, getRatings, putSpaceRemote }
+  takeTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote, getRatings,
+  putSpaceRemote }
   from "../identity.js";
 import { askAssistant, listMemory } from "../assistant.js";
 import { callFromLocation } from "../calls.js";
@@ -29,7 +30,7 @@ import Modal from "./Modal.jsx";
 import ProfilePanel from "./ProfilePanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
-import { filesOf, normalizeSpace } from "../lib/space.js";
+import { emptySpace, filesOf, normalizeSpace } from "../lib/space.js";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v9
@@ -330,6 +331,36 @@ export const TAB_LIST=[SELF_TAB,["tasks","Задачи"],["review","Провер
   ["scheme","Схема"],["reports","Отчёты"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
+/* Пространство — вспомогательный слой, и терять из-за него модель нельзя.
+   Достройка (normalizeSpace) терпит мусор, но если она всё же упадёт, на
+   экране должна остаться модель с пустым пространством, а не исключение:
+   в загрузке сценария исключение уходило в .catch, .finally ставило
+   ready=true — и на сервер уезжала демонстрационная модель ПОВЕРХ
+   рабочей. */
+const safeSpace=(v)=>{ try{ return normalizeSpace(v); }catch{ return emptySpace(); } };
+
+/* Документ из внешней записи — сценария с диска или JSON из выгрузки —
+   поверх текущего `cur`. Старые записи могут не знать про часть
+   документа: недостающее остаётся текущим, а не превращается в пустоту.
+   Путь один на все входы нарочно: пока «Загрузить» из выгрузки собирал
+   документ своим набором сеттеров, он молча терял пространство, цели,
+   факторы и отчёты — всё, что появилось в документе позже него. */
+export function docFrom(data,cur){
+  const d=data&&typeof data==="object"?data:{};
+  const arr=(v,c,need)=>Array.isArray(v)&&(!need||v.length)?v:c;
+  return {
+    entities:normalizeAssets(arr(d.entities,cur.entities,true)),
+    traits:arr(d.traits,cur.traits),
+    kinds:arr(d.kinds,cur.kinds,true),
+    tasks:arr(d.tasks,cur.tasks),
+    funcs:normalizeFuncs(arr(d.funcs,cur.funcs)),
+    goals:normalizeGoals(arr(d.goals,cur.goals)),
+    factors:normalizeFactors(arr(d.factors,cur.factors)),
+    reports:normalizeReports(arr(d.reports,cur.reports)),
+    space:safeSpace(d.space??cur.space),
+  };
+}
+
 export default function SystemModel(){
   const [entities,setEntities]=useState(ENTITIES0);
   const [traits,setTraits]=useState(TRAITS0);
@@ -422,10 +453,6 @@ export default function SystemModel(){
   const ent=(id)=>entities.find(e=>e.id===id);
   const kindOf=useMemo(()=>kindLookup(kinds),[kinds]);
 
-  const adoptSelection=(list)=>{
-    setSel(s=>list.some(e=>e.id===s)?s:(list[0]?.id??null));
-  };
-
   // ─── история правок: отмена и возврат ───
   const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports,space}),
     [entities,traits,kinds,tasks,funcs,goals,factors,reports,space]);
@@ -439,7 +466,7 @@ export default function SystemModel(){
     setGoals(normalizeGoals(d.goals));
     setFactors(normalizeFactors(d.factors));
     setReports(normalizeReports(d.reports));
-    setSpace(normalizeSpace(d.space));
+    setSpace(safeSpace(d.space));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -683,21 +710,7 @@ export default function SystemModel(){
     // Пока схема ехала с диска, человек мог применить черновик — тогда
     // подставлять её поверх нельзя: он потеряет свои правки.
     if(guard&&!guard()) return null;
-    // Старые сценарии могут не знать про часть документа — недостающее
-    // остаётся текущим, а не превращается в пустоту.
-    const arr=(v,cur,need)=>Array.isArray(v)&&(!need||v.length)?v:cur;
-    const fs=normalizeFuncs(arr(s.data?.funcs,docRef.current.funcs));
-    const loaded={
-      entities:normalizeAssets(arr(s.data?.entities,docRef.current.entities,true)),
-      traits:arr(s.data?.traits,docRef.current.traits),
-      kinds:arr(s.data?.kinds,docRef.current.kinds,true),
-      tasks:arr(s.data?.tasks,docRef.current.tasks),
-      funcs:fs,
-      goals:normalizeGoals(arr(s.data?.goals,docRef.current.goals)),
-      factors:normalizeFactors(arr(s.data?.factors,docRef.current.factors)),
-      reports:normalizeReports(arr(s.data?.reports,docRef.current.reports)),
-      space:normalizeSpace(s.data?.space??docRef.current.space),
-    };
+    const loaded=docFrom(s.data,docRef.current);
     restoreDoc(loaded);
     savedDoc.current=loaded; clearDraft(); setRecovery(null);
     setSaveName(s.name); setSavedSel(s.id);
@@ -781,21 +794,7 @@ export default function SystemModel(){
     try{
       const s=await getScenario(savedSel);
       if(!s) throw new Error("Сценарий не найден.");
-      // Старые сценарии могут не знать про часть документа — недостающее
-      // остаётся текущим, а не превращается в пустоту.
-      const arr=(v,cur,need)=>Array.isArray(v)&&(!need||v.length)?v:cur;
-      const fs=normalizeFuncs(arr(s.data?.funcs,funcs));
-      const loaded={
-        entities:normalizeAssets(arr(s.data?.entities,entities,true)),
-        traits:arr(s.data?.traits,traits),
-        kinds:arr(s.data?.kinds,kinds,true),
-        tasks:arr(s.data?.tasks,tasks),
-        funcs:fs,
-        goals:normalizeGoals(arr(s.data?.goals,goals)),
-        factors:normalizeFactors(arr(s.data?.factors,factors)),
-        reports:normalizeReports(arr(s.data?.reports,reports)),
-        space:normalizeSpace(s.data?.space??space),
-      };
+      const loaded=docFrom(s.data,docRef.current);
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
       setSaveName(s.name);
@@ -1053,6 +1052,7 @@ export default function SystemModel(){
           /* У владельца сдача и комментарий уезжают в составе модели через
              putWorkspace; POST'ить их ещё раз значило бы записать дважды. */
           onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).catch(()=>{}); }}
+          onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).catch(()=>{}); }}
           onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).catch(()=>{}); }}
           space={space} setSpace={setSpace} files={spaceFiles} memory={memory}
           ask={me.solo?undefined:(q,ctx)=>askAssistant(q,ctx)}/>)}
@@ -1064,6 +1064,7 @@ export default function SystemModel(){
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}
           onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).catch(()=>{}); }}
+          onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).catch(()=>{}); }}
           onAccept={(t,note,mark,hidden)=>decide(t,true,note,mark,hidden)}
           onReturn={(t,note,mark,hidden)=>decide(t,false,note,mark,hidden)}/>)}
 
@@ -1338,12 +1339,10 @@ export default function SystemModel(){
               setJsonMsg("Выгружено.");}}>
               Выгрузить</button>
             <button style={btn(false)} onClick={()=>{try{const d=JSON.parse(json);
-              const fs=d.funcs!==undefined?normalizeFuncs(d.funcs):funcs;
-              if(d.entities){setEntities(normalizeAssets(d.entities));adoptSelection(d.entities);}
-              if(d.traits)setTraits(d.traits);
-              if(Array.isArray(d.kinds)&&d.kinds.length)setKinds(d.kinds);
-              if(Array.isArray(d.tasks))setTasks(d.tasks);
-              if(Array.isArray(d.funcs))setFuncs(fs);
+              if(!d||typeof d!=="object") throw new Error("не объект");
+              // Тем же путём, что и сценарий с диска: выгрузка — это весь
+              // документ, и читать его надо целиком.
+              restoreDoc(docFrom(d,docRef.current));
               setJsonMsg("Загружено.");}
               catch{setJsonMsg("Не разобрал JSON.");}}}>Загрузить</button>
             {jsonMsg&&<span style={{fontSize:12,color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}

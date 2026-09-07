@@ -187,7 +187,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
-  published, onComment }) {
+  published, onComment, onDropComment }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
@@ -264,6 +264,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                   entities={entities} people={people} canAssign={canAssign}
                   nameOf={nameOf} setTasks={setTasks}
                   published={published} meId={meId} onComment={onComment}
+                  onDropComment={onDropComment}
                   onClose={() => setSetupId(null)}
                   onDelete={() => { setTasks((p) => p.filter((x) => x.id !== setup.id));
                     setSetupId(null); }} />)}

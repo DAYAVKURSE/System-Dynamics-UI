@@ -114,6 +114,13 @@ export const reviewTaskRemote = (id, { accept, comment, mark, hidden = false }) 
 export const commentTaskRemote = (id, { text, to = null, hidden = false }) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/comments`,
     { method: "POST", body: JSON.stringify({ text, to, hidden }) });
+/* Убрать комментарий — своя операция по той же причине: у позванного
+   нажатие ✕ иначе жило бы только в окне и комментарий возвращался бы с
+   перезагрузкой. Сервер разрешает владельцу любой, остальным — только
+   свой; интерфейс показывает ✕ по тому же правилу. */
+export const dropCommentRemote = (taskId, commentId) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`,
+    { method: "DELETE" });
 /* Рейтинги глазами спрашивающего: про себя — только адресованные слова,
    про остальных — средние и публичные слова, нигде — автор. Сервер при
    каждом чтении пробует опубликовать то, что стало анонимным. */

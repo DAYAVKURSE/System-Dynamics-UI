@@ -103,6 +103,13 @@ router.post("/memory",
   async (req, res, next) => {
     try {
       const isFile = Buffer.isBuffer(req.body) && req.body.length > 0;
+      /* Имя файла есть, а байтов нет — значит файл пришёл как
+         application/json и его уже разобрал общий разбор тела: .json-файл
+         из старого клиента становился бы записью с полями из содержимого.
+         Лучше отказать словами, чем молча положить не то. */
+      if (req.header("X-Memory-Name") && !Buffer.isBuffer(req.body)) {
+        return res.status(400).json({ error: "send the file as application/octet-stream, not as JSON" });
+      }
       const saved = isFile
         ? await addMemory(req.me.id, {
           title: headerText(req.header("X-Memory-Title")),

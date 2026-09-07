@@ -33,8 +33,24 @@ describe("normalizeSpace — чужая запись достраивается,
       { id: "a3", from: "task:t1", to: "task:t1" },
     ] });
     expect(s.arrows.map((a) => a.id)).toEqual(["a1"]);
-    expect(s.arrows[0].points).toEqual([{ x: 3, y: 4 }, { x: 0, y: 0 }]);
+    // Точка-мусор выбрасывается, а не превращается в точку в начале координат.
+    expect(s.arrows[0].points).toEqual([{ x: 3, y: 4 }]);
     expect(s.arrows[0].at).toBeNull();
+  });
+
+  it("null и мусор внутри списков не роняют достройку — сломанный элемент выбрасывается", () => {
+    /* Запись лежит файлом на сервере, и правили её не только мы: null в
+       списке доезжает до достройки, а параметр по умолчанию `= {}` на
+       null не срабатывает. Падение здесь роняло загрузку модели. */
+    expect(normalizeSpace({ notes: [null, 7, { id: "n1" }] }).notes.map((n) => n.id)).toEqual(["n1"]);
+    expect(normalizeSpace({ arrows: [null, { id: "a1", from: "note:n1", to: "task:t1", points: [null, { x: 1 }] }] })
+      .arrows[0].points).toEqual([{ x: 1, y: 0 }]);
+    expect(normalizeSpace({ notes: [{ id: "n1", qa: [null, { q: "?" }] }] }).notes[0].qa)
+      .toEqual([{ q: "?", a: "", at: "" }]);
+    expect(normalizeSpace({ qa: { k: [null] }, pos: null, hidden: null, view: null }))
+      .toEqual(emptySpace());
+    expect(normalizeSpace({ arrows: [{ from: "a", to: "b", points: null, at: 5 }] }).arrows[0])
+      .toMatchObject({ points: [], at: null });
   });
 
   it("положения, ответы и скрытые — только осмысленные", () => {

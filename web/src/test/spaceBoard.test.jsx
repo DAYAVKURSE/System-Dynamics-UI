@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import SpaceBoard from "../components/SpaceBoard.jsx";
+import { sameDoc, useHistory } from "../lib/history.js";
 import { CELL, addArrow, emptySpace, normalizeSpace, placeNew } from "../lib/space.js";
 
 /* Пространство держит запись у родителя (в документе модели). Здесь
@@ -47,10 +48,12 @@ describe("блоки по типам", () => {
     const mem = blockOf("Регламент");
     expect(within(mem).getByText("память помощника")).toBeInTheDocument();
     expect(within(mem).getByText("Как мы сдаём работу и когда")).toBeInTheDocument();
-    // Место записалось сеткой: три блока — три разные клетки.
-    expect(Object.keys(last.current.pos).sort()).toEqual(["file:f1", "memory:m1", "task:t1"]);
-    expect(last.current.pos["task:t1"]).toEqual({ x: 0, y: 0 });
-    expect(last.current.pos["file:f1"]).toEqual({ x: CELL.w, y: 0 });
+    // Место дано сеткой — для показа: три блока — три разные клетки…
+    expect(task.style.left).toBe("0px");
+    expect(file.style.left).toBe(`${CELL.w}px`);
+    expect(mem.style.left).toBe(`${2 * CELL.w}px`);
+    // …а в запись само по себе не попадает: открыть пространство — не правка.
+    expect(last.current.pos).toEqual({});
   });
 
   it("непоставленная задача на пространство не попадает, пустота названа словами", () => {
@@ -213,6 +216,78 @@ describe("стрелки", () => {
     expect(last.current).toBe(before);
     fireEvent.pointerUp(handle, { clientX: 320, clientY: 450, pointerId: 1, button: 0 });
     expect(last.current.arrows[0].points).toEqual([{ x: 320, y: 450 }]);
+  });
+});
+
+/* Раскладка и история правок.
+
+   Пространство живёт в документе, а история (lib/history.js) записывает
+   каждое его изменение. Пока автораскладка новых блоков писалась в
+   документ эффектом, одно открытие вкладки зажигало «отменить», а после
+   отмены эффект тут же клал раскладку обратно — и отменить что-либо при
+   открытом пространстве было нельзя. */
+describe("раскладка и история правок", () => {
+  function HistHost({ tasks = TASKS, files = FILES, memory = MEMORY, last }) {
+    const [space, setSpace] = React.useState(() => emptySpace());
+    const [name, setName] = React.useState("Клиенты");
+    const doc = React.useMemo(() => ({ name, space }), [name, space]);
+    const restore = React.useCallback((d) => { setName(d.name); setSpace(d.space); }, []);
+    const hist = useHistory(doc, restore);
+    if (last) last.current = doc;
+    return (
+      <div>
+        <button onClick={() => setName("Покупатели")}>переименовать</button>
+        <button onClick={hist.undo} disabled={!hist.canUndo}>отменить</button>
+        <button onClick={hist.redo} disabled={!hist.canRedo}>вернуть</button>
+        <span data-testid="depth">{hist.depth}</span>
+        <span data-testid="name">{name}</span>
+        <SpaceBoard space={space} setSpace={setSpace} tasks={tasks} files={files} memory={memory}
+          nameOf={(id) => NAMES[id] || id} />
+      </div>);
+  }
+
+  it("открытие пространства документ не меняет, и «отменить» после чужой правки работает", () => {
+    const last = { current: null };
+    render(<HistHost last={last} />);
+    const opened = last.current;
+    expect(screen.getByText("Сбор заявок")).toBeInTheDocument();
+    expect(screen.getByTestId("depth").textContent).toBe("0");
+    expect(sameDoc(opened, { name: "Клиенты", space: emptySpace() })).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "переименовать" }));
+    expect(screen.getByTestId("depth").textContent).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "отменить" }));
+    expect(screen.getByTestId("name").textContent).toBe("Клиенты");
+    expect(screen.getByTestId("depth").textContent).toBe("0");
+    // Возврат жив: раскладка не легла новым шагом поверх отменённого.
+    expect(screen.getByRole("button", { name: "вернуть" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "отменить" })).toBeDisabled();
+    expect(last.current.space.pos).toEqual({});
+    // Блоки на месте, хоть их положение и не записано.
+    expect(blockOf("Сбор заявок").style.left).toBe("0px");
+  });
+
+  it("первое действие человека записывает раскладку целиком — соседи не прыгают", () => {
+    const { last } = mount();
+    const head = within(blockOf("Сбор заявок")).getByText("задача").parentElement;
+    fireEvent.pointerDown(head, { clientX: 10, clientY: 10, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(head, { clientX: 60, clientY: 90, pointerId: 1 });
+    fireEvent.pointerUp(head, { clientX: 60, clientY: 90, pointerId: 1, button: 0 });
+    expect(last.current.pos["task:t1"]).toEqual({ x: 50, y: 80 });
+    // Файл и память записаны там, где человек их видел, а не пересчитаны
+    // заново в освободившуюся клетку.
+    expect(last.current.pos["file:f1"]).toEqual({ x: CELL.w, y: 0 });
+    expect(last.current.pos["memory:m1"]).toEqual({ x: 2 * CELL.w, y: 0 });
+    expect(blockOf("макет.pdf").style.left).toBe(`${CELL.w}px`);
+  });
+
+  it("стрелка к ещё не записанному блоку входит туда, куда ткнули", () => {
+    const { last } = mount();
+    fireEvent.click(within(blockOf("Сбор заявок")).getByLabelText("стрелка от блока"));
+    fireEvent.pointerDown(blockOf("Регламент"),
+      { clientX: 2 * CELL.w + 30, clientY: 40, pointerId: 1, button: 0 });
+    expect(last.current.arrows[0]).toMatchObject({ from: "task:t1", to: "memory:m1", at: { dx: 30, dy: 40 } });
+    expect(last.current.pos["memory:m1"]).toEqual({ x: 2 * CELL.w, y: 0 });
   });
 });
 
