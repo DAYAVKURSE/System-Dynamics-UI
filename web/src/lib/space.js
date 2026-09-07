@@ -79,43 +79,57 @@ export const clampZoom = (z) => {
    нельзя. Битые стрелки (без концов или из блока в него же) выбрасываются:
    рисовать их нечем, а хранить незачем. */
 
-const normQa = (q = {}) => ({ q: str(q.q), a: str(q.a), at: str(q.at) });
-const normQaList = (l) => (Array.isArray(l) ? l.map(normQa).filter((x) => x.q || x.a) : []);
-const normPoint = (p = {}) => ({ x: num(p.x), y: num(p.y) });
+/* Запись — из файла на сервере, и её правили не только мы: `null` в
+   списке заметок или точек оттуда доезжает. Параметр по умолчанию `= {}`
+   на null не срабатывает, поэтому каждая часть сначала приводится к
+   объекту, а списки — к спискам объектов: сломанный элемент выбрасывается,
+   а не роняет всё пространство вместе с загрузкой модели. */
+const obj = (v) => (v && typeof v === "object" ? v : {});
+const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []);
 
-export const normalizeNote = (n = {}) => ({
-  id: n.id ?? uid("n"),
-  x: num(n.x), y: num(n.y),
-  title: str(n.title), text: str(n.text),
-  file: n.file && typeof n.file === "object" ? n.file : null,
-  qa: normQaList(n.qa),
-});
+const normQa = (v) => { const q = obj(v); return { q: str(q.q), a: str(q.a), at: str(q.at) }; };
+const normQaList = (l) => list(l).map(normQa).filter((x) => x.q || x.a);
+const normPoint = (v) => { const p = obj(v); return { x: num(p.x), y: num(p.y) }; };
 
-export const normalizeArrow = (a = {}) => ({
-  id: a.id ?? uid("a"),
-  from: str(a.from), to: str(a.to),
-  points: Array.isArray(a.points) ? a.points.map(normPoint) : [],
-  /* Куда именно на втором блоке ткнули — смещение внутри блока. Блок
-     переедет — стрелка поедет с ним и войдёт в то же место. Нет — в центр. */
-  at: a.at && typeof a.at === "object" ? { dx: num(a.at.dx), dy: num(a.at.dy) } : null,
-});
+export const normalizeNote = (v) => {
+  const n = obj(v);
+  return {
+    id: n.id ?? uid("n"),
+    x: num(n.x), y: num(n.y),
+    title: str(n.title), text: str(n.text),
+    file: n.file && typeof n.file === "object" ? n.file : null,
+    qa: normQaList(n.qa),
+  };
+};
+
+export const normalizeArrow = (v) => {
+  const a = obj(v);
+  return {
+    id: a.id ?? uid("a"),
+    from: str(a.from), to: str(a.to),
+    points: list(a.points).map(normPoint),
+    /* Куда именно на втором блоке ткнули — смещение внутри блока. Блок
+       переедет — стрелка поедет с ним и войдёт в то же место. Нет — в центр. */
+    at: a.at && typeof a.at === "object" ? { dx: num(a.at.dx), dy: num(a.at.dy) } : null,
+  };
+};
 
 export function normalizeSpace(raw) {
-  const r = raw && typeof raw === "object" ? raw : {};
-  const notes = Array.isArray(r.notes) ? r.notes.map(normalizeNote) : [];
+  const r = obj(raw);
+  const notes = list(r.notes).map(normalizeNote);
   const pos = {};
-  Object.entries(r.pos && typeof r.pos === "object" ? r.pos : {}).forEach(([k, p]) => {
+  Object.entries(obj(r.pos)).forEach(([k, p]) => {
     if (k && p && typeof p === "object") pos[k] = { x: num(p.x), y: num(p.y) };
   });
   const qa = {};
-  Object.entries(r.qa && typeof r.qa === "object" ? r.qa : {}).forEach(([k, l]) => {
+  Object.entries(obj(r.qa)).forEach(([k, l]) => {
     const list = normQaList(l);
     if (k && list.length) qa[k] = list;
   });
   const hidden = [...new Set((Array.isArray(r.hidden) ? r.hidden : []).map(str).filter(Boolean))];
-  const arrows = (Array.isArray(r.arrows) ? r.arrows : []).map(normalizeArrow)
+  const arrows = list(r.arrows).map(normalizeArrow)
     .filter((a) => a.from && a.to && a.from !== a.to);
-  const v = r.view && typeof r.view === "object" ? r.view : {};
+  const v = obj(r.view);
   return {
     notes, pos, qa, hidden, arrows,
     view: { x: num(v.x), y: num(v.y), zoom: clampZoom(v.zoom == null ? 1 : v.zoom) },
@@ -168,9 +182,12 @@ const cellOf = (x, y) => `${Math.floor(x / CELL.w)}:${Math.floor(y / CELL.h)}`;
  *
  * Класть всё в одну точку нельзя: три задачи стопкой выглядят как одна.
  * Клетки, где уже что-то лежит, пропускаются, поэтому новое не наезжает
- * на расставленное руками. Положение ЗАПИСЫВАЕТСЯ, а не считается на
- * каждом показе: считалось бы — блоки прыгали бы всякий раз, когда
- * человек уносит соседа и освобождает клетку.
+ * на расставленное руками. Положение ЗАПИСЫВАЕТСЯ — но не само по себе,
+ * а вместе с первой правкой человека (SpaceBoard пропускает каждую правку
+ * через эту функцию). До неё раскладка только считается для показа: сама
+ * по себе запись была бы шагом истории правок, который человек не делал.
+ * А записывать всё-таки надо: считалось бы на каждом показе — блоки
+ * прыгали бы всякий раз, когда человек уносит соседа и освобождает клетку.
  *
  * Возвращает тот же объект, если класть нечего, — чтобы вызывающий код
  * мог не писать пустую правку.

@@ -75,10 +75,15 @@ export async function addMemory(item) {
     return json("/api/assistant/memory", { method: "POST",
       body: JSON.stringify({ title: item?.title || "", text: item?.text || "" }) });
   }
+  /* Файл уходит как байты без типа, а настоящий тип — в X-Memory-Type:
+     сервер разбирает JSON-тела для всех маршрутов разом, и .json-файл,
+     посланный как application/json, доезжал до памяти не файлом, а
+     разобранной записью — с полями из содержимого или «text or file is
+     required», если полей там не было. */
   const r = await fetch("/api/assistant/memory", {
     method: "POST",
     headers: {
-      "Content-Type": file.type || "application/octet-stream",
+      "Content-Type": "application/octet-stream",
       "X-Memory-Name": b64(file.name),
       "X-Memory-Type": file.type || "application/octet-stream",
       ...(item?.title && !isFile ? { "X-Memory-Title": b64(item.title) } : {}),

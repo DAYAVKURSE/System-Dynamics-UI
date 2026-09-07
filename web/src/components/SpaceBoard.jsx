@@ -67,18 +67,25 @@ const CANVAS_H = 520;
 export default function SpaceBoard({ space, setSpace, tasks = [], funcs = [], entities = [],
   files = [], memory = [], ask, nameOf, onOpenTask }) {
   const sp = useMemo(() => normalizeSpace(space), [space]);
-  /* Правка всегда идёт через достройку: запись могла прийти чужой или
-     старой, а функции из lib/space.js рассчитывают на полную. */
-  const update = (fn) => setSpace((s) => fn(normalizeSpace(s)));
-
   const model = useMemo(() => ({ tasks, files, memory }), [tasks, files, memory]);
   const keys = useMemo(() => derivedKeys(model), [model]);
-  /* Новые производные блоки получают место сеткой, и оно записывается
-     сразу: иначе они прыгали бы при каждой правке соседей (см. placeNew). */
-  useEffect(() => {
-    if (keys.some((k) => !sp.pos[k] && !sp.hidden.includes(k))) update((s) => placeNew(s, keys));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keys, sp]);
+  /* Новым производным блокам место даётся сеткой, но САМО ПО СЕБЕ в
+     документ не пишется: открытие пространства — не правка, а история
+     правок (lib/history.js) записывает каждое изменение документа. Пока
+     автораскладка писалась эффектом, одно открытие вкладки зажигало
+     «отменить», а после отмены эффект тут же клал раскладку обратно —
+     и отменить что-либо при открытом пространстве было нельзя. Поэтому
+     раскладка считается для показа, а в запись попадает вместе с первым
+     действием человека (ниже, в update): тогда всё, что он видел, ляжет
+     в документ ровно так, как он это видел, и соседи не прыгнут. */
+  const placed = useMemo(() => placeNew(sp, keys), [sp, keys]);
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+  /* Правка всегда идёт через достройку и раскладку: запись могла прийти
+     чужой или старой, а функции из lib/space.js рассчитывают на полную —
+     и на то, что у каждого показанного блока есть положение (стрелка к
+     ещё не записанному блоку иначе не знала бы, куда входить). */
+  const update = (fn) => setSpace((s) => fn(placeNew(normalizeSpace(s), keysRef.current)));
 
   /* Настоящие размеры блоков — из браузера. Стрелка должна входить в
      границу блока, а высота у него зависит от текста; в тестах измерять
@@ -114,8 +121,8 @@ export default function SpaceBoard({ space, setSpace, tasks = [], funcs = [], en
   const lastTap = useRef(null);                   // { id, at } — для двойного нажатия
   const box = useRef(null);
 
-  const blocks = useMemo(() => blocksOf(sp, model).map((b) => ({ ...b, ...(sizes[b.key] || {}) })),
-    [sp, model, sizes]);
+  const blocks = useMemo(() => blocksOf(placed, model).map((b) => ({ ...b, ...(sizes[b.key] || {}) })),
+    [placed, model, sizes]);
   const shown = blocks.map((b) => (drag?.kind === "block" && drag.key === b.key
     ? { ...b, x: drag.x, y: drag.y } : b));
   const arrows = sp.arrows.map((a) => (drag?.kind === "point" && drag.arrowId === a.id

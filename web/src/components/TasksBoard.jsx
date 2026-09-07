@@ -500,7 +500,7 @@ function FuncCard({func,entities,traitName}){
    никто не спросил, зачем она. */
 export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
   setTasks,onClose,onDelete,people=[],canAssign=true,nameOf,
-  published,meId,onComment}){
+  published,meId,onComment,onDropComment}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
@@ -653,10 +653,11 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
         </div>)}
 
       <div style={{...S.lbl,marginTop:10}}>комментарии</div>
-      <Comments task={task} meId={meId} nameOf={nameOf}
+      <Comments task={task} meId={meId} nameOf={nameOf} isOwner={canAssign}
         onAdd={(c)=>{ up("comments",[...(task.comments||[]),newComment(c,meId)]);
           onComment?.(task,c); }}
-        onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
+        onDrop={(id)=>{ up("comments",(task.comments||[]).filter(c=>c.id!==id));
+          onDropComment?.(task,id); }}/>
     </div>);
 }
 
@@ -681,7 +682,7 @@ export const newComment=({text,to=null,hidden=false},by)=>({
 const NO_RATING={mark:null,comment:"",hidden:true};
 
 export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
-  onClose,nameOf,meId,onComment,onSubmit}){
+  onClose,nameOf,meId,isOwner=true,onComment,onDropComment,onSubmit}){
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
@@ -1048,10 +1049,11 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
       {/* Комментарии — единственное, что исполнитель здесь пишет помимо
           сдачи: спросить, уточнить, сказать, что мешает. */}
       <div style={S.lbl}>комментарии</div>
-      <Comments task={task} meId={meId} nameOf={nameOf}
+      <Comments task={task} meId={meId} nameOf={nameOf} isOwner={isOwner}
         onAdd={(c)=>{ up("comments",[...(task.comments||[]),newComment(c,meId)]);
           onComment?.(task,c); }}
-        onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
+        onDrop={(id)=>{ up("comments",(task.comments||[]).filter(c=>c.id!==id));
+          onDropComment?.(task,id); }}/>
     </div>);
 }
 
@@ -1077,8 +1079,12 @@ export const canSeeComment=(c,meId)=>!c?.hidden
    Комментарий — с автором и адресатом: это разговор в задаче, а не
    суждение о человеке. Скрытый видят только автор и адресат — можно
    сказать лично, не вынося на всех; поэтому скрытому нужен адресат, а
-   «скрытый никому» не бывает. Публичный видят все, кто видит задачу. */
-function Comments({task,meId,nameOf,onAdd,onDrop}){
+   «скрытый никому» не бывает. Публичный видят все, кто видит задачу.
+
+   Убрать комментарий может владелец — любой, остальные — только свой:
+   то же правило, что и на сервере (DELETE …/comments/:cid). Показывать
+   ✕ шире значило бы обещать то, что после перезагрузки не сбудется. */
+function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop}){
   const [text,setText]=useState("");
   const [to,setTo]=useState("");
   const [hidden,setHidden]=useState(false);
@@ -1087,6 +1093,8 @@ function Comments({task,meId,nameOf,onAdd,onDrop}){
   const list=(task.comments||[]).filter(c=>canSeeComment(c,me));
   const people=addressees(task,me);
   const canAdd=!!text.trim()&&(!hidden||!!to);
+  const mayDrop=(c)=>typeof onDrop==="function"
+    &&(isOwner||(me!=null&&String(c.by)===me));
   const add=()=>{
     if(!canAdd) return;
     onAdd({text:text.trim(),to:to||null,hidden});
@@ -1110,8 +1118,8 @@ function Comments({task,meId,nameOf,onAdd,onDrop}){
               {c.to?`→ ${who(c.to)} · `:""}
               {fmtDT(c.at)}</span>
             {c.hidden&&<span style={{fontSize:10,color:WARN}}>{tag(c)}</span>}
-            <button style={{...btn(false),padding:"2px 6px"}}
-              aria-label="убрать комментарий" onClick={()=>onDrop(c.id)}>✕</button>
+            {mayDrop(c)&&<button style={{...btn(false),padding:"2px 6px"}}
+              aria-label="убрать комментарий" onClick={()=>onDrop(c.id)}>✕</button>}
           </div>
         </div>))}
       <div className="flex gap-2" style={{marginTop:6}}>
@@ -1140,7 +1148,7 @@ function Comments({task,meId,nameOf,onAdd,onDrop}){
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTasks,
-  openId,setOpenId,nameOf,onTake,meId,onComment,onSubmit}){
+  openId,setOpenId,nameOf,onTake,meId,canAssign=true,onComment,onDropComment,onSubmit}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
   /* Двигать задачи по доске нельзя, и стрелок здесь нет. У исполнителя два
@@ -1171,7 +1179,8 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
     <div>
       {open&&(
         <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits}
-          entities={entities} meId={meId} onComment={onComment} onSubmit={onSubmit}
+          entities={entities} meId={meId} isOwner={canAssign}
+          onComment={onComment} onDropComment={onDropComment} onSubmit={onSubmit}
           nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}
 
       <div className="flex gap-2" style={{overflowX:"auto",alignItems:"flex-start"}}>

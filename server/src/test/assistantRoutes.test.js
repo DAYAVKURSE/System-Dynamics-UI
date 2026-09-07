@@ -192,4 +192,32 @@ describe("память", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/required/);
   });
+
+  it(".json-файл как байты ложится файлом с текстом; как application/json — 400 словами", async () => {
+    /* JSON-тела разбираются на уровне приложения для всех маршрутов разом:
+       файл, присланный как application/json, доезжал сюда разобранной
+       записью и становился заметкой с полями из содержимого. Клиент шлёт
+       файл как octet-stream (тип — в X-Memory-Type), а старому клиенту
+       отвечаем словами, а не подменой. */
+    const ok = await request(app).post("/api/assistant/memory").set(as(200))
+      .set("X-Memory-Name", b64("данные.json"))
+      .set("X-Memory-Type", "application/json")
+      .set("Content-Type", "application/octet-stream")
+      .send(Buffer.from('{"title":"из файла","text":"тело файла"}'));
+    expect(ok.status).toBe(201);
+    expect(ok.body.file.name).toBe("данные.json");
+    expect(ok.body.file.type).toBe("application/json");
+    expect(ok.body.text).toBe('{"title":"из файла","text":"тело файла"}');
+    // Содержимое файла — текст записи, а не её поля.
+    expect(ok.body.title).toBe('{"title":"из файла","text":"тело файла"}');
+
+    const bad = await request(app).post("/api/assistant/memory").set(as(200))
+      .set("X-Memory-Name", b64("данные.json"))
+      .set("Content-Type", "application/json")
+      .send('{"title":"из файла","text":"тело файла"}');
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/octet-stream/);
+    const mine = await request(app).get("/api/assistant/memory").set(as(200));
+    expect(mine.body).toHaveLength(1);
+  });
 });

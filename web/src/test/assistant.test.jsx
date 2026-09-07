@@ -160,7 +160,12 @@ describe("память помощника", () => {
     await screen.findByText(/Файл «договор\.txt» в памяти/);
     const post = log.find((r) => r.method === "POST");
     expect(post.body).toBe(file);
-    expect(post.headers["Content-Type"]).toBe("text/plain");
+    /* Файл едет байтами без типа, тип — в своём заголовке: сервер
+       разбирает JSON-тела на всех маршрутах разом, и .json-файл, посланный
+       как application/json, доезжал до памяти разобранной записью, а не
+       файлом. */
+    expect(post.headers["Content-Type"]).toBe("application/octet-stream");
+    expect(post.headers["X-Memory-Type"]).toBe("text/plain");
     expect(post.headers["X-Memory-Name"]).toBe(btoa(String.fromCharCode(...new TextEncoder().encode("договор.txt"))));
     expect(post.headers["X-Telegram-Init-Data"]).toBeDefined();
   });
@@ -187,6 +192,12 @@ describe("память помощника", () => {
     const f = new File(["x"], "a.txt", { type: "text/plain" });
     await addMemory(f);
     expect(log[1].body).toBe(f);
+    // .json-файл — тоже байты: как application/json он был бы съеден разбором тела.
+    const j = new File(['{"a":1}'], "данные.json", { type: "application/json" });
+    await addMemory(j);
+    expect(log[2].body).toBe(j);
+    expect(log[2].headers["Content-Type"]).toBe("application/octet-stream");
+    expect(log[2].headers["X-Memory-Type"]).toBe("application/json");
   });
 
   it("начало текста режется по 80 знакам и в одну строку", () => {
