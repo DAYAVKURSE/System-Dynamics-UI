@@ -15,6 +15,11 @@ echo "── зависимости ──"
 npm ci --omit=dev --no-audit --no-fund
 
 echo "── перезапуск ──"
+# Мост к Claude Code удалён из ecosystem.config.cjs, но startOrReload
+# убранное из конфига приложение не останавливает: на серверах, где он был
+# запущен прежним деплоем, процесс жил бы вечно, падая на 404 и засоряя
+# логи. Снимаем явно; там, где его не было, команда молча ничего не делает.
+pm2 delete claude-bridge >/dev/null 2>&1 || true
 pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save >/dev/null 2>&1 || true
 
