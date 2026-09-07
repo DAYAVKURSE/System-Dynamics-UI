@@ -24,11 +24,37 @@
    проверяющего. Сдача, которую не приняли, — заявление исполнителя, а не
    измерение; она попадает в историю отдельной строкой «вернули», но в
    среднюю оценку и в срок не идёт.
+
+   ─── оценки без имени ───
+
+   Оценка идёт в рейтинг не тогда, когда её поставили, а когда её
+   ОПУБЛИКОВАЛИ (`model.published`, сервер: `lib/ratings.js`). Публикуется
+   она без автора и только когда автора нельзя вычислить: у человека по
+   этому виду оценок не меньше двух от разных людей. Непубликованная
+   оценка для рейтинга не существует — иначе анонимность держалась бы на
+   том, что интерфейс её не показывает.
+
+   Свои оценки и свой рейтинг человек не видит: рейтинг существует, чтобы
+   ЕМУ поручали, а не чтобы он на себя смотрел. Правило живёт в одном
+   месте — `visibleStats()`; остальное просто спрашивает у него.
    ════════════════════════════════════════════════════════════════ */
 
 /** Оценка — пятибалльная: меньше градаций не различает, больше не читается. */
 export const MARK_MIN = 1;
 export const MARK_MAX = 5;
+
+/* Два вида оценок, и слова у них свои: «за выполнение» — про исполнителя,
+   от проверяющего; «за постановку» — про постановщика, от исполнителя. */
+export const RATING_KINDS = [
+  { id: "work", name: "за выполнение" },
+  { id: "setup", name: "за постановку" },
+];
+export const kindName = (id) => RATING_KINDS.find((k) => k.id === id)?.name || id;
+
+/** Идентификатор оценки в реестре опубликованного: задача, вид, автор. */
+export const ratingId = (taskId, kind, by) => `${taskId}~${kind}~${by}`;
+const pubSet = (published) =>
+  new Set(Array.isArray(published) ? published.map(String) : []);
 
 /* ════════════════════════════════════════════════════════════════
    РАБОЧИЙ ГРАФИК И СТАТУС
@@ -153,15 +179,26 @@ export function inTime(task, submission) {
   return at <= end;
 }
 
-/** Одна строка истории: что делал, когда, сколько заняло и как приняли. */
-export function historyOf(tasks = [], funcs = [], personId) {
+/**
+ * Одна строка истории: что делал, когда, сколько заняло и как приняли.
+ *
+ * Оценка в строке есть только у ОПУБЛИКОВАННОЙ (`published` — реестр из
+ * модели): принятая, но не опубликованная работа — `mark: null` и
+ * `pending: true`, «оценка ещё не опубликована». Слова проверяющего идут
+ * как есть, вместе с признаком «скрытые»: кому их показывать, решает
+ * `visibleStats()`, а не история.
+ */
+export function historyOf(tasks = [], funcs = [], personId, { published } = {}) {
   const id = String(personId);
+  const pub = pubSet(published);
   return tasks
     .filter((t) => String(t.assignee || "") === id && (t.submissions || []).length)
     .map((t) => {
       const sb = lastSubmission(t);
       const rv = lastReview(t);
       const f = funcs.find((x) => x.id === t.funcId) || null;
+      const rated = !!(rv && rv.accept && (num(rv.mark) || rv.comment));
+      const shown = rated && rv.by != null && pub.has(ratingId(t.id, "work", rv.by));
       return {
         task: t.id,
         title: t.title,
@@ -176,8 +213,11 @@ export function historyOf(tasks = [], funcs = [], personId) {
         text: sb?.text || "",
         file: sb?.file || null,
         done: t.status === "done",
-        mark: rv && rv.accept ? num(rv.mark) || null : null,
+        mark: shown ? num(rv.mark) || null : null,
+        pending: rated && !shown,
+        published: shown,
         comment: rv?.comment || "",
+        hidden: !!rv?.hidden,
         by: rv?.by || null,
         inTime: inTime(t, sb),
       };
@@ -186,17 +226,38 @@ export function historyOf(tasks = [], funcs = [], personId) {
 }
 
 /**
+ * Оценки постановки, которые человек получил как постановщик, — только
+ * опубликованные. Отдельно от оценок за выполнение: как человек ставит
+ * задачи, к тому, как он их делает, не прибавляется.
+ */
+export function setupMarksOf(tasks = [], personId, { published } = {}) {
+  const id = String(personId);
+  const pub = pubSet(published);
+  return tasks
+    .filter((t) => String(t.setter || "") === id && t.assignee != null
+      && String(t.assignee) !== id)
+    .map((t) => {
+      const sb = lastSubmission(t);
+      const r = sb?.setterRating;
+      return r && pub.has(ratingId(t.id, "setup", t.assignee)) ? num(r.mark) || null : null;
+    })
+    .filter((v) => v != null);
+}
+
+/**
  * Итог по человеку: средняя оценка, доля «в срок», объём работы.
  *
- * `mark` — среднее по принятым работам, `onTime` — доля тех, где срок был
- * задан и соблюдён. Обе величины могут быть `null`: «ещё не оценивали» и
- * «нечего оценивать» — не то же самое, что ноль, и показывать ноль там,
- * где нет данных, значит клеветать на человека.
+ * `mark` — среднее по ОПУБЛИКОВАННЫМ оценкам принятых работ, `onTime` —
+ * доля тех, где срок был задан и соблюдён. Обе величины могут быть `null`:
+ * «ещё не оценивали» и «нечего оценивать» — не то же самое, что ноль, и
+ * показывать ноль там, где нет данных, значит клеветать на человека.
+ * `setup` — то же про постановку задач.
  */
-export function statsOf(tasks = [], funcs = [], personId) {
-  const rows = historyOf(tasks, funcs, personId);
+export function statsOf(tasks = [], funcs = [], personId, { published } = {}) {
+  const rows = historyOf(tasks, funcs, personId, { published });
   const done = rows.filter((r) => r.done);
   const timed = done.filter((r) => r.inTime !== null);
+  const setup = setupMarksOf(tasks, personId, { published });
   return {
     rows,
     done: done.length,
@@ -204,10 +265,79 @@ export function statsOf(tasks = [], funcs = [], personId) {
     returned: rows.filter((r) => !r.done).length,
     mark: avg(done.map((r) => r.mark).filter((v) => v != null)),
     marks: done.filter((r) => r.mark != null).length,
+    pending: done.filter((r) => r.pending).length,
+    setup: { mark: avg(setup), marks: setup.length },
     onTime: timed.length ? timed.filter((r) => r.inTime).length / timed.length : null,
     timed: timed.length,
     hours: done.reduce((s, r) => s + r.hours, 0),
   };
+}
+
+/**
+ * Что из рейтинга показывать ЭТОМУ зрителю про ЭТОГО человека.
+ *
+ * Единственное место, где живёт правило «свои оценки не показываются»:
+ * смотрящий на себя получает `self: true`, `mark`/`marks` = null и строки
+ * без оценок — рейтинг работает на того, кто поручает. Слова проверяющего
+ * в строках: себе — скрытые (их для него и писали) и опубликованные
+ * публичные; другим — только опубликованные публичные; автор — свои.
+ */
+export function visibleStats(model = {}, personId, viewerId) {
+  const { tasks = [], funcs = [], published } = model;
+  const self = viewerId != null && personId != null && String(viewerId) === String(personId);
+  const s = statsOf(tasks, funcs, personId, { published });
+  const me = viewerId == null ? null : String(viewerId);
+  const rows = s.rows.map((r) => {
+    const author = r.by != null && String(r.by) === me;
+    const show = author || (self ? (r.hidden || r.published) : (r.published && !r.hidden));
+    return { ...r, mark: self ? null : r.mark, comment: show ? r.comment : "" };
+  });
+  return self
+    ? { ...s, rows, self: true, mark: null, marks: null, pending: null,
+      setup: { mark: null, marks: null } }
+    : { ...s, rows, self: false };
+}
+
+/**
+ * Какие слова оценок кому показывать (то же правило, что на сервере в
+ * `lib/ratings.js`, но по той части модели, что есть у клиента).
+ *
+ * `mine` — адресованные зрителю: скрытые про него — сразу, публичные —
+ * когда опубликованы. `others` — чужие опубликованные публичные, по людям.
+ * Ни там, ни там нет автора: комментарий к оценке анонимен, как и оценка.
+ */
+export function commentsFor(model = {}, { viewer } = {}) {
+  const { tasks = [], published } = model;
+  const pub = pubSet(published);
+  const me = viewer == null ? null : String(viewer);
+  const mine = [];
+  const others = {};
+  const put = ({ subject, by, kind, text, hidden, id }) => {
+    if (!text || subject == null || by == null || String(by) === String(subject)) return;
+    if (String(by) === me) return;
+    const done = pub.has(id);
+    if (String(subject) === me) {
+      if (hidden || done) mine.push({ kind, text, hidden });
+    } else if (done && !hidden) {
+      (others[subject] = others[subject] || []).push({ kind, text });
+    }
+  };
+  tasks.forEach((t) => {
+    (t.reviews || []).forEach((rv) => {
+      if (!rv?.accept) return;
+      put({ subject: t.assignee, by: rv.by, kind: "work",
+        text: String(rv.comment || "").trim(), hidden: !!rv.hidden,
+        id: ratingId(t.id, "work", rv.by) });
+    });
+    (t.submissions || []).forEach((sb) => {
+      const r = sb?.setterRating;
+      if (!r) return;
+      put({ subject: t.setter, by: t.assignee, kind: "setup",
+        text: String(r.comment || "").trim(), hidden: !!r.hidden,
+        id: ratingId(t.id, "setup", t.assignee) });
+    });
+  });
+  return { mine, others };
 }
 
 /**
@@ -218,8 +348,8 @@ export function statsOf(tasks = [], funcs = [], personId) {
  * без единой оценки не считается ни лучшим, ни худшим: он идёт после
  * оценённых, потому что о нём просто ничего не известно.
  */
-export function byRating(tasks = [], funcs = [], ids = []) {
-  const stat = new Map(ids.map((id) => [id, statsOf(tasks, funcs, id)]));
+export function byRating(tasks = [], funcs = [], ids = [], { published } = {}) {
+  const stat = new Map(ids.map((id) => [id, statsOf(tasks, funcs, id, { published })]));
   const key = (id) => {
     const s = stat.get(id);
     return [s.mark == null ? -1 : s.mark, s.onTime == null ? -1 : s.onTime, s.done];
@@ -232,10 +362,16 @@ export function byRating(tasks = [], funcs = [], ids = []) {
   });
 }
 
-/** Коротко о человеке — строкой: «4,6 · в срок 80% · 5 работ». */
+/**
+ * Коротко о человеке — строкой: «4,6 · в срок 80% · 5 работ».
+ *
+ * Про себя вместо оценки — «свой рейтинг скрыт»: «без оценок» здесь было
+ * бы неправдой, оценки могут быть — их просто не показывают.
+ */
 export function shortStat(s) {
   const parts = [];
-  parts.push(s.mark == null ? "без оценок" : `${Math.round(s.mark * 10) / 10}`);
+  parts.push(s.self ? "свой рейтинг скрыт"
+    : s.mark == null ? "без оценок" : `${Math.round(s.mark * 10) / 10}`);
   if (s.onTime != null) parts.push(`в срок ${Math.round(s.onTime * 100)}%`);
   parts.push(s.done === 1 ? "1 работа" : `${s.done} работ`);
   return parts.join(" · ");

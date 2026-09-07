@@ -158,8 +158,11 @@ export const profileOf = (person = {}) => ({
 /** Заполнена ли анкета. */
 export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "").trim());
 
+/* `published` — реестр опубликованных оценок из модели; `ratings` — ответ
+   сервера про рейтинги, если его спросили. Оба нужны только рейтингу
+   ниже: анкета про них не знает. */
 export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = [],
-  traitName, onSaved }) {
+  traitName, onSaved, published, ratings }) {
   // Чья анкета открыта. По умолчанию — своя: с себя человек и начинает.
   const id = personId == null ? me?.id : personId;
   const mine = String(id) === String(me?.id);
@@ -232,10 +235,15 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
       </div>
 
       {/* Рейтинг — вторая половина ответа на тот же вопрос: не «кто это», а
-          «как он работал». Поэтому здесь же, а не в отдельном окне. */}
+          «как он работал». Поэтому здесь же, а не в отдельном окне.
+
+          Про себя — без цифр: свои оценки человеку не показываются, только
+          адресованные ему слова. Кто смотрит, карточке говорит `viewerId`. */}
       <div style={{ ...S.card, marginBottom: 10 }}>
-        <div style={{ ...S.lbl, marginBottom: 8 }}>рейтинг и работы</div>
-        <PersonStats tasks={tasks} funcs={funcs} personId={id} traitName={traitName} />
+        <div style={{ ...S.lbl, marginBottom: 8 }}>
+          {mine ? "комментарии и работы" : "рейтинг и работы"}</div>
+        <PersonStats tasks={tasks} funcs={funcs} personId={id} traitName={traitName}
+          published={published} viewerId={me?.id} ratings={ratings} />
       </div>
     </div>);
 }

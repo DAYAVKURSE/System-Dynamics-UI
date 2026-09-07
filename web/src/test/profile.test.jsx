@@ -121,15 +121,43 @@ describe("анкета", () => {
     expect(screen.queryByRole("button", { name: "Иван" })).toBeNull();
   });
 
-  it("рейтинг — на той же странице, а не в отдельном окне", () => {
-    const tasks = [{ id: "a", funcId: "f1", assignee: "2", status: "done",
-      title: "Сбор заявок", end: "2026-01-02T09:00:00Z",
-      submissions: [{ at: "2026-01-01T09:00:00Z", hours: 2, takes: {}, gives: {} }],
-      reviews: [{ accept: true, mark: 5, comment: "хорошо" }] }];
-    render(<ProfilePanel me={ME} people={PEOPLE} tasks={tasks}
+  /* ─── ПРО СЕБЯ ЧЕЛОВЕК ВИДИТ НЕ ВСЁ ───
+
+     Свои оценки и свой рейтинг не показываются: рейтинг существует, чтобы
+     ЕМУ поручали работу, а не чтобы он смотрел на себя. Адресованные ему
+     слова — показываются. */
+  const rated = (over = {}) => [{ id: "a", funcId: "f1", assignee: "2", status: "done",
+    title: "Сбор заявок", end: "2026-01-02T09:00:00Z",
+    submissions: [{ at: "2026-01-01T09:00:00Z", hours: 2, takes: {}, gives: {} }],
+    reviews: [{ accept: true, mark: 5, comment: "хорошо", by: "3", ...over }] }];
+
+  it("рейтинг чужого — на той же странице, а не в отдельном окне", () => {
+    render(<ProfilePanel me={{ ...ME, id: "9" }} personId="2" people={PEOPLE}
+      tasks={rated()} published={["a~work~3"]}
       funcs={[{ id: "f1", name: "Сбор заявок" }]} />);
     expect(screen.getByText("рейтинг и работы")).toBeInTheDocument();
     expect(screen.getByText("5/5")).toBeInTheDocument();
+  });
+
+  it("свои оценки не показываются — вместо них сказано, почему", () => {
+    render(<ProfilePanel me={ME} people={PEOPLE} tasks={rated()} published={["a~work~3"]}
+      funcs={[{ id: "f1", name: "Сбор заявок" }]} />);
+    expect(screen.getByText(/Свои оценки не показываются: рейтинг работает на того, кто поручает/))
+      .toBeInTheDocument();
+    expect(screen.queryByText("5/5")).toBeNull();
+    expect(screen.queryByText(/средняя оценка/)).toBeNull();
+    // Опубликованные слова про себя — видны, без имени: в списке
+    // адресованных и у самой работы.
+    expect(screen.getAllByText(/хорошо/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Пётр/)).toBeNull();
+  });
+
+  it("скрытые слова доходят до адресата сразу, а не после публикации", () => {
+    render(<ProfilePanel me={ME} people={PEOPLE} published={[]}
+      tasks={rated({ comment: "лично тебе", hidden: true })}
+      funcs={[{ id: "f1", name: "Сбор заявок" }]} />);
+    expect(screen.getAllByText(/лично тебе/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/скрытый · только вам/).length).toBeGreaterThan(0);
   });
 });
 
@@ -153,7 +181,8 @@ describe("вкладка «Анкета»", () => {
   it("своя анкета — вкладка, и открывается она сразу, а не окном", () => {
     render(<SystemModel />);
     fireEvent.click(screen.getByRole("button", { name: "Анкета" }));
-    expect(screen.getByText("рейтинг и работы")).toBeInTheDocument();
+    // Своя страница: вместо рейтинга — адресованные слова.
+    expect(screen.getByText("комментарии и работы")).toBeInTheDocument();
     expect(document.querySelector("[role=dialog]")).toBeNull();
   });
 });

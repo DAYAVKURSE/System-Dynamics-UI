@@ -258,13 +258,17 @@ describe("список воркеров: кого ставить", () => {
   const done = (id, person, mark) => ({ id, funcId: "f1", assignee: person,
     status: "done", end: "2026-01-02T09:00:00Z",
     submissions: [{ at: "2026-01-01T09:00:00Z", hours: 2, takes: {}, gives: {} }],
-    reviews: [{ accept: true, mark, comment: `за ${mark}` }] });
+    reviews: [{ accept: true, mark, comment: `за ${mark}`, by: "9" }] });
   const TASKS = [done("a", "2", 5), done("b", "3", 3)];
   const W = { crew: ["3", "2"] };
+  /* Рейтинг — только из ОПУБЛИКОВАННЫХ оценок: реестр приходит из модели
+     (публикует сервер), здесь он задан руками. */
+  const PUBLISHED = ["a~work~9", "b~work~9"];
 
   const mount = (over = {}) => {
     const props = { workers: W, people: PEOPLE, nameOf: (id) =>
       PEOPLE.find((p) => p.id === id)?.name || id, tasks: TASKS, funcs: FUNCS,
+    published: PUBLISHED,
     roleOf: (id) => (id === "2" ? "Исполнитель" : "Проверяющий"),
     onOrder: () => {}, onOpenPerson: () => {}, ...over };
     return render(<Workers {...props} />);
@@ -292,6 +296,24 @@ describe("список воркеров: кого ставить", () => {
       expect(row.textContent).toMatch(/рейтинг 5/);
       expect(row.textContent).toMatch(/1 сдано/);
     });
+
+  it("себя в списке человек видит без рейтинга — «свой рейтинг скрыт»", () => {
+    /* Рейтинг работает на того, кто поручает, а не на самолюбие: Иван
+       (id 2) смотрит на список — его строка без цифры, чужая — с ней. */
+    mount({ me: { id: "2" } });
+    const mine = within(crewCard()).getByText("Иван").closest("button");
+    expect(mine.textContent).toMatch(/свой рейтинг скрыт/);
+    expect(mine.textContent).not.toMatch(/рейтинг 5/);
+    const other = within(crewCard()).getByText("Пётр").closest("button");
+    expect(other.textContent).toMatch(/рейтинг 3/);
+  });
+
+  it("неопубликованная оценка в рейтинг не идёт", () => {
+    // Оценка есть, но её ещё нельзя показать без имени — значит, её нет.
+    mount({ published: [] });
+    const row = within(crewCard()).getByText("Иван").closest("button");
+    expect(row.textContent).toMatch(/без оценок/);
+  });
 
   it("чего нет — сказано словом, а не нулём", () => {
     // Ноль читается как «оценили на ноль», а человека ещё не оценивали.
@@ -357,14 +379,17 @@ describe("карточка человека", () => {
     title: "Сбор заявок", end: "2026-01-02T09:00:00Z",
     submissions: [{ at: "2026-01-01T09:00:00Z", hours: 3,
       takes: { t1: 2 }, gives: { t2: 1 }, text: "собрал" }],
-    reviews: [{ accept: true, mark: 4, comment: "мало заявок" }] },
+    reviews: [{ accept: true, mark: 4, comment: "мало заявок", by: "9" }] },
   { id: "b", funcId: "f1", assignee: "2", status: "backlog",
     title: "Сбор заявок", end: "2026-01-02T09:00:00Z",
     submissions: [{ at: "2026-01-05T09:00:00Z", hours: 1, takes: {}, gives: {} }],
-    reviews: [{ accept: false, comment: "переделать" }] }];
+    reviews: [{ accept: false, comment: "переделать", by: "9" }] }];
 
-  const show = () => render(<PersonStats tasks={rows} funcs={FUNCS} personId="2"
-    traitName={(id) => TRAITS.find((t) => t.id === id)?.l || id} />);
+  /* Смотрит владелец (id 1) на Ивана (id 2); оценка опубликована —
+     реестр из модели. */
+  const show = (over = {}) => render(<PersonStats tasks={rows} funcs={FUNCS} personId="2"
+    viewerId="1" published={["a~work~9"]}
+    traitName={(id) => TRAITS.find((t) => t.id === id)?.l || id} {...over} />);
 
   it("сводка: средняя оценка, доля в срок, объём", () => {
     show();
@@ -376,6 +401,15 @@ describe("карточка человека", () => {
     show();
     expect(screen.getByText("4/5")).toBeInTheDocument();
     expect(screen.getByText(/мало заявок/)).toBeInTheDocument();
+  });
+
+  it("неопубликованная оценка так и подписана — это не «без оценки»", () => {
+    show({ published: [] });
+    expect(screen.queryByText("4/5")).toBeNull();
+    expect(screen.getByText("оценка ещё не опубликована")).toBeInTheDocument();
+    expect(screen.getByText(/ждёт публикации/)).toBeInTheDocument();
+    // И слова до публикации не читаются: они выдали бы автора.
+    expect(screen.queryByText(/мало заявок/)).toBeNull();
   });
 
   it("возвращённая сдача видна отдельно и в средние не идёт", () => {

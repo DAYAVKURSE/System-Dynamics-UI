@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify } from "../lib/orgStore.js";
-import { deferTask, readModel, reviewTask, submitTask, takeTask, viewFor, writeModel }
+import { addComment, deferTask, readModel, reviewTask, submitTask, takeTask, taskViewFor,
+  viewFor, writeModel }
   from "../lib/workspaceStore.js";
+import { publishStep, viewRatingsFor } from "../lib/ratings.js";
 
 const router = Router();
 router.use(telegramUser);
@@ -25,12 +27,30 @@ router.get("/", async (req, res, next) => {
 router.put("/", async (req, res, next) => {
   try {
     if (!req.me.isOwner) return res.status(403).json({ error: "only the owner can save the model" });
-    const saved = await writeModel(req.body?.model);
+    /* Реестр опубликованных оценок ведёт сервер: у клиента он на полторы
+       секунды старше, и, приняв его, сервер стирал бы только что
+       опубликованное. */
+    const model = req.body?.model;
+    if (model && typeof model === "object") delete model.published;
+    const saved = await writeModel(model);
     res.json({ savedAt: saved.savedAt });
   } catch (e) {
     if (/required/.test(e.message)) return res.status(400).json({ error: e.message });
     next(e);
   }
+});
+
+/* Рейтинги глазами спрашивающего: про себя — только адресованные ему
+   слова, про остальных — средние и публичные слова, нигде — автор. Каждое
+   чтение — попытка публикации: то, что стало анонимным, публикуется, не
+   дожидаясь тика планировщика. */
+router.get("/ratings", async (req, res, next) => {
+  try {
+    if (!req.me.known) return res.status(403).json({ error: "not invited" });
+    const model = await readModel();
+    if (publishStep(model).changed) await writeModel(model);
+    res.json(viewRatingsFor(model, req.telegramUserId));
+  } catch (e) { next(e); }
 });
 
 /* Взять задачу в работу может только её исполнитель. Модель целиком пишет
@@ -63,8 +83,26 @@ router.post("/tasks/:id/submit", async (req, res, next) => {
   try {
     const r = await submitTask(req.telegramUserId, req.params.id, req.body || {});
     if (r.error === "not found") return res.status(404).json({ error: r.error });
+    // Без вещи по обязательному выходу сдачи нет — и сказано, чего не хватает.
+    if (r.error === "missing files") {
+      return res.status(400).json({ error: r.error, missing: r.missing });
+    }
     if (r.error) return res.status(403).json({ error: r.error });
     res.json(r.task);
+  } catch (e) { next(e); }
+});
+
+/* Комментарий пишет любой участник задачи (или владелец). В ответе —
+   задача глазами писавшего: чужих скрытых слов в ней нет. */
+router.post("/tasks/:id/comments", async (req, res, next) => {
+  try {
+    const r = await addComment(req.telegramUserId, req.params.id, req.body || {},
+      { isOwner: req.me.isOwner });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not yours") return res.status(403).json({ error: r.error });
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.status(201).json({ comment: r.comment,
+      task: req.me.isOwner ? r.task : taskViewFor(r.task, req.telegramUserId) });
   } catch (e) { next(e); }
 });
 

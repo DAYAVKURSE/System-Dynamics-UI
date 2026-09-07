@@ -8,7 +8,7 @@ import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, cou
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
-import { scheduleOfPerson, statsOf, statusOf } from "../lib/workers.js";
+import { scheduleOfPerson, statusOf, visibleStats } from "../lib/workers.js";
 import { unitsOf } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -156,7 +156,8 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
  * точки значило бы заставить искать нужное число глазами.
  *
  * Чего нет — так и сказано словом: «без оценок» честнее нуля, который
- * читается как «оценили на ноль».
+ * читается как «оценили на ноль». Про себя — «свой рейтинг скрыт»: свои
+ * оценки человеку не показываются, рейтинг работает на того, кто поручает.
  */
 function WorkerLine({ pid, name, stat, person, roleName }) {
   const sc = scheduleOfPerson(person || {});
@@ -175,10 +176,12 @@ function WorkerLine({ pid, name, stat, person, roleName }) {
       {chip(stat.onTime == null ? "сроков нет"
         : `в срок ${Math.round(stat.onTime * 100)}%`,
       stat.onTime == null ? C.muted : stat.onTime >= 0.8 ? OK : WARN)}
-      {/* 4. рейтинг — средняя оценка за принятые работы */}
-      {chip(stat.mark == null ? "без оценок"
-        : `рейтинг ${Math.round(stat.mark * 10) / 10}`,
-      stat.mark == null ? C.muted : stat.mark >= 4 ? OK : stat.mark >= 3 ? WARN : BAD)}
+      {/* 4. рейтинг — средняя ОПУБЛИКОВАННАЯ оценка за принятые работы */}
+      {chip(stat.self ? "свой рейтинг скрыт"
+        : stat.mark == null ? "без оценок"
+          : `рейтинг ${Math.round(stat.mark * 10) / 10}`,
+      stat.self || stat.mark == null ? C.muted
+        : stat.mark >= 4 ? OK : stat.mark >= 3 ? WARN : BAD)}
       {/* 5. сколько работ сдано и принято */}
       {chip(`${stat.done} сдано`)}
       {/* Статус стоит здесь же: он отвечает «можно ли поручить прямо
@@ -188,8 +191,9 @@ function WorkerLine({ pid, name, stat, person, roleName }) {
 }
 
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
-  roleOf, onToggleCrew, onOrder, onOpenPerson }) {
-  const stat = (id) => statsOf(tasks, funcs, id);
+  roleOf, onToggleCrew, onOrder, onOpenPerson, published, me }) {
+  // Кто смотрит — тот себя в списке видит без рейтинга (`visibleStats`).
+  const stat = (id) => visibleStats({ tasks, funcs, published }, id, me?.id);
   const personOf = (id) => people.find((p) => String(p.id) === String(id)) || {};
   // Воркеры актива одним списком — без деления на роли: сперва «кто здесь
   // работает», и только потом «кто чем занят».
@@ -961,7 +965,8 @@ export default function AssetPanel(props) {
         <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
           tasks={props.tasks} funcs={props.funcs} roleOf={props.roleOf}
           onToggleCrew={props.onToggleCrew} onOrder={props.onOrderWorker}
-          onOpenPerson={props.onOpenPerson} />)}
+          onOpenPerson={props.onOpenPerson}
+          published={props.published} me={props.me} />)}
 
       {tab === "funcs" && (
         <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc} />)}

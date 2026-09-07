@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
-import { STATUSES, TaskSetup, funcLabel, whyNotSet } from "./TasksBoard.jsx";
+import { STATUSES, TaskSetup, canSeeComment, funcLabel, whyNotSet } from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { reportSrc } from "../storage.js";
 
@@ -20,6 +20,14 @@ import { reportSrc } from "../storage.js";
    оценки не складываются в историю человека. Из этих оценок и растёт его
    рейтинг, по которому постановщик выбирает, кому поручить следующую
    работу, — поэтому «принял молча» здесь не бывает.
+
+   Оценка при этом публикуется БЕЗ ИМЕНИ и не сразу: только когда по ней
+   нельзя вычислить, кто её поставил (сервер, `lib/ratings.js`). Слова к
+   решению можно сделать скрытыми — их увидит только исполнитель.
+
+   Оценку постановки из сдачи проверяющему НЕ показывают: она про
+   постановщика и доходит до него по тем же правилам публикации, а не
+   через третьего.
    ════════════════════════════════════════════════════════════════ */
 
 const fmtDT = (v) => {
@@ -35,8 +43,8 @@ const lastOf = lastSubmission;
 /* Карточка вынесена из компонента намеренно: объявленная внутри рендера,
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
    на каждой букве. */
-function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
-  funcs, traits, entities, nameOf, onAccept, onReturn }) {
+function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden, setHidden,
+  funcs, traits, entities, nameOf, meId, onAccept, onReturn }) {
     const on = openId === t.id;
     const sub = lastOf(t);
     const f = funcs.find((x) => x.id === t.funcId) || null;
@@ -125,18 +133,29 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
                   aria-label="комментарий к оценке"
                   onChange={(e) => setNote(e.target.value)}
                   style={{ ...S.inp, marginBottom: 6 }} />
+                {/* Скрытые слова видит только исполнитель — тот, кому они
+                    адресованы. Оценка от этого не прячется: она и так
+                    публикуется без имени и по общим правилам. */}
+                <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
+                  <button style={{ ...btn(hidden, hidden ? WARN : null), fontSize: 11 }}
+                    onClick={() => setHidden(true)}>
+                    скрытый (видит только исполнитель)</button>
+                  <button style={{ ...btn(!hidden, !hidden ? ACC : null), fontSize: 11 }}
+                    onClick={() => setHidden(false)}>
+                    публичный (видят все)</button>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button style={btn(true, OK)}
                     disabled={!mark || !note.trim()}
                     title={mark && note.trim() ? "" : "Поставьте оценку и напишите, за что"}
-                    onClick={() => { onAccept(t, note, mark); setNote(""); setMark(0);
-                      setOpenId(null); }}>
+                    onClick={() => { onAccept(t, note, mark, hidden); setNote(""); setMark(0);
+                      setHidden(false); setOpenId(null); }}>
                     Принять</button>
                   <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
                     disabled={!note.trim()}
                     title={note.trim() ? "" : "Напишите, что доработать"}
-                    onClick={() => { onReturn(t, note, mark); setNote(""); setMark(0);
-                      setOpenId(null); }}>
+                    onClick={() => { onReturn(t, note, mark, hidden); setNote(""); setMark(0);
+                      setHidden(false); setOpenId(null); }}>
                     Вернуть в бэклог</button>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
@@ -144,27 +163,37 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
                   расчёт как фактическое выполнение функции, а оценка и
                   комментарий — в историю исполнителя. Без оценки и без слов
                   принять нельзя: оценка без слов не говорит, что исправить, а
-                  слова без оценки не складываются в историю. «Вернуть» — в
-                  бэклог с текстом доработки.
+                  слова без оценки не складываются в историю. Оценка
+                  публикуется без вашего имени и только когда её нельзя
+                  вычислить. «Вернуть» — в бэклог с текстом доработки.
                 </div>
               </>)}
-            {!!(t.comments || []).length && (
+            {/* Чужие скрытые слова здесь не читаются: скрытое — автору и
+                адресату. Пометка «только вам» — у адресованных мне. */}
+            {!!(t.comments || []).filter((c) => canSeeComment(c, meId)).length && (
               <div style={{ marginTop: 8 }}>
                 <div style={S.lbl}>комментарии</div>
-                {(t.comments || []).map((c) => (
+                {(t.comments || []).filter((c) => canSeeComment(c, meId)).map((c) => (
                   <div key={c.id} style={{ fontSize: 11.5, color: C.muted,
                     marginTop: 4, lineHeight: 1.5 }}>
-                    {c.text} <span style={{ fontSize: 10 }}>· {fmtDT(c.at)}</span></div>))}
+                    {c.text} <span style={{ fontSize: 10 }}>
+                      {c.by && nameOf ? `· ${nameOf(c.by)} ` : ""}· {fmtDT(c.at)}
+                      {c.hidden ? (String(c.to) === String(meId)
+                        ? " · скрытый · только вам" : " · скрытый") : ""}</span></div>))}
               </div>)}
           </div>)}
       </div>);
   }
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
-  meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true }) {
+  meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
+  published, onComment }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
+  // Скрыты ли слова к решению. Публичные по умолчанию: приём — это ответ
+  // о работе, и прятать его — решение, а не привычка.
+  const [hidden, setHidden] = useState(false);
   const [setupId, setSetupId] = useState(null);
 
   // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
@@ -234,6 +263,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                 <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits}
                   entities={entities} people={people} canAssign={canAssign}
                   nameOf={nameOf} setTasks={setTasks}
+                  published={published} meId={meId} onComment={onComment}
                   onClose={() => setSetupId(null)}
                   onDelete={() => { setTasks((p) => p.filter((x) => x.id !== setup.id));
                     setSetupId(null); }} />)}
@@ -245,14 +275,18 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>
           Ничего не ждёт проверки.</div>)}
       {waiting.map((t) => <Card key={t.id} t={t} openId={openId} setOpenId={setOpenId}
-        note={note} setNote={setNote} mark={mark} setMark={setMark} funcs={funcs} traits={traits} entities={entities}
+        note={note} setNote={setNote} mark={mark} setMark={setMark}
+        hidden={hidden} setHidden={setHidden} meId={meId}
+        funcs={funcs} traits={traits} entities={entities}
         nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
 
       {!!rest.length && (
         <>
           <div style={{ ...S.lbl, margin: "12px 0 6px" }}>остальные задачи под вашей проверкой</div>
           {rest.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
-            note={note} setNote={setNote} mark={mark} setMark={setMark} funcs={funcs} traits={traits} entities={entities}
+            note={note} setNote={setNote} mark={mark} setMark={setMark}
+            hidden={hidden} setHidden={setHidden} meId={meId}
+            funcs={funcs} traits={traits} entities={entities}
             nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
         </>)}
     </div>);
