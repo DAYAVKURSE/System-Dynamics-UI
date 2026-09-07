@@ -9,7 +9,7 @@ import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
 import { setSetting } from "./lib/envStore.js";
-import { deferTask, readModel, submitTask, takeTask, taskFor, writeModel }
+import { deferTask, submitTask, takeTask, taskFor, withModel, writeModel }
   from "./lib/workspaceStore.js";
 import { saveReport } from "./lib/reportStore.js";
 import { publishStep } from "./lib/ratings.js";
@@ -39,8 +39,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       /* Попытка публикации оценок — на каждом тике: то, что стало
          анонимным (два разных автора), публикуется, не дожидаясь чтения
          рейтинга. Не больше одной за тик — две сразу назвали бы обоих. */
-      const model = await readModel();
-      if (publishStep(model).changed) await writeModel(model);
+      await withModel(async (model) => {
+        if (publishStep(model).changed) await writeModel(model);
+      });
     } catch (e) {
       // Планировщик не должен ронять процесс: приложение важнее напоминаний.
       console.error(`[scheduler] тик не выполнен: ${e.message}`);
