@@ -149,8 +149,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
               tg: { getFile },
               edit: (chatId, messageId, text, keyboard) => editMessage(chatId, messageId, text, keyboard),
               /* Помощник: любой позванный пишет боту словами и получает ответ по
-                 своим данным (lib/botAssistant.js). Ответ ждётся на месте
-                 (askNow), память — та же, что в приложении. */
+                 своим данным (lib/botAssistant.js). askNow отдаёт обещание
+                 ответа; бот его не ждёт — иначе на время вопроса он не
+                 отвечал бы никому. Память — та же, что в приложении. */
               assistant: { ask: askNow, memory },
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,

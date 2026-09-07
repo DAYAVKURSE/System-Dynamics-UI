@@ -46,6 +46,10 @@ function slimTask(t) {
     days: Array.isArray(t.days) ? t.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) : [],
     time: t.time ? String(t.time) : "",
     warn: t.warn == null ? null : Number(t.warn),
+    // Кому поручена: кнопки «Отложить»/«Начать» под уведомлением получает
+    // только он — у владельца, постановщика и проверяющего по чужой задаче
+    // они всегда отказывали бы («не ваша»).
+    assignee: t.assignee == null || t.assignee === "" ? null : String(t.assignee),
     // До какого момента отложена (UTC-метка ISO): в этот момент планировщик
     // присылает уведомление о начале заново. Не дата — значит, не отложена.
     deferredUntil: isoOrNull(t.deferredUntil),

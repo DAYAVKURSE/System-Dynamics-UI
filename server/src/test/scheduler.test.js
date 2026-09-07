@@ -236,7 +236,8 @@ describe("текст сообщения", () => {
 });
 
 describe("проход планировщика", () => {
-  const schedule = { chatId: "42", tzOffset: MSK, tasks: [task()], sent: {} };
+  // Задача поручена тому же, у кого расписание: ему и кнопки.
+  const schedule = { chatId: "42", tzOffset: MSK, tasks: [task({ assignee: "42" })], sent: {} };
   const makeStore = (schedules) => {
     const marked = [];
     return {
@@ -284,6 +285,35 @@ describe("проход планировщика", () => {
       expect(keyboard.inline_keyboard[0].map((b) => b.callback_data))
         .toEqual(["task:defer:t1", "task:start:t1"]);
     });
+
+  /* Уведомление о той же задаче приходит и владельцу (у него в расписании
+     вся модель), и постановщику с проверяющим — но взять или отложить её
+     может только исполнитель; у остальных кнопка отвечала бы «не ваша». */
+  it("владельцу и постановщику — то же уведомление, но без кнопок и без абзаца про них",
+    async () => {
+      const store = makeStore([{ userId: "100", schedule: { ...schedule, chatId: "100" } }]);
+      const send = vi.fn().mockResolvedValue({});
+
+      await runTick({ store, send, now: at("2026-09-15T10:00") });
+
+      const [, text, keyboard] = send.mock.calls[0];
+      expect(text).toContain("Начинается: Позвонить рефералам");
+      expect(text).not.toContain("Отложить");
+      expect(keyboard).toBeNull();
+    });
+
+  it("задача без исполнителя кнопок не получает: нажать их некому", async () => {
+    const store = makeStore([{ userId: "42",
+      schedule: { ...schedule, tasks: [task({ assignee: null })] } }]);
+    const send = vi.fn().mockResolvedValue({});
+    await runTick({ store, send, now: at("2026-09-15T10:00") });
+    expect(send.mock.calls[0][2]).toBeNull();
+    // Исполнитель — числом или строкой — одно и то же лицо.
+    const store2 = makeStore([{ userId: "42", schedule: { ...schedule, tasks: [task({ assignee: 42 })] } }]);
+    const send2 = vi.fn().mockResolvedValue({});
+    await runTick({ store: store2, send: send2, now: at("2026-09-15T10:00") });
+    expect(send2.mock.calls[0][2]).not.toBeNull();
+  });
 
   it("без chatId не отправляет", async () => {
     const store = makeStore([{ userId: "42", schedule: { ...schedule, chatId: null } }]);

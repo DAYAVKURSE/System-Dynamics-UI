@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MAX_CLIENT_CONTEXT, SYSTEM_PROMPT, TTL_MS, createQueue } from "../lib/assistantQueue.js";
+import {
+  MAX_CLIENT_CONTEXT, STALE_ERROR, SYSTEM_PROMPT, TTL_MS, WAITED_ERROR, createQueue,
+} from "../lib/assistantQueue.js";
 import { NOT_CONFIGURED } from "../lib/assistantSettings.js";
 
 /* Вопрос — в два шага: положить и спрашивать ответ. Очередь живёт в
@@ -145,5 +147,66 @@ describe("очередь вопросов", () => {
   it("пустой вопрос не принимается", () => {
     const { q } = make();
     expect(() => q.ask({ userId: "200", question: "   " })).toThrow(/required/);
+  });
+});
+
+/* ─── ничто не ждёт вечно ───
+
+   Бот ждёт обещание askNow, и на нём стоял весь цикл опроса: вопрос,
+   до которого очередь не дошла за TTL, стирался sweep'ом молча, обещание
+   не завершалось никогда. Теперь у каждого пути есть конец словами. */
+describe("очередь не молчит и не виснет", () => {
+  it("не начатый вопрос, пролежавший дольше TTL, завершается ошибкой словами, а не стирается", async () => {
+    let release;
+    const first = new Promise((r) => { release = r; });
+    const { q, advance } = make({
+      complete: async (p) => { if (p.messages[0].content === "1") await first; return "ok"; },
+    });
+    const a = q.ask({ userId: "200", question: "1" });     // занял очередь
+    const waiting = q.askNow("200", "2");                   // ждёт за ним
+    await tick();
+    advance(TTL_MS + 1);
+    // Опрос из приложения дёргает sweep — раньше он и стирал ждущий вопрос.
+    q.find("нет-такого", "200");
+    await expect(waiting).rejects.toThrow(STALE_ERROR);
+    release();
+    // Первый доделан и ещё три минуты доступен приложению; второй не ожил.
+    expect((await settled(q, a.id, "200")).status).toBe("done");
+    expect(q.size()).toBe(1);
+  });
+
+  it("начатый вопрос sweep не трогает: приложение видит «pending», а не «не найдено»", async () => {
+    let release;
+    const first = new Promise((r) => { release = r; });
+    const { q, advance } = make({ complete: async () => { await first; return "ok"; } });
+    const { id } = q.ask({ userId: "200", question: "?" });
+    await tick();
+    advance(TTL_MS + 1);
+    expect(q.find(id, "200")).toEqual({ status: "pending" });
+    release();
+    expect((await settled(q, id, "200")).status).toBe("done");
+  });
+
+  it("модель молчит дольше предела — ошибка словами, и очередь идёт дальше", async () => {
+    const { q } = make({
+      answerTimeoutMs: 20,
+      complete: async (p) => {
+        if (p.messages[0].content === "1") await new Promise(() => {});   // никогда
+        return "ok";
+      },
+    });
+    const a = q.ask({ userId: "200", question: "1" });
+    const b = q.ask({ userId: "200", question: "2" });
+    const stB = await settled(q, b.id, "200");
+    expect(stB).toEqual({ status: "done", text: "ok" });
+    expect(q.find(a.id, "200")).toMatchObject({ status: "error", error: expect.stringMatching(/не ответила/) });
+  });
+
+  it("askNow не висит дольше TTL, даже если модель молчит", async () => {
+    const { q } = make({
+      ttlMs: 30, answerTimeoutMs: 60_000,
+      complete: async () => { await new Promise(() => {}); },
+    });
+    await expect(q.askNow("200", "?")).rejects.toThrow(WAITED_ERROR);
   });
 });

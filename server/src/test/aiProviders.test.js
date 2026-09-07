@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MODELS, ENDPOINTS, MAX_TOKENS, complete } from "../lib/aiProviders.js";
+import { DEFAULT_MODELS, ENDPOINTS, FETCH_TIMEOUT_MS, MAX_TOKENS, complete } from "../lib/aiProviders.js";
 
 /* Три провайдера — один вызов. Проверяем то, что видно снаружи: куда ушёл
    запрос, с какими заголовками и телом, что вернулось человеку, и что
@@ -73,6 +73,26 @@ describe("Hugging Face", () => {
     expect(calls[0].url).not.toContain("meta-llama");
     expect(calls[0].json.model).toBe(DEFAULT_MODELS.hf);
     expect(calls[0].headers.Authorization).toBe(`Bearer ${KEY}`);
+  });
+});
+
+/* Без предела fetch ждал заголовки минутами, и всё это время стояла
+   очередь вопросов, а бот не отвечал никому. */
+describe("предел ожидания", () => {
+  it("запрос уходит с сигналом таймаута", async () => {
+    const { p, calls } = ask("openai", 200, { choices: [{ message: { content: "ок" } }] });
+    await p;
+    expect(calls[0].signal).toBeInstanceOf(AbortSignal);
+    expect(FETCH_TIMEOUT_MS).toBeGreaterThanOrEqual(30_000);
+  });
+
+  it("истёкший предел — по-русски и без слова «aborted»", async () => {
+    const timedOut = async () => {
+      throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    };
+    await expect(complete({ provider: "claude", apiKey: KEY,
+      messages: [{ role: "user", content: "?" }] }, timedOut))
+      .rejects.toThrow(/^Claude не ответил за \d+ секунд$/);
   });
 });
 

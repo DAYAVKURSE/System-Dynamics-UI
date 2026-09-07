@@ -24,13 +24,18 @@
    тестами на заглушках, а не перепиской с живым ботом.
 
    Состояние шага (на каком вопросе человек, какие файлы уже приложены)
-   живёт В ПАМЯТИ ПРОЦЕССА, по одному на человека. Перезапуск сервера его
-   сбрасывает — тогда бот честно говорит «не помню, с чего начали» и
-   просит нажать кнопку заново. Хранить шаг на диске — отдельный пункт
-   роадмапа: сдача в чате занимает минуты, а перезапуск случается при
-   выкате, и терять при этом приложенные файлы неприятно, но не страшно —
-   они уже лежат в хранилище отчётов.
+   — по одному на человека, в памяти И НА ДИСКЕ (`bot-steps.json`, см.
+   `stepsFile`). Сдача в чате занимает минуты, а перезапуск случается при
+   выкате; шаг, живший только в памяти, после него исчезал молча — и файл,
+   присланный в ответ на «пришлите макет», уходил в память помощника, а
+   число часов — вопросом модели. Теперь после перезапуска шаг читается с
+   диска, и сдача продолжается с того же вопроса. «Не помню, с чего
+   начали» остаётся только для кнопки, шага у которой и правда нет.
    ════════════════════════════════════════════════════════════════ */
+
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
 
 /* ─────── что задача ОБЯЗАНА выдать вещью ───────
 
@@ -69,6 +74,13 @@ const BACK = `${P}back`;
 const SKIP = `${P}skip`;
 
 export const isTaskAction = (data) => String(data || "").startsWith(P);
+
+/* Откуда задачу можно «Начать» и «Отложить»: лежит в бэклоге, отложена
+   или просрочена. Повторяет правило склада работы (`BACKLOG` + «deadline»
+   в `takeTask`/`deferTask`, workspaceStore.js) и одно на бота и
+   планировщик: расписание берёт список отсюда же, чтобы «отложенная
+   напоминает, пока лежит» и «отложить можно, пока лежит» не разошлись. */
+export const DEFERRABLE = ["backlog", "deferred", "deadline"];
 
 /* ─────── клавиатура уведомления ───────
 
@@ -117,7 +129,73 @@ export const durationText = (h, m) => {
 
 /** userId → шаг. Один на человека: две сдачи разом в чате не ведут. */
 const steps = new Map();
-export function resetSteps() { steps.clear(); }
+
+/* ─────── шаги на диске ───────
+
+   Файл один на всех: шагов столько, сколько людей посреди сдачи, — единицы,
+   и читать его нужно только при старте. Лежит под WORKSPACE_DIR, а не в
+   каталоге кода: деплой стирает всё внутри app/ при каждом обновлении, а
+   шаг должен пережить именно обновление. Свой путь — BOT_STEPS_FILE. */
+export function stepsFile() {
+  if (process.env.BOT_STEPS_FILE) return path.resolve(process.env.BOT_STEPS_FILE);
+  const dir = process.env.WORKSPACE_DIR
+    ? path.resolve(process.env.WORKSPACE_DIR)
+    : path.resolve(process.cwd(), "data");
+  return path.join(dir, "bot-steps.json");
+}
+
+const EMPTY = "{}";
+let loaded = false;
+let written = EMPTY;              // что лежит на диске — одно и то же не переписывается
+let writing = Promise.resolve();  // записи по очереди: две сразу затирали бы друг друга
+
+/* Читается один раз, при первом обращении, синхронно: первое сообщение
+   после перезапуска должно застать шаг уже на месте, а не «в пути». */
+function ensureLoaded() {
+  if (loaded) return;
+  loaded = true;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(stepsFile(), "utf8"));
+    for (const [userId, step] of Object.entries(parsed && typeof parsed === "object" ? parsed : {})) {
+      // Порченая запись — не шаг: лучше «не помню» на кнопку, чем падение.
+      if (!step || typeof step !== "object" || typeof step.stage !== "string") continue;
+      steps.set(userId, { ...step, files: step.files && typeof step.files === "object" ? step.files : {} });
+    }
+    written = JSON.stringify(Object.fromEntries(steps));
+  } catch {
+    // Файла нет или он не читается — шагов нет. Первая же запись заведёт файл.
+  }
+}
+
+/* Через временный файл и переименование, как память помощника: после
+   падения посреди записи на диске либо прежние шаги целиком, либо новые,
+   но не половина. Сбой записи — в журнал, не в чат: шаг в памяти цел, и
+   сдача продолжается; потеряется он только вместе с процессом. */
+function persist(log) {
+  const snapshot = JSON.stringify(Object.fromEntries(steps));
+  writing = writing.then(async () => {
+    if (snapshot === written) return;
+    const file = stepsFile();
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fsp.writeFile(tmp, snapshot, "utf8");
+    await fsp.rename(tmp, file);
+    written = snapshot;
+  }).catch((e) => { log(`шаги сдачи не записаны на диск: ${e.message}`); });
+  return writing;
+}
+
+const logOf = (deps) => deps?.log || ((m) => console.warn(`[bot] ${m}`));
+
+/** Забыть все шаги — и в памяти, и на диске (тесты). */
+export function resetSteps() {
+  steps.clear();
+  loaded = true;
+  written = EMPTY;
+  try { fs.rmSync(stepsFile(), { force: true }); } catch { /* нечего стирать */ }
+}
+/** Забыть память, оставив диск: так выглядит перезапуск (тесты). */
+export function reloadSteps() { steps.clear(); loaded = false; written = EMPTY; }
 
 const q = (s) => `«${s}»`;
 const titleOf = (task) => String(task?.title || "Задача");
@@ -129,7 +207,8 @@ const traitName = (traits, id) => traits.find((t) => t.id === id)?.l || "рес�
 const whyNot = (error) => (error === "not found" ? "Такой задачи уже нет"
   : error === "not yours" ? "Эта задача не ваша"
     : error === "not in backlog" ? "Задача уже в работе или сдана"
-      : "Не вышло");
+      : error === "missing files" ? "Не хватает обязательной вещи"
+        : "Не вышло");
 
 /* Показать шаг. Нажатие кнопки правит то сообщение, на котором она была,
    — так переписка не растёт на каждое нажатие. Когда править нечего (файл
@@ -241,7 +320,8 @@ const visScreen = () => ({
 
 /* ─────── переходы ─────── */
 
-async function toReport(deps, target, step) {
+/** @param note — что сказать над списком: почему человек снова здесь. */
+async function toReport(deps, target, step, note = "") {
   const got = await deps.work.taskFor(target.userId, step.taskId);
   if (got?.error) {
     steps.delete(target.userId);
@@ -251,7 +331,7 @@ async function toReport(deps, target, step) {
   step.stage = "report";
   step.title = titleOf(got.task);
   const s = reportScreen(step, got);
-  await show(deps, target, s.text, s.keyboard);
+  await show(deps, target, note ? `${note}\n\n${s.text}` : s.text, s.keyboard);
   return { task: step.taskId, stage: "report" };
 }
 
@@ -280,6 +360,14 @@ async function submit(deps, target, step, hidden) {
     hours: step.hours, files: step.files, text: step.text, setterRating,
   });
   if (r?.error) {
+    /* Обязательной вещи нет, хотя «Отправить отчёт» её проверял: за минуты
+       сдачи функцию поправили или задачу переназначили. Не тупик без
+       кнопок, а назад к списку — там ⬜ по новой вещи и кнопка под неё. */
+    if (r.error === "missing files") {
+      return toReport(deps, target, step, `${whyNot(r.error)}: отчёт не отправлен.`);
+    }
+    // Задачи нет или она не ваша — сдавать нечего, шаг закрыт.
+    steps.delete(target.userId);
     await show(deps, target, `${whyNot(r.error)}: отчёт не отправлен.`);
     return { error: r.error };
   }
@@ -301,9 +389,20 @@ async function submit(deps, target, step, hidden) {
 /**
  * @param cb    callback_query от Telegram
  * @param from  кто нажал (bot.js уже проверил, что его звали в модель)
- * @param deps  { work, files, tg, send, answer, edit } — см. CONTRACTS.md, C6
+ * @param deps  { work, files, tg, send, answer, edit, log? } — см. CONTRACTS.md, C6
  */
 export async function onTaskButton(cb, from, deps) {
+  ensureLoaded();
+  // Что бы ни случилось с нажатием, шаг на диске должен совпасть с шагом в
+  // памяти: иначе перезапуск вернул бы человека на вопрос назад.
+  try {
+    return await handleButton(cb, from, deps);
+  } finally {
+    await persist(logOf(deps));
+  }
+}
+
+async function handleButton(cb, from, deps) {
   const { work, answer } = deps;
   const data = String(cb.data || "");
   const userId = String(from.id);
@@ -327,13 +426,16 @@ export async function onTaskButton(cb, from, deps) {
 
   if (data.startsWith(TASK_DEFER)) {
     const id = data.slice(TASK_DEFER.length);
-    // Своя ли задача — проверяется до вопросов про часы: спрашивать «на
-    // сколько», чтобы потом отказать, значило бы зря гонять человека.
+    // Своя ли задача и лежит ли ещё — проверяется до вопросов про часы:
+    // спрашивать «на сколько», чтобы потом отказать, значило бы зря гонять
+    // человека. Взятая на доске задача со старым уведомлением в чате —
+    // обычное дело, и отказ ей нужен сразу, теми же словами, что даст склад.
     const got = await work.taskFor(userId, id);
-    if (got?.error) {
-      await answer(cb.id, whyNot(got.error));
-      await deps.send(from.id, `${whyNot(got.error)}: ничего не поменял.`);
-      return { error: got.error };
+    const error = got?.error || (DEFERRABLE.includes(got.task?.status) ? null : "not in backlog");
+    if (error) {
+      await answer(cb.id, whyNot(error));
+      await deps.send(from.id, `${whyNot(error)}: ничего не поменял.`);
+      return { error };
     }
     const next = { taskId: id, title: titleOf(got.task), stage: "hour", hour: 0, minute: 0,
       chatId: target.chatId, origText: cb.message?.text || "", files: {} };
@@ -536,11 +638,22 @@ function attachmentOf(msg) {
  * @returns null, если у человека нет открытого шага, ждущего сообщения
  */
 export async function onTaskMessage(msg, from, deps) {
+  ensureLoaded();
   const userId = String(from.id);
   const step = steps.get(userId);
   if (!step || !AWAITING.has(step.stage)) return null;
   const text = String(msg?.text || "").trim();
   if (text.startsWith("/")) return null;
+  try {
+    return await handleMessage(msg, from, step, deps);
+  } finally {
+    await persist(logOf(deps));
+  }
+}
+
+async function handleMessage(msg, from, step, deps) {
+  const userId = String(from.id);
+  const text = String(msg?.text || "").trim();
   const target = { userId, chatId: msg?.chat?.id ?? step.chatId ?? from.id, messageId: null };
 
   if (step.stage === "file") {
@@ -585,12 +698,23 @@ export async function onTaskMessage(msg, from, deps) {
     return toStage(deps, target, step, "text");
   }
 
+  /* Текст отчёта и комментарий — словами. Голос, стикер или фото без
+     подписи текстом не являются, и записать вместо них пустоту значило бы
+     выбросить сказанное молча: человек увидел бы следующий вопрос и не
+     узнал, что его слова не дошли. Подпись к фото — слова, она годится. */
+  const body = text || String(msg?.caption || "").trim();
+  if (!body) {
+    await deps.send(target.chatId, "Жду текст сообщением — или нажмите «Пропустить».",
+      { inline_keyboard: [[btn("Назад", BACK), btn("Пропустить", SKIP)]] });
+    return { task: step.taskId, stage: step.stage, error: "no text" };
+  }
+
   if (step.stage === "text") {
-    step.text = text;
+    step.text = body;
     return toStage(deps, target, step, "mark");
   }
 
   // comment
-  step.comment = text;
+  step.comment = body;
   return afterComment(deps, target, step);
 }

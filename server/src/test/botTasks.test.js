@@ -3,10 +3,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  durationText, isTaskAction, missingGives, onTaskButton, onTaskMessage, requiredGives,
-  resetSteps, taskKeyboard,
+  DEFERRABLE, durationText, isTaskAction, missingGives, onTaskButton, onTaskMessage,
+  reloadSteps, requiredGives, resetSteps, stepsFile, taskKeyboard,
 } from "../lib/botTasks.js";
-import { taskFor, writeModel } from "../lib/workspaceStore.js";
+import { BACKLOG, taskFor, writeModel } from "../lib/workspaceStore.js";
 
 /* Кнопки под уведомлением и вся сдача в чате — на заглушках: склад работы,
    файлы и Telegram подменены, и проверяется ровно то, что бот у них просит
@@ -25,6 +25,14 @@ const TRAITS = [{ id: "t0", e: "e1", l: "бриф" }, { id: "t1", e: "e1", l: "�
   { id: "t2", e: "e1", l: "смета" }, { id: "t3", e: "e1", l: "черновик" }];
 const TASK = { id: "tk1", funcId: "f1", title: "Макет для Ромашки", assignee: "200",
   reviewer: "300", status: "backlog" };
+
+let tmpSteps;
+beforeAll(async () => {
+  // Шаги сдачи пишутся на диск — во временный каталог, не в проект.
+  tmpSteps = await fs.mkdtemp(path.join(os.tmpdir(), "sd-botsteps-"));
+  process.env.BOT_STEPS_FILE = path.join(tmpSteps, "bot-steps.json");
+});
+afterAll(async () => { await fs.rm(tmpSteps, { recursive: true, force: true }); });
 
 let sent, answered, edited, shown, calls, saved, work, deps;
 beforeEach(() => {
@@ -175,6 +183,29 @@ describe("«Отложить»: на сколько", () => {
     expect(calls).toEqual([]);
   });
 
+  /* Взял задачу на доске, а старое уведомление с кнопками осталось в чате:
+     отказ нужен сразу, а не после часов → минут → подтверждения. */
+  it("уже взятую или сданную не откладывают — отказ сразу, без вопросов про часы", async () => {
+    for (const status of ["progress", "review", "done"]) {
+      work.taskFor = async () => ({ task: { ...TASK, status }, func: FUNC, traits: TRAITS });
+      const r = await press("task:defer:tk1");
+      expect(r).toEqual({ error: "not in backlog" });
+      expect(lastAnswer()).toBe("Задача уже в работе или сдана");
+      expect(sent[sent.length - 1].text).toMatch(/уже в работе или сдана: ничего не поменял/);
+      expect(edited).toEqual([]);   // экран «на сколько часов» не показан
+    }
+    expect(calls).toEqual([]);
+    // Просроченная и уже отложенная — лежат, их откладывать можно.
+    for (const status of ["deadline", "deferred"]) {
+      work.taskFor = async () => ({ task: { ...TASK, status }, func: FUNC, traits: TRAITS });
+      expect((await press("task:defer:tk1")).stage).toBe("hour");
+    }
+  });
+
+  it("список «откуда можно» тот же, что у склада работы", () => {
+    expect(DEFERRABLE).toEqual([...BACKLOG, "deadline"]);
+  });
+
   it("длительность склоняется", () => {
     expect(durationText(1, 0)).toBe("1 час");
     expect(durationText(0, 45)).toBe("45 минут");
@@ -321,6 +352,71 @@ describe("«Начать» и сдача в чате", () => {
       expect(last().text).toMatch(/1 ч, без вещей/);
     });
 
+  /* Голос, стикер или фото без подписи — не текст. Записать вместо них
+     пустоту значило бы выбросить сказанное молча. */
+  it("голос или стикер вместо текста отчёта — просьба словами, шаг на месте", async () => {
+    work.taskFor = async () => ({ task: TASK, func: { ...FUNC, gives: [] }, traits: TRAITS });
+    await press("task:report:tk1");
+    await press("task:send:tk1");
+    await say("2");
+    expect(last().text).toMatch(/Текст отчёта/);
+    const r = await onTaskMessage({ sticker: { file_id: "s" }, chat: { id: 200 } }, worker, deps);
+    expect(r).toEqual({ task: "tk1", stage: "text", error: "no text" });
+    expect(sent[sent.length - 1].text).toMatch(/Жду текст сообщением/);
+    expect(sent[sent.length - 1].keyboard.inline_keyboard.flat().map((b) => b.text))
+      .toEqual(["Назад", "Пропустить"]);
+    // Подпись к фото — слова, она годится.
+    const withCaption = await onTaskMessage({ photo: [{ file_id: "p" }], caption: "Сделал макет",
+      chat: { id: 200 } }, worker, deps);
+    expect(withCaption.stage).toBe("mark");
+    await press("task:mark:5");
+    const voice = await onTaskMessage({ voice: { file_id: "v" }, chat: { id: 200 } }, worker, deps);
+    expect(voice).toEqual({ task: "tk1", stage: "comment", error: "no text" });
+    expect(await say("Всё ясно")).toMatchObject({ stage: "vis" });
+    await press("task:vis:public");
+    const submit = calls.find((c) => c[0] === "submit");
+    expect(submit[3]).toMatchObject({ text: "Сделал макет",
+      setterRating: { mark: 5, comment: "Всё ясно", hidden: false } });
+  });
+
+  /* «Отправить отчёт» проверял обязательные вещи, но за минуты сдачи
+     функцию могли поправить: отказ склада не должен быть тупиком без
+     кнопок. */
+  it("отказ склада «не хватает вещи» возвращает к списку с кнопками, а не в тупик", async () => {
+    work.taskFor = async () => ({ task: TASK, func: { ...FUNC, gives: [] }, traits: TRAITS });
+    await press("task:report:tk1");
+    await press("task:send:tk1");
+    await say("1");
+    await press("task:skip");
+    await press("task:mark:3");
+    await press("task:skip");
+    // Пока шли вопросы, у функции появилась обязательная вещь.
+    work.taskFor = async () => ({ task: TASK, func: FUNC, traits: TRAITS });
+    work.submit = async () => ({ error: "missing files", missing: ["t1", "t2"] });
+    const r = await press("task:vis:hidden");
+    expect(r).toMatchObject({ task: "tk1", stage: "report" });
+    expect(last().text).toMatch(/^Не хватает обязательной вещи: отчёт не отправлен\./);
+    expect(last().text).toMatch(/⬜ макет — файла нет/);
+    expect(lastKeys()).toEqual([["макет"], ["смета"], ["Назад"]]);
+    // Шаг жив: можно приложить вещь и продолжить.
+    await press("task:give:tk1:0");
+    expect((await sendDoc(doc)).stage).toBe("report");
+    expect(last().text).toMatch(/✅ макет/);
+  });
+
+  it("отказ «задача не ваша» при отправке закрывает шаг словами", async () => {
+    work.taskFor = async () => ({ task: TASK, func: { ...FUNC, gives: [] }, traits: TRAITS });
+    await press("task:report:tk1");
+    await press("task:send:tk1");
+    await say("1");
+    work.submit = async () => ({ error: "not yours" });
+    await press("task:skip");   // текст
+    await press("task:skip");   // оценка
+    expect(await press("task:skip")).toEqual({ error: "not yours" });   // комментарий → отправка
+    expect(last().text).toBe("Эта задача не ваша: отчёт не отправлен.");
+    expect(await say("ещё")).toBeNull();
+  });
+
   it("«Отправить отчёт» без обязательного файла не проходит, даже если кнопка осталась", async () => {
     await press("task:report:tk1");
     const r = await press("task:send:tk1");
@@ -367,6 +463,69 @@ describe("«Начать» и сдача в чате", () => {
     expect(r).toMatchObject({ action: "take" });
     expect(sent[sent.length - 1].text).toMatch(/Взял в работу/);
     expect(sent[sent.length - 1].chatId).toBe(200);
+  });
+});
+
+/* ─────── шаг переживает перезапуск ───────
+
+   Сдача занимает минуты, выкат случается посреди неё. Шаг, живший в
+   памяти, после перезапуска исчезал молча: файл в ответ на «пришлите
+   макет» уходил в память помощника, число часов — вопросом модели. */
+describe("шаг сдачи на диске", () => {
+  const doc = { file_id: "F1", file_name: "макет.pdf", mime_type: "application/pdf" };
+  const onDisk = async () => JSON.parse(await fs.readFile(stepsFile(), "utf8"));
+
+  it("файл лежит там, куда указано: BOT_STEPS_FILE, иначе рядом с моделью", () => {
+    expect(stepsFile()).toBe(path.join(tmpSteps, "bot-steps.json"));
+    const prev = process.env.BOT_STEPS_FILE;
+    delete process.env.BOT_STEPS_FILE;
+    process.env.WORKSPACE_DIR = "/srv/data/workspace";
+    expect(stepsFile()).toBe(path.join("/srv/data/workspace", "bot-steps.json"));
+    delete process.env.WORKSPACE_DIR;
+    expect(stepsFile()).toBe(path.resolve(process.cwd(), "data", "bot-steps.json"));
+    process.env.BOT_STEPS_FILE = prev;
+  });
+
+  it("после перезапуска сдача продолжается с того же вопроса, приложенное на месте", async () => {
+    await press("task:report:tk1");
+    await press("task:give:tk1:0");
+    await sendDoc(doc);
+    await press("task:give:tk1:1");
+    expect((await onDisk())["200"]).toMatchObject({ taskId: "tk1", stage: "file", trait: "t2",
+      files: { t1: { name: "макет.pdf" } } });
+
+    reloadSteps();   // так выглядит перезапуск: память пуста, диск — нет
+    const r = await sendDoc({ file_id: "F2", file_name: "смета.xlsx" });
+    expect(r).toMatchObject({ stage: "report" });
+    expect(sent[sent.length - 1].text).toMatch(/✅ макет — макет.pdf/);
+    expect(sent[sent.length - 1].text).toMatch(/✅ смета — смета.xlsx/);
+    // И кнопка внутри шага после перезапуска — не «не помню».
+    expect((await press("task:send:tk1")).stage).toBe("hours");
+  });
+
+  it("закрытый шаг уходит и с диска: перезапуск не воскрешает сданное", async () => {
+    await press("task:defer:tk1");
+    await press("task:h:1");
+    await press("task:m:0");
+    await press("task:dok");
+    expect(await onDisk()).toEqual({});
+    reloadSteps();
+    expect((await press("task:h:3")).stale).toBe(true);
+  });
+
+  it("порченый файл — шагов нет, и это не падение", async () => {
+    await fs.writeFile(stepsFile(), "{ это не json", "utf8");
+    reloadSteps();
+    expect(await say("привет")).toBeNull();
+    await fs.writeFile(stepsFile(), JSON.stringify({ 200: "не шаг", 300: { stage: 5 } }), "utf8");
+    reloadSteps();
+    expect((await press("task:h:3")).stale).toBe(true);
+  });
+
+  it("временного файла после записи не остаётся", async () => {
+    await press("task:defer:tk1");
+    const names = await fs.readdir(tmpSteps);
+    expect(names).toEqual(["bot-steps.json"]);
   });
 });
 

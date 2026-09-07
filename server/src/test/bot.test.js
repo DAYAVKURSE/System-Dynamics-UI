@@ -20,6 +20,8 @@ const deps = {
 beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sd-bot-"));
   process.env.ORG_DIR = path.join(tmp, "org");
+  // Шаги сдачи пишутся на диск — не в каталог проекта.
+  process.env.BOT_STEPS_FILE = path.join(tmp, "bot-steps.json");
 });
 afterAll(async () => { await fs.rm(tmp, { recursive: true, force: true }); });
 beforeEach(async () => {
@@ -133,11 +135,43 @@ describe("когда пересылка не сообщает id", () => {
     expect(petr.name).toBe("Пётр");
   });
 
-  it("человеку бот сообщает его номер по /id", async () => {
-    // Это единственное, что бот делает для не-владельца, — и оно безопасно:
-    // свой собственный id человек и так видит в любом клиенте.
+  it("незваному бот сообщает его номер по /id — именно его об этом и просят", async () => {
+    // Безопасно: свой собственный id человек и так видит в любом клиенте,
+    // а ничего чужого ответ не содержит.
+    const r = await handleUpdate(msg(guest, { text: "/id" }), deps);
+    expect(r).toEqual({ told: "777" });
+    expect(lastText()).toBe("Ваш id: 777");
+    expect(lastText()).not.toMatch(/только владельцу/);
     await handleUpdate(msg(owner, { text: "/id" }), deps);
-    expect(lastText()).toMatch(/Ваш id: 100/);
+    expect(lastText()).toBe("Ваш id: 100");
+  });
+});
+
+/* ─────── позванный не-владелец ───────
+   Бот ему отвечает — кнопками, помощником, памятью, — поэтому «только
+   владельцу» на стикер или фото было бы неправдой. Незваному — по-прежнему
+   отказ без подробностей. */
+describe("позванному не-владельцу", () => {
+  const invited = { id: 200, first_name: "Иван" };
+  beforeEach(async () => {
+    const roles = (await org.listOrg()).roles;
+    await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+  });
+
+  it("на стикер — что бот умеет для него, а не «только владельцу»", async () => {
+    const r = await handleUpdate(msg(invited, { sticker: { file_id: "s1" } }), { ...deps, work: {} });
+    expect(r).toEqual({ helped: "invited" });
+    expect(lastText()).toMatch(/Отложить/);
+    expect(lastText()).toMatch(/помощник/);
+    expect(lastText()).toMatch(/запомни/);
+    expect(lastText()).not.toMatch(/только владельцу/);
+  });
+
+  it("незваному на тот же стикер — отказ без подробностей", async () => {
+    const r = await handleUpdate(msg(guest, { sticker: { file_id: "s1" } }), deps);
+    expect(r).toEqual({ ignored: "not owner" });
+    expect(lastText()).toMatch(/только владельцу/);
+    expect(lastText()).not.toMatch(/Отложить/);
   });
 });
 
@@ -296,7 +330,7 @@ describe("кнопки задачи под уведомлением", () => {
         return { task: { id, title: "Сбор заявок" } }; },
       defer: async (u, id) => { calls.push(["defer", String(u), id]);
         return { task: { id, title: "Сбор заявок" } }; },
-      taskFor: async (u, id) => ({ task: { id, title: "Сбор заявок" }, func: null, traits: [] }),
+      taskFor: async (u, id) => ({ task: { id, title: "Сбор заявок", status: "backlog" }, func: null, traits: [] }),
     };
     await org.addRole("Исполнитель").catch(() => {});
     const roles = (await org.listOrg()).roles;
