@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify } from "../lib/orgStore.js";
-import { addComment, deferTask, readModel, readSpace, reviewTask, submitTask, takeTask,
-  taskViewFor, viewFor, writeModel, writeSpace }
+import { addComment, deferTask, dropComment, readModel, readSpace, reviewTask, submitTask,
+  takeTask, taskViewFor, viewFor, withModel, writeModel, writeSpace }
   from "../lib/workspaceStore.js";
 import { publishStep, viewRatingsFor } from "../lib/ratings.js";
 
@@ -12,6 +12,12 @@ router.use(async (req, res, next) => {
   try { req.me = await identify(req.telegramUserId, req.telegramProfile || {}); next(); }
   catch (e) { next(e); }
 });
+
+/* Задача в ответе на нажатие — глазами того, кто нажал, а не целиком:
+   в целой лежат чужие оценки и чужие скрытые слова, а ответ на POST виден
+   в отладчике так же, как ответ на GET. Владельцу — целиком, модель его.
+   Один хелпер на все нажатия, чтобы ни одно не осталось без среза. */
+const seen = (req, task) => (req.me.isOwner ? task : taskViewFor(task, req.telegramUserId));
 
 // Срез модели под спрашивающего. Фильтрует сервер: спрятать чужие задачи
 // в интерфейсе значит не спрятать их вовсе.
@@ -37,9 +43,10 @@ router.put("/space", async (req, res, next) => {
       return res.status(400).json({ error: "space is required" });
     }
     if (req.me.isOwner) {
-      const model = await readModel();
-      model.space = space;
-      const saved = await writeModel(model);
+      const saved = await withModel(async (model) => {
+        model.space = space;
+        return writeModel(model);
+      });
       return res.json({ savedAt: saved.savedAt });
     }
     res.json(await writeSpace(req.telegramUserId, space));
@@ -56,7 +63,9 @@ router.put("/", async (req, res, next) => {
        опубликованное. */
     const model = req.body?.model;
     if (model && typeof model === "object") delete model.published;
-    const saved = await writeModel(model);
+    // В очереди, а не мимо неё: запись целиком читает реестр опубликованного
+    // из файла, и нажатие исполнителя между этим чтением и записью пропало бы.
+    const saved = await withModel(() => writeModel(model));
     res.json({ savedAt: saved.savedAt });
   } catch (e) {
     if (/required/.test(e.message)) return res.status(400).json({ error: e.message });
@@ -71,8 +80,10 @@ router.put("/", async (req, res, next) => {
 router.get("/ratings", async (req, res, next) => {
   try {
     if (!req.me.known) return res.status(403).json({ error: "not invited" });
-    const model = await readModel();
-    if (publishStep(model).changed) await writeModel(model);
+    const model = await withModel(async (m) => {
+      if (publishStep(m).changed) await writeModel(m);
+      return m;
+    });
     res.json(viewRatingsFor(model, req.telegramUserId));
   } catch (e) { next(e); }
 });
@@ -86,7 +97,7 @@ router.post("/tasks/:id/take", async (req, res, next) => {
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
-    res.json(r.task);
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 
@@ -99,7 +110,7 @@ router.post("/tasks/:id/defer", async (req, res, next) => {
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
-    res.json(r.task);
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 
@@ -112,7 +123,7 @@ router.post("/tasks/:id/submit", async (req, res, next) => {
       return res.status(400).json({ error: r.error, missing: r.missing });
     }
     if (r.error) return res.status(403).json({ error: r.error });
-    res.json(r.task);
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 
@@ -125,8 +136,19 @@ router.post("/tasks/:id/comments", async (req, res, next) => {
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not yours") return res.status(403).json({ error: r.error });
     if (r.error) return res.status(400).json({ error: r.error });
-    res.status(201).json({ comment: r.comment,
-      task: req.me.isOwner ? r.task : taskViewFor(r.task, req.telegramUserId) });
+    res.status(201).json({ comment: r.comment, task: seen(req, r.task) });
+  } catch (e) { next(e); }
+});
+
+/* Убрать комментарий: владелец — любой, остальные — только свой. Ответ —
+   задача глазами убравшего, как и у остальных нажатий. */
+router.delete("/tasks/:id/comments/:cid", async (req, res, next) => {
+  try {
+    const r = await dropComment(req.telegramUserId, req.params.id, req.params.cid,
+      { isOwner: req.me.isOwner });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error) return res.status(403).json({ error: r.error });
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 
@@ -136,7 +158,7 @@ router.post("/tasks/:id/review", async (req, res, next) => {
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "comment required") return res.status(400).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
-    res.json(r.task);
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 
