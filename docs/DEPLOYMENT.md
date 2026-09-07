@@ -354,16 +354,22 @@ Telegram — встроенным браузером, а камеру и мик�
 iOS) доступ из мини-приложения может быть недоступен — окно скажет об этом
 словами, а не покажет чёрный экран.
 
-## 7. Где лежат сценарии и файлы отчётов
+## 7. Где лежат данные
+
+Всё, что стоит переносить и беречь, — под `${DEPLOY_PATH}/data`. Каталог
+`app/` деплой перезаписывает целиком, `data/` — не трогает.
 
 ```
 ${DEPLOY_PATH}/data/scenarios/<telegram_user_id>/manifest.json   — список сценариев
 ${DEPLOY_PATH}/data/scenarios/<telegram_user_id>/<uuid>.json     — сами сценарии
 ${DEPLOY_PATH}/data/reports/users/<telegram_user_id>             — указатель на scope
 ${DEPLOY_PATH}/data/reports/<scope>/manifest.json                — список файлов
-${DEPLOY_PATH}/data/reports/<scope>/<uuid>                       — сами файлы
+${DEPLOY_PATH}/data/reports/<scope>/<uuid>                       — сами файлы (отчёты, сдачи, записи, файлы памяти)
 ${DEPLOY_PATH}/data/org/org.json                                 — владелец, роли, люди
-${DEPLOY_PATH}/data/workspace/model.json                         — общая модель
+${DEPLOY_PATH}/data/workspace/model.json                         — общая модель (и пространство владельца)
+${DEPLOY_PATH}/data/workspace/space-<telegram_user_id>.json      — пространство позванного
+${DEPLOY_PATH}/data/schedules/<telegram_user_id>.json            — расписание напоминаний и «отложено до»
+${DEPLOY_PATH}/data/memory/<telegram_user_id>.json               — память помощника
 ${DEPLOY_PATH}/data/calls/meetings.json                          — встречи
 ```
 
