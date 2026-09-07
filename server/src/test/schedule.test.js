@@ -88,6 +88,32 @@ describe("хранилище расписаний", () => {
     expect(saved.tasks[0].title).toBe("Задача");
   });
 
+  /* «До какого момента отложена» едет с доски вместе с задачей, а бот,
+     отложив задачу, ставит его в расписание сам — не дожидаясь, пока
+     человек откроет приложение. */
+  it("переносит «отложено до» и не принимает за дату что попало", async () => {
+    await store.saveSchedule("u4", {
+      chatId: "u4", tzOffset: 0,
+      tasks: [task({ deferredUntil: "2026-09-15T12:00:00.000Z" }),
+        task({ id: "t2", deferredUntil: "потом" }), task({ id: "t3" })],
+    });
+    const saved = await store.readSchedule("u4");
+    expect(saved.tasks[0].deferredUntil).toBe("2026-09-15T12:00:00.000Z");
+    expect(saved.tasks[1].deferredUntil).toBeNull();
+    expect(saved.tasks[2].deferredUntil).toBeNull();
+  });
+
+  it("бот ставит «отложено до» в расписание сразу, и снимает тоже", async () => {
+    await store.saveSchedule("u5", { chatId: "u5", tzOffset: 0, tasks: [task()] });
+    expect(await store.setDeferredUntil("u5", "t1", "2026-09-15T12:00:00.000Z")).toBe(true);
+    expect((await store.readSchedule("u5")).tasks[0].deferredUntil)
+      .toBe("2026-09-15T12:00:00.000Z");
+    expect(await store.setDeferredUntil("u5", "t1", null)).toBe(true);
+    expect((await store.readSchedule("u5")).tasks[0].deferredUntil).toBeNull();
+    // Задачи, которой доска не присылала, в расписании не заводится.
+    expect(await store.setDeferredUntil("u5", "нет-такой", "2026-09-15T12:00:00.000Z")).toBe(false);
+  });
+
   it("отметки об отправленном переживают пересохранение расписания", async () => {
     await store.saveSchedule("u2", { chatId: "u2", tzOffset: 0, tasks: [task()] });
     await store.markSent("u2", "t1:2026-09-15T10:00:start");

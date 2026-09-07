@@ -11,6 +11,8 @@
    нужно прибавить к местному времени, чтобы получить UTC.
    ════════════════════════════════════════════════════════════════ */
 
+import { taskKeyboard } from "./botTasks.js";
+
 // Окно, внутри которого просроченное напоминание всё ещё отправляется.
 // Нужно, чтобы перезапуск сервера или подвисший тик не съедали уведомление
 // молча, но и чтобы после долгого простоя не прилетала пачка старых.
@@ -43,6 +45,22 @@ const weekdayIndex = (d) => (d.getUTCDay() + 6) % 7;
    Для повторяющихся смотрим вчера/сегодня/завтра: этого хватает, чтобы
    поймать и предупреждение «за сутки», и просроченное окно. */
 export function occurrencesNear(task, nowMs, tzOffset = 0) {
+  return [...plannedOccurrences(task, nowMs, tzOffset), ...deferredOccurrence(task)];
+}
+
+/* Отложенная задача получает НОВОЕ уведомление о начале в названный момент.
+
+   Момент — UTC-метка (ISO), а не «настенное» время, как у `start`: его
+   назвал не человек в поле формы, а сервер, сложив «на сколько отложить»
+   с «сейчас». Ключ у срабатывания свой: отметка об отправленном исходном
+   уведомлении не должна глушить повторное. */
+function deferredOccurrence(task) {
+  const until = task.deferredUntil ? Date.parse(task.deferredUntil) : NaN;
+  if (!Number.isFinite(until)) return [];
+  return [{ ms: until, key: `deferred:${task.deferredUntil}`, deferred: true }];
+}
+
+function plannedOccurrences(task, nowMs, tzOffset = 0) {
   const warnMs = Number.isFinite(Number(task.warn)) ? Number(task.warn) * MIN : 0;
   const lookBack = FIRE_WINDOW_MS;
   const lookAhead = warnMs + MIN;
@@ -81,10 +99,15 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
     if (task.status === "done") continue;
 
     for (const occ of occurrencesNear(task, nowMs, tzOffset)) {
+      // Отложенное напоминает о себе, только пока лежит: взятую или сданную
+      // за это время задачу «начинать» второй раз нечего.
+      if (occ.deferred && !["backlog", "deferred", "deadline"].includes(task.status)) continue;
       const moments = [{ kind: "start", at: occ.ms }];
       const warn = Number(task.warn);
       // 0 означает «в момент начала» — отдельного предупреждения не нужно.
-      if (Number.isFinite(warn) && warn > 0) {
+      // Отложенное не предупреждает вовсе: момент человек назвал сам,
+      // минуту назад, и предупреждать его о собственном решении не за что.
+      if (!occ.deferred && Number.isFinite(warn) && warn > 0) {
         moments.push({ kind: "warn", at: occ.ms - warn * MIN, warn });
       }
 
@@ -97,7 +120,9 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
           key, kind: m.kind, at: m.at, occurrence: occ.key,
           taskId: task.id, title: task.title || "Задача",
           body: task.body || "", warn: m.warn ?? null,
-          startWall: task.repeat === "once" || !task.repeat ? task.start : occ.key,
+          deferred: Boolean(occ.deferred),
+          startWall: occ.deferred ? wallStamp(wallDate(occ.ms, tzOffset))
+            : task.repeat === "once" || !task.repeat ? task.start : occ.key,
         });
       }
     }
@@ -137,20 +162,16 @@ export function formatWarn(minutes) {
    отложенной. Третьей — «удалить», «перенести» — здесь нет: срок и
    содержимое задачи меняет постановщик, а не тот, кого позвали.
 
+   Сама клавиатура — «🔴 Отложить» слева, «🟢 Начать» справа — собирается в
+   `botTasks.js` рядом с разбором нажатий: подпись и данные кнопки должны
+   лежать в одном месте, иначе переименованная кнопка перестала бы
+   узнаваться. Инлайн-кнопки Telegram красить нельзя (в Bot API нет поля
+   цвета — он берётся из темы клиента), поэтому цвет передаётся эмодзи в
+   подписи, и только им.
+
    Предупреждение «через час» кнопок НЕ получает: начинать раньше времени
    нечего, и «отложить» то, что ещё не наступило, тоже нечего. */
-export const TASK_START = "task:start:";
-export const TASK_DEFER = "task:defer:";
-
-export const taskButtons = (taskId) => ({
-  inline_keyboard: [[
-    { text: "Начать", callback_data: TASK_START + taskId },
-    { text: "Отложить", callback_data: TASK_DEFER + taskId },
-  ]],
-});
-
-/** Клавиатура уведомления — только у самого начала работы. */
-export const keyboardFor = (n) => (n.kind === "start" ? taskButtons(n.taskId) : null);
+export const keyboardFor = (n) => (n.kind === "start" ? taskKeyboard(n.taskId) : null);
 
 // Обычное текстовое сообщение — без разметки, чтобы произвольное название
 // задачи не могло сломать парсер Telegram и не требовало экранирования.
@@ -158,16 +179,20 @@ export function formatMessage(n) {
   const time = n.startWall ? n.startWall.replace("T", " ") : "";
   const head = n.kind === "warn"
     ? `Через ${formatWarn(n.warn)}: ${n.title}`
-    : `Начинается: ${n.title}`;
+    : n.deferred ? `Время вышло — начинается отложенная: ${n.title}`
+      : `Начинается: ${n.title}`;
   const lines = [head];
   if (time) lines.push(`Начало: ${time}`);
   if (n.body) lines.push("", n.body);
-  /* Сказано, что делают кнопки: «Отложить» не откладывает срок и не
-     переносит задачу — она остаётся в бэклоге, но уже с отметкой, что за
-     неё не взялись. Молчаливая кнопка обещала бы перенос. */
+  /* Сказано, что делают кнопки, и в том же порядке, что они стоят.
+     «Отложить» не переносит срок — задача остаётся в бэклоге с отметкой,
+     что за неё не взялись, а в названный момент уведомление приходит
+     снова. Молчаливая кнопка обещала бы перенос. */
   if (n.kind === "start") {
-    lines.push("", "«Начать» — задача уйдёт в работу."
-      + " «Отложить» — останется в бэклоге как отложенная.");
+    lines.push("", "«🔴 Отложить» — спрошу, на сколько: задача останется в бэклоге как"
+      + " отложенная, срок не сдвинется, а когда время выйдет, напомню снова."
+      + " «🟢 Начать» — задача уйдёт в работу, и под этим сообщением появится"
+      + " «Сдать отчёт».");
   }
   return lines.join("\n");
 }

@@ -141,8 +141,10 @@ export async function takeTask(userId, taskId, { now = Date.now() } = {}) {
   const late = end != null && !Number.isNaN(end) && end < now;
   task.taken = true;
   // Взялись — отметка об отложенности снимается, иначе задача вернулась бы
-  // в «отложено» на первом же пересчёте доски.
+  // в «отложено» на первом же пересчёте доски. И «до какого момента» тоже:
+  // напоминать о начале того, что уже начали, не за что.
   task.deferredAt = null;
+  task.deferredUntil = null;
   task.status = late ? "deadline" : "progress";
   await writeModel(model);
   return { task };
@@ -160,8 +162,15 @@ export async function takeTask(userId, taskId, { now = Date.now() } = {}) {
  * Правило то же, что в интерфейсе (`autoStatus` в `TasksBoard.jsx`):
  * просроченная остаётся в «Дедлайне» — от того, что её отложили, срок
  * назад не отматывается.
+ *
+ * `until` — до какого момента (ISO): в этот момент планировщик присылает
+ * уведомление о начале заново. Момент обязан быть в будущем — отложить «до
+ * вчера» значит не отложить вовсе, и такая дата не записывается, а не
+ * ловится как ошибка: сама отметка «отложено» при этом верна. Не назван —
+ * задача отложена без срока напоминания, и прежний срок, если был,
+ * снимается: новое «отложить» ничего о времени не сказало.
  */
-export async function deferTask(userId, taskId, { now = Date.now() } = {}) {
+export async function deferTask(userId, taskId, { now = Date.now(), until = null } = {}) {
   const model = await readModel();
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
@@ -171,11 +180,31 @@ export async function deferTask(userId, taskId, { now = Date.now() } = {}) {
   }
   const end = task.end ? new Date(task.end).getTime() : null;
   const late = end != null && !Number.isNaN(end) && end < now;
+  const untilMs = until ? Date.parse(String(until)) : NaN;
   task.taken = false;
   task.deferredAt = new Date(now).toISOString();
+  task.deferredUntil = Number.isFinite(untilMs) && untilMs > now
+    ? new Date(untilMs).toISOString() : null;
   task.status = late ? "deadline" : "deferred";
   await writeModel(model);
   return { task };
+}
+
+/**
+ * Задача вместе с тем, что нужно, чтобы её сдать: функция и ресурсы, на
+ * которые функция ссылается. Только своя — боту, как и доске, чужие задачи
+ * не показываются, и отказ приходит словом, а не пустой задачей.
+ */
+export async function taskFor(userId, taskId) {
+  const model = await readModel();
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  const func = (model.funcs || []).find((f) => f.id === task.funcId) || null;
+  const ids = new Set();
+  [...(func?.takes || []), ...(func?.gives || [])].forEach((p) => { if (p?.trait) ids.add(p.trait); });
+  const traits = (model.traits || []).filter((t) => ids.has(t.id));
+  return { task, func, traits };
 }
 
 /** Записывает сдачу — только исполнитель своей задачи. */

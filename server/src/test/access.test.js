@@ -225,6 +225,39 @@ describe("отложить через сервер", () => {
     expect(res.body.deferredAt).toBeNull();
   });
 
+  /* «На сколько» — из бота: часы и минуты складываются с «сейчас», и в
+     этот момент уведомление о начале приходит заново. Отложить «до вчера»
+     значит не отложить вовсе: такая дата не записывается. */
+  it("«до какого момента» записывается, если момент в будущем", async () => {
+    await invite(200, "executor", "Иван");
+    await backlog();
+    const until = new Date(Date.now() + 2 * 3600000).toISOString();
+    const res = await defer("tk1", 200).send({ until });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("deferred");
+    expect(res.body.deferredUntil).toBe(until);
+    const got = await request(app).get("/api/workspace").set(as(200));
+    expect(got.body.tasks.find((t) => t.id === "tk1").deferredUntil).toBe(until);
+  });
+
+  it("момент в прошлом или не дата — задача отложена, но срока напоминания нет", async () => {
+    await invite(200, "executor", "Иван");
+    await backlog();
+    const past = await defer("tk1", 200).send({ until: "2020-01-01T10:00:00.000Z" });
+    expect(past.body.status).toBe("deferred");
+    expect(past.body.deferredUntil).toBeNull();
+    const junk = await defer("tk1", 200).send({ until: "потом" });
+    expect(junk.body.deferredUntil).toBeNull();
+  });
+
+  it("взятая в работу больше не «отложена до»: напоминать о начале не за что", async () => {
+    await invite(200, "executor", "Иван");
+    await backlog();
+    await defer("tk1", 200).send({ until: new Date(Date.now() + 3600000).toISOString() });
+    const res = await request(app).post("/api/workspace/tasks/tk1/take").set(as(200));
+    expect(res.body.deferredUntil).toBeNull();
+  });
+
   it("просроченную откладывают, но она остаётся в «Дедлайне»", async () => {
     await invite(200, "executor", "Иван");
     await request(app).put("/api/workspace").set(as(100)).send({ model: {

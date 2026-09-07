@@ -153,6 +153,51 @@ describe("задача по определённым дням", () => {
   });
 });
 
+/* ─── отложенная задача напоминает о себе заново ───
+
+   «Отложить» спрашивает, на сколько, и в названный момент человек должен
+   получить то же уведомление с теми же двумя кнопками — иначе «отложить»
+   было бы «забыть». Момент хранится UTC-меткой: его назвал сервер, сложив
+   «на сколько» с «сейчас», а не человек в поле формы. */
+describe("отложенная задача", () => {
+  // Позвали в 10:00 по Москве, отложили на два часа.
+  const until = new Date(at("2026-09-15T12:00")).toISOString();
+  const s = (over) => ({ tzOffset: MSK, tasks: [task({ status: "deferred", deferredUntil: until,
+    ...over })] });
+
+  it("в момент «до» уходит новое уведомление о начале — с кнопками", () => {
+    const due = dueNotifications(s(), at("2026-09-15T12:00"));
+    expect(due).toHaveLength(1);
+    expect(due[0].kind).toBe("start");
+    expect(due[0].deferred).toBe(true);
+    // Время начала показывается в поясе человека, а не сервера.
+    expect(due[0].startWall).toBe("2026-09-15T12:00");
+    expect(formatMessage(due[0])).toContain("отложенная: Позвонить рефералам");
+    expect(formatMessage(due[0])).toContain("Начало: 2026-09-15 12:00");
+  });
+
+  it("отметка об исходном уведомлении повторное не глушит", () => {
+    const first = dueNotifications(s(), at("2026-09-15T10:00"))[0];
+    const later = dueNotifications(s(), at("2026-09-15T12:00"), { [first.key]: 1 });
+    expect(later.map((d) => d.kind)).toEqual(["start"]);
+    expect(later[0].key).not.toBe(first.key);
+  });
+
+  it("предупреждения «за 10 минут» у отложенного нет: момент назвал сам человек", () => {
+    expect(dueNotifications(s(), at("2026-09-15T11:50"))).toEqual([]);
+  });
+
+  it("взятую или сданную за это время задачу заново не начинают", () => {
+    expect(dueNotifications(s({ status: "progress" }), at("2026-09-15T12:00"))).toEqual([]);
+    expect(dueNotifications(s({ status: "review" }), at("2026-09-15T12:00"))).toEqual([]);
+  });
+
+  it("без «до» отложенная молчит, и порченая дата — тоже не дата", () => {
+    expect(dueNotifications(s({ deferredUntil: null }), at("2026-09-15T12:00"))).toEqual([]);
+    expect(dueNotifications(s({ deferredUntil: "потом" }), at("2026-09-15T12:00"))).toEqual([]);
+  });
+});
+
 describe("occurrencesNear", () => {
   it("для разовой задачи даёт ровно одно срабатывание", () => {
     expect(occurrencesNear(task(), at("2026-09-15T10:00"), MSK)).toHaveLength(1);
@@ -220,21 +265,25 @@ describe("проход планировщика", () => {
      Человека позвали, и он решает ровно одно: начинает он сейчас или нет.
      Без кнопок решение оставалось в голове, и доска показывала задачу
      лежащей в бэклоге и когда за неё взялись, и когда её отложили. */
-  it("уведомление о начале приходит с кнопками «Начать» и «Отложить»", async () => {
-    const store = makeStore([{ userId: "42", schedule }]);
-    const send = vi.fn().mockResolvedValue({});
+  it("уведомление о начале приходит с кнопками «🔴 Отложить» и «🟢 Начать» — в этом порядке",
+    async () => {
+      const store = makeStore([{ userId: "42", schedule }]);
+      const send = vi.fn().mockResolvedValue({});
 
-    await runTick({ store, send, now: at("2026-09-15T10:00") });
+      await runTick({ store, send, now: at("2026-09-15T10:00") });
 
-    const [, text, keyboard] = send.mock.calls[0];
-    expect(text).toContain("Начинается:");
-    // Сказано, что кнопки делают: молчаливая «Отложить» обещала бы перенос.
-    expect(text).toContain("останется в бэклоге как отложенная");
-    expect(keyboard.inline_keyboard[0].map((b) => b.text))
-      .toEqual(["Начать", "Отложить"]);
-    expect(keyboard.inline_keyboard[0].map((b) => b.callback_data))
-      .toEqual(["task:start:t1", "task:defer:t1"]);
-  });
+      const [, text, keyboard] = send.mock.calls[0];
+      expect(text).toContain("Начинается:");
+      // Сказано, что кнопки делают: молчаливая «Отложить» обещала бы перенос.
+      expect(text).toContain("останется в бэклоге как отложенная");
+      expect(text).toContain("напомню снова");
+      /* Отказ слева, действие справа. Красить инлайн-кнопки Telegram нельзя —
+         цвет несёт только эмодзи в подписи. */
+      expect(keyboard.inline_keyboard[0].map((b) => b.text))
+        .toEqual(["🔴 Отложить", "🟢 Начать"]);
+      expect(keyboard.inline_keyboard[0].map((b) => b.callback_data))
+        .toEqual(["task:defer:t1", "task:start:t1"]);
+    });
 
   it("без chatId не отправляет", async () => {
     const store = makeStore([{ userId: "42", schedule: { ...schedule, chatId: null } }]);

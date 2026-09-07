@@ -47,10 +47,11 @@ router.post("/tasks/:id/take", async (req, res, next) => {
 });
 
 /* Отложить — то же право, что и взять: решает тот, кого позвали. Задача
-   остаётся в бэклоге, но уже с отметкой, что за неё не взялись. */
+   остаётся в бэклоге, но уже с отметкой, что за неё не взялись. `until`
+   в теле — до какого момента (ISO); без него откладывается без срока. */
 router.post("/tasks/:id/defer", async (req, res, next) => {
   try {
-    const r = await deferTask(req.telegramUserId, req.params.id);
+    const r = await deferTask(req.telegramUserId, req.params.id, { until: req.body?.until });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
