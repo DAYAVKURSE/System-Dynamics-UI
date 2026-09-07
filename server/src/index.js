@@ -3,13 +3,18 @@ import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { store } from "./lib/scheduleStore.js";
-import { answerCallback, answerInline, getMe, getUpdates, sendWithKeyboard }
+import { answerCallback, answerInline, editMessage, getFile, getMe, getUpdates, sendWithKeyboard }
   from "./lib/telegram.js";
 import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
 import { setSetting } from "./lib/envStore.js";
-import { deferTask, takeTask } from "./lib/workspaceStore.js";
+import { deferTask, readModel, submitTask, takeTask, taskFor, writeModel }
+  from "./lib/workspaceStore.js";
+import { saveReport } from "./lib/reportStore.js";
+import { publishStep } from "./lib/ratings.js";
+import { askNow } from "./lib/assistantQueue.js";
+import * as memory from "./lib/memoryStore.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -31,6 +36,11 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
         store, send: sendWithKeyboard, log: (m) => console.warn(`[scheduler] ${m}`),
       });
       if (sent) console.log(`[scheduler] отправлено напоминаний: ${sent}`);
+      /* Попытка публикации оценок — на каждом тике: то, что стало
+         анонимным (два разных автора), публикуется, не дожидаясь чтения
+         рейтинга. Не больше одной за тик — две сразу назвали бы обоих. */
+      const model = await readModel();
+      if (publishStep(model).changed) await writeModel(model);
     } catch (e) {
       // Планировщик не должен ронять процесс: приложение важнее напоминаний.
       console.error(`[scheduler] тик не выполнен: ${e.message}`);
@@ -115,10 +125,33 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
           try {
             await handleUpdate(u, {
               org, calls,
-              /* Кнопки «Начать» и «Отложить» под уведомлением двигают
-                 задачу на общем складе работы — там же, где её двигает
-                 нажатие на доске. */
-              work: { take: takeTask, defer: deferTask },
+              /* Кнопки под уведомлением двигают задачу на общем складе
+                 работы — там же, где её двигает нажатие на доске. «Отложено
+                 до» ставится в расписание сразу: бот отложил — бот и напомнит,
+                 не дожидаясь, пока владелец выгрузит модель заново. */
+              work: {
+                take: async (u, id, o) => {
+                  const r = await takeTask(u, id, o);
+                  if (!r.error) await store.setDeferredUntil(u, id, null).catch(() => {});
+                  return r;
+                },
+                defer: async (u, id, o) => {
+                  const r = await deferTask(u, id, o);
+                  if (!r.error) await store.setDeferredUntil(u, id, r.task.deferredUntil).catch(() => {});
+                  return r;
+                },
+                submit: submitTask,
+                taskFor,
+              },
+              /* Сданная в чате вещь ложится туда же, куда файлы из приложения:
+                 хранилище одно, и в отчёте она найдётся по тому же адресу. */
+              files: { save: (userId, f) => saveReport(userId, f) },
+              tg: { getFile },
+              edit: (chatId, messageId, text, keyboard) => editMessage(chatId, messageId, text, keyboard),
+              /* Помощник: любой позванный пишет боту словами и получает ответ по
+                 своим данным (lib/botAssistant.js). Ответ ждётся на месте
+                 (askNow), память — та же, что в приложении. */
+              assistant: { ask: askNow, memory },
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
               answerInline,

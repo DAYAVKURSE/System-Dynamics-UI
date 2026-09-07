@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify } from "../lib/orgStore.js";
-import { addComment, deferTask, readModel, reviewTask, submitTask, takeTask, taskViewFor,
-  viewFor, writeModel }
+import { addComment, deferTask, readModel, readSpace, reviewTask, submitTask, takeTask,
+  taskViewFor, viewFor, writeModel, writeSpace }
   from "../lib/workspaceStore.js";
 import { publishStep, viewRatingsFor } from "../lib/ratings.js";
 
@@ -18,7 +18,31 @@ router.use(async (req, res, next) => {
 router.get("/", async (req, res, next) => {
   try {
     if (!req.me.known) return res.status(403).json({ error: "not invited" });
-    res.json(viewFor(await readModel(), req.me));
+    const view = viewFor(await readModel(), req.me);
+    /* Пространство вкладки задач у позванного — своё, не владельца: срез
+       модели его не несёт, а файл на человека — несёт. */
+    if (!req.me.isOwner) view.space = await readSpace(req.telegramUserId);
+    res.json(view);
+  } catch (e) { next(e); }
+});
+
+/* Пространство пишет каждый своё. Владельцу оно приезжает в составе модели
+   (PUT выше), но и этот путь ему открыт — тогда запись ложится в модель,
+   чтобы двух пространств у владельца не было. */
+router.put("/space", async (req, res, next) => {
+  try {
+    if (!req.me.known) return res.status(403).json({ error: "not invited" });
+    const space = req.body?.space;
+    if (!space || typeof space !== "object" || Array.isArray(space)) {
+      return res.status(400).json({ error: "space is required" });
+    }
+    if (req.me.isOwner) {
+      const model = await readModel();
+      model.space = space;
+      const saved = await writeModel(model);
+      return res.json({ savedAt: saved.savedAt });
+    }
+    res.json(await writeSpace(req.telegramUserId, space));
   } catch (e) { next(e); }
 });
 

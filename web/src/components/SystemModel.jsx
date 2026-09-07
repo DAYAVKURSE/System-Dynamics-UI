@@ -3,8 +3,9 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
-  takeTaskRemote }
+  takeTaskRemote, submitTaskRemote, commentTaskRemote, getRatings, putSpaceRemote }
   from "../identity.js";
+import { askAssistant, listMemory } from "../assistant.js";
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
@@ -16,9 +17,11 @@ import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { autoFlow, runsOfFunc } from "./TasksBoard.jsx";
+import TasksTab from "./TasksTab.jsx";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
+import AssistantSettings from "./AssistantSettings.jsx";
 import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
@@ -26,6 +29,7 @@ import Modal from "./Modal.jsx";
 import ProfilePanel from "./ProfilePanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
+import { filesOf, normalizeSpace } from "../lib/space.js";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v9
@@ -344,6 +348,10 @@ export default function SystemModel(){
      ресурсами: она про ту же работу, только собранную по заказам, а не по
      активам, и жить отдельно от модели ей незачем. */
   const [reports,setReports]=useState([]);
+  /* Пространство вкладки задач — часть документа наравне с отчётами:
+     положение блоков, стрелки и заметки живут с моделью, а не в браузере.
+     У позванного оно своё и уезжает на сервер отдельно (см. ниже). */
+  const [space,setSpace]=useState(()=>normalizeSpace(null));
   // Какой блок карты просят открыть ссылкой — читается из адреса один раз.
   const [reportFocus,setReportFocus]=useState(()=>
     reportFromLocation(typeof window==="undefined"?"":window.location.search));
@@ -365,6 +373,11 @@ export default function SystemModel(){
      возвращаясь ровно туда, где были. Прежде нажатие уносило на страницу
      человека, и вернуться было некуда. */
   const [card,setCard]=useState(null);
+  /* Реестр опубликованных оценок и ответ сервера про рейтинги. Не часть
+     `doc`: реестр ведёт сервер (PUT его отбрасывает), и в историю правок он
+     не идёт. */
+  const [published,setPublished]=useState([]);
+  const [ratings,setRatings]=useState(null);
   const [horizon,setHorizon]=useState(24);
   const [zoom,setZoom]=useState(0.6);
   const [json,setJson]=useState(""); const [jsonMsg,setJsonMsg]=useState("");
@@ -414,8 +427,8 @@ export default function SystemModel(){
   };
 
   // ─── история правок: отмена и возврат ───
-  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports}),
-    [entities,traits,kinds,tasks,funcs,goals,factors,reports]);
+  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports,space}),
+    [entities,traits,kinds,tasks,funcs,goals,factors,reports,space]);
   const restoreDoc=useCallback((d)=>{
     // Документ достраивается до нынешней записи, но НЕ переносится из
     // прежних версий: модели, собранные под старый расчёт, работать не
@@ -426,6 +439,7 @@ export default function SystemModel(){
     setGoals(normalizeGoals(d.goals));
     setFactors(normalizeFactors(d.factors));
     setReports(normalizeReports(d.reports));
+    setSpace(normalizeSpace(d.space));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -564,23 +578,50 @@ export default function SystemModel(){
     tasks:w?.tasks||[], funcs:w?.funcs, goals:w?.goals||[],
     factors:w?.factors||[],
     reports:w?.reports||[],
+    space:w?.space||null,
   }),[]);
   /* Разобрались ли, что открывать. До этого момента на экране может стоять
      встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
   const [ready,setReady]=useState(false);
   const pulled=useRef(false);
+  // Что из пространства позванного сервер уже хранит (см. эффект ниже).
+  const spaceSaved=useRef(null);
   useEffect(()=>{
     if(me.solo) return;
     if(pulled.current) return;
     pulled.current=true;
     getWorkspace().then(w=>{
+      setPublished(Array.isArray(w?.published)?w.published:[]);
       // Владельцу подставлять серверную модель поверх открытой нельзя: он
       // мог начать править до того, как ответ пришёл. Ему она достаётся
       // иначе — автозагрузкой ниже, и только когда открывать больше нечего.
       if(me.isOwner) return;
       restoreDoc(fromWorkspace(w));
+      // С этого момента пространство позванного — его собственное на
+      // сервере; до ответа выгружать было бы нечего, кроме пустоты.
+      spaceSaved.current=JSON.stringify(normalizeSpace(w?.space));
     }).catch(()=>{});
   },[me.solo,me.isOwner,restoreDoc,fromWorkspace]);
+  /* Пространство позванного едет на сервер само, отдельно от модели:
+     модель целиком пишет владелец, а заметки исполнителя — его, и в
+     модель они не попадают. Пока серверное не приехало, писать нечего. */
+  useEffect(()=>{
+    if(me.solo||me.isOwner||spaceSaved.current==null) return;
+    const now=JSON.stringify(space);
+    if(now===spaceSaved.current) return;
+    const id=setTimeout(()=>{
+      putSpaceRemote(space).then(()=>{ spaceSaved.current=now; }).catch(()=>{});
+    },1500);
+    return ()=>clearTimeout(id);
+  },[space,me.solo,me.isOwner]);
+  /* Рейтинги — с сервера и его глазами: про себя человек видит только
+     адресованные ему слова. Читаются при входе и при каждом заходе на
+     анкету: каждое чтение — попытка опубликовать то, что стало анонимным. */
+  const onMe=tab==="me";
+  useEffect(()=>{
+    if(!me.known||me.solo) return;
+    getRatings().then(r=>{ if(r&&typeof r==="object") setRatings(r); }).catch(()=>{});
+  },[me.known,me.solo,onMe]);
   /* Выгрузка модели на сервер ждёт, пока приложение разберётся, что вообще
      открывать.
 
@@ -655,6 +696,7 @@ export default function SystemModel(){
       goals:normalizeGoals(arr(s.data?.goals,docRef.current.goals)),
       factors:normalizeFactors(arr(s.data?.factors,docRef.current.factors)),
       reports:normalizeReports(arr(s.data?.reports,docRef.current.reports)),
+      space:normalizeSpace(s.data?.space??docRef.current.space),
     };
     restoreDoc(loaded);
     savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -720,6 +762,7 @@ export default function SystemModel(){
       return whoAmI().catch(()=>SOLO).then(m=>{
         if(m.solo||!m.isOwner) return undefined;
         return getWorkspace().then(w=>{
+          setPublished(Array.isArray(w?.published)?w.published:[]);
           if(!idle()) return;
           if(!Array.isArray(w?.entities)||!w.entities.length) return;
           const loaded=fromWorkspace(w);
@@ -751,6 +794,7 @@ export default function SystemModel(){
         goals:normalizeGoals(arr(s.data?.goals,goals)),
         factors:normalizeFactors(arr(s.data?.factors,factors)),
         reports:normalizeReports(arr(s.data?.reports,reports)),
+        space:normalizeSpace(s.data?.space??space),
       };
       restoreDoc(loaded);
       savedDoc.current=loaded; clearDraft(); setRecovery(null);
@@ -775,6 +819,13 @@ export default function SystemModel(){
   // Кому какие задачи видны. Владельцу — все; остальным — только его.
   const myTasks=useMemo(()=>(me.isOwner?tasks:tasks.filter(t=>
     String(t.assignee||"")===String(me.id))),[tasks,me.isOwner,me.id]);
+  /* Файлы для пространства — из сдач (submissions[].files и .file) и
+     разделов отчёта; считаются из модели, а не хранятся. */
+  const spaceFiles=useMemo(()=>filesOf({tasks:myTasks,reports}),[myTasks,reports]);
+  /* Память помощника — своя у каждого; читается при заходе на вкладку задач. */
+  const [memory,setMemory]=useState([]);
+  useEffect(()=>{ if(tab!=="tasks"||me.solo) return;
+    listMemory().then(m=>setMemory(Array.isArray(m)?m:[])).catch(()=>setMemory([])); },[tab,me.solo]);
   const personName=useCallback((id)=>{
     if(id==null||id==="") return "не назначен";
     return people.find(p=>String(p.id)===String(id))?.name||String(id);
@@ -790,10 +841,10 @@ export default function SystemModel(){
      отдельным списком `reviews`, а не в комментарии: комментарий может
      оставить кто угодно и когда угодно, а решение — это ровно приём или
      возврат, с оценкой и автором. */
-  const decide=useCallback((task,accept,note,mark)=>{
+  const decide=useCallback((task,accept,note,mark,hidden=false)=>{
     const at=new Date().toISOString();
     const review={id:"rv"+Date.now().toString(36),at,by:me.id??null,
-      accept:!!accept,mark:Number(mark)||null,comment:String(note||"")};
+      accept:!!accept,mark:Number(mark)||null,comment:String(note||""),hidden:!!hidden};
     setTasks(p=>p.map(t=>t.id===task.id?{...t,
       status:accept?"done":"backlog",
       // Возвращённая задача снова лежит и ждёт: её берут в работу заново,
@@ -801,10 +852,11 @@ export default function SystemModel(){
       taken:accept?t.taken:false,
       reviews:[...(t.reviews||[]),review],
       comments:note?[...(t.comments||[]),
-        {id:"c"+Date.now().toString(36),text:note,at}]
+        {id:"c"+Date.now().toString(36),text:note,at,by:me.id??null,
+          to:t.assignee==null?null:String(t.assignee),hidden:!!hidden}]
         :(t.comments||[]),
     }:t));
-    reviewTaskRemote(task.id,{accept,comment:note,mark:review.mark}).catch(()=>{});
+    reviewTaskRemote(task.id,{accept,comment:note,mark:review.mark,hidden:!!hidden}).catch(()=>{});
   },[setTasks,me.id]);
   const toggleCard=useCallback((id)=>setOpenCards(p=>{
     const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n;
@@ -972,7 +1024,7 @@ export default function SystemModel(){
           окне её пришлось бы листать поверх того, что под ним. */}
       {tab==="me" && (
         <ProfilePanel me={me} personId={person} people={people}
-          tasks={tasks} funcs={funcs}
+          tasks={tasks} funcs={funcs} published={published} ratings={ratings}
           traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
           onSaved={p=>{
             setMe(m=>({...m,profile:p}));
@@ -992,19 +1044,28 @@ export default function SystemModel(){
 
       {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && me.tabs.includes("tasks") && (
-        <TasksBoard funcs={funcs} entities={entities} traits={traits}
+        <TasksTab funcs={funcs} entities={entities} traits={traits}
           tasks={myTasks} setTasks={setTasks}
           openId={openTask} setOpenId={setOpenTask}
           people={people} canAssign={me.isOwner} nameOf={personName}
-          onTake={t=>{ takeTaskRemote(t.id).catch(()=>{}); }}/>)}
+          onTake={t=>{ takeTaskRemote(t.id).catch(()=>{}); }}
+          meId={me.id}
+          /* У владельца сдача и комментарий уезжают в составе модели через
+             putWorkspace; POST'ить их ещё раз значило бы записать дважды. */
+          onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).catch(()=>{}); }}
+          onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).catch(()=>{}); }}
+          space={space} setSpace={setSpace} files={spaceFiles} memory={memory}
+          ask={me.solo?undefined:(q,ctx)=>askAssistant(q,ctx)}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (
         <ReviewBoard tasks={tasks} traits={traits} entities={entities} funcs={funcs}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
-          onAccept={(t,note,mark)=>decide(t,true,note,mark)}
-          onReturn={(t,note,mark)=>decide(t,false,note,mark)}/>)}
+          published={published}
+          onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).catch(()=>{}); }}
+          onAccept={(t,note,mark,hidden)=>decide(t,true,note,mark,hidden)}
+          onReturn={(t,note,mark,hidden)=>decide(t,false,note,mark,hidden)}/>)}
 
       {/* ═══ СХЕМА ═══ */}
       {tab==="scheme" && me.tabs.includes("scheme") && (<>
@@ -1076,6 +1137,7 @@ export default function SystemModel(){
             </div>
 
             <AssetPanel entityId={selE.id}
+              me={me} published={published}
               workers={workers} roleOf={roleName}
               funcs={funcs} setFuncs={setFuncs}
               traits={traits} setTraits={setTraits}
@@ -1247,7 +1309,7 @@ export default function SystemModel(){
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
         <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-          {[["people","Люди и роли"],["calls","Звонки"],["export","Выгрузка"]]
+          {[["people","Люди и роли"],["assistant","Помощник"],["calls","Звонки"],["export","Выгрузка"]]
             // «Люди и роли» — дело владельца. «Выгрузка» тоже: схем у
             // не-владельца не бывает, у него одна — та, где его назначили.
             .filter(([k])=>(k!=="people"&&k!=="export")||me.isOwner||me.solo)
@@ -1257,6 +1319,11 @@ export default function SystemModel(){
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="people" && (
         <PeoplePanel me={me} onPeople={setPeople}/>)}
+
+      {/* Помощник — всем, у кого есть «Инструменты»: не-владелец видит
+          провайдера и «есть ли ключ» без самого ключа, плюс свою память. */}
+      {tab==="tools" && me.tabs.includes("tools") && tool==="assistant" && (
+        <AssistantSettings me={me}/>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="calls" && (
         <CallsBoard me={me} people={people} openCall={openCall}
@@ -1319,7 +1386,7 @@ export default function SystemModel(){
       {card!=null && (
         <Modal onClose={()=>setCard(null)} title={personName(card)}>
           <ProfilePanel me={me} personId={card} people={people}
-            tasks={tasks} funcs={funcs}
+            tasks={tasks} funcs={funcs} published={published} ratings={ratings}
             traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
             onSaved={p=>{
               setMe(m=>({...m,profile:p}));

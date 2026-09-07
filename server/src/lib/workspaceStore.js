@@ -35,6 +35,12 @@ const PARTS = ["entities", "traits", "kinds", "tasks", "funcs", "goals", "factor
   "edges", "okrs", "hypos", "flows"];
 const EMPTY = Object.fromEntries(PARTS.map((k) => [k, []]));
 
+/* «Пространство» вкладки задач — запись, а не массив: положение блоков,
+   стрелки и заметки (`web/src/lib/space.js`). У владельца оно живёт в
+   модели, у остальных — своё, по файлу на человека (`readSpace`):
+   заметки позванного — его, и владелец их не видит, как и он — чужих. */
+const isSpace = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+
 function baseDir() {
   return process.env.WORKSPACE_DIR
     ? path.resolve(process.env.WORKSPACE_DIR)
@@ -47,6 +53,7 @@ export async function readModel() {
     const parsed = JSON.parse(await fs.readFile(file(), "utf8"));
     const out = { ...EMPTY };
     PARTS.forEach((k) => { if (Array.isArray(parsed[k])) out[k] = parsed[k]; });
+    if (isSpace(parsed.space)) out.space = parsed.space;
     out.savedAt = parsed.savedAt || null;
     return out;
   } catch {
@@ -60,6 +67,7 @@ export async function writeModel(model) {
   }
   const out = { ...EMPTY };
   PARTS.forEach((k) => { if (Array.isArray(model[k])) out[k] = model[k]; });
+  if (isSpace(model.space)) out.space = model.space;
   /* Модель без реестра опубликованного (её присылает клиент владельца) не
      стирает реестр: опубликованное — это то, что случилось, и правка
      модели этого не отменяет. */
@@ -68,6 +76,29 @@ export async function writeModel(model) {
   await fs.mkdir(baseDir(), { recursive: true });
   await fs.writeFile(file(), JSON.stringify(out), "utf8");
   return out;
+}
+
+/* Пространство позванного — отдельный файл на человека. Не в модели:
+   модель целиком пишет владелец, и заметки исполнителя, положенные туда,
+   стирались бы его следующей выгрузкой. Имя файла — только из цифр
+   и букв идентификатора: путь из запроса на диск не попадает. */
+const spaceFile = (userId) => path.join(baseDir(),
+  `space-${String(userId).replace(/[^A-Za-z0-9_-]/g, "")}.json`);
+
+export async function readSpace(userId) {
+  try {
+    const parsed = JSON.parse(await fs.readFile(spaceFile(userId), "utf8"));
+    return isSpace(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeSpace(userId, space) {
+  if (!isSpace(space)) throw new Error("space is required");
+  await fs.mkdir(baseDir(), { recursive: true });
+  await fs.writeFile(spaceFile(userId), JSON.stringify(space), "utf8");
+  return { savedAt: new Date().toISOString() };
 }
 
 /** Задачи, до которых человеку есть дело. Владелец здесь не проходит. */

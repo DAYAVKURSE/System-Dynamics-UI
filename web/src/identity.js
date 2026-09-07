@@ -118,3 +118,7 @@ export const commentTaskRemote = (id, { text, to = null, hidden = false }) =>
    про остальных — средние и публичные слова, нигде — автор. Сервер при
    каждом чтении пробует опубликовать то, что стало анонимным. */
 export const getRatings = () => json("/api/workspace/ratings");
+/* Пространство вкладки задач у позванного — своё на сервере: модель
+   целиком пишет владелец, а заметки исполнителя в неё не попадают. */
+export const putSpaceRemote = (space) =>
+  json("/api/workspace/space", { method: "PUT", body: JSON.stringify({ space }) });

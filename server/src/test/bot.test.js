@@ -296,6 +296,7 @@ describe("кнопки задачи под уведомлением", () => {
         return { task: { id, title: "Сбор заявок" } }; },
       defer: async (u, id) => { calls.push(["defer", String(u), id]);
         return { task: { id, title: "Сбор заявок" } }; },
+      taskFor: async (u, id) => ({ task: { id, title: "Сбор заявок" }, func: null, traits: [] }),
     };
     await org.addRole("Исполнитель").catch(() => {});
     const roles = (await org.listOrg()).roles;
@@ -307,16 +308,15 @@ describe("кнопки задачи под уведомлением", () => {
     expect(r).toMatchObject({ task: "tk1", action: "take" });
     expect(calls).toEqual([["take", "200", "tk1"]]);
     // Подтверждение на кнопке гаснет через секунду — говорим и в переписке.
-    expect(lastText()).toMatch(/Взял в работу: Сбор заявок/);
+    expect(lastText()).toMatch(/Взял в работу: «Сбор заявок»/);
   });
 
-  it("«Отложить» оставляет задачу в бэклоге, и это сказано словами", async () => {
+  it("«Отложить» сначала спрашивает, на сколько: часы, потом минуты", async () => {
     const r = await press(worker, "task:defer:tk1");
-    expect(r).toMatchObject({ task: "tk1", action: "defer" });
-    expect(calls).toEqual([["defer", "200", "tk1"]]);
-    expect(lastText()).toMatch(/Осталась в бэклоге как отложенная/);
-    // Отложить — не перенести: срок ставит постановщик, а не исполнитель.
-    expect(lastText()).toMatch(/срок при этом не сдвинулся/);
+    expect(r).toMatchObject({ task: "tk1", stage: "hour" });
+    // Задача ещё не тронута: «на сколько» человек пока не сказал.
+    expect(calls).toEqual([]);
+    expect(lastKeys()).toContain("23");
   });
 
   it("отказ называется словами, а не молча гасит часики", async () => {

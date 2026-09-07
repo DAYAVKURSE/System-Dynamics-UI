@@ -1200,7 +1200,13 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                       <div style={{fontSize:10.5,marginTop:3,
                         color:t.status==="deferred"?WARN:C.muted}}>
                         {statusName(t.status)}
-                        {t.status==="deferred"?" — время пришло, работа не начата":""}
+                        {t.status==="deferred"
+                          ? (t.deferredUntil
+                            /* Отложили из чата «на сколько-то» — момент
+                               назван, и планировщик в него напомнит снова. */
+                            ? ` — до ${fmtDT(t.deferredUntil)}, тогда напомнит снова`
+                            : " — время пришло, работа не начата")
+                          : ""}
                       </div>)}
                     <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
                       {funcLabel(f,entities)}

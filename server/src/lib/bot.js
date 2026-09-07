@@ -19,6 +19,8 @@
 
 import { CALL_APP_STEPS, CALL_MAIN_STEPS, callAppNameOk, isAppLink, isMainAppLink }
   from "./links.js";
+import { isTaskAction, onTaskButton, onTaskMessage } from "./botTasks.js";
+import { onAssistantMessage } from "./botAssistant.js";
 
 // Роль, выбранная кнопкой: короткий префикс, чтобы влезть в 64 байта
 // callback_data, которые разрешает Telegram.
@@ -145,6 +147,9 @@ const HELP = [
   "«/callmain» — если на ТЕЛЕФОНЕ звонок открывается на весь экран, а",
   "хочется на половину: расскажу, как сделать его главным приложением",
   "бота. На компьютере половины нет ни у какого мини-приложения.",
+  "",
+  "Любой другой текст — вопрос помощнику: он знает вашу модель и задачи.",
+  "«запомни: …» или присланный документ — в память помощника.",
 ].join("\n");
 
 const rolesKeyboard = (roles) => ({
@@ -189,6 +194,24 @@ export async function handleUpdate(update, deps) {
       return { ignored: "not invited" };
     }
     return onTaskButton(cb, from, deps);
+  }
+
+  /* Файл или текст в ответ на вопрос сдачи — у любого позванного. Раньше
+     команд и помощника: человек отвечает на вопрос бота, а не задаёт свой.
+     null — открытого шага нет, сообщение разбирается дальше как обычно. */
+  if (msg && me.known && deps.work) {
+    const r = await onTaskMessage(msg, from, deps);
+    if (r) return r;
+  }
+
+  /* ─── помощник для позванных не-владельцев ───
+     Бот перестал быть «только для владельца»: тому, кому поручена работа,
+     на обычный текст и документ отвечает помощник — по его данным (см.
+     lib/botAssistant.js). Команды и пересылки он возвращает как null, и
+     они попадают в отказ ниже, как прежде. */
+  if (msg && me.known && !me.isOwner && deps.assistant) {
+    const handled = await onAssistantMessage(msg, from, deps);
+    if (handled) return handled;
   }
 
   if (!me.isOwner) {
@@ -268,6 +291,14 @@ async function onMessage(msg, from, deps) {
   if (/^\/id\b/.test(text)) {
     await send(from.id, `Ваш id: ${from.id}`);
     return { told: String(from.id) };
+  }
+
+  // 6. Всё остальное — вопрос помощнику («запомни: …» и документ — в память).
+  //    Подсказка остаётся для команд и пустых сообщений: их помощник не
+  //    берёт и возвращает null.
+  if (deps.assistant) {
+    const handled = await onAssistantMessage(msg, from, deps);
+    if (handled) return handled;
   }
 
   await send(from.id, HELP);
@@ -356,51 +387,6 @@ async function onCallApp(arg, from, deps) {
       + " посмотрите его в @BotFather, /myapps.",
   ].join("\n"));
   return { callApp: name };
-}
-
-/* ─────── «Начать» и «Отложить» ───────
-
-   Человека позвали, и он решает ровно одно: начинает он сейчас или нет.
-   Нажатие обязано ДВИГАТЬ задачу, а не просто гасить часики на кнопке:
-   иначе доска показывала бы её лежащей в бэклоге и тогда, когда за неё уже
-   взялись, и тогда, когда её отложили, — по доске эти два случая были бы
-   неразличимы.
-
-   Ответ приходит и текстом: подтверждение только на кнопке Telegram
-   показывает секунду и исчезает, а человек должен видеть в переписке, что
-   он выбрал. */
-export const TASK_START = "task:start:";
-export const TASK_DEFER = "task:defer:";
-export const isTaskAction = (data) => {
-  const s = String(data || "");
-  return s.startsWith(TASK_START) || s.startsWith(TASK_DEFER);
-};
-
-async function onTaskButton(cb, from, { work, send, answer }) {
-  const data = String(cb.data || "");
-  const start = data.startsWith(TASK_START);
-  const id = data.slice((start ? TASK_START : TASK_DEFER).length);
-  const r = start ? await work.take(from.id, id) : await work.defer(from.id, id);
-  if (r?.error) {
-    /* Отказ называется словами. «Не ваша» и «уже не в бэклоге» — разные
-       вещи: первое значит, что задачу передали, второе — что она уже
-       двинулась, и человеку надо знать, что именно. */
-    const why = r.error === "not found" ? "Такой задачи уже нет"
-      : r.error === "not yours" ? "Эта задача не ваша"
-        : r.error === "not in backlog" ? "Задача уже в работе или сдана"
-          : "Не вышло";
-    await answer(cb.id, why);
-    await send(from.id, `${why}: ничего не поменял.`);
-    return { error: r.error };
-  }
-  const title = r?.task?.title || "Задача";
-  const word = start ? "Взял в работу" : "Отложил";
-  await answer(cb.id, word);
-  await send(from.id, start
-    ? `Взял в работу: ${title}. Она в колонке «В работе».`
-    : `Отложил: ${title}. Осталась в бэклоге как отложенная —`
-      + " срок при этом не сдвинулся.");
-  return { task: id, action: start ? "take" : "defer" };
 }
 
 async function onCallback(cb, from, { org, send, answer }) {
