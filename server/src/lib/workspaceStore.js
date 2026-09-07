@@ -27,6 +27,11 @@ import path from "node:path";
    клиент мог перенести из них числа. Записывать их он перестал. */
 const PARTS = ["entities", "traits", "kinds", "tasks", "funcs", "goals", "factors",
   "reports",
+  /* Реестр опубликованных оценок (`lib/ratings.js`). Ведёт его сервер, а
+     не клиент: клиент присылает модель целиком, и в ней реестр был бы
+     на полторы секунды старше серверного — только что опубликованная
+     оценка стиралась бы и публиковалась заново. */
+  "published",
   "edges", "okrs", "hypos", "flows"];
 const EMPTY = Object.fromEntries(PARTS.map((k) => [k, []]));
 
@@ -55,6 +60,10 @@ export async function writeModel(model) {
   }
   const out = { ...EMPTY };
   PARTS.forEach((k) => { if (Array.isArray(model[k])) out[k] = model[k]; });
+  /* Модель без реестра опубликованного (её присылает клиент владельца) не
+     стирает реестр: опубликованное — это то, что случилось, и правка
+     модели этого не отменяет. */
+  if (!Array.isArray(model.published)) out.published = (await readModel()).published;
   out.savedAt = new Date().toISOString();
   await fs.mkdir(baseDir(), { recursive: true });
   await fs.writeFile(file(), JSON.stringify(out), "utf8");
@@ -72,13 +81,44 @@ export const tasksFor = (model, userId) => {
 };
 
 /**
+ * Задача глазами одного человека — без того, что ему в ней не положено.
+ *
+ * · Оценка в решении проверяющего до публикации — ничья: исполнитель
+ *   своих оценок не видит вовсе, постановщик — только опубликованные
+ *   (`lib/ratings.js`). Автор своё решение видит целиком.
+ * · Скрытые слова решения — исполнителю (адресату) и автору.
+ * · Оценка постановки в сдаче — только тому, кто её поставил: она про
+ *   постановщика и доходит до него по правилам публикации, а не сразу.
+ * · Скрытый комментарий — только автору и адресату.
+ *
+ * Режет сервер, а не интерфейс: спрятанное кнопкой видно в любом
+ * отладчике. Владелец получает модель целиком — она его.
+ */
+export function taskViewFor(task, userId) {
+  const id = String(userId);
+  const mine = (v) => v != null && String(v) === id;
+  return {
+    ...task,
+    reviews: (task.reviews || []).map((rv) => {
+      if (mine(rv.by)) return rv;
+      const out = { ...rv, mark: null };
+      if (rv.hidden && !mine(task.assignee)) out.comment = "";
+      return out;
+    }),
+    submissions: (task.submissions || []).map((sb) => (
+      mine(task.assignee) || !sb.setterRating ? sb : { ...sb, setterRating: null })),
+    comments: (task.comments || []).filter((c) => !c.hidden || mine(c.by) || mine(c.to)),
+  };
+}
+
+/**
  * Срез модели под одного человека: его задачи и ровно то, на что они
  * ссылаются. Владельцу возвращается модель целиком.
  */
 export function viewFor(model, { id, isOwner }) {
   if (isOwner) return { ...model, mine: model.tasks || [] };
 
-  const tasks = tasksFor(model, id);
+  const tasks = tasksFor(model, id).map((t) => taskViewFor(t, id));
   // Задача — это выполнение функции, поэтому видно ему ровно её: саму
   // функцию, её актив и те ресурсы, которые она берёт и выдаёт. Без них
   // сдача превратилась бы в набор безымянных полей.
@@ -104,6 +144,10 @@ export function viewFor(model, { id, isOwner }) {
     funcs,
     kinds: model.kinds || [],          // значки и цвета — не тайна
     tasks,
+    /* Реестр опубликованного — только по его задачам: по остальным он
+       называл бы, кто кого оценивал в работе, которой человек не видит. */
+    published: (model.published || [])
+      .filter((rid) => tasks.some((t) => String(rid).startsWith(`${t.id}~`))),
     savedAt: model.savedAt || null,
     mine: tasks,
   };
@@ -178,12 +222,54 @@ export async function deferTask(userId, taskId, { now = Date.now() } = {}) {
   return { task };
 }
 
+/* Ссылка на файл: имя, тип, размер и адрес — то, что отдаёт
+   `reportStore.saveReport`. Лишнего не храним, а без адреса это не файл. */
+const fileRef = (f) => (f && typeof f === "object" && f.url
+  ? { name: String(f.name || ""), type: String(f.type || ""),
+    size: Number(f.size) || 0, url: String(f.url) }
+  : null);
+
+/* Обязательные выходы функции — те, у которых нижняя граница вилки больше
+   нуля: функция обещала выдать хотя бы столько, и без вещи работа не
+   сделана. То же правило, что `requiredGives` в web/src/lib/funcs.js:
+   бот и доска обязаны отказывать одинаково. */
+const requiredGives = (func) => (func?.gives || [])
+  .filter((p) => p && p.trait && (Number(p.lo) || 0) > 0)
+  .map((p) => String(p.trait));
+
+/**
+ * Оценка постановки — часть сдачи: исполнитель говорит, как ему поставили
+ * задачу. Отметка необязательна (`null` — не ставил), слова необязательны;
+ * пусто и там, и там — оценки нет. Себе её не ставят: постановщик,
+ * равный исполнителю, оценивал бы сам себя.
+ */
+const setterRatingOf = (r, { self }) => {
+  if (self || !r || typeof r !== "object") return null;
+  const n = Number(r.mark);
+  const mark = Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+  const comment = String(r.comment || "").trim();
+  if (mark == null && !comment) return null;
+  return { mark, comment, hidden: !!r.hidden };
+};
+
 /** Записывает сдачу — только исполнитель своей задачи. */
 export async function submitTask(userId, taskId, submission) {
   const model = await readModel();
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  /* Сама выданная вещь — файлом, по каждому выходу. Без файла по
+     обязательному выходу сдачи не бывает: работа, от которой ждали
+     макет, без макета не сделана, сколько бы часов на неё ни ушло. Список
+     недостающего — в ответе, чтобы сказать словами, что приложить. */
+  const files = Object.fromEntries(
+    Object.entries(submission?.files && typeof submission.files === "object"
+      ? submission.files : {})
+      .map(([k, v]) => [String(k), fileRef(v)])
+      .filter(([, v]) => v));
+  const func = (model.funcs || []).find((f) => f.id === task.funcId) || null;
+  const missing = requiredGives(func).filter((trait) => !files[trait]);
+  if (missing.length) return { error: "missing files", missing };
   // Сдача — это фактическое выполнение функции: сколько часов ушло и
   // сколько каждого ресурса взяли и выдали. Из принятых сдач считается
   // среднее арифметическое, которое уточняет прогноз.
@@ -206,8 +292,11 @@ export async function submitTask(userId, taskId, submission) {
     takes: qty(submission?.takes),
     gives: qty(submission?.gives),
     took,
+    files,
     text: String(submission?.text || ""),
     file: submission?.file || null,
+    setterRating: setterRatingOf(submission?.setterRating, {
+      self: task.setter != null && String(task.setter) === String(task.assignee) }),
   }];
   /* Сдал — не значит принято: задача уходит на проверку, как и в интерфейсе.
 
@@ -223,7 +312,7 @@ export async function submitTask(userId, taskId, submission) {
 }
 
 /** Приём или возврат отчёта — только назначенный проверяющий. */
-export async function reviewTask(userId, taskId, { accept, comment, mark }) {
+export async function reviewTask(userId, taskId, { accept, comment, mark, hidden }) {
   const model = await readModel();
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
@@ -246,13 +335,55 @@ export async function reviewTask(userId, taskId, { accept, comment, mark }) {
     accept: !!accept,
     mark: Number.isFinite(value) ? value : null,
     comment: String(comment || ""),
+    /* Скрытые слова видит только исполнитель — тот, кому они адресованы, —
+       и автор. Оценка при этом публикуется по общим правилам: скрытость —
+       про слова, а не про отметку. */
+    hidden: !!hidden,
   }];
   if (comment) {
+    // Те же слова — и в ленте задачи, с автором и адресатом: возврат
+    // читают как «что доработать», а не ищут в решениях.
     task.comments = [...(task.comments || []), {
       id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       text: String(comment), at: new Date().toISOString(), by: String(userId),
+      to: task.assignee == null ? null : String(task.assignee), hidden: !!hidden,
     }];
   }
   await writeModel(model);
   return { task };
+}
+
+/** Кто в задаче есть: постановщик, исполнитель, проверяющий. */
+const participants = (task) => [task.setter, task.assignee, task.reviewer]
+  .filter((v) => v != null && v !== "").map(String);
+
+/**
+ * Комментарий к задаче — от любого из её участников (или владельца).
+ *
+ * Скрытый — только автору и адресату, поэтому без адресата он ничей и не
+ * принимается: писать «никому» скрытно значит писать себе. Публичный —
+ * всем, кто видит задачу; адресат у него — обращение, а не граница.
+ * Автор у комментария есть всегда (в отличие от оценки): это разговор в
+ * задаче, а не суждение о человеке.
+ */
+export async function addComment(userId, taskId, { text, to, hidden } = {},
+  { isOwner = false } = {}) {
+  const model = await readModel();
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  const me = String(userId);
+  const people = participants(task);
+  if (!isOwner && !people.includes(me)) return { error: "not yours" };
+  const body = String(text || "").trim();
+  if (!body) return { error: "text required" };
+  const addressee = to == null || to === "" ? null : String(to);
+  if (addressee != null && !people.includes(addressee)) return { error: "bad addressee" };
+  if (hidden && addressee == null) return { error: "addressee required" };
+  const comment = {
+    id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    text: body, at: new Date().toISOString(), by: me, to: addressee, hidden: !!hidden,
+  };
+  task.comments = [...(task.comments || []), comment];
+  await writeModel(model);
+  return { task, comment };
 }

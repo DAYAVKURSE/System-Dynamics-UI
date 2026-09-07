@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, byCrew, hoursOf, isFactor, missingGives,
   rangeText, requiredGives, shortage } from "../lib/funcs.js";
-import { shortStat, statsOf } from "../lib/workers.js";
+import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
 import { heldBy, unitsOf } from "../lib/units.js";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
@@ -357,9 +357,20 @@ export function autoFlow(tasks=[],opts={}){
  * потому что у функции их несколько и порядок портов не обязан совпадать.
  */
 export const newSubmission=({hours=0,takes={},gives={},took={},files={},
-  text="",file=null})=>
+  text="",file=null,setterRating=null})=>
   ({id:uid("sb"),at:new Date().toISOString(),hours:Number(hours)||0,
     takes:{...takes},gives:{...gives},
+    /* Оценка постановки — часть сдачи: исполнитель говорит, как ему
+       поставили задачу. Отметка необязательна, слова необязательны; пусто
+       и там и там — оценки нет (`null`, а не нули). Публикуется она без
+       имени и по общим правилам (сервер, `lib/ratings.js`); «скрытый» —
+       про слова: их увидит только постановщик. */
+    setterRating:setterRating&&(setterRating.mark!=null
+      ||String(setterRating.comment||"").trim())
+      ?{mark:setterRating.mark??null,
+        comment:String(setterRating.comment||"").trim(),
+        hidden:!!setterRating.hidden}
+      :null,
     /* ЧТО именно выдали — файлом, по каждому выданному ресурсу. Число
        говорит «одна штука» и молчит о том, какая: скачать сам макет было
        неоткуда, хотя ради него работу и заказывали. Обязательным выход
@@ -488,7 +499,8 @@ function FuncCard({func,entities,traitName}){
    целей. Работа, не следующая ни из какой цели, — это работа, о которой
    никто не спросил, зачем она. */
 export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
-  setTasks,onClose,onDelete,people=[],canAssign=true,nameOf}){
+  setTasks,onClose,onDelete,people=[],canAssign=true,nameOf,
+  published,meId,onComment}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
@@ -531,10 +543,12 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
               onChange={e=>up(TASK_ROLE[k.id],e.target.value||null)}>
               <option value="">— не назначен —</option>
               {/* Рейтинг стоит рядом с именем: постановщик выбирает человека,
-                  а не гадает, кого из них уже проверяли и как. */}
+                  а не гадает, кого из них уже проверяли и как. Рейтинг — из
+                  опубликованных оценок; про себя — «свой рейтинг скрыт». */}
               {pool(k.id).map(p=>(
                 <option key={p.id} value={p.id}>
-                  {p.name} · {shortStat(statsOf(tasks,funcs,p.id))}</option>))}
+                  {p.name} · {shortStat(visibleStats({tasks,funcs,published},p.id,meId))}
+                </option>))}
             </select>
           </div>))}
       </div>
@@ -639,11 +653,19 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
         </div>)}
 
       <div style={{...S.lbl,marginTop:10}}>комментарии</div>
-      <Comments task={task} onAdd={(text)=>up("comments",
-        [...(task.comments||[]),{id:uid("c"),text,at:new Date().toISOString()}])}
+      <Comments task={task} meId={meId} nameOf={nameOf}
+        onAdd={(c)=>{ up("comments",[...(task.comments||[]),newComment(c,meId)]);
+          onComment?.(task,c); }}
         onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
     </div>);
 }
+
+/* Комментарий в задаче — с автором и адресатом: это разговор, а не
+   суждение о человеке (оно — в оценке, и та без имени). Скрытый видят
+   только автор и адресат. */
+export const newComment=({text,to=null,hidden=false},by)=>({
+  id:uid("c"),text:String(text||"").trim(),at:new Date().toISOString(),
+  by:by==null?null:String(by),to:to==null||to===""?null:String(to),hidden:!!hidden});
 
 /* ═══ КАРТОЧКА ЗАДАЧИ У ИСПОЛНИТЕЛЯ ═══
 
@@ -656,13 +678,20 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
    Сдача записывает, что вышло на самом деле: сколько часов ушло и сколько
    каждого ресурса взяли и выдали. Из принятых сдач считается среднее
    арифметическое — оно и уточняет прогноз. */
+const NO_RATING={mark:null,comment:"",hidden:true};
+
 export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
-  onClose,nameOf}){
+  onClose,nameOf,meId,onComment,onSubmit}){
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
   const [draftText,setDraftText]=useState("");
   const [draftFile,setDraftFile]=useState(null);
+  /* Оценка постановки — как исполнителю поставили задачу. Отдельно от
+     отчёта: отчёт про работу, это — про постановщика. Скрытый по
+     умолчанию: сказать лично проще, чем на всех, а публичным человек
+     делает слова осознанно. */
+  const [rating,setRating]=useState(NO_RATING);
   const [fileErr,setFileErr]=useState("");
   const [fileBusy,setFileBusy]=useState(false);
   const [hours,setHours]=useState(0);
@@ -707,8 +736,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
       gives:Object.fromEntries(func.gives.map(p=>[p.trait,mid(p)]))});
     setTook({});
     setGiveFiles({}); setGiveErr({}); setGiveBusy("");
+    setRating(NO_RATING);
     setHanding(true);
   };
+  /* Себе оценку постановки не ставят: постановщик, равный исполнителю,
+     оценивал бы сам себя. Блока в форме тогда нет вовсе. */
+  const ratesSetter=!selfSet(task);
 
   /* Приложить вышедшую вещь. Ресурс назван явно: одна сдача выдаёт и макет,
      и смету, и класть их в одно поле значило бы потерять, что где. */
@@ -739,11 +772,17 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
     /* Без обязательных вещей сдачи не бывает: работа, от которой ждали
        макет, без макета не сделана, сколько бы часов на неё ни ушло. */
     if(missing.length) return;
-    upMany({submissions:[...subs,newSubmission({hours,takes:qty.takes,gives:qty.gives,
-      took,files:giveFiles,text:draftText,file:draftFile})],
-    status:selfReview(task)?"done":"review"});
+    const submission=newSubmission({hours,takes:qty.takes,gives:qty.gives,
+      took,files:giveFiles,text:draftText,file:draftFile,
+      setterRating:ratesSetter?rating:null});
+    upMany({submissions:[...subs,submission],
+      status:selfReview(task)?"done":"review"});
+    /* Сдача должна пережить закрытие окна: модель целиком пишет владелец,
+       а у исполнителя для этого своя операция на сервере — иначе сдача и
+       оценка постановки жили бы только здесь. */
+    onSubmit?.(task,submission);
     setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
-    setTook({}); setGiveFiles({}); setGiveErr({});
+    setTook({}); setGiveFiles({}); setGiveErr({}); setRating(NO_RATING);
   };
 
   const QtyRow=({kind,port})=>{
@@ -926,7 +965,8 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
               <TxtField area value={draftText} placeholder="отчёт текстом"
                 style={{minHeight:56,marginBottom:6,lineHeight:1.5}}
                 onCommit={setDraftText}/>
-              <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+              <div className="flex flex-wrap gap-2" style={{alignItems:"center",
+                marginBottom:6}}>
                 <label style={{...btn(false),cursor:fileBusy?"default":"pointer",
                   opacity:fileBusy?0.6:1}}>
                   {fileBusy?"Загружаю…":"Загрузить отчёт"}
@@ -937,9 +977,56 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                 {draftFile&&<span style={{fontSize:10.5,color:ACC}}>
                   📎 {draftFile.name} · {Math.round(draftFile.size/1024)} КБ</span>}
                 {fileErr&&<span style={{fontSize:10.5,color:BAD}}>{fileErr}</span>}
+              </div>
+
+              {/* ─── оценка постановки ───
+                  Обе стороны отвечают за свою половину работы: проверяющий
+                  оценивает выполнение, исполнитель — постановку. Оценка про
+                  постановщика, публикуется без имени и только когда её
+                  нельзя вычислить; можно не ставить. */}
+              {ratesSetter&&(
+                <div style={{background:C.ink,border:`1px solid ${C.line}`,
+                  borderRadius:6,padding:7,marginBottom:8}}>
+                  <div style={S.lbl}>оценка постановки задачи — можно не ставить</div>
+                  <div className="flex flex-wrap gap-2" style={{margin:"5px 0 6px",
+                    alignItems:"center"}}>
+                    {Array.from({length:MARK_MAX-MARK_MIN+1},(_,i)=>MARK_MIN+i)
+                      .map(v=>(
+                        <button key={v} aria-label={`оценка постановки ${v}`}
+                          style={{...btn(rating.mark===v,rating.mark===v?OK:null),
+                            minWidth:38}}
+                          onClick={()=>setRating(p=>({...p,mark:p.mark===v?null:v}))}>
+                          {v}</button>))}
+                    <span style={{fontSize:10.5,color:C.muted}}>
+                      {rating.mark==null?"без оценки":"ещё раз — снять"}</span>
+                  </div>
+                  <TxtField area value={rating.comment}
+                    placeholder="что в постановке было ясно, а чего не хватало"
+                    aria-label="комментарий к постановке"
+                    style={{minHeight:44,marginBottom:6,lineHeight:1.5}}
+                    onCommit={v=>setRating(p=>({...p,comment:v}))}/>
+                  <div className="flex flex-wrap gap-2">
+                    <button style={{...btn(rating.hidden,rating.hidden?WARN:null),
+                      fontSize:11}}
+                      onClick={()=>setRating(p=>({...p,hidden:true}))}>
+                      скрытый (видит только автор)</button>
+                    <button style={{...btn(!rating.hidden,!rating.hidden?ACC:null),
+                      fontSize:11}}
+                      onClick={()=>setRating(p=>({...p,hidden:false}))}>
+                      публичный (видят все)</button>
+                  </div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:5,lineHeight:1.5}}>
+                    Оценка — про постановщика: {who(task.setter)}. Публикуется без
+                    вашего имени и только когда её нельзя вычислить — не меньше
+                    двух оценок от разных людей. Скрытый комментарий увидит только
+                    он, публичный — все, но тоже без имени.
+                  </div>
+                </div>)}
+
+              <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
                 <span style={{flex:1}}/>
                 <button style={btn(false)} onClick={()=>{setHanding(false);
-                  setDraftFile(null);setFileErr("");}}>Отмена</button>
+                  setDraftFile(null);setFileErr("");setRating(NO_RATING);}}>Отмена</button>
                 <button style={btn(true,OK)}
                   disabled={fileBusy||!!giveBusy||!!missing.length}
                   title={missing.length
@@ -961,32 +1048,89 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
       {/* Комментарии — единственное, что исполнитель здесь пишет помимо
           сдачи: спросить, уточнить, сказать, что мешает. */}
       <div style={S.lbl}>комментарии</div>
-      <Comments task={task} onAdd={(text)=>up("comments",
-        [...(task.comments||[]),{id:uid("c"),text,at:new Date().toISOString()}])}
+      <Comments task={task} meId={meId} nameOf={nameOf}
+        onAdd={(c)=>{ up("comments",[...(task.comments||[]),newComment(c,meId)]);
+          onComment?.(task,c); }}
         onDrop={(id)=>up("comments",(task.comments||[]).filter(c=>c.id!==id))}/>
     </div>);
 }
 
-function Comments({task,onAdd,onDrop}){
+/* Кому в задаче можно адресовать слова: три её роли, кроме себя. */
+export const TASK_PEOPLE=[["setter","постановщик"],["assignee","исполнитель"],
+  ["reviewer","проверяющий"]];
+const addressees=(task,meId)=>TASK_PEOPLE
+  .filter(([k])=>task[k]!=null&&task[k]!==""
+    &&(meId==null||String(task[k])!==String(meId)))
+  .map(([k,role])=>({id:String(task[k]),role}));
+
+/**
+ * Видно ли комментарий этому человеку: скрытый — только автору и
+ * адресату. Сервер режет то же самое для не-владельцев; здесь правило
+ * повторено, чтобы владелец, у которого модель целиком, тоже не читал
+ * чужих скрытых слов — они не ему.
+ */
+export const canSeeComment=(c,meId)=>!c?.hidden
+  ||(meId!=null&&(String(c.by)===String(meId)||String(c.to)===String(meId)));
+
+/* ─────── комментарии в задаче ───────
+
+   Комментарий — с автором и адресатом: это разговор в задаче, а не
+   суждение о человеке. Скрытый видят только автор и адресат — можно
+   сказать лично, не вынося на всех; поэтому скрытому нужен адресат, а
+   «скрытый никому» не бывает. Публичный видят все, кто видит задачу. */
+function Comments({task,meId,nameOf,onAdd,onDrop}){
   const [text,setText]=useState("");
-  const list=task.comments||[];
+  const [to,setTo]=useState("");
+  const [hidden,setHidden]=useState(false);
+  const me=meId==null?null:String(meId);
+  const who=(id)=>(id==null||id===""?"":(nameOf?nameOf(id):String(id)));
+  const list=(task.comments||[]).filter(c=>canSeeComment(c,me));
+  const people=addressees(task,me);
+  const canAdd=!!text.trim()&&(!hidden||!!to);
+  const add=()=>{
+    if(!canAdd) return;
+    onAdd({text:text.trim(),to:to||null,hidden});
+    setText("");
+  };
+  /* Пометка — только у скрытых: адресату «только вам», автору — кому. */
+  const tag=(c)=>(!c.hidden?""
+    :String(c.to)===me?"скрытый · только вам"
+      :`скрытый · только ${who(c.to)||"адресату"}`);
   return (
     <div style={{margin:"6px 0"}}>
       {!list.length&&<div style={{fontSize:11.5,color:C.muted}}>Пока нет.</div>}
       {list.map(c=>(
         <div key={c.id} style={{background:C.panel2,border:`1px solid ${C.line}`,
-          borderRadius:6,padding:7,marginBottom:5}}>
+          borderRadius:6,padding:7,marginBottom:5,
+          borderLeft:c.hidden?`2px solid ${WARN}`:`1px solid ${C.line}`}}>
           <div style={{fontSize:12,lineHeight:1.5}}>{c.text}</div>
-          <div className="flex items-center gap-2" style={{marginTop:3}}>
-            <span style={{fontSize:10,color:C.muted,flex:1}}>{fmtDT(c.at)}</span>
+          <div className="flex flex-wrap items-center gap-2" style={{marginTop:3}}>
+            <span style={{fontSize:10,color:C.muted,flex:1}}>
+              {who(c.by)?`${who(c.by)} `:""}
+              {c.to?`→ ${who(c.to)} · `:""}
+              {fmtDT(c.at)}</span>
+            {c.hidden&&<span style={{fontSize:10,color:WARN}}>{tag(c)}</span>}
             <button style={{...btn(false),padding:"2px 6px"}}
               aria-label="убрать комментарий" onClick={()=>onDrop(c.id)}>✕</button>
           </div>
         </div>))}
       <div className="flex gap-2" style={{marginTop:6}}>
         <TxtField value={text} placeholder="написать комментарий" onCommit={setText}/>
-        <button style={btn(false)} onClick={()=>{ if(text.trim()){onAdd(text.trim());
-          setText("");} }}>Добавить</button>
+        <button style={btn(false)} disabled={!canAdd}
+          title={hidden&&!to?"Скрытому комментарию нужен адресат":""}
+          onClick={add}>Добавить</button>
+      </div>
+      <div className="flex flex-wrap gap-2" style={{marginTop:6,alignItems:"center"}}>
+        <select style={{...S.inp,flex:"0 1 200px",fontSize:11}} value={to}
+          aria-label="адресат комментария" onChange={e=>setTo(e.target.value)}>
+          <option value="">{hidden?"— кому? —":"— всем —"}</option>
+          {people.map(p=>(
+            <option key={p.id} value={p.id}>{p.role} · {who(p.id)}</option>))}
+        </select>
+        <button style={{...btn(hidden,hidden?WARN:null),fontSize:11}}
+          onClick={()=>setHidden(true)}>скрытый (видит только адресат)</button>
+        <button style={{...btn(!hidden,!hidden?ACC:null),fontSize:11}}
+          onClick={()=>setHidden(false)}>публичный (видят все участники)</button>
       </div>
     </div>);
 }
@@ -996,7 +1140,7 @@ function Comments({task,onAdd,onDrop}){
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTasks,
-  openId,setOpenId,nameOf,onTake}){
+  openId,setOpenId,nameOf,onTake,meId,onComment,onSubmit}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
   /* Двигать задачи по доске нельзя, и стрелок здесь нет. У исполнителя два
@@ -1037,7 +1181,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
 
       {open&&(
         <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits}
-          entities={entities}
+          entities={entities} meId={meId} onComment={onComment} onSubmit={onSubmit}
           nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}
 
       <div className="flex gap-2" style={{overflowX:"auto",alignItems:"flex-start"}}>

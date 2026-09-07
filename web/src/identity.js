@@ -105,6 +105,16 @@ export const takeTaskRemote = (id) =>
 export const submitTaskRemote = (id, submission) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/submit`,
     { method: "POST", body: JSON.stringify(submission) });
-export const reviewTaskRemote = (id, { accept, comment, mark }) =>
+export const reviewTaskRemote = (id, { accept, comment, mark, hidden = false }) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/review`,
-    { method: "POST", body: JSON.stringify({ accept, comment, mark }) });
+    { method: "POST", body: JSON.stringify({ accept, comment, mark, hidden }) });
+/* Комментарий к задаче: скрытый — только автору и адресату. Своя
+   операция, как у сдачи и приёма: модель целиком пишет владелец, а сказать
+   в задаче должен уметь любой её участник. */
+export const commentTaskRemote = (id, { text, to = null, hidden = false }) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(id)}/comments`,
+    { method: "POST", body: JSON.stringify({ text, to, hidden }) });
+/* Рейтинги глазами спрашивающего: про себя — только адресованные слова,
+   про остальных — средние и публичные слова, нигде — автор. Сервер при
+   каждом чтении пробует опубликовать то, что стало анонимным. */
+export const getRatings = () => json("/api/workspace/ratings");

@@ -280,6 +280,164 @@ describe("сдача и приём через сервер", () => {
     expect((await request(app).post("/api/workspace/tasks/tk1/review")
       .set(as(200)).send({ accept: true, comment: "ок", mark: 5 })).status).toBe(403);
   });
+
+  /* ─── результат — часть сдачи ───
+     Функция обещала выдать «заявки» (минимум 1): без файла по этому выходу
+     сдачи нет, и сказано, чего не хватает. Правило одно на бота и доску. */
+  const WITH_FUNC = {
+    ...MODEL,
+    funcs: [{ id: "f1", e: "e1", name: "Сбор заявок", dur: 2, durUnit: "ч",
+      takes: [{ id: "p1", trait: "t1", lo: 1, hi: 2 }],
+      gives: [{ id: "p2", trait: "t2", lo: 1, hi: 1 }] }],
+    tasks: MODEL.tasks.map((t) => (t.id === "tk1" ? { ...t, funcId: "f1", setter: "100" } : t)),
+  };
+  const withFunc = () => request(app).put("/api/workspace").set(as(100))
+    .send({ model: WITH_FUNC });
+  const FILE = { name: "заявка.pdf", type: "application/pdf", size: 10, url: "/api/reports/x" };
+
+  it("без файла по обязательному выходу сдача не принимается — 400 и список", async () => {
+    await withFunc();
+    await invite(200, "executor", "Иван");
+    const res = await request(app).post("/api/workspace/tasks/tk1/submit")
+      .set(as(200)).send({ hours: 2, text: "сделал" });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "missing files", missing: ["t2"] });
+    // И сдачи не появилось.
+    const got = await request(app).get("/api/workspace").set(as(200));
+    expect(got.body.tasks[0].submissions).toHaveLength(0);
+  });
+
+  it("с файлами сдаётся, и оценка постановки хранится вместе со сдачей", async () => {
+    await withFunc();
+    await invite(200, "executor", "Иван");
+    const res = await request(app).post("/api/workspace/tasks/tk1/submit")
+      .set(as(200)).send({ hours: 2, files: { t2: FILE },
+        setterRating: { mark: 4, comment: "срок был тесный", hidden: true } });
+    expect(res.status).toBe(200);
+    expect(res.body.submissions[0].files).toEqual({ t2: FILE });
+    expect(res.body.submissions[0].setterRating)
+      .toEqual({ mark: 4, comment: "срок был тесный", hidden: true });
+  });
+
+  it("оценка постановки не обязательна: без неё — null, а не нули", async () => {
+    await withFunc();
+    await invite(200, "executor", "Иван");
+    const res = await request(app).post("/api/workspace/tasks/tk1/submit")
+      .set(as(200)).send({ hours: 2, files: { t2: FILE } });
+    expect(res.body.submissions[0].setterRating).toBeNull();
+  });
+
+  it("у решения проверяющего хранится «скрытый», и слова уходят в ленту с адресатом", async () => {
+    await saveModel();
+    await invite(300, "reviewer", "Пётр");
+    const res = await request(app).post("/api/workspace/tasks/tk1/review")
+      .set(as(300)).send({ accept: true, comment: "лично", mark: 5, hidden: true });
+    expect(res.body.reviews[0]).toMatchObject({ hidden: true, mark: 5 });
+    expect(res.body.comments[0]).toMatchObject({ text: "лично", by: "300", to: "200",
+      hidden: true });
+  });
+});
+
+/* ─────── оценки без имени ───────
+
+   Оценка публикуется без автора и только когда автора нельзя вычислить.
+   Свои оценки человек не видит — ни цифрой, ни в задаче. */
+describe("рейтинги через сервер", () => {
+  // Две задачи Ивана с двумя разными проверяющими: порог набран.
+  const RATED = {
+    ...MODEL,
+    tasks: [
+      { id: "tk1", assignee: "200", reviewer: "300", setter: "100", status: "done",
+        title: "Задача Ивана", submissions: [], comments: [],
+        reviews: [{ id: "r1", at: "2026-01-01T10:00:00Z", by: "300", accept: true,
+          mark: 5, comment: "чётко", hidden: false }] },
+      { id: "tk2", assignee: "200", reviewer: "400", setter: "100", status: "done",
+        title: "Вторая Ивана", submissions: [], comments: [],
+        reviews: [{ id: "r2", at: "2026-01-02T10:00:00Z", by: "400", accept: true,
+          mark: 3, comment: "лично", hidden: true }] },
+    ],
+  };
+  const rated = () => request(app).put("/api/workspace").set(as(100)).send({ model: RATED });
+  const ratings = (who) => request(app).get("/api/workspace/ratings").set(as(who));
+
+  it("чтение публикует по одной за раз, и в ответе нет автора", async () => {
+    await rated();
+    await invite(200, "executor", "Иван");
+    const first = await ratings(100);
+    expect(first.status).toBe(200);
+    expect(first.body.others["200"]).toMatchObject({ mark: 5, count: 1 });
+    const second = await ratings(100);
+    expect(second.body.others["200"]).toMatchObject({ mark: 4, count: 2 });
+    expect(JSON.stringify(second.body)).not.toContain('"by"');
+  });
+
+  it("про себя — только адресованные слова, без единой цифры", async () => {
+    await rated();
+    await invite(200, "executor", "Иван");
+    await ratings(100); await ratings(100);
+    const res = await ratings(200);
+    expect(res.body.others).not.toHaveProperty("200");
+    expect(res.body.mine.comments.map((c) => c.text).sort()).toEqual(["лично", "чётко"]);
+    // И в задаче исполнитель своей оценки тоже не видит.
+    const got = await request(app).get("/api/workspace").set(as(200));
+    got.body.tasks.forEach((t) => t.reviews.forEach((r) => expect(r.mark).toBeNull()));
+  });
+
+  it("реестр опубликованного не стирается моделью владельца", async () => {
+    await rated();
+    await ratings(100);
+    // Владелец сохраняет модель без реестра (клиент его не ведёт).
+    await rated();
+    const res = await ratings(100);
+    // Была бы стёрта — опубликовалась бы заново одна; а их уже две.
+    expect(res.body.others["200"].count).toBe(2);
+  });
+
+  it("незваному рейтингов нет", async () => {
+    await rated();
+    expect((await ratings(777)).status).toBe(403);
+  });
+});
+
+/* ─────── комментарии ───────
+
+   Скрытый — только автору и адресату; публичный — всем участникам. */
+describe("комментарии к задаче", () => {
+  const comment = (who, body) => request(app).post("/api/workspace/tasks/tk1/comments")
+    .set(as(who)).send(body);
+
+  it("участник пишет, скрытое видят только автор и адресат", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+    const res = await comment(300, { text: "между нами", to: "200", hidden: true });
+    expect(res.status).toBe(201);
+    expect(res.body.comment).toMatchObject({ text: "между нами", by: "300", to: "200",
+      hidden: true });
+    // Адресат видит, а постановщик (владелец) — свою модель целиком; чужой
+    // участник — нет. Проверяем через срез третьего участника.
+    const asIvan = await request(app).get("/api/workspace").set(as(200));
+    expect(asIvan.body.tasks[0].comments.map((c) => c.text)).toEqual(["между нами"]);
+  });
+
+  it("публичный виден всем участникам, а посторонний писать не может", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+    await invite(500, "executor", "Чужой");
+    expect((await comment(200, { text: "всем", to: null, hidden: false })).status).toBe(201);
+    expect((await comment(500, { text: "мимо" })).status).toBe(403);
+    const asPetr = await request(app).get("/api/workspace").set(as(300));
+    expect(asPetr.body.tasks[0].comments.map((c) => c.text)).toEqual(["всем"]);
+  });
+
+  it("скрытому нужен адресат, и адресат — из участников", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    expect((await comment(200, { text: "тайна", hidden: true })).status).toBe(400);
+    expect((await comment(200, { text: "тайна", to: "999", hidden: true })).status).toBe(400);
+    expect((await comment(200, { text: "   " })).status).toBe(400);
+  });
 });
 
 /* Анкета — единственное, что человек меняет о себе сам. Поэтому маршрут
