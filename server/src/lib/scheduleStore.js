@@ -46,7 +46,31 @@ function slimTask(t) {
     days: Array.isArray(t.days) ? t.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) : [],
     time: t.time ? String(t.time) : "",
     warn: t.warn == null ? null : Number(t.warn),
+    // До какого момента отложена (UTC-метка ISO): в этот момент планировщик
+    // присылает уведомление о начале заново. Не дата — значит, не отложена.
+    deferredUntil: isoOrNull(t.deferredUntil),
   };
+}
+
+const isoOrNull = (v) => {
+  const ms = v ? Date.parse(String(v)) : NaN;
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+};
+
+/**
+ * Переносит отметку «отложено до» в расписание сразу, не дожидаясь, пока
+ * человек откроет приложение и оно пересохранит расписание с доски: бот
+ * отложил задачу — и он же обязан напомнить в названный момент, даже если
+ * приложение с тех пор никто не открывал. Задача, которой в расписании
+ * нет, не заводится: напоминания идут только по тому, что доска прислала.
+ */
+export async function setDeferredUntil(userId, taskId, until) {
+  const data = await readSchedule(userId);
+  const task = (data?.tasks || []).find((t) => t.id === String(taskId));
+  if (!task) return false;
+  task.deferredUntil = isoOrNull(until);
+  await write(userId, data);
+  return true;
 }
 
 export async function saveSchedule(userId, { chatId, tzOffset, tasks }) {
@@ -94,4 +118,5 @@ export async function allSchedules() {
   return out;
 }
 
-export const store = { all: allSchedules, markSent, read: readSchedule, save: saveSchedule };
+export const store = { all: allSchedules, markSent, read: readSchedule, save: saveSchedule,
+  setDeferredUntil };
