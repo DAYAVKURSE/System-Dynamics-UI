@@ -129,14 +129,6 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
   }], { cache_time: 0, is_personal: true });
 }
 
-/* ─────── мост к Claude Code ───────
-   Только владельцу и только явной командой: «/claude вопрос» либо режим
-   «/claude» без текста, когда каждое следующее сообщение уходит в мост.
-   Явность здесь не формальность — иначе обычная переписка с ботом начала
-   бы уезжать в чужой процесс. */
-
-const bridgeMode = new Set();
-
 const HELP = [
   "Я умею одно: добавлять людей в модель.",
   "",
@@ -147,14 +139,6 @@ const HELP = [
   "приватности), попросите его прислать мне /id и пришлите этот номер",
   "сообщением вида: id 123456789 Имя",
   "",
-  "Ещё умею передавать вопрос в ваш Claude Code: «/claude вопрос».",
-  "«/claude» без текста включает режим, когда туда уходит каждое",
-  "следующее сообщение; «/stop» его выключает.",
-  "",
-  "«/login» — вход в Claude Code прямо отсюда: пришлю ссылку, вы",
-  "подтвердите и вставите код ответным сообщением — целиком, вместе",
-  "с частью после «#». Ни SSH, ни компьютера для этого не нужно.",
-  "",
   "«/callapp» — отдельное мини-приложение для звонков: расскажу, как",
   "завести его в @BotFather, и запомню короткое имя.",
   "",
@@ -162,19 +146,6 @@ const HELP = [
   "хочется на половину: расскажу, как сделать его главным приложением",
   "бота. На компьютере половины нет ни у какого мини-приложения.",
 ].join("\n");
-
-/**
- * Похоже ли сообщение на одноразовый код подтверждения Claude.
- *
- * Проверка нарочно узкая: длинная строка без пробелов из «код#состояние».
- * Обычная переписка так не выглядит, а перепутать значило бы не передать
- * человеку его же вопрос.
- */
-export const looksLikeCode = (text) =>
-  /^[A-Za-z0-9._~:+/=%-]{16,}#[A-Za-z0-9._~:+/=%-]{8,}$/.test(String(text || "").trim());
-
-/** Пускает долгую работу дальше, не роняя бота на её ошибке. */
-const detach = (p) => { p.catch(() => {}); return p; };
 
 const rolesKeyboard = (roles) => ({
   inline_keyboard: [
@@ -233,11 +204,10 @@ export async function handleUpdate(update, deps) {
 }
 
 async function onMessage(msg, from, deps) {
-  const { org, send, bridge, login } = deps;
+  const { org, send } = deps;
   const text = String(msg.text || "").trim();
 
-  // 0. Настройка приложения звонка — раньше моста, иначе команда уехала бы
-  //    в Claude Code обычным вопросом.
+  // 1. Настройка приложения звонка.
   if (deps.settings) {
     const m = text.match(/^\/callapp\b\s*([\s\S]*)$/i);
     if (m) return onCallApp(m[1], from, deps);
@@ -245,60 +215,7 @@ async function onMessage(msg, from, deps) {
     if (main) return onCallMain(main[1], from, deps);
   }
 
-  /* 1. Вход в Claude Code — тоже раньше моста: и «/login», и код
-        подтверждения иначе уехали бы в мост обычным вопросом.
-
-        Разговор с claude идёт долго (ссылка — секунды, проверка кода —
-        тоже), а обновления Telegram обрабатываются по очереди. Поэтому
-        сам разговор не ждём: бот остаётся живым и может, в частности,
-        принять «/stop». Обещание отдаётся вызывающему в `done` — тестам
-        есть чего дождаться. */
-  if (login) {
-    if (/^\/login\b/i.test(text)) return { login: "started", done: detach(onLogin(from, deps)) };
-    // «/stop» отменяет вход на любой его стадии, не только пока ждём код:
-    // проверка кода — как раз тот момент, когда отменить хочется сильнее.
-    if (login.loginState().stage !== "idle" && /^\/(stop|cancel)\b/i.test(text)) {
-      login.cancelLogin();
-      await send(from.id, "Вход отменён.");
-      return { login: "cancelled" };
-    }
-    if (login.awaitingCode() && text && !text.startsWith("/")) {
-      return { login: "code", done: detach(onLoginCode(text, from, deps)) };
-    }
-    // Код, присланный без начатого входа (окно закрылось, вход отменили),
-    // не должен уехать в Claude Code обычным вопросом: он одноразовый, но
-    // до сих пор попадал и в чужой процесс, и в журнал воркера.
-    if (looksLikeCode(text)) {
-      await send(from.id, "Похоже на код подтверждения, но вход сейчас не начат"
-        + " — он живёт несколько минут. Отправьте /login и повторите.");
-      return { login: "stale-code" };
-    }
-  }
-
-  // 2. Мост к Claude Code: в режиме моста сообщение уходит туда целиком,
-  //    включая то, что похоже на команду.
-  if (bridge) {
-    const cmd = text.match(/^\/claude\b\s*([\s\S]*)$/i);
-    if (cmd) {
-      const rest = cmd[1].trim();
-      if (!rest) {
-        bridgeMode.add(String(from.id));
-        await send(from.id, "Режим Claude Code включён: пишите вопрос обычным сообщением. «/stop» — выйти.");
-        return { bridgeMode: "on" };
-      }
-      return askBridge(rest, from, deps);
-    }
-    if (/^\/stop\b/i.test(text) && bridgeMode.has(String(from.id))) {
-      bridgeMode.delete(String(from.id));
-      await send(from.id, "Режим Claude Code выключен.");
-      return { bridgeMode: "off" };
-    }
-    if (bridgeMode.has(String(from.id)) && text && !msg.forward_from) {
-      return askBridge(text, from, deps);
-    }
-  }
-
-  // 3. Пересланное сообщение — основной путь.
+  // 2. Пересланное сообщение — основной путь.
   const fwd = msg.forward_from;
   if (fwd) {
     const roles = (await org.listOrg()).roles;
@@ -320,7 +237,7 @@ async function onMessage(msg, from, deps) {
     return { blocked: "hidden" };
   }
 
-  // 4. Ожидаем имя новой роли.
+  // 3. Ожидаем имя новой роли.
   const wait = pending.get(String(from.id));
   if (wait?.awaiting === "roleName" && text) {
     try {
@@ -336,7 +253,7 @@ async function onMessage(msg, from, deps) {
     }
   }
 
-  // 5. Запасной путь: «id 123 Имя» — когда пересылка не сработала.
+  // 4. Запасной путь: «id 123 Имя» — когда пересылка не сработала.
   const byId = text.match(/^id\s+(\d{3,20})\s*(.*)$/i);
   if (byId) {
     const roles = (await org.listOrg()).roles;
@@ -347,7 +264,7 @@ async function onMessage(msg, from, deps) {
     return { asked: byId[1] };
   }
 
-  // 6. Свой номер — чтобы было что переслать владельцу.
+  // 5. Свой номер — чтобы было что переслать владельцу.
   if (/^\/id\b/.test(text)) {
     await send(from.id, `Ваш id: ${from.id}`);
     return { told: String(from.id) };
@@ -440,74 +357,6 @@ async function onCallApp(arg, from, deps) {
   ].join("\n"));
   return { callApp: name };
 }
-
-/* ─────── вход в Claude Code ───────
-   Владелец жмёт ссылку, подтверждает и присылает код обратно сообщением.
-   Токен в чат не уходит: сервер кладёт его в .env сам (см. lib/loginFlow.js).
-
-   Код одноразовый и живёт минуты: если он не подошёл, старая ссылка уже
-   бесполезна — второй код по ней не выдадут. Поэтому на любую осечку бот
-   сразу присылает НОВУЮ ссылку, а не просит вспоминать про «/login». */
-
-const CODE_STEPS = [
-  "1. Откройте ссылку и подтвердите вход в свой аккаунт Claude.",
-  "2. Скопируйте код целиком — вместе с длинной частью после «#».",
-  "3. Пришлите его мне ответным сообщением, одной строкой.",
-  "",
-  "Код живёт несколько минут. «/stop» — отменить.",
-].join("\n");
-
-async function sendAuthLink(from, { send, login }, lead) {
-  if (lead) await send(from.id, lead);
-  try {
-    const { url } = await login.startLogin();
-    await send(from.id, CODE_STEPS, { inline_keyboard: [[{ text: "Войти в Claude", url }]] });
-    return { login: "url" };
-  } catch (e) {
-    await send(from.id, `Вход не запустился: ${e.message}`);
-    return { login: "error", error: e.message };
-  }
-}
-
-async function onLogin(from, deps) {
-  const { login } = deps;
-  // Одно сообщение, а не два: «уже подключён, отправьте /login ещё раз» в
-  // ответ на только что отправленный /login читалось как отказ.
-  return sendAuthLink(from, deps, await login.loggedIn()
-    ? "Claude Code уже подключён — обновляю вход, это несколько секунд…"
-    : "Запускаю вход, это занимает несколько секунд…");
-}
-
-async function onLoginCode(code, from, deps) {
-  const { send, login } = deps;
-  await send(from.id, "Проверяю код…");
-  try {
-    const r = await login.finishLogin(code);
-    await send(from.id, r.restarted
-      ? "Готово: Claude Code подключён, черновики задач заработают сразу."
-      : "Готово: Claude Code подключён. Черновики заработают в течение минуты.");
-    return { login: "done", mode: r.mode };
-  } catch (e) {
-    // Осечка на коде — не тупик: старый код уже сгорел, поэтому выдаём
-    // новую ссылку тем же сообщением, а не отсылаем к «/login».
-    if (e.retry) return sendAuthLink(from, deps, `${e.message}. Вот новая ссылка:`);
-    await send(from.id, `${e.message}\n\nПопробуйте ещё раз: /login`);
-    return { login: "error", error: e.message };
-  }
-}
-
-async function askBridge(text, from, { send, bridge }) {
-  try {
-    const item = bridge.ask({ text, from: from.id, chatId: from.id });
-    await send(from.id, "Передал в Claude Code, жду ответ…");
-    return { asked: item.id };
-  } catch (e) {
-    await send(from.id, `Не вышло: ${e.message}`);
-    return { error: e.message };
-  }
-}
-
-export function resetBridgeMode() { bridgeMode.clear(); }
 
 /* ─────── «Начать» и «Отложить» ───────
 

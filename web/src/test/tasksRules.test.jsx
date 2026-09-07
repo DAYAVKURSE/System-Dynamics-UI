@@ -276,7 +276,6 @@ describe("назначения берутся из воркеров актива
   it("содержимое пишет постановщик, а не машина", () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     expect(screen.getByText(/Пишет постановщик/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /черновик от Claude/ })).toBeNull();
   });
 });
 

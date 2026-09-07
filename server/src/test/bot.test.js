@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { handleUpdate, resetBridgeMode, resetPending } from "../lib/bot.js";
+import { handleUpdate, resetPending } from "../lib/bot.js";
 import * as org from "../lib/orgStore.js";
 
 /* Бот умеет одно: владелец пересылает сообщение от человека и выбирает
@@ -138,111 +138,6 @@ describe("когда пересылка не сообщает id", () => {
     // свой собственный id человек и так видит в любом клиенте.
     await handleUpdate(msg(owner, { text: "/id" }), deps);
     expect(lastText()).toMatch(/Ваш id: 100/);
-  });
-});
-
-/* ─────── вход в Claude Code из чата ───────
-   Сам разговор с `claude` проверяется в loginFlow.test.js; здесь — что бот
-   зовёт его в нужный момент и не путает код подтверждения с вопросом. */
-
-describe("вход в Claude Code", () => {
-  const calls = [];
-  let awaiting = false;
-  let startFails = "";
-  const login = {
-    loggedIn: async () => false,
-    loginState: () => ({ stage: awaiting ? "code" : "idle" }),
-    awaitingCode: () => awaiting,
-    startLogin: async () => {
-      calls.push({ start: true });
-      if (startFails) throw new Error(startFails);
-      awaiting = true;
-      return { url: "https://claude.com/cai/oauth/authorize?code_challenge=c&state=s" };
-    },
-    finishLogin: async (code) => {
-      calls.push({ code });
-      awaiting = false;
-      return { saved: true, restarted: true };
-    },
-    cancelLogin: () => { calls.push({ cancel: true }); awaiting = false; return true; },
-  };
-  const asked = [];
-  const bridge = { ask: ({ text }) => { asked.push(text); return { id: "q1" }; } };
-  const deps2 = { ...deps, bridge, login };
-  const lastButton = () => (sent[sent.length - 1]?.keyboard?.inline_keyboard || [])[0]?.[0];
-
-  beforeEach(() => { calls.length = 0; asked.length = 0; awaiting = false; startFails = ""; });
-
-  // Разговор с claude бот не ждёт — иначе он глохнет на всё время входа.
-  // Обещание отдаётся в `done`, и тесту есть чего дождаться.
-  const step = async (text, from = owner, d = deps2) => {
-    const r = await handleUpdate(msg(from, { text }), d);
-    if (r?.done) await r.done;
-    return r;
-  };
-
-  it("«/login» присылает ссылку кнопкой, а не текстом инструкции", async () => {
-    await step("/login");
-    expect(calls[0]).toEqual({ start: true });
-    expect(lastButton()?.url).toMatch(/oauth\/authorize/);
-    expect(lastText()).toMatch(/код/i);
-  });
-
-  it("бот не глохнет на время входа: ответ приходит сразу", async () => {
-    const r = await handleUpdate(msg(owner, { text: "/login" }), deps2);
-    expect(r.login).toBe("started");
-    expect(r.done).toBeInstanceOf(Promise);
-    await r.done;
-  });
-
-  it("следующее сообщение считается кодом и доводит вход до конца", async () => {
-    await step("/login");
-    await step("aBc123-code");
-    expect(calls).toContainEqual({ code: "aBc123-code" });
-    expect(lastText()).toMatch(/подключён/i);
-  });
-
-  it("код не уезжает вопросом в Claude, даже когда включён режим моста", async () => {
-    await step("/claude");                            // режим моста
-    await step("/login");
-    await step("secret-code");
-    expect(asked).toEqual([]);                        // в мост не ушло ничего
-    expect(calls).toContainEqual({ code: "secret-code" });
-    resetBridgeMode();
-  });
-
-  it("код без начатого входа не уезжает в Claude и не пишется в журнал", async () => {
-    // Одноразовый код, присланный после того, как окно закрылось.
-    await step("/claude");
-    await step(`ac_${"A".repeat(70)}#${"s".repeat(43)}`);
-    expect(asked).toEqual([]);
-    expect(lastText()).toMatch(/вход сейчас не начат/i);
-    resetBridgeMode();
-  });
-
-  it("«/stop» отменяет вход и во время проверки кода", async () => {
-    await step("/login");
-    await step("/stop");
-    expect(calls).toContainEqual({ cancel: true });
-    expect(lastText()).toMatch(/отмен/i);
-  });
-
-  it("сбой запуска объясняется словами, а не молчанием", async () => {
-    startFails = "на сервере нет команды script или claude";
-    await step("/login");
-    expect(lastText()).toMatch(/нет команды script/);
-  });
-
-  it("посторонний вход не начинает", async () => {
-    await step("/login", guest);
-    expect(calls).toEqual([]);
-    expect(lastText()).toMatch(/только владельцу/);
-  });
-
-  it("без моста «/login» не предлагается вовсе — логинить некого", async () => {
-    await step("/login", owner, { ...deps, bridge: null, login: null });
-    expect(calls).toEqual([]);
-    expect(lastText()).toMatch(/перешлите мне сообщение/i);
   });
 });
 

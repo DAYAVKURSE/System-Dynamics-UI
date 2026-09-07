@@ -3,13 +3,11 @@ import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { store } from "./lib/scheduleStore.js";
-import { answerCallback, answerInline, getMe, getUpdates, sendMessage, sendWithKeyboard }
+import { answerCallback, answerInline, getMe, getUpdates, sendWithKeyboard }
   from "./lib/telegram.js";
 import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
-import * as bridge from "./lib/bridgeStore.js";
-import * as login from "./lib/loginFlow.js";
 import { setSetting } from "./lib/envStore.js";
 import { deferTask, takeTask } from "./lib/workspaceStore.js";
 
@@ -121,10 +119,6 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
                  задачу на общем складе работы — там же, где её двигает
                  нажатие на доске. */
               work: { take: takeTask, defer: deferTask },
-              bridge: process.env.BRIDGE_TOKEN ? bridge : null,
-              // Вход в Claude Code из чата — только когда мост вообще включён:
-              // логинить некого, если воркеру нечем подключиться.
-              login: process.env.BRIDGE_TOKEN ? login : null,
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
               answerInline,
@@ -149,32 +143,4 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   console.log("Бот приглашений запущен (длинный опрос)");
 } else {
   console.log("TELEGRAM_BOT_TOKEN не задан — бот приглашений выключен");
-}
-
-/* Ответы моста разносит по чатам сам сервер: воркер знает только id
-   вопроса, а в какой чат его отправить — знает очередь. */
-if (process.env.TELEGRAM_BOT_TOKEN && process.env.BRIDGE_TOKEN) {
-  setInterval(async () => {
-    for (const item of bridge.takeAnswered()) {
-      if (!item.chatId) continue;
-      const body = item.error
-        ? `Claude Code ответил ошибкой:\n${item.error}`
-        : (item.answer || "(пустой ответ)");
-      try {
-        // Ответ Claude Code бывает длиннее одного сообщения Telegram —
-        // режем по абзацам, иначе API просто откажет.
-        for (const part of bridge.chunk(body)) await sendMessage(item.chatId, part);
-      } catch (e) {
-        console.error(`[bridge] ответ не отправлен: ${e.message}`);
-      }
-    }
-  }, 1000);
-  if (!bridge.asciiSecret(process.env.BRIDGE_TOKEN)) {
-    console.warn("[bridge] BRIDGE_TOKEN должен быть из латиницы и цифр, не короче"
-      + " 8 символов: заголовки HTTP не несут кириллицу, и воркер не сможет"
-      + " подключиться.");
-  }
-  console.log("Мост к Claude Code включён");
-} else if (process.env.TELEGRAM_BOT_TOKEN) {
-  console.log("BRIDGE_TOKEN не задан — мост к Claude Code выключен");
 }

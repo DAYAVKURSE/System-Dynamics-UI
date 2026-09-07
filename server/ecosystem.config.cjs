@@ -12,20 +12,5 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
-    {
-      // Воркер моста к Claude Code — на этом же сервере: у владельца нет
-      // своей машины. Читает тот же .env, что и сервер, поэтому общий секрет
-      // ему не надо сообщать отдельно.
-      name: "claude-bridge",
-      script: "tools/claude-bridge.mjs",
-      cwd: __dirname,
-      instances: 1,
-      exec_mode: "fork",
-      autorestart: true,
-      env: {
-        NODE_ENV: "production",
-        BRIDGE_URL: "http://127.0.0.1:3000",
-      },
-    },
   ],
 };
