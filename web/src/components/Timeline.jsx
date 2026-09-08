@@ -43,7 +43,11 @@ const ms = (v) => {
    прежние места читают её отсюда. */
 export { barOf };
 
-export default function Timeline({ tasks, funcs = [], traits = [], entities = [], nameOf }) {
+/* `meId` — чьими глазами собирается файл: у владельца задачи приходят
+   целиком, со скрытыми словами всех проверяющих, и файл без зрителя
+   унёс бы их наружу. */
+export default function Timeline({ tasks, funcs = [], traits = [], entities = [], nameOf,
+  meId = null }) {
   const [openId, setOpenId] = useState(null);
   const [only, setOnly] = useState("all");
   const [saving, setSaving] = useState(false);
@@ -79,6 +83,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
         personName: (id) => (id == null ? "не назначен"
           : (nameOf ? nameOf(id) : String(id))),
         title: "Таймлайн работы",
+        viewer: meId,
       });
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
       await deliverReport(`timeline-${stamp}.html`, html,

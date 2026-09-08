@@ -92,6 +92,10 @@ export function timelineRows(tasks = [], funcs = []) {
 export function timelineHtml(tasks = [], funcs = [], {
   statusName = (id) => id, funcName = () => "", personName = (id) => String(id ?? ""),
   title = "Таймлайн", now = Date.now(),
+  /* Чьими глазами собран файл. У владельца модель целиком, и без зрителя
+     в файл ложились бы чужие скрытые слова всех проверяющих — а файл
+     заводят, чтобы отдать наружу. */
+  viewer = null,
 } = {}) {
   const { dated, undated } = timelineRows(tasks, funcs);
   const A = Math.min(...dated.map((r) => r.bar.from), now);
@@ -125,7 +129,17 @@ export function timelineHtml(tasks = [], funcs = [], {
 
   /* История задачи — то, чего на полосе не видно: когда её отложили, когда
      взяли, что сдали и как приняли. Ради этого файл и заводят: полоса
-     говорит «когда», а история — «что происходило». */
+     говорит «когда», а история — «что происходило».
+
+     Чего в истории НЕТ — по тому же правилу, что режет сервер
+     (`taskViewFor`) и повторяет доска (`canSeeComment`):
+     · отметки — никогда: в файле она стоит без имени, но у задачи один
+       проверяющий, и отметка называет его не хуже подписи; к тому же
+       исполнитель своих оценок не видит, а файл он может открыть;
+     · скрытые слова — только если зритель их автор или исполнитель, к
+       которому они обращены. Остальным скрытого в файле нет вовсе. */
+  const mine = (v) => viewer != null && v != null && String(v) === String(viewer);
+  const canSeeWords = (t, rv) => !rv.hidden || mine(rv.by) || mine(t.assignee);
   const story = (t) => {
     const out = [];
     if (t.start) out.push(`начало ${fmtDT(t.start)}`);
@@ -136,8 +150,7 @@ export function timelineHtml(tasks = [], funcs = [], {
     });
     (t.reviews || []).forEach((rv) => {
       out.push(`${rv.accept ? "принято" : "возвращено"} ${fmtDT(rv.at)}`
-        + (rv.mark ? ` · оценка ${num(rv.mark)}` : "")
-        + (rv.comment ? ` · ${rv.comment}` : ""));
+        + (rv.comment && canSeeWords(t, rv) ? ` · ${rv.comment}` : ""));
     });
     return out;
   };

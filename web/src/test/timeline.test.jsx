@@ -81,12 +81,53 @@ describe("таймлайн сохраняется файлом", () => {
     expect(out).toContain("Без срока — на оси их нет");
   });
 
-  it("видно, что происходило: отложили, сдали, приняли", () => {
+  it("видно, что происходило: отложили, сдали, приняли — но без отметки", () => {
     const out = html();
     expect(out).toContain("отложена");
     expect(out).toContain("сдача");
-    expect(out).toMatch(/принято[^<]*оценка 5/);
+    expect(out).toContain("принято");
     expect(out).toContain("хорошо");
+    /* Отметки в файле нет даже публичной: у задачи один проверяющий, и
+       отметка без имени называет его не хуже подписи; а исполнитель своих
+       оценок не видит — файл же может открыть кто угодно. */
+    expect(out).not.toMatch(/оценка/);
+  });
+
+  /* Файл собирается чьими-то глазами, и правило у него то же, что у среза
+     сервера (`taskViewFor`): скрытые слова — автору и исполнителю, которому
+     они адресованы, остальным их нет вовсе. У владельца модель целиком, и
+     без этого его файл уносил бы наружу скрытые слова всех проверяющих. */
+  describe("скрытое решение проверяющего", () => {
+    const SECRET = "СКРЫТЫЕ СЛОВА ПРОВЕРЯЮЩЕГО";
+    const task = { id: "h1", funcId: "f1", title: "Скрытая", status: "done",
+      assignee: "200", reviewer: "300", start: "2026-09-02T10:00",
+      submissions: [{ id: "s1", at: "2026-09-04T12:00:00.000Z", hours: 1 }],
+      reviews: [{ id: "rv1", by: "300", at: "2026-09-04T13:00:00.000Z",
+        accept: true, mark: 2, hidden: true, comment: SECRET }] };
+    const file = (viewer) => timelineHtml([task], FUNCS,
+      { now: Date.parse("2026-09-05T00:00:00Z"), viewer });
+
+    it("постороннему (и владельцу без зрителя) — ни отметки, ни слов", () => {
+      [file("100"), file(null)].forEach((out) => {
+        expect(out).toContain("принято");
+        expect(out).not.toContain(SECRET);
+        expect(out).not.toMatch(/оценка/);
+      });
+    });
+
+    it("автору слов и исполнителю, которому они адресованы, — слова, но не отметка", () => {
+      [file("300"), file("200")].forEach((out) => {
+        expect(out).toContain(SECRET);
+        expect(out).not.toMatch(/оценка/);
+      });
+    });
+
+    it("публичные слова — всем, кто видит задачу", () => {
+      const open = { ...task, reviews: [{ ...task.reviews[0], hidden: false }] };
+      const out = timelineHtml([open], FUNCS,
+        { now: Date.parse("2026-09-05T00:00:00Z"), viewer: "100" });
+      expect(out).toContain(SECRET);
+    });
   });
 
   it("файл самодостаточен: ни скриптов, ни ссылок наружу", () => {

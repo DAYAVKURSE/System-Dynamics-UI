@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
-import { identify } from "../lib/orgStore.js";
-import { addComment, deferTask, dropComment, readModel, readSpace, reviewTask, submitTask,
-  takeTask, taskViewFor, viewFor, withModel, writeModel, writeSpace }
+import { identify, listOrg } from "../lib/orgStore.js";
+import { addComment, deferTask, dropComment, peopleOf, readModel, readSpace, reviewTask,
+  setupTask, submitTask, takeTask, taskViewFor, viewFor, withModel, writeModel, writeSpace }
   from "../lib/workspaceStore.js";
 import { publishStep, viewRatingsFor } from "../lib/ratings.js";
 
@@ -27,7 +27,18 @@ router.get("/", async (req, res, next) => {
     const view = viewFor(await readModel(), req.me);
     /* Пространство вкладки задач у позванного — своё, не владельца: срез
        модели его не несёт, а файл на человека — несёт. */
-    if (!req.me.isOwner) view.space = await readSpace(req.telegramUserId);
+    if (!req.me.isOwner) {
+      view.space = await readSpace(req.telegramUserId);
+      /* Имена — только тех, с кем он работает: воркеров видимых ему
+         активов и участников его задач. Список организации целиком (с
+         анкетами и должностями) — владельцу; здесь ровно имя, чтобы
+         постановщику было из кого выбирать, а «поставил: 100» читалось
+         как человек. */
+      const ids = peopleOf(view);
+      view.people = (await listOrg()).users
+        .filter((u) => ids.has(String(u.id)))
+        .map((u) => ({ id: u.id, name: u.name }));
+    }
     res.json(view);
   } catch (e) { next(e); }
 });
@@ -85,6 +96,24 @@ router.get("/ratings", async (req, res, next) => {
       return m;
     });
     res.json(viewRatingsFor(model, req.telegramUserId));
+  } catch (e) { next(e); }
+});
+
+/* Поставить задачу может её постановщик (и владелец — модель его). Модель
+   целиком пишет владелец, но ставить работу должен тот, кого назначили
+   постановщиком на схеме: иначе его правки жили бы только в его окне, а
+   «Поставить» меняло бы статус в памяти и нигде больше. В теле — поля
+   постановки (название, содержимое, начало, срок, исполнитель,
+   проверяющий) и `status: "backlog"` для «Поставить»; отказ — словами
+   в `why`, теми же, что показывает форма. */
+router.post("/tasks/:id/setup", async (req, res, next) => {
+  try {
+    const r = await setupTask(req.telegramUserId, req.params.id, req.body || {},
+      { isOwner: req.me.isOwner });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not yours") return res.status(403).json({ error: r.error });
+    if (r.error) return res.status(400).json({ error: r.error, why: r.why || "" });
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 

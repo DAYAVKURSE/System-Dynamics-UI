@@ -186,7 +186,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
-  published, onComment, onDropComment }) {
+  published, onComment, onDropComment, onSetup }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
@@ -260,8 +260,14 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
               </div>
               {on && setup && (
                 <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits}
-                  entities={entities} people={people} canAssign={canAssign}
-                  nameOf={nameOf} setTasks={setTasks}
+                  entities={entities} people={people}
+                  /* Людей назначает тот, кто ставит: постановщик этой
+                     задачи — или владелец, у которого модель целиком.
+                     Форма постановки — для постановщика, а не для
+                     владельца (ROADMAP v1.2), и запертые выпадающие списки
+                     у него делали бы «Поставить» недостижимой навсегда. */
+                  canAssign={canAssign || String(setup.setter || "") === String(meId)}
+                  nameOf={nameOf} setTasks={setTasks} onSetup={onSetup}
                   published={published} meId={meId}
                   onClose={() => setSetupId(null)} />)}
             </div>);
