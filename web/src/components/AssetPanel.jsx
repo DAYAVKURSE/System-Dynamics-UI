@@ -159,7 +159,7 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
  * читается как «оценили на ноль». Про себя — «свой рейтинг скрыт»: свои
  * оценки человеку не показываются, рейтинг работает на того, кто поручает.
  */
-function WorkerLine({ pid, name, stat, person, roleName }) {
+function WorkerLine({ pid, name, stat, person, positionName }) {
   const sc = scheduleOfPerson(person || {});
   const st = statusOf(sc.status);
   const chip = (text, color) => (
@@ -169,7 +169,7 @@ function WorkerLine({ pid, name, stat, person, roleName }) {
     <span style={{ display: "flex", flexWrap: "wrap", gap: 7,
       alignItems: "baseline" }}>
       {/* 1. должность — кем человек числится в организации */}
-      {chip(roleName || "без должности", ACC)}
+      {chip(positionName || "без должности", ACC)}
       {/* 2. имя */}
       <span style={{ fontSize: 12.5, color: C.text }}>{name}</span>
       {/* 3. статистика — как он держит сроки */}
@@ -191,16 +191,18 @@ function WorkerLine({ pid, name, stat, person, roleName }) {
 }
 
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
-  roleOf, onToggleCrew, onOrder, onOpenPerson, published, me,
-  roles = [], onAddRole, onDropRole, onSetRole }) {
-  /* Должности заводятся ЗДЕСЬ, рядом с людьми, а не в «Людях и ролях»:
-     кем человек числится, решают там же, где решают, кто где работает.
-     Роль в организации — это и есть должность (она же даёт вкладки). */
-  const [newRole, setNewRole] = useState("");
-  const [roleMsg, setRoleMsg] = useState("");
+  positionOf, onToggleCrew, onOrder, onOpenPerson, published, me,
+  positions = [], onAddPosition, onDropPosition, onSetPosition }) {
+  /* Должности заводятся ЗДЕСЬ, рядом с людьми: кем человек числится,
+     решают там же, где решают, кто где работает. Роль в организации —
+     ДРУГОЕ: она отвечает на «что человеку показывать» (вкладки) и живёт в
+     «Людях и ролях». Один и тот же дизайнер бывает и исполнителем, и
+     проверяющим, поэтому общего списка у них быть не может. */
+  const [newPosition, setNewPosition] = useState("");
+  const [posMsg, setPosMsg] = useState("");
   const act = async (fn) => {
-    setRoleMsg("");
-    try { await fn(); } catch (e) { setRoleMsg(e.message || "не вышло"); }
+    setPosMsg("");
+    try { await fn(); } catch (e) { setPosMsg(e.message || "не вышло"); }
   };
   // Кто смотрит — тот себя в списке видит без рейтинга (`visibleStats`).
   const stat = (id) => visibleStats({ tasks, funcs, published }, id, me?.id);
@@ -256,15 +258,16 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                     onClick={() => onOpenPerson && onOpenPerson(pid)}
                     title="график, статус, анкета и рейтинг — окном, не уходя со схемы">
                     <WorkerLine pid={pid} name={name(pid)} stat={stat(pid)}
-                      person={personOf(pid)} roleName={roleOf && roleOf(pid)} />
+                      person={personOf(pid)}
+                      positionName={positionOf && positionOf(pid)} />
                   </button>
-                  {onSetRole && roles.length > 0 && (
+                  {onSetPosition && positions.length > 0 && (
                     <select style={{ ...S.inp, width: "auto", fontSize: 11, padding: "2px 4px" }}
                       aria-label={`должность: ${name(pid)}`}
-                      value={personOf(pid).roleId || ""}
-                      onChange={(e) => act(() => onSetRole(pid, e.target.value))}>
+                      value={personOf(pid).position || ""}
+                      onChange={(e) => act(() => onSetPosition(pid, e.target.value))}>
                       <option value="">— без должности —</option>
-                      {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      {positions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>)}
                   {on && (<>
                     <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
@@ -290,35 +293,41 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
         {/* ─── должности ───
             Список должностей создаётся здесь: у воркера должность видна в
             строке, и заводить её в другой вкладке значило бы ходить туда
-            за каждым новым человеком. Встроенные не удаляются. */}
-        {onAddRole && (
+            за каждым новым человеком. Роли (вкладки) — не здесь: это
+            другой вопрос и другой список. */}
+        {onAddPosition && (
           <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
             borderRadius: 8, padding: 8, marginTop: 8 }}>
             <div style={{ ...S.lbl, marginBottom: 4 }}>должности</div>
-            {!roles.length && (
+            {!positions.length && (
               <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
                 Должностей ещё нет — добавьте первую.</div>)}
             <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
-              {roles.map((r) => (
-                <span key={r.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999,
+              {positions.map((p) => (
+                <span key={p.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999,
                   background: C.panel, border: `1px solid ${C.line}` }}>
-                  {r.name}
-                  {!r.builtin && onDropRole && (
+                  {p.name}
+                  {onDropPosition && (
                     <button style={{ background: "none", border: "none", cursor: "pointer",
                       color: C.muted, marginLeft: 4, padding: 0 }}
-                      aria-label={`убрать должность: ${r.name}`}
-                      onClick={() => act(() => onDropRole(r.id))}>×</button>)}
+                      aria-label={`убрать должность: ${p.name}`}
+                      onClick={() => act(() => onDropPosition(p.id))}>×</button>)}
                 </span>))}
             </div>
             <div className="flex gap-2">
-              <input style={{ ...S.inp, flex: 1 }} value={newRole} aria-label="новая должность"
+              <input style={{ ...S.inp, flex: 1 }} value={newPosition} aria-label="новая должность"
                 placeholder="название должности"
-                onChange={(e) => setNewRole(e.target.value)} />
-              <button style={btn(false)} disabled={!newRole.trim()}
-                onClick={() => act(async () => { await onAddRole(newRole.trim()); setNewRole(""); })}>
+                onChange={(e) => setNewPosition(e.target.value)} />
+              <button style={btn(false)} disabled={!newPosition.trim()}
+                onClick={() => act(async () => {
+                  await onAddPosition(newPosition.trim()); setNewPosition(""); })}>
                 Добавить</button>
             </div>
-            {roleMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{roleMsg}</div>}
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+              Должность — кем человек числится. Что ему показывать, решает
+              РОЛЬ: она у каждого своя и выбирается в «Людях и ролях».
+            </div>
+            {posMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{posMsg}</div>}
           </div>)}
       </>)}
     </Section>);
@@ -1016,12 +1025,12 @@ export default function AssetPanel(props) {
 
       {tab === "workers" && (
         <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
-          tasks={props.tasks} funcs={props.funcs} roleOf={props.roleOf}
+          tasks={props.tasks} funcs={props.funcs} positionOf={props.positionOf}
           onToggleCrew={props.onToggleCrew} onOrder={props.onOrderWorker}
           onOpenPerson={props.onOpenPerson}
           published={props.published} me={props.me}
-          roles={props.roles} onAddRole={props.onAddRole}
-          onDropRole={props.onDropRole} onSetRole={props.onSetRole} />)}
+          positions={props.positions} onAddPosition={props.onAddPosition}
+          onDropPosition={props.onDropPosition} onSetPosition={props.onSetPosition} />)}
 
       {tab === "funcs" && (
         <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc} />)}

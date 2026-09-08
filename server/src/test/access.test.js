@@ -801,3 +801,42 @@ describe("постановка через сервер", () => {
     expect(res.body.status).toBe("backlog");
   });
 });
+
+/* Должности правит только владелец: кем человек числится — вопрос того,
+   кто собирает организацию, а не самого человека. */
+describe("должности через сервер", () => {
+  it("владелец заводит и назначает, позванный — нет", async () => {
+    await invite(200, "executor", "Иван");
+    const made = await request(app).post("/api/org/positions").set(as(100))
+      .send({ name: "Дизайнер" });
+    expect(made.status).toBe(201);
+    const set = await request(app).put("/api/org/users/200/position").set(as(100))
+      .send({ position: made.body.id });
+    expect(set.status).toBe(200);
+    const org = await request(app).get("/api/org").set(as(100));
+    expect(org.body.positions.map((p) => p.name)).toEqual(["Дизайнер"]);
+    expect(org.body.users.find((u) => u.id === "200").position).toBe(made.body.id);
+
+    // Позванному этот путь закрыт целиком — как и остальной список людей.
+    expect((await request(app).post("/api/org/positions").set(as(200))
+      .send({ name: "Свой" })).status).toBe(403);
+    expect((await request(app).put("/api/org/users/200/position").set(as(200))
+      .send({ position: "" })).status).toBe(403);
+  });
+
+  it("отказы называются словами", async () => {
+    await invite(200, "executor", "Иван");
+    const made = await request(app).post("/api/org/positions").set(as(100))
+      .send({ name: "Аналитик" });
+    expect((await request(app).post("/api/org/positions").set(as(100))
+      .send({ name: "аналитик" })).status).toBe(400);
+    expect((await request(app).put("/api/org/users/200/position").set(as(100))
+      .send({ position: "нет-такой" })).status).toBe(400);
+    expect((await request(app).put("/api/org/users/999/position").set(as(100))
+      .send({ position: made.body.id })).status).toBe(404);
+    expect((await request(app).delete("/api/org/positions/нет-такой").set(as(100))).status)
+      .toBe(404);
+    expect((await request(app).delete(`/api/org/positions/${made.body.id}`).set(as(100))).status)
+      .toBe(204);
+  });
+});

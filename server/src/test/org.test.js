@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   addRole, addUser, identify, listOrg, removeRole, removeUser, setProfile,
   setRoleTabs, setUserRole,
+  addPosition, removePosition, setUserPosition,
 } from "../lib/orgStore.js";
 import {
   readModel, reviewTask, submitTask, tasksFor, viewFor, writeModel,
@@ -433,5 +434,52 @@ describe("анкета", () => {
   it("человека, которого нет, анкетой не завести", async () => {
     await identify("100", {});
     expect(await setProfile("999", { about: "никто" })).toBeNull();
+  });
+});
+
+/* ─────── должности ───────
+   Должность — не роль: роль даёт вкладки, должность говорит, кем человек
+   числится. Списки разные, и удаление одного не трогает другое. */
+describe("должности", () => {
+  it("заводятся, назначаются и снимаются", async () => {
+    const roles = (await listOrg()).roles;
+    await addUser({ id: "500", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+    const pos = await addPosition({ name: "Дизайнер" });
+    expect(pos).toMatchObject({ name: "Дизайнер" });
+    // Роль от этого не меняется: это разные вопросы к одному человеку.
+    await setUserPosition("500", pos.id);
+    const org = await listOrg();
+    expect(org.positions.map((p) => p.name)).toEqual(["Дизайнер"]);
+    const ivan = org.users.find((u) => u.id === "500");
+    expect(ivan.position).toBe(pos.id);
+    expect(ivan.roleId).toBe(roles[0].id);
+    // Пусто — «без должности», а не ошибка.
+    await setUserPosition("500", "");
+    expect((await listOrg()).users.find((u) => u.id === "500").position).toBeNull();
+  });
+
+  it("одна и та же должность дважды не заводится, чужая не назначается", async () => {
+    await addPosition({ name: "Аналитик" });
+    await expect(addPosition({ name: "аналитик" })).rejects.toThrow(/already exists/);
+    await expect(addPosition({ name: "  " })).rejects.toThrow(/required/);
+    const roles = (await listOrg()).roles;
+    await addUser({ id: "501", name: "Пётр", roleId: roles[0].id, addedBy: "100" });
+    await expect(setUserPosition("501", "нет-такой")).rejects.toThrow(/unknown position/);
+  });
+
+  it("удалённая должность оставляет человека без должности, а не без записи", async () => {
+    const roles = (await listOrg()).roles;
+    await addUser({ id: "502", name: "Ольга", roleId: roles[0].id, addedBy: "100" });
+    const pos = await addPosition({ name: "Бухгалтер" });
+    await setUserPosition("502", pos.id);
+    expect(await removePosition(pos.id)).toBe(true);
+    const org = await listOrg();
+    expect(org.positions).toEqual([]);
+    const olga = org.users.find((u) => u.id === "502");
+    expect(olga).toBeTruthy();
+    expect(olga.position).toBeNull();
+    // Роль на месте: удаляли должность, а не право видеть вкладки.
+    expect(olga.roleId).toBe(roles[0].id);
+    expect(await removePosition("нет-такой")).toBe(false);
   });
 });

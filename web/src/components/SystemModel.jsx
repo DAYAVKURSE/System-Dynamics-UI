@@ -3,7 +3,7 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
-  addRole, removeRole, setUserRole,
+  addPosition, removePosition, setUserPosition,
   takeTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote, getRatings,
   putSpaceRemote, setupTaskRemote }
   from "../identity.js";
@@ -431,11 +431,15 @@ export default function SystemModel(){
      человек вообще числится. Приходят тем же запросом, что и люди: два
      запроса за одним ответом расходились бы. */
   const [roles,setRoles]=useState([]);
-  /* Должности и люди перечитываются после каждой правки из блока воркеров:
-     список ведёт сервер, и показывать своё предположение о нём незачем. */
+  /* Должности — свой список, не роли: роль даёт вкладки, должность
+     говорит, кем человек числится. Люди и должности перечитываются после
+     каждой правки из блока воркеров: список ведёт сервер, и показывать
+     своё предположение о нём незачем. */
+  const [positions,setPositions]=useState([]);
   const refreshOrg=useCallback(()=>listOrg().then(o=>{
     if(o?.users) setPeople(o.users);
     if(o?.roles) setRoles(o.roles);
+    if(o?.positions) setPositions(o.positions);
   }).catch(()=>{}),[]);
   useEffect(()=>{ let live=true;
     whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
@@ -450,6 +454,7 @@ export default function SystemModel(){
     listOrg().then(o=>{ if(!live||!o) return;
       if(o.users) setPeople(o.users);
       if(o.roles) setRoles(o.roles);
+      if(o.positions) setPositions(o.positions);
     }).catch(()=>{});
     return ()=>{ live=false; };
   },[me.known,me.solo]);
@@ -854,16 +859,18 @@ export default function SystemModel(){
   const [memory,setMemory]=useState([]);
   useEffect(()=>{ if(tab!=="tasks"||me.solo) return;
     listMemory().then(m=>setMemory(Array.isArray(m)?m:[])).catch(()=>setMemory([])); },[tab,me.solo]);
+  /* В строке воркера — ДОЛЖНОСТЬ (кем человек числится), а не роль (что
+     ему показывать): роль отвечает на вопрос интерфейса, должность — на
+     вопрос того, кто выбирает, кому поручить работу. Не задана — так и
+     сказано словом, пустое место читалось бы как «ещё грузится». */
+  const positionName=useCallback((id)=>{
+    const u=people.find(p=>String(p.id)===String(id));
+    return positions.find(x=>x.id===u?.position)?.name||"";
+  },[people,positions]);
   const personName=useCallback((id)=>{
     if(id==null||id==="") return "не назначен";
     return people.find(p=>String(p.id)===String(id))?.name||String(id);
   },[people]);
-  /* Должность человека — роль, которую ему дали в организации. Не задана —
-     так и сказано словом: пустое место читалось бы как «ещё грузится». */
-  const roleName=useCallback((id)=>{
-    const u=people.find(p=>String(p.id)===String(id));
-    return roles.find(r=>r.id===u?.roleId)?.name||"";
-  },[people,roles]);
   /* Решение проверяющего — не только статус: оценка и слова уходят в
      историю исполнителя, из которой потом растёт его рейтинг. Пишем их
      отдельным списком `reviews`, а не в комментарии: комментарий может
@@ -1173,7 +1180,7 @@ export default function SystemModel(){
 
             <AssetPanel entityId={selE.id}
               me={me} published={published}
-              workers={workers} roleOf={roleName}
+              workers={workers} positionOf={positionName}
               funcs={funcs} setFuncs={setFuncs}
               traits={traits} setTraits={setTraits}
               entities={entities} kinds={kinds} kindOf={kindOf}
@@ -1181,10 +1188,11 @@ export default function SystemModel(){
               people={people} nameOf={personName} runsOf={runsOf}
               tasks={tasks} onOrderWorker={orderWorker} onToggleCrew={toggleCrew}
               onOpenPerson={id=>setCard(id)}
-              roles={roles}
-              onAddRole={me.isOwner&&!me.solo?(n)=>addRole(n).then(refreshOrg):undefined}
-              onDropRole={me.isOwner&&!me.solo?(id)=>removeRole(id).then(refreshOrg):undefined}
-              onSetRole={me.isOwner&&!me.solo?(pid,rid)=>setUserRole(pid,rid).then(refreshOrg):undefined}
+              positions={positions}
+              onAddPosition={me.isOwner&&!me.solo?(n)=>addPosition(n).then(refreshOrg):undefined}
+              onDropPosition={me.isOwner&&!me.solo?(id)=>removePosition(id).then(refreshOrg):undefined}
+              onSetPosition={me.isOwner&&!me.solo
+                ?(pid,posId)=>setUserPosition(pid,posId).then(refreshOrg):undefined}
               focus={focus}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}

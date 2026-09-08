@@ -89,6 +89,17 @@ export const setRoleTabs = (id, tabs) =>
     { method: "PUT", body: JSON.stringify({ tabs }) });
 export const removeRole = (id) =>
   json(`/api/org/roles/${encodeURIComponent(id)}`, { method: "DELETE" });
+/* Должность — не роль: роль даёт вкладки (её выбирают при приглашении),
+   должность говорит, кем человек числится. Списки разные и правятся в
+   разных местах: роли — в «Людях и ролях», должности — у воркеров. */
+export const listPositions = () => json("/api/org").then((o) => o.positions || []);
+export const addPosition = (name) =>
+  json("/api/org/positions", { method: "POST", body: JSON.stringify({ name }) });
+export const removePosition = (id) =>
+  json(`/api/org/positions/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const setUserPosition = (id, position) =>
+  json(`/api/org/users/${encodeURIComponent(id)}/position`,
+    { method: "PUT", body: JSON.stringify({ position }) });
 export const setUserRole = (id, roleId) =>
   json(`/api/org/users/${encodeURIComponent(id)}/role`,
     { method: "PUT", body: JSON.stringify({ roleId }) });

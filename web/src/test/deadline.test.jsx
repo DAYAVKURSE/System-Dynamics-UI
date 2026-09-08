@@ -270,7 +270,7 @@ describe("список воркеров: кого ставить", () => {
     const props = { workers: W, people: PEOPLE, nameOf: (id) =>
       PEOPLE.find((p) => p.id === id)?.name || id, tasks: TASKS, funcs: FUNCS,
     published: PUBLISHED,
-    roleOf: (id) => (id === "2" ? "Исполнитель" : "Проверяющий"),
+    positionOf: (id) => (id === "2" ? "Дизайнер" : "Аналитик"),
     onOrder: () => {}, onOpenPerson: () => {}, ...over };
     return render(<Workers {...props} />);
   };
@@ -289,8 +289,8 @@ describe("список воркеров: кого ставить", () => {
         .filter((x) => !x.querySelector("span"))
         .map((x) => x.textContent).filter(Boolean);
       const at = (t) => parts.findIndex((x) => x.includes(t));
-      expect(at("Исполнитель")).toBeGreaterThanOrEqual(0);
-      expect(at("Исполнитель")).toBeLessThan(at("Иван"));
+      expect(at("Дизайнер")).toBeGreaterThanOrEqual(0);
+      expect(at("Дизайнер")).toBeLessThan(at("Иван"));
       expect(at("Иван")).toBeLessThan(at("в срок"));
       expect(at("в срок")).toBeLessThan(at("рейтинг"));
       expect(at("рейтинг")).toBeLessThan(at("сдано"));
@@ -318,7 +318,7 @@ describe("список воркеров: кого ставить", () => {
 
   it("чего нет — сказано словом, а не нулём", () => {
     // Ноль читается как «оценили на ноль», а человека ещё не оценивали.
-    mount({ tasks: [], roleOf: () => "" });
+    mount({ tasks: [], positionOf: () => "" });
     const row = within(crewCard()).getByText("Иван").closest("button");
     expect(row.textContent).toMatch(/без должности/);
     expect(row.textContent).toMatch(/без оценок/);

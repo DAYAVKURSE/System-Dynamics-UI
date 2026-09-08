@@ -40,7 +40,16 @@ export const BUILTIN_ROLES = [
   { id: "caller", name: "исполнитель со звонками", tabs: ["tasks", "tools"], builtin: true },
 ];
 
-const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [] };
+/* ─────── должность ≠ роль ───────
+
+   РОЛЬ отвечает на «что человеку показывать»: она даёт вкладки, и её
+   выбирают при приглашении (исполнитель, проверяющий и т. п.).
+   ДОЛЖНОСТЬ отвечает на «кем человек числится»: дизайнер, аналитик,
+   бухгалтер. Это разные вопросы, и общего списка у них быть не может —
+   один и тот же дизайнер может быть и исполнителем, и проверяющим.
+   Должности заводит владелец в блоке воркеров; встроенных нет — какие
+   должности бывают, знает он, а не мы. */
+const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, positions: [], users: [] };
 
 function baseDir() {
   return process.env.ORG_DIR
@@ -60,10 +69,13 @@ export async function readOrg() {
       // при каждом чтении нельзя. Пустой список — единственный случай, когда
       // подставляются встроенные: иначе позвать в модель станет некого.
       roles: roles.map((r) => ({ ...r, tabs: normTabs(r.tabs) })),
+      positions: Array.isArray(parsed.positions)
+        ? parsed.positions.filter((p) => p && p.id).map((p) => ({ id: String(p.id), name: String(p.name || p.id) }))
+        : [],
       users: Array.isArray(parsed.users) ? parsed.users : [],
     };
   } catch {
-    return { ...EMPTY, roles: [...BUILTIN_ROLES], users: [] };
+    return { ...EMPTY, roles: [...BUILTIN_ROLES], positions: [], users: [] };
   }
 }
 
@@ -235,8 +247,53 @@ export async function listOrg() {
   return {
     ownerId: org.ownerId,
     roles: org.roles,
+    positions: org.positions,
     users: org.users.map((u) => ({ ...u, ...profileOf(u) })),
   };
+}
+
+/* ─────── должности ───────
+   Заводятся и раздаются там же, где видно человека, — в блоке воркеров.
+   Имя должности свободное: список профессий за владельца никто не знает. */
+
+export async function addPosition({ name }) {
+  const clean = String(name || "").trim();
+  if (!clean) throw new Error("name is required");
+  const org = await readOrg();
+  if (org.positions.some((p) => p.name.toLowerCase() === clean.toLowerCase())) {
+    throw new Error("position already exists");
+  }
+  let id = slug(clean, "position"); let n = 2;
+  while (org.positions.some((p) => p.id === id)) id = `${slug(clean, "position")}-${n++}`;
+  const position = { id, name: clean };
+  org.positions.push(position);
+  await writeOrg(org);
+  return position;
+}
+
+export async function removePosition(id) {
+  const org = await readOrg();
+  if (!org.positions.some((p) => p.id === id)) return false;
+  org.positions = org.positions.filter((p) => p.id !== id);
+  /* Человек с удалённой должностью не исчезает — он остаётся без
+     должности, и это видно в строке. Молча дать ему другую нельзя. */
+  org.users = org.users.map((u) => (u.position === id ? { ...u, position: null } : u));
+  await writeOrg(org);
+  return true;
+}
+
+export async function setUserPosition(id, positionId) {
+  const org = await readOrg();
+  const user = org.users.find((u) => u.id === String(id));
+  if (!user) return null;
+  // Пусто — снять должность: «без должности» это ответ, а не ошибка.
+  if (positionId != null && positionId !== ""
+    && !org.positions.some((p) => p.id === positionId)) {
+    throw new Error("unknown position");
+  }
+  user.position = positionId || null;
+  await writeOrg(org);
+  return user;
 }
 
 export async function addUser({ id, name, username, roleId, addedBy }) {
@@ -278,8 +335,8 @@ export async function setUserRole(id, roleId) {
   return user;
 }
 
-const slug = (name) => String(name).toLowerCase()
-  .replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "role";
+const slug = (name, fallback = "role") => String(name).toLowerCase()
+  .replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || fallback;
 
 export async function addRole({ name, tabs }) {
   const clean = String(name || "").trim();
