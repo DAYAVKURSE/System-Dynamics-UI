@@ -2,20 +2,22 @@ import { Router } from "express";
 import express from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify } from "../lib/orgStore.js";
-import { saveSettings, settingsView } from "../lib/assistantSettings.js";
+import {
+  TASKS, addProvider, isBadInput, kindsView, providerFor, removeProvider, setTasks, settingsView,
+  updateProvider,
+} from "../lib/assistantSettings.js";
+import { listModels } from "../lib/aiProviders.js";
 import { ask, find } from "../lib/assistantQueue.js";
 import { MAX_MEMORY_FILE_BYTES, addMemory, listMemory, removeMemory } from "../lib/memoryStore.js";
 
 /* ════════════════════════════════════════════════════════════════
    ПОМОЩНИК · маршруты
 
-   Всё здесь — только позванным: и настройки, и вопросы, и память.
-   Настройки МЕНЯЕТ один владелец: ключ — его счёт и его секрет. Читать
-   их (без ключа) могут все позванные — интерфейсу надо знать, есть ли
-   вообще чем отвечать, прежде чем рисовать поле вопроса.
-
-   Память — только своя: scope выводится из подписи, а не из запроса,
-   как и у файлов отчётов.
+   Всё здесь — только позванным и только своё: настройки, вопросы,
+   память. Провайдеры и ключи — у каждого свои (v1.2): владелец за других
+   ничего не ставит, и чужие настройки нельзя ни прочитать, ни поменять —
+   человек выводится из подписи, а не из запроса, как и у файлов отчётов.
+   Ключ наружу не уходит ни в одном ответе — только «есть/нет».
    ════════════════════════════════════════════════════════════════ */
 
 const router = Router();
@@ -42,26 +44,68 @@ router.use(async (req, res, next) => {
 
 /* ─────── чем думает помощник ─────── */
 
-router.get("/settings", (_req, res) => res.json(settingsView()));
+/* Ошибки ввода — 400 словами (по-русски, их читает человек на экране);
+   всё остальное — общему обработчику. */
+const badInput = (e, res, next) => (isBadInput(e) ? res.status(400).json({ error: e.message }) : next(e));
 
-router.put("/settings", (req, res, next) => {
+router.get("/settings", (req, res, next) => {
   try {
-    if (!req.me.isOwner) return res.status(403).json({ error: "only the owner can set the key" });
-    const { provider, model, key } = req.body || {};
-    return res.json(saveSettings({ provider, model, key }));
+    res.json({ ...settingsView(req.me.id), kinds: kindsView(), taskList: TASKS });
+  } catch (e) { next(e); }
+});
+
+router.post("/providers", (req, res, next) => {
+  try {
+    const { name, kind, baseUrl, key } = req.body || {};
+    return res.status(201).json(addProvider(req.me.id, { name, kind, baseUrl, key }));
+  } catch (e) { return badInput(e, res, next); }
+});
+
+router.put("/providers/:id", (req, res, next) => {
+  try {
+    // Чужой или несуществующий провайдер — 404, как у удаления: «не найден»
+    // здесь правда, а не ошибка ввода.
+    if (!providerFor(req.me.id, req.params.id)) return res.status(404).json({ error: "Провайдер не найден" });
+    const { name, baseUrl, key, models } = req.body || {};
+    return res.json(updateProvider(req.me.id, req.params.id, { name, baseUrl, key, models }));
+  } catch (e) { return badInput(e, res, next); }
+});
+
+router.delete("/providers/:id", (req, res, next) => {
+  try {
+    if (!removeProvider(req.me.id, req.params.id)) return res.status(404).json({ error: "Провайдер не найден" });
+    return res.status(204).end();
+  } catch (e) { return next(e); }
+});
+
+/* Список моделей у провайдера — по его ключу, но сам ключ остаётся на
+   сервере: клиент просит список по id, а не шлёт ключ туда-обратно. */
+router.get("/providers/:id/models", async (req, res, next) => {
+  try {
+    const p = providerFor(req.me.id, req.params.id);
+    if (!p) return res.status(404).json({ error: "Провайдер не найден" });
+    return res.json(await listModels(p));
   } catch (e) {
-    if (/must be|looks wrong/.test(e.message)) return res.status(400).json({ error: e.message });
+    // Ошибка провайдера — словами и с его статусом наружу не идёт: 502
+    // от нас значило бы «сервер сломан», а сломан ключ или адрес.
+    if (/ответил|недоступен|не ответил|не задан/.test(e.message)) return res.status(400).json({ error: e.message });
     return next(e);
   }
+});
+
+router.put("/tasks", (req, res, next) => {
+  try { return res.json(setTasks(req.me.id, req.body || {})); } catch (e) { return badInput(e, res, next); }
 });
 
 /* ─────── вопрос в два шага ─────── */
 
 router.post("/ask", (req, res, next) => {
   try {
-    const { question, context } = req.body || {};
+    // task («space» из пространства, «bot» из чата) выбирает строку
+    // таблицы «задача → модель»; очередь (B) принимает его как есть.
+    const { question, context, task } = req.body || {};
     if (!String(question || "").trim()) return res.status(400).json({ error: "question is required" });
-    const { id } = ask({ userId: req.me.id, question, context });
+    const { id } = ask({ userId: req.me.id, question, context, task });
     return res.status(202).json({ id });
   } catch (e) {
     if (/required/.test(e.message)) return res.status(400).json({ error: e.message });
