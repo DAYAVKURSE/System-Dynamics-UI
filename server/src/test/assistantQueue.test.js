@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_CLIENT_CONTEXT, STALE_ERROR, SYSTEM_PROMPT, TTL_MS, WAITED_ERROR, createQueue,
+  CANCELLED_ERROR, MAX_CLIENT_CONTEXT, STALE_ERROR, SYSTEM_PROMPT, TTL_MS, WAITED_ERROR, createQueue,
 } from "../lib/assistantQueue.js";
 import { NOT_CONFIGURED } from "../lib/assistantSettings.js";
 
@@ -19,12 +19,17 @@ const settled = async (q, id, user) => {
   return q.find(id, user);
 };
 
+/* Модель — из настроек человека (контракт C1: modelFor(userId, task)),
+   подменяется здесь целиком: очередь не знает, откуда ключ. */
+const MODEL = { kind: "openai", baseUrl: "https://api.openai.com/v1", key: "sk-test-0123456789",
+  model: "gpt-4o-mini", providerName: "OpenAI" };
+
 function make(over = {}) {
   const calls = [];
   let t = 1_000_000;
   const q = createQueue({
     now: () => t,
-    currentSettings: () => ({ provider: "openai", model: "gpt-4o-mini", apiKey: "sk-test-0123456789" }),
+    modelFor: () => MODEL,
     contextFor: async (userId) => `## Задачи\nзадачи пользователя ${userId}`,
     complete: async (p) => { calls.push(p); return `ответ для ${p.messages[0].content}`; },
     log: () => {},
@@ -44,7 +49,9 @@ describe("очередь вопросов", () => {
     // Системная подсказка по-русски, контекст спрашивающего внутри.
     expect(calls[0].system).toContain(SYSTEM_PROMPT);
     expect(calls[0].system).toContain("задачи пользователя 200");
-    expect(calls[0].provider).toBe("openai");
+    // Что выбрал человек — то и ушло в вызов, целиком: вид API, адрес, ключ, модель.
+    expect(calls[0]).toMatchObject(MODEL);
+    expect(calls[0].signal).toBeInstanceOf(AbortSignal);
     expect(calls[0].messages).toEqual([{ role: "user", content: "что у меня сегодня?" }]);
   });
 
@@ -68,7 +75,7 @@ describe("очередь вопросов", () => {
   });
 
   it("не настроен — ошибка теми самыми словами, модель не вызывается", async () => {
-    const { q, calls } = make({ currentSettings: () => null });
+    const { q, calls } = make({ modelFor: () => null });
     const { id } = q.ask({ userId: "200", question: "?" });
     const st = await settled(q, id, "200");
     expect(st).toEqual({ status: "error", error: NOT_CONFIGURED });
@@ -140,7 +147,7 @@ describe("очередь вопросов", () => {
   it("askNow — тот же путь, но ответ на месте; отказ — исключением", async () => {
     const { q } = make();
     expect(await q.askNow("200", "как дела?")).toBe("ответ для как дела?");
-    const bad = make({ currentSettings: () => null });
+    const bad = make({ modelFor: () => null });
     await expect(bad.q.askNow("200", "?")).rejects.toThrow(NOT_CONFIGURED);
   });
 
@@ -208,5 +215,158 @@ describe("очередь не молчит и не виснет", () => {
       complete: async () => { await new Promise(() => {}); },
     });
     await expect(q.askNow("200", "?")).rejects.toThrow(WAITED_ERROR);
+  });
+});
+
+/* ─── у каждого своя модель, у каждого вопроса — задача ───
+
+   Ключ больше не общий: `modelFor(userId, task)` спрашивают за того, кто
+   спросил, и про ту строку таблицы «задача → модель», откуда пришёл
+   вопрос. Очередь не решает, чем отвечать, — она передаёт, кто и откуда. */
+describe("модель — на человека и задачу", () => {
+  it("modelFor получает того, кто спросил, и задачу; без задачи — «chat»", async () => {
+    const asked = [];
+    const { q } = make({ modelFor: (userId, task) => { asked.push([userId, task]); return MODEL; } });
+    await q.askNow("200", "?", "", { task: "bot" });
+    const { id } = q.ask({ userId: "300", question: "?", task: "space" });
+    await settled(q, id, "300");
+    const plain = q.ask({ userId: "400", question: "?" });
+    await settled(q, plain.id, "400");
+    expect(asked).toEqual([["200", "bot"], ["300", "space"], ["400", "chat"]]);
+  });
+
+  it("настройки человека не прочитались — ошибка словами, а не падение очереди", async () => {
+    const { q } = make({ modelFor: () => { throw new Error("файл настроек повреждён"); } });
+    const { id } = q.ask({ userId: "200", question: "?" });
+    expect((await settled(q, id, "200")).error).toBe("файл настроек повреждён");
+  });
+
+  it("askNow отдаёт id вопроса вместе с обещанием — по нему бот рисует «Отменить»", async () => {
+    const { q } = make();
+    const p = q.askNow("200", "?");
+    expect(p.id).toBeTruthy();
+    expect(q.find(p.id, "200").status).toBe("pending");
+    await p;
+    expect(q.find(p.id, "200").status).toBe("done");
+  });
+});
+
+/* ─── стадии ───
+
+   Бот показывает, что происходит: собираю данные → спрашиваю модель →
+   отвечаю. Стадия — только пока вопрос жив; ошибка показа стадии — не
+   ошибка ответа. */
+describe("стадии", () => {
+  it("идут по порядку, «model» называет провайдера и модель", async () => {
+    const { q } = make();
+    const stages = [];
+    await q.askNow("200", "?", "", { onProgress: (s, info) => stages.push([s, info]) });
+    expect(stages.map((s) => s[0])).toEqual(["context", "model", "answer"]);
+    expect(stages[1][1]).toEqual({ providerName: "OpenAI", model: "gpt-4o-mini" });
+  });
+
+  it("не настроен — стадий нет: собирать данные не для кого", async () => {
+    const { q } = make({ modelFor: () => null });
+    const stages = [];
+    await q.askNow("200", "?", "", { onProgress: (s) => stages.push(s) }).catch(() => {});
+    expect(stages).toEqual([]);
+  });
+
+  it("упавший onProgress не ломает ответ", async () => {
+    const { q } = make();
+    const text = await q.askNow("200", "?", "", {
+      onProgress: (s) => { if (s === "model") throw new Error("Telegram не дал поправить"); return Promise.reject(new Error("тоже")); },
+    });
+    expect(text).toBe("ответ для ?");
+  });
+});
+
+/* ─── отмена ───
+
+   «Отменить» — это прервать запрос к провайдеру, а не спрятать ответ:
+   иначе человек платил бы за то, что не увидит, и держал бы очередь. */
+describe("отмена", () => {
+  // Модель, которая честно слушает signal: как настоящий fetch.
+  const abortable = (calls) => (p) => new Promise((_, reject) => {
+    calls.push(p);
+    p.signal.addEventListener("abort", () => reject(new Error("Запрос отменён")));
+  });
+
+  it("начатый — прерывается fetch, обещание отказывает словами «Отменено», в статусе то же", async () => {
+    const calls = [];
+    const { q } = make({ complete: abortable(calls) });
+    const p = q.askNow("200", "?");
+    await tick(); await tick();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].signal.aborted).toBe(false);
+    expect(q.cancel(p.id, "200")).toBe(true);
+    expect(calls[0].signal.aborted).toBe(true);
+    await expect(p).rejects.toThrow(CANCELLED_ERROR);
+    expect(q.find(p.id, "200")).toEqual({ status: "error", error: CANCELLED_ERROR });
+  });
+
+  it("очередь идёт дальше после отменённого, и стадии отменённого больше не приходят", async () => {
+    const calls = [];
+    const { q } = make({ complete: abortable(calls) });
+    const stages = [];
+    const a = q.askNow("200", "1", "", { onProgress: (s) => stages.push(s) });
+    const b = q.ask({ userId: "200", question: "2" });
+    await tick(); await tick();
+    q.cancel(a.id, "200");
+    await a.catch(() => {});
+    // Второй тоже «модель», которая ждёт отмены — отменяем и его, чтобы дождаться.
+    for (let i = 0; i < 20 && calls.length < 2; i += 1) await tick(); // eslint-disable-line no-await-in-loop
+    expect(calls).toHaveLength(2);
+    q.cancel(b.id, "200");
+    expect((await settled(q, b.id, "200")).error).toBe(CANCELLED_ERROR);
+    expect(stages).toEqual(["context", "model"]);
+  });
+
+  it("не начатый — снимается с очереди, модель не вызывается", async () => {
+    const calls = [];
+    const { q } = make({ complete: abortable(calls) });
+    const a = q.askNow("200", "1");
+    const b = q.askNow("200", "2");
+    await tick();
+    expect(q.cancel(b.id, "200")).toBe(true);
+    await expect(b).rejects.toThrow(CANCELLED_ERROR);
+    q.cancel(a.id, "200");
+    await a.catch(() => {});
+    await tick(); await tick();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].messages[0].content).toBe("1");
+  });
+
+  it("чужой, неизвестный и уже отвеченный — false", async () => {
+    const { q } = make();
+    const p = q.askNow("200", "?");
+    expect(q.cancel(p.id, "300")).toBe(false);
+    expect(q.cancel("нет-такого", "200")).toBe(false);
+    await p;
+    expect(q.cancel(p.id, "200")).toBe(false);
+    expect(q.find(p.id, "200").status).toBe("done");
+  });
+
+  it("signal снаружи — та же отмена", async () => {
+    const calls = [];
+    const { q } = make({ complete: abortable(calls) });
+    const ac = new AbortController();
+    const p = q.askNow("200", "?", "", { signal: ac.signal });
+    await tick(); await tick();
+    ac.abort();
+    await expect(p).rejects.toThrow(CANCELLED_ERROR);
+    expect(calls[0].signal.aborted).toBe(true);
+  });
+
+  it("модель ответила уже после отмены — ответ не переписывает «Отменено»", async () => {
+    let release;
+    const { q } = make({ complete: () => new Promise((r) => { release = r; }) });   // signal игнорирует
+    const p = q.askNow("200", "?");
+    await tick(); await tick();
+    q.cancel(p.id, "200");
+    await p.catch(() => {});
+    release("поздний ответ");
+    await tick(); await tick();
+    expect(q.find(p.id, "200")).toEqual({ status: "error", error: CANCELLED_ERROR });
   });
 });

@@ -15,12 +15,15 @@
    Вся логика — чистая функция `handleUpdate`: она получает обновление и
    зависимости (хранилище, отправку) аргументами, поэтому проверяется
    тестами, а не перепиской с живым ботом.
+
+   В группах бот только слушает: записывает (deps.chats) и молчит — см.
+   начало handleUpdate.
    ════════════════════════════════════════════════════════════════ */
 
 import { CALL_APP_STEPS, CALL_MAIN_STEPS, callAppNameOk, isAppLink, isMainAppLink }
   from "./links.js";
 import { isTaskAction, onTaskButton, onTaskMessage } from "./botTasks.js";
-import { onAssistantMessage } from "./botAssistant.js";
+import { isAssistantAction, onAssistantButton, onAssistantMessage } from "./botAssistant.js";
 
 // Роль, выбранная кнопкой: короткий префикс, чтобы влезть в 64 байта
 // callback_data, которые разрешает Telegram.
@@ -29,6 +32,9 @@ const NEWROLE = "newrole";
 
 const nameOf = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(" ")
   || u?.username || String(u?.id || "");
+
+// Группа и супергруппа — общий чат; канал и личный — нет.
+const isGroupChat = (chat) => chat?.type === "group" || chat?.type === "supergroup";
 
 /** Ожидание ответа на «как назвать роль»: кого зовём, пока имя не пришло. */
 const pending = new Map();
@@ -178,10 +184,27 @@ const rolesKeyboard = (roles) => ({
 export async function handleUpdate(update, deps) {
   const { org, send, answer } = deps;
   const msg = update?.message;
+  const edited = update?.edited_message;
   const cb = update?.callback_query;
   const inline = update?.inline_query;
-  const from = msg?.from || cb?.from || inline?.from;
+  const from = msg?.from || edited?.from || cb?.from || inline?.from;
   if (!from) return { ignored: "no sender" };
+
+  /* ─── группы: слушать и молчать ───
+     Всё, что бот видит в группе, ложится на диск (lib/chatStore.js, E):
+     помощник потом отвечает по этим чатам тем, кто в них состоит. Отвечать
+     в группу бот не должен ничем — ни помощником, ни подсказкой, ни
+     «только владельцу»: чат общий, а бот отвечает каждому про своё.
+     Правка сообщения — тоже запись: та же строка с тем же id. Раньше
+     identify: в группе никого не зовём и владельцем не делаем. */
+  const inGroup = msg || edited;
+  if (inGroup && isGroupChat(inGroup.chat)) {
+    if (!deps.chats?.record) return { ignored: "group" };
+    await deps.chats.record(inGroup);
+    return { recorded: true };
+  }
+  // Правка личного сообщения — не новое сообщение: отвечать второй раз нечего.
+  if (!msg && edited) return { ignored: "edited" };
 
   // Позвать на созвон может любой, кого позвали в модель, — не только
   // владелец: иначе исполнитель не смог бы предложить встречу.
@@ -216,6 +239,17 @@ export async function handleUpdate(update, deps) {
       return { ignored: "not invited" };
     }
     return onTaskButton(cb, from, deps);
+  }
+
+  /* Кнопки под статусом помощника — «✖ Отменить», «✎ Уточнить» — у любого
+     позванного: вопрос задавал он, и ход вопроса его. Чей вопрос — сверяет
+     сам помощник (lib/botAssistant.js). */
+  if (cb && deps.assistant && isAssistantAction(cb.data)) {
+    if (!me.known) {
+      await answer(cb.id, "Вас ещё не звали в модель");
+      return { ignored: "not invited" };
+    }
+    return onAssistantButton(cb, from, deps);
   }
 
   /* Файл или текст в ответ на вопрос сдачи — у любого позванного. Раньше

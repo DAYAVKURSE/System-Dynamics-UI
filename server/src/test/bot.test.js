@@ -367,3 +367,84 @@ describe("кнопки задачи под уведомлением", () => {
     expect(calls).toEqual([]);
   });
 });
+
+/* ─── группы: слушать и молчать ───
+   Всё, что бот видит в группе, записывается (lib/chatStore.js) и НИЧЕМ не
+   отвечается: чат общий, а бот отвечает каждому про своё. Без записи —
+   тоже молчание: подсказка «только владельцу» в группе была бы спамом. */
+describe("сообщения из групп", () => {
+  const group = { id: -100123, type: "supergroup", title: "Команда" };
+  const inGroup = (from, patch = {}) => msg(from, { chat: group, ...patch });
+
+  it("записываются и не получают ответа — ни от владельца, ни от чужого", async () => {
+    const recorded = [];
+    const chats = { record: async (m) => { recorded.push(m); } };
+    expect(await handleUpdate(inGroup(owner, { text: "решили: счёт в пятницу" }), { ...deps, chats }))
+      .toEqual({ recorded: true });
+    expect(await handleUpdate(inGroup(guest, { text: "/id" }), { ...deps, chats })).toEqual({ recorded: true });
+    expect(recorded.map((m) => m.text)).toEqual(["решили: счёт в пятницу", "/id"]);
+    expect(recorded[0].chat).toEqual(group);
+    expect(sent).toEqual([]);
+  });
+
+  it("правка сообщения в группе — тоже запись; в личке правка не отвечается", async () => {
+    const recorded = [];
+    const chats = { record: async (m) => { recorded.push(m); } };
+    const r = await handleUpdate({ update_id: 3, edited_message: { from: owner, chat: group, text: "поправил" } },
+      { ...deps, chats });
+    expect(r).toEqual({ recorded: true });
+    expect(recorded[0].text).toBe("поправил");
+    expect(await handleUpdate({ update_id: 4, edited_message: { from: owner, chat: { id: 100, type: "private" },
+      text: "поправил" } }, { ...deps, chats })).toEqual({ ignored: "edited" });
+    expect(sent).toEqual([]);
+  });
+
+  it("записи нет — всё равно молчит, и ничего не заводит", async () => {
+    const r = await handleUpdate(inGroup(guest, { text: "привет" }), deps);
+    expect(r).toEqual({ ignored: "group" });
+    expect(sent).toEqual([]);
+    // Обычная группа — тоже группа; личка — нет: помощник в личке отвечает как прежде.
+    expect(await handleUpdate(msg(guest, { chat: { id: 5, type: "group" }, text: "x" }), deps))
+      .toEqual({ ignored: "group" });
+    expect(sent).toEqual([]);
+  });
+});
+
+/* ─── кнопки под статусом помощника ───
+   «✖ Отменить» и «✎ Уточнить» — у любого позванного, не только у
+   владельца: вопрос задавал он. Чужой вопрос помощник не отменяет. */
+describe("кнопки помощника под статусом", () => {
+  const worker = { id: 200, first_name: "Иван" };
+  let cancelled;
+  const assistant = () => ({
+    ask: (userId, q) => { const p = new Promise(() => {}); p.id = "q1"; return p; },
+    cancel: (id, userId) => { cancelled.push([id, userId]); return true; },
+  });
+  const pressAi = (from, data) => handleUpdate(
+    { update_id: 9, callback_query: { id: "cb2", from, data, message: { message_id: 7, chat: { id: from.id } } } },
+    { ...deps, assistant: assistant(), edit: async () => {} },
+  );
+  beforeEach(async () => {
+    cancelled = [];
+    const roles = (await org.listOrg()).roles;
+    await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+  });
+
+  it("позванный не-владелец отменяет свой вопрос через очередь", async () => {
+    const asked = await handleUpdate(msg(worker, { text: "что у меня?" }), { ...deps, assistant: assistant(), edit: async () => {} });
+    expect(asked.answered).toBe("queued");
+    expect(lastKeys()).toEqual(["✖ Отменить", "✎ Уточнить"]);
+    const r = await pressAi(worker, "ai:cancel:q1");
+    expect(r).toEqual({ cancelled: true, id: "q1" });
+    expect(cancelled).toEqual([["q1", "200"]]);
+    expect(answered[answered.length - 1].text).toBe("Отменил");
+  });
+
+  it("владелец чужой вопрос не отменяет, незваному кнопки не отвечают", async () => {
+    await handleUpdate(msg(worker, { text: "что у меня?" }), { ...deps, assistant: assistant(), edit: async () => {} });
+    expect(await pressAi(owner, "ai:cancel:q1")).toEqual({ stale: true });
+    expect(answered[answered.length - 1].text).toMatch(/не ваш/);
+    expect(await pressAi(guest, "ai:cancel:q1")).toEqual({ ignored: "not invited" });
+    expect(cancelled).toEqual([]);
+  });
+});
