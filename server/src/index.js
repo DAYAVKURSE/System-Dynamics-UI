@@ -13,7 +13,7 @@ import { deferTask, submitTask, takeTask, taskFor, withModel, writeModel }
   from "./lib/workspaceStore.js";
 import { saveReport } from "./lib/reportStore.js";
 import { publishStep } from "./lib/ratings.js";
-import { askNow } from "./lib/assistantQueue.js";
+import { askNow, cancel as cancelAsk } from "./lib/assistantQueue.js";
 import * as memory from "./lib/memoryStore.js";
 
 const app = createApp();
@@ -54,9 +54,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   console.log("TELEGRAM_BOT_TOKEN не задан — планировщик напоминаний выключен");
 }
 
-/* Бот принимает одно: приглашение людей владельцем. Длинный опрос — цикл
-   без таймера: следующий запрос уходит сразу после предыдущего ответа,
-   поэтому нажатие кнопки не ждёт до минуты. */
+/* Бот: приглашения, кнопки под уведомлениями, помощник — и сообщения
+   групп (их он записывает и молчит; зависимость `chats` — lib/chatStore.js).
+   Длинный опрос — цикл без таймера: следующий запрос уходит сразу после
+   предыдущего ответа, поэтому нажатие кнопки не ждёт до минуты. */
 if (process.env.TELEGRAM_BOT_TOKEN) {
   let offset = 0;
   /* Имя бота нужно, чтобы собрать ссылку на звонок в мини-приложение.
@@ -152,8 +153,11 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
               /* Помощник: любой позванный пишет боту словами и получает ответ по
                  своим данным (lib/botAssistant.js). askNow отдаёт обещание
                  ответа; бот его не ждёт — иначе на время вопроса он не
-                 отвечал бы никому. Память — та же, что в приложении. */
-              assistant: { ask: askNow, memory },
+                 отвечал бы никому. cancel — кнопка «✖ Отменить» под статусом:
+                 прерывает запрос к модели, а не прячет ответ. Стадии
+                 («собираю данные», «спрашиваю модель») правят статус через
+                 `edit` выше. Память — та же, что в приложении. */
+              assistant: { ask: askNow, cancel: cancelAsk, memory },
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
               answerInline,

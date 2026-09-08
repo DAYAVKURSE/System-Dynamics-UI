@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { onAssistantMessage, splitMessage } from "../lib/botAssistant.js";
+import {
+  onAssistantButton, onAssistantMessage, resetAssistantState, splitMessage, stageText,
+} from "../lib/botAssistant.js";
 import { NOT_CONFIGURED } from "../lib/assistantSettings.js";
+import { CANCELLED_ERROR, createQueue } from "../lib/assistantQueue.js";
 
 /* Помощник в чате: обычный текст → ответ, «запомни:» → память, документ →
    память. Команды и пересылки — не его: на них null, их разбирает bot.js.
@@ -26,7 +29,7 @@ const deps = () => ({
   send: async (chatId, text) => { sent.push({ chatId, text }); },
 });
 
-beforeEach(() => { sent = []; asked = []; remembered = []; });
+beforeEach(() => { sent = []; asked = []; remembered = []; resetAssistantState(); });
 
 describe("что помощник берёт, а что нет", () => {
   it("обычный текст — сразу «Думаю…», ответ от имени спросившего приходит потом", async () => {
@@ -34,7 +37,7 @@ describe("что помощник берёт, а что нет", () => {
     expect(r.answered).toBe("queued");
     // «Думаю…» ушло первым, ответ — отдельным сообщением следом.
     expect(sent[0].text).toBe("Думаю…");
-    expect(await r.done).toEqual({ answered: true, parts: 1 });
+    expect(await r.done).toEqual({ answered: true, parts: 1, id: r.id });
     expect(asked).toEqual([{ userId: "200", q: "что у меня сегодня?" }]);
     expect(sent[1].text).toBe("ответ на «что у меня сегодня?»");
   });
@@ -149,5 +152,153 @@ describe("разбиение под лимит Telegram", () => {
     const parts = splitMessage(`${"a".repeat(3000)}\n${"b".repeat(3000)}`, 4000);
     expect(parts).toEqual(["a".repeat(3000), "b".repeat(3000)]);
     expect(splitMessage("")).toEqual([]);
+  });
+});
+
+/* ─── статус, «Отменить», «Уточнить» ───
+
+   Пока модель думает, человек видит, что происходит, и может вмешаться:
+   одно сообщение-статус правится по стадиям, под ним две кнопки. Здесь
+   помощник работает с НАСТОЯЩЕЙ очередью (createQueue на заглушках): отмена
+   должна доходить до fetch, а не до слов. */
+describe("статус и кнопки под ним", () => {
+  let edits, answered, queue, release, calls;
+  const MODEL = { kind: "openai", key: "sk-test-0123456789", model: "gpt-4o-mini", providerName: "OpenAI" };
+  // Модель, слушающая signal, как настоящий fetch: отвечает, когда отпустят, или падает по отмене.
+  const complete = (p) => new Promise((resolve, reject) => {
+    calls.push(p);
+    release = resolve;
+    p.signal.addEventListener("abort", () => reject(new Error("Запрос отменён")));
+  });
+  const live = () => ({
+    assistant: { ask: queue.askNow, cancel: queue.cancel, memory },
+    send: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); return { message_id: sent.length }; },
+    edit: async (chatId, messageId, text, keyboard) => { edits.push({ chatId, messageId, text, keyboard }); },
+    answer: async (id, text) => { answered.push({ id, text }); },
+  });
+  const press = (data, who = from) => onAssistantButton(
+    { id: "cb1", data, from: who, message: { message_id: 1, chat: { id: who.id } } }, who, live());
+  const keys = (k) => (k?.inline_keyboard || []).flat().map((b) => [b.text, b.callback_data]);
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+
+  beforeEach(() => {
+    edits = []; answered = []; calls = []; release = null;
+    queue = createQueue({ complete, modelFor: () => MODEL, contextFor: async () => "ctx", log: () => {} });
+  });
+
+  it("одно сообщение-статус правится по стадиям и заканчивается «Готово» без кнопок; ответ — отдельно", async () => {
+    const r = await onAssistantMessage({ text: "что у меня?" }, from, live());
+    await settle();
+    // Кнопки — под статусом, с id вопроса.
+    expect(sent[0].text).toBe("Думаю…");
+    expect(keys(sent[0].keyboard)).toEqual([["✖ Отменить", `ai:cancel:${r.id}`], ["✎ Уточнить", `ai:refine:${r.id}`]]);
+    expect(edits.map((e) => e.text)).toEqual(["Собираю ваши данные…", "Спрашиваю OpenAI / gpt-4o-mini…"]);
+    edits.forEach((e) => expect(e.messageId).toBe(1));
+    release("Задач нет.");
+    expect(await r.done).toEqual({ answered: true, parts: 1, id: r.id });
+    expect(sent[1].text).toBe("Задач нет.");
+    expect(edits[edits.length - 1]).toMatchObject({ text: "Готово", keyboard: null });
+    // Модель спрашивали по строке «помощник в чате бота».
+    expect(calls[0].model).toBe("gpt-4o-mini");
+  });
+
+  it("«✖ Отменить» прерывает запрос к модели: статус «Отменено», ответа нет", async () => {
+    const r = await onAssistantMessage({ text: "?" }, from, live());
+    await settle();
+    expect(calls[0].signal.aborted).toBe(false);
+    const pressed = await press(`ai:cancel:${r.id}`);
+    expect(pressed).toEqual({ cancelled: true, id: r.id });
+    expect(calls[0].signal.aborted).toBe(true);
+    expect(answered[0].text).toBe("Отменил");
+    expect(await r.done).toEqual({ cancelled: true, id: r.id });
+    expect(edits[edits.length - 1]).toMatchObject({ text: "Отменено", keyboard: null });
+    // Второго сообщения про отмену нет: человек сам нажал, ему и так ясно.
+    expect(sent.map((m) => m.text)).toEqual(["Думаю…"]);
+  });
+
+  it("«Отменить» под уже отвеченным — «отменять нечего»; чужой вопрос — не ваш; забытый — честно", async () => {
+    const r = await onAssistantMessage({ text: "?" }, from, live());
+    await settle();
+    release("ок");
+    await r.done;
+    expect(await press(`ai:cancel:${r.id}`)).toEqual({ ignored: "done" });
+    expect(answered[0].text).toMatch(/отменять нечего/);
+    expect(await press(`ai:cancel:${r.id}`, { id: 300 })).toEqual({ stale: true });
+    expect(answered[1].text).toMatch(/не ваш/);
+    expect(await press("ai:cancel:нет-такого")).toEqual({ stale: true });
+    expect(answered[2].text).toMatch(/не помню/);
+  });
+
+  it("«✎ Уточнить»: бот ждёт дополнение, потом отменяет текущий и спрашивает заново с «Уточнение: …»", async () => {
+    const r = await onAssistantMessage({ text: "что по заявкам?" }, from, live());
+    await settle();
+    const pressed = await press(`ai:refine:${r.id}`);
+    expect(pressed).toEqual({ asking: "refine", id: r.id });
+    expect(sent[sent.length - 1].text).toBe("Что добавить к вопросу? Пришлите дополнение одним сообщением.");
+    // Дополнение — обычным текстом: он не уходит вопросом сам по себе.
+    const r2 = await onAssistantMessage({ text: "за сентябрь" }, from, live());
+    expect(r2.refined).toBe(r.id);
+    expect(r2.answered).toBe("queued");
+    expect(await r.done).toEqual({ cancelled: true, id: r.id });
+    expect(calls[0].signal.aborted).toBe(true);
+    // Старый статус — «отменено, вопрос уточнён», новый — своё «Думаю…» со своими кнопками.
+    expect(edits.find((e) => e.text === "Отменено — вопрос уточнён")).toBeTruthy();
+    const status2 = sent[sent.length - 1];
+    expect(status2.text).toBe("Думаю…");
+    expect(keys(status2.keyboard)[0][1]).toBe(`ai:cancel:${r2.id}`);
+    await settle();
+    expect(calls).toHaveLength(2);
+    expect(calls[1].messages[0].content).toBe("что по заявкам?\n\nУточнение: за сентябрь");
+    release("вот");
+    expect(await r2.done).toMatchObject({ answered: true });
+  });
+
+  it("уточнить можно и отвеченный вопрос — отменять нечего, просто спрашивается заново", async () => {
+    const r = await onAssistantMessage({ text: "что по заявкам?" }, from, live());
+    await settle();
+    release("ок");
+    await r.done;
+    await press(`ai:refine:${r.id}`);
+    const r2 = await onAssistantMessage({ text: "подробнее" }, from, live());
+    await settle();
+    expect(calls[1].messages[0].content).toBe("что по заявкам?\n\nУточнение: подробнее");
+    release("подробно");
+    expect(await r2.done).toMatchObject({ answered: true });
+  });
+
+  it("ошибка модели — статус «Не вышло» без кнопок, слова ошибки отдельным сообщением", async () => {
+    const d = live();
+    d.assistant.ask = async () => { throw new Error("OpenAI ответил 429: rate limit"); };
+    const r = await onAssistantMessage({ text: "?" }, from, d);
+    await r.done;
+    expect(sent[1].text).toMatch(/429/);
+    expect(edits[edits.length - 1]).toMatchObject({ text: "Не вышло", keyboard: null });
+  });
+
+  it("без edit статус не правится, но ответ приходит; ошибка правки не ломает ответ", async () => {
+    const d = live();
+    delete d.edit;
+    const r = await onAssistantMessage({ text: "?" }, from, d);
+    await settle();
+    release("ок");
+    expect(await r.done).toMatchObject({ answered: true });
+    const bad = live();
+    bad.edit = async () => { throw new Error("message is too old"); };
+    const r2 = await onAssistantMessage({ text: "?" }, from, bad);
+    await settle();
+    release("тоже ок");
+    expect(await r2.done).toMatchObject({ answered: true });
+    expect(sent[sent.length - 1].text).toBe("тоже ок");
+  });
+
+  it("тексты стадий — словами, «model» называет провайдера и модель", () => {
+    expect(stageText("context")).toBe("Собираю ваши данные…");
+    expect(stageText("model", { providerName: "Groq", model: "llama-3" })).toBe("Спрашиваю Groq / llama-3…");
+    expect(stageText("model")).toBe("Спрашиваю модель…");
+    expect(stageText("answer")).toBe("Отвечаю…");
+  });
+
+  it("слово отмены у очереди и у бота одно", () => {
+    expect(CANCELLED_ERROR).toBe("Отменено");
   });
 });

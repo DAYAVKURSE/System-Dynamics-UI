@@ -254,11 +254,46 @@ describe("проход планировщика", () => {
     const n = await runTick({ store, send, now: at("2026-09-15T09:50") });
 
     expect(n).toBe(1);
-    /* Предупреждение «через 10 минут» кнопок не получает: начинать раньше
-       времени нечего, и откладывать ещё не наступившее — тоже. */
-    expect(send).toHaveBeenCalledWith("42",
-      expect.stringContaining("Через 10 минут"), null);
+    /* Предупреждение «через 10 минут» — с теми же кнопками, что и «пора
+       начинать»: именно сейчас человек решает, успевает ли он. В v1.1
+       кнопок под ним не было, и решить было нечем до самого начала. */
+    const [chatId, text, keyboard] = send.mock.calls[0];
+    expect(chatId).toBe("42");
+    expect(text).toContain("Через 10 минут");
+    expect(text).toContain("прямо сейчас, не дожидаясь начала");
+    expect(keyboard.inline_keyboard[0].map((b) => b.callback_data))
+      .toEqual(["task:defer:t1", "task:start:t1"]);
     expect(store.marked).toHaveLength(1);
+  });
+
+  it("предупреждение владельцу о чужой задаче — без кнопок, как и «пора начинать»", async () => {
+    const store = makeStore([{ userId: "100", schedule: { ...schedule, chatId: "100" } }]);
+    const send = vi.fn().mockResolvedValue({});
+    await runTick({ store, send, now: at("2026-09-15T09:50") });
+    const [, text, keyboard] = send.mock.calls[0];
+    expect(text).toContain("Через 10 минут");
+    expect(text).not.toContain("Отложить");
+    expect(keyboard).toBeNull();
+  });
+
+  /* Расписания, сохранённые до v1.1, исполнителя не несут вовсе: поле
+     отсутствует. После выката такие напоминания приходили без кнопок, и
+     ответить на них было нечем. Запись без поля — запись того, у кого
+     лежит; «никому» (null) — по-прежнему никому. */
+  it("запись без поля исполнителя (до v1.1) считается записью того, у кого лежит", async () => {
+    const old = { ...task() };
+    delete old.assignee;
+    const store = makeStore([{ userId: "42", schedule: { ...schedule, tasks: [old] } }]);
+    const send = vi.fn().mockResolvedValue({});
+    await runTick({ store, send, now: at("2026-09-15T10:00") });
+    const [, text, keyboard] = send.mock.calls[0];
+    expect(keyboard.inline_keyboard[0].map((b) => b.text)).toEqual(["🔴 Отложить", "🟢 Начать"]);
+    expect(text).toContain("«🟢 Начать»");
+    // Ключ есть, значения нет — то же самое, что ключа нет.
+    const store2 = makeStore([{ userId: "42", schedule: { ...schedule, tasks: [task({ assignee: undefined })] } }]);
+    const send2 = vi.fn().mockResolvedValue({});
+    await runTick({ store: store2, send: send2, now: at("2026-09-15T10:00") });
+    expect(send2.mock.calls[0][2]).not.toBeNull();
   });
 
   /* ─── две кнопки под уведомлением о начале ───
