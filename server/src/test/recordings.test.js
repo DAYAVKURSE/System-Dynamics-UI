@@ -17,6 +17,14 @@ import path from "node:path";
    проверка идёт на боевом режиме, где пользователи различимы.
    ═══════════════════════════════════════════════════════════════ */
 
+/* Модель для расшифровки берётся из настроек помощника (assistantSettings,
+   `modelFor`) — здесь она подменена: настроек в тесте нет, а нужна ровно
+   развилка «модель есть / модели нет». */
+vi.mock("../lib/assistantSettings.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  modelFor: vi.fn(async () => null),
+}));
+
 const TOKEN = "test-token";
 let app, tmp, prev;
 
@@ -45,9 +53,12 @@ beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sd-recordings-"));
   prev = { node: process.env.NODE_ENV, token: process.env.TELEGRAM_BOT_TOKEN,
     url: process.env.PUBLIC_URL, owner: process.env.OWNER_TELEGRAM_ID,
-    org: process.env.ORG_DIR };
+    org: process.env.ORG_DIR, calls: process.env.CALLS_DIR };
   process.env.REPORTS_DIR = tmp;
   process.env.ORG_DIR = path.join(tmp, "org");
+  // Расшифровки записей ложатся в хранилище звонков — оно тоже во временном
+  // каталоге, иначе тест писал бы в data/ рабочего каталога.
+  process.env.CALLS_DIR = path.join(tmp, "calls");
   process.env.NODE_ENV = "production";
   process.env.TELEGRAM_BOT_TOKEN = TOKEN;
   process.env.PUBLIC_URL = "https://x.test";
@@ -71,6 +82,8 @@ afterAll(async () => {
   else process.env.OWNER_TELEGRAM_ID = prev.owner;
   if (prev.org === undefined) delete process.env.ORG_DIR;
   else process.env.ORG_DIR = prev.org;
+  if (prev.calls === undefined) delete process.env.CALLS_DIR;
+  else process.env.CALLS_DIR = prev.calls;
   await fs.rm(tmp, { recursive: true, force: true });
 });
 afterEach(() => { vi.restoreAllMocks(); });
@@ -217,5 +230,96 @@ describe("«Удалить» — с сервера насовсем", () => {
     const del = await request(app).delete(`/api/reports/${scope}/${id}`).set(as(200));
     expect(del.status).toBe(404);
     expect((await request(app).get(`/api/reports/${scope}/${id}`)).status).toBe(200);
+  });
+});
+
+describe("расшифровка после сохранения записи", () => {
+  const GROQ = { kind: "openai", baseUrl: "https://api.groq.com/openai/v1", key: "sk-key-12345678",
+    model: "whisper-large-v3-turbo", providerName: "Groq" };
+  /** Ждёт, пока фоновая расшифровка допишет своё; иначе тест гонялся бы с ней. */
+  const settled = async (fileId, want) => {
+    const { transcriptFor } = await import("../lib/callStore.js");
+    for (let i = 0; i < 50; i += 1) {
+      const t = await transcriptFor(fileId);
+      if (t && t.status === want) return t;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return transcriptFor(fileId);
+  };
+  const fakeProviders = (transcript) => {
+    const calls = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opts) => {
+      calls.push({ url: String(url), body: opts?.body, headers: opts?.headers });
+      if (String(url).includes("/audio/transcriptions")) {
+        return { ok: true, status: 200, text: async () => transcript };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) };
+    });
+    return calls;
+  };
+
+  it("запись уходит в расшифровку в фоне — моделью того, кто сохранил, — и текст ложится у встречи", async () => {
+    const { modelFor } = await import("../lib/assistantSettings.js");
+    const { createMeeting, getMeeting } = await import("../lib/callStore.js");
+    modelFor.mockClear();
+    modelFor.mockResolvedValue(GROQ);
+    const calls = fakeProviders("Договорились о скидке.");
+    const m = await createMeeting({ title: "Разбор", by: "100" });
+
+    const up = await upload(100, Buffer.from("видео"), { name: "звонок-р.webm" }).set("X-Report-Meeting", m.id);
+    // Ответ приходит сразу: расшифровку человек не ждёт.
+    expect(up.status).toBe(201);
+
+    const t = await settled(up.body.id, "done");
+    expect(t).toMatchObject({ by: "100", status: "done", text: "Договорились о скидке.", meetingId: m.id });
+    expect(modelFor).toHaveBeenCalledWith("100", "transcribe");
+    const sent = calls.find((c) => c.url.includes("/audio/transcriptions"));
+    expect(sent.url).toBe("https://api.groq.com/openai/v1/audio/transcriptions");
+    expect(sent.headers.Authorization).toBe("Bearer sk-key-12345678");
+    expect(sent.body.get("file").name).toBe("звонок-р.webm");
+    expect((await getMeeting(m.id)).transcripts[0]).toMatchObject({ fileId: up.body.id, text: "Договорились о скидке." });
+  });
+
+  it("модель для расшифровки не выбрана — ничего не расшифровывается и в сеть не уходит", async () => {
+    const { modelFor } = await import("../lib/assistantSettings.js");
+    const { transcriptFor } = await import("../lib/callStore.js");
+    modelFor.mockResolvedValue(null);
+    const calls = fakeProviders("не должно случиться");
+    const up = await upload(100, Buffer.from("видео"), { name: "звонок-без.webm" });
+    expect(up.status).toBe(201);
+    await new Promise((r) => setTimeout(r, 120));
+    expect(await transcriptFor(up.body.id)).toBeNull();
+    expect(calls.find((c) => c.url.includes("/audio/transcriptions"))).toBeFalsy();
+  });
+
+  it("вложение к задаче — не запись, и в расшифровку не уходит", async () => {
+    const { modelFor } = await import("../lib/assistantSettings.js");
+    modelFor.mockClear();
+    modelFor.mockResolvedValue(GROQ);
+    fakeProviders("");
+    await upload(100, Buffer.from("картинка"), { name: "снимок-2.png", type: "image/png", kind: "" });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(modelFor).not.toHaveBeenCalled();
+  });
+
+  it("не похожий на id встречи заголовок отбрасывается: текст остаётся при файле", async () => {
+    const { modelFor } = await import("../lib/assistantSettings.js");
+    modelFor.mockResolvedValue(GROQ);
+    fakeProviders("текст");
+    const up = await upload(100, Buffer.from("видео"), { name: "звонок-х.webm" }).set("X-Report-Meeting", "not-an/id?x=1");
+    const t = await settled(up.body.id, "done");
+    expect(t.meetingId).toBeNull();
+  });
+
+  it("удаление записи уносит и расшифровку", async () => {
+    const { modelFor } = await import("../lib/assistantSettings.js");
+    const { transcriptFor } = await import("../lib/callStore.js");
+    modelFor.mockResolvedValue(GROQ);
+    fakeProviders("удаляемый текст");
+    const up = await upload(100, Buffer.from("видео"), { name: "звонок-у.webm" });
+    await settled(up.body.id, "done");
+    const del = await request(app).delete(`/api/reports/${up.body.scope}/${up.body.id}`).set(as(100));
+    expect(del.status).toBe(204);
+    expect(await transcriptFor(up.body.id)).toBeNull();
   });
 });

@@ -5,10 +5,12 @@ import path from "node:path";
 import * as org from "../lib/orgStore.js";
 import { writeModel } from "../lib/workspaceStore.js";
 import { saveReport } from "../lib/reportStore.js";
-import { createMeeting } from "../lib/callStore.js";
+import { createMeeting, putTranscript } from "../lib/callStore.js";
 import { addMemory } from "../lib/memoryStore.js";
+import { recordGroupMessage } from "../lib/chatStore.js";
+import { NO_MODEL } from "../lib/transcribe.js";
 import {
-  MAX_CONTEXT_CHARS, TRUNCATED_NOTE, contextFor, describeModel, fit,
+  MAX_CONTEXT_CHARS, TRUNCATED_NOTE, contextFor, describeModel, describeRecordings, fit,
 } from "../lib/assistantContext.js";
 
 /* Помощник знает ровно то, что человеку и так показывает приложение.
@@ -25,6 +27,7 @@ beforeAll(async () => {
   process.env.REPORTS_DIR = path.join(tmp, "reports");
   process.env.CALLS_DIR = path.join(tmp, "calls");
   process.env.MEMORY_DIR = path.join(tmp, "memory");
+  process.env.CHATS_DIR = path.join(tmp, "chats");
 });
 afterAll(async () => { await fs.rm(tmp, { recursive: true, force: true }); });
 
@@ -65,7 +68,7 @@ const MODEL = {
 };
 
 beforeEach(async () => {
-  for (const d of ["ORG_DIR", "WORKSPACE_DIR", "REPORTS_DIR", "CALLS_DIR", "MEMORY_DIR"]) {
+  for (const d of ["ORG_DIR", "WORKSPACE_DIR", "REPORTS_DIR", "CALLS_DIR", "MEMORY_DIR", "CHATS_DIR"]) {
     await fs.rm(process.env[d], { recursive: true, force: true });
   }
   delete process.env.OWNER_TELEGRAM_ID;
@@ -164,6 +167,99 @@ describe("владелец", () => {
     expect(ctx).not.toContain("созвон Петра");
     expect(ctx).not.toContain("тайна Петра");
     expect(ctx).toContain("Память пуста.");
+  });
+});
+
+describe("чаты групп", () => {
+  const msg = (chatId, title, text, id = 1) => ({
+    message_id: id, date: 1757340000 + id,
+    chat: { id: chatId, type: "supergroup", title },
+    from: { id: 100, first_name: "Владелец" }, text,
+  });
+
+  it("чужой чат (не член) в контекст не попадает, свой — попадает; членство спрашивается при обращении", async () => {
+    await recordGroupMessage(msg(-1001, "Продажи", "скидку не даём"));
+    await recordGroupMessage(msg(-1002, "Юристы", "тайна юристов"));
+    const asked = [];
+    const isMember = async (chatId, userId) => { asked.push([chatId, userId]); return chatId === "-1001"; };
+    const ctx = await contextFor("200", { isMember });
+    expect(ctx).toContain("## Чаты");
+    expect(ctx).toContain("«Продажи»");
+    expect(ctx).toContain("Владелец: скидку не даём");
+    expect(ctx).not.toContain("тайна юристов");
+    expect(asked).toEqual(expect.arrayContaining([["-1001", "200"], ["-1002", "200"]]));
+  });
+
+  it("выгнали из чата — следующий вопрос его уже не видит", async () => {
+    await recordGroupMessage(msg(-1001, "Продажи", "скидку не даём"));
+    let inside = true;
+    const isMember = async () => inside;
+    expect(await contextFor("200", { isMember })).toContain("скидку не даём");
+    inside = false;
+    expect(await contextFor("200", { isMember })).not.toContain("скидку не даём");
+  });
+
+  it("правка сообщения не даёт второй строки", async () => {
+    await recordGroupMessage(msg(-1001, "Продажи", "скидку не даём"));
+    await recordGroupMessage({ ...msg(-1001, "Продажи", "скидку даём"), edit_date: 1757340100 });
+    const ctx = await contextFor("200", { isMember: async () => true });
+    expect(ctx).toContain("(исправлено): скидку даём");
+    expect(ctx).not.toContain("скидку не даём");
+    expect(ctx).toContain("(1 сообщений)");
+  });
+
+  it("чатов нет — сказано словами", async () => {
+    expect(await contextFor("200", { isMember: async () => true })).toContain("Чатов нет");
+  });
+});
+
+describe("записи звонков", () => {
+  const call = (who, name) => saveReport(who, { name, type: "video/webm", kind: "call", bytes: Buffer.from("webm") });
+
+  it("записей нет — сказано словами", async () => {
+    expect(await contextFor("200")).toContain("Записей звонков нет.");
+  });
+
+  it("расшифровка без модели — фраза словами, а не тишина", async () => {
+    await call("200", "звонок-ивана.webm");
+    const ctx = await contextFor("200");
+    expect(ctx).toContain("## Записи звонков");
+    expect(ctx).toContain("«звонок-ивана.webm»");
+    expect(ctx).toContain(NO_MODEL);
+  });
+
+  it("с расшифровкой — текст; чужая расшифровка не видна", async () => {
+    const mine = await call("200", "звонок-ивана.webm");
+    const other = await call("300", "звонок-петра.webm");
+    await putTranscript({ fileId: mine.id, by: "200", name: mine.name, status: "done",
+      text: "Договорились о скидке", model: "Groq / whisper" });
+    await putTranscript({ fileId: other.id, by: "300", name: other.name, status: "done", text: "тайна звонка Петра" });
+    const ctx = await contextFor("200");
+    expect(ctx).toContain("Договорились о скидке");
+    expect(ctx).toContain("(Groq / whisper)");
+    expect(ctx).not.toContain("тайна звонка Петра");
+    expect(ctx).not.toContain("звонок-петра.webm");
+  });
+
+  it("«идёт» и «не удалось» — словами с причиной", async () => {
+    const a = await call("200", "звонок-а.webm");
+    const b = await call("200", "звонок-б.webm");
+    await putTranscript({ fileId: a.id, by: "200", name: a.name, status: "pending", model: "Groq / whisper" });
+    await putTranscript({ fileId: b.id, by: "200", name: b.name, status: "error", error: "провайдер ответил 500: boom" });
+    const ctx = await contextFor("200");
+    expect(ctx).toContain("расшифровка ещё идёт (модель Groq / whisper");
+    expect(ctx).toContain("расшифровка не удалась — провайдер ответил 500: boom");
+  });
+
+  it("длинная расшифровка обрезается с пометкой, а не молча", () => {
+    const text = describeRecordings(
+      [{ id: "f1", name: "а.webm", savedAt: "2026-09-08T10:00:00Z" }, { id: "f2", name: "б.webm", savedAt: "2026-09-08T09:00:00Z" }],
+      [{ fileId: "f1", status: "done", text: "x".repeat(50) }, { fileId: "f2", status: "done", text: "y".repeat(50) }],
+      60,
+    );
+    expect(text).toContain("x".repeat(50));
+    expect(text).toContain("расшифровка обрезана");
+    expect(text).not.toContain("y".repeat(50));
   });
 });
 

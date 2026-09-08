@@ -1,8 +1,10 @@
 import { identify, readOrg } from "./orgStore.js";
 import { readModel, viewFor } from "./workspaceStore.js";
 import { listReports } from "./reportStore.js";
-import { listMeetings } from "./callStore.js";
+import { listMeetings, listTranscripts } from "./callStore.js";
 import { listMemory } from "./memoryStore.js";
+import { chatsFor } from "./chatStore.js";
+import { NO_MODEL } from "./transcribe.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЧТО ПОМОЩНИК ЗНАЕТ ПРО СПРАШИВАЮЩЕГО
@@ -13,6 +15,12 @@ import { listMemory } from "./memoryStore.js";
    теми же функциями, что и экраны: `viewFor` даёт задачи, `listReports` —
    файлы, `listMeetings` — встречи, `listMemory` — память. Владельцу —
    модель целиком, потому что он и так видит её целиком.
+
+   Два раздела приходят не с экранов, а из того, что человек и так видит
+   в Telegram: чаты групп, где он состоит вместе с ботом (`chatsFor`,
+   членство проверяется у Telegram на каждый вопрос), и расшифровки его
+   же записей звонков (`listTranscripts`). Чужой чат сюда не попадает
+   именно потому, что проверка — при обращении, а не при записи.
 
    Собирается ЗАНОВО на каждый вопрос, а не один раз при старте: роль
    человека могут сменить между двумя вопросами, и ответ на второй должен
@@ -208,9 +216,66 @@ export function describeMeetings(meetings = []) {
   const out = ["## Встречи"];
   if (!meetings.length) { out.push("Встреч нет."); return out.join("\n"); }
   meetings.forEach((m) => out.push(`- «${m.title}»${m.at ? `, ${m.at}` : ", время не названо"}${str(m.text) ? `: ${str(m.text).slice(0, 500)}` : ""} (заведена ${when(m.createdAt)})`));
-  // Текста записей здесь нет: расшифровки не существует (вопрос Q5 в
-  // роадмапе), а выдумывать содержание звонка по его названию нельзя.
-  out.push("Содержание звонков помощнику недоступно: есть только название, время и текст приглашения.");
+  // Содержание звонка — не здесь: оно есть только у тех встреч, что
+  // записали и расшифровали, и живёт в разделе «Записи звонков».
+  out.push("Здесь только название, время и текст приглашения; о чём говорили — в разделе «Записи звонков».");
+  return out.join("\n");
+}
+
+/* ─────── записи звонков с расшифровками ─────── */
+
+/** Сколько знаков расшифровок уходит в контекст — новые записи важнее. */
+export const TRANSCRIPT_CONTEXT_CHARS = 20000;
+
+/**
+ * Записи звонков — по одной строке на файл, с текстом, если он есть.
+ * Чего нет — сказано, ПОЧЕМУ нет: модель не выбрана, ещё идёт, не
+ * удалось. Молчание на месте текста читалось бы как «разговора не было».
+ */
+export function describeRecordings(recordings = [], transcripts = [], limit = TRANSCRIPT_CONTEXT_CHARS) {
+  const out = ["## Записи звонков"];
+  if (!recordings.length) { out.push("Записей звонков нет."); return out.join("\n"); }
+  const byFile = new Map(transcripts.map((t) => [t.fileId, t]));
+  let left = limit;
+  recordings.forEach((f) => {
+    const t = byFile.get(f.id);
+    const head = `- «${f.name}», сохранена ${when(f.savedAt)}`;
+    if (!t) { out.push(`${head}: ${NO_MODEL}.`); return; }
+    if (t.status === "pending") { out.push(`${head}: расшифровка ещё идёт (модель ${t.model || "не названа"}, начата ${when(t.at)}).`); return; }
+    if (t.status !== "done") { out.push(`${head}: расшифровка не удалась — ${t.error || "причина не названа"}.`); return; }
+    const text = str(t.text);
+    if (left <= 0) { out.push(`${head}: расшифровка есть, но не поместилась в контекст (предел ${limit} знаков на записи).`); return; }
+    const shown = text.length > left ? `${text.slice(0, left)} […расшифровка обрезана: не поместилась в контекст]` : text;
+    left -= text.length;
+    out.push(`${head}, расшифровка (${t.model || "модель не названа"}):`);
+    out.push(`  «${shown}»`);
+  });
+  return out.join("\n");
+}
+
+/* ─────── чаты групп ─────── */
+
+/**
+ * Чаты, где человек состоит вместе с ботом. Сообщения — как сказаны, с
+ * временем и именем: помощнику отвечать «что решили в чате про X», а не
+ * пересказывать. Сколько не поместилось — числом.
+ */
+export function describeChats(chats = []) {
+  const out = ["## Чаты (группы, где состоите вы и бот)"];
+  if (!chats.length) {
+    out.push("Чатов нет: бот не состоит ни в одной группе вместе с вами, или сообщений при нём там ещё не было.");
+    return out.join("\n");
+  }
+  chats.forEach((c) => {
+    const title = c.title || `чат ${c.chatId}`;
+    const shown = c.dropped
+      ? ` (показаны последние ${c.messages.length} из ${c.total} сообщений)`
+      : ` (${c.total} сообщений)`;
+    out.push(`### «${title}»${shown}`);
+    c.messages.forEach((m) => {
+      out.push(`- ${when(m.at)} ${m.from?.name || "неизвестно"}${m.edited ? " (исправлено)" : ""}: ${str(m.text)}`);
+    });
+  });
   return out.join("\n");
 }
 
@@ -233,16 +298,20 @@ export function fit(text, limit = MAX_CONTEXT_CHARS) {
 /**
  * Контекст для одного вопроса одного человека. Всё — только своё; чего
  * у человека нет, названо словами, чтобы модель не додумывала.
+ *
+ * `isMember` — проверка членства в чате (по умолчанию Bot API,
+ * см. chatStore.js); подменяется в тестах, потому что Telegram там нет.
  */
-export async function contextFor(userId) {
+export async function contextFor(userId, { isMember } = {}) {
   const id = String(userId);
   // claim: false — вопрос помощнику не должен делать первого спросившего
   // владельцем модели.
   const me = await identify(id, {}, { claim: false });
   if (!me.known) throw new Error("Вас ещё не звали в модель");
 
-  const [model, org, files, meetings, memory] = await Promise.all([
+  const [model, org, files, meetings, memory, transcripts, chats] = await Promise.all([
     readModel(), readOrg(), listReports(id), listMeetings(id), listMemory(id),
+    listTranscripts(id), chatsFor(id, isMember ? { isMember } : {}),
   ]);
   const view = viewFor(model, me);
   const nameOf = namesOf(org);
@@ -258,7 +327,13 @@ export async function contextFor(userId) {
   // Файлы памяти лежат в том же хранилище, но показываются в своём разделе.
   parts.push(describeFiles(files.filter((f) => f.kind !== "memory")));
   parts.push(describeMeetings(meetings));
+  // Записи — те же файлы, что в listReports с kind «call» (и старые, без
+  // метки, — по виду файла, как на вкладке звонков).
+  parts.push(describeRecordings(await listReports(id, { kind: "call" }), transcripts));
   parts.push(describeMemory(memory));
+  // Чаты — последними: у них свой предел (20 000 знаков), и при общем
+  // обрезании контекста первыми режутся они, а не задачи человека.
+  parts.push(describeChats(chats));
 
   return fit(parts.join("\n\n"));
 }
