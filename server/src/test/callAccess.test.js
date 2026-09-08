@@ -173,6 +173,28 @@ describe("ссылка-приглашение", () => {
   });
 });
 
+/* Запись с id встречи может сохранить любой позванный, а текст разговора —
+   только у него (контекст помощника, по автору). Список встреч читают
+   создатель и владелец, и копия текста у встречи в него попадать не должна. */
+describe("текст чужой записи не уходит со встречей", () => {
+  it("GET и POST /api/calls отдают встречу без поля transcripts", async () => {
+    const m = await meetingByOwner();
+    expect(m).not.toHaveProperty("transcripts");
+    const { putTranscript, getMeeting } = await import("../lib/callStore.js");
+    await putTranscript({ fileId: "f1", by: "333", meetingId: m.id, status: "done", text: "SECRET TALK" });
+    // В хранилище копия есть — наружу через список не идёт.
+    expect((await getMeeting(m.id)).transcripts).toHaveLength(1);
+    const list = await request(app).get("/api/calls").set(as(OWNER, "Хозяин"));
+    expect(list.status).toBe(200);
+    expect(list.body.map((x) => x.id)).toContain(m.id);
+    expect(JSON.stringify(list.body)).not.toContain("SECRET TALK");
+    expect(list.body[0]).not.toHaveProperty("transcripts");
+    expect(list.body[0].link).toBeTruthy();
+    const room = await request(app).get(`/api/calls/${m.id}`).set(asGuest);
+    expect(JSON.stringify(room.body)).not.toContain("SECRET TALK");
+  });
+});
+
 describe("что гостю не разрешено", () => {
   it("список встреч гостю не отдаётся", async () => {
     await meetingByOwner();

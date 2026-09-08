@@ -174,6 +174,10 @@ describe("чем думает помощник", () => {
     const space = screen.getByLabelText("модель для: Вопрос в пространстве");
     expect([...space.options].map((o) => o.textContent)).toEqual([
       "— как по умолчанию", "Мой OpenAI / gpt-4.1", "Мой OpenAI / gpt-4o-mini", "Claude / claude-sonnet-4-5"]);
+    // У расшифровки отката на «по умолчанию» нет: пустая строка так и подписана.
+    const transcribe = screen.getByLabelText("модель для: Расшифровка записей звонков");
+    expect(transcribe.options[0].textContent).toBe("— не выбрана (расшифровки не будет)");
+    expect(chat.options[0].textContent).toBe("— не выбрана");
     fireEvent.change(space, { target: { value: "p_2|claude-sonnet-4-5" } });
     await waitFor(() => expect(screen.getByLabelText("модель для: Вопрос в пространстве")).toHaveValue("p_2|claude-sonnet-4-5"));
     const put = log.find((r) => r.method === "PUT" && r.url === "/api/assistant/tasks");

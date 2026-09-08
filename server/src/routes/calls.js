@@ -79,7 +79,13 @@ export const hasTurn = (env = process.env) =>
  * ссылку на мини-приложение — две разные ссылки на одну встречу.
  */
 const inviteLink = (id) => callLinkFor(callLinkEnv(process.env, process.env.BOT_NAME || ""), id);
-const withLink = (m) => ({ ...m, link: inviteLink(m.id) });
+/* `transcripts` у встречи — копия текста чужих записей: запись с этой
+   встречей может сохранить любой позванный (заголовок X-Report-Meeting),
+   а список встреч читают создатель и владелец. Текст разговора — только
+   у того, кто его записал (`listTranscripts` по автору, в контексте
+   помощника), и в ответ маршрута он не попадает. Доске встреч он и не
+   нужен: она рисует название, время и ссылку. */
+const withLink = ({ transcripts, ...m }) => ({ ...m, link: inviteLink(m.id) });
 
 router.get("/", member, async (req, res, next) => {
   try {

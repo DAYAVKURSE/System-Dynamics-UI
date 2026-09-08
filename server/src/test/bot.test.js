@@ -410,6 +410,49 @@ describe("сообщения из групп", () => {
   });
 });
 
+/* ─── кнопки под пересланным в группу сообщением ───
+   Telegram сохраняет инлайн-клавиатуру при пересылке и доставляет нажатие
+   исходному боту. Отвечать в группу нельзя ничем, а ход сдачи — личное
+   дело исполнителя: ответ только на само нажатие, в чат — ничего. */
+describe("кнопки из группы", () => {
+  const group = { id: -100123, type: "supergroup", title: "Команда" };
+  const worker = { id: 200, first_name: "Иван" };
+  let touched;
+  const work = {
+    take: async () => { touched.push("take"); return { task: { id: "tk1", title: "Макет" } }; },
+    defer: async () => { touched.push("defer"); return { task: { id: "tk1", title: "Макет" } }; },
+    taskFor: async () => ({ task: { id: "tk1", title: "Макет", status: "backlog" }, func: null, traits: [] }),
+  };
+  const assistant = { ask: () => { const p = new Promise(() => {}); p.id = "q1"; return p; }, cancel: () => true };
+  const pressInGroup = (from, data) => handleUpdate({ update_id: 9, callback_query: {
+    id: "cb9", from, data, message: { message_id: 7, chat: group, text: "Начинается: Макет" } } },
+  { ...deps, work, assistant, edit: async () => {} });
+  beforeEach(async () => {
+    touched = [];
+    const roles = (await org.listOrg()).roles;
+    await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+  });
+
+  it("«Начать», «Отложить» и кнопки помощника из группы: ответ на нажатие, в группу — ничего, задача не тронута",
+    async () => {
+      for (const data of ["task:start:tk1", "task:defer:tk1", "ai:refine:q1", "r:executor"]) {
+        expect(await pressInGroup(worker, data)).toEqual({ ignored: "group callback" });
+        expect(answered[answered.length - 1].text).toBe("Кнопки работают только в личном чате с ботом");
+      }
+      expect(await pressInGroup(owner, "task:start:tk1")).toEqual({ ignored: "group callback" });
+      expect(sent).toEqual([]);
+      expect(touched).toEqual([]);
+    });
+
+  it("та же кнопка в личном чате работает как прежде", async () => {
+    const r = await handleUpdate({ update_id: 9, callback_query: {
+      id: "cb9", from: worker, data: "task:start:tk1", message: { message_id: 7, chat: { id: 200, type: "private" } } } },
+    { ...deps, work, edit: async () => {} });
+    expect(r).toMatchObject({ task: "tk1", action: "take" });
+    expect(touched).toEqual(["take"]);
+  });
+});
+
 /* ─── кнопки под статусом помощника ───
    «✖ Отменить» и «✎ Уточнить» — у любого позванного, не только у
    владельца: вопрос задавал он. Чужой вопрос помощник не отменяет. */

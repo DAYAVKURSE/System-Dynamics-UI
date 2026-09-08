@@ -472,6 +472,33 @@ describe("«Начать» и сдача в чате", () => {
    Сдача занимает минуты, выкат случается посреди неё. Шаг, живший в
    памяти, после перезапуска исчезал молча: файл в ответ на «пришлите
    макет» уходил в память помощника, число часов — вопросом модели. */
+/* Второй рубеж после bot.js: даже если нажатие с пересланного в группу
+   сообщения дошло сюда, ответ уходит в личный чат нажавшего, а чужое
+   сообщение не правится. */
+describe("адресат ответа — личный чат нажавшего", () => {
+  const group = { id: -100123, type: "supergroup", title: "Команда" };
+
+  it("кнопка на сообщении в группе: экран уходит в личку новым сообщением, группа не получает ничего", async () => {
+    const r = await onTaskButton({ id: "cb", from: worker, data: "task:defer:tk1",
+      message: { message_id: 55, chat: group, text: NOTICE } }, worker, deps);
+    expect(r).toMatchObject({ task: "tk1", stage: "hour" });
+    expect(edited).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].chatId).toBe(worker.id);
+    expect(sent[0].text).toMatch(/на сколько часов/);
+    // И дальнейшие шаги — туда же.
+    await press("task:h:2");
+    await say("15");
+    shown.forEach((m) => expect(m.chatId).toBe(worker.id));
+  });
+
+  it("кнопка на своём сообщении в личке правится на месте, как прежде", async () => {
+    await press("task:defer:tk1");
+    expect(sent).toEqual([]);
+    expect(edited[0]).toMatchObject({ chatId: worker.id, messageId: 55 });
+  });
+});
+
 describe("шаг сдачи на диске", () => {
   const doc = { file_id: "F1", file_name: "макет.pdf", mime_type: "application/pdf" };
   const onDisk = async () => JSON.parse(await fs.readFile(stepsFile(), "utf8"));

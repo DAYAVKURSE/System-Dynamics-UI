@@ -257,9 +257,16 @@ export const kindsView = () => KINDS.map((k) => ({ ...k }));
  * Неизвестная задача считается «по умолчанию», а не ошибкой: новую
  * задачу проще завести, чем ловить опечатку в id.
  *
+ * `fallback: false` — только своя строка, без отката. Так спрашивает
+ * расшифровка: откат на модель чата отправлял бы десятки мегабайт записи
+ * туда, где расшифровывать не умеют (Anthropic) или не той моделью
+ * (gpt-4o-mini на /audio/transcriptions), и человек читал бы «провайдер
+ * ответил 400» вместо «модель не выбрана». Для ответа на вопрос откат
+ * уместен: любая модель чата ответит словами.
+ *
  * @returns {{kind, baseUrl, key, model, providerName} | null}
  */
-export function modelFor(userId, task) {
+export function modelFor(userId, task, { fallback = true } = {}) {
   const rec = readUserSettings(userId);
   const pick = (row) => {
     const p = row && rec.providers.find((x) => x.id === row.providerId);
@@ -267,9 +274,9 @@ export function modelFor(userId, task) {
       model: row.model, providerName: p.name } : null;
   };
   const own = TASK_IDS.includes(task) ? pick(rec.tasks[task]) : null;
-  if (own) return own;
-  const fallback = pick(rec.tasks.chat);
-  if (fallback) return fallback;
+  if (own || !fallback) return own;
+  const byChat = pick(rec.tasks.chat);
+  if (byChat) return byChat;
   const first = rec.providers.find((p) => p.key && p.models.length);
   return first ? pick({ providerId: first.id, model: first.models[0] }) : null;
 }

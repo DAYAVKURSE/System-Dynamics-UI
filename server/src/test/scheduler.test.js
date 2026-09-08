@@ -177,10 +177,51 @@ describe("отложенная задача", () => {
   });
 
   it("отметка об исходном уведомлении повторное не глушит", () => {
-    const first = dueNotifications(s(), at("2026-09-15T10:00"))[0];
+    // Исходное «Начинается» ушло в 10:00, ПОКА задача ещё не была отложена.
+    const first = dueNotifications({ tzOffset: MSK, tasks: [task()] }, at("2026-09-15T10:00"))
+      .find((d) => d.kind === "start");
     const later = dueNotifications(s(), at("2026-09-15T12:00"), { [first.key]: 1 });
     expect(later.map((d) => d.kind)).toEqual(["start"]);
     expect(later[0].key).not.toBe(first.key);
+  });
+
+  /* «Отложить» под предупреждением: «в назначенный час не начну, напомни
+     позже». Плановые warn/start раньше названного момента не шлются —
+     иначе в 10:00 приходило бы «Начинается» с кнопками, и откладывать
+     пришлось бы заново, вопреки обещанию «когда время выйдет, напомню». */
+  it("отложено с предупреждения — в плановый момент начала тишина, в «до» одно отложенное", () => {
+    // Предупреждение за 10 минут ушло в 9:50, человек нажал «Отложить на 2 часа 10 минут» → до 12:00.
+    const warned = dueNotifications({ tzOffset: MSK, tasks: [task()] }, at("2026-09-15T09:50"))[0];
+    expect(warned.kind).toBe("warn");
+    const sent = { [warned.key]: 1 };
+    expect(dueNotifications(s({ status: "backlog" }), at("2026-09-15T10:00"), sent)).toEqual([]);
+    expect(dueNotifications(s({ status: "backlog" }), at("2026-09-15T10:00") + 30000, sent)).toEqual([]);
+    const due = dueNotifications(s({ status: "backlog" }), at("2026-09-15T12:00"), sent);
+    expect(due).toHaveLength(1);
+    expect(due[0]).toMatchObject({ kind: "start", deferred: true });
+  });
+
+  it("отложено ещё до предупреждения — молчат и предупреждение, и начало", () => {
+    // Отложили с вечера накануне: до 12:00; в 9:50 и 10:00 — ничего.
+    expect(dueNotifications(s(), at("2026-09-15T09:50"))).toEqual([]);
+    expect(dueNotifications(s(), at("2026-09-15T10:00"))).toEqual([]);
+    expect(dueNotifications(s(), at("2026-09-15T12:00")).map((d) => d.deferred)).toEqual([true]);
+  });
+
+  it("плановое ПОСЛЕ «до» не глушится: отложили на пять минут, а начало через десять", () => {
+    const soon = new Date(at("2026-09-15T09:55")).toISOString();
+    const [deferred] = dueNotifications(s({ deferredUntil: soon }), at("2026-09-15T09:55"));
+    expect(deferred.deferred).toBe(true);
+    const due = dueNotifications(s({ deferredUntil: soon }), at("2026-09-15T10:00"), { [deferred.key]: 1 });
+    expect(due.map((d) => [d.kind, d.deferred])).toEqual([["start", false]]);
+  });
+
+  it("взятая задача со старым «до» напоминает по плану: отложение её больше не касается", () => {
+    // status progress: плановое начало «взятой» и так не шлётся? Нет —
+    // планировщик глушит только done; проверяем, что фильтр отложения
+    // действует лишь на лежащие (DEFERRABLE), а не на все подряд.
+    const due = dueNotifications(s({ status: "progress" }), at("2026-09-15T10:00"));
+    expect(due.map((d) => [d.kind, d.deferred])).toEqual([["start", false]]);
   });
 
   it("предупреждения «за 10 минут» у отложенного нет: момент назвал сам человек", () => {

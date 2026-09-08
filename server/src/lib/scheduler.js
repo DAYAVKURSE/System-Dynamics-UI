@@ -97,6 +97,14 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
   for (const task of Array.isArray(tasks) ? tasks : []) {
     // Завершённые не напоминают о себе.
     if (task.status === "done") continue;
+    /* «Отложить» под предупреждением значит «в назначенный час не начну,
+       напомни позже»: плановые «через N минут» и «начинается», лежащие
+       РАНЬШЕ названного момента, не шлются — иначе в назначенный час
+       приходило бы «Начинается» с кнопками, и откладывать пришлось бы
+       заново. Действует, пока задача лежит (DEFERRABLE): взятую отложение
+       уже не касается, и `deferredUntil` у неё снимается при взятии. */
+    const until = task.deferredUntil ? Date.parse(task.deferredUntil) : NaN;
+    const deferredNow = Number.isFinite(until) && DEFERRABLE.includes(task.status);
 
     for (const occ of occurrencesNear(task, nowMs, tzOffset)) {
       // Отложенное напоминает о себе, только пока лежит: взятую или сданную
@@ -114,6 +122,7 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
       for (const m of moments) {
         if (m.at > nowMs) continue;
         if (nowMs - m.at >= FIRE_WINDOW_MS) continue;
+        if (!occ.deferred && deferredNow && m.at < until) continue;
         const key = `${task.id}:${occ.key}:${m.kind}`;
         if (sent[key]) continue;
         out.push({

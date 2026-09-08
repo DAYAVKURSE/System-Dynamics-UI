@@ -5,7 +5,7 @@ import path from "node:path";
 import {
   CHAT_CONTEXT_CHARS, chatsFor, describeMessage, listChatIds, readChat, recordGroupMessage,
 } from "../lib/chatStore.js";
-import { getChatMember } from "../lib/telegram.js";
+import { CHAT_MEMBER_TIMEOUT_MS, getChatMember } from "../lib/telegram.js";
 
 /* ═══════════════════════════════════════════════════════════════
    СООБЩЕНИЯ ГРУПП
@@ -192,6 +192,20 @@ describe("telegram.getChatMember", () => {
     await getChatMember(-1001, "200");
     expect(spy.mock.calls[0][0]).toContain("/bottest-token/getChatMember");
     expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({ chat_id: -1001, user_id: 200 });
+  });
+
+  /* Очередь вопросов одна на всех, и на каждом вопросе — этот запрос по
+     каждому чату: молчащий Telegram без предела держал бы её минуты. */
+  it("молчащий Telegram — «нет» через предел ожидания, а не вечное «собираю данные»", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => new Promise((_, reject) => {
+      opts.signal.addEventListener("abort", () => reject(opts.signal.reason));
+    }));
+    const started = Date.now();
+    expect(await getChatMember(-1001, "200", "test-token", 30)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(spy.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    // По умолчанию — пять секунд: столько ждёт и человек под статусом «собираю данные».
+    expect(CHAT_MEMBER_TIMEOUT_MS).toBe(5000);
   });
 
   it("ошибка Telegram или сети — «нет», а не исключение", async () => {

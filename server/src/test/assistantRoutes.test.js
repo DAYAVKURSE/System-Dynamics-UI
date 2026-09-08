@@ -161,6 +161,54 @@ describe("настройки", () => {
   });
 });
 
+/* Выбор модели расшифровки — не только на будущее: записи без текста
+   (модели не было, не удалось) расшифровываются ей в фоне сразу. Раньше
+   они оставались без текста навсегда: расшифровка звалась только при
+   сохранении записи. */
+describe("выбор модели расшифровки дорасшифровывает записи без текста", () => {
+  const settled = async (fileId, want) => {
+    const { transcriptFor } = await import("../lib/callStore.js");
+    for (let i = 0; i < 50; i += 1) {
+      const t = await transcriptFor(fileId);
+      if (t && t.status === want) return t;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return transcriptFor(fileId);
+  };
+
+  it("PUT /tasks со строкой transcribe → запись без текста расшифрована этой моделью", async () => {
+    const { saveReport } = await import("../lib/reportStore.js");
+    const { putTranscript, transcriptFor } = await import("../lib/callStore.js");
+    const none = await saveReport("200", { name: "звонок-1.webm", type: "video/webm", kind: "call", bytes: Buffer.from("раз") });
+    const failed = await saveReport("200", { name: "звонок-2.webm", type: "video/webm", kind: "call", bytes: Buffer.from("два") });
+    await putTranscript({ fileId: failed.id, by: "200", status: "error", error: "провайдер ответил 400" });
+    const sent = [];
+    globalThis.fetch = async (url, opts) => {
+      sent.push({ url, model: opts.body.get("model") });
+      return { ok: true, status: 200, text: async () => `текст ${await opts.body.get("file").text()}` };
+    };
+    const { body: p } = await addProvider(200, { name: "Groq", baseUrl: "https://api.groq.com/openai/v1" });
+    await request(app).put(`/api/assistant/providers/${p.id}`).set(as(200)).send({ models: ["whisper-large-v3-turbo"] });
+    // Строка чата модели не даёт: расшифровка идёт только своей строкой.
+    await request(app).put("/api/assistant/tasks").set(as(200)).send({ chat: { providerId: p.id, model: "whisper-large-v3-turbo" } });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(sent).toEqual([]);
+    expect(await transcriptFor(none.id)).toBeNull();
+
+    const res = await request(app).put("/api/assistant/tasks").set(as(200))
+      .send({ transcribe: { providerId: p.id, model: "whisper-large-v3-turbo" } });
+    expect(res.status).toBe(200);
+    expect(res.body.transcribe).toEqual({ providerId: p.id, model: "whisper-large-v3-turbo" });
+    expect(await settled(none.id, "done")).toMatchObject({ text: "текст раз", model: "Groq / whisper-large-v3-turbo" });
+    expect(await settled(failed.id, "done")).toMatchObject({ text: "текст два" });
+    expect(sent.map((c) => c.url)).toEqual(Array(2).fill("https://api.groq.com/openai/v1/audio/transcriptions"));
+    // Снять строку — ничего не запускается.
+    await request(app).put("/api/assistant/tasks").set(as(200)).send({ transcribe: null });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(sent).toHaveLength(2);
+  });
+});
+
 describe("вопрос в два шага", () => {
   const poll = async (id, who) => {
     for (let i = 0; i < 50; i += 1) {

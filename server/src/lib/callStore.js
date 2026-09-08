@@ -183,6 +183,14 @@ export async function transcriptFor(fileId) {
   return (await readTranscripts()).find((t) => t.fileId === String(fileId)) || null;
 }
 
+/** Расшифровки в состоянии «идёт» — всех людей. Нужно одному месту:
+ *  восстановлению при старте сервера (lib/transcribe.js). Перезапуск
+ *  посреди расшифровки оставлял запись в «идёт» навсегда: done/error
+ *  пишет только тот вызов, который её начал, а его больше нет. */
+export async function listPendingTranscripts() {
+  return (await readTranscripts()).filter((t) => t.status === "pending");
+}
+
 /** Расшифровки одного человека — новые первыми. */
 export async function listTranscripts(by) {
   return (await readTranscripts())

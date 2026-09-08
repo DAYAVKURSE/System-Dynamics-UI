@@ -224,13 +224,23 @@ export async function sendDocument(chatId, { blob, bytes, name, type, caption = 
  * Ошибкой не бросается нарочно: одна недоступная группа не должна
  * ронять весь контекст.
  */
-export async function getChatMember(chatId, userId, token = process.env.TELEGRAM_BOT_TOKEN) {
+/* Сколько ждать ответа про членство. Спрашивается на КАЖДЫЙ вопрос
+   помощнику, по каждому чату, а очередь вопросов одна на всех: без предела
+   молчащий Telegram (принял соединение и не отвечает — так ведёт себя
+   перегруженный api.telegram.org или прокси) держал бы её до 5 минут,
+   пока undici не сдастся сам, и все, кто спросил после, ждали бы тоже.
+   Не ответил за 5 с — «не состоит»: лишний чат хуже недостающего. */
+export const CHAT_MEMBER_TIMEOUT_MS = 5000;
+
+export async function getChatMember(chatId, userId, token = process.env.TELEGRAM_BOT_TOKEN,
+  timeoutMs = CHAT_MEMBER_TIMEOUT_MS) {
   if (!token) return false;
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/getChatMember`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, user_id: Number(userId) || userId }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) return false;

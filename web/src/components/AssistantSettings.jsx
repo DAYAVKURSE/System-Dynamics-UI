@@ -289,6 +289,9 @@ function TaskTable({ taskList, tasks, providers, busy, onPick }) {
       <div style={{ ...hint, margin: "4px 0 6px" }}>
         Какая модель на что отвечает. Пустая строка значит «как помощник по умолчанию»;
         пустой «помощник по умолчанию» — первый провайдер и первая модель из его списка.
+        Исключение — расшифровка записей: без своей строки она не запускается вовсе
+        (модель чата записи не расшифровывает), а после выбора модели записи без текста
+        расшифруются сами.
       </div>
       {options.length === 0 && (
         <div style={{ ...hint, marginBottom: 6 }}>Выбирать пока не из чего: добавьте провайдеру хотя бы одну модель.</div>)}
@@ -298,7 +301,10 @@ function TaskTable({ taskList, tasks, providers, busy, onPick }) {
           <select aria-label={`модель для: ${t.name}`} style={{ ...S.inp, width: "auto", flex: 1.4, minWidth: 150 }}
             disabled={busy || options.length === 0}
             value={rowValue(tasks[t.id])} onChange={(e) => onPick(t.id, rowFrom(e.target.value))}>
-            <option value="">{t.id === "chat" ? "— не выбрана" : "— как по умолчанию"}</option>
+            {/* У расшифровки отката на «по умолчанию» нет (lib/transcribe.js):
+                подпись обязана говорить, что будет на самом деле — ничего. */}
+            <option value="">{t.id === "chat" ? "— не выбрана"
+              : t.id === "transcribe" ? "— не выбрана (расшифровки не будет)" : "— как по умолчанию"}</option>
             {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>))}

@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  onAssistantButton, onAssistantMessage, resetAssistantState, splitMessage, stageText,
+  KEEP_DONE_MS, REFINE_PROMPT, onAssistantButton, onAssistantMessage, resetAssistantState, splitMessage,
+  stageText,
 } from "../lib/botAssistant.js";
 import { NOT_CONFIGURED } from "../lib/assistantSettings.js";
 import { CANCELLED_ERROR, createQueue } from "../lib/assistantQueue.js";
@@ -291,6 +292,39 @@ describe("статус и кнопки под ним", () => {
     expect(sent[sent.length - 1].text).toBe("тоже ок");
   });
 
+  /* Статус «Думаю…» не ушёл (429, сеть моргнула) — вопрос уже в очереди,
+     и ответ обязан дойти отдельным сообщением, а запись о вопросе — закрыться. */
+  it("статус не отправился — ответ всё равно приходит, запись о вопросе закрывается", async () => {
+    const d = live();
+    const logged = [];
+    d.log = (m) => logged.push(m);
+    let first = true;
+    d.send = async (chatId, text, keyboard) => {
+      if (first) { first = false; throw new Error("Too Many Requests: retry after 5"); }
+      sent.push({ chatId, text, keyboard });
+      return { message_id: sent.length };
+    };
+    const r = await onAssistantMessage({ text: "что у меня?" }, from, d);
+    expect(r.answered).toBe("queued");
+    expect(logged[0]).toMatch(/статус «Думаю…» не отправлен: Too Many Requests/);
+    await settle();
+    release("Задач нет.");
+    expect(await r.done).toEqual({ answered: true, parts: 1, id: r.id });
+    expect(sent.map((m) => m.text)).toEqual(["Задач нет."]);
+    // Статус без номера сообщения не правится — и не падает.
+    expect(edits).toEqual([]);
+    // Вопрос завершён: «Отменить» под ним — «отменять нечего», а не «Отменил».
+    expect(await press(`ai:cancel:${r.id}`)).toEqual({ ignored: "done" });
+  });
+
+  it("ответы — в личный чат нажавшего, а не в чат сообщения с кнопкой", async () => {
+    const r = await onAssistantMessage({ text: "?", chat: { id: -100123, type: "supergroup" } }, from, live());
+    expect(sent[0].chatId).toBe(from.id);
+    await onAssistantButton({ id: "cb1", data: `ai:refine:${r.id}`, from,
+      message: { message_id: 1, chat: { id: -100123, type: "supergroup" } } }, from, live());
+    expect(sent[sent.length - 1]).toMatchObject({ chatId: from.id, text: REFINE_PROMPT });
+  });
+
   it("тексты стадий — словами, «model» называет провайдера и модель", () => {
     expect(stageText("context")).toBe("Собираю ваши данные…");
     expect(stageText("model", { providerName: "Groq", model: "llama-3" })).toBe("Спрашиваю Groq / llama-3…");
@@ -300,5 +334,65 @@ describe("статус и кнопки под ним", () => {
 
   it("слово отмены у очереди и у бота одно", () => {
     expect(CANCELLED_ERROR).toBe("Отменено");
+  });
+});
+
+/* ─── «Уточнить» истекает ───
+   Раньше «жду уточнение» жило до следующего текста без срока: нажатое
+   утром «Уточнить» молча склеивало вечерний вопрос с утренним, а если
+   утренний уже был забыт — вечерний текст выбрасывался с «задайте заново». */
+describe("«Уточнить» — срок ожидания", () => {
+  let queue, calls, release;
+  const MODEL = { kind: "openai", key: "sk-test-0123456789", model: "gpt-4o-mini", providerName: "OpenAI" };
+  const complete = (p) => new Promise((resolve) => { calls.push(p); release = resolve; });
+  const live = () => ({
+    assistant: { ask: queue.askNow, cancel: queue.cancel, memory },
+    send: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); return { message_id: sent.length }; },
+    edit: async () => {},
+    answer: async () => {},
+  });
+  const refine = (id) => onAssistantButton(
+    { id: "cb1", data: `ai:refine:${id}`, from, message: { message_id: 1, chat: { id: from.id } } }, from, live());
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const tick = (ms) => vi.setSystemTime(Date.now() + ms);
+
+  beforeEach(() => {
+    calls = [];
+    queue = createQueue({ complete, modelFor: () => MODEL, contextFor: async () => "ctx", log: () => {} });
+    vi.useFakeTimers({ toFake: ["Date"] });
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("дополнение через минуту — уточнение; через десять с лишним — обычный новый вопрос", async () => {
+    const r = await onAssistantMessage({ text: "что по заявкам?" }, from, live());
+    await settle();
+    release("ок");
+    await r.done;
+    await refine(r.id);
+    tick(KEEP_DONE_MS + 1000);
+    const r2 = await onAssistantMessage({ text: "какие у меня задачи на завтра?" }, from, live());
+    await settle();
+    expect(r2.refined).toBeUndefined();
+    expect(r2.answered).toBe("queued");
+    expect(calls[1].messages[0].content).toBe("какие у меня задачи на завтра?");
+    expect(sent.map((m) => m.text)).not.toContain("Тот вопрос уже не помню — задаю ваш текст как новый вопрос.");
+  });
+
+  it("вопрос уже забыт, а «Уточнить» ещё нет — текст задаётся новым вопросом, а не выбрасывается", async () => {
+    const r = await onAssistantMessage({ text: "что по заявкам?" }, from, live());
+    await settle();
+    release("ок");
+    await r.done;
+    // Нажали «Уточнить» за минуту до того, как вопрос забылся, а дополнение прислали после.
+    tick(KEEP_DONE_MS - 60000);
+    await refine(r.id);
+    tick(120000);
+    const r2 = await onAssistantMessage({ text: "за сентябрь" }, from, live());
+    await settle();
+    expect(r2).toMatchObject({ answered: "queued", stale: true });
+    expect(sent.map((m) => m.text)).toContain("Тот вопрос уже не помню — задаю ваш текст как новый вопрос.");
+    expect(calls[1].messages[0].content).toBe("за сентябрь");
+    release("вот");
+    expect(await r2.done).toMatchObject({ answered: true });
   });
 });
