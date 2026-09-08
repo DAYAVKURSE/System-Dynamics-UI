@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
-import { STATUSES, TaskSetup, canSeeComment, funcLabel, whyNotSet } from "./TasksBoard.jsx";
+import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, whyNotSet }
+  from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { reportSrc } from "../storage.js";
 
@@ -22,8 +23,11 @@ import { reportSrc } from "../storage.js";
    работу, — поэтому «принял молча» здесь не бывает.
 
    Оценка при этом публикуется БЕЗ ИМЕНИ и не сразу: только когда по ней
-   нельзя вычислить, кто её поставил (сервер, `lib/ratings.js`). Слова к
-   решению можно сделать скрытыми — их увидит только исполнитель.
+   нельзя вычислить, кто её поставил (сервер, `lib/ratings.js`). Решение
+   можно сделать скрытым — переключатель один на отметку и слова: скрытую
+   отметку видит только проверяющий (в средние она входит), скрытые слова —
+   он и исполнитель. Публично — по умолчанию: приём — это ответ о работе,
+   и прятать его — решение, а не привычка.
 
    Оценку постановки из сдачи проверяющему НЕ показывают: она про
    постановщика и доходит до него по тем же правилам публикации, а не
@@ -133,16 +137,11 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                   aria-label="комментарий к оценке"
                   onChange={(e) => setNote(e.target.value)}
                   style={{ ...S.inp, marginBottom: 6 }} />
-                {/* Скрытые слова видит только исполнитель — тот, кому они
-                    адресованы. Оценка от этого не прячется: она и так
-                    публикуется без имени и по общим правилам. */}
-                <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
-                  <button style={{ ...btn(hidden, hidden ? WARN : null), fontSize: 11 }}
-                    onClick={() => setHidden(true)}>
-                    скрытый (видит только исполнитель)</button>
-                  <button style={{ ...btn(!hidden, !hidden ? ACC : null), fontSize: 11 }}
-                    onClick={() => setHidden(false)}>
-                    публичный (видят все)</button>
+                {/* Один переключатель на отметку и слова: скрытую отметку
+                    видит только автор (в средние она входит), скрытые слова
+                    — автор и исполнитель, которому они адресованы. */}
+                <div style={{ marginBottom: 6 }}>
+                  <HiddenSwitch hidden={hidden} onChange={setHidden} whoElse="исполнитель" />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button style={btn(true, OK)}
@@ -191,8 +190,8 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
-  // Скрыты ли слова к решению. Публичные по умолчанию: приём — это ответ
-  // о работе, и прятать его — решение, а не привычка.
+  // Скрыто ли решение — отметка и слова разом. Публично по умолчанию:
+  // приём — это ответ о работе, и прятать его — решение, а не привычка.
   const [hidden, setHidden] = useState(false);
   const [setupId, setSetupId] = useState(null);
 

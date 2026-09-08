@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-/* Файл отчёта уезжает на диск сервера, а в сценарий попадает ссылка.
-   Без сервера — обратно в data:-URL внутри сценария. */
+/* Вещь, вышедшая из работы, уезжает на диск сервера, а в сценарий попадает
+   ссылка. Без сервера — обратно в data:-URL внутри сценария. Файла
+   «отчёт вообще» у сдачи больше нет: отчёт — словами, файлы — по ресурсам
+   (`submissions[].files[trait]`). */
 
 const file = (name = "снимок.png", type = "image/png", size = 12) => {
   const f = new File([new Uint8Array(size)], name, { type });
@@ -80,18 +82,23 @@ const dump = () => {
   fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);
 };
-/* Полей файла в форме сдачи теперь несколько: у каждого выданного ресурса
-   своё (это сам результат), и отдельное — отчёт о работе. Поэтому поле
-   называется по имени, а не берётся первым попавшимся. */
+/* Полей файла в форме сдачи — по одному на каждый выданный ресурс (это
+   сам результат), поэтому поле называется по имени, а не берётся первым
+   попавшимся. */
 const attachTo = async (label, f) => {
   const input = screen.getByLabelText(label);
   Object.defineProperty(input, "files", { value: [f], configurable: true });
   fireEvent.change(input);
 };
-const attach = (f) => attachTo("отчёт о работе файлом", f);
 /* Результат работы: без него задача не сдаётся — «заявки» функция обещала
    выдать (минимум в вилке 1). */
 const attachResult = (f) => attachTo("результат: заявки", f);
+/* Отчёт — словами, и без него «Сдать» не появляется. */
+const writeReport = () => {
+  const el = screen.getByLabelText("отчёт о работе");
+  fireEvent.change(el, { target: { value: "собрал заявки" } });
+  fireEvent.blur(el);
+};
 
 describe("файл отчёта — на диске, ссылка в сценарии", () => {
   it("с сервером файл уходит на бэкенд, а в задаче остаётся ссылка", async () => {
@@ -99,7 +106,6 @@ describe("файл отчёта — на диске, ссылка в сцена�
     ({ container } = await fresh());
     openSubmit();
     await attachResult(file("заявка.png"));
-    await attach(file());
 
     await waitFor(() => expect(screen.getAllByText(/📎/).length).toBeGreaterThan(0));
     const upload = calls.find((c) => c.url.includes("/api/reports"));
@@ -110,10 +116,13 @@ describe("файл отчёта — на диске, ссылка в сцена�
     // Тело — сам файл, а не base64-строка: диску незачем лишняя треть.
     expect(upload.opts.body).toBeInstanceOf(File);
 
+    writeReport();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
-    const saved = dump().tasks[0].submissions[0].file;
-    expect(saved.url).toMatch(/^\/api\/reports\//);
-    expect(saved.data).toBeUndefined();     // никакого data:-URL в сценарии
+    const sub = dump().tasks[0].submissions[0];
+    expect(sub.files.t2.url).toMatch(/^\/api\/reports\//);
+    expect(sub.files.t2.data).toBeUndefined();     // никакого data:-URL в сценарии
+    expect(sub.text).toBe("собрал заявки");
+    expect(sub.file).toBeNull();                   // файла «отчёт вообще» нет
   });
 
   it("без сервера файл ложится в сценарий инлайном — отчёт не теряется",
@@ -122,11 +131,11 @@ describe("файл отчёта — на диске, ссылка в сцена�
       ({ container } = await fresh());
       openSubmit();
       await attachResult(file("заявка.png"));
-      await attach(file());
 
       await waitFor(() => expect(screen.getAllByText(/📎/).length).toBeGreaterThan(0));
+      writeReport();
       fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
-      const saved = dump().tasks[0].submissions[0].file;
+      const saved = dump().tasks[0].submissions[0].files.t2;
       expect(saved.data).toMatch(/^data:/);
       expect(saved.url).toBeUndefined();
     });
@@ -141,15 +150,17 @@ describe("файл отчёта — на диске, ссылка в сцена�
     });
     ({ container } = await fresh());
     openSubmit();
-    await attach(file());
+    writeReport();
+    await attachResult(file("заявка.png"));
 
     await waitFor(() => expect(screen.getAllByText(/не удалось загрузить файл/).length)
       .toBeGreaterThan(0));
     /* Отказ не проглатывается молча — и сдача не проходит: функция обещала
        выдать «заявки», а результата нет. Сказано словами, а не пустой
-       кнопкой. */
+       кнопкой: «Сдать» в форме не появляется, единственная — на карточке. */
     expect(screen.getByText(/Задача не выполнена, пока не приложено/))
       .toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     expect(dump().tasks[0].submissions.length).toBe(0);
   });
@@ -160,7 +171,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
     openSubmit();
     const big = file("огромный.bin", "application/octet-stream", 1);
     Object.defineProperty(big, "size", { value: MAX_UPLOAD_REPORT_BYTES + 1 });
-    await attach(big);
+    await attachResult(big);
 
     await waitFor(() => expect(screen.getByText(/не поместится/)).toBeTruthy());
     expect(calls.some((c) => c.url.includes("/api/reports"))).toBe(false);

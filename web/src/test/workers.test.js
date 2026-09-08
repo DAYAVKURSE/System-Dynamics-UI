@@ -237,6 +237,53 @@ describe("что видно смотрящему", () => {
     expect(rowOf(visibleStats(none, "p1", "p9"), "h").comment).toBe("лично");
   });
 
+  /* Скрытость одна на отметку и слова: чужая скрытая строка постороннему
+     не показывается вовсе, а в средние скрытая отметка входит. */
+  describe("скрытая отметка", () => {
+    const hidden = T("h", { reviews: [{ accept: true, mark: 3, comment: "лично", hidden: true, by: "p9" }] });
+    const open = T("o", { reviews: [{ accept: true, mark: 5, comment: "всем", by: "p9" }] });
+    const m = { tasks: [hidden, open], funcs: FUNCS, ...PUB("h", "o") };
+    const rowOf = (s, id) => s.rows.find((r) => r.task === id);
+
+    it("постороннему — ни отметки, ни слов, ни признака «скрыто»; работа на месте", () => {
+      const s = visibleStats(m, "p1", "p5");
+      expect(rowOf(s, "h")).toMatchObject({ mark: null, comment: "", hidden: false,
+        pending: false, published: false, done: true, hours: 4 });
+      // Публичная соседка — как была.
+      expect(rowOf(s, "o")).toMatchObject({ mark: 5, comment: "всем" });
+    });
+
+    it("в средней постороннего скрытая отметка есть: (3 + 5) / 2", () => {
+      const s = visibleStats(m, "p1", "p5");
+      expect(s.mark).toBe(4);
+      expect(s.marks).toBe(2);
+    });
+
+    it("автору — своя скрытая строка целиком", () => {
+      expect(rowOf(visibleStats(m, "p1", "p9"), "h"))
+        .toMatchObject({ mark: 3, comment: "лично", hidden: true });
+    });
+
+    it("себе — слова видны (их для него и писали), отметка — нет, как и всегда", () => {
+      expect(rowOf(visibleStats(m, "p1", "p1"), "h"))
+        .toMatchObject({ mark: null, comment: "лично", hidden: true });
+    });
+
+    it("владелец — такой же посторонний: чужую скрытую отметку не видит", () => {
+      expect(rowOf(visibleStats(m, "p1", "owner"), "h").mark).toBeNull();
+    });
+
+    it("historyOf с viewer режет так же; без viewer — строки как есть (для средних)", () => {
+      const cut = historyOf(m.tasks, FUNCS, "p1", { published: m.published, viewer: "p5" });
+      expect(cut.find((r) => r.task === "h")).toMatchObject({ mark: null, comment: "", hidden: false });
+      const raw = historyOf(m.tasks, FUNCS, "p1", { published: m.published });
+      expect(raw.find((r) => r.task === "h")).toMatchObject({ mark: 3, comment: "лично", hidden: true });
+      // Автор и через historyOf видит своё.
+      expect(historyOf(m.tasks, FUNCS, "p1", { published: m.published, viewer: "p9" })
+        .find((r) => r.task === "h").mark).toBe(3);
+    });
+  });
+
   it("commentsFor: адресованные мне и чужие публичные — без автора", () => {
     const hidden = T("h", { reviews: [{ accept: true, mark: 4, comment: "лично", hidden: true, by: "p9" }] });
     const open = T("o", { reviews: [{ accept: true, mark: 4, comment: "всем", by: "p9" }] });

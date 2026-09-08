@@ -45,6 +45,12 @@ const attachResult = async (label, name = "результат.txt") => {
   fireEvent.change(input);
   await waitFor(() => expect(screen.getByText(new RegExp(name))).toBeTruthy());
 };
+/* Отчёт — словами: без него «Сдать» не появляется (v1.2). */
+const writeReport = (text = "готово") => {
+  const el = screen.getByLabelText("отчёт о работе");
+  fireEvent.change(el, { target: { value: text } });
+  fireEvent.blur(el);
+};
 
 describe("кто с кем совпал", () => {
   it("совпадение считается только когда назначены оба", () => {
@@ -151,6 +157,7 @@ describe("на доске", () => {
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
     await attachResult("результат: заявки");
+    writeReport();
     // Их две: одна в форме сдачи, другая на карточке в колонке.
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     closeEditor();
@@ -162,6 +169,7 @@ describe("на доске", () => {
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
     await attachResult("результат: заявки");
+    writeReport();
     // Их две: одна в форме сдачи, другая на карточке в колонке.
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     closeEditor();

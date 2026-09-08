@@ -363,8 +363,10 @@ export const newSubmission=({hours=0,takes={},gives={},took={},files={},
     /* Оценка постановки — часть сдачи: исполнитель говорит, как ему
        поставили задачу. Отметка необязательна, слова необязательны; пусто
        и там и там — оценки нет (`null`, а не нули). Публикуется она без
-       имени и по общим правилам (сервер, `lib/ratings.js`); «скрытый» —
-       про слова: их увидит только постановщик. */
+       имени и по общим правилам (сервер, `lib/ratings.js`). `hidden` —
+       одна скрытость на отметку и слова: скрытую отметку видит только
+       автор (в средние она входит), скрытые слова — автор и постановщик.
+       Умолчание — публично. */
     setterRating:setterRating&&(setterRating.mark!=null
       ||String(setterRating.comment||"").trim())
       ?{mark:setterRating.mark??null,
@@ -678,8 +680,52 @@ export const newComment=({text,to=null,hidden=false},by)=>({
 
    Сдача записывает, что вышло на самом деле: сколько часов ушло и сколько
    каждого ресурса взяли и выдали. Из принятых сдач считается среднее
-   арифметическое — оно и уточняет прогноз. */
-const NO_RATING={mark:null,comment:"",hidden:true};
+   арифметическое — оно и уточняет прогноз.
+
+   ─── как устроена форма сдачи ───
+
+   Сверху — отчёт словами. Ниже — часы и числа по ресурсам. Потом вещи: по
+   каждому выходу функции — кнопка «Загрузить <ресурс>»; обязательные (низ
+   вилки больше нуля) без файла сдачу не пускают, необязательные — нет.
+   Кнопки «Загрузить отчёт» нет: отчёт — это слова, а файлы — это вещи, и
+   файл «вообще» ложился бы мимо ресурса, к которому относится.
+
+   Когда отчёт написан и обязательные вещи приложены, на месте кнопок
+   загрузки появляется оценка постановки (1–5, слова, один переключатель
+   «скрыто/публично» на отметку и слова) и «Сдать». Пока не готово, сказано
+   словами, чего не хватает, — молчаливо неактивная кнопка хуже всего. */
+
+/* Пустая оценка постановки. Публично по умолчанию: оценка — ответ о
+   работе, и прятать его — решение, а не привычка; скрытость человек
+   выбирает осознанно. */
+const NO_RATING={mark:null,comment:"",hidden:false};
+
+/**
+ * Один переключатель на отметку и слова: «скрыто» или «публично».
+ *
+ * Скрытость одна на обоих: скрытую отметку видит только автор (в средние
+ * она входит), скрытые слова — автор и адресат. Два переключателя — на
+ * отметку свой, на слова свой — значили бы, что можно спрятать отметку и
+ * оставить слова, а по словам отметка угадывается. `whoElse` — кто, кроме
+ * автора, увидит скрытые слова: постановщик или исполнитель.
+ */
+export function HiddenSwitch({hidden,onChange,whoElse}){
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+        <span style={{fontSize:11,color:C.muted}}>отметка и слова:</span>
+        <button style={{...btn(hidden,hidden?WARN:null),fontSize:11}}
+          aria-pressed={hidden} onClick={()=>onChange(true)}>скрыто</button>
+        <button style={{...btn(!hidden,!hidden?ACC:null),fontSize:11}}
+          aria-pressed={!hidden} onClick={()=>onChange(false)}>публично</button>
+      </div>
+      <div style={{fontSize:10,color:C.muted,marginTop:4,lineHeight:1.5}}>
+        {hidden
+          ?`Скрыто: отметку видите только вы (в средние она входит), слова — вы и ${whoElse}.`
+          :"Публично: после публикации видят все — без вашего имени."}
+      </div>
+    </div>);
+}
 
 export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
   onClose,nameOf,meId,isOwner=true,onComment,onDropComment,onSubmit}){
@@ -687,24 +733,22 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
   const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
   const [draftText,setDraftText]=useState("");
-  const [draftFile,setDraftFile]=useState(null);
   /* Оценка постановки — как исполнителю поставили задачу. Отдельно от
-     отчёта: отчёт про работу, это — про постановщика. Скрытый по
-     умолчанию: сказать лично проще, чем на всех, а публичным человек
-     делает слова осознанно. */
+     отчёта: отчёт про работу, это — про постановщика. */
   const [rating,setRating]=useState(NO_RATING);
-  const [fileErr,setFileErr]=useState("");
-  const [fileBusy,setFileBusy]=useState(false);
   const [hours,setHours]=useState(0);
   const [qty,setQty]=useState({takes:{},gives:{}});
   const [took,setTook]=useState({});
   /* Вещи, которые вышли из работы: по одной на каждый выданный ресурс.
-     Отдельно от `draftFile` нарочно — тот отчёт О РАБОТЕ, а это сами
-     результаты, на которые потом ссылаются разделы отчёта и по которым их
-     скачивают. */
+     Это сами результаты, на которые потом ссылаются разделы отчёта и по
+     которым их скачивают. */
   const [giveFiles,setGiveFiles]=useState({});
   const [giveBusy,setGiveBusy]=useState("");
   const [giveErr,setGiveErr]=useState({});
+  /* Человек уже написал отчёт и приложил обязательное, но хочет вернуться
+     к вещам — заменить или приложить необязательную. Кнопки загрузки тогда
+     показываются снова на месте оценки. */
+  const [moreThings,setMoreThings]=useState(false);
 
   const func=funcs.find(f=>f.id===task.funcId)||null;
   const subs=task.submissions||[];
@@ -717,15 +761,9 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
   unitsOf({tasks:tasks.length?tasks:[task],funcs}).forEach(u=>{unitNo[u.id]=u.no;});
   const tasksAll=tasks.length?tasks:[task];
 
-  const pickFile=async(f)=>{
-    setFileErr("");
-    if(!f) return;
-    // Предел не проверяем здесь: он разный у диска и у инлайна, а какой из
-    // них сейчас работает, знает только storage.js — он и откажет словами.
-    setFileBusy(true);
-    try{ setDraftFile(await putReportFile(f)); }
-    catch(e){ setFileErr(e.message||"не удалось сохранить файл"); }
-    setFileBusy(false);
+  const reset=()=>{
+    setHanding(false); setDraftText(""); setTook({}); setGiveFiles({});
+    setGiveErr({}); setGiveBusy(""); setRating(NO_RATING); setMoreThings(false);
   };
   const startHanding=()=>{
     if(!func) return;
@@ -737,7 +775,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
       gives:Object.fromEntries(func.gives.map(p=>[p.trait,mid(p)]))});
     setTook({});
     setGiveFiles({}); setGiveErr({}); setGiveBusy("");
-    setRating(NO_RATING);
+    setRating(NO_RATING); setMoreThings(false);
     setHanding(true);
   };
   /* Себе оценку постановки не ставят: постановщик, равный исполнителю,
@@ -753,16 +791,22 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
     try{
       const saved=await putReportFile(f);
       setGiveFiles(p=>({...p,[trait]:saved}));
+      // Вернулись «к вещам», приложили — и обратно к оценке.
+      setMoreThings(false);
     }catch(e){
       setGiveErr(p=>({...p,[trait]:e.message||"не удалось сохранить файл"}));
     }
     setGiveBusy("");
   };
+  const dropGiveFile=(trait)=>setGiveFiles(p=>{const q={...p};delete q[trait];return q;});
 
   /* Чего не хватает, чтобы работа считалась сделанной: обязательный выход
-     без приложенной вещи. Пока список непуст, «Сдать» не нажимается — и
-     сказано, что именно приложить, а не просто «нельзя». */
+     без приложенной вещи и отчёт без слов. Пока чего-то нет, «Сдать» не
+     показывается — и сказано, что именно нужно, а не просто «нельзя». */
   const missing=func?missingGives(func,giveFiles):[];
+  const written=!!String(draftText||"").trim();
+  const ready=written&&!missing.length;
+  const showThings=!ready||moreThings;
   const submit=()=>{
     /* Сдал — не значит принято. Задача уходит на проверку: «Готово» ставит
        тот, кто отчёт принял. Иначе фактом в расчёте стало бы то, что
@@ -770,11 +814,11 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
 
        Кроме случая, когда исполнитель и проверяющий — один человек: тогда
        принимать не у кого, и задача уходит в готовые сразу. */
-    /* Без обязательных вещей сдачи не бывает: работа, от которой ждали
-       макет, без макета не сделана, сколько бы часов на неё ни ушло. */
-    if(missing.length) return;
+    /* Без обязательных вещей и без слов сдачи не бывает: работа, от которой
+       ждали макет, без макета не сделана, сколько бы часов на неё ни ушло. */
+    if(!ready) return;
     const submission=newSubmission({hours,takes:qty.takes,gives:qty.gives,
-      took,files:giveFiles,text:draftText,file:draftFile,
+      took,files:giveFiles,text:draftText,file:null,
       setterRating:ratesSetter?rating:null});
     upMany({submissions:[...subs,submission],
       status:selfReview(task)?"done":"review"});
@@ -782,8 +826,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
        а у исполнителя для этого своя операция на сервере — иначе сдача и
        оценка постановки жили бы только здесь. */
     onSubmit?.(task,submission);
-    setHanding(false); setDraftText(""); setDraftFile(null); setFileErr("");
-    setTook({}); setGiveFiles({}); setGiveErr({}); setRating(NO_RATING);
+    reset();
   };
 
   const QtyRow=({kind,port})=>{
@@ -798,12 +841,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
       return {...p,[port.trait]:was.includes(id)
         ?was.filter(x=>x!==id):[...was,id]};
     });
-    /* Обязателен ли выход, решает одно место на всё приложение
-       (`requiredGives`): второе такое же правило разошлось бы с первым, и
-       кнопка запрещала бы одно, а подпись обещала другое. */
-    const must=kind==="gives"
-      &&requiredGives(func).some(x=>x.trait===port.trait);
-    const got=kind==="gives"?giveFiles[port.trait]:null;
     return (
       <div style={{marginBottom:6}}>
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
@@ -812,35 +849,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
           <NumField value={qty[kind][port.trait]??0} style={{flex:"0 1 90px"}}
             onCommit={v=>setQty(p=>({...p,[kind]:{...p[kind],[port.trait]:Number(v)||0}}))}/>
         </div>
-        {/* Сама вышедшая вещь — файлом. Ради неё работу и заказывали:
-            число «1» не откроешь и не покажешь заказчику. */}
-        {kind==="gives"&&(
-          <div className="flex flex-wrap gap-2"
-            style={{alignItems:"center",marginTop:4}}>
-            <label style={{...btn(false),fontSize:10.5,padding:"2px 7px",
-              cursor:giveBusy===port.trait?"default":"pointer",
-              opacity:giveBusy===port.trait?0.6:1,
-              borderColor:must&&!got?"#5A2436":undefined}}>
-              {giveBusy===port.trait?"Загружаю…"
-                :got?`Заменить ${traitName(port.trait)}`
-                  :`Загрузить ${traitName(port.trait)}`}
-              <input type="file" style={{display:"none"}}
-                disabled={giveBusy===port.trait}
-                aria-label={`результат: ${traitName(port.trait)}`}
-                onChange={e=>pickGiveFile(port.trait,e.target.files?.[0])}/>
-            </label>
-            {got&&(<span style={{fontSize:10.5,color:ACC}}>
-              📎 {got.name} · {Math.round((got.size||0)/1024)} КБ</span>)}
-            {got&&(<button style={{...btn(false),fontSize:10.5,padding:"2px 6px",
-              color:BAD}} aria-label={`убрать ${traitName(port.trait)}`}
-              onClick={()=>setGiveFiles(p=>{const q={...p};delete q[port.trait];
-                return q;})}>×</button>)}
-            {!got&&(<span style={{fontSize:10,color:must?WARN:C.muted}}>
-              {must?"без него работа не сдаётся"
-                :"можно не прикладывать: минимум по этому ресурсу — 0"}</span>)}
-            {giveErr[port.trait]&&(
-              <span style={{fontSize:10.5,color:BAD}}>{giveErr[port.trait]}</span>)}
-          </div>)}
         {!!own.length&&(
           <div className="flex flex-wrap gap-2" style={{marginTop:4}}>
             {own.slice(0,12).map(u=>(
@@ -855,6 +863,37 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
             отметьте, что именно взяли, — по этому потом видно, что из чего
             выросло
           </div>)}
+      </div>);
+  };
+
+  /* Вещь по одному выходу функции: кнопка «Загрузить <ресурс>», приложенное
+     — ссылкой с «убрать». Обязателен ли выход, решает одно место на всё
+     приложение (`requiredGives`): второе такое же правило разошлось бы с
+     первым, и кнопка запрещала бы одно, а подпись обещала другое. */
+  const ThingRow=({port})=>{
+    const name=traitName(port.trait);
+    const must=requiredGives(func).some(x=>x.trait===port.trait);
+    const got=giveFiles[port.trait];
+    const busy=giveBusy===port.trait;
+    return (
+      <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:5}}>
+        <label style={{...btn(false),fontSize:11,padding:"4px 8px",
+          cursor:busy?"default":"pointer",opacity:busy?0.6:1,
+          borderColor:must&&!got?"#5A2436":undefined}}>
+          {busy?"Загружаю…":got?`Заменить ${name}`:`Загрузить ${name}`}
+          <input type="file" style={{display:"none"}} disabled={busy}
+            aria-label={`результат: ${name}`}
+            onChange={e=>pickGiveFile(port.trait,e.target.files?.[0])}/>
+        </label>
+        {got&&(<span style={{fontSize:10.5,color:ACC}}>
+          📎 {got.name} · {Math.round((got.size||0)/1024)} КБ</span>)}
+        {got&&(<button style={{...btn(false),fontSize:10.5,padding:"2px 6px",color:BAD}}
+          aria-label={`убрать ${name}`} onClick={()=>dropGiveFile(port.trait)}>×</button>)}
+        {!got&&(<span style={{fontSize:10,color:must?WARN:C.muted}}>
+          {must?"обязательно: без него работа не сдаётся"
+            :"можно не прикладывать: минимум по этому ресурсу — 0"}</span>)}
+        {giveErr[port.trait]&&(
+          <span style={{fontSize:10.5,color:BAD}}>{giveErr[port.trait]}</span>)}
       </div>);
   };
 
@@ -890,9 +929,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
       <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
         padding:9,margin:"6px 0 8px"}}>
         {!subs.length&&<div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
-          Ещё не сдавалась. «Сдать» запишет, сколько времени ушло и сколько
-          ресурса реально взяли и выдали, — из принятых сдач считается среднее
-          арифметическое, и оно уточняет прогноз.</div>}
+          Ещё не сдавалась. «Сдать» запишет отчёт словами, сколько времени
+          ушло, сколько ресурса реально взяли и выдали, и сами вещи, которые
+          вышли, — из принятых сдач считается среднее арифметическое, и оно
+          уточняет прогноз.</div>}
         {subs.map(sb=>(
           <div key={sb.id} style={{background:C.ink,border:`1px solid ${C.line}`,
             borderRadius:6,padding:7,marginBottom:6}}>
@@ -925,7 +965,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                     style={{fontSize:10.5,color:ACC}}>
                     📎 {traitName(id)}: {f.name}</a>))}
               </div>)}
-            {sb.text&&<div style={{fontSize:11.5,marginTop:4,lineHeight:1.5}}>{sb.text}</div>}
+            {sb.text&&<div style={{fontSize:11.5,marginTop:4,lineHeight:1.5,
+              whiteSpace:"pre-wrap"}}>{sb.text}</div>}
+            {/* Файл отчёта у старых сдач (до v1.2): показывается, но новых
+                таких не бывает — вещи прикладываются по ресурсам. */}
             {sb.file&&<div style={{fontSize:10.5,color:ACC,marginTop:4}}>
               📎 {sb.file.name} · {Math.round((sb.file.size||0)/1024)} КБ</div>}
           </div>))}
@@ -938,6 +981,14 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                 задача не привязана к функции — сдавать нечего</span>}
             </div>
           : <div>
+              {/* Отчёт — словами и сверху: это главное, что читает
+                  проверяющий; числа и вещи — под ним. */}
+              <div style={S.lbl}>отчёт — словами</div>
+              <TxtField area value={draftText} placeholder="что сделали и что вышло"
+                aria-label="отчёт о работе"
+                style={{minHeight:56,margin:"5px 0 8px",lineHeight:1.5}}
+                onCommit={setDraftText}/>
+
               <div className="flex flex-wrap gap-2"
                 style={{alignItems:"center",marginBottom:8}}>
                 <span style={{fontSize:11.5,color:C.muted}}>ушло времени</span>
@@ -953,96 +1004,105 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                   {func.takes.map(p=>(<QtyRow key={p.id} kind="takes" port={p}/>))}
                 </div></>}
               {!!func.gives.length&&<>
-                <div style={S.lbl}>что выдали — и сами результаты</div>
-                <div style={{fontSize:10,color:C.muted,margin:"3px 0 5px",
-                  lineHeight:1.5}}>
-                  Приложите то, что вышло: по этим файлам работу потом и
-                  смотрят, и скачивают. Обязательны те ресурсы, у которых
-                  минимум в вилке больше нуля.
-                </div>
+                <div style={S.lbl}>сколько выдали</div>
                 <div style={{margin:"5px 0 8px"}}>
                   {func.gives.map(p=>(<QtyRow key={p.id} kind="gives" port={p}/>))}
                 </div></>}
-              <TxtField area value={draftText} placeholder="отчёт текстом"
-                style={{minHeight:56,marginBottom:6,lineHeight:1.5}}
-                onCommit={setDraftText}/>
-              <div className="flex flex-wrap gap-2" style={{alignItems:"center",
-                marginBottom:6}}>
-                <label style={{...btn(false),cursor:fileBusy?"default":"pointer",
-                  opacity:fileBusy?0.6:1}}>
-                  {fileBusy?"Загружаю…":"Загрузить отчёт"}
-                  <input type="file" style={{display:"none"}} disabled={fileBusy}
-                    aria-label="отчёт о работе файлом"
-                    onChange={e=>pickFile(e.target.files?.[0])}/>
-                </label>
-                {draftFile&&<span style={{fontSize:10.5,color:ACC}}>
-                  📎 {draftFile.name} · {Math.round(draftFile.size/1024)} КБ</span>}
-                {fileErr&&<span style={{fontSize:10.5,color:BAD}}>{fileErr}</span>}
-              </div>
 
-              {/* ─── оценка постановки ───
-                  Обе стороны отвечают за свою половину работы: проверяющий
-                  оценивает выполнение, исполнитель — постановку. Оценка про
-                  постановщика, публикуется без имени и только когда её
-                  нельзя вычислить; можно не ставить. */}
-              {ratesSetter&&(
-                <div style={{background:C.ink,border:`1px solid ${C.line}`,
-                  borderRadius:6,padding:7,marginBottom:8}}>
-                  <div style={S.lbl}>оценка постановки задачи — можно не ставить</div>
-                  <div className="flex flex-wrap gap-2" style={{margin:"5px 0 6px",
-                    alignItems:"center"}}>
-                    {Array.from({length:MARK_MAX-MARK_MIN+1},(_,i)=>MARK_MIN+i)
-                      .map(v=>(
-                        <button key={v} aria-label={`оценка постановки ${v}`}
-                          style={{...btn(rating.mark===v,rating.mark===v?OK:null),
-                            minWidth:38}}
-                          onClick={()=>setRating(p=>({...p,mark:p.mark===v?null:v}))}>
-                          {v}</button>))}
-                    <span style={{fontSize:10.5,color:C.muted}}>
-                      {rating.mark==null?"без оценки":"ещё раз — снять"}</span>
-                  </div>
-                  <TxtField area value={rating.comment}
-                    placeholder="что в постановке было ясно, а чего не хватало"
-                    aria-label="комментарий к постановке"
-                    style={{minHeight:44,marginBottom:6,lineHeight:1.5}}
-                    onCommit={v=>setRating(p=>({...p,comment:v}))}/>
-                  <div className="flex flex-wrap gap-2">
-                    <button style={{...btn(rating.hidden,rating.hidden?WARN:null),
-                      fontSize:11}}
-                      onClick={()=>setRating(p=>({...p,hidden:true}))}>
-                      скрытый (видит только автор)</button>
-                    <button style={{...btn(!rating.hidden,!rating.hidden?ACC:null),
-                      fontSize:11}}
-                      onClick={()=>setRating(p=>({...p,hidden:false}))}>
-                      публичный (видят все)</button>
-                  </div>
-                  <div style={{fontSize:10,color:C.muted,marginTop:5,lineHeight:1.5}}>
-                    Оценка — про постановщика: {who(task.setter)}. Публикуется без
-                    вашего имени и только когда её нельзя вычислить — не меньше
-                    двух оценок от разных людей. Скрытый комментарий увидит только
-                    он, публичный — все, но тоже без имени.
-                  </div>
-                </div>)}
+              {/* ─── вещи или оценка: одно место на двоих ───
+                  Пока отчёт не написан или не хватает обязательной вещи —
+                  кнопки загрузки. Когда всё на месте — на этом же месте
+                  оценка постановки и «Сдать». */}
+              {showThings
+                ? <>
+                    {!!func.gives.length&&<>
+                      <div style={S.lbl}>вещи, которые вышли</div>
+                      <div style={{fontSize:10,color:C.muted,margin:"3px 0 5px",
+                        lineHeight:1.5}}>
+                        Приложите то, что вышло: по этим файлам работу потом
+                        смотрят и скачивают.
+                      </div>
+                      <div style={{margin:"5px 0 8px"}}>
+                        {func.gives.map(p=>(<ThingRow key={p.id} port={p}/>))}
+                      </div></>}
+                    {!func.gives.length&&(
+                      <div style={{fontSize:10.5,color:C.muted,marginBottom:8}}>
+                        Функция ничего не выдаёт — прикладывать нечего.</div>)}
+                    {/* Чего не хватает — словами, а не неактивной кнопкой. */}
+                    {!ready&&(
+                      <div style={{fontSize:10.5,color:WARN,marginTop:2,lineHeight:1.5}}>
+                        {!!missing.length&&(<div>
+                          Задача не выполнена, пока не приложено:{" "}
+                          {missing.map(p=>traitName(p.trait)).join(", ")}. Это
+                          результат работы, а не отчёт о ней.</div>)}
+                        {!written&&(<div>
+                          Напишите отчёт словами — без него сдачи нет.</div>)}
+                      </div>)}
+                    <div className="flex flex-wrap gap-2" style={{alignItems:"center",
+                      marginTop:6}}>
+                      <span style={{flex:1}}/>
+                      <button style={btn(false)} onClick={reset}>Отмена</button>
+                      {ready&&(<button style={btn(true,ACC)}
+                        onClick={()=>setMoreThings(false)}>К оценке и сдаче</button>)}
+                    </div>
+                  </>
+                : <>
+                    {/* Что приложено — коротко, с дорогой назад к вещам. */}
+                    <div className="flex flex-wrap gap-2" style={{alignItems:"center",
+                      marginBottom:8}}>
+                      <span style={{fontSize:10.5,color:C.muted}}>
+                        {Object.keys(giveFiles).length
+                          ?`приложено: ${Object.entries(giveFiles)
+                            .map(([id,f])=>`${traitName(id)} — ${f.name}`).join(", ")}`
+                          :"вещей не приложено — функция этого не требует"}</span>
+                      {!!func.gives.length&&(
+                        <button style={{...btn(false),fontSize:10.5,padding:"2px 7px"}}
+                          onClick={()=>setMoreThings(true)}>изменить вещи</button>)}
+                    </div>
 
-              <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-                <span style={{flex:1}}/>
-                <button style={btn(false)} onClick={()=>{setHanding(false);
-                  setDraftFile(null);setFileErr("");setRating(NO_RATING);}}>Отмена</button>
-                <button style={btn(true,OK)}
-                  disabled={fileBusy||!!giveBusy||!!missing.length}
-                  title={missing.length
-                    ?`Приложите: ${missing.map(p=>traitName(p.trait)).join(", ")}`
-                    :""}
-                  onClick={submit}>Сдать</button>
-              </div>
-              {/* Молчаливо неактивная кнопка — худшее из возможного: человек
-                  не знает, чего от него хотят. Поэтому сказано словами. */}
-              {!!missing.length&&(
-                <div style={{fontSize:10.5,color:WARN,marginTop:6,lineHeight:1.5}}>
-                  Задача не выполнена, пока не приложено:{" "}
-                  {missing.map(p=>traitName(p.trait)).join(", ")}. Это
-                  результат работы, а не отчёт о ней.
-                </div>)}
+                    {/* ─── оценка постановки ───
+                        Обе стороны отвечают за свою половину работы:
+                        проверяющий оценивает выполнение, исполнитель —
+                        постановку. Оценка про постановщика, публикуется без
+                        имени и только когда её нельзя вычислить; можно не
+                        ставить. */}
+                    {ratesSetter&&(
+                      <div style={{background:C.ink,border:`1px solid ${C.line}`,
+                        borderRadius:6,padding:7,marginBottom:8}}>
+                        <div style={S.lbl}>оценка постановки задачи — можно не ставить</div>
+                        <div className="flex flex-wrap gap-2" style={{margin:"5px 0 6px",
+                          alignItems:"center"}}>
+                          {Array.from({length:MARK_MAX-MARK_MIN+1},(_,i)=>MARK_MIN+i)
+                            .map(v=>(
+                              <button key={v} aria-label={`оценка постановки ${v}`}
+                                style={{...btn(rating.mark===v,rating.mark===v?OK:null),
+                                  minWidth:38}}
+                                onClick={()=>setRating(p=>({...p,mark:p.mark===v?null:v}))}>
+                                {v}</button>))}
+                          <span style={{fontSize:10.5,color:C.muted}}>
+                            {rating.mark==null?"без оценки":"ещё раз — снять"}</span>
+                        </div>
+                        <TxtField area value={rating.comment}
+                          placeholder="что в постановке было ясно, а чего не хватало"
+                          aria-label="комментарий к постановке"
+                          style={{minHeight:44,marginBottom:6,lineHeight:1.5}}
+                          onCommit={v=>setRating(p=>({...p,comment:v}))}/>
+                        <HiddenSwitch hidden={rating.hidden} whoElse="постановщик"
+                          onChange={h=>setRating(p=>({...p,hidden:h}))}/>
+                        <div style={{fontSize:10,color:C.muted,marginTop:5,lineHeight:1.5}}>
+                          Оценка — про постановщика: {who(task.setter)}. Публикуется
+                          без вашего имени и только когда её нельзя вычислить — не
+                          меньше двух оценок от разных людей.
+                        </div>
+                      </div>)}
+
+                    <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+                      <span style={{flex:1}}/>
+                      <button style={btn(false)} onClick={reset}>Отмена</button>
+                      <button style={btn(true,OK)} disabled={!!giveBusy}
+                        onClick={submit}>Сдать</button>
+                    </div>
+                  </>}
             </div>}
       </div>
 

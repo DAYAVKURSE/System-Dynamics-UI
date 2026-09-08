@@ -41,6 +41,12 @@ const attachResult = async (label, name = "результат.txt") => {
   fireEvent.change(input);
   await waitFor(() => expect(screen.getByText(new RegExp(name))).toBeTruthy());
 };
+/* Отчёт — словами, сверху формы: без него «Сдать» не появляется. */
+const writeReport = (text = "готово") => {
+  const el = screen.getByLabelText("отчёт о работе");
+  fireEvent.change(el, { target: { value: text } });
+  fireEvent.blur(el);
+};
 
 /* Постановка — во вкладке «Проверка»: её делает не исполнитель. */
 function Setup({ task: t0, people = PEOPLE, canAssign = true }) {
@@ -161,6 +167,7 @@ describe("сдача записывает факт выполнения", () => 
       fireEvent.blur(hours);
       // Функция обещала выдать «заявки» — без самой заявки работа не сдана.
       await attachResult("результат: заявки");
+      writeReport("собрал");
       // Их две: одна в форме сдачи, другая на карточке в колонке.
       fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
 
@@ -179,8 +186,13 @@ describe("сдача записывает факт выполнения", () => 
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 
+    writeReport();
     expect(screen.getByText(/Задача не выполнена, пока не приложено/))
       .toBeInTheDocument();
+    /* «Сдать» в форме нет вовсе — не неактивная кнопка, а слова о том,
+       чего не хватает. Единственная «Сдать» — на карточке в колонке, и она
+       только открывает форму. */
+    expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     // Сдачи не появилось: числа записаны, а результата нет.
     expect(screen.queryByText(/взято: спрос/)).toBeNull();
@@ -209,6 +221,9 @@ describe("сдача записывает факт выполнения", () => 
 
       expect(screen.queryByText(/Задача не выполнена, пока не приложено/)).toBeNull();
       expect(screen.getByText(/минимум по этому ресурсу — 0/)).toBeInTheDocument();
+      // Кнопка «Загрузить заявки» есть и у необязательной вещи — просто не держит.
+      expect(screen.getByText("Загрузить заявки")).toBeInTheDocument();
+      writeReport();
       fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
       expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
     });

@@ -37,6 +37,17 @@
    Свои оценки и свой рейтинг человек не видит: рейтинг существует, чтобы
    ЕМУ поручали, а не чтобы он на себя смотрел. Правило живёт в одном
    месте — `visibleStats()`; остальное просто спрашивает у него.
+
+   ─── скрытость одна на отметку и слова ───
+
+   `hidden` у решения проверяющего (и у оценки постановки) относится и к
+   отметке, и к словам. Скрытую отметку видит только автор, скрытые слова —
+   автор и адресат. В СРЕДНИЕ скрытая отметка входит наравне с публичной:
+   средняя и так без имени, и выкинуть из неё скрытые значило бы дать
+   человеку править чужой рейтинг тем, что он решил не показывать. Поэтому
+   `statsOf` считает по всем строкам, а `historyOf` с `viewer` и
+   `visibleStats` чужую скрытую строку показывают без отметки и без слов —
+   как принятую работу, о которой оценивающий ничего не сказал вслух.
    ════════════════════════════════════════════════════════════════ */
 
 /** Оценка — пятибалльная: меньше градаций не различает, больше не читается. */
@@ -180,6 +191,16 @@ export function inTime(task, submission) {
 }
 
 /**
+ * Чужая скрытая строка глазами смотрящего: ни отметки, ни слов, ни
+ * признака «скрыто» — иначе сам признак говорил бы, что оценка есть и
+ * какая-то не для всех. Остаётся принятая работа без сказанного вслух.
+ * Автор видит свою строку целиком; адресат (сам исполнитель) — слова, но
+ * отметку не видит и без того (`visibleStats`, `self`).
+ */
+const strangerHidden = (row) => ({ ...row, mark: null, comment: "", hidden: false,
+  pending: false, published: false });
+
+/**
  * Одна строка истории: что делал, когда, сколько заняло и как приняли.
  *
  * Оценка в строке есть только у ОПУБЛИКОВАННОЙ (`published` — реестр из
@@ -187,10 +208,18 @@ export function inTime(task, submission) {
  * `pending: true`, «оценка ещё не опубликована». Слова проверяющего идут
  * как есть, вместе с признаком «скрытые»: кому их показывать, решает
  * `visibleStats()`, а не история.
+ *
+ * `viewer` — кто смотрит. Назван — чужие скрытые строки (не автора и не
+ * самого исполнителя) отдаются без отметки и без слов (`strangerHidden`).
+ * Не назван — строки как есть: так считает средние `statsOf`, в которые
+ * скрытые отметки входят.
  */
-export function historyOf(tasks = [], funcs = [], personId, { published } = {}) {
+export function historyOf(tasks = [], funcs = [], personId, { published, viewer } = {}) {
   const id = String(personId);
   const pub = pubSet(published);
+  const me = viewer == null ? null : String(viewer);
+  const stranger = (row) => me != null && me !== id
+    && !(row.by != null && String(row.by) === me);
   return tasks
     .filter((t) => String(t.assignee || "") === id && (t.submissions || []).length)
     .map((t) => {
@@ -222,6 +251,7 @@ export function historyOf(tasks = [], funcs = [], personId, { published } = {}) 
         inTime: inTime(t, sb),
       };
     })
+    .map((row) => (row.hidden && stranger(row) ? strangerHidden(row) : row))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
@@ -281,15 +311,23 @@ export function statsOf(tasks = [], funcs = [], personId, { published } = {}) {
  * без оценок — рейтинг работает на того, кто поручает. Слова проверяющего
  * в строках: себе — скрытые (их для него и писали) и опубликованные
  * публичные; другим — только опубликованные публичные; автор — свои.
+ *
+ * Чужая скрытая строка постороннему не показывается вовсе — ни отметка,
+ * ни слова, ни признак (`strangerHidden`); в средних (`mark`, `setup`)
+ * она при этом есть: скрытость прячет отметку от глаз, а не из рейтинга.
+ * Владелец здесь — такой же смотрящий: модель у него целиком, и правило
+ * сервера (`taskViewFor`) для него повторено тут.
  */
 export function visibleStats(model = {}, personId, viewerId) {
   const { tasks = [], funcs = [], published } = model;
   const self = viewerId != null && personId != null && String(viewerId) === String(personId);
+  // Средние — по всем строкам, и скрытым тоже; срез по смотрящему — ниже.
   const s = statsOf(tasks, funcs, personId, { published });
   const me = viewerId == null ? null : String(viewerId);
   const rows = s.rows.map((r) => {
     const author = r.by != null && String(r.by) === me;
-    const show = author || (self ? (r.hidden || r.published) : (r.published && !r.hidden));
+    if (r.hidden && !author && !self) return strangerHidden(r);
+    const show = author || (self ? (r.hidden || r.published) : r.published);
     return { ...r, mark: self ? null : r.mark, comment: show ? r.comment : "" };
   });
   return self
