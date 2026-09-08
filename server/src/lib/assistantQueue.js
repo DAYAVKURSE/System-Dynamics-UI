@@ -74,6 +74,9 @@ export const SYSTEM_PROMPT = [
   "Слова «план», «вилка» и «факт» различай: план — то, что записано в модели, факт — сдачи.",
 ].join(" ");
 
+/** Сколько ждать сборку контекста. Меньше ответа модели: данные — свои, рядом. */
+export const CONTEXT_TIMEOUT_MS = 30 * 1000;
+
 const uid = () => crypto.randomUUID();
 
 /* Модель человека — из его настроек: `modelFor(userId, task)` в
@@ -155,7 +158,11 @@ export function createQueue({
     progress(it, "context");
     let context;
     try {
-      context = await contextFor(it.userId);
+      /* Второй рубеж после предела у getChatMember: контекст собирается из
+         нескольких хранилищ и Bot API, и ни одно из них не должно держать
+         единственную очередь дольше, чем человек готов ждать. */
+      context = await withTimeout(contextFor(it.userId), CONTEXT_TIMEOUT_MS,
+        "Не успел собрать ваши данные — попробуйте ещё раз");
     } catch (e) {
       finish(it, { status: "error", error: e.message || "контекст не собрался" });
       return;

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, byCrew, hoursOf, isFactor, missingGives,
+import { DUR_UNITS, WORKER_KINDS, byCrew, crewOf, hoursOf, isFactor, missingGives,
   rangeText, requiredGives, shortage } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
 import { heldBy, unitsOf } from "../lib/units.js";
@@ -574,10 +574,20 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
   // функция: люди — свойство актива, и чужой человек в его работе
   // означал бы, что список воркеров ни на что не влияет.
   const asset=entities.find(e=>e.id===func?.e)||null;
-  // В том порядке, который владелец задал в списке людей актива: кого
-  // поставили выше, того и предлагают первым.
-  const pool=(k)=>byCrew(asset||{},
-    people.filter(p=>(asset?.[k]||[]).some(id=>String(id)===String(p.id))));
+  /* Роли теперь стоят на ФУНКЦИИ (постановщики, исполнители, проверяющие —
+     `funcs[].setters/owners/reviewers`), а на активе — общий список
+     воркеров. Раньше список брался из ролей актива, которых у новых
+     моделей нет, и оба выпадающих списка были пусты даже у владельца.
+     Порядок: роль функции → роль актива (старые модели) → все воркеры
+     актива, если роль никому не дана. Сортировка — как в списке людей
+     актива: кого поставили выше, того и предлагают первым. */
+  const pool=(k)=>{
+    const ids=new Set([...(func?.[k]||[]),...(asset?.[k]||[])].map(String));
+    const byRole=people.filter(p=>ids.has(String(p.id)));
+    if(byRole.length) return byCrew(asset||{},byRole);
+    const crew=new Set(crewOf(asset||{}).map(String));
+    return byCrew(asset||{},people.filter(p=>crew.has(String(p.id))));
+  };
   const gaps=taskGaps(task);
   const why=whyNotSet(task,funcs,traits,tasks);
 

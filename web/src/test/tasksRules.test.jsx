@@ -256,6 +256,34 @@ describe("назначения берутся из воркеров актива
     expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр · без оценок · 0 работ"]);
   });
 
+  it("роли стоят на функции: у актива без ролей списки не пусты", () => {
+    /* Новые модели держат роли на функции, а на активе — только общий
+       список воркеров. Раньше список брался из ролей актива, которых
+       больше нет, и оба выпадающих списка были пусты даже у владельца. */
+    const entities = [{ id: "usr", name: "Пользователи", crew: ["2", "3", "4"] }];
+    const people = [...PEOPLE, { id: "4", name: "Ольга" }];
+    render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })} tasks={[]}
+      funcs={FUNCS} traits={TRAITS} entities={entities} people={people}
+      canAssign nameOf={(id) => id} setTasks={() => {}} />);
+    const names = (label) => [...screen.getByLabelText(label).options]
+      .map((o) => o.textContent.split(" · ")[0]);
+    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван"]);
+    expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр"]);
+  });
+
+  it("роль никому не дана — предлагаются все воркеры актива", () => {
+    const entities = [{ id: "usr", name: "Пользователи", crew: ["4", "2"] }];
+    const funcs = [{ ...FUNCS[0], owners: [], reviewers: [] }];
+    const people = [...PEOPLE, { id: "4", name: "Ольга" }];
+    render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })} tasks={[]}
+      funcs={funcs} traits={TRAITS} entities={entities} people={people}
+      canAssign nameOf={(id) => id} setTasks={() => {}} />);
+    const names = (label) => [...screen.getByLabelText(label).options]
+      .map((o) => o.textContent.split(" · ")[0]);
+    // В порядке списка воркеров актива: кого поставили выше, того первым.
+    expect(names("исполнитель")).toEqual(["— не назначен —", "Ольга", "Иван"]);
+  });
+
   it("все три роли обязательны — сказано, чего не хватает", () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     // Постановщик подставился из ролей функции; двух остальных ещё нет.
