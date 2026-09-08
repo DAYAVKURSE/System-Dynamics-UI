@@ -8,6 +8,8 @@ import {
   MAX_REPORT_BYTES, saveReport, getReport, deleteReport, listReports, ownReportMeta,
 } from "../lib/reportStore.js";
 import { MAX_BOT_DOCUMENT_BYTES, sendDocument, sendMessage } from "../lib/telegram.js";
+import { transcribeRecording } from "../lib/transcribe.js";
+import { dropTranscript } from "../lib/callStore.js";
 
 const router = Router();
 
@@ -44,6 +46,10 @@ function headerName(raw) {
     return "";
   }
 }
+
+/* Id встречи у записи — короткая base64url-строка (см. callStore). Что-то
+   иное в заголовке — не встреча, и в хранилище оно не попадает. */
+const safeMeetingId = (raw) => (/^[A-Za-z0-9_-]{6,64}$/.test(String(raw || "")) ? String(raw) : null);
 
 // Тело принимаем сырыми байтами: multipart потребовал бы зависимости ради
 // одного поля, а файл здесь всегда один.
@@ -121,6 +127,17 @@ router.post("/", telegramUser, member,
         bytes,
       });
       res.status(201).json(entry);
+      /* Запись звонка — в расшифровку, но ПОСЛЕ ответа и не дожидаясь:
+         текст делается минуты, а «запись сохранена» человек ждёт сейчас.
+         Итог (или причина, почему его нет) ложится в callStore и оттуда
+         попадает в контекст помощника. Встреча — из заголовка, если
+         звонок шёл по заведённой встрече; без него текст живёт при файле. */
+      if (entry.kind === "call") {
+        transcribeRecording({
+          userId: req.telegramUserId, fileId: entry.id, name: entry.name, type: entry.type,
+          bytes, meetingId: safeMeetingId(req.header("X-Report-Meeting")),
+        }).catch((e) => console.error(`[transcribe] запись ${entry.id}: ${e.message}`));
+      }
     } catch (e) {
       if (/required|at most|limit/.test(e.message)) {
         return res.status(400).json({ error: e.message });
@@ -153,6 +170,8 @@ router.delete("/:scope/:id", telegramUser, member, async (req, res, next) => {
   try {
     const ok = await deleteReport(req.telegramUserId, req.params.id);
     if (!ok) return res.status(404).json({ error: "not found" });
+    // Расшифровка без записи — текст разговора, который человек стёр.
+    await dropTranscript(req.params.id);
     res.status(204).end();
   } catch (e) {
     next(e);

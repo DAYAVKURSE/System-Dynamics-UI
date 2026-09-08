@@ -122,7 +122,10 @@ export async function getUpdates(offset, timeout = 25,
   const url = `https://api.telegram.org/bot${token}/getUpdates`
     + `?timeout=${timeout}${offset ? `&offset=${offset}` : ""}`
     + "&allowed_updates="
-    + encodeURIComponent(JSON.stringify(["message", "callback_query", "inline_query"]));
+    // edited_message — ради чатов групп: правка сообщения ложится в
+    // хранилище новой строкой (lib/chatStore.js), иначе помощник цитировал
+    // бы то, что человек уже исправил.
+    + encodeURIComponent(JSON.stringify(["message", "edited_message", "callback_query", "inline_query"]));
   const res = await fetch(url);
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.description || `Telegram ответил ${res.status}`);
@@ -209,6 +212,32 @@ export async function sendDocument(chatId, { blob, bytes, name, type, caption = 
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw telegramError(data.description, res.status);
   return data.result;
+}
+
+/**
+ * Состоит ли человек в чате — прямо сейчас, по слову Telegram.
+ *
+ * Спрашивается перед тем, как сообщения группы попадут в контекст его
+ * помощника (lib/chatStore.js). Ответ «да» — только для member,
+ * administrator и creator; выгнанный, вышедший, ошибка сети, нет токена —
+ * всё «нет»: лишний чужой чат в контексте хуже, чем недостающий свой.
+ * Ошибкой не бросается нарочно: одна недоступная группа не должна
+ * ронять весь контекст.
+ */
+export async function getChatMember(chatId, userId, token = process.env.TELEGRAM_BOT_TOKEN) {
+  if (!token) return false;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getChatMember`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, user_id: Number(userId) || userId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) return false;
+    return ["member", "administrator", "creator"].includes(String(data.result?.status || ""));
+  } catch {
+    return false;
+  }
 }
 
 export async function getMe(token = process.env.TELEGRAM_BOT_TOKEN) {
