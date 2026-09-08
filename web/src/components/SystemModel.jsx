@@ -3,6 +3,7 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
+  addRole, removeRole, setUserRole,
   takeTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote, getRatings,
   putSpaceRemote, setupTaskRemote }
   from "../identity.js";
@@ -430,6 +431,12 @@ export default function SystemModel(){
      человек вообще числится. Приходят тем же запросом, что и люди: два
      запроса за одним ответом расходились бы. */
   const [roles,setRoles]=useState([]);
+  /* Должности и люди перечитываются после каждой правки из блока воркеров:
+     список ведёт сервер, и показывать своё предположение о нём незачем. */
+  const refreshOrg=useCallback(()=>listOrg().then(o=>{
+    if(o?.users) setPeople(o.users);
+    if(o?.roles) setRoles(o.roles);
+  }).catch(()=>{}),[]);
   useEffect(()=>{ let live=true;
     whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
     return ()=>{ live=false; };
@@ -609,8 +616,12 @@ export default function SystemModel(){
      теперь в расписание каждой задачи подставляется своё у того, кто его
      шлёт, — расписание у каждого своё, и бот пишет ему же. */
   const warn=warnMinOf(me.profile?.warnMin);
-  const scheduled=useMemo(()=>tasks.map(t=>({...t,start:t.start||null,
-    repeat:"once",end:null,warn})),[tasks,warn]);
+  /* В расписание — только то, что поручено ЭТОМУ человеку: уведомление о
+     заказе приходит исполнителю, а не всем, кто задачу видит. Владельцу,
+     постановщику и проверяющему чужая работа не напоминает о себе. */
+  const scheduled=useMemo(()=>tasks
+    .filter(t=>t.assignee!=null&&t.assignee!==""&&String(t.assignee)===String(me.id))
+    .map(t=>({...t,start:t.start||null,repeat:"once",end:null,warn})),[tasks,warn,me.id]);
   /* Пересылается и при входе, не только при правке: записи, сделанные до
      v1.1, не несут исполнителя, и кнопки под напоминанием появятся у них
      только после того, как доска пришлёт расписание заново. Ждём, пока
@@ -1170,6 +1181,10 @@ export default function SystemModel(){
               people={people} nameOf={personName} runsOf={runsOf}
               tasks={tasks} onOrderWorker={orderWorker} onToggleCrew={toggleCrew}
               onOpenPerson={id=>setCard(id)}
+              roles={roles}
+              onAddRole={me.isOwner&&!me.solo?(n)=>addRole(n).then(refreshOrg):undefined}
+              onDropRole={me.isOwner&&!me.solo?(id)=>removeRole(id).then(refreshOrg):undefined}
+              onSetRole={me.isOwner&&!me.solo?(pid,rid)=>setUserRole(pid,rid).then(refreshOrg):undefined}
               focus={focus}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}

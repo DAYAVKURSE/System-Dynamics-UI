@@ -191,7 +191,17 @@ function WorkerLine({ pid, name, stat, person, roleName }) {
 }
 
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
-  roleOf, onToggleCrew, onOrder, onOpenPerson, published, me }) {
+  roleOf, onToggleCrew, onOrder, onOpenPerson, published, me,
+  roles = [], onAddRole, onDropRole, onSetRole }) {
+  /* Должности заводятся ЗДЕСЬ, рядом с людьми, а не в «Людях и ролях»:
+     кем человек числится, решают там же, где решают, кто где работает.
+     Роль в организации — это и есть должность (она же даёт вкладки). */
+  const [newRole, setNewRole] = useState("");
+  const [roleMsg, setRoleMsg] = useState("");
+  const act = async (fn) => {
+    setRoleMsg("");
+    try { await fn(); } catch (e) { setRoleMsg(e.message || "не вышло"); }
+  };
   // Кто смотрит — тот себя в списке видит без рейтинга (`visibleStats`).
   const stat = (id) => visibleStats({ tasks, funcs, published }, id, me?.id);
   const personOf = (id) => people.find((p) => String(p.id) === String(id)) || {};
@@ -248,6 +258,14 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                     <WorkerLine pid={pid} name={name(pid)} stat={stat(pid)}
                       person={personOf(pid)} roleName={roleOf && roleOf(pid)} />
                   </button>
+                  {onSetRole && roles.length > 0 && (
+                    <select style={{ ...S.inp, width: "auto", fontSize: 11, padding: "2px 4px" }}
+                      aria-label={`должность: ${name(pid)}`}
+                      value={personOf(pid).roleId || ""}
+                      onChange={(e) => act(() => onSetRole(pid, e.target.value))}>
+                      <option value="">— без должности —</option>
+                      {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>)}
                   {on && (<>
                     <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
                       aria-label={`выше: ${name(pid)}`} disabled={i === 0}
@@ -267,7 +285,42 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
               ? " Порядок задаёте вы: кого поставили выше, того и предлагают первым."
               : ""}
           </div>
-        </div></>)}
+        </div>
+
+        {/* ─── должности ───
+            Список должностей создаётся здесь: у воркера должность видна в
+            строке, и заводить её в другой вкладке значило бы ходить туда
+            за каждым новым человеком. Встроенные не удаляются. */}
+        {onAddRole && (
+          <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
+            borderRadius: 8, padding: 8, marginTop: 8 }}>
+            <div style={{ ...S.lbl, marginBottom: 4 }}>должности</div>
+            {!roles.length && (
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
+                Должностей ещё нет — добавьте первую.</div>)}
+            <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
+              {roles.map((r) => (
+                <span key={r.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999,
+                  background: C.panel, border: `1px solid ${C.line}` }}>
+                  {r.name}
+                  {!r.builtin && onDropRole && (
+                    <button style={{ background: "none", border: "none", cursor: "pointer",
+                      color: C.muted, marginLeft: 4, padding: 0 }}
+                      aria-label={`убрать должность: ${r.name}`}
+                      onClick={() => act(() => onDropRole(r.id))}>×</button>)}
+                </span>))}
+            </div>
+            <div className="flex gap-2">
+              <input style={{ ...S.inp, flex: 1 }} value={newRole} aria-label="новая должность"
+                placeholder="название должности"
+                onChange={(e) => setNewRole(e.target.value)} />
+              <button style={btn(false)} disabled={!newRole.trim()}
+                onClick={() => act(async () => { await onAddRole(newRole.trim()); setNewRole(""); })}>
+                Добавить</button>
+            </div>
+            {roleMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{roleMsg}</div>}
+          </div>)}
+      </>)}
     </Section>);
 }
 
@@ -966,7 +1019,9 @@ export default function AssetPanel(props) {
           tasks={props.tasks} funcs={props.funcs} roleOf={props.roleOf}
           onToggleCrew={props.onToggleCrew} onOrder={props.onOrderWorker}
           onOpenPerson={props.onOpenPerson}
-          published={props.published} me={props.me} />)}
+          published={props.published} me={props.me}
+          roles={props.roles} onAddRole={props.onAddRole}
+          onDropRole={props.onDropRole} onSetRole={props.onSetRole} />)}
 
       {tab === "funcs" && (
         <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc} />)}

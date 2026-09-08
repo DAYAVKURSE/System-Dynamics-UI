@@ -172,6 +172,25 @@ describe("«за сколько предупреждать» — у каждог
     expect(withTask[withTask.length - 1].tasks.find((t) => t.id === "t1").warn).toBe(20);
   }, 10000);
 
+  it("в расписание уходит только порученное этому человеку", async () => {
+    /* Уведомление о заказе — исполнителю. Задача, где Иван постановщик или
+       проверяющий, ему о начале не напоминает: работа не его. */
+    const { schedules } = server({ me: { ...IVAN, profile: { ...EMPTY, warnMin: 20 } },
+      users: people(),
+      workspace: { entities: [], traits: [], funcs: [], tasks: [
+        { ...newTask({ funcId: null, title: "Моя" }), id: "mine",
+          status: "backlog", assignee: "2", start: "2030-01-01T10:00" },
+        { ...newTask({ funcId: null, title: "Чужая, я ставлю" }), id: "theirs",
+          status: "backlog", setter: "2", assignee: "3", start: "2030-01-01T11:00" },
+        { ...newTask({ funcId: null, title: "Ничья" }), id: "nobody",
+          status: "wait", assignee: null, start: "2030-01-01T12:00" }] } });
+    await fresh();
+    await waitFor(() => expect(schedules.some((s) =>
+      s.tasks.some((t) => t.id === "mine"))).toBe(true), { timeout: 4000 });
+    const last = schedules[schedules.length - 1];
+    expect(last.tasks.map((t) => t.id)).toEqual(["mine"]);
+  }, 10000);
+
   it("у новой задачи поля «предупредить» нет: это не её настройка", () => {
     expect(newTask({ funcId: "f1" })).not.toHaveProperty("warn");
   });
