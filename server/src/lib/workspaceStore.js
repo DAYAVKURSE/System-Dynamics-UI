@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { assetWorkers, whyNotSet } from "./taskRules.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОБЩАЯ МОДЕЛЬ
@@ -16,9 +17,10 @@ import path from "node:path";
      ссылаются, — чтобы подписи читались. Остальная структура системы его
      не касается.
 
-   Что не-владелец может изменить: взять, отложить и сдать свою задачу
-   (исполнитель), принять или вернуть отчёт (проверяющий), написать и
-   убрать свой комментарий (участник). Больше ничего — запись модели
+   Что не-владелец может изменить: поставить свою задачу — людей, срок,
+   содержимое (постановщик, `setupTask`), взять, отложить и сдать свою
+   задачу (исполнитель), принять или вернуть отчёт (проверяющий), написать
+   и убрать свой комментарий (участник). Больше ничего — запись модели
    целиком закрыта.
 
    Файл модели один, а писателей много: владелец пишет её целиком, каждое
@@ -457,6 +459,93 @@ export const reviewTask = (userId, taskId, { accept, comment, mark, hidden }) =>
 /** Кто в задаче есть: постановщик, исполнитель, проверяющий. */
 const participants = (task) => [task.setter, task.assignee, task.reviewer]
   .filter((v) => v != null && v !== "").map(String);
+
+/**
+ * Кого позванному нужно знать по имени: воркеров активов, которые ему
+ * видны, и участников его задач. Постановщик выбирает исполнителя и
+ * проверяющего из воркеров актива — без имён выбирать было бы не из чего,
+ * а список людей организации целиком отдаётся только владельцу.
+ * Возвращает идентификаторы; имена к ним подставляет маршрут.
+ */
+export function peopleOf(view = {}) {
+  const out = new Set();
+  const add = (list) => (Array.isArray(list) ? list : [])
+    .forEach((id) => { if (id != null && id !== "") out.add(String(id)); });
+  (view.entities || []).forEach((e) => ["crew", "setters", "owners", "reviewers"]
+    .forEach((k) => add(e[k])));
+  (view.funcs || []).forEach((f) => ["setters", "owners", "reviewers"].forEach((k) => add(f[k])));
+  (view.tasks || []).forEach((t) => participants(t).forEach((id) => out.add(id)));
+  return out;
+}
+
+/* ─────── постановка ───────
+
+   Постановка — работа постановщика, а не владельца: ROADMAP v1.2, «форма
+   постановки — для постановщика». Модель целиком пишет владелец, поэтому
+   у постановщика, которого позвали, своя операция — как «взять» у
+   исполнителя и приём у проверяющего: иначе его правки жили бы только в
+   его окне, а «Поставить» меняло бы статус в памяти и нигде больше.
+
+   Что он меняет: название, содержимое, начало, срок и кем срок поставлен,
+   исполнителя и проверяющего — из воркеров актива функции. Постановщика —
+   нет: его назначают на схеме, в ролях функции. И только пока задача ждёт
+   постановки: поставленная уже у исполнителя, и переписывать ему людей и
+   сроки из формы значило бы менять договорённость в одну сторону
+   (владелец, если надо, правит модель целиком).
+
+   «Поставить» (`status: "backlog"`) проходит ту же проверку, что кнопка в
+   форме (`whyNotSet`): все три роли, срок и ресурсы. Отказ — словами, теми
+   же, что видит форма. */
+const parseWhen = (v) => {
+  if (v == null || v === "") return null;
+  const s = String(v);
+  return Number.isFinite(Date.parse(s)) ? s : undefined;
+};
+export const setupTask = (userId, taskId, fields = {}, { isOwner = false } = {}) =>
+  withModel(async (model) => {
+    const task = (model.tasks || []).find((t) => t.id === taskId);
+    if (!task) return { error: "not found" };
+    if (!isOwner && String(task.setter || "") !== String(userId)) return { error: "not yours" };
+    if (task.status !== "wait") {
+      return { error: "already set", why: "Задача уже поставлена — постановка закрыта." };
+    }
+    const f = fields && typeof fields === "object" ? fields : {};
+    const patch = {};
+    if ("title" in f) patch.title = String(f.title ?? "");
+    if ("body" in f) patch.body = String(f.body ?? "");
+    for (const k of ["start", "end"]) {
+      if (!(k in f)) continue;
+      const when = parseWhen(f[k]);
+      if (when === undefined) {
+        return { error: "bad date", why: `${k === "start" ? "Начало" : "Срок"} — не дата.` };
+      }
+      patch[k] = when;
+    }
+    if ("endBy" in f && (f.endBy === "auto" || f.endBy === "hand")) patch.endBy = f.endBy;
+    const workers = assetWorkers(model, task);
+    for (const [k, word] of [["assignee", "Исполнитель"], ["reviewer", "Проверяющий"]]) {
+      if (!(k in f)) continue;
+      const id = f[k] == null || f[k] === "" ? null : String(f[k]);
+      if (id != null && !workers.has(id)) {
+        return { error: "not a worker", why: `${word} не из воркеров актива этой функции.` };
+      }
+      patch[k] = id;
+    }
+    if ("status" in f && f.status !== "backlog") {
+      return { error: "bad status", why: "Отсюда задача может только встать в бэклог." };
+    }
+    Object.assign(task, patch);
+    if (f.status === "backlog") {
+      const why = whyNotSet(task, model);
+      if (why) return { error: "not set", why };
+      task.status = "backlog";
+      task.taken = false;
+      task.deferredAt = null;
+      task.deferredUntil = null;
+    }
+    await writeModel(model);
+    return { task };
+  });
 
 /**
  * Комментарий к задаче — от любого из её участников (или владельца).

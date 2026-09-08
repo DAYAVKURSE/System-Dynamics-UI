@@ -4,7 +4,7 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   forgetScenario } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   takeTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote, getRatings,
-  putSpaceRemote }
+  putSpaceRemote, setupTaskRemote }
   from "../identity.js";
 import { askAssistant, listMemory } from "../assistant.js";
 import { callFromLocation } from "../calls.js";
@@ -637,6 +637,11 @@ export default function SystemModel(){
       // иначе — автозагрузкой ниже, и только когда открывать больше нечего.
       if(me.isOwner) return;
       restoreDoc(fromWorkspace(w));
+      /* Список людей организации — владельцу; позванному сервер кладёт в
+         срез имена тех, с кем он работает: воркеров его активов и
+         участников его задач. Без них постановщику было бы не из кого
+         выбирать исполнителя, а «поставил: 100» читалось бы номером. */
+      if(Array.isArray(w?.people)) setPeople(w.people);
       // С этого момента пространство позванного — его собственное на
       // сервере; до ответа выгружать было бы нечего, кроме пустоты.
       spaceSaved.current=JSON.stringify(normalizeSpace(w?.space));
@@ -1078,6 +1083,11 @@ export default function SystemModel(){
           published={published}
           onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).catch(()=>{}); }}
           onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).catch(()=>{}); }}
+          /* Постановка у владельца уезжает в составе модели через
+             putWorkspace; у позванного постановщика модель не пишется —
+             каждая правка формы и «Поставить» идут своей операцией, и
+             форма ждёт ответа сервера, а не меняет статус у себя. */
+          onSetup={me.isOwner?undefined:(t,patch)=>setupTaskRemote(t.id,patch)}
           onAccept={(t,note,mark,hidden)=>decide(t,true,note,mark,hidden)}
           onReturn={(t,note,mark,hidden)=>decide(t,false,note,mark,hidden)}/>)}
 
@@ -1131,7 +1141,7 @@ export default function SystemModel(){
 
         {under==="time" && me.tabs.includes("timeline") && (
           <Timeline tasks={myTasks} funcs={funcs} traits={traits} entities={entities}
-            nameOf={personName}/>)}
+            nameOf={personName} meId={me.id}/>)}
 
         {under==="edit" && selE && (
           <div style={{...S.card,marginTop:10}}>

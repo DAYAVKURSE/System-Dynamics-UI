@@ -686,3 +686,118 @@ describe("своя анкета", () => {
     expect(org.body.users.find((u) => u.id === "100").about).toBe("Владелец");
   });
 });
+
+/* ─────── ПОСТАНОВКА ЧЕРЕЗ СЕРВЕР ───────
+
+   Форма постановки — для постановщика, не для владельца (ROADMAP v1.2).
+   Модель целиком пишет владелец, поэтому у позванного постановщика своя
+   операция, как «взять» у исполнителя: без неё его правки жили бы только
+   в его окне, а «Поставить» меняло бы статус в памяти и нигде больше. */
+describe("постановка через сервер", () => {
+  const setup = (id, who, body) => request(app)
+    .post(`/api/workspace/tasks/${id}/setup`).set(as(who)).send(body);
+  // Актив с воркерами 500 (постановщик функции), 200, 300; 900 — в другом активе.
+  const SETUP_MODEL = {
+    entities: [{ id: "e1", name: "Я", crew: ["500", "200", "300"] },
+      { id: "e2", name: "Чужой актив", crew: ["900"] }],
+    traits: [{ id: "t1", e: "e1", l: "спрос", have: 100 }],
+    funcs: [{ id: "f1", e: "e1", name: "Сбор заявок", dur: 2, durUnit: "ч",
+      takes: [{ id: "p1", trait: "t1", lo: 2, hi: 4 }], gives: [],
+      setters: ["500"], owners: ["200"], reviewers: ["300"] }],
+    kinds: [], okrs: [], hypos: [], edges: [],
+    tasks: [{ id: "w1", funcId: "f1", title: "Из цели", status: "wait", setter: "500",
+      assignee: null, reviewer: null, start: null, end: "2030-03-01T11:00", endBy: "auto",
+      submissions: [], reviews: [], comments: [] }],
+  };
+  const saveSetupModel = (over = {}) => request(app).put("/api/workspace").set(as(100))
+    .send({ model: { ...SETUP_MODEL, ...over } });
+  const inviteAll = async () => {
+    await invite(500, "reviewer", "Ольга");
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+  };
+
+  it("постановщик задачи ставит её: люди, срок — и она уходит в бэклог", async () => {
+    await saveSetupModel();
+    await inviteAll();
+    // Позванному постановщику задача видна — со своим же активом и его людьми.
+    const view = await request(app).get("/api/workspace").set(as(500, "Ольга"));
+    expect(view.body.tasks.map((t) => t.id)).toEqual(["w1"]);
+    expect(view.body.people.map((p) => p.name).sort()).toEqual(["Иван", "Ольга", "Пётр"]);
+    expect(JSON.stringify(view.body.people)).not.toContain("900");
+
+    const people = await setup("w1", 500, { assignee: "200", reviewer: "300",
+      title: "Собрать заявки за неделю", body: "по трём каналам" });
+    expect(people.status).toBe(200);
+    expect(people.body).toMatchObject({ assignee: "200", reviewer: "300",
+      title: "Собрать заявки за неделю", status: "wait" });
+
+    const put = await setup("w1", 500, { status: "backlog" });
+    expect(put.status).toBe(200);
+    expect(put.body.status).toBe("backlog");
+    // И это сохранилось: исполнитель видит задачу у себя в бэклоге.
+    const ivan = await request(app).get("/api/workspace").set(as(200, "Иван"));
+    expect(ivan.body.tasks.find((t) => t.id === "w1"))
+      .toMatchObject({ status: "backlog", title: "Собрать заявки за неделю" });
+  });
+
+  it("чужую задачу не поставить — ни исполнителю, ни проверяющему", async () => {
+    await saveSetupModel();
+    await inviteAll();
+    expect((await setup("w1", 200, { title: "моя" })).status).toBe(403);
+    expect((await setup("w1", 300, { status: "backlog" })).status).toBe(403);
+    expect((await setup("нет-такой", 500, { title: "x" })).status).toBe(404);
+    expect((await setup("w1", 777, { title: "x" })).status).toBe(403);
+    // Ничего не изменилось.
+    const owner = await request(app).get("/api/workspace").set(as(100));
+    expect(owner.body.tasks[0]).toMatchObject({ title: "Из цели", status: "wait" });
+  });
+
+  it("без исполнителя — отказ словами, теми же, что в форме", async () => {
+    await saveSetupModel();
+    await inviteAll();
+    const res = await setup("w1", 500, { reviewer: "300", status: "backlog" });
+    expect(res.status).toBe(400);
+    expect(res.body.why).toBe("Не хватает: исполнитель");
+    // Задача осталась ждать постановки, а проверяющий — не записан: отказ
+    // ничего не пишет, иначе половина постановки жила бы без второй.
+    const owner = await request(app).get("/api/workspace").set(as(100));
+    expect(owner.body.tasks[0]).toMatchObject({ status: "wait", reviewer: null });
+  });
+
+  it("ресурсов не хватает — та же проверка, что у кнопки «Поставить»", async () => {
+    await saveSetupModel({ traits: [{ id: "t1", e: "e1", l: "спрос", have: 1 }] });
+    await inviteAll();
+    const res = await setup("w1", 500, { assignee: "200", reviewer: "300", status: "backlog" });
+    expect(res.status).toBe(400);
+    expect(res.body.why).toBe("Не хватает ресурсов: спрос — есть 1, нужно 4");
+  });
+
+  it("назначить можно только воркера актива этой функции", async () => {
+    await saveSetupModel();
+    await inviteAll();
+    const res = await setup("w1", 500, { assignee: "900" });
+    expect(res.status).toBe(400);
+    expect(res.body.why).toMatch(/не из воркеров актива/);
+    // Дата, которая не дата, — тоже отказ словами, а не «Invalid Date» в модели.
+    const bad = await setup("w1", 500, { start: "потом" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.why).toMatch(/не дата/);
+  });
+
+  it("поставленную отсюда не переписать: постановка закрыта", async () => {
+    await saveSetupModel({ tasks: SETUP_MODEL.tasks.map((t) => ({ ...t, status: "backlog",
+      assignee: "200", reviewer: "300" })) });
+    await inviteAll();
+    const res = await setup("w1", 500, { assignee: "300" });
+    expect(res.status).toBe(400);
+    expect(res.body.why).toMatch(/уже поставлена/);
+  });
+
+  it("владельцу маршрут тоже открыт — модель его", async () => {
+    await saveSetupModel();
+    const res = await setup("w1", 100, { assignee: "200", reviewer: "300", status: "backlog" });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("backlog");
+  });
+});

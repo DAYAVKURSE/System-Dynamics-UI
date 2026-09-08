@@ -375,6 +375,59 @@ describe("очередь постановки", () => {
     expect(screen.getByText(/Задачи появляются здесь, когда цель применена/))
       .toBeInTheDocument();
   });
+
+  /* ФОРМА ПОСТАНОВКИ — ДЛЯ ПОСТАНОВЩИКА, НЕ ДЛЯ ВЛАДЕЛЬЦА (v1.2).
+
+     Позванный постановщик видел задачу в «ждут постановки», но списки
+     людей были заперты («решает владелец»), «Поставить» не нажималась
+     никогда, а правки названия и срока жили только в его окне: модель на
+     сервер пишет владелец, а своей операции у постановки не было. */
+  describe("позванный постановщик", () => {
+    const mine = { ...waiting, setter: "1" };
+    const Invited = ({ tasks: t0, onSetup }) => {
+      const [tasks, setTasks] = React.useState(t0);
+      return (<ReviewBoard tasks={tasks} setTasks={setTasks} funcs={FUNCS} traits={TRAITS}
+        entities={ENTITIES} people={PEOPLE} meId="1" isOwner={false} canAssign={false}
+        onSetup={onSetup} nameOf={(id) => id} onAccept={() => {}} onReturn={() => {}} />);
+    };
+
+    it("исполнителя и проверяющего выбирает постановщик задачи, а не только владелец", () => {
+      render(<Invited tasks={[mine]} onSetup={() => Promise.resolve()} />);
+      fireEvent.click(screen.getByText("Задача из цели"));
+      expect(screen.getByLabelText("исполнитель")).not.toBeDisabled();
+      expect(screen.getByLabelText("проверяющий")).not.toBeDisabled();
+      expect(screen.queryByText(/решает постановщик задачи или владелец/)).toBeNull();
+    });
+
+    it("каждая правка уходит на сервер, а «Поставить» ждёт его ответа", async () => {
+      const sent = [];
+      const onSetup = vi.fn(async (t, patch) => {
+        sent.push(patch);
+        return patch.status ? { ...t, ...patch, taken: false } : undefined;
+      });
+      render(<Invited tasks={[{ ...mine, reviewer: "3" }]} onSetup={onSetup} />);
+      fireEvent.click(screen.getByText("Задача из цели"));
+      fireEvent.change(screen.getByLabelText("исполнитель"), { target: { value: "2" } });
+      expect(sent).toEqual([{ assignee: "2" }]);
+      fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
+      expect(sent[1]).toEqual({ status: "backlog" });
+      // Ушла из очереди только после ответа сервера — он и есть правда.
+      await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
+    });
+
+    it("сервер не принял — задача остаётся ждать, а причина сказана словами", async () => {
+      const onSetup = vi.fn(async (t, patch) => {
+        if (patch.status) throw new Error("Не хватает ресурсов: спрос — есть 1, нужно 4");
+      });
+      render(<Invited tasks={[{ ...mine, assignee: "2", reviewer: "3" }]} onSetup={onSetup} />);
+      fireEvent.click(screen.getByText("Задача из цели"));
+      fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
+      await waitFor(() => expect(screen.getByText(/Сервер не принял постановку/)).toBeTruthy());
+      expect(screen.getByText(/спрос — есть 1, нужно 4/)).toBeInTheDocument();
+      expect(screen.getByText("постановка задачи")).toBeInTheDocument();
+      expect(screen.queryByText(/Ничего не ждёт постановки/)).toBeNull();
+    });
+  });
 });
 
 describe("возврат с проверки", () => {
@@ -564,6 +617,60 @@ describe("«Инструменты» и роли", () => {
     await fresh();
     await waitFor(() => expect(screen.getByText("Моя работа")).toBeTruthy());
     expect(screen.queryByText("Я проверяю")).toBeNull();
+  });
+
+  it("позванный постановщик ставит задачу — и постановка уходит на сервер", async () => {
+    /* Весь путь: сервер отдаёт постановщику его задачу и имена воркеров
+       актива → он выбирает людей и нажимает «Поставить» → каждая правка
+       и постановка идут в POST /tasks/:id/setup, а не в память окна. */
+    const soon = new Date(Date.now() + 864e5).toISOString().slice(0, 16);
+    const model = {
+      entities: [{ id: "a", name: "Актив", color: "#fff", x: 0, y: 0,
+        crew: ["5", "2", "3"], owners: ["2"], reviewers: ["3"] }],
+      traits: [], kinds: [],
+      funcs: [{ id: "fn1", e: "a", name: "Работа", dur: 1, durUnit: "ч",
+        takes: [], gives: [], setters: ["5"], owners: ["2"], reviewers: ["3"] }],
+      tasks: [{ id: "w1", funcId: "fn1", title: "Поставить меня", status: "wait",
+        setter: "5", assignee: null, reviewer: null, start: null, end: soon,
+        endBy: "auto", submissions: [], reviews: [], comments: [] }],
+      people: [{ id: "5", name: "Ольга" }, { id: "2", name: "Иван" }, { id: "3", name: "Пётр" }],
+    };
+    const posts = [];
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes("/api/health")) {
+        return { ok: true, headers: { get: () => "application/json" },
+          json: async () => ({ ok: true, scenarios: true, org: true }) };
+      }
+      if (u.includes("/api/org/me")) {
+        return { ok: true, json: async () => ({ id: "5", isOwner: false, known: true,
+          role: { id: "reviewer", name: "проверяющий" }, tabs: ["review"] }) };
+      }
+      if (u.includes("/tasks/w1/setup")) {
+        const body = JSON.parse(opts.body);
+        posts.push(body);
+        Object.assign(model.tasks[0], body);
+        return { ok: true, json: async () => ({ ...model.tasks[0] }) };
+      }
+      if (u.includes("/api/workspace")) return { ok: true, json: async () => model };
+      if (u.includes("/api/org")) return { ok: false, status: 403, json: async () => ({}) };
+      return { ok: true, json: async () => ({ savedAt: null }) };
+    });
+    await fresh();
+    fireEvent.click(await screen.findByRole("button", { name: "Проверка" }));
+    fireEvent.click(await screen.findByText("Поставить меня"));
+    // Имена — из среза сервера: список организации позванному не отдаётся.
+    await waitFor(() => expect([...screen.getByLabelText("исполнитель").options]
+      .map((o) => o.textContent)).toContain("Иван · без оценок · 0 работ"));
+    fireEvent.change(screen.getByLabelText("исполнитель"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("проверяющий"), { target: { value: "3" } });
+    await waitFor(() => expect(posts).toEqual([{ assignee: "2" }, { reviewer: "3" }]));
+    fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
+    await waitFor(() => expect(posts[2]).toEqual({ status: "backlog" }));
+    await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
+    // Модель целиком позванный не пишет — и постановка её не выгружает.
+    expect(global.fetch.mock.calls.some(([u, o]) => String(u).endsWith("/api/workspace")
+      && o?.method === "PUT")).toBe(false);
   });
 
   it("у не-владельца нет сохранённых схем — только та, где его назначили", async () => {

@@ -517,20 +517,52 @@ function FuncCard({func,entities,traitName}){
      Сказанное в задаче здесь только читается.
    Постановщик — текстом, не выбором: его назначают на схеме, в ролях
    функции, и задача рождается уже с ним. Менять его в форме значило бы
-   заводить второе место для того же назначения. */
+   заводить второе место для того же назначения.
+
+   `onSetup(task, patch)` — куда уходит постановка у того, кто модель
+   целиком не пишет: у позванного постановщика каждая правка формы идёт
+   на сервер (`POST /api/workspace/tasks/:id/setup`), а «Поставить»
+   меняет статус только после того, как сервер её принял, — иначе форма
+   говорила бы «уйдёт в бэклог исполнителю», а в модели задача так и
+   ждала бы постановки. Отказ сервера — словами под кнопкой. Владельцу
+   `onSetup` не нужен: его правки уезжают в составе модели. */
 export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
   setTasks,onClose,people=[],canAssign=true,nameOf,
-  published,meId}){
+  published,meId,onSetup}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
+  /* Что сервер ответил на постановку, когда не принял её. Пустая строка —
+     возражений нет. */
+  const [setupErr,setSetupErr]=useState("");
+  const [putting,setPutting]=useState(false);
+  /* Правка поля: у себя — сразу, чтобы форма отвечала на нажатие, и
+     следом на сервер, если постановку пишет не владелец. */
+  const commit=(patch)=>{
+    upMany(patch);
+    if(typeof onSetup!=="function") return;
+    setSetupErr("");
+    Promise.resolve(onSetup(task,patch)).catch(e=>setSetupErr(e?.message||"не сохранилось"));
+  };
+  const commitOne=(f,v)=>commit({[f]:v});
+  /* «Поставить»: владелец меняет статус у себя — модель его; остальные
+     ждут сервера и берут задачу из ответа, а отказ показывают словами. */
+  const putTask=()=>{
+    if(typeof onSetup!=="function"){ up("status","backlog"); return; }
+    setSetupErr(""); setPutting(true);
+    Promise.resolve(onSetup(task,{status:"backlog"}))
+      .then(srv=>upMany(srv&&typeof srv==="object"?srv:{status:"backlog"}))
+      .catch(e=>setSetupErr(e?.message||"не поставилась"))
+      .finally(()=>setPutting(false));
+  };
 
   const func=funcs.find(f=>f.id===task.funcId)||null;
   /* Задача, заведённая до того, как постановщик стал приходить из ролей
      функции, постановщика не несёт. Подставляем его из функции, как только
      форму открыли: иначе такую задачу нельзя было бы поставить вовсе —
-     выбора в форме больше нет. */
+     выбора в форме больше нет. Только у себя: постановщика сервер из
+     формы не принимает — его назначают на схеме. */
   const funcSetter=func?.setters?.[0]??null;
   useEffect(()=>{
     if((task.setter==null||task.setter==="")&&funcSetter!=null) up("setter",funcSetter);
@@ -559,7 +591,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
 
       <div style={S.lbl}>название</div>
       <TxtField value={task.title} style={{marginBottom:8,fontWeight:600}}
-        onCommit={v=>up("title",v)}/>
+        onCommit={v=>commitOne("title",v)}/>
 
       <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
         {/* Постановщик — словом: он назначен на схеме, ролями функции. */}
@@ -579,7 +611,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
             <div style={S.lbl}>{k.task}</div>
             <select style={S.inp} value={task[TASK_ROLE[k.id]]||""} disabled={!canAssign}
               aria-label={k.task}
-              onChange={e=>up(TASK_ROLE[k.id],e.target.value||null)}>
+              onChange={e=>commitOne(TASK_ROLE[k.id],e.target.value||null)}>
               <option value="">— не назначен —</option>
               {/* Рейтинг стоит рядом с именем: постановщик выбирает человека,
                   а не гадает, кого из них уже проверяли и как. Рейтинг — из
@@ -594,7 +626,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
       <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
         {canAssign
           ? "Выбирать можно только воркеров этого актива: люди — его свойство. Поставленная задача уходит исполнителю во вкладку «Задачи»."
-          : "Кого назначить, решает владелец."}
+          : "Кого назначить, решает постановщик задачи или владелец."}
         {!pool("owners").length&&asset
           &&" У актива ещё нет исполнителей — добавьте их в карточке актива."}
       </div>
@@ -624,7 +656,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
               const start=e.target.value||null;
               // Сдвинули начало — срок едет за ним, пока его не назначили
               // руками: иначе он остался бы в прошлом относительно старта.
-              upMany(task.endBy==="hand"&&task.end?{start}
+              commit(task.endBy==="hand"&&task.end?{start}
                 :{start,end:defaultEnd(func,start),endBy:"auto"});
             }}/>
         </div>
@@ -632,7 +664,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
           <div style={S.lbl}>закончить</div>
           <input type="datetime-local" style={S.inp} value={task.end||""}
             aria-label="закончить"
-            onChange={e=>upMany({end:e.target.value||null,endBy:"hand"})}/>
+            onChange={e=>commit({end:e.target.value||null,endBy:"hand"})}/>
           <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
             По умолчанию — верхняя граница одного выполнения; можно менять.
             В расчёт всё равно идёт то, сколько ушло на самом деле.
@@ -651,7 +683,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
       <TxtField area value={task.body}
         placeholder="что добавить к описанию функции — если есть что"
         style={{minHeight:70,margin:"4px 0",lineHeight:1.5}}
-        onCommit={v=>up("body",v)}/>
+        onCommit={v=>commitOne("body",v)}/>
       <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginBottom:8}}>
         Пишет постановщик{task.setter?`: ${nameOf?nameOf(task.setter):task.setter}`:""}.
         Заполнять не обязательно: что это за работа, уже сказано описанием
@@ -668,14 +700,19 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
           {/* Недоступную кнопку видно, что она недоступна: зелёная и живая
               на вид, она предлагала бы нажать то, что не нажимается. */}
-          <button style={{...btn(true,OK),opacity:why?0.45:1,
-            cursor:why?"default":"pointer"}} disabled={!!why} title={why}
-            onClick={()=>up("status","backlog")}>Поставить</button>
+          <button style={{...btn(true,OK),opacity:why||putting?0.45:1,
+            cursor:why?"default":"pointer"}} disabled={!!why||putting} title={why}
+            onClick={putTask}>{putting?"Ставлю…":"Поставить"}</button>
           {why
             ? <span style={{fontSize:10.5,color:WARN,lineHeight:1.5}}>{why}</span>
             : <span style={{fontSize:10.5,color:C.muted}}>
                 уйдёт в бэклог исполнителю</span>}
         </div>
+        {/* Сервер не принял — сказано, что именно: молча оставить задачу в
+            «ждут постановки» после нажатия «Поставить» хуже всего. */}
+        {setupErr&&(
+          <div style={{fontSize:10.5,color:BAD,marginTop:6,lineHeight:1.5}}>
+            Сервер не принял постановку: {setupErr}</div>)}
       </>):(
         <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>
           Задача уже поставлена — сейчас она в колонке «{columnName(task.status)}»

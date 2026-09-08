@@ -102,6 +102,22 @@ export const putWorkspace = (model) =>
   json("/api/workspace", { method: "PUT", body: JSON.stringify({ model }) });
 export const takeTaskRemote = (id) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/take`, { method: "POST" });
+/* Постановка — своя операция постановщика, как «взять» у исполнителя:
+   модель целиком пишет владелец, а ставить задачу должен тот, кого
+   назначили постановщиком на схеме. В `fields` — что изменилось в форме
+   (название, содержимое, начало, срок, исполнитель, проверяющий) или
+   `{status: "backlog"}` за «Поставить». Отказ сервер объясняет словами в
+   `why` — теми же, что показывает форма, — и они уходят в ошибку целиком,
+   а не кодом «not set». */
+export async function setupTaskRemote(id, fields) {
+  const r = await fetch(`/api/workspace/tasks/${encodeURIComponent(id)}/setup`,
+    { method: "POST", headers: headers(), body: JSON.stringify(fields) });
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    throw new Error(body.why || body.error || `Сервер ответил ${r.status}`);
+  }
+  return r.json();
+}
 export const submitTaskRemote = (id, submission) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/submit`,
     { method: "POST", body: JSON.stringify(submission) });
