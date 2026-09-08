@@ -174,14 +174,55 @@ describe("функция заводится и живёт", () => {
     expect(f.gives[0].dur).toBeUndefined();
   });
 
-  it("сколько берёт и сколько выдаёт — диапазон, и он сохраняется", () => {
+  it("сколько берёт и сколько выдаёт — по умолчанию точное число", () => {
+    /* Чаще всего берут и выдают РОВНО столько-то. Два поля «от» и «до»
+       заставляли писать одно и то же число дважды, поэтому вилка — по
+       галочке, а без неё поле одно и обе границы у него общие. */
     addFunc();
     const name = addPort("takes");
+    expect(screen.queryByLabelText(`сколько минимум ${name}`)).toBeNull();
+    fireEvent.change(screen.getByLabelText(`сколько ${name}`), { target: { value: "3" } });
+
+    expect(screen.getAllByText("ровно 3").length).toBeGreaterThan(0);
+    expect(dump().funcs.pop().takes[0]).toMatchObject({ lo: 3, hi: 3 });
+  });
+
+  it("«диапазон» открывает вторую границу, и вилка сохраняется", () => {
+    addFunc();
+    const name = addPort("takes");
+    fireEvent.click(screen.getByLabelText(`диапазон ${name}`));
     fireEvent.change(screen.getByLabelText(`сколько минимум ${name}`), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText(`сколько максимум ${name}`), { target: { value: "5" } });
 
     expect(screen.getAllByText("от 3 до 5").length).toBeGreaterThan(0);
     expect(dump().funcs.pop().takes[0]).toMatchObject({ lo: 3, hi: 5 });
+  });
+
+  it("снятая галочка схлопывает вилку в нижнюю границу", () => {
+    addFunc();
+    const name = addPort("takes");
+    fireEvent.click(screen.getByLabelText(`диапазон ${name}`));
+    fireEvent.change(screen.getByLabelText(`сколько минимум ${name}`), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText(`сколько максимум ${name}`), { target: { value: "6" } });
+    fireEvent.click(screen.getByLabelText(`диапазон ${name}`));
+
+    // «От 2 до 6» без галочки — это «ровно 2»: рассчитывали на два.
+    expect(screen.getByLabelText(`сколько ${name}`).value).toBe("2");
+    expect(screen.getAllByText("ровно 2").length).toBeGreaterThan(0);
+    expect(dump().funcs.pop().takes[0]).toMatchObject({ lo: 2, hi: 2 });
+  });
+
+  it("вилка из модели открывает функцию с уже поднятой галочкой", () => {
+    /* Стартовая функция берёт «от 2 до 4» — про такую сразу видно, что это
+       вилка, и вторая граница не спрятана. */
+    scheme();
+    assetTab("Функции");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть функции" })[0]);
+    expect(screen.getByLabelText("диапазон спрос").checked).toBe(true);
+    expect(screen.getByLabelText("сколько максимум спрос")).toBeTruthy();
+    // А выход у неё ровно один — и он показан одним полем.
+    expect(screen.getByLabelText("диапазон заявки").checked).toBe(false);
+    expect(screen.getByLabelText("сколько заявки").value).toBe("1");
   });
 
   it("название правится и переживает выгрузку", () => {

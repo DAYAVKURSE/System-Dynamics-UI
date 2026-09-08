@@ -84,6 +84,61 @@ const Num = ({ value, onChange, label, style }) => (
     style={{ ...S.inp, width: 64, padding: "4px 6px", fontSize: 12, ...style }} />
 );
 
+/**
+ * Сколько ресурса функция берёт или выдаёт.
+ *
+ * Чаще всего это ТОЧНОЕ число: «берёт две заявки», «выдаёт один макет». Два
+ * поля «от» и «до» заставляли писать это число дважды и читались как
+ * обещание неопределённости, которой нет. Поэтому по умолчанию поле одно, а
+ * вилка — по галочке «диапазон», для случаев, когда сколько именно уйдёт,
+ * решается на месте («от 2 до 4 обращений»).
+ *
+ * В записи по-прежнему две границы (`lo`, `hi`) — точное число это `lo`,
+ * равное `hi`: заводить второй способ записать то же самое значило бы
+ * получить два вида порта и два прогноза по ним.
+ *
+ * Галочка живёт в состоянии окна, а не в модели: «от 3 до 3» и «ровно 3» —
+ * одно и то же, и хранить, каким из двух способов это набрали, незачем.
+ * Открывается она по тому, различаются ли границы.
+ */
+function PortQty({ p, name, onSet, fact }) {
+  const lo = Number(p.lo) || 0;
+  const hi = Number(p.hi) || 0;
+  const [ranged, setRanged] = useState(lo !== hi);
+  const exact = () => {
+    // Схлопывая вилку, берём нижнюю границу: она — то, на что рассчитывали.
+    const one = lo || hi;
+    setRanged(false);
+    if (lo !== one || hi !== one) onSet({ lo: one, hi: one });
+  };
+  return (
+    <div className="flex items-center gap-2" style={{ marginTop: 5, flexWrap: "wrap" }}>
+      {ranged ? (<>
+        <span style={S.lbl}>от</span>
+        <Num value={p.lo} label={`сколько минимум ${name}`}
+          onChange={(v) => onSet({ lo: Number(v) || 0 })} />
+        <span style={S.lbl}>до</span>
+        <Num value={p.hi} label={`сколько максимум ${name}`}
+          onChange={(v) => onSet({ hi: Number(v) || 0 })} />
+      </>) : (<>
+        <span style={S.lbl}>ровно</span>
+        {/* Одно число — сразу обе границы: иначе прогноз считал бы вилку,
+            которой человек не задавал. */}
+        <Num value={p.lo} label={`сколько ${name}`}
+          onChange={(v) => onSet({ lo: Number(v) || 0, hi: Number(v) || 0 })} />
+      </>)}
+      <label className="flex items-center gap-2"
+        style={{ fontSize: 11, color: C.muted, cursor: "pointer" }}>
+        <input type="checkbox" aria-label={`диапазон ${name}`} checked={ranged}
+          onChange={(e) => (e.target.checked ? setRanged(true) : exact())}
+          style={{ accentColor: ACC }} />
+        диапазон
+      </label>
+      <span style={{ flex: 1 }} />
+      {fact}
+    </div>);
+}
+
 /** План жёлтым, а когда есть выполнения — зелёное среднее рядом. */
 export function Fact({ plan, fact, unit = "" }) {
   return (
@@ -414,17 +469,9 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                         aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
                         onClick={() => onDel(p.id)}>×</button>
                     </div>
-                    <div className="flex items-center gap-2"
-                      style={{ marginTop: 5, flexWrap: "wrap" }}>
-                      <span style={S.lbl}>от</span>
-                      <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
-                        onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
-                      <span style={S.lbl}>до</span>
-                      <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
-                        onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
-                      <span style={{ flex: 1 }} />
-                      <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
-                    </div>
+                    <PortQty p={p} name={traitName(p.trait)}
+                      onSet={(patch) => onSet(p.id, patch)}
+                      fact={<Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />} />
                     {/* Расходует или только обрабатывает. Вопрос стоит у
                         входа, а не у ресурса: одна функция ткань режет, а
                         другая на неё смотрит — и это про функции, а не про
