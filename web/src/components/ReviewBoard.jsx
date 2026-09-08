@@ -262,11 +262,8 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                 <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits}
                   entities={entities} people={people} canAssign={canAssign}
                   nameOf={nameOf} setTasks={setTasks}
-                  published={published} meId={meId} onComment={onComment}
-                  onDropComment={onDropComment}
-                  onClose={() => setSetupId(null)}
-                  onDelete={() => { setTasks((p) => p.filter((x) => x.id !== setup.id));
-                    setSetupId(null); }} />)}
+                  published={published} meId={meId}
+                  onClose={() => setSetupId(null)} />)}
             </div>);
         })}
       </div>

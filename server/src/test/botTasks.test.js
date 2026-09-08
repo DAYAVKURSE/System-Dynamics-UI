@@ -310,7 +310,8 @@ describe("«Начать» и сдача в чате", () => {
       expect(lastKeys()).toEqual([["1", "2", "3", "4", "5"], ["Назад", "Пропустить"]]);
       expect((await press("task:mark:4")).stage).toBe("comment");
       expect((await say("Не хватало брифа")).stage).toBe("vis");
-      expect(lastKeys()).toEqual([["Скрытый (видит только автор)"], ["Публичный"], ["Назад"]]);
+      expect(lastKeys()).toEqual([["Публично — после публикации видят все"],
+        ["Скрыто — отметку видите только вы, слова — вы и постановщик"], ["Назад"]]);
 
       const r = await press("task:vis:hidden");
       expect(r).toMatchObject({ task: "tk1", submitted: true });

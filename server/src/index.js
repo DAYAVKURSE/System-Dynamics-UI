@@ -15,6 +15,7 @@ import { saveReport } from "./lib/reportStore.js";
 import { publishStep } from "./lib/ratings.js";
 import { askNow, cancel as cancelAsk } from "./lib/assistantQueue.js";
 import * as memory from "./lib/memoryStore.js";
+import { recordGroupMessage } from "./lib/chatStore.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -158,6 +159,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
                  («собираю данные», «спрашиваю модель») правят статус через
                  `edit` выше. Память — та же, что в приложении. */
               assistant: { ask: askNow, cancel: cancelAsk, memory },
+              /* Группы бот только слушает: сообщение ложится в хранилище чатов,
+                 ответа в группу нет никакого (lib/chatStore.js). */
+              chats: { record: recordGroupMessage },
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
               answerInline,

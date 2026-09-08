@@ -76,15 +76,10 @@ export const SYSTEM_PROMPT = [
 
 const uid = () => crypto.randomUUID();
 
-/* Модель человека — из его настроек (контракт C1: `modelFor(userId, task)`).
-   Пока настройки на человека не влиты, того же имени в модуле нет, и
-   очередь берёт прежние общие настройки из .env (`currentFor`): импорт
-   пространством имён, а не именем, чтобы отсутствие одного из двух не
-   ломало загрузку всего сервера. После слияния v1.2 остаётся первая ветка. */
-const modelForDefault = async (userId, task) => {
-  if (typeof settings.modelFor === "function") return settings.modelFor(userId, task);
-  return typeof settings.currentFor === "function" ? settings.currentFor() : null;
-};
+/* Модель человека — из его настроек: `modelFor(userId, task)` в
+   assistantSettings.js. Импорт пространством имён оставлен: тесты подменяют
+   модуль целиком, а очереди нужны и функция, и фраза «не настроен». */
+const modelForDefault = (userId, task) => settings.modelFor(userId, task);
 
 /** Обещание с пределом: не успело — отказ словами. Таймер не держит процесс. */
 function withTimeout(promise, ms, message) {

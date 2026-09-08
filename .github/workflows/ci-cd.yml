@@ -248,6 +248,8 @@ jobs:
           CALLS_DIR=${DEPLOY_PATH_R}/data/calls
           SHARES_DIR=${DEPLOY_PATH_R}/data/shares
           MEMORY_DIR=${DEPLOY_PATH_R}/data/memory
+          ASSISTANT_DIR=${DEPLOY_PATH_R}/data/assistant
+          CHATS_DIR=${DEPLOY_PATH_R}/data/chats
           AI_PROVIDER=${AI_PROVIDER:-}
           AI_MODEL=${AI_MODEL:-}
           OPENAI_API_KEY=${OPENAI_API_KEY:-}

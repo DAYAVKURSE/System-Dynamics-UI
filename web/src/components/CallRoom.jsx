@@ -510,7 +510,7 @@ export default function CallRoom({
           const name = `звонок-${when}${about}`.slice(0, 120)
             + (mime.includes("mp4") ? ".mp4" : ".webm");
           const file = new File([blob], name, { type: mime });
-          const saved = await putReportFile(file, { kind: "call" });
+          const saved = await putReportFile(file, { kind: "call", meeting: meeting?.id });
           setRecNote(saved.url
             ? `Запись сохранена: ${saved.name} (${mb(blob.size)})`
             : `Запись готова (${mb(blob.size)}), но сервера нет — она осталась только здесь.`);

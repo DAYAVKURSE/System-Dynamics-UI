@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  KEY_VARS, NOT_CONFIGURED, TASKS, addProvider, currentFor, fromLegacyEnv, modelFor,
+  KEY_VARS, NOT_CONFIGURED, TASKS, addProvider, fromLegacyEnv, modelFor,
   providerFor, readUserSettings, removeProvider, setTasks, settingsView, updateProvider,
   writeUserSettings,
 } from "../lib/assistantSettings.js";
@@ -208,7 +208,7 @@ describe("перенос прежних настроек владельца из
     legacy();
     expect(settingsView("100").providers.map((p) => p.kind)).toEqual(["openai", "anthropic"]);
     expect(fromLegacyEnv({})).toBeNull();
-    // Совместимость до перехода очереди: currentFor() — модель владельца по задаче chat.
-    expect(currentFor()).toMatchObject({ kind: "anthropic", model: "claude-opus-4-1", providerName: "Claude" });
+    // Перенесённое становится моделью владельца по задаче «chat».
+    expect(modelFor("100", "chat")).toMatchObject({ kind: "anthropic", model: "claude-opus-4-1", providerName: "Claude" });
   });
 });

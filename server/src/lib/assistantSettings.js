@@ -354,14 +354,3 @@ export function providerFor(userId, id) {
   return p ? { ...p, baseUrl: p.baseUrl || DEFAULT_BASE_URL[p.kind], providerName: p.name } : null;
 }
 
-/* ─────── совместимость до перехода очереди ───────
-
-   Очередь v1.1 звала `currentFor()` без человека — «модель владельца».
-   Очередь v1.2 зовёт `modelFor(userId, task)`; пока переход не сделан,
-   прежнее имя отдаёт модель владельца по задаче «chat», чтобы помощник не
-   замолчал на время сборки. Удалить, когда в assistantQueue.js не
-   останется `currentFor`. */
-export function currentFor() {
-  const owner = ownerId();
-  return owner ? modelFor(owner, "chat") : null;
-}

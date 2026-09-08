@@ -1068,7 +1068,7 @@ export default function SystemModel(){
           onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).catch(()=>{}); }}
           onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).catch(()=>{}); }}
           space={space} setSpace={setSpace} files={spaceFiles} memory={memory}
-          ask={me.solo?undefined:(q,ctx)=>askAssistant(q,ctx)}/>)}
+          ask={me.solo?undefined:(q,ctx)=>askAssistant(q,ctx,{task:"space"})}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (
