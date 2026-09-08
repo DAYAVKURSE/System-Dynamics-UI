@@ -653,6 +653,25 @@ describe("своя анкета", () => {
     expect(me.body.profile.about).toBe("исполнитель, верстает");
   });
 
+  it("маршрут отвечает графиком и «за сколько», и «кто я» их повторяет", async () => {
+    /* Весь путь, каким идёт клиент: сохранил → получил в ответ запись →
+       открыл вкладку заново и спросил «кто я». Обе точки должны говорить
+       одно и то же, иначе после перехода между вкладками покажутся
+       прежние дни. */
+    await invite(200, "executor", "Иван");
+    const res = await request(app).put("/api/org/me/profile").set(as(200, "Иван"))
+      .send({ days: [1, 2, 5], from: "10:00", to: "19:00", status: "off", warnMin: 30 });
+    expect(res.status).toBe(200);
+    expect(res.body.profile).toEqual({ about: "", days: [1, 2, 5], from: "10:00",
+      to: "19:00", status: "off", warnMin: 30 });
+    const me = await request(app).get("/api/org/me").set(as(200, "Иван"));
+    expect(me.body.profile).toEqual(res.body.profile);
+    // И владелец видит то же в списке людей — там выбирают, кому поручить.
+    const org = await request(app).get("/api/org").set(as(100));
+    expect(org.body.users.find((u) => u.id === "200"))
+      .toMatchObject({ days: [1, 2, 5], status: "off", warnMin: 30 });
+  });
+
   it("непозванному писать нечего: его в организации нет", async () => {
     expect((await request(app).put("/api/org/me/profile")
       .set(as(777, "Чужой")).send({ about: "кто-то" })).status).toBe(403);

@@ -182,6 +182,12 @@ async function remindersAvailable() {
   return remindersOk;
 }
 
+/**
+ * Отдать планировщику задачи как есть. «За сколько предупредить» (`warn`)
+ * в каждой уже подставлено вызывающим — из анкеты того, кто шлёт
+ * (`me.profile.warnMin` в SystemModel): это его настройка, а не задачи, и
+ * здесь её не откуда взять. Пересылается при входе и при каждой правке.
+ */
 export async function syncSchedule(tasks) {
   if (!(await remindersAvailable())) return false;
   const r = await fetch("/api/schedule", {

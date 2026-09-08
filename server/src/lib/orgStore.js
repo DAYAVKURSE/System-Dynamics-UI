@@ -156,7 +156,10 @@ export const PROFILE_FIELDS = ["about"];
    Пишет их сам человек, тем же маршрутом, что и анкету: чужой график,
    записанный за человека, — это догадка под его именем. Правила разбора
    те же, что на клиенте (`scheduleOfPerson` в `web/src/lib/workers.js`):
-   день это 0–6, часы — «ЧЧ:ММ» или пусто, статус — один из четырёх. */
+   день это 0–6, часы — «ЧЧ:ММ» или пусто, статус — один из четырёх.
+   Рядом — `warnMin`, за сколько минут его предупреждать о задаче: это
+   тоже про него самого, и отдаётся вместе с графиком — и в «кто я», и в
+   списке людей. */
 export const WORK_STATUSES = ["ready", "break", "off", "busy"];
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const hhmm = (v) => (HHMM.test(String(v || "")) ? String(v) : "");
@@ -168,7 +171,26 @@ const scheduleOf = (user = {}) => ({
   from: hhmm(user.from),
   to: hhmm(user.to),
   status: WORK_STATUSES.includes(user.status) ? user.status : "ready",
+  warnMin: warnOf(user.warnMin),
 });
+
+/* ─────── за сколько предупреждать ───────
+
+   «За сколько минут до начала напомнить» — настройка человека, а не
+   задачи: напоминание приходит ему, и на сколько заранее ему удобно, знает
+   он, а не постановщик. Прежде это поле стояло в форме постановки, и
+   постановщик решал за исполнителя, когда того будить.
+
+   Целое число минут от 0 (только «пора начинать») до суток. Не число —
+   значит не названо, и берётся умолчание; число вне отрезка прижимается к
+   его краю: «за неделю» — это не ошибка, а «за сутки, раньше не умеем». */
+export const WARN_DEFAULT = 10;
+export const WARN_MAX = 1440;
+const warnOf = (v) => {
+  const n = Number(v);
+  if (v == null || v === "" || !Number.isFinite(n)) return WARN_DEFAULT;
+  return Math.min(WARN_MAX, Math.max(0, Math.round(n)));
+};
 /* Что было написано в прежних четырёх полях, не пропадает: пока анкета
    пуста, она читается как их склейка — а первое же сохранение переносит
    текст в неё насовсем. Молча выбросить чужие слова было бы хуже всего. */
@@ -199,6 +221,7 @@ export async function setProfile(userId, patch = {}) {
   if (patch.status != null) {
     user.status = WORK_STATUSES.includes(patch.status) ? patch.status : "ready";
   }
+  if (patch.warnMin != null) user.warnMin = warnOf(patch.warnMin);
   await writeOrg(org);
   return profileOf(user);
 }

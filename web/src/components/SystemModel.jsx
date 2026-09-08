@@ -27,7 +27,7 @@ import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 import Modal from "./Modal.jsx";
-import ProfilePanel from "./ProfilePanel.jsx";
+import ProfilePanel, { RemindersCard, warnMinOf } from "./ProfilePanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { emptySpace, filesOf, normalizeSpace } from "../lib/space.js";
@@ -586,16 +586,6 @@ export default function SystemModel(){
     }));
   };
 
-  // ─── напоминания ───
-  // Расписание задачи — её собственное: когда начать и за сколько
-  // предупредить. Прежде оно бралось со стрелки, но стрелок больше нет.
-  const scheduled=useMemo(()=>tasks.map(t=>({...t,start:t.start||null,
-    repeat:"once",end:null})),[tasks]);
-  useEffect(()=>{
-    const id=setTimeout(()=>{ syncSchedule(scheduled).catch(()=>{}); },1200);
-    return ()=>clearTimeout(id);
-  },[scheduled]);
-
   /* ─── общая модель ───
      Владелец пишет модель на сервер, остальные её оттуда читают: только так
      исполнитель вообще увидит поставленную ему задачу. */
@@ -610,6 +600,29 @@ export default function SystemModel(){
   /* Разобрались ли, что открывать. До этого момента на экране может стоять
      встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
   const [ready,setReady]=useState(false);
+
+  // ─── напоминания ───
+  /* Расписание задачи — её собственное: когда начать. А вот ЗА СКОЛЬКО
+     предупредить — не задачи, а человека: напоминание приходит ему, и
+     «за сколько» он выбирает в инструментах (`me.profile.warnMin`).
+     Прежде это поле стояло в задаче, и постановщик решал за исполнителя;
+     теперь в расписание каждой задачи подставляется своё у того, кто его
+     шлёт, — расписание у каждого своё, и бот пишет ему же. */
+  const warn=warnMinOf(me.profile?.warnMin);
+  const scheduled=useMemo(()=>tasks.map(t=>({...t,start:t.start||null,
+    repeat:"once",end:null,warn})),[tasks,warn]);
+  /* Пересылается и при входе, не только при правке: записи, сделанные до
+     v1.1, не несут исполнителя, и кнопки под напоминанием появятся у них
+     только после того, как доска пришлёт расписание заново. Ждём, пока
+     станет ясно, кто вошёл, а у владельца — ещё и что открыто: до этого на
+     экране может стоять встроенная демонстрация, и слать её боту нельзя. */
+  const settled=me.known&&(!me.isOwner||ready);
+  useEffect(()=>{
+    if(!settled) return undefined;
+    const id=setTimeout(()=>{ syncSchedule(scheduled).catch(()=>{}); },1200);
+    return ()=>clearTimeout(id);
+  },[scheduled,settled]);
+
   const pulled=useRef(false);
   // Что из пространства позванного сервер уже хранит (см. эффект ниже).
   const spaceSaved=useRef(null);
@@ -1226,7 +1239,12 @@ export default function SystemModel(){
             Модель отвечает тем, что из цели следует, — см. GoalsPanel. */}
         <GoalsPanel goals={goals} setGoals={setGoals} traits={traits}
           model={{traits,funcs}} runsOf={runsOf}
-          onTasks={list=>setTasks(p=>[...p,...list])}
+          /* Постановщика назначают на схеме, в ролях функции, — и задача
+             рождается уже с ним: форма постановки его не выбирает. Без
+             этого позванный постановщик не увидел бы задачу в «ждут
+             постановки»: ему показывают только те, где постановщик — он. */
+          onTasks={list=>setTasks(p=>[...p,...list.map(t=>(t.setter!=null&&t.setter!==""
+            ?t:{...t,setter:funcs.find(f=>f.id===t.funcId)?.setters?.[0]??null}))])}
           onDropGoal={id=>setTasks(p=>p.filter(t=>(
             /* Уходит цель — уходит и заведённая ею работа. Кроме уже
                СДЕЛАННОЙ: принятая сдача это то, что и правда произошло, и
@@ -1310,7 +1328,8 @@ export default function SystemModel(){
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
         <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-          {[["people","Люди и роли"],["assistant","Помощник"],["calls","Звонки"],["export","Выгрузка"]]
+          {[["people","Люди и роли"],["assistant","Помощник"],["reminders","Напоминания"],
+            ["calls","Звонки"],["export","Выгрузка"]]
             // «Люди и роли» — дело владельца. «Выгрузка» тоже: схем у
             // не-владельца не бывает, у него одна — та, где его назначили.
             .filter(([k])=>(k!=="people"&&k!=="export")||me.isOwner||me.solo)
@@ -1325,6 +1344,12 @@ export default function SystemModel(){
           провайдера и «есть ли ключ» без самого ключа, плюс свою память. */}
       {tab==="tools" && me.tabs.includes("tools") && tool==="assistant" && (
         <AssistantSettings me={me}/>)}
+
+      {/* Напоминания — всем, у кого есть «Инструменты»: за сколько
+          предупреждать, решает тот, кому напоминают. Ответ сервера кладётся
+          в «кто я», и расписание выше пересчитывается с новым «за сколько». */}
+      {tab==="tools" && me.tabs.includes("tools") && tool==="reminders" && (
+        <RemindersCard me={me} onSaved={p=>{ setMe(m=>({...m,profile:p})); }}/>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="calls" && (
         <CallsBoard me={me} people={people} openCall={openCall}

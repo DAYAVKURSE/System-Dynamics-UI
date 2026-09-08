@@ -62,20 +62,24 @@ describe("✕ у комментария", () => {
     expect(cross("слово Петра")).toBeInTheDocument();
   });
 
-  it("в постановке то же правило: не-владелец убирает только своё", () => {
-    const dropped = [];
+  it("в постановке слова только читаются: ни ✕, ни формы — пишет исполнитель при сдаче", () => {
+    /* Форма постановки — только постановка. Комментарий к ней пишет
+       исполнитель, когда сдаёт; постановщику здесь показывают сказанное —
+       адресованное ему и публичное, — и ничего с ним сделать нельзя. */
     const Host = () => {
       const [tasks, setTasks] = React.useState([task({ status: "wait" })]);
       return <TaskSetup task={tasks[0]} tasks={tasks} funcs={FUNCS} traits={TRAITS}
         entities={ENTITIES} people={PEOPLE} canAssign={false} nameOf={nameOf} meId="3"
-        setTasks={setTasks} onClose={() => {}} onDelete={() => {}}
-        onDropComment={(t, id) => dropped.push(id)} />;
+        setTasks={setTasks} onClose={() => {}} />;
     };
     render(<Host />);
-    expect(cross("слово Петра")).toBeInTheDocument();
+    expect(screen.getByText("слово Петра")).toBeInTheDocument();
+    expect(screen.getByText("моё слово")).toBeInTheDocument();
+    expect(cross("слово Петра")).toBeNull();
     expect(cross("моё слово")).toBeNull();
-    fireEvent.click(cross("слово Петра"));
-    expect(dropped).toEqual(["c_petr"]);
+    expect(screen.queryByPlaceholderText("написать комментарий")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Удалить" })).toBeNull();
   });
 });
 

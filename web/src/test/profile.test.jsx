@@ -42,7 +42,7 @@ describe("анкета", () => {
     const about = screen.getByLabelText("анкета");
     fireEvent.change(about, { target: { value: "делаю отчёты" } });
     fireEvent.blur(about);
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить анкету и график" }));
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить анкету" }));
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0][0]).toBe("/api/org/me/profile");
     expect(saved[0][1].about).toBe("делаю отчёты");
@@ -54,7 +54,7 @@ describe("анкета", () => {
     expect(screen.getByText("Пётр")).toBeInTheDocument();
     expect(screen.getByText("делаю макеты")).toBeInTheDocument();
     expect(screen.queryByLabelText("анкета")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Сохранить анкету и график" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Сохранить анкету" })).toBeNull();
   });
 
   /* ─── РАБОЧИЙ ГРАФИК И СТАТУС ───
@@ -62,15 +62,20 @@ describe("анкета", () => {
      Анкета говорит, ЧТО человек умеет; график и статус — РАБОТАЕТ ЛИ ОН
      СЕЙЧАС. Второе спрашивают раньше первого: ставить задачу тому, у кого
      сегодня выходной, значит назначить срок, которого никто не обещал. */
-  it("свой график и статус человек ставит сам, и они уходят одним нажатием",
+  it("свой график и статус человек ставит сам, и они уходят сами — без кнопки",
     async () => {
+      /* Это переключатели, а не поля формы: «сегодня не работаю» нажимают
+         и уходят. Кнопка стояла в другой карточке и называлась «анкету» —
+         нажатый статус оставался в браузере и терялся с уходом со вкладки.
+         Теперь нажатия уезжают сами, подряд идущие — одним запросом. */
       const saved = [];
       vi.stubGlobal("fetch", vi.fn(async (url, opts) => {
         saved.push(JSON.parse(opts.body));
         return { ok: true, status: 200,
-          json: async () => ({ profile: JSON.parse(opts.body) }) };
+          json: async () => ({ profile: { about: "", ...JSON.parse(opts.body) } }) };
       }));
       render(<ProfilePanel me={ME} people={PEOPLE} tasks={[]} funcs={[]} />);
+      expect(screen.getByText(/сохраняются сами, при каждом нажатии/)).toBeInTheDocument();
       fireEvent.click(screen.getByLabelText("рабочий день пн"));
       fireEvent.click(screen.getByLabelText("рабочий день вт"));
       fireEvent.change(screen.getByLabelText("работаю с"),
@@ -78,13 +83,49 @@ describe("анкета", () => {
       fireEvent.change(screen.getByLabelText("работаю до"),
         { target: { value: "18:00" } });
       fireEvent.click(screen.getByLabelText("статус: короткий перерыв"));
-      // Одно решение о себе — одно сохранение: анкета и график вместе.
-      fireEvent.click(screen.getByRole("button",
-        { name: "Сохранить анкету и график" }));
-      await waitFor(() => expect(saved).toHaveLength(1));
-      expect(saved[0]).toMatchObject({ days: [1, 2], from: "09:00", to: "18:00",
+      await waitFor(() => expect(screen.getByText("график сохранён")).toBeInTheDocument());
+      // Пять нажатий подряд — один запрос, и в нём всё сразу.
+      expect(saved).toHaveLength(1);
+      expect(saved[0]).toEqual({ days: [1, 2], from: "09:00", to: "18:00",
         status: "break" });
+      // Текст анкеты этим запросом не трогается: его человек шлёт сам.
+      expect(saved[0]).not.toHaveProperty("about");
     });
+
+  it("сервер не ответил — карточка говорит это словами, а не молчит", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500,
+      json: async () => ({ error: "диск недоступен" }) })));
+    render(<ProfilePanel me={ME} people={PEOPLE} tasks={[]} funcs={[]} />);
+    fireEvent.click(screen.getByLabelText("статус: сегодня не работаю"));
+    await waitFor(() => expect(screen.getByText(/График не сохранился: диск недоступен/))
+      .toBeInTheDocument());
+    // Нажатое при этом на месте: человек видит, что именно не дошло.
+    expect(screen.getAllByText("сегодня не работаю").length).toBeGreaterThan(0);
+  });
+
+  it("список людей, пришедший позже, не стирает того, что человек уже нажал", async () => {
+    /* «Кто я» приходит первым, список людей — вторым, а «Люди и роли»
+       перечитывают его ещё раз. Прежде каждый такой приход пересобирал
+       черновик из пропсов, и нажатое до него молча заменялось прежним. */
+    const saved = [];
+    vi.stubGlobal("fetch", vi.fn(async (url, opts) => {
+      saved.push(JSON.parse(opts.body));
+      return { ok: true, status: 200,
+        json: async () => ({ profile: { about: "", ...JSON.parse(opts.body) } }) };
+    }));
+    const { rerender } = render(
+      <ProfilePanel me={ME} people={[]} tasks={[]} funcs={[]} />);
+    fireEvent.click(screen.getByLabelText("рабочий день сб"));
+    const about = screen.getByLabelText("анкета");
+    fireEvent.change(about, { target: { value: "пишу" } });
+    fireEvent.blur(about);
+    // Приехал список людей и заново приехало «кто я» — с прежней анкетой.
+    rerender(<ProfilePanel me={{ ...ME, profile: { about: "старое", days: [] } }}
+      people={PEOPLE} tasks={[]} funcs={[]} />);
+    expect(screen.getByLabelText("анкета")).toHaveValue("пишу");
+    expect(screen.getByText(/Работает: сб/)).toBeInTheDocument();
+    await waitFor(() => expect(saved.some((b) => JSON.stringify(b.days) === "[6]")).toBe(true));
+  });
 
   it("график читается словами, а подряд идущие дни склеиваются", () => {
     /* «пн, вт, ср, чт, пт» человек пересчитывает в уме, а «пн–пт» —
