@@ -130,9 +130,10 @@ describe("постановка задачи и доска исполнителя
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     const put = screen.getByRole("button", { name: "Поставить" });
     expect(put).toBeDisabled();
+    // Постановщик приходит из ролей функции сам; не хватает остальных.
     expect(put).toHaveAttribute("title",
-      expect.stringContaining("Не хватает: постановщик"));
-    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий, срок/))
+      expect.stringContaining("Не хватает: исполнитель"));
+    expect(screen.getByText(/не хватает исполнитель, проверяющий, срок/))
       .toBeInTheDocument();
   });
 
@@ -193,7 +194,7 @@ describe("задача ждёт ресурсов", () => {
     // Пока задача не описана, разговор о ресурсах преждевременный.
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} traits={poor} />);
     expect(screen.getByRole("button", { name: "Поставить" }))
-      .toHaveAttribute("title", expect.stringContaining("Не хватает: постановщик"));
+      .toHaveAttribute("title", expect.stringContaining("Не хватает: исполнитель"));
   });
 });
 

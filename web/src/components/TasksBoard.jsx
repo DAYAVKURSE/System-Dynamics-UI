@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, byCrew, hoursOf, isFactor, missingGives,
   rangeText, requiredGives, shortage } from "../lib/funcs.js";
@@ -102,7 +102,11 @@ export const BOARD=[
     .map(s=>({...s,states:[s.id]})),
 ];
 
-// За сколько минут до начала предупредить. null — не предупреждать.
+/* За сколько минут до начала предупредить. null — не предупреждать.
+   В задаче этого поля больше нет: «за сколько» — настройка человека, а не
+   задачи (карточка «Напоминания» в инструментах, `RemindersCard`), и в
+   расписание его подставляет SystemModel из анкеты того, кто шлёт. Список
+   остался здесь, потому что варианты те же. */
 export const WARNS=[
   {v:null,name:"не предупреждать"},
   {v:0,name:"в момент начала"},
@@ -151,9 +155,11 @@ export function newTask({funcId=null,title="Новое выполнение",bod
   // deferredAt — когда работу отложили. Отдельно от статуса нарочно:
   // просроченная задача показывается в «Дедлайне», и без этой отметки было
   // бы не сказать, отложили её или просто до неё не дошли.
+  // «За сколько предупредить» у задачи нет: это настройка человека, которому
+  // напоминают (`warnMin` в анкете), и в расписание её подставляет отправитель.
   return {id:uid("tk"),funcId,title,body,status:"wait",taken:false,
     deferredAt:null,
-    setter,assignee,reviewer,start,end,endBy:"auto",warn:10,
+    setter,assignee,reviewer,start,end,endBy:"auto",
     submissions:[],reviews:[],comments:[]};
 }
 
@@ -498,15 +504,37 @@ function FuncCard({func,entities,traitName}){
    Заводить задачи руками здесь тоже нельзя: они появляются из применённых
    целей. Работа, не следующая ни из какой цели, — это работа, о которой
    никто не спросил, зачем она. */
+/* ─── форма — только постановка ───
+
+   Здесь нет трёх вещей, которые в ней были, и у каждой своя причина:
+   · «Удалить» — удаляет владелец, с доски: постановщик описывает работу,
+     а не решает, нужна ли она (это решила цель);
+   · «предупредить за» — настройка того, кому напоминают, в инструментах:
+     постановщик не знает, за сколько исполнителю удобно;
+   · поле комментария — слова к постановке пишет исполнитель при сдаче.
+     Сказанное в задаче здесь только читается.
+   Постановщик — текстом, не выбором: его назначают на схеме, в ролях
+   функции, и задача рождается уже с ним. Менять его в форме значило бы
+   заводить второе место для того же назначения. */
 export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
-  setTasks,onClose,onDelete,people=[],canAssign=true,nameOf,
-  published,meId,onComment,onDropComment}){
+  setTasks,onClose,people=[],canAssign=true,nameOf,
+  published,meId}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
 
   const func=funcs.find(f=>f.id===task.funcId)||null;
+  /* Задача, заведённая до того, как постановщик стал приходить из ролей
+     функции, постановщика не несёт. Подставляем его из функции, как только
+     форму открыли: иначе такую задачу нельзя было бы поставить вовсе —
+     выбора в форме больше нет. */
+  const funcSetter=func?.setters?.[0]??null;
+  useEffect(()=>{
+    if((task.setter==null||task.setter==="")&&funcSetter!=null) up("setter",funcSetter);
+  },[task.id,task.setter,funcSetter]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const setterName=task.setter!=null&&task.setter!==""
+    ?(nameOf?nameOf(task.setter):String(task.setter)):"";
   const traitName=(id)=>traits.find(t=>t.id===id)?.l||"(ресурс удалён)";
   // Назначать можно только воркеров того актива, которому принадлежит
   // функция: люди — свойство актива, и чужой человек в его работе
@@ -524,9 +552,6 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
       <div className="flex items-center gap-2" style={{marginBottom:8}}>
         <span style={S.lbl}>постановка задачи</span>
         <span style={{flex:1}}/>
-        {onDelete&&(
-          <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
-            onClick={()=>onDelete()}>Удалить</button>)}
         {onClose&&<button style={btn(false)} onClick={()=>onClose()}>✕</button>}
       </div>
 
@@ -535,7 +560,19 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
         onCommit={v=>up("title",v)}/>
 
       <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
-        {WORKER_KINDS.map(k=>(
+        {/* Постановщик — словом: он назначен на схеме, ролями функции. */}
+        <div style={{flex:"1 1 150px"}}>
+          <div style={S.lbl}>постановщик</div>
+          <div aria-label="постановщик" style={{fontSize:12.5,fontWeight:600,
+            padding:"6px 0",lineHeight:1.4,color:setterName?C.text:WARN}}>
+            {setterName||"не назначен"}</div>
+          <div style={{fontSize:10,color:C.muted,lineHeight:1.4}}>
+            {setterName
+              ? "назначен в ролях функции на схеме; здесь не меняется"
+              : "назначьте постановщика в ролях функции на схеме — здесь он не выбирается"}
+          </div>
+        </div>
+        {WORKER_KINDS.filter(k=>k.id!=="setters").map(k=>(
           <div key={k.id} style={{flex:"1 1 150px"}}>
             <div style={S.lbl}>{k.task}</div>
             <select style={S.inp} value={task[TASK_ROLE[k.id]]||""} disabled={!canAssign}
@@ -601,16 +638,9 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
         </div>
       </div>
 
-      <div style={S.lbl}>предупредить</div>
-      <select style={{...S.inp,marginBottom:4}}
-        value={task.warn==null?"":String(task.warn)}
-        onChange={e=>up("warn",e.target.value===""?null:Number(e.target.value))}>
-        {WARNS.map(w=>(<option key={String(w.v)} value={w.v==null?"":String(w.v)}>
-          {w.name}</option>))}
-      </select>
       <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-        Напоминание придёт обычным сообщением от бота. Чтобы оно дошло,
-        у бота должен быть начат диалог — откройте его и нажмите «Начать».
+        Напоминание о начале придёт исполнителю от бота — за сколько
+        предупредить заранее, он выбирает сам в «Инструментах → Напоминания».
       </div>
 
       {/* Содержимое пишет постановщик: это его работа, а не догадка
@@ -652,12 +682,10 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
             : ""}. Правки отсюда видит и он.
         </div>)}
 
-      <div style={{...S.lbl,marginTop:10}}>комментарии</div>
-      <Comments task={task} meId={meId} nameOf={nameOf} isOwner={canAssign}
-        onAdd={(c)=>{ up("comments",[...(task.comments||[]),newComment(c,meId)]);
-          onComment?.(task,c); }}
-        onDrop={(id)=>{ up("comments",(task.comments||[]).filter(c=>c.id!==id));
-          onDropComment?.(task,id); }}/>
+      {/* Только чтение: слова к постановке пишет исполнитель при сдаче,
+          а постановщику здесь показывают то, что адресовано ему или всем. */}
+      <div style={{...S.lbl,marginTop:10}}>что сказали в задаче</div>
+      <Comments task={task} meId={meId} nameOf={nameOf} isOwner={canAssign} readOnly/>
     </div>);
 }
 
@@ -1084,7 +1112,7 @@ export const canSeeComment=(c,meId)=>!c?.hidden
    Убрать комментарий может владелец — любой, остальные — только свой:
    то же правило, что и на сервере (DELETE …/comments/:cid). Показывать
    ✕ шире значило бы обещать то, что после перезагрузки не сбудется. */
-function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop}){
+function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop,readOnly=false}){
   const [text,setText]=useState("");
   const [to,setTo]=useState("");
   const [hidden,setHidden]=useState(false);
@@ -1093,7 +1121,8 @@ function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop}){
   const list=(task.comments||[]).filter(c=>canSeeComment(c,me));
   const people=addressees(task,me);
   const canAdd=!!text.trim()&&(!hidden||!!to);
-  const mayDrop=(c)=>typeof onDrop==="function"
+  // Только чтение (форма постановки): ни формы, ни ✕ — писать здесь некому.
+  const mayDrop=(c)=>!readOnly&&typeof onDrop==="function"
     &&(isOwner||(me!=null&&String(c.by)===me));
   const add=()=>{
     if(!canAdd) return;
@@ -1106,7 +1135,8 @@ function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop}){
       :`скрытый · только ${who(c.to)||"адресату"}`);
   return (
     <div style={{margin:"6px 0"}}>
-      {!list.length&&<div style={{fontSize:11.5,color:C.muted}}>Пока нет.</div>}
+      {!list.length&&<div style={{fontSize:11.5,color:C.muted}}>
+        {readOnly?"Пока ничего не сказано.":"Пока нет."}</div>}
       {list.map(c=>(
         <div key={c.id} style={{background:C.panel2,border:`1px solid ${C.line}`,
           borderRadius:6,padding:7,marginBottom:5,
@@ -1122,6 +1152,7 @@ function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop}){
               aria-label="убрать комментарий" onClick={()=>onDrop(c.id)}>✕</button>}
           </div>
         </div>))}
+      {!readOnly&&(<>
       <div className="flex gap-2" style={{marginTop:6}}>
         <TxtField value={text} placeholder="написать комментарий" onCommit={setText}/>
         <button style={btn(false)} disabled={!canAdd}
@@ -1140,6 +1171,7 @@ function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop}){
         <button style={{...btn(!hidden,!hidden?ACC:null),fontSize:11}}
           onClick={()=>setHidden(false)}>публичный (видят все участники)</button>
       </div>
+      </>)}
     </div>);
 }
 
@@ -1175,6 +1207,18 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
   // ресурса взяли и выдали. Поэтому «Сдать» открывает задачу.
   const hand=(t)=>setOpenId(t.id);
   const late=(t)=>overdue(t);
+  /* ─── удаление — владельцу, с доски, словами ───
+     Из формы постановки «Удалить» убрана: постановщик описывает работу, а
+     решать, нужна ли она, — не его дело. Владелец убирает задачу здесь, и
+     подтверждение — словами, а не второй кнопкой: карточка на доске
+     нажимается вся, и одно лишнее касание не должно стирать работу вместе
+     со сдачами. */
+  const [dropId,setDropId]=useState(null);
+  const drop=(t)=>{
+    setTasks(p=>p.filter(x=>x.id!==t.id));
+    setDropId(null);
+    if(openId===t.id) setOpenId(null);
+  };
   return (
     <div>
       {open&&(
@@ -1243,7 +1287,33 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                           ждёт проверяющего</span>)}
                       {t.status==="done"&&(
                         <span style={{fontSize:10.5,color:OK}}>принято</span>)}
+                      <span style={{flex:1}}/>
+                      {canAssign&&dropId!==t.id&&(
+                        <button style={{...btn(false),padding:"3px 8px",fontSize:11,
+                          color:BAD,borderColor:"#5A2436"}}
+                          aria-label={`удалить задачу ${t.title}`}
+                          onClick={e=>{e.stopPropagation();setDropId(t.id);}}>
+                          Удалить</button>)}
                     </div>
+                    {canAssign&&dropId===t.id&&(
+                      <div onClick={e=>e.stopPropagation()}
+                        style={{marginTop:6,padding:7,borderRadius:6,
+                          border:`1px solid ${BAD}`,background:C.panel}}>
+                        <div style={{fontSize:11,lineHeight:1.5,marginBottom:6}}>
+                          Удалить задачу «{t.title}»? Она исчезнет с доски
+                          {(t.submissions||[]).length
+                            ?" вместе со сдачами и оценками, а из расчёта уйдёт её факт"
+                            :" и из расписания напоминаний"}. Вернуть будет нельзя.
+                        </div>
+                        <div className="flex gap-2">
+                          <button style={{...btn(true,BAD),padding:"3px 9px",fontSize:11}}
+                            onClick={e=>{e.stopPropagation();drop(t);}}>
+                            Да, удалить</button>
+                          <button style={{...btn(false),padding:"3px 9px",fontSize:11}}
+                            onClick={e=>{e.stopPropagation();setDropId(null);}}>
+                            Оставить</button>
+                        </div>
+                      </div>)}
                   </div>);
               })}
             </div>);

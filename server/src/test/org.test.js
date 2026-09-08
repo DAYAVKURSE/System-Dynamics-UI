@@ -313,7 +313,7 @@ describe("анкета", () => {
        рабочий график и статус: они отвечают не «кто это», а «работает ли
        он сейчас», и спрашивают их раньше. */
     expect(me.profile).toEqual({ about: "", days: [], from: "", to: "",
-      status: "ready" });
+      status: "ready", warnMin: 10 });
   });
 
   it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
@@ -354,15 +354,55 @@ describe("анкета", () => {
       expect(saved.to).toBe("19:00");
     });
 
+  it("setProfile отвечает графиком целиком — клиенту есть что положить в «кто я»",
+    async () => {
+      /* Ответ на сохранение — то, что теперь записано, а не эхо запроса:
+         клиент подставляет его в свою запись «кто я» и заново показывает
+         анкету из него. Пришёл бы ответ без графика — вкладка, открытая
+         повторно, показала бы пустые дни. */
+      await identify("100", {});
+      const saved = await setProfile("100", { days: [1, 3], from: "09:00", to: "18:00",
+        status: "break", about: "аналитик" });
+      expect(saved).toEqual({ about: "аналитик", days: [1, 3], from: "09:00",
+        to: "18:00", status: "break", warnMin: 10 });
+      // И «кто я» после этого говорит то же самое.
+      expect((await identify("100", {})).profile).toEqual(saved);
+    });
+
+  /* ─── за сколько предупреждать ───
+
+     Настройка человека, а не задачи: напоминание приходит ему, и на
+     сколько заранее ему удобно, знает он, а не постановщик. */
+  it("«за сколько предупреждать» — своё у человека, по умолчанию 10 минут", async () => {
+    await identify("100", {});
+    expect((await setProfile("100", { warnMin: 30 })).warnMin).toBe(30);
+    expect((await identify("100", {})).profile.warnMin).toBe(30);
+    // Ноль — тоже ответ: «только в момент начала», а не «не названо».
+    expect((await setProfile("100", { warnMin: 0 })).warnMin).toBe(0);
+    // Анкета и график при этом не трогаются.
+    await setProfile("100", { about: "аналитик" });
+    expect((await identify("100", {})).profile).toMatchObject({ about: "аналитик", warnMin: 0 });
+  });
+
+  it("«за сколько» — целые минуты не дальше суток; не число — умолчание", async () => {
+    await identify("100", {});
+    expect((await setProfile("100", { warnMin: "45" })).warnMin).toBe(45);
+    expect((await setProfile("100", { warnMin: 12.6 })).warnMin).toBe(13);
+    // «За неделю» — это «за сутки, раньше не умеем», а не ошибка.
+    expect((await setProfile("100", { warnMin: 99999 })).warnMin).toBe(1440);
+    expect((await setProfile("100", { warnMin: -5 })).warnMin).toBe(0);
+    expect((await setProfile("100", { warnMin: "скоро" })).warnMin).toBe(10);
+  });
+
   it("график и статус приходят вместе со списком людей", async () => {
     /* Их спрашивают там же, где выбирают, кому поручить работу. Собирать
        их вторым запросом на каждого человека значило бы спрашивать по
        одному то, что уже лежит рядом. */
     await identify("100", { name: "Первый" });
-    await setProfile("100", { days: [1, 2], from: "09:00", status: "break" });
+    await setProfile("100", { days: [1, 2], from: "09:00", status: "break", warnMin: 20 });
     const org = await listOrg();
     expect(org.users.find((u) => u.id === "100"))
-      .toMatchObject({ days: [1, 2], from: "09:00", status: "break" });
+      .toMatchObject({ days: [1, 2], from: "09:00", status: "break", warnMin: 20 });
   });
 
   it("прежние четыре поля не пропадают: пустая анкета читается как их склейка", async () => {

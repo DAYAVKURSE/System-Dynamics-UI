@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField } from "./ui.jsx";
 import PersonStats from "./PersonStats.jsx";
 import { putProfile } from "../identity.js";
 import { WEEK } from "../lib/funcs.js";
+import { WARNS } from "./TasksBoard.jsx";
 import { WORK_STATUSES, hasSchedule, scheduleOfPerson, scheduleText, statusOf }
   from "../lib/workers.js";
 
@@ -51,7 +52,7 @@ export const statusColor = (id) => (
  * работает ли он сейчас. Ставить задачу тому, у кого сегодня выходной, —
  * значит назначить срок, которого никто не обещал.
  */
-function Schedule({ mine, draft, setDraft }) {
+function Schedule({ mine, draft, setDraft, msg = "" }) {
   const sc = scheduleOfPerson(draft);
   const st = statusOf(sc.status);
   const flip = (d) => setDraft((p) => {
@@ -135,8 +136,22 @@ function Schedule({ mine, draft, setDraft }) {
             ? "График не задан — значит про ваши дни и часы ничего не известно."
             : "График не задан: про дни и часы этого человека ничего не известно.")}
       </div>
+      {/* График и статус — переключатели, а не форма: нажал — записано.
+          Кнопки «Сохранить» у этой карточки нет, и человеку надо видеть,
+          что нажатие дошло, — или что не дошло и почему. */}
+      {mine && (
+        <div aria-live="polite" style={{ fontSize: 10.5, marginTop: 4, lineHeight: 1.5,
+          color: msg && msg !== SCHEDULE_SAVED && msg !== SCHEDULE_SAVING ? WARN : C.muted }}>
+          {msg || "Дни, часы и статус сохраняются сами, при каждом нажатии."}
+        </div>)}
     </div>);
 }
+
+/* Что карточка графика говорит о своём сохранении. Слова вынесены, чтобы
+   тест и цвет строки сверялись с одним и тем же текстом. */
+export const SCHEDULE_SAVING = "сохраняю график…";
+export const SCHEDULE_SAVED = "график сохранён";
+const scheduleKey = (p) => JSON.stringify(scheduleOfPerson(p));
 
 /** Поле анкеты одно. Что в него писать — решает человек, а не форма. */
 export const PROFILE_FIELDS = [
@@ -155,6 +170,25 @@ export const profileOf = (person = {}) => ({
   ...scheduleOfPerson(person),
 });
 
+/* ─────── за сколько предупреждать ───────
+
+   Настройка человека, а не задачи: напоминание приходит ему, и на сколько
+   заранее ему удобно, знает он сам. Прежде «предупредить за» стояло в
+   форме постановки, и постановщик решал за исполнителя, когда того будить.
+   Целые минуты от 0 («только в момент начала») до суток; умолчание — 10,
+   как было у задач. Разбор повторяет серверный (`warnOf` в orgStore.js):
+   не число — умолчание, число вне отрезка прижимается к краю. */
+export const WARN_DEFAULT = 10;
+export const warnMinOf = (v) => {
+  const n = Number(v);
+  if (v == null || v === "" || !Number.isFinite(n)) return WARN_DEFAULT;
+  return Math.min(1440, Math.max(0, Math.round(n)));
+};
+/* Варианты те же, что были у задачи, без «не предупреждать»: «пора
+   начинать» расписание шлёт всегда, выбирается только, за сколько до него
+   предупредить. */
+export const WARN_CHOICES = WARNS.filter((w) => w.v != null);
+
 /** Заполнена ли анкета. */
 export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "").trim());
 
@@ -169,26 +203,109 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
   const person = people.find((p) => String(p.id) === String(id)) || null;
   const name = person?.name || (mine ? me?.name : "") || String(id ?? "");
 
-  const [draft, setDraft] = useState(emptyProfile());
+  /* ─── откуда берётся черновик ───
+
+     Своя анкета приходит вместе с «кто я», чужая — из списка людей. Но
+     приходят они НЕ РАЗОМ: «кто я» — первым запросом, список людей —
+     вторым, а «Люди и роли» перечитывают его ещё раз. Прежде черновик
+     пересобирался из пропсов при каждом их изменении — и всё, что человек
+     успел нажать до прихода списка, молча заменялось прежними значениями;
+     заодно стиралось и «Сохранено.» сразу после сохранения.
+
+     Поэтому черновик пересобирается из источника, но поля, которые человек
+     ТРОГАЛ, остаются его: `touched` помнит их до сохранения. Сменился сам
+     человек (открыли другого) — всё сбрасывается, это другая анкета. */
+  const source = useMemo(
+    () => (mine ? { ...emptyProfile(), ...(me?.profile || {}) } : profileOf(person)),
+    [mine, me, person]);
+  const sourceKey = JSON.stringify(source);
+  const touched = useRef(new Set());
+  const [draft, setDraft] = useState(source);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-
-  /* Своя анкета приходит вместе с «кто я», чужая — из списка людей.
-     Пересобираем при смене человека: иначе в чужой анкете остались бы
-     твои слова. */
+  const [scMsg, setScMsg] = useState("");
+  // Что сервер знает о графике сейчас: с этим сверяется автосохранение.
+  const savedSchedule = useRef(scheduleKey(source));
   useEffect(() => {
-    setMsg("");
-    setDraft(mine ? { ...emptyProfile(), ...(me?.profile || {}) } : profileOf(person));
-  }, [id, mine, me, person]);
+    touched.current = new Set();
+    setMsg(""); setScMsg("");
+  }, [id, mine]);
+  useEffect(() => {
+    savedSchedule.current = scheduleKey(source);
+    setDraft((prev) => {
+      const next = { ...source };
+      touched.current.forEach((k) => { if (k in prev) next[k] = prev[k]; });
+      return next;
+    });
+  }, [sourceKey, id, mine]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Правка помечает поле тронутым — только так оно переживёт приход
+     списка людей. Помечать в самом обновлении состояния можно: добавление
+     в множество повторяется без вреда. */
+  const change = (fn) => setDraft((p) => {
+    const n = typeof fn === "function" ? fn(p) : { ...p, ...fn };
+    Object.keys(n).forEach((k) => { if (n[k] !== p[k]) touched.current.add(k); });
+    return n;
+  });
+
+  /* ─── график и статус сохраняются сами ───
+
+     Это переключатели, а не поля формы: «сегодня не работаю» нажимают и
+     уходят, а кнопка «Сохранить» стояла в другой карточке и называлась
+     «анкету». Нажал, перешёл на другую вкладку, вернулся — прежние
+     значения: сохранить их никто не просил. Теперь каждое нажатие уезжает
+     само, с короткой задержкой, чтобы пять дней подряд ушли одним
+     запросом; уход со вкладки раньше задержки — отправка сразу.
+
+     Запросы идут по цепочке: два подряд могли бы приехать на сервер в
+     обратном порядке, и записанным оказалось бы прежнее. */
+  const chain = useRef(Promise.resolve());
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  const latest = useRef({ onSaved });
+  latest.current.onSaved = onSaved;
+  const pushSchedule = (p) => {
+    const sc = scheduleOfPerson(p);
+    if (alive.current) setScMsg(SCHEDULE_SAVING);
+    chain.current = chain.current.then(async () => {
+      try {
+        const saved = await putProfile(sc);
+        const got = saved?.profile ? { ...saved.profile } : { ...p, ...sc };
+        savedSchedule.current = scheduleKey(got);
+        latest.current.onSaved?.(got);
+        if (alive.current) setScMsg(SCHEDULE_SAVED);
+      } catch (e) {
+        if (alive.current) setScMsg(`График не сохранился: ${e.message || "нет связи"}.`);
+      }
+    });
+  };
+  const pending = useRef(null);
+  const draftScheduleKey = scheduleKey(draft);
+  useEffect(() => {
+    if (!mine || draftScheduleKey === savedSchedule.current) return undefined;
+    pending.current = draft;
+    const t = setTimeout(() => { pending.current = null; pushSchedule(draft); }, 400);
+    return () => clearTimeout(t);
+  }, [mine, draftScheduleKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  /* Размонтировали с неотправленным нажатием — отправить сейчас: иначе
+     переход на другую вкладку и был бы тем самым «не сохранилось». */
+  useEffect(() => () => {
+    if (pending.current) { const p = pending.current; pending.current = null; pushSchedule(p); }
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     setBusy(true); setMsg("");
     try {
-      /* Уходит и анкета, и график со статусом: их пишет тот же человек и
-         тем же нажатием. Разделять на две кнопки значило бы заставить
-         сохранять дважды одно решение о себе. */
-      const saved = await putProfile({ ...draft, ...scheduleOfPerson(draft) });
-      onSaved?.(saved?.profile || draft);
+      /* Уходит и анкета, и график со статусом: их пишет тот же человек, и
+         одно нажатие «Сохранить» не должно оставлять половину недописанной. */
+      const saved = await putProfile({
+        ...Object.fromEntries(PROFILE_FIELDS.map((f) => [f.id, draft[f.id] ?? ""])),
+        ...scheduleOfPerson(draft),
+      });
+      const got = saved?.profile || draft;
+      touched.current = new Set();
+      savedSchedule.current = scheduleKey(got);
+      onSaved?.(got);
       setMsg("Сохранено.");
     } catch (e) { setMsg(e.message || "не удалось сохранить"); }
     setBusy(false);
@@ -199,7 +316,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
       {/* График и статус — ПЕРВЫМИ: прежде чем спрашивать, что человек
           умеет, спрашивают, работает ли он сейчас. И видно это всем, кто
           открыл воркера, а не только ему самому. */}
-      <Schedule mine={mine} draft={draft} setDraft={setDraft} />
+      <Schedule mine={mine} draft={draft} setDraft={change} msg={scMsg} />
 
       <div style={{ ...S.card, marginBottom: 10 }}>
         <div style={S.lbl}>{mine ? "моя анкета" : "анкета"}</div>
@@ -217,7 +334,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
               <TxtField area={fld.area} value={draft[fld.id] || ""} placeholder={fld.hint}
                 aria-label={fld.name}
                 style={fld.area ? { minHeight: 96, lineHeight: 1.5 } : undefined}
-                onCommit={(v) => setDraft((p) => ({ ...p, [fld.id]: v }))} />
+                onCommit={(v) => change((p) => ({ ...p, [fld.id]: v }))} />
             ) : (
               <div style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap",
                 color: draft[fld.id] ? C.text : C.muted }}>
@@ -227,7 +344,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
         {mine && (
           <div className="flex items-center gap-2">
             <button style={btn(true, ACC)} disabled={busy} onClick={save}>
-              {busy ? "Сохраняю…" : "Сохранить анкету и график"}</button>
+              {busy ? "Сохраняю…" : "Сохранить анкету"}</button>
             {msg && (
               <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>
                 {msg}</span>)}
@@ -244,6 +361,56 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           {mine ? "комментарии и работы" : "рейтинг и работы"}</div>
         <PersonStats tasks={tasks} funcs={funcs} personId={id} traitName={traitName}
           published={published} viewerId={me?.id} ratings={ratings} />
+      </div>
+    </div>);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   НАПОМИНАНИЯ · за сколько предупреждать
+
+   Карточка в инструментах, у каждого своя. Бот шлёт напоминание «через N
+   минут» и «пора начинать» тому, кому поручена задача, — и N выбирает он,
+   а не постановщик. Записывается в анкету (`warnMin`) тем же маршрутом,
+   что и график: это тоже сведения о человеке, а не о задаче.
+   ════════════════════════════════════════════════════════════════ */
+export function RemindersCard({ me, onSaved }) {
+  const current = warnMinOf(me?.profile?.warnMin);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const known = Boolean(me?.known && !me?.solo);
+  const pick = async (v) => {
+    setBusy(true); setMsg("");
+    try {
+      const saved = await putProfile({ warnMin: v });
+      onSaved?.(saved?.profile || { ...(me?.profile || {}), warnMin: v });
+      setMsg("Сохранено.");
+    } catch (e) { setMsg(e.message || "не удалось сохранить"); }
+    setBusy(false);
+  };
+  const label = WARN_CHOICES.find((w) => w.v === current)?.name || `за ${current} мин`;
+  return (
+    <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={S.lbl}>напоминания</div>
+      <div style={{ fontSize: 11.5, color: C.muted, margin: "6px 0 8px", lineHeight: 1.6 }}>
+        Бот напоминает о задаче дважды: заранее и в момент начала. За сколько
+        предупреждать заранее — решаете вы, а не постановщик: напоминание
+        приходит вам. Сейчас: <b style={{ color: C.text }}>{label}</b>.
+      </div>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+        <span style={{ fontSize: 11.5, color: C.muted }}>предупреждать</span>
+        <select style={{ ...S.inp, flex: "0 1 200px" }} value={String(current)}
+          aria-label="предупреждать за" disabled={busy || !known}
+          onChange={(e) => pick(warnMinOf(e.target.value))}>
+          {WARN_CHOICES.map((w) => (
+            <option key={w.v} value={String(w.v)}>{w.name}</option>))}
+        </select>
+        {msg && (
+          <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>{msg}</span>)}
+      </div>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+        {known
+          ? "Применяется к вашему расписанию сразу: приложение пересылает его боту при входе и при каждой правке задач. Чтобы напоминание дошло, у бота должен быть начат диалог."
+          : "Без сервера напоминаний нет: боту некуда слать, и выбирать здесь нечего."}
       </div>
     </div>);
 }

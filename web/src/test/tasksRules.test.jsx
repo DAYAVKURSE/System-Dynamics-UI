@@ -126,7 +126,9 @@ describe("«Готово» — только через приём отчёта",
   it("на проверке исполнителю нажимать нечего — дело за проверяющим", () => {
     render(<Board tasks={[task({ status: "review" })]} />);
     const card = screen.getByText("Задача A").parentElement;
-    expect(within(card).queryByRole("button")).toBeNull();
+    // Кнопка работы — ни одной; «Удалить» — не работа, а право владельца.
+    expect(within(card).queryAllByRole("button")
+      .filter((b) => !/^удалить/i.test(b.textContent))).toEqual([]);
     expect(within(card).getByText("ждёт проверяющего")).toBeInTheDocument();
   });
 
@@ -229,16 +231,35 @@ describe("назначения берутся из воркеров актива
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     const names = (label) => [...screen.getByLabelText(label).options]
       .map((o) => o.textContent);
-    // Владелец — постановщик актива, Иван — исполнитель, Пётр — проверяющий.
-    // Рядом с именем — краткая статистика: постановщик выбирает не
-    // вслепую, а видя, как человек работает.
-    expect(names("постановщик")).toEqual(["— не назначен —", "Владелец · без оценок · 0 работ"]);
+    // Владелец — постановщик функции, и он приходит в задачу словом, а не
+    // выбором: назначен на схеме, здесь не меняется. Иван — исполнитель,
+    // Пётр — проверяющий; рядом с именем — краткая статистика: постановщик
+    // выбирает не вслепую, а видя, как человек работает.
+    expect(screen.getByLabelText("постановщик").textContent).toBe("1");
+    expect(screen.queryByRole("combobox", { name: "постановщик" })).toBeNull();
     expect(names("исполнитель")).toEqual(["— не назначен —", "Иван · без оценок · 0 работ"]);
     expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр · без оценок · 0 работ"]);
   });
 
   it("все три роли обязательны — сказано, чего не хватает", () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
+    // Постановщик подставился из ролей функции; двух остальных ещё нет.
+    expect(screen.getByText(/не хватает исполнитель, проверяющий/))
+      .toBeInTheDocument();
+  });
+
+  it("без постановщика у функции задачу не поставить — и сказано, где его назначить", () => {
+    const [f] = FUNCS;
+    const Host = () => {
+      const [tasks, setTasks] = React.useState([newTask({ funcId: "f1", title: "Задача A" })]);
+      return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={[{ ...f, setters: [] }]}
+        entities={ENTITIES} traits={TRAITS} setTasks={setTasks} people={PEOPLE} canAssign
+        nameOf={(id) => id} />);
+    };
+    render(<Host />);
+    expect(screen.getByLabelText("постановщик").textContent).toBe("не назначен");
+    expect(screen.getByText(/назначьте постановщика в ролях функции на схеме/))
+      .toBeInTheDocument();
     expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий/))
       .toBeInTheDocument();
   });
@@ -405,13 +426,15 @@ describe("поля задачи в порядке постановки", () => {
     const labels = [...container.querySelectorAll("div")]
       .map((d) => d.textContent)
       .filter((x) => ["название", "исполнитель", "проверяющий", "начать",
-        "содержимое задачи — необязательно", "комментарии"].includes(x));
+        "содержимое задачи — необязательно", "что сказали в задаче"].includes(x));
     expect(labels.indexOf("название")).toBeLessThan(labels.indexOf("исполнитель"));
     expect(labels.indexOf("исполнитель")).toBeLessThan(labels.indexOf("начать"));
     expect(labels.indexOf("начать"))
       .toBeLessThan(labels.indexOf("содержимое задачи — необязательно"));
-    // Комментарии — ровно один раз: две формы подряд спрашивали одно и то же.
-    expect(labels.filter((x) => x === "комментарии")).toHaveLength(1);
+    // Сказанное в задаче — ровно один раз, и только чтение: слова к
+    // постановке пишет исполнитель при сдаче, а не постановщик.
+    expect(labels.filter((x) => x === "что сказали в задаче")).toHaveLength(1);
+    expect(screen.queryByPlaceholderText("написать комментарий")).toBeNull();
   });
 
   it("у исполнителя формы постановки нет — только содержимое, сдача и комментарии", () => {
