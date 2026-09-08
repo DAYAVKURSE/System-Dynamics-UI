@@ -36,6 +36,7 @@ beforeAll(async () => {
   process.env.REPORTS_DIR = path.join(tmp, "reports");
   process.env.CALLS_DIR = path.join(tmp, "calls");
   process.env.MEMORY_DIR = path.join(tmp, "memory");
+  process.env.ASSISTANT_DIR = path.join(tmp, "assistant");
   process.env.ENV_FILE = path.join(tmp, ".env");
   process.env.NODE_ENV = "production";
   process.env.TELEGRAM_BOT_TOKEN = TOKEN;
@@ -54,7 +55,7 @@ afterAll(async () => {
   await fs.rm(tmp, { recursive: true, force: true });
 });
 beforeEach(async () => {
-  for (const d of ["ORG_DIR", "WORKSPACE_DIR", "REPORTS_DIR", "CALLS_DIR", "MEMORY_DIR"]) {
+  for (const d of ["ORG_DIR", "WORKSPACE_DIR", "REPORTS_DIR", "CALLS_DIR", "MEMORY_DIR", "ASSISTANT_DIR"]) {
     await fs.rm(process.env[d], { recursive: true, force: true });
   }
   await fs.rm(process.env.ENV_FILE, { force: true });
@@ -67,36 +68,96 @@ beforeEach(async () => {
 });
 afterEach(() => { globalThis.fetch = prev.fetch; });
 
+/* Провайдеры и ключи — у каждого свои: маршруты отдают и меняют только
+   настройки того, кто подписал запрос, и ни в одном ответе нет ключа. */
+const KEY = "sk-openai-verysecret-1";
+const addProvider = (who, over = {}) => request(app).post("/api/assistant/providers").set(as(who))
+  .send({ name: "OpenAI", kind: "openai", key: KEY, ...over });
+
 describe("настройки", () => {
   it("непозванному — 403, и никаких настроек", async () => {
     const res = await request(app).get("/api/assistant/settings").set(as(777, "Чужой"));
     expect(res.status).toBe(403);
+    expect((await addProvider(777)).status).toBe(403);
   });
 
-  it("позванный читает провайдера и hasKey, но ключа в ответе нет", async () => {
-    await request(app).put("/api/assistant/settings").set(as(100))
-      .send({ provider: "openai", key: "sk-openai-verysecret-1" });
+  it("пусто — виды API и список задач есть, провайдеров нет", async () => {
     const res = await request(app).get("/api/assistant/settings").set(as(200));
     expect(res.status).toBe(200);
-    expect(res.body.provider).toBe("openai");
-    expect(res.body.hasKey).toEqual({ openai: true, claude: false, hf: false });
-    expect(JSON.stringify(res.body)).not.toContain("verysecret");
+    expect(res.body.providers).toEqual([]);
+    expect(res.body.tasks).toEqual({ chat: null, space: null, bot: null, transcribe: null });
+    expect(res.body.kinds.map((k) => k.id)).toEqual(["openai", "anthropic", "hf"]);
+    expect(res.body.kinds[0].defaultBaseUrl).toBe("https://api.openai.com/v1");
+    expect(res.body.taskList.map((t) => t.id)).toEqual(["chat", "space", "bot", "transcribe"]);
   });
 
-  it("PUT чужим — 403, ключ не записан", async () => {
-    const res = await request(app).put("/api/assistant/settings").set(as(200))
-      .send({ provider: "claude", key: "sk-ant-0123456789" });
-    expect(res.status).toBe(403);
-    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
-    const view = await request(app).get("/api/assistant/settings").set(as(200));
-    expect(view.body.hasKey.claude).toBe(false);
+  it("свой провайдер виден только себе, ключа нет ни в одном ответе", async () => {
+    const created = await addProvider(200, { name: "Мой OpenRouter", baseUrl: "https://openrouter.ai/api/v1" });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ name: "Мой OpenRouter", kind: "openai", hasKey: true, models: [] });
+    expect(JSON.stringify(created.body)).not.toContain("verysecret");
+    const mine = await request(app).get("/api/assistant/settings").set(as(200));
+    expect(mine.body.providers.map((p) => p.name)).toEqual(["Мой OpenRouter"]);
+    expect(JSON.stringify(mine.body)).not.toContain("verysecret");
+    const owner = await request(app).get("/api/assistant/settings").set(as(100));
+    expect(owner.body.providers).toEqual([]);
   });
 
-  it("PUT владельцем с плохим провайдером — 400 словами", async () => {
-    const res = await request(app).put("/api/assistant/settings").set(as(100))
-      .send({ provider: "gemini" });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/must be one of/);
+  it("чужого провайдера нельзя ни поправить, ни удалить, ни спросить список моделей", async () => {
+    const { body: p } = await addProvider(200);
+    expect((await request(app).put(`/api/assistant/providers/${p.id}`).set(as(100)).send({ name: "x" })).status).toBe(404);
+    expect((await request(app).delete(`/api/assistant/providers/${p.id}`).set(as(100))).status).toBe(404);
+    expect((await request(app).get(`/api/assistant/providers/${p.id}/models`).set(as(100))).status).toBe(404);
+    const still = await request(app).get("/api/assistant/settings").set(as(200));
+    expect(still.body.providers[0].name).toBe("OpenAI");
+  });
+
+  it("правка: модели списком, пустой ключ не трогает ключ; удаление — 204 и строки таблицы пусты", async () => {
+    const { body: p } = await addProvider(200);
+    const upd = await request(app).put(`/api/assistant/providers/${p.id}`).set(as(200))
+      .send({ models: ["gpt-4.1", "gpt-4o-mini"], key: "" });
+    expect(upd.status).toBe(200);
+    expect(upd.body.models).toEqual(["gpt-4.1", "gpt-4o-mini"]);
+    expect(upd.body.hasKey).toBe(true);
+    const tasks = await request(app).put("/api/assistant/tasks").set(as(200))
+      .send({ chat: { providerId: p.id, model: "gpt-4.1" } });
+    expect(tasks.status).toBe(200);
+    expect(tasks.body.chat).toEqual({ providerId: p.id, model: "gpt-4.1" });
+    const gone = await request(app).delete(`/api/assistant/providers/${p.id}`).set(as(200));
+    expect(gone.status).toBe(204);
+    const after = await request(app).get("/api/assistant/settings").set(as(200));
+    expect(after.body.providers).toEqual([]);
+    expect(after.body.tasks.chat).toBeNull();
+  });
+
+  it("плохой ввод — 400 словами по-русски", async () => {
+    const bad = await addProvider(200, { kind: "gemini" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/Неизвестный вид API/);
+    const { body: p } = await addProvider(200);
+    const row = await request(app).put("/api/assistant/tasks").set(as(200))
+      .send({ chat: { providerId: p.id, model: "gpt-5" } });
+    expect(row.status).toBe(400);
+    expect(row.body.error).toMatch(/модель, которой нет/);
+  });
+
+  it("список моделей — через провайдера по его ключу; ошибка провайдера — 400 словами", async () => {
+    const { body: p } = await addProvider(200, { name: "Groq", baseUrl: "https://api.groq.com/openai/v1" });
+    const sent = [];
+    globalThis.fetch = async (url, opts) => {
+      sent.push({ url, opts });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ data: [{ id: "llama-3.3-70b" }] }) };
+    };
+    const list = await request(app).get(`/api/assistant/providers/${p.id}/models`).set(as(200));
+    expect(list.status).toBe(200);
+    expect(list.body).toEqual([{ id: "llama-3.3-70b", name: "llama-3.3-70b" }]);
+    expect(sent[0].url).toBe("https://api.groq.com/openai/v1/models");
+    expect(sent[0].opts.headers.Authorization).toBe(`Bearer ${KEY}`);
+    globalThis.fetch = async () => ({ ok: false, status: 401,
+      text: async () => JSON.stringify({ error: { message: "bad key" } }) });
+    const err = await request(app).get(`/api/assistant/providers/${p.id}/models`).set(as(200));
+    expect(err.status).toBe(400);
+    expect(err.body.error).toBe("Groq ответил 401: bad key");
   });
 });
 
@@ -118,24 +179,25 @@ describe("вопрос в два шага", () => {
     expect(asked.status).toBe(202);
     expect(asked.body.id).toBeTruthy();
     const r = await poll(asked.body.id, 200);
-    expect(r.body).toEqual({ status: "error", error: "Помощник не настроен: владелец должен указать ключ в Инструментах" });
+    expect(r.body).toEqual({ status: "error", error: "Помощник не настроен: добавьте провайдера и ключ в Инструментах → Помощник" });
   });
 
-  it("настроен — ответ модели приходит вторым запросом", async () => {
-    await request(app).put("/api/assistant/settings").set(as(100))
-      .send({ provider: "openai", key: "sk-openai-0123456789" });
+  it("настроен — ответ модели приходит вторым запросом, task уходит в очередь", async () => {
+    const { body: p } = await addProvider(100, { name: "OpenAI" });
+    await request(app).put(`/api/assistant/providers/${p.id}`).set(as(100)).send({ models: ["gpt-4o-mini"] });
     const sent = [];
     globalThis.fetch = async (url, opts) => {
       sent.push({ url, body: JSON.parse(opts.body) });
       return { ok: true, status: 200,
         text: async () => JSON.stringify({ choices: [{ message: { content: "Задач нет." } }] }) };
     };
-    const asked = await request(app).post("/api/assistant/ask").set(as(200))
-      .send({ question: "что у меня?", context: "открыт блок «заметка»" });
+    const asked = await request(app).post("/api/assistant/ask").set(as(100))
+      .send({ question: "что у меня?", context: "открыт блок «заметка»", task: "space" });
     expect(asked.status).toBe(202);
-    const r = await poll(asked.body.id, 200);
+    const r = await poll(asked.body.id, 100);
     expect(r.body).toEqual({ status: "done", text: "Задач нет." });
-    expect(sent[0].url).toContain("api.openai.com");
+    expect(sent[0].url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(sent[0].body.model).toBe("gpt-4o-mini");
     expect(sent[0].body.messages[0].content).toContain("открыт блок «заметка»");
     expect(sent[0].body.messages[1].content).toBe("что у меня?");
   });

@@ -65,7 +65,7 @@ describe("что помощник берёт, а что нет", () => {
     d.assistant.ask = async () => { throw new Error(NOT_CONFIGURED); };
     const r = await onAssistantMessage({ text: "?" }, from, d);
     await r.done;
-    expect(sent[1].text).toBe("Помощник не настроен: владелец должен указать ключ в Инструментах");
+    expect(sent[1].text).toBe(NOT_CONFIGURED);
   });
 
   it("ошибка провайдера — словами", async () => {

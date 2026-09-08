@@ -1,19 +1,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import AssistantSettings, { preview } from "../components/AssistantSettings.jsx";
+import AssistantSettings, { preview, rowFrom, rowValue } from "../components/AssistantSettings.jsx";
 import { addMemory, askAssistant } from "../assistant.js";
 
-/* ПОМОЩНИК: ключи и модели в «Инструментах», память, вопрос в два шага.
+/* ПОМОЩНИК: свои провайдеры и модели в «Инструментах», память, вопрос в
+   два шага.
 
-   Ключ ставит только владелец; наружу он не уходит никогда — карточка
-   показывает лишь «есть/нет». Память — только своя. Вопрос кладётся и
-   опрашивается короткими запросами: длинный запрос рвут nginx и WebView. */
+   Провайдер — вид API + адрес + ключ, у каждого свои; наружу ключ не
+   уходит никогда — карточка показывает лишь «есть/нет». Таблица «задача →
+   модель» говорит, какая модель на что отвечает. Память — только своя.
+   Вопрос кладётся и опрашивается короткими запросами: длинный запрос
+   рвут nginx и WebView. */
 
-const OWNER = { id: "1", name: "Владелец", isOwner: true, known: true, tabs: ["tools"] };
 const IVAN = { id: "2", name: "Иван", isOwner: false, known: true, tabs: ["tools"] };
 
-const SETTINGS = { provider: "openai", model: "", hasKey: { openai: true, claude: false, hf: false },
-  defaults: { openai: "gpt-4o-mini", claude: "claude-sonnet-4-5", hf: "meta-llama/Llama-3.1-8B-Instruct" } };
+const KINDS = [
+  { id: "openai", name: "Совместимый с OpenAI", defaultBaseUrl: "https://api.openai.com/v1" },
+  { id: "anthropic", name: "Anthropic (Claude)", defaultBaseUrl: "https://api.anthropic.com" },
+  { id: "hf", name: "Hugging Face", defaultBaseUrl: "https://router.huggingface.co/v1" },
+];
+const TASKS = [
+  { id: "chat", name: "Помощник (по умолчанию)" }, { id: "space", name: "Вопрос в пространстве" },
+  { id: "bot", name: "Помощник в чате бота" }, { id: "transcribe", name: "Расшифровка записей звонков" },
+];
+const EMPTY_TASKS = { chat: null, space: null, bot: null, transcribe: null };
+const settingsOf = (providers, tasks = EMPTY_TASKS) => ({ providers, tasks, kinds: KINDS, taskList: TASKS });
+const SETTINGS = settingsOf([]);
+const P1 = { id: "p_1", name: "Мой OpenAI", kind: "openai", baseUrl: "", models: ["gpt-4.1", "gpt-4o-mini"], hasKey: true };
 
 /** Подменный сервер: отвечает по адресу и методу, запоминает запросы.
  *  Ответ — либо тело как есть, либо `{status, body}`, когда важен HTTP-статус
@@ -34,65 +47,162 @@ function server(routes, log = []) {
 
 afterEach(() => vi.restoreAllMocks());
 
+/** Подменный сервер настроек: хранит провайдеров и таблицу, как настоящий. */
+function settingsServer(providers = [], tasks = { ...EMPTY_TASKS }, extra = {}) {
+  const state = { providers: [...providers], tasks: { ...tasks } };
+  const view = (p) => ({ ...p, hasKey: true });
+  const log = server({
+    "GET /api/assistant/settings": () => ({ body: settingsOf(state.providers.map(view), { ...state.tasks }) }),
+    "GET /api/assistant/memory": [],
+    "POST /api/assistant/providers": ({ opts }) => {
+      const b = JSON.parse(opts.body);
+      if (!b.key) return { status: 400, body: { error: "Ключ обязателен: без него провайдер не ответит" } };
+      const p = { id: `p_${state.providers.length + 1}`, name: b.name, kind: b.kind, baseUrl: b.baseUrl || "", models: [] };
+      state.providers.push(p);
+      return { status: 201, body: view(p) };
+    },
+    "PUT *": ({ url, opts }) => {
+      const b = JSON.parse(opts.body);
+      if (url === "/api/assistant/tasks") { Object.assign(state.tasks, b); return { body: { ...state.tasks } }; }
+      const p = state.providers.find((x) => url.endsWith(`/${x.id}`));
+      if (!p) return { status: 404, body: { error: "Провайдер не найден" } };
+      if (b.models) p.models = b.models;
+      if (b.name !== undefined) p.name = b.name;
+      return { body: view(p) };
+    },
+    "DELETE *": ({ url }) => {
+      state.providers = state.providers.filter((x) => !url.endsWith(`/${x.id}`));
+      for (const t of Object.keys(state.tasks)) {
+        if (state.tasks[t] && !state.providers.some((x) => x.id === state.tasks[t].providerId)) state.tasks[t] = null;
+      }
+      return { status: 204, body: null };
+    },
+    ...extra,
+  });
+  return { log, state };
+}
+
 describe("чем думает помощник", () => {
-  it("владелец видит три провайдера, поле модели с подсказкой и поле ключа; ключа в ответе нет", async () => {
-    server({ "GET /api/assistant/settings": SETTINGS, "GET /api/assistant/memory": [] });
-    render(<AssistantSettings me={OWNER} />);
-    await screen.findByRole("button", { name: /OpenAI/ });
-    expect(screen.getByRole("button", { name: /Claude/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Hugging Face/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /OpenAI/ })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByLabelText("модель")).toHaveAttribute("placeholder", "gpt-4o-mini");
-    expect(screen.getByLabelText("ключ")).toHaveAttribute("type", "password");
-    expect(screen.getByLabelText("ключ")).toHaveValue("");
-    expect(screen.getByText(/ключ есть/)).toBeInTheDocument();
-  });
-
-  it("сохранение уходит одним PUT с провайдером, моделью и ключом", async () => {
-    const log = server({
-      "GET /api/assistant/settings": SETTINGS,
-      "GET /api/assistant/memory": [],
-      "PUT /api/assistant/settings": ({ opts }) => {
-        const b = JSON.parse(opts.body);
-        return { ...SETTINGS, provider: b.provider, model: b.model,
-          hasKey: { ...SETTINGS.hasKey, [b.provider]: true } };
-      },
-    });
-    render(<AssistantSettings me={OWNER} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Claude/ }));
-    expect(screen.getByLabelText("модель")).toHaveAttribute("placeholder", "claude-sonnet-4-5");
-    expect(screen.getByText(/ключа нет/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("модель"), { target: { value: "claude-opus-4-1" } });
-    fireEvent.change(screen.getByLabelText("ключ"), { target: { value: "sk-ant-0123456789" } });
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    await screen.findByText("Сохранено.");
-    const put = log.find((r) => r.method === "PUT");
-    expect(put.url).toBe("/api/assistant/settings");
-    expect(JSON.parse(put.body)).toEqual({ provider: "claude", model: "claude-opus-4-1", key: "sk-ant-0123456789" });
-    expect(put.headers["X-Telegram-Init-Data"]).toBeDefined();
-    // После сохранения поле ключа пустое: ключ не хранится в браузере.
-    expect(screen.getByLabelText("ключ")).toHaveValue("");
-    expect(screen.getByText(/ключ есть/)).toBeInTheDocument();
-  });
-
-  it("не-владельцу — «ключ ставит владелец», без поля ключа и без «Сохранить»", async () => {
-    server({ "GET /api/assistant/settings": SETTINGS, "GET /api/assistant/memory": [] });
+  it("провайдеров нет — так и сказано; вкладка «＋ провайдер» открыта, ключ — password, ключа в ответе нет", async () => {
+    settingsServer();
     render(<AssistantSettings me={IVAN} />);
-    await screen.findByText(/Ключ ставит владелец/);
-    expect(screen.getByText("Ключ есть.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("ключ")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Сохранить" })).toBeNull();
-    expect(screen.getByRole("button", { name: /OpenAI/ })).toBeDisabled();
+    await screen.findByText(/Провайдеров нет/);
+    expect(screen.getByRole("tab", { name: "＋ провайдер" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("ключ провайдера")).toHaveAttribute("type", "password");
+    expect(screen.getByLabelText("вид API")).toHaveValue("openai");
+    expect(screen.getByLabelText("адрес провайдера")).toHaveAttribute("placeholder", "пусто — https://api.openai.com/v1");
+    // Таблица задач есть, но выбирать пока не из чего.
+    expect(screen.getByLabelText("модель для: Помощник (по умолчанию)")).toBeDisabled();
+    expect(screen.getByText(/Выбирать пока не из чего/)).toBeInTheDocument();
   });
 
-  it("провайдер не выбран — так и сказано, а не подсвечен первый попавшийся", async () => {
-    server({ "GET /api/assistant/settings": { ...SETTINGS, provider: "", hasKey: { openai: false, claude: false, hf: false } },
-      "GET /api/assistant/memory": [] });
-    render(<AssistantSettings me={OWNER} />);
-    await screen.findByText(/Провайдер не выбран/);
-    ["OpenAI", "Claude", "Hugging Face"].forEach((n) =>
-      expect(screen.getByRole("button", { name: n })).toHaveAttribute("aria-pressed", "false"));
-    expect(screen.getByLabelText("ключ")).toBeDisabled();
+  it("добавить провайдера — POST с названием, видом, адресом и ключом; он становится вкладкой, поле ключа пустое", async () => {
+    const { log } = settingsServer();
+    render(<AssistantSettings me={IVAN} />);
+    await screen.findByText(/Провайдеров нет/);
+    fireEvent.change(screen.getByLabelText("название провайдера"), { target: { value: "Мой OpenRouter" } });
+    fireEvent.change(screen.getByLabelText("вид API"), { target: { value: "openai" } });
+    fireEvent.change(screen.getByLabelText("адрес провайдера"), { target: { value: "https://openrouter.ai/api/v1" } });
+    fireEvent.change(screen.getByLabelText("ключ провайдера"), { target: { value: "sk-or-0123456789" } });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить провайдера" }));
+    await screen.findByText(/Провайдер «Мой OpenRouter» добавлен/);
+    const post = log.find((r) => r.method === "POST");
+    expect(post.url).toBe("/api/assistant/providers");
+    expect(JSON.parse(post.body)).toEqual({ name: "Мой OpenRouter", kind: "openai", baseUrl: "https://openrouter.ai/api/v1", key: "sk-or-0123456789" });
+    expect(post.headers["X-Telegram-Init-Data"]).toBeDefined();
+    // Вкладка открыта, ключ «есть», а самого ключа на экране нет.
+    expect(screen.getByRole("tab", { name: /Мой OpenRouter/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("ключ есть")).toBeInTheDocument();
+    expect(screen.getByLabelText("заменить ключ")).toHaveValue("");
+    expect(document.body.textContent).not.toContain("sk-or-0123456789");
+  });
+
+  it("без ключа сервер отказывает словами, и слова видны", async () => {
+    settingsServer();
+    render(<AssistantSettings me={IVAN} />);
+    await screen.findByText(/Провайдеров нет/);
+    fireEvent.change(screen.getByLabelText("название провайдера"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить провайдера" }));
+    expect(await screen.findByText(/Ключ обязателен/)).toBeInTheDocument();
+  });
+
+  it("модели: «список у провайдера» → выбор из списка → PUT models; вручную — тоже PUT; убрать — PUT без неё", async () => {
+    const { log } = settingsServer([{ ...P1, models: [] }], EMPTY_TASKS, {
+      "GET /api/assistant/providers/p_1/models": [{ id: "gpt-4.1", name: "gpt-4.1" }, { id: "o3-mini", name: "o3-mini" }],
+    });
+    render(<AssistantSettings me={IVAN} />);
+    await screen.findByText(/Моделей нет/);
+    fireEvent.click(screen.getByRole("button", { name: "Список у провайдера" }));
+    const pick = await screen.findByLabelText("модель из списка провайдера");
+    fireEvent.change(pick, { target: { value: "o3-mini" } });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить из списка" }));
+    await screen.findByLabelText("убрать модель o3-mini");
+    let put = log.filter((r) => r.method === "PUT").pop();
+    expect(put.url).toBe("/api/assistant/providers/p_1");
+    expect(JSON.parse(put.body)).toEqual({ models: ["o3-mini"] });
+
+    fireEvent.change(screen.getByLabelText("имя модели"), { target: { value: "gpt-4.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить модель" }));
+    await screen.findByLabelText("убрать модель gpt-4.1");
+    put = log.filter((r) => r.method === "PUT").pop();
+    expect(JSON.parse(put.body)).toEqual({ models: ["o3-mini", "gpt-4.1"] });
+    expect(screen.getByLabelText("имя модели")).toHaveValue("");
+
+    fireEvent.click(screen.getByLabelText("убрать модель o3-mini"));
+    await waitFor(() => expect(screen.queryByLabelText("убрать модель o3-mini")).toBeNull());
+    put = log.filter((r) => r.method === "PUT").pop();
+    expect(JSON.parse(put.body)).toEqual({ models: ["gpt-4.1"] });
+  });
+
+  it("провайдер список не отдал — сказано словами «введите вручную», а не пустота", async () => {
+    settingsServer([{ ...P1, kind: "hf", name: "HF" }], EMPTY_TASKS, { "GET /api/assistant/providers/p_1/models": [] });
+    render(<AssistantSettings me={IVAN} />);
+    await screen.findByRole("tab", { name: /HF/ });
+    fireEvent.click(screen.getByRole("button", { name: "Список у провайдера" }));
+    expect(await screen.findByText(/список не отдал — введите имя модели вручную/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("модель из списка провайдера")).toBeNull();
+  });
+
+  it("таблица «задача → модель»: строка на каждую задачу, выбор — PUT одной строкой, значение видно", async () => {
+    const P2 = { id: "p_2", name: "Claude", kind: "anthropic", baseUrl: "", models: ["claude-sonnet-4-5"], hasKey: true };
+    const { log } = settingsServer([P1, P2], { ...EMPTY_TASKS, chat: { providerId: "p_1", model: "gpt-4.1" } });
+    render(<AssistantSettings me={IVAN} />);
+    const chat = await screen.findByLabelText("модель для: Помощник (по умолчанию)");
+    expect(chat).toHaveValue("p_1|gpt-4.1");
+    TASKS.forEach((t) => expect(screen.getByLabelText(`модель для: ${t.name}`)).toBeInTheDocument());
+    // Выпадающий список — «провайдер / модель» по всем провайдерам.
+    const space = screen.getByLabelText("модель для: Вопрос в пространстве");
+    expect([...space.options].map((o) => o.textContent)).toEqual([
+      "— как по умолчанию", "Мой OpenAI / gpt-4.1", "Мой OpenAI / gpt-4o-mini", "Claude / claude-sonnet-4-5"]);
+    fireEvent.change(space, { target: { value: "p_2|claude-sonnet-4-5" } });
+    await waitFor(() => expect(screen.getByLabelText("модель для: Вопрос в пространстве")).toHaveValue("p_2|claude-sonnet-4-5"));
+    const put = log.find((r) => r.method === "PUT" && r.url === "/api/assistant/tasks");
+    expect(JSON.parse(put.body)).toEqual({ space: { providerId: "p_2", model: "claude-sonnet-4-5" } });
+    // Снять выбор — null той же строкой.
+    fireEvent.change(screen.getByLabelText("модель для: Вопрос в пространстве"), { target: { value: "" } });
+    await waitFor(() => expect(log.filter((r) => r.url === "/api/assistant/tasks")).toHaveLength(2));
+    expect(JSON.parse(log.filter((r) => r.url === "/api/assistant/tasks")[1].body)).toEqual({ space: null });
+  });
+
+  it("удалить провайдера — только после подтверждения словами; DELETE, вкладка исчезает, строка таблицы пуста", async () => {
+    const { log } = settingsServer([P1], { ...EMPTY_TASKS, chat: { providerId: "p_1", model: "gpt-4.1" } });
+    render(<AssistantSettings me={IVAN} />);
+    await screen.findByRole("tab", { name: /Мой OpenAI/ });
+    fireEvent.click(screen.getByRole("button", { name: "Удалить провайдера" }));
+    expect(log.filter((r) => r.method === "DELETE")).toHaveLength(0);
+    expect(screen.getByText(/Удалить «Мой OpenAI» вместе с ключом\?/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Да, удалить" }));
+    await screen.findByText(/Провайдер «Мой OpenAI» удалён вместе с ключом/);
+    expect(log.find((r) => r.method === "DELETE").url).toBe("/api/assistant/providers/p_1");
+    expect(screen.queryByRole("tab", { name: /Мой OpenAI/ })).toBeNull();
+    expect(screen.getByText(/Провайдеров нет/)).toBeInTheDocument();
+  });
+
+  it("строка таблицы в <select> и обратно", () => {
+    expect(rowValue({ providerId: "p_1", model: "a/b:c" })).toBe("p_1|a/b:c");
+    expect(rowFrom("p_1|a/b:c")).toEqual({ providerId: "p_1", model: "a/b:c" });
+    expect(rowFrom("")).toBeNull();
+    expect(rowValue(null)).toBe("");
   });
 });
 
@@ -223,10 +333,19 @@ describe("вопрос в два шага", () => {
   it("ошибка приходит словами из статуса", async () => {
     server({
       "POST /api/assistant/ask": { status: 202, body: { id: "q1" } },
-      "GET /api/assistant/ask/q1": { body: { status: "error", error: "Помощник не настроен: владелец должен указать ключ в Инструментах" } },
+      "GET /api/assistant/ask/q1": { body: { status: "error", error: "Помощник не настроен: добавьте провайдера и ключ в Инструментах → Помощник" } },
     });
     await expect(askAssistant("?", "", { intervalMs: 1 }))
-      .rejects.toThrow(/Помощник не настроен: владелец должен указать ключ/);
+      .rejects.toThrow(/Помощник не настроен: добавьте провайдера/);
+  });
+
+  it("task уходит в POST полем — строка таблицы «задача → модель»; без task поля нет", async () => {
+    const log = server({
+      "POST /api/assistant/ask": { status: 202, body: { id: "q1" } },
+      "GET /api/assistant/ask/q1": { body: { status: "done", text: "ок" } },
+    });
+    await askAssistant("?", "блок", { intervalMs: 1, task: "space" });
+    expect(JSON.parse(log[0].body)).toEqual({ question: "?", context: "блок", task: "space" });
   });
 
   it("отмена и срок ожидания — тоже словами", async () => {

@@ -3,8 +3,9 @@ import { getInitData } from "./telegram.js";
 /* ════════════════════════════════════════════════════════════════
    ПОМОЩНИК · клиент
 
-   Всё, что здесь есть, — тонкая обёртка над /api/assistant: настройки
-   (провайдер, модель, есть ли ключ), вопрос в два шага и память.
+   Всё, что здесь есть, — тонкая обёртка над /api/assistant: свои
+   провайдеры и модели (ключ — только «есть/нет»), таблица «задача →
+   модель», вопрос в два шага и память.
 
    Подпись — та же, что у остальных запросов приложения (identity.js):
    заголовок X-Telegram-Init-Data, по которому сервер узнаёт человека и
@@ -24,11 +25,23 @@ const json = async (url, opts) => {
   return r.status === 204 ? null : r.json();
 };
 
-/* ─────── чем думает помощник ─────── */
+/* ─────── чем думает помощник ───────
+
+   Всё — только своё: сервер выводит человека из подписи. Ключ уходит
+   на сервер один раз при добавлении или замене и обратно не приходит. */
 
 export const getAssistantSettings = () => json("/api/assistant/settings");
-export const putAssistantSettings = (p) =>
-  json("/api/assistant/settings", { method: "PUT", body: JSON.stringify(p) });
+export const addProvider = (p) =>
+  json("/api/assistant/providers", { method: "POST", body: JSON.stringify(p) });
+export const updateProvider = (id, p) =>
+  json(`/api/assistant/providers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(p) });
+export const dropProvider = (id) =>
+  json(`/api/assistant/providers/${encodeURIComponent(id)}`, { method: "DELETE" });
+// Список моделей просит сервер по ключу провайдера — ключ в браузер не едет.
+export const providerModels = (id) =>
+  json(`/api/assistant/providers/${encodeURIComponent(id)}/models`);
+export const putTasks = (t) =>
+  json("/api/assistant/tasks", { method: "PUT", body: JSON.stringify(t) });
 
 /* ─────── вопрос ───────
 
@@ -37,12 +50,15 @@ export const putAssistantSettings = (p) =>
    интерфейс видел только «Failed to fetch». Так уже было с черновиком
    задачи, и урок тот же.
 
+   `task` — строка таблицы «задача → модель» («space» из пространства);
+   без него сервер берёт «помощник по умолчанию».
+
    Ошибка приходит словами из статуса: «не настроен», «OpenAI ответил
    401». Их показывают как есть — они и написаны для человека. */
 export async function askAssistant(question, context = "",
-  { intervalMs = 1000, timeoutMs = 190000, signal } = {}) {
+  { intervalMs = 1000, timeoutMs = 190000, signal, task } = {}) {
   const started = await json("/api/assistant/ask",
-    { method: "POST", body: JSON.stringify({ question, context: context || "" }) });
+    { method: "POST", body: JSON.stringify({ question, context: context || "", ...(task ? { task } : {}) }) });
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (signal?.aborted) throw new Error("отменено");
