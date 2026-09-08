@@ -8,7 +8,7 @@ import { saveReport } from "../lib/reportStore.js";
 import { createMeeting, putTranscript } from "../lib/callStore.js";
 import { addMemory } from "../lib/memoryStore.js";
 import { recordGroupMessage } from "../lib/chatStore.js";
-import { NO_MODEL } from "../lib/transcribe.js";
+import { INTERRUPTED, NO_MODEL, TRANSCRIBE_TIMEOUT_MS } from "../lib/transcribe.js";
 import {
   MAX_CONTEXT_CHARS, TRUNCATED_NOTE, contextFor, describeModel, describeRecordings, fit,
 } from "../lib/assistantContext.js";
@@ -249,6 +249,21 @@ describe("записи звонков", () => {
     const ctx = await contextFor("200");
     expect(ctx).toContain("расшифровка ещё идёт (модель Groq / whisper");
     expect(ctx).toContain("расшифровка не удалась — провайдер ответил 500: boom");
+  });
+
+  it("«идёт» дольше предела ожидания — «прервана перезапуском», а не «идёт» навечно", () => {
+    const now = Date.parse("2026-09-08T12:00:00Z");
+    const old = new Date(now - TRANSCRIBE_TIMEOUT_MS - 60000).toISOString();
+    const fresh = new Date(now - 60000).toISOString();
+    const text = describeRecordings(
+      [{ id: "f1", name: "а.webm", savedAt: old }, { id: "f2", name: "б.webm", savedAt: fresh }],
+      [{ fileId: "f1", status: "pending", at: old, model: "Groq" }, { fileId: "f2", status: "pending", at: fresh, model: "Groq" }],
+      undefined, now,
+    );
+    expect(text).toContain(`«а.webm», сохранена ${old.replace("T", " ").slice(0, 16)}: ${INTERRUPTED}`);
+    expect(text).toContain("выберите модель расшифровки заново");
+    expect(text).toContain("«б.webm»");
+    expect(text).toContain("расшифровка ещё идёт (модель Groq");
   });
 
   it("длинная расшифровка обрезается с пометкой, а не молча", () => {

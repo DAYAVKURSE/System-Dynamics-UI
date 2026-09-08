@@ -9,6 +9,7 @@ import {
 import { listModels } from "../lib/aiProviders.js";
 import { ask, find } from "../lib/assistantQueue.js";
 import { MAX_MEMORY_FILE_BYTES, addMemory, listMemory, removeMemory } from "../lib/memoryStore.js";
+import { retranscribeFor } from "../lib/transcribe.js";
 
 /* ════════════════════════════════════════════════════════════════
    ПОМОЩНИК · маршруты
@@ -94,7 +95,20 @@ router.get("/providers/:id/models", async (req, res, next) => {
 });
 
 router.put("/tasks", (req, res, next) => {
-  try { return res.json(setTasks(req.me.id, req.body || {})); } catch (e) { return badInput(e, res, next); }
+  try {
+    const body = req.body || {};
+    const tasks = setTasks(req.me.id, body);
+    res.json(tasks);
+    /* Выбрали модель расшифровки — записи без текста (модели не было, не
+       удалось, оборвалось) расшифровываются ей в фоне, ПОСЛЕ ответа: иначе
+       выбор модели ничего не менял бы для уже сохранённых записей, и они
+       оставались бы без текста навсегда. Итог — в контексте помощника. */
+    if (body.transcribe != null && tasks.transcribe) {
+      retranscribeFor(req.me.id)
+        .then((done) => { if (done.length) console.log(`[transcribe] повтор для ${req.me.id}: ${done.map((d) => `${d.fileId} ${d.status}`).join(", ")}`); })
+        .catch((e) => console.error(`[transcribe] повтор для ${req.me.id} не удался: ${e.message}`));
+    }
+  } catch (e) { badInput(e, res, next); }
 });
 
 /* ─────── вопрос в два шага ─────── */

@@ -41,6 +41,13 @@ import { CANCELLED_ERROR } from "./assistantQueue.js";
    Кто что спросил и кто ждёт уточнения — в памяти процесса, как pending
    в bot.js: перезапуск посреди вопроса теряет только статус, и человек
    спрашивает заново; хранить это на диске ради трёх минут незачем.
+   Ожидание уточнения истекает вместе с памятью о вопросе (KEEP_DONE_MS):
+   иначе нажатое вчера «Уточнить» молча склеивало бы сегодняшний вопрос
+   со вчерашним.
+
+   Все ответы — в ЛИЧНЫЙ чат с написавшим (from.id), а не в чат сообщения:
+   сообщение со статусом могли переслать в группу, и bot.js такие нажатия
+   отсекает раньше, но и здесь группа адресом стать не должна.
    ════════════════════════════════════════════════════════════════ */
 
 const REMEMBER = /^запомни\s*[:\-—]\s*/iu;
@@ -111,14 +118,19 @@ export const statusKeyboard = (id) => ({
    отвеченным вопросом — законный ход (переспросить точнее), и для него
    нужен текст исходного вопроса. */
 const inflight = new Map();   // id → { id, queueId, userId, chatId, question, messageId, done, at }
-const refining = new Map();   // userId → id вопроса, который уточняют
-const KEEP_DONE_MS = 10 * 60 * 1000;
+const refining = new Map();   // userId → { id: вопрос, который уточняют, at: когда нажали }
+export const KEEP_DONE_MS = 10 * 60 * 1000;
 
 export function resetAssistantState() { inflight.clear(); refining.clear(); }
 
+/* Забывается и отвеченное давнее, и давнее «жду уточнение»: срок один,
+   чтобы «Уточнить» не пережило вопрос, который уточняет. */
 const sweep = (now = Date.now()) => {
   for (const [id, e] of inflight) {
     if (e.done && now - e.at > KEEP_DONE_MS) inflight.delete(id);
+  }
+  for (const [userId, r] of refining) {
+    if (now - r.at > KEEP_DONE_MS) refining.delete(userId);
   }
 };
 
@@ -176,7 +188,16 @@ async function askQuestion(deps, { userId, chatId, question }) {
   // дождутся ниже, когда сообщение-статус уже на месте.
   p.catch(() => {});
 
-  const sent = await send(chatId, THINKING, statusKeyboard(e.id));
+  /* Статус не ушёл (Telegram ответил 429, сеть моргнула) — вопрос уже в
+     очереди и деньги за ответ уйдут; терять ответ из-за слова «Думаю…»
+     нельзя. Без номера сообщения стадии молчат (setStatus), а ответ всё
+     равно уйдёт отдельным сообщением ниже. */
+  let sent = null;
+  try {
+    sent = await send(chatId, THINKING, statusKeyboard(e.id));
+  } catch (err) {
+    logOf(deps)(`статус «${THINKING}» не отправлен: ${err.message}`);
+  }
   e.messageId = sent?.message_id ?? null;
   show();
 
@@ -234,7 +255,7 @@ export async function onAssistantButton(cb, from, deps = {}) {
   const send = deps.send || a.send;
   const data = String(cb?.data || "");
   const userId = String(from.id);
-  const chatId = cb?.message?.chat?.id ?? from.id;
+  const chatId = from.id;
   const id = data.startsWith(AI_CANCEL) ? data.slice(AI_CANCEL.length)
     : data.startsWith(AI_REFINE) ? data.slice(AI_REFINE.length) : "";
   sweep();
@@ -257,7 +278,7 @@ export async function onAssistantButton(cb, from, deps = {}) {
   }
 
   if (data.startsWith(AI_REFINE)) {
-    refining.set(userId, id);
+    refining.set(userId, { id, at: Date.now() });
     await answer(cb.id, "");
     await send(chatId, REFINE_PROMPT);
     return { asking: "refine", id };
@@ -284,7 +305,7 @@ export async function onAssistantMessage(msg, from, deps = {}) {
   const send = deps.send || a.send;
   if (!send) return null;
   const userId = String(from.id);
-  const chatId = msg.chat?.id ?? from.id;
+  const chatId = from.id;
   const text = String(msg.text || "").trim();
   const doc = msg.document || null;
 
@@ -294,14 +315,23 @@ export async function onAssistantMessage(msg, from, deps = {}) {
 
   /* ─── дополнение к вопросу, которого ждали после «Уточнить» ───
      Раньше «запомни» и документа: человек отвечает на вопрос бота, а не
-     задаёт свой. Документ дополнением быть не может — ждём ещё. */
-  const refineId = refining.get(userId);
+     задаёт свой. Документ дополнением быть не может — ждём ещё. Давнее
+     «Уточнить» уже забыто (sweep): текст — обычный новый вопрос. */
+  sweep();
+  const refineId = refining.get(userId)?.id;
   if (refineId && text) {
     refining.delete(userId);
     const prev = inflight.get(refineId);
     if (!prev) {
-      await send(chatId, "Тот вопрос я уже не помню — задайте его заново целиком.");
-      return { stale: true };
+      // Вопрос забыт, а текст человека — нет: он задаётся как новый, а не
+      // выбрасывается вместе с просьбой «задайте заново».
+      if (!ask) {
+        await send(chatId, "Помощник здесь не подключён.");
+        return { error: "no ask" };
+      }
+      await send(chatId, "Тот вопрос уже не помню — задаю ваш текст как новый вопрос.");
+      const r = await askQuestion(deps, { userId, chatId, question: text });
+      return { ...r, stale: true };
     }
     if (!ask) {
       await send(chatId, "Помощник здесь не подключён.");

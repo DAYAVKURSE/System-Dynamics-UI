@@ -272,7 +272,9 @@ describe("расшифровка после сохранения записи", 
 
     const t = await settled(up.body.id, "done");
     expect(t).toMatchObject({ by: "100", status: "done", text: "Договорились о скидке.", meetingId: m.id });
-    expect(modelFor).toHaveBeenCalledWith("100", "transcribe");
+    // Модель — того, кто сохранил, для задачи «расшифровка» и БЕЗ отката на
+    // модель чата: та записи не расшифровывает.
+    expect(modelFor).toHaveBeenCalledWith("100", "transcribe", { fallback: false });
     const sent = calls.find((c) => c.url.includes("/audio/transcriptions"));
     expect(sent.url).toBe("https://api.groq.com/openai/v1/audio/transcriptions");
     expect(sent.headers.Authorization).toBe("Bearer sk-key-12345678");

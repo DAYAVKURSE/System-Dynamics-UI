@@ -16,6 +16,7 @@ import { publishStep } from "./lib/ratings.js";
 import { askNow, cancel as cancelAsk } from "./lib/assistantQueue.js";
 import * as memory from "./lib/memoryStore.js";
 import { recordGroupMessage } from "./lib/chatStore.js";
+import { resumeTranscripts } from "./lib/transcribe.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -23,6 +24,16 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`System Dynamics UI server listening on port ${PORT}`);
 });
+
+/* Расшифровки, оборванные перезапуском: запись «идёт» пережить перезапуск
+   не может — ждал её этот процесс, и его больше нет. Байты на месте —
+   расшифровка заново, нет — «прервана» словами (lib/transcribe.js). В
+   фоне и по одной: записи большие, а сервер уже принимает запросы. */
+resumeTranscripts()
+  .then((done) => {
+    if (done.length) console.log(`[transcribe] после перезапуска: ${done.map((d) => `${d.fileId} ${d.status}`).join(", ")}`);
+  })
+  .catch((e) => console.error(`[transcribe] восстановление после перезапуска не удалось: ${e.message}`));
 
 /* Планировщик напоминаний: раз в минуту смотрит расписания всех
    пользователей и отправляет то, чему пришло время. Без токена бота слать

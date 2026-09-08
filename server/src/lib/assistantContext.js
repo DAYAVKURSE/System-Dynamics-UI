@@ -4,7 +4,7 @@ import { listReports } from "./reportStore.js";
 import { listMeetings, listTranscripts } from "./callStore.js";
 import { listMemory } from "./memoryStore.js";
 import { chatsFor } from "./chatStore.js";
-import { NO_MODEL } from "./transcribe.js";
+import { INTERRUPTED, NO_MODEL, isStalePending } from "./transcribe.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЧТО ПОМОЩНИК ЗНАЕТ ПРО СПРАШИВАЮЩЕГО
@@ -232,7 +232,8 @@ export const TRANSCRIPT_CONTEXT_CHARS = 20000;
  * Чего нет — сказано, ПОЧЕМУ нет: модель не выбрана, ещё идёт, не
  * удалось. Молчание на месте текста читалось бы как «разговора не было».
  */
-export function describeRecordings(recordings = [], transcripts = [], limit = TRANSCRIPT_CONTEXT_CHARS) {
+export function describeRecordings(recordings = [], transcripts = [], limit = TRANSCRIPT_CONTEXT_CHARS,
+  now = Date.now()) {
   const out = ["## Записи звонков"];
   if (!recordings.length) { out.push("Записей звонков нет."); return out.join("\n"); }
   const byFile = new Map(transcripts.map((t) => [t.fileId, t]));
@@ -241,7 +242,16 @@ export function describeRecordings(recordings = [], transcripts = [], limit = TR
     const t = byFile.get(f.id);
     const head = `- «${f.name}», сохранена ${when(f.savedAt)}`;
     if (!t) { out.push(`${head}: ${NO_MODEL}.`); return; }
-    if (t.status === "pending") { out.push(`${head}: расшифровка ещё идёт (модель ${t.model || "не названа"}, начата ${when(t.at)}).`); return; }
+    if (t.status === "pending") {
+      /* «Идёт» дольше, чем провайдеру вообще дают ответить, — не идёт:
+         сервер перезапускали, и писать «идёт» значило бы обещать текст,
+         которого не будет. При старте сервер такие перезапускает сам
+         (lib/transcribe.js, resumeTranscripts); выбор модели заново — тоже. */
+      out.push(isStalePending(t, now)
+        ? `${head}: ${INTERRUPTED} (начата ${when(t.at)}) — сервер повторит её при запуске, а если текста так и нет, выберите модель расшифровки заново.`
+        : `${head}: расшифровка ещё идёт (модель ${t.model || "не названа"}, начата ${when(t.at)}).`);
+      return;
+    }
     if (t.status !== "done") { out.push(`${head}: расшифровка не удалась — ${t.error || "причина не названа"}.`); return; }
     const text = str(t.text);
     if (left <= 0) { out.push(`${head}: расшифровка есть, но не поместилась в контекст (предел ${limit} знаков на записи).`); return; }

@@ -230,11 +230,21 @@ async function show(deps, target, text, keyboard = null) {
   }
 }
 
-const targetOf = (from, cb, step) => ({
-  userId: String(from.id),
-  chatId: cb?.message?.chat?.id ?? step?.chatId ?? from.id,
-  messageId: cb?.message?.message_id ?? null,
-});
+/* Куда отвечать. Всегда в личный чат с нажавшим (chat.id личного чата и
+   есть from.id), а не в чат сообщения с кнопкой: сообщение могли
+   переслать в группу, и bot.js такие нажатия отсекает раньше, — но и
+   здесь, вторым рубежом, группа адресом стать не должна. Править
+   можно только сообщение из этого же личного чата: чужое (пересланное)
+   Telegram править не даст, и show() ушёл бы новым сообщением туда же. */
+const targetOf = (from, cb) => {
+  const chatId = from.id;
+  const own = cb?.message?.chat?.id != null && String(cb.message.chat.id) === String(chatId);
+  return {
+    userId: String(from.id),
+    chatId,
+    messageId: own ? (cb.message.message_id ?? null) : null,
+  };
+};
 
 /* ─────── экраны ─────── */
 
@@ -407,7 +417,7 @@ async function handleButton(cb, from, deps) {
   const data = String(cb.data || "");
   const userId = String(from.id);
   const step = steps.get(userId);
-  const target = targetOf(from, cb, step);
+  const target = targetOf(from, cb);
 
   // ── с уведомления ──
   if (data.startsWith(TASK_START)) {
@@ -654,7 +664,9 @@ export async function onTaskMessage(msg, from, deps) {
 async function handleMessage(msg, from, step, deps) {
   const userId = String(from.id);
   const text = String(msg?.text || "").trim();
-  const target = { userId, chatId: msg?.chat?.id ?? step.chatId ?? from.id, messageId: null };
+  // В личный чат с написавшим, как и у кнопок (targetOf): шаг сдачи —
+  // личное дело исполнителя, и группа адресом быть не должна.
+  const target = { userId, chatId: from.id, messageId: null };
 
   if (step.stage === "file") {
     const att = attachmentOf(msg);
