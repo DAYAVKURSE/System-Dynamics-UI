@@ -137,6 +137,34 @@ describe("что отдаётся наружу", () => {
     expect(commentsFor(m, { viewer: "400" }).mine).toEqual([]);
   });
 
+  it("скрытая отметка входит в средние наравне с публичной", () => {
+    /* Скрытость прячет отметку от глаз, а не из рейтинга: средняя и так
+       без имени. Две задачи Ивана: публичная «5» и скрытая «3». */
+    const m = model([task("t1", { by: "300", mark: 5 }),
+      task("t2", { by: "400", mark: 3, comment: "лично", hidden: true })]);
+    publishStep(m); publishStep(m);
+    expect(statsFor(m, "200")).toMatchObject({ mark: 4, count: 2 });
+    // И постановщик видит среднюю с обеими, но не скрытые слова.
+    const seen = viewRatingsFor(m, "100");
+    expect(seen.others["200"]).toMatchObject({ mark: 4, count: 2 });
+    expect(seen.others["200"].comments.map((c) => c.text)).toEqual(["хорошо"]);
+    expect(JSON.stringify(seen)).not.toContain("лично");
+  });
+
+  it("скрытая оценка постановки — тоже в среднюю постановщика, слова — только ему", () => {
+    const m = model([
+      task("t1", { a: "200", s: "100", setup: { mark: 2, comment: "неясно", hidden: true } }),
+      task("t2", { a: "600", s: "100", by: "700", setup: { mark: 4, comment: "ясно", hidden: false } }),
+    ]);
+    publishStep(m); publishStep(m);
+    expect(statsFor(m, "100").setup).toMatchObject({ mark: 3, count: 2 });
+    // Постановщику — оба слова: скрытые для него и писали.
+    expect(commentsFor(m, { viewer: "100" }).mine.map((c) => c.text).sort())
+      .toEqual(["неясно", "ясно"]);
+    // Постороннему про постановщика — только публичное.
+    expect(commentsFor(m, { viewer: "999" }).others["100"].map((c) => c.text)).toEqual(["ясно"]);
+  });
+
   it("скрытые слова доходят до адресата сразу, публичные — когда опубликованы", () => {
     const m = model([task("t1", { by: "300", comment: "публично" }),
       task("t2", { by: "400", comment: "лично", hidden: true })]);

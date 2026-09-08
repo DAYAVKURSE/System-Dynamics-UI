@@ -7,10 +7,13 @@ import ReviewBoard from "../components/ReviewBoard.jsx";
 
 /* Оценки без имени и скрытые комментарии — в интерфейсе.
 
-   Исполнитель при сдаче оценивает постановку (можно не ставить), слова к
-   оценке — скрытые или публичные. Комментарий в задаче — с адресатом, и
-   скрытый видят только автор и адресат. Проверяющий делает свои слова
-   скрытыми тем же переключателем. Себе оценку постановки не ставят. */
+   Сдача: отчёт словами сверху, вещи — кнопками «Загрузить <ресурс>»;
+   когда отчёт написан и обязательные вещи приложены, на месте кнопок
+   появляется оценка постановки (можно не ставить) с ОДНИМ переключателем
+   «скрыто/публично» на отметку и слова (умолчание — публично) и «Сдать».
+   Комментарий в задаче — с адресатом, и скрытый видят только автор и
+   адресат. Проверяющий делает решение скрытым тем же переключателем. Себе
+   оценку постановки не ставят. */
 
 const ENTITIES = [{ id: "usr", name: "Пользователи",
   setters: ["1"], owners: ["2"], reviewers: ["3"] }];
@@ -43,17 +46,88 @@ const attachResult = async (label, name = "результат.txt") => {
   fireEvent.change(input);
   await waitFor(() => expect(screen.getByText(new RegExp(name))).toBeTruthy());
 };
-const openHanding = async () => {
-  fireEvent.click(screen.getByText("Задача A"));
-  fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
-  await attachResult("результат: заявки");
-};
 const commit = (el, value) => {
   fireEvent.change(el, { target: { value } });
   fireEvent.blur(el);
 };
+/* Форма сдачи, доведённая до оценки: вещь приложена, отчёт написан. */
+const openHanding = async () => {
+  fireEvent.click(screen.getByText("Задача A"));
+  fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+  await attachResult("результат: заявки");
+  commit(screen.getByLabelText("отчёт о работе"), "сделал");
+};
 // Их две: одна в форме сдачи, другая на карточке в колонке.
 const hand = () => fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+
+describe("форма сдачи: отчёт словами, вещи кнопками, потом оценка", () => {
+  const open = () => {
+    fireEvent.click(screen.getByText("Задача A"));
+    fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+  };
+
+  it("сверху — отчёт словами; кнопки «Загрузить отчёт» нет, есть «Загрузить <ресурс>»", () => {
+    render(<Board tasks={[task()]} />);
+    open();
+    expect(screen.getByLabelText("отчёт о работе")).toBeInTheDocument();
+    expect(screen.queryByText("Загрузить отчёт")).toBeNull();
+    expect(screen.queryByLabelText("отчёт о работе файлом")).toBeNull();
+    expect(screen.getByText("Загрузить заявки")).toBeInTheDocument();
+    expect(screen.getByText(/обязательно: без него работа не сдаётся/)).toBeInTheDocument();
+  });
+
+  it("пока отчёт не написан и вещь не приложена — ни оценки, ни «Сдать», а слова о том, чего нет", async () => {
+    render(<Board tasks={[task()]} />);
+    open();
+    expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
+    // Единственная «Сдать» — на карточке в колонке; в форме её нет.
+    expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
+    expect(screen.getByText(/Напишите отчёт словами/)).toBeInTheDocument();
+    expect(screen.getByText(/Задача не выполнена, пока не приложено: заявки/)).toBeInTheDocument();
+    // Вещь приложена, отчёта нет — всё ещё не готово, и сказано, что не так.
+    await attachResult("результат: заявки");
+    expect(screen.queryByText(/Задача не выполнена/)).toBeNull();
+    expect(screen.getByText(/Напишите отчёт словами/)).toBeInTheDocument();
+    expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
+  });
+
+  it("написано и приложено — на месте кнопок загрузки оценка постановки и «Сдать»", async () => {
+    render(<Board tasks={[task()]} />);
+    open();
+    await attachResult("результат: заявки");
+    commit(screen.getByLabelText("отчёт о работе"), "сделал");
+    expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(2);
+    expect(screen.queryByText(/Загрузить заявки/)).toBeNull();
+    expect(screen.queryByText(/Заменить заявки/)).toBeNull();
+    // Что приложено — видно; к вещам можно вернуться и снова уйти к оценке.
+    expect(screen.getByText(/приложено: заявки — результат.txt/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "изменить вещи" }));
+    expect(screen.getByText("Заменить заявки")).toBeInTheDocument();
+    expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "К оценке и сдаче" }));
+    expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
+  });
+
+  it("необязательная вещь — тоже кнопкой, но сдачу не держит", () => {
+    const FREE = [{ ...FUNCS[0], gives: [
+      { id: "p2", trait: "t2", lo: 1, hi: 1, to: "" },
+      { id: "p3", trait: "t1", lo: 0, hi: 1, to: "" }] }];
+    const Free = () => {
+      const [tasks, setTasks] = React.useState([task()]);
+      const [openId, setOpenId] = React.useState(null);
+      return (<TasksBoard funcs={FREE} entities={ENTITIES} traits={TRAITS}
+        tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
+        nameOf={nameOf} meId="2" />);
+    };
+    render(<Free />);
+    open();
+    expect(screen.getByText("Загрузить спрос")).toBeInTheDocument();
+    expect(screen.getByText(/минимум по этому ресурсу — 0/)).toBeInTheDocument();
+    // Держит только обязательная: «спрос» в списке недостающего нет.
+    expect(screen.getByText(/пока не приложено: заявки\./)).toBeInTheDocument();
+  });
+});
 
 describe("оценка постановки при сдаче", () => {
   it("исполнитель оценивает постановку, и оценка уходит в сдачу", async () => {
@@ -63,12 +137,14 @@ describe("оценка постановки при сдаче", () => {
     expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "оценка постановки 4" }));
     commit(screen.getByLabelText("комментарий к постановке"), "срок был тесный");
-    fireEvent.click(screen.getByRole("button", { name: "публичный (видят все)" }));
     hand();
     expect(got).toHaveLength(1);
     expect(got[0].setterRating).toEqual({ mark: 4, comment: "срок был тесный", hidden: false });
-    // Сама сдача при этом на месте — оценка её не подменяет.
+    // Сама сдача при этом на месте — оценка её не подменяет; отчёт — словами,
+    // файла «вообще» нет.
     expect(got[0].files.t2).toBeTruthy();
+    expect(got[0].text).toBe("сделал");
+    expect(got[0].file).toBeNull();
   });
 
   it("можно не ставить: без отметки и слов оценки нет — null, а не нули", async () => {
@@ -79,15 +155,34 @@ describe("оценка постановки при сдаче", () => {
     expect(got[0].setterRating).toBeNull();
   });
 
-  it("скрытый — по умолчанию, и отметку можно снять повторным нажатием", async () => {
+  it("публично — по умолчанию; «скрыто» — один переключатель на отметку и слова", async () => {
+    const got = [];
+    render(<Board tasks={[task()]} onSubmit={(t, sb) => got.push(sb)} />);
+    await openHanding();
+    expect(screen.getByRole("button", { name: "публично" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Публично: после публикации видят все/)).toBeInTheDocument();
+    // Переключатель один: отдельного «скрыть отметку» / «скрыть слова» нет.
+    expect(screen.getAllByRole("button", { name: "скрыто" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "публично" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "скрыто" }));
+    // Сказано, что именно скрывается: и отметка, и слова — и кому видно.
+    expect(screen.getByText(/отметку видите только вы .* слова — вы и постановщик/))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
+    commit(screen.getByLabelText("комментарий к постановке"), "лично");
+    hand();
+    expect(got[0].setterRating).toEqual({ mark: 5, comment: "лично", hidden: true });
+  });
+
+  it("отметку можно снять повторным нажатием", async () => {
     const got = [];
     render(<Board tasks={[task()]} onSubmit={(t, sb) => got.push(sb)} />);
     await openHanding();
     fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
     fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
-    commit(screen.getByLabelText("комментарий к постановке"), "лично");
+    commit(screen.getByLabelText("комментарий к постановке"), "только слова");
     hand();
-    expect(got[0].setterRating).toEqual({ mark: null, comment: "лично", hidden: true });
+    expect(got[0].setterRating).toEqual({ mark: null, comment: "только слова", hidden: false });
   });
 
   it("себе постановку не оценивают: постановщик и исполнитель — один человек", async () => {
@@ -99,11 +194,13 @@ describe("оценка постановки при сдаче", () => {
     expect(got[0].setterRating).toBeNull();
   });
 
-  it("newSubmission: пустая оценка не хранится нулями", () => {
+  it("newSubmission: пустая оценка не хранится нулями, скрытость — одним признаком", () => {
     expect(newSubmission({ setterRating: { mark: null, comment: "  ", hidden: true } })
       .setterRating).toBeNull();
     expect(newSubmission({ setterRating: { mark: 3, comment: "", hidden: false } })
       .setterRating).toEqual({ mark: 3, comment: "", hidden: false });
+    expect(newSubmission({ setterRating: { mark: 3, comment: "лично", hidden: true } })
+      .setterRating).toEqual({ mark: 3, comment: "лично", hidden: true });
   });
 });
 
@@ -168,7 +265,7 @@ describe("решение проверяющего", () => {
     submissions: [{ id: "s1", at: "2026-01-01T00:00:00Z", hours: 3, takes: {}, gives: {},
       setterRating: { mark: 2, comment: "постановка была никакая", hidden: false } }] });
 
-  it("слова к оценке можно сделать скрытыми — признак уходит с решением", () => {
+  it("решение можно сделать скрытым — один переключатель на отметку и слова, признак уходит с решением", () => {
     const got = [];
     render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
       entities={ENTITIES} meId="3" isOwner={false} nameOf={nameOf}
@@ -178,9 +275,26 @@ describe("решение проверяющего", () => {
     fireEvent.change(screen.getByLabelText("комментарий к оценке"),
       { target: { value: "сделано" } });
     fireEvent.click(screen.getByRole("button", { name: "оценка 4" }));
-    fireEvent.click(screen.getByRole("button", { name: "скрытый (видит только исполнитель)" }));
+    fireEvent.click(screen.getByRole("button", { name: "скрыто" }));
+    expect(screen.getByText(/отметку видите только вы .* слова — вы и исполнитель/))
+      .toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Принять" }));
     expect(got).toEqual([["сделано", 4, true]]);
+  });
+
+  it("публично — по умолчанию и у проверяющего", () => {
+    const got = [];
+    render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
+      entities={ENTITIES} meId="3" isOwner={false} nameOf={nameOf}
+      onAccept={(t, note, mark, hidden) => got.push([note, mark, hidden])}
+      onReturn={() => {}} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByRole("button", { name: "публично" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(screen.getByLabelText("комментарий к оценке"),
+      { target: { value: "сделано" } });
+    fireEvent.click(screen.getByRole("button", { name: "оценка 5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Принять" }));
+    expect(got).toEqual([["сделано", 5, false]]);
   });
 
   it("оценка постановки из сдачи проверяющему не показывается", () => {
