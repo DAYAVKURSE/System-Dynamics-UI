@@ -225,6 +225,28 @@ describe("новое в форме функции", () => {
     expect(dump().funcs.pop().accepted).toBe(true);
   });
 
+  it("ресурсу ставят несколько классификаций сразу", () => {
+    /* Деньги — и ресурс, и затрата. Выбирать, какой правдой пожертвовать,
+       человек не должен: кнопки ставят и снимают каждую саму по себе. */
+    scheme();
+    assetTab("Ресурсы");
+    // Заводим свой: у заведённого кнопкой «◆ ресурс» одна классификация.
+    const box = screen.getByPlaceholderText("текст нового ресурса");
+    fireEvent.change(box, { target: { value: "деньги" } });
+    fireEvent.blur(box);
+    fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
+
+    fireEvent.click(screen.getByLabelText("затрата: деньги"));
+    expect(screen.getByLabelText("затрата: деньги"))
+      .toHaveAttribute("aria-pressed", "true");
+    // И первая, которой его завели, на месте: они не переключают друг друга.
+    expect(screen.getByLabelText("ресурс: деньги"))
+      .toHaveAttribute("aria-pressed", "true");
+
+    const t = dump().traits.find((x) => x.l === "деньги");
+    expect(t.ks).toEqual(["res", "cost"]);
+  });
+
   it("«точное время» называется одинаково у работы и у попытки", () => {
     /* Точное время и точный срок — это одно и то же, и двух имён у него
        быть не должно. */

@@ -11,6 +11,7 @@ import { Mark } from "./Modal.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
 import { scheduleOfPerson, statusOf, visibleStats } from "../lib/workers.js";
 import { unitsOf } from "../lib/units.js";
+import { hasKind, kindIdsOf, toggleKind } from "../lib/traits.js";
 
 /* ════════════════════════════════════════════════════════════════
    КАРТОЧКА АКТИВА · воркеры, функции, ресурсы
@@ -1036,7 +1037,11 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
   const up = (id, patch) => setTraits((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   const add = (kindId) => {
     if (!draft.trim()) return;
-    const t = { id: `t${Date.now().toString(36)}`, e: entityId, k: kindId, l: draft.trim(),
+    /* Заводится с одной классификацией — той, кнопкой которой его завели.
+       Остальные ставятся в карточке: список — не «сразу всё», а «сколько
+       нужно». */
+    const t = { id: `t${Date.now().toString(36)}`, e: entityId,
+      ks: kindId ? [kindId] : [], k: kindId || "", l: draft.trim(),
       unit: "ед.", have: 0 };
     setTraits((p) => [...p, t]);
     setDraft(""); setOpen(t.id);
@@ -1045,7 +1050,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
     <Section title="ресурсы актива"
       empty={mine.length ? null : "Ресурсов пока нет. Ресурс — это то, что есть: функции его берут и выдают."}>
       {mine.map((t) => {
-        const k = kindOf(t.k);
+        const ks = kindIdsOf(t).map(kindOf);
         const made = funcs.filter((f) => f.gives.some((g) => g.trait === t.id)).length;
         const used = funcs.filter((f) => f.takes.some((p) => p.trait === t.id)).length;
         return (
@@ -1056,7 +1061,15 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
             mark={<Mark text="ресурс" ok={checkTrait(t.id, { traits, funcs }).ok}
               onWhy={() => onWhy && onWhy(t.id)} />}
             summary={<>
-              <span style={{ color: k.color }}>{k.sign} {k.name}</span>
+              {/* Все классификации сразу: одна вещь бывает и ресурсом, и
+                  затратой, и выбирать за человека, какую показать, не за
+                  что. Ни одной — так и сказано, а не подставлена первая
+                  попавшаяся. */}
+              {ks.length
+                ? ks.map((k, i) => (
+                  <span key={k.id || i} style={{ color: k.color }}>
+                    {i ? " · " : ""}{k.sign} {k.name}</span>))
+                : <span style={{ color: C.muted }}>без классификации</span>}
               {` · есть ${nm(Number(t.have) || 0)} ${t.unit || ""}`}
               {` · выдают ${made}, берут ${used}`}
             </>}>
@@ -1070,11 +1083,20 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
                 <TxtField value={t.unit || ""} onCommit={(v) => up(t.id, { unit: v })} />
               </div>
             </div>
-            <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
-              {kinds.map((x) => (
-                <button key={x.id} style={{ ...btn(t.k === x.id, x.color), fontSize: 11,
-                  padding: "3px 7px" }} onClick={() => up(t.id, { k: x.id })}>
-                  {x.sign} {x.name}</button>))}
+            {/* Классификаций может быть несколько: кнопки не переключают
+                одну на другую, а ставят и снимают каждую сама по себе. */}
+            <div style={{ ...S.lbl, marginTop: 8 }}>чем считаем — можно несколько</div>
+            <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+              {kinds.map((x) => {
+                const on = hasKind(t, x.id);
+                return (
+                  <button key={x.id} aria-pressed={on}
+                    aria-label={`${x.name}: ${t.l || "без названия"}`}
+                    style={{ ...btn(on, x.color), fontSize: 11, padding: "3px 7px" }}
+                    onClick={() => setTraits((p) => p.map((z) => (z.id === t.id
+                      ? toggleKind(z, x.id) : z)))}>
+                    {x.sign} {x.name}</button>);
+              })}
             </div>
             {/* ─── единицы с номерами ───
                 Количество говорит, сколько всего, и молчит о том, ЧТО

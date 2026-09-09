@@ -100,7 +100,12 @@ export function describeModel(model = {}) {
     out.push(own.length
       ? `  ресурсы: ${own.map((t) => {
         const have = num(t.have);
-        const kind = kinds.get(t.k) ? ` (${kinds.get(t.k)})` : "";
+        /* Классификаций у ресурса бывает несколько (`ks`); прежняя запись
+           с одним `k` читается как список из одного. Назвать помощнику одну
+           из трёх значило бы рассказать про вещь неправду. */
+        const named = (Array.isArray(t.ks) ? t.ks : (t.k ? [t.k] : []))
+          .map((id) => kinds.get(id)).filter(Boolean);
+        const kind = named.length ? ` (${named.join(", ")})` : "";
         return `${t.l || "без названия"}${kind} — ${have == null ? "количество не названо" : `есть ${have}${t.unit ? ` ${t.unit}` : ""}`}`;
       }).join("; ")}`
       : "  ресурсы: не заведены");

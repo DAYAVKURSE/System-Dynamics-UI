@@ -31,6 +31,7 @@ import Modal from "./Modal.jsx";
 import ProfilePanel, { RemindersCard, warnMinOf } from "./ProfilePanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
+import { countKind, dropKind } from "../lib/traits.js";
 import { emptySpace, filesOf, normalizeSpace } from "../lib/space.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -709,11 +710,15 @@ export default function SystemModel(){
   const delKind=(id)=>{
     if(kinds.length<=1) return "Нельзя удалить последнюю классификацию.";
     const rest=kinds.filter(k=>k.id!==id);
-    const used=traits.filter(t=>t.k===id);
-    if(used.length) setTraits(p=>p.map(t=>t.k===id?{...t,k:rest[0].id}:t));
+    /* Классификацию СНИМАЕМ, а не подменяем другой: у ресурса их может быть
+       несколько, и переводить его в первую попавшуюся значило бы решить за
+       человека, чем теперь считать эту вещь. Остался без единой — так и
+       будет: «не сказано» честнее выдуманного. */
+    const used=countKind(traits,id);
+    if(used) setTraits(p=>dropKind(p,id));
     setKinds(rest);
-    return used.length
-      ?`Удалено. ${used.length} ресурс(ов) переведено в «${rest[0].name}».`
+    return used
+      ?`Удалено. У ${used} ресурс(ов) эта классификация снята.`
       :"Удалено.";
   };
 
