@@ -228,7 +228,7 @@ describe("постановщик приходит из ролей функции
   });
 });
 
-describe("удаление задачи — владельцу, с доски, словами", () => {
+describe("отмена задачи — владельцу, с доски, словами", () => {
   const FUNCS = [{ id: "f1", e: "usr", name: "Сбор заявок", takes: [], gives: [],
     setters: ["1"], owners: ["2"], reviewers: ["3"] }];
   const task = () => ({ ...newTask({ funcId: "f1", title: "Задача A" }), id: "a",
@@ -242,32 +242,46 @@ describe("удаление задачи — владельцу, с доски, �
       nameOf={(id) => id} meId="2" />);
   }
 
-  it("владелец удаляет с подтверждением словами; «Оставить» ничего не трогает", () => {
+  it("работу отменяют, а не стирают: задача остаётся с пометкой", () => {
+    /* Удаление уносило вместе с задачей её сдачи, оценки и то, что по ней
+       успели сделать. Это было, и делать вид, что не было, нельзя. */
     let seen = [];
     render(<Board canAssign onTasks={(t) => { seen = t; }} />);
-    fireEvent.click(screen.getByLabelText("удалить задачу Задача A"));
-    expect(screen.getByText(/Удалить задачу «Задача A»\?/)).toBeInTheDocument();
-    expect(screen.getByText(/Вернуть будет нельзя/)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("отменить задачу Задача A"));
+    expect(screen.getByText(/Отменить задачу «Задача A»\?/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Оставить" }));
-    expect(screen.queryByText(/Удалить задачу «Задача A»\?/)).toBeNull();
+    expect(seen.every((t) => !t.canceled)).toBe(true);
+
+    fireEvent.click(screen.getByLabelText("отменить задачу Задача A"));
+    fireEvent.click(screen.getByRole("button", { name: "Да, отменить" }));
+    // Из списка не пропала — помечена.
     expect(seen.map((t) => t.id)).toEqual(["a", "b"]);
-
-    fireEvent.click(screen.getByLabelText("удалить задачу Задача A"));
-    fireEvent.click(screen.getByRole("button", { name: "Да, удалить" }));
-    expect(seen.map((t) => t.id)).toEqual(["b"]);
-    expect(screen.queryByText("Задача A")).toBeNull();
-    expect(screen.getByText("Задача B")).toBeInTheDocument();
+    expect(seen.find((t) => t.id === "a").canceled).toBe(true);
+    expect(screen.getByText("Задача A")).toBeInTheDocument();
+    expect(screen.getByText("отменена")).toBeInTheDocument();
   });
 
-  it("исполнителю удалять нечего: кнопки нет", () => {
+  it("отменённую можно вернуть — и работать по ней снова", () => {
+    let seen = [];
+    render(<Board canAssign onTasks={(t) => { seen = t; }} />);
+    fireEvent.click(screen.getByLabelText("отменить задачу Задача A"));
+    fireEvent.click(screen.getByRole("button", { name: "Да, отменить" }));
+    // У отменённой кнопок работы нет.
+    expect(screen.queryByLabelText("отменить задачу Задача A")).toBeNull();
+    fireEvent.click(screen.getByLabelText("вернуть задачу Задача A"));
+    expect(seen.find((t) => t.id === "a").canceled).toBe(false);
+    expect(screen.queryByText("отменена")).toBeNull();
+  });
+
+  it("исполнителю отменять нечего: кнопки нет", () => {
     render(<Board canAssign={false} />);
-    expect(screen.queryByLabelText(/удалить задачу/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Удалить" })).toBeNull();
+    expect(screen.queryByLabelText(/отменить задачу/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
   });
 
-  it("нажатие «Удалить» не открывает карточку задачи", () => {
+  it("нажатие «Отменить» не открывает карточку задачи", () => {
     render(<Board canAssign />);
-    fireEvent.click(screen.getByLabelText("удалить задачу Задача A"));
+    fireEvent.click(screen.getByLabelText("отменить задачу Задача A"));
     // Открытая карточка показала бы форму сдачи с заголовком задачи в поле.
     expect(within(document.body).queryByRole("button", { name: "СДАТЬ" })).toBeNull();
   });

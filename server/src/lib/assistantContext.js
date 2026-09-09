@@ -176,7 +176,12 @@ export function describeTasks(tasks = [], { funcs = [], nameOf = (id) => String(
     const f = funcs.find((x) => x.id === t.funcId);
     const line = [`- «${t.title || "без названия"}»`];
     if (f) line.push(`(функция «${f.name || "без названия"}»)`);
-    line.push(`— ${STATUS_WORDS[t.status] || str(t.status) || "статус не назван"}`);
+    /* Отменённая называется отменённой раньше статуса: статус у неё
+       остался прежним («в работе», «дедлайн»), и помощник, увидев его
+       один, посчитал бы отменённую работу текущей. */
+    line.push(t.canceled === true
+      ? "— ОТМЕНЕНА (работой не считается)"
+      : `— ${STATUS_WORDS[t.status] || str(t.status) || "статус не назван"}`);
     line.push(`; срок ${t.end ? when(t.end) : "не назначен"}`);
     if (t.start) line.push(`; начало ${when(t.start)}`);
     if (t.deferredAt) line.push(`; отложена ${when(t.deferredAt)}`);

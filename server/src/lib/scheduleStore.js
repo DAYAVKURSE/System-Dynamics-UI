@@ -41,6 +41,8 @@ function slimTask(t) {
     title: String(t.title ?? "").slice(0, 200),
     body: String(t.body ?? "").slice(0, 1000),
     status: String(t.status ?? "backlog"),
+    // Отменённая работа напоминаний не шлёт: зовём к делу, которого нет.
+    canceled: t.canceled === true,
     start: t.start ? String(t.start) : "",
     repeat: String(t.repeat ?? "once"),
     days: Array.isArray(t.days) ? t.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) : [],

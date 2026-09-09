@@ -543,8 +543,10 @@ function Tasks({ steps = [], before = [], plan, actual, factors = [],
           {t.assignee == null ? "не назначен" : personName(t.assignee)}</span>
         <span style={{ fontSize: 10.5, color: C.muted }}>{fmtDT(t.end)}</span>
         <span style={{ fontSize: 10.5,
-          color: t.status === "done" ? OK : t.status === "deadline" ? BAD : WARN }}>
-          {t.status === "done" ? "принято" : t.status}</span>
+          color: t.canceled ? BAD
+            : t.status === "done" ? OK : t.status === "deadline" ? BAD : WARN }}>
+          {t.canceled ? "отменена"
+            : t.status === "done" ? "принято" : t.status}</span>
       </div>
       {/* Ожидалось и вышло — рядом, на одной задаче: ради этого сравнения
           отчёт и заводят. Часы у непринятой работы не показываются: их

@@ -173,7 +173,7 @@ export function summaryOf(model, node, nodes = []) {
   });
   const seen = new Set();
   const uniq = rows.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
-  const done = uniq.filter((t) => t.status === "done");
+  const done = uniq.filter((t) => t.status === "done" && t.canceled !== true);
   const hours = done.reduce((s, t) => {
     const subs = t.submissions || [];
     return s + (subs.length ? Number(subs[subs.length - 1].hours) || 0 : 0);

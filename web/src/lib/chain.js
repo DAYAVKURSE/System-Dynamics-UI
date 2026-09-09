@@ -318,7 +318,8 @@ export function actualOf({ tasks = [], funcs = [] } = {}, chain = {}, { only } =
   const mine = only
     ? tasks.filter((t) => only.has(t.id))
     : tasks.filter((t) => ids.has(t.funcId));
-  const done = mine.filter((t) => t.status === "done");
+  // Отменённая в факт не идёт: её результата в модели нет.
+  const done = mine.filter((t) => t.status === "done" && t.canceled !== true);
   const last = (t) => {
     const s = t.submissions || [];
     return s.length ? s[s.length - 1] : null;

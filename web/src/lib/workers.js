@@ -220,8 +220,13 @@ export function historyOf(tasks = [], funcs = [], personId, { published, viewer 
   const me = viewer == null ? null : String(viewer);
   const stranger = (row) => me != null && me !== id
     && !(row.by != null && String(row.by) === me);
+  /* Отменённая работа в историю человека не идёт: её не делали как работу,
+     и ставить её в один ряд со сделанным — значит считать отменой то, чего
+     не было, или заслугой то, что отменили. Сдачи по ней при этом никуда не
+     деваются: они лежат в самой задаче. */
   return tasks
-    .filter((t) => String(t.assignee || "") === id && (t.submissions || []).length)
+    .filter((t) => String(t.assignee || "") === id && (t.submissions || []).length
+      && t.canceled !== true)
     .map((t) => {
       const sb = lastSubmission(t);
       const rv = lastReview(t);

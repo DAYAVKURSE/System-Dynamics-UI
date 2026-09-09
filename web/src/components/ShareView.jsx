@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { C, OK, WARN, ACC, S, nm } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, S, nm } from "./ui.jsx";
 import { getShare } from "../identity.js";
 import { reportSrc } from "../storage.js";
 
@@ -119,8 +119,9 @@ function Task({ t }) {
         <span style={{ fontSize: 11.5, flex: "1 1 120px" }}>{t.title}</span>
         {!!t.by && <span style={{ fontSize: 10.5, color: C.muted }}>{t.by}</span>}
         <span style={{ fontSize: 10.5, color: C.muted }}>{fmtDT(t.end)}</span>
-        <span style={{ fontSize: 10.5, color: t.status === "done" ? OK : WARN }}>
-          {t.status === "done" ? "принято" : t.status}</span>
+        <span style={{ fontSize: 10.5,
+          color: t.canceled ? BAD : t.status === "done" ? OK : WARN }}>
+          {t.canceled ? "отменена" : t.status === "done" ? "принято" : t.status}</span>
       </div>
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
         {t.hours == null ? "факта пока нет" : `вышло ${nm(t.hours)} ч`}

@@ -132,9 +132,9 @@ describe("«Готово» — только через приём отчёта",
   it("на проверке исполнителю нажимать нечего — дело за проверяющим", () => {
     render(<Board tasks={[task({ status: "review" })]} />);
     const card = screen.getByText("Задача A").parentElement;
-    // Кнопка работы — ни одной; «Удалить» — не работа, а право владельца.
+    // Кнопка работы — ни одной; «Отменить» — не работа, а право владельца.
     expect(within(card).queryAllByRole("button")
-      .filter((b) => !/^удалить/i.test(b.textContent))).toEqual([]);
+      .filter((b) => !/^отменить/i.test(b.textContent))).toEqual([]);
     expect(within(card).getByText("ждёт проверяющего")).toBeInTheDocument();
   });
 

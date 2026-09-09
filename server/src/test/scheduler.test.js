@@ -40,6 +40,15 @@ describe("разовая задача", () => {
     expect(dueNotifications(s(), at("2026-09-15T09:49"))).toEqual([]);
   });
 
+  it("отменённая не напоминает о себе", () => {
+    /* Позвать человека к работе, которую решили не делать, — значит позвать
+       его к делу, которого нет. Задача при этом никуда не девается: она
+       лежит в списке с пометкой. */
+    const off = { tzOffset: MSK, tasks: [task({ canceled: true })] };
+    expect(dueNotifications(off, at("2026-09-15T09:50"))).toEqual([]);
+    expect(dueNotifications(off, at("2026-09-15T10:00"))).toEqual([]);
+  });
+
   it("в момент начала уходит уведомление о начале", () => {
     const due = dueNotifications(s(), at("2026-09-15T10:00"));
     expect(due.map((d) => d.kind)).toContain("start");

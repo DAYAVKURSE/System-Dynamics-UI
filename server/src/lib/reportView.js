@@ -192,6 +192,10 @@ function estimate(model, chain, side, qty) {
 function unitRows(model = {}) {
   const rows = [];
   (model.tasks || []).forEach((t) => {
+    /* Отменённая работа вещей не порождает — то же правило, что в
+       приложении: сдача по ней есть, но решение «этого не делаем», и вещи,
+       которой в деле нет, номера не дают. */
+    if (t.canceled === true) return;
     const subs = t.submissions || [];
     const sb = subs.length ? subs[subs.length - 1] : null;
     if (!sb) return;
@@ -256,7 +260,8 @@ function actualOf(model, chain, only) {
      видел четыре одинаковых «передать заказ разработчикам». Вещь не
      выбрана — раздел отвечает прогнозом, и работы в нём нет по существу. */
   const mine = tasks.filter((t) => only.has(t.id));
-  const done = mine.filter((t) => t.status === "done");
+  // Отменённая в факт не идёт: её результата в модели нет.
+  const done = mine.filter((t) => t.status === "done" && t.canceled !== true);
   const delta = {};
   /* Факт по каждой функции отдельно: раздел отчёта — это функция, и рядом с
      её прогнозом ресурсов должен стоять её же факт, а не общий по цепочке. */
@@ -303,8 +308,12 @@ function actualOf(model, chain, only) {
       const sb = subs.length ? subs[subs.length - 1] : null;
       return { title: str(t.title), by: personName(t.assignee), func: str(t.funcId),
         start: str(t.start), end: str(t.end), status: str(t.status),
+        // Отменённую наружу показываем помеченной, а не прячем: заказчик
+        // должен видеть, что работа была заведена и что её отменили.
+        canceled: t.canceled === true,
         // Часы — только у принятой работы: непринятая ещё не измерена.
-        hours: t.status === "done" && sb ? num(sb.hours) : null,
+        // Часы — только у принятой и не отменённой: у отменённой факта нет.
+        hours: t.status === "done" && t.canceled !== true && sb ? num(sb.hours) : null,
         made: (made.filter((r) => r.task === t.id)) };
     }),
   };

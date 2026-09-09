@@ -161,7 +161,10 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
       start: t.start,
       end: t.end,
       // Часы факта — только у принятой работы: непринятая ещё не измерена.
-      hours: t.status === "done" && sb ? num(sb.hours) : null,
+      canceled: t.canceled === true,
+      // Часы — только у принятой и не отменённой: у отменённой работы факта
+      // нет, сколько бы часов в её сдаче ни стояло.
+      hours: t.status === "done" && t.canceled !== true && sb ? num(sb.hours) : null,
       took: [...new Set(Object.values(sb?.took || {}).flat().filter(Boolean))]
         .map((id) => byId[id]).filter(Boolean),
       made: madeBy[t.id] || [],
@@ -187,7 +190,7 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
   const factDelta = (funcId, tasks) => {
     const f = (model.funcs || []).find((x) => x.id === funcId) || null;
     const out = {};
-    tasks.filter((t) => t.status === "done").forEach((t) => {
+    tasks.filter((t) => t.status === "done" && t.canceled !== true).forEach((t) => {
       const sb = lastSub(t);
       if (!sb) return;
       Object.entries(sb.takes || {}).forEach(([id, v]) => {

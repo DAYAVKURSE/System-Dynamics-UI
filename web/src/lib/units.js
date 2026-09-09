@@ -66,6 +66,10 @@ const lastSub = (t) => {
 export function unitsOf({ tasks = [], funcs = [] } = {}) {
   const rows = [];
   tasks.forEach((t) => {
+    /* Отменённая работа вещей не порождает: сдача по ней есть, но решение
+       — «этого не делаем», и ставить её результат в один ряд с настоящими
+       единицами значило бы завести вещь, которой в деле нет. */
+    if (t.canceled === true) return;
     const sb = lastSub(t);
     if (!sb) return;
     const f = funcs.find((x) => x.id === t.funcId) || null;
@@ -123,7 +127,8 @@ export const unitById = (model, id) => unitsOf(model).find((u) => u.id === id) |
  */
 export function doneBy(tasks = [], funcId) {
   const by = {};
-  tasks.filter((t) => t.funcId === funcId && t.status === "done").forEach((t) => {
+  tasks.filter((t) => t.funcId === funcId && t.status === "done"
+    && t.canceled !== true).forEach((t) => {
     const sb = lastSub(t);
     if (!sb) return;
     Object.entries(sb.takes || {}).forEach(([trait, v]) => {

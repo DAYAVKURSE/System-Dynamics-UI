@@ -157,7 +157,13 @@ export function newTask({funcId=null,title="Новое выполнение",bod
   // бы не сказать, отложили её или просто до неё не дошли.
   // «За сколько предупредить» у задачи нет: это настройка человека, которому
   // напоминают (`warnMin` в анкете), и в расписание её подставляет отправитель.
+  // canceled — отменена ли работа. ОТДЕЛЬНО от статуса нарочно: статус
+  // считается сам (срок прошёл — «Дедлайн», сдали — «Проверка»), и отмена,
+  // положенная в него, затиралась бы первым же пересчётом. А ещё отменяют
+  // и ждущую, и взятую, и сданную: отмена не место в очереди, а ответ на
+  // вопрос «делаем ли мы это вообще».
   return {id:uid("tk"),funcId,title,body,status:"wait",taken:false,
+    canceled:false,
     deferredAt:null,
     setter,assignee,reviewer,start,end,endBy:"auto",
     submissions:[],reviews:[],comments:[]};
@@ -316,6 +322,9 @@ export const called=(task,now=Date.now())=>{
 
 export function autoStatus(task,{funcs=[],traits=[],tasks=[],now=Date.now()}={}){
   if(!task) return null;
+  /* Отменённую время больше не трогает: срок ей не срок, и краснеть
+     «Дедлайном» ей не за что — работы нет. */
+  if(isCanceled(task)) return task.status;
   // Сдача принята тем же, кто сдавал: принимать не у кого.
   if(task.status==="review"&&selfReview(task)) return "done";
   const work=BACKLOG_STATES.includes(task.status)||task.status==="progress"
@@ -409,8 +418,19 @@ export const lastSubmission=(t)=>{
  * Только «Готово»: непринятая сдача — это заявление исполнителя, а не
  * измерение. Пока проверяющий её не принял, в расчёт она не идёт.
  */
+/**
+ * Отменена ли задача.
+ *
+ * Одно место на всё приложение: отменённую не считают работой нигде — ни в
+ * факте расчёта, ни в нагрузке человека, ни в напоминаниях, — но и не
+ * прячут: она остаётся в списке с пометкой. Удаление стирало бы вместе с
+ * ней сдачи и оценки, а они были.
+ */
+export const isCanceled=(t)=>!!t&&t.canceled===true;
+
 export function runsOfFunc(tasks=[],funcId){
-  return tasks.filter(t=>t.funcId===funcId&&t.status==="done")
+  // Отменённая работа в факт не идёт: её результата в модели нет.
+  return tasks.filter(t=>t.funcId===funcId&&t.status==="done"&&!isCanceled(t))
     .map(lastSubmission).filter(Boolean)
     .map(sb=>({at:sb.at,hours:Number(sb.hours)||0,
       takes:sb.takes||{},gives:sb.gives||{}}));
@@ -1314,18 +1334,25 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
   // ресурса взяли и выдали. Поэтому «Сдать» открывает задачу.
   const hand=(t)=>setOpenId(t.id);
   const late=(t)=>overdue(t);
-  /* ─── удаление — владельцу, с доски, словами ───
-     Из формы постановки «Удалить» убрана: постановщик описывает работу, а
-     решать, нужна ли она, — не его дело. Владелец убирает задачу здесь, и
-     подтверждение — словами, а не второй кнопкой: карточка на доске
-     нажимается вся, и одно лишнее касание не должно стирать работу вместе
-     со сдачами. */
+  /* ─── отмена — владельцу, с доски, словами ───
+
+     Работу ОТМЕНЯЮТ, а не стирают. Удаление уносило вместе с задачей её
+     сдачи, оценки и то, что по ней уже сделали, — а это было, и делать вид,
+     что не было, нельзя. Отменённая остаётся в списке с пометкой: видно,
+     что решение принято, и видно, кто над ней успел поработать.
+
+     Считать её работой при этом нигде не будут: ни в факте расчёта, ни в
+     нагрузке, ни в напоминаниях. Передумали — «Вернуть» ставит всё назад,
+     и потому подтверждение тут короче, чем было у удаления: терять нечего.
+
+     Из формы постановки эта кнопка убрана: постановщик описывает работу, а
+     решать, нужна ли она, — не его дело. */
   const [dropId,setDropId]=useState(null);
   const drop=(t)=>{
-    setTasks(p=>p.filter(x=>x.id!==t.id));
+    setTasks(p=>p.map(x=>(x.id===t.id?{...x,canceled:true,taken:false}:x)));
     setDropId(null);
-    if(openId===t.id) setOpenId(null);
   };
+  const undrop=(t)=>setTasks(p=>p.map(x=>(x.id===t.id?{...x,canceled:false}:x)));
   return (
     <div>
       {open&&(
@@ -1350,9 +1377,13 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                 return (
                   <div key={t.id} style={{background:C.panel2,
                     border:`1px solid ${t.id===openId?ACC:C.line}`,borderRadius:8,
-                    padding:8,marginBottom:6,cursor:"pointer"}}
+                    padding:8,marginBottom:6,cursor:"pointer",
+                    // Отменённая приглушена и перечёркнута названием: видно,
+                    // что она есть, и видно, что её не делают.
+                    opacity:isCanceled(t)?0.55:1}}
                     onClick={()=>setOpenId(t.id===openId?null:t.id)}>
-                    <div style={{fontSize:12,fontWeight:600,lineHeight:1.4}}>{t.title}</div>
+                    <div style={{fontSize:12,fontWeight:600,lineHeight:1.4,
+                      textDecoration:isCanceled(t)?"line-through":"none"}}>{t.title}</div>
                     {/* В колонке два состояния — карточка называет своё:
                         «ожидает» и «отложено» лежат рядом, и молчание
                         стирало бы между ними разницу. */}
@@ -1371,7 +1402,14 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                     <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
                       {funcLabel(f,entities)}
                     </div>
-                    {t.end&&<div style={{fontSize:10.5,marginTop:3,
+                    {/* Пометка отмены — словом, а не одним приглушением:
+                        бледная карточка читается как «неважная», а сказать
+                        надо «решили не делать». */}
+                    {isCanceled(t)&&(
+                      <div style={{fontSize:10.5,color:BAD,marginTop:3}}>отменена</div>)}
+                    {/* У отменённой срок больше не срок: краснеть ему не за
+                        что, работы нет. */}
+                    {t.end&&!isCanceled(t)&&<div style={{fontSize:10.5,marginTop:3,
                       color:late(t)?BAD:C.muted}}>
                       {late(t)?"просрочено · ":"до "}{fmtDT(t.end)}</div>}
                     {t.assignee!=null&&<div style={{fontSize:10.5,color:ACC,marginTop:3}}>
@@ -1380,42 +1418,52 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
                         и есть работа. Ни «назад», ни «дальше»: колонка
                         говорит, что с задачей, а не куда её положить. */}
                     <div className="flex gap-2" style={{marginTop:6}}>
-                      {!isTaken(t)&&(BACKLOG_STATES.includes(t.status)
+                      {!isCanceled(t)&&!isTaken(t)&&(BACKLOG_STATES.includes(t.status)
                         ||t.status==="deadline")&&(
                         <button style={{...btn(true,ACC),padding:"3px 9px",fontSize:11}}
                           onClick={e=>{e.stopPropagation();take(t);}}>
                           Взять в работу</button>)}
-                      {isTaken(t)&&(t.status==="progress"||t.status==="deadline")&&(
+                      {/* У отменённой кнопок работы нет: её не берут и не
+                          сдают, пока решение не отменили обратно. */}
+                      {!isCanceled(t)&&isTaken(t)
+                        &&(t.status==="progress"||t.status==="deadline")&&(
                         <button style={{...btn(true,OK),padding:"3px 9px",fontSize:11}}
                           onClick={e=>{e.stopPropagation();hand(t);}}>
                           Сдать</button>)}
-                      {t.status==="review"&&(
+                      {!isCanceled(t)&&t.status==="review"&&(
                         <span style={{fontSize:10.5,color:C.muted}}>
                           ждёт проверяющего</span>)}
-                      {t.status==="done"&&(
+                      {!isCanceled(t)&&t.status==="done"&&(
                         <span style={{fontSize:10.5,color:OK}}>принято</span>)}
                       <span style={{flex:1}}/>
-                      {canAssign&&dropId!==t.id&&(
+                      {canAssign&&isCanceled(t)&&(
+                        <button style={{...btn(false),padding:"3px 8px",fontSize:11}}
+                          aria-label={`вернуть задачу ${t.title}`}
+                          onClick={e=>{e.stopPropagation();undrop(t);}}>
+                          Вернуть</button>)}
+                      {canAssign&&!isCanceled(t)&&dropId!==t.id&&(
                         <button style={{...btn(false),padding:"3px 8px",fontSize:11,
                           color:BAD,borderColor:"#5A2436"}}
-                          aria-label={`удалить задачу ${t.title}`}
+                          aria-label={`отменить задачу ${t.title}`}
                           onClick={e=>{e.stopPropagation();setDropId(t.id);}}>
-                          Удалить</button>)}
+                          Отменить</button>)}
                     </div>
                     {canAssign&&dropId===t.id&&(
                       <div onClick={e=>e.stopPropagation()}
                         style={{marginTop:6,padding:7,borderRadius:6,
                           border:`1px solid ${BAD}`,background:C.panel}}>
                         <div style={{fontSize:11,lineHeight:1.5,marginBottom:6}}>
-                          Удалить задачу «{t.title}»? Она исчезнет с доски
+                          Отменить задачу «{t.title}»? Она останется в списке с
+                          пометкой, но работой считаться перестанет: уйдёт из
+                          напоминаний, из нагрузки
                           {(t.submissions||[]).length
-                            ?" вместе со сдачами и оценками, а из расчёта уйдёт её факт"
-                            :" и из расписания напоминаний"}. Вернуть будет нельзя.
+                            ?" и из факта расчёта — сдачи и оценки при этом сохранятся"
+                            :""}. Передумаете — «Вернуть» поставит всё назад.
                         </div>
                         <div className="flex gap-2">
                           <button style={{...btn(true,BAD),padding:"3px 9px",fontSize:11}}
                             onClick={e=>{e.stopPropagation();drop(t);}}>
-                            Да, удалить</button>
+                            Да, отменить</button>
                           <button style={{...btn(false),padding:"3px 9px",fontSize:11}}
                             onClick={e=>{e.stopPropagation();setDropId(null);}}>
                             Оставить</button>
