@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { assetWorkers, whyNotSet } from "./taskRules.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОБЩАЯ МОДЕЛЬ
@@ -16,8 +17,21 @@ import path from "node:path";
      ссылаются, — чтобы подписи читались. Остальная структура системы его
      не касается.
 
-   Что не-владелец может изменить: свою сдачу (исполнитель) и приём
-   отчёта (проверяющий). Больше ничего — запись модели целиком закрыта.
+   Что не-владелец может изменить: поставить свою задачу — людей, срок,
+   содержимое (постановщик, `setupTask`), взять, отложить и сдать свою
+   задачу (исполнитель), принять или вернуть отчёт (проверяющий), написать
+   и убрать свой комментарий (участник). Больше ничего — запись модели
+   целиком закрыта.
+
+   Файл модели один, а писателей много: владелец пишет её целиком, каждое
+   нажатие исполнителя и проверяющего меняет свою задачу, планировщик
+   публикует оценки. Каждый из них читает файл, меняет своё и пишет
+   обратно, поэтому все такие правки идут через одну очередь в процессе
+   (`withModel`): два нажатия в одну миллисекунду иначе затирали бы друг
+   друга, и одно из них пропадало бы молча. Сама запись — через временный
+   файл и переименование: обрыв на середине записи не оставляет
+   обрезанного файла, из которого следующее чтение вернуло бы ПУСТУЮ
+   модель.
    ════════════════════════════════════════════════════════════════ */
 
 /* Модель — это активы (со своими воркерами), их ресурсы, их функции и
@@ -27,8 +41,19 @@ import path from "node:path";
    клиент мог перенести из них числа. Записывать их он перестал. */
 const PARTS = ["entities", "traits", "kinds", "tasks", "funcs", "goals", "factors",
   "reports",
+  /* Реестр опубликованных оценок (`lib/ratings.js`). Ведёт его сервер, а
+     не клиент: клиент присылает модель целиком, и в ней реестр был бы
+     на полторы секунды старше серверного — только что опубликованная
+     оценка стиралась бы и публиковалась заново. */
+  "published",
   "edges", "okrs", "hypos", "flows"];
 const EMPTY = Object.fromEntries(PARTS.map((k) => [k, []]));
+
+/* «Пространство» вкладки задач — запись, а не массив: положение блоков,
+   стрелки и заметки (`web/src/lib/space.js`). У владельца оно живёт в
+   модели, у остальных — своё, по файлу на человека (`readSpace`):
+   заметки позванного — его, и владелец их не видит, как и он — чужих. */
+const isSpace = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 
 function baseDir() {
   return process.env.WORKSPACE_DIR
@@ -42,6 +67,7 @@ export async function readModel() {
     const parsed = JSON.parse(await fs.readFile(file(), "utf8"));
     const out = { ...EMPTY };
     PARTS.forEach((k) => { if (Array.isArray(parsed[k])) out[k] = parsed[k]; });
+    if (isSpace(parsed.space)) out.space = parsed.space;
     out.savedAt = parsed.savedAt || null;
     return out;
   } catch {
@@ -55,10 +81,63 @@ export async function writeModel(model) {
   }
   const out = { ...EMPTY };
   PARTS.forEach((k) => { if (Array.isArray(model[k])) out[k] = model[k]; });
+  if (isSpace(model.space)) out.space = model.space;
+  /* Модель без реестра опубликованного (её присылает клиент владельца) не
+     стирает реестр: опубликованное — это то, что случилось, и правка
+     модели этого не отменяет. */
+  if (!Array.isArray(model.published)) out.published = (await readModel()).published;
   out.savedAt = new Date().toISOString();
   await fs.mkdir(baseDir(), { recursive: true });
-  await fs.writeFile(file(), JSON.stringify(out), "utf8");
+  /* Сначала во временный файл, потом переименование: оно атомарно, и
+     читающий в этот момент видит либо прежнюю модель, либо новую — но не
+     половину. Имя временного файла — своё у каждой записи, чтобы две
+     записи целиком (их владелец шлёт без очереди) не писали в один. */
+  const tmp = `${file()}.${process.pid}.${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.tmp`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(out), "utf8");
+    await fs.rename(tmp, file());
+  } catch (e) {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  }
   return out;
+}
+
+/* Очередь правок модели — одна на процесс, цепочка обещаний, как
+   `inOrder` в `memoryStore.js`. Работа получает свежепрочитанную модель,
+   меняет её и сама решает, писать ли (`writeModel`): отказ «не твоя
+   задача» ничего не пишет. Что работа вернула — то и наружу; упавшая
+   работа очередь не останавливает. Процесс один, поэтому очереди в памяти
+   достаточно — файла-замка не нужно. */
+let chain = Promise.resolve();
+export function withModel(job) {
+  const run = async () => job(await readModel());
+  const next = chain.then(run, run);
+  chain = next.then(() => {}, () => {});
+  return next;
+}
+
+/* Пространство позванного — отдельный файл на человека. Не в модели:
+   модель целиком пишет владелец, и заметки исполнителя, положенные туда,
+   стирались бы его следующей выгрузкой. Имя файла — только из цифр
+   и букв идентификатора: путь из запроса на диск не попадает. */
+const spaceFile = (userId) => path.join(baseDir(),
+  `space-${String(userId).replace(/[^A-Za-z0-9_-]/g, "")}.json`);
+
+export async function readSpace(userId) {
+  try {
+    const parsed = JSON.parse(await fs.readFile(spaceFile(userId), "utf8"));
+    return isSpace(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeSpace(userId, space) {
+  if (!isSpace(space)) throw new Error("space is required");
+  await fs.mkdir(baseDir(), { recursive: true });
+  await fs.writeFile(spaceFile(userId), JSON.stringify(space), "utf8");
+  return { savedAt: new Date().toISOString() };
 }
 
 /** Задачи, до которых человеку есть дело. Владелец здесь не проходит. */
@@ -72,13 +151,49 @@ export const tasksFor = (model, userId) => {
 };
 
 /**
+ * Задача глазами одного человека — без того, что ему в ней не положено.
+ *
+ * · Отметка в решении проверяющего — только автору. Остальным — `null`:
+ *   исполнитель своих оценок не видит вовсе, постановщик — только
+ *   опубликованные средние (`lib/ratings.js`), а отдельная отметка в
+ *   задаче называла бы автора не хуже имени. Скрытая — тем более: она
+ *   скрыта от всех, кроме автора, и в средние при этом входит.
+ * · Слова решения: скрытые — исполнителю (адресату) и автору, публичные —
+ *   всем, кто видит задачу. Скрытость одна на отметку и слова.
+ * · Оценка постановки в сдаче — только тому, кто её поставил: она про
+ *   постановщика и доходит до него по правилам публикации (средние — как
+ *   у всех, скрытые слова — сразу, через `commentsFor`), а не из сдачи.
+ * · Скрытый комментарий — только автору и адресату.
+ *
+ * Режет сервер, а не интерфейс: спрятанное кнопкой видно в любом
+ * отладчике. Владелец получает модель целиком — она его; правило про
+ * скрытую отметку для него повторено в интерфейсе (`visibleStats`).
+ */
+export function taskViewFor(task, userId) {
+  const id = String(userId);
+  const mine = (v) => v != null && String(v) === id;
+  return {
+    ...task,
+    reviews: (task.reviews || []).map((rv) => {
+      if (mine(rv.by)) return rv;
+      const out = { ...rv, mark: null };
+      if (rv.hidden && !mine(task.assignee)) out.comment = "";
+      return out;
+    }),
+    submissions: (task.submissions || []).map((sb) => (
+      mine(task.assignee) || !sb.setterRating ? sb : { ...sb, setterRating: null })),
+    comments: (task.comments || []).filter((c) => !c.hidden || mine(c.by) || mine(c.to)),
+  };
+}
+
+/**
  * Срез модели под одного человека: его задачи и ровно то, на что они
  * ссылаются. Владельцу возвращается модель целиком.
  */
 export function viewFor(model, { id, isOwner }) {
   if (isOwner) return { ...model, mine: model.tasks || [] };
 
-  const tasks = tasksFor(model, id);
+  const tasks = tasksFor(model, id).map((t) => taskViewFor(t, id));
   // Задача — это выполнение функции, поэтому видно ему ровно её: саму
   // функцию, её актив и те ресурсы, которые она берёт и выдаёт. Без них
   // сдача превратилась бы в набор безымянных полей.
@@ -104,6 +219,10 @@ export function viewFor(model, { id, isOwner }) {
     funcs,
     kinds: model.kinds || [],          // значки и цвета — не тайна
     tasks,
+    /* Реестр опубликованного — только по его задачам: по остальным он
+       называл бы, кто кого оценивал в работе, которой человек не видит. */
+    published: (model.published || [])
+      .filter((rid) => tasks.some((t) => String(rid).startsWith(`${t.id}~`))),
     savedAt: model.savedAt || null,
     mine: tasks,
   };
@@ -121,29 +240,139 @@ export function viewFor(model, { id, isOwner }) {
  * просроченная задача остаётся в «Дедлайне» — от того, что за неё взялись,
  * срок назад не отматывается.
  */
-export async function takeTask(userId, taskId, { now = Date.now() } = {}) {
-  const model = await readModel();
+/* Два состояния бэклога: «ожидает» — время ещё не пришло, «отложено» —
+   уже позвали, а работа не началась. Список один на весь сервер, чтобы не
+   разойтись с интерфейсом (`BACKLOG_STATES` в `TasksBoard.jsx`). */
+export const BACKLOG = ["backlog", "deferred"];
+
+export const takeTask = (userId, taskId, { now = Date.now() } = {}) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
-  // Взять можно то, что лежит и ждёт: сданное и принятое брать не во что.
-  if (task.status !== "backlog" && task.status !== "deadline") {
+  /* Взять можно то, что лежит и ждёт: сданное и принятое брать не во что.
+     У бэклога два состояния — «ожидает» и «отложено», — и берутся оба:
+     отложенная задача не выбывает из работы, её просто ещё не начали. */
+  if (!BACKLOG.includes(task.status) && task.status !== "deadline") {
     return { error: "not in backlog" };
   }
   const end = task.end ? new Date(task.end).getTime() : null;
   const late = end != null && !Number.isNaN(end) && end < now;
   task.taken = true;
+  // Взялись — отметка об отложенности снимается, иначе задача вернулась бы
+  // в «отложено» на первом же пересчёте доски. И «до какого момента» тоже:
+  // напоминать о начале того, что уже начали, не за что.
+  task.deferredAt = null;
+  task.deferredUntil = null;
   task.status = late ? "deadline" : "progress";
   await writeModel(model);
   return { task };
-}
+});
 
-/** Записывает сдачу — только исполнитель своей задачи. */
-export async function submitTask(userId, taskId, submission) {
+/**
+ * Откладывает задачу — только исполнитель и только свою.
+ *
+ * Задача остаётся в бэклоге и никуда не переносится: «отложено» — это не
+ * полка «потом», а честная отметка о том, что человека позвали, а работа
+ * не началась. Перенести срок отсюда нельзя: срок ставит постановщик, и
+ * менять его нажатием того, кто исполняет, значило бы переписывать
+ * договорённость в одну сторону.
+ *
+ * Правило то же, что в интерфейсе (`autoStatus` в `TasksBoard.jsx`):
+ * просроченная остаётся в «Дедлайне» — от того, что её отложили, срок
+ * назад не отматывается.
+ *
+ * `until` — до какого момента (ISO): в этот момент планировщик присылает
+ * уведомление о начале заново. Момент обязан быть в будущем — отложить «до
+ * вчера» значит не отложить вовсе, и такая дата не записывается, а не
+ * ловится как ошибка: сама отметка «отложено» при этом верна. Не назван —
+ * задача отложена без срока напоминания, и прежний срок, если был,
+ * снимается: новое «отложить» ничего о времени не сказало.
+ */
+export const deferTask = (userId, taskId, { now = Date.now(), until = null } = {}) => withModel(async (model) => {
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  if (!BACKLOG.includes(task.status) && task.status !== "deadline") {
+    return { error: "not in backlog" };
+  }
+  const end = task.end ? new Date(task.end).getTime() : null;
+  const late = end != null && !Number.isNaN(end) && end < now;
+  const untilMs = until ? Date.parse(String(until)) : NaN;
+  task.taken = false;
+  task.deferredAt = new Date(now).toISOString();
+  task.deferredUntil = Number.isFinite(untilMs) && untilMs > now
+    ? new Date(untilMs).toISOString() : null;
+  task.status = late ? "deadline" : "deferred";
+  await writeModel(model);
+  return { task };
+});
+
+/**
+ * Задача вместе с тем, что нужно, чтобы её сдать: функция и ресурсы, на
+ * которые функция ссылается. Только своя — боту, как и доске, чужие задачи
+ * не показываются, и отказ приходит словом, а не пустой задачей.
+ */
+export async function taskFor(userId, taskId) {
   const model = await readModel();
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  const func = (model.funcs || []).find((f) => f.id === task.funcId) || null;
+  const ids = new Set();
+  [...(func?.takes || []), ...(func?.gives || [])].forEach((p) => { if (p?.trait) ids.add(p.trait); });
+  const traits = (model.traits || []).filter((t) => ids.has(t.id));
+  return { task, func, traits };
+}
+
+/* Ссылка на файл: имя, тип, размер и адрес — то, что отдаёт
+   `reportStore.saveReport`. Лишнего не храним, а без адреса это не файл. */
+const fileRef = (f) => (f && typeof f === "object" && f.url
+  ? { name: String(f.name || ""), type: String(f.type || ""),
+    size: Number(f.size) || 0, url: String(f.url) }
+  : null);
+
+/* Обязательные выходы функции — те, у которых нижняя граница вилки больше
+   нуля: функция обещала выдать хотя бы столько, и без вещи работа не
+   сделана. То же правило, что `requiredGives` в web/src/lib/funcs.js:
+   бот и доска обязаны отказывать одинаково. */
+const requiredGives = (func) => (func?.gives || [])
+  .filter((p) => p && p.trait && (Number(p.lo) || 0) > 0)
+  .map((p) => String(p.trait));
+
+/**
+ * Оценка постановки — часть сдачи: исполнитель говорит, как ему поставили
+ * задачу. Отметка необязательна (`null` — не ставил), слова необязательны;
+ * пусто и там, и там — оценки нет. Себе её не ставят: постановщик,
+ * равный исполнителю, оценивал бы сам себя. `hidden` — одна скрытость на
+ * отметку и слова: скрытую отметку видит только исполнитель-автор,
+ * скрытые слова — он и постановщик; умолчание — публично.
+ */
+const setterRatingOf = (r, { self }) => {
+  if (self || !r || typeof r !== "object") return null;
+  const n = Number(r.mark);
+  const mark = Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+  const comment = String(r.comment || "").trim();
+  if (mark == null && !comment) return null;
+  return { mark, comment, hidden: !!r.hidden };
+};
+
+/** Записывает сдачу — только исполнитель своей задачи. */
+export const submitTask = (userId, taskId, submission) => withModel(async (model) => {
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  /* Сама выданная вещь — файлом, по каждому выходу. Без файла по
+     обязательному выходу сдачи не бывает: работа, от которой ждали
+     макет, без макета не сделана, сколько бы часов на неё ни ушло. Список
+     недостающего — в ответе, чтобы сказать словами, что приложить. */
+  const files = Object.fromEntries(
+    Object.entries(submission?.files && typeof submission.files === "object"
+      ? submission.files : {})
+      .map(([k, v]) => [String(k), fileRef(v)])
+      .filter(([, v]) => v));
+  const func = (model.funcs || []).find((f) => f.id === task.funcId) || null;
+  const missing = requiredGives(func).filter((trait) => !files[trait]);
+  if (missing.length) return { error: "missing files", missing };
   // Сдача — это фактическое выполнение функции: сколько часов ушло и
   // сколько каждого ресурса взяли и выдали. Из принятых сдач считается
   // среднее арифметическое, которое уточняет прогноз.
@@ -166,8 +395,11 @@ export async function submitTask(userId, taskId, submission) {
     takes: qty(submission?.takes),
     gives: qty(submission?.gives),
     took,
+    files,
     text: String(submission?.text || ""),
     file: submission?.file || null,
+    setterRating: setterRatingOf(submission?.setterRating, {
+      self: task.setter != null && String(task.setter) === String(task.assignee) }),
   }];
   /* Сдал — не значит принято: задача уходит на проверку, как и в интерфейсе.
 
@@ -180,11 +412,10 @@ export async function submitTask(userId, taskId, submission) {
   task.status = selfReview ? "done" : "review";
   await writeModel(model);
   return { task };
-}
+});
 
 /** Приём или возврат отчёта — только назначенный проверяющий. */
-export async function reviewTask(userId, taskId, { accept, comment, mark }) {
-  const model = await readModel();
+export const reviewTask = (userId, taskId, { accept, comment, mark, hidden }) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(task.reviewer || "") !== String(userId)) return { error: "not yours" };
@@ -206,13 +437,161 @@ export async function reviewTask(userId, taskId, { accept, comment, mark }) {
     accept: !!accept,
     mark: Number.isFinite(value) ? value : null,
     comment: String(comment || ""),
+    /* Скрытость одна на отметку и слова: скрытую отметку видит только
+       автор (в средние она входит — `lib/ratings.js`), скрытые слова —
+       автор и исполнитель, которому они адресованы. Публичное после
+       публикации видят все, без имени. */
+    hidden: !!hidden,
   }];
   if (comment) {
+    // Те же слова — и в ленте задачи, с автором и адресатом: возврат
+    // читают как «что доработать», а не ищут в решениях.
     task.comments = [...(task.comments || []), {
       id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       text: String(comment), at: new Date().toISOString(), by: String(userId),
+      to: task.assignee == null ? null : String(task.assignee), hidden: !!hidden,
     }];
   }
   await writeModel(model);
   return { task };
+});
+
+/** Кто в задаче есть: постановщик, исполнитель, проверяющий. */
+const participants = (task) => [task.setter, task.assignee, task.reviewer]
+  .filter((v) => v != null && v !== "").map(String);
+
+/**
+ * Кого позванному нужно знать по имени: воркеров активов, которые ему
+ * видны, и участников его задач. Постановщик выбирает исполнителя и
+ * проверяющего из воркеров актива — без имён выбирать было бы не из чего,
+ * а список людей организации целиком отдаётся только владельцу.
+ * Возвращает идентификаторы; имена к ним подставляет маршрут.
+ */
+export function peopleOf(view = {}) {
+  const out = new Set();
+  const add = (list) => (Array.isArray(list) ? list : [])
+    .forEach((id) => { if (id != null && id !== "") out.add(String(id)); });
+  (view.entities || []).forEach((e) => ["crew", "setters", "owners", "reviewers"]
+    .forEach((k) => add(e[k])));
+  (view.funcs || []).forEach((f) => ["setters", "owners", "reviewers"].forEach((k) => add(f[k])));
+  (view.tasks || []).forEach((t) => participants(t).forEach((id) => out.add(id)));
+  return out;
 }
+
+/* ─────── постановка ───────
+
+   Постановка — работа постановщика, а не владельца: ROADMAP v1.2, «форма
+   постановки — для постановщика». Модель целиком пишет владелец, поэтому
+   у постановщика, которого позвали, своя операция — как «взять» у
+   исполнителя и приём у проверяющего: иначе его правки жили бы только в
+   его окне, а «Поставить» меняло бы статус в памяти и нигде больше.
+
+   Что он меняет: название, содержимое, начало, срок и кем срок поставлен,
+   исполнителя и проверяющего — из воркеров актива функции. Постановщика —
+   нет: его назначают на схеме, в ролях функции. И только пока задача ждёт
+   постановки: поставленная уже у исполнителя, и переписывать ему людей и
+   сроки из формы значило бы менять договорённость в одну сторону
+   (владелец, если надо, правит модель целиком).
+
+   «Поставить» (`status: "backlog"`) проходит ту же проверку, что кнопка в
+   форме (`whyNotSet`): все три роли, срок и ресурсы. Отказ — словами, теми
+   же, что видит форма. */
+const parseWhen = (v) => {
+  if (v == null || v === "") return null;
+  const s = String(v);
+  return Number.isFinite(Date.parse(s)) ? s : undefined;
+};
+export const setupTask = (userId, taskId, fields = {}, { isOwner = false } = {}) =>
+  withModel(async (model) => {
+    const task = (model.tasks || []).find((t) => t.id === taskId);
+    if (!task) return { error: "not found" };
+    if (!isOwner && String(task.setter || "") !== String(userId)) return { error: "not yours" };
+    if (task.status !== "wait") {
+      return { error: "already set", why: "Задача уже поставлена — постановка закрыта." };
+    }
+    const f = fields && typeof fields === "object" ? fields : {};
+    const patch = {};
+    if ("title" in f) patch.title = String(f.title ?? "");
+    if ("body" in f) patch.body = String(f.body ?? "");
+    for (const k of ["start", "end"]) {
+      if (!(k in f)) continue;
+      const when = parseWhen(f[k]);
+      if (when === undefined) {
+        return { error: "bad date", why: `${k === "start" ? "Начало" : "Срок"} — не дата.` };
+      }
+      patch[k] = when;
+    }
+    if ("endBy" in f && (f.endBy === "auto" || f.endBy === "hand")) patch.endBy = f.endBy;
+    const workers = assetWorkers(model, task);
+    for (const [k, word] of [["assignee", "Исполнитель"], ["reviewer", "Проверяющий"]]) {
+      if (!(k in f)) continue;
+      const id = f[k] == null || f[k] === "" ? null : String(f[k]);
+      if (id != null && !workers.has(id)) {
+        return { error: "not a worker", why: `${word} не из воркеров актива этой функции.` };
+      }
+      patch[k] = id;
+    }
+    if ("status" in f && f.status !== "backlog") {
+      return { error: "bad status", why: "Отсюда задача может только встать в бэклог." };
+    }
+    Object.assign(task, patch);
+    if (f.status === "backlog") {
+      const why = whyNotSet(task, model);
+      if (why) return { error: "not set", why };
+      task.status = "backlog";
+      task.taken = false;
+      task.deferredAt = null;
+      task.deferredUntil = null;
+    }
+    await writeModel(model);
+    return { task };
+  });
+
+/**
+ * Комментарий к задаче — от любого из её участников (или владельца).
+ *
+ * Скрытый — только автору и адресату, поэтому без адресата он ничей и не
+ * принимается: писать «никому» скрытно значит писать себе. Публичный —
+ * всем, кто видит задачу; адресат у него — обращение, а не граница.
+ * Автор у комментария есть всегда (в отличие от оценки): это разговор в
+ * задаче, а не суждение о человеке.
+ */
+export const addComment = (userId, taskId, { text, to, hidden } = {},
+  { isOwner = false } = {}) => withModel(async (model) => {
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  const me = String(userId);
+  const people = participants(task);
+  if (!isOwner && !people.includes(me)) return { error: "not yours" };
+  const body = String(text || "").trim();
+  if (!body) return { error: "text required" };
+  const addressee = to == null || to === "" ? null : String(to);
+  if (addressee != null && !people.includes(addressee)) return { error: "bad addressee" };
+  if (hidden && addressee == null) return { error: "addressee required" };
+  const comment = {
+    id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    text: body, at: new Date().toISOString(), by: me, to: addressee, hidden: !!hidden,
+  };
+  task.comments = [...(task.comments || []), comment];
+  await writeModel(model);
+  return { task, comment };
+});
+
+/**
+ * Убирает комментарий из ленты задачи: владелец — любой (модель его),
+ * остальные — только свой. Чужие слова не твои, даже если они тебе
+ * адресованы: убрать их значило бы переписать чужую реплику в разговоре.
+ * Нет задачи или комментария — «не найдено», а не тихий успех: кнопка в
+ * интерфейсе должна знать, что сервер ничего не сделал.
+ */
+export const dropComment = (userId, taskId, commentId, { isOwner = false } = {}) =>
+  withModel(async (model) => {
+    const task = (model.tasks || []).find((t) => t.id === taskId);
+    if (!task) return { error: "not found" };
+    const comment = (task.comments || []).find((c) => c && c.id === commentId);
+    if (!comment) return { error: "not found" };
+    if (!isOwner && String(comment.by ?? "") !== String(userId)) return { error: "not yours" };
+    task.comments = task.comments.filter((c) => c !== comment);
+    await writeModel(model);
+    return { task, comment };
+  });

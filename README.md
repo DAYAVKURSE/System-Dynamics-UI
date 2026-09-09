@@ -43,7 +43,6 @@ web/                    React + Vite фронтенд (сама модель + T
   src/storage.js         Хранилище сценариев: сервер → облако Telegram → браузер
 server/                 Express-бэкенд: отдаёт фронтенд + API /api/scenarios
   src/lib/links.js       Ссылка-приглашение на звонок (только отдельное приложение)
-  src/lib/loginFlow.js   Вход в Claude Code прямо из чата с ботом
 deploy/
   bootstrap.sh           Приводит чистый VPS в рабочее состояние (идемпотентно)
   release.sh             Установка зависимостей, перезапуск, health-check

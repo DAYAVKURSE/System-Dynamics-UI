@@ -106,6 +106,118 @@ export async function deleteMeeting(id, by) {
   return true;
 }
 
+/* ─────── расшифровки записей ───────
+
+   Запись звонка лежит в хранилище файлов (reportStore, kind "call"), а её
+   текст — здесь, потому что текст относится к встрече, а не к байтам:
+   помощнику нужен разговор, а не файл. Ключ — id файла записи: у одной
+   встречи бывает несколько записей, а запись бывает и без встречи (звонок
+   открыт по ссылке, встреча не заведена). Когда встреча известна, тот же
+   текст подшивается и к ней (`transcripts` у встречи).
+
+   Состояние — словами: «идёт», «готово», «не удалось» с причиной. Молчание
+   на месте расшифровки читалось бы как «разговора не было». */
+
+const tfile = () => path.join(baseDir(), "transcripts.json");
+const TRANSCRIPT_LIMIT = 200000;   // ~ два часа речи; больше в контекст всё равно не ляжет
+
+async function readTranscripts() {
+  try {
+    const parsed = JSON.parse(await fs.readFile(tfile(), "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/* Расшифровка приходит из фона, встреча правится из чата — две записи в
+   одну миллисекунду затирали бы друг друга. Цепочка обещаний, как
+   `inOrder` в memoryStore.js: писатели один за другим. */
+let chain = Promise.resolve();
+const inOrder = (fn) => {
+  const run = chain.then(fn, fn);
+  chain = run.catch(() => {});
+  return run;
+};
+
+/**
+ * Записывает состояние расшифровки одной записи (по id файла), заменяя
+ * прежнее. `status`: 'pending' | 'done' | 'error'.
+ */
+export function putTranscript({ fileId, by, name, meetingId = null, status, text = "", error = "", model = "" }) {
+  const id = String(fileId || "");
+  if (!id) throw new Error("fileId is required");
+  return inOrder(async () => {
+    const list = await readTranscripts();
+    const rec = {
+      fileId: id,
+      by: by == null ? null : String(by),
+      name: String(name || "").slice(0, 200),
+      meetingId: meetingId == null ? null : String(meetingId),
+      status: ["pending", "done", "error"].includes(status) ? status : "error",
+      text: String(text || "").slice(0, TRANSCRIPT_LIMIT),
+      error: String(error || "").slice(0, 500),
+      model: String(model || "").slice(0, 200),
+      at: new Date().toISOString(),
+    };
+    const i = list.findIndex((t) => t.fileId === id);
+    if (i === -1) list.push(rec); else list[i] = rec;
+    await fs.mkdir(baseDir(), { recursive: true });
+    await fs.writeFile(tfile(), JSON.stringify(list, null, 2), "utf8");
+
+    // Готовый текст — и у встречи, если она известна: контракт C5.
+    if (rec.meetingId && rec.status === "done") {
+      const meetings = await readAll();
+      const m = meetings.find((x) => x.id === rec.meetingId);
+      if (m) {
+        m.transcripts = (m.transcripts || []).filter((t) => t.fileId !== id);
+        m.transcripts.push({ fileId: id, text: rec.text, at: rec.at });
+        await writeAll(meetings);
+      }
+    }
+    return rec;
+  });
+}
+
+export async function transcriptFor(fileId) {
+  return (await readTranscripts()).find((t) => t.fileId === String(fileId)) || null;
+}
+
+/** Расшифровки в состоянии «идёт» — всех людей. Нужно одному месту:
+ *  восстановлению при старте сервера (lib/transcribe.js). Перезапуск
+ *  посреди расшифровки оставлял запись в «идёт» навсегда: done/error
+ *  пишет только тот вызов, который её начал, а его больше нет. */
+export async function listPendingTranscripts() {
+  return (await readTranscripts()).filter((t) => t.status === "pending");
+}
+
+/** Расшифровки одного человека — новые первыми. */
+export async function listTranscripts(by) {
+  return (await readTranscripts())
+    .filter((t) => t.by === String(by))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+/** Запись удалена — текст без файла не нужен, и у встречи тоже. */
+export function dropTranscript(fileId) {
+  const id = String(fileId || "");
+  return inOrder(async () => {
+    const list = await readTranscripts();
+    const left = list.filter((t) => t.fileId !== id);
+    if (left.length === list.length) return false;
+    await fs.writeFile(tfile(), JSON.stringify(left, null, 2), "utf8");
+    const meetings = await readAll();
+    let touched = false;
+    meetings.forEach((m) => {
+      if (!(m.transcripts || []).some((t) => t.fileId === id)) return;
+      m.transcripts = m.transcripts.filter((t) => t.fileId !== id);
+      touched = true;
+    });
+    if (touched) await writeAll(meetings);
+    return true;
+  });
+}
+
 /* ─────── сигналы созвона (только в памяти) ─────── */
 
 const rooms = new Map();   // id встречи → { seq, items: [{n, from, to, data, at}] }

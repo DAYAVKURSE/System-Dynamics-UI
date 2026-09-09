@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   addRole, addUser, identify, listOrg, removeRole, removeUser, setProfile,
   setRoleTabs, setUserRole,
+  addPosition, removePosition, setUserPosition,
 } from "../lib/orgStore.js";
 import {
   readModel, reviewTask, submitTask, tasksFor, viewFor, writeModel,
@@ -309,15 +310,100 @@ describe("что можно изменить", () => {
 describe("анкета", () => {
   it("новый человек начинается с пустой анкеты, а не с её отсутствия", async () => {
     const me = await identify("100", { name: "Первый" });
-    // Поле одно: что о себе писать, решает человек, а не форма.
-    expect(me.profile).toEqual({ about: "" });
+    /* Поле анкеты одно: что о себе писать, решает человек. Рядом с ней —
+       рабочий график и статус: они отвечают не «кто это», а «работает ли
+       он сейчас», и спрашивают их раньше. */
+    expect(me.profile).toEqual({ about: "", days: [], from: "", to: "",
+      status: "ready", warnMin: 10 });
   });
 
   it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
     await identify("100", { name: "Первый" });
     const saved = await setProfile("100", { about: "делаю отчёты" });
-    expect(saved).toEqual({ about: "делаю отчёты" });
+    expect(saved).toMatchObject({ about: "делаю отчёты" });
     expect((await identify("100", {})).profile.about).toBe("делаю отчёты");
+  });
+
+  /* ─── рабочий график и статус ───
+
+     Со слов самого человека, тем же маршрутом, что и анкета. Сюда приходит
+     то, что прислал браузер, поэтому всё разбирается: «понедельник» или
+     «25:00» в записи означали бы график, по которому нельзя сказать
+     ничего. */
+  it("график и статус человек пишет сам, и они разбираются, а не берутся", async () => {
+    await identify("100", { name: "Первый" });
+    const saved = await setProfile("100", {
+      days: [1, 2, 3, 4, 5, 5, 9, -1, "вторник"], from: "09:00", to: "25:00",
+      status: "выдумка",
+    });
+    expect(saved.days).toEqual([1, 2, 3, 4, 5]);
+    expect(saved.from).toBe("09:00");
+    // Час вне суток — это не час: пусто честнее выдуманного времени.
+    expect(saved.to).toBe("");
+    expect(saved.status).toBe("ready");
+    expect((await identify("100", {})).profile.status).toBe("ready");
+  });
+
+  it("статус меняется отдельно от графика: одно постоянное, другое сиюминутное",
+    async () => {
+      await identify("100", {});
+      await setProfile("100", { days: [1, 2, 3], from: "10:00", to: "19:00" });
+      const saved = await setProfile("100", { status: "off" });
+      expect(saved.status).toBe("off");
+      // График при этом на месте: статус его не отменяет.
+      expect(saved.days).toEqual([1, 2, 3]);
+      expect(saved.to).toBe("19:00");
+    });
+
+  it("setProfile отвечает графиком целиком — клиенту есть что положить в «кто я»",
+    async () => {
+      /* Ответ на сохранение — то, что теперь записано, а не эхо запроса:
+         клиент подставляет его в свою запись «кто я» и заново показывает
+         анкету из него. Пришёл бы ответ без графика — вкладка, открытая
+         повторно, показала бы пустые дни. */
+      await identify("100", {});
+      const saved = await setProfile("100", { days: [1, 3], from: "09:00", to: "18:00",
+        status: "break", about: "аналитик" });
+      expect(saved).toEqual({ about: "аналитик", days: [1, 3], from: "09:00",
+        to: "18:00", status: "break", warnMin: 10 });
+      // И «кто я» после этого говорит то же самое.
+      expect((await identify("100", {})).profile).toEqual(saved);
+    });
+
+  /* ─── за сколько предупреждать ───
+
+     Настройка человека, а не задачи: напоминание приходит ему, и на
+     сколько заранее ему удобно, знает он, а не постановщик. */
+  it("«за сколько предупреждать» — своё у человека, по умолчанию 10 минут", async () => {
+    await identify("100", {});
+    expect((await setProfile("100", { warnMin: 30 })).warnMin).toBe(30);
+    expect((await identify("100", {})).profile.warnMin).toBe(30);
+    // Ноль — тоже ответ: «только в момент начала», а не «не названо».
+    expect((await setProfile("100", { warnMin: 0 })).warnMin).toBe(0);
+    // Анкета и график при этом не трогаются.
+    await setProfile("100", { about: "аналитик" });
+    expect((await identify("100", {})).profile).toMatchObject({ about: "аналитик", warnMin: 0 });
+  });
+
+  it("«за сколько» — целые минуты не дальше суток; не число — умолчание", async () => {
+    await identify("100", {});
+    expect((await setProfile("100", { warnMin: "45" })).warnMin).toBe(45);
+    expect((await setProfile("100", { warnMin: 12.6 })).warnMin).toBe(13);
+    // «За неделю» — это «за сутки, раньше не умеем», а не ошибка.
+    expect((await setProfile("100", { warnMin: 99999 })).warnMin).toBe(1440);
+    expect((await setProfile("100", { warnMin: -5 })).warnMin).toBe(0);
+    expect((await setProfile("100", { warnMin: "скоро" })).warnMin).toBe(10);
+  });
+
+  it("график и статус приходят вместе со списком людей", async () => {
+    /* Их спрашивают там же, где выбирают, кому поручить работу. Собирать
+       их вторым запросом на каждого человека значило бы спрашивать по
+       одному то, что уже лежит рядом. */
+    await identify("100", { name: "Первый" });
+    await setProfile("100", { days: [1, 2], from: "09:00", status: "break", warnMin: 20 });
+    const org = await listOrg();
+    expect(org.users.find((u) => u.id === "100"))
+      .toMatchObject({ days: [1, 2], from: "09:00", status: "break", warnMin: 20 });
   });
 
   it("прежние четыре поля не пропадают: пустая анкета читается как их склейка", async () => {
@@ -348,5 +434,52 @@ describe("анкета", () => {
   it("человека, которого нет, анкетой не завести", async () => {
     await identify("100", {});
     expect(await setProfile("999", { about: "никто" })).toBeNull();
+  });
+});
+
+/* ─────── должности ───────
+   Должность — не роль: роль даёт вкладки, должность говорит, кем человек
+   числится. Списки разные, и удаление одного не трогает другое. */
+describe("должности", () => {
+  it("заводятся, назначаются и снимаются", async () => {
+    const roles = (await listOrg()).roles;
+    await addUser({ id: "500", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+    const pos = await addPosition({ name: "Дизайнер" });
+    expect(pos).toMatchObject({ name: "Дизайнер" });
+    // Роль от этого не меняется: это разные вопросы к одному человеку.
+    await setUserPosition("500", pos.id);
+    const org = await listOrg();
+    expect(org.positions.map((p) => p.name)).toEqual(["Дизайнер"]);
+    const ivan = org.users.find((u) => u.id === "500");
+    expect(ivan.position).toBe(pos.id);
+    expect(ivan.roleId).toBe(roles[0].id);
+    // Пусто — «без должности», а не ошибка.
+    await setUserPosition("500", "");
+    expect((await listOrg()).users.find((u) => u.id === "500").position).toBeNull();
+  });
+
+  it("одна и та же должность дважды не заводится, чужая не назначается", async () => {
+    await addPosition({ name: "Аналитик" });
+    await expect(addPosition({ name: "аналитик" })).rejects.toThrow(/already exists/);
+    await expect(addPosition({ name: "  " })).rejects.toThrow(/required/);
+    const roles = (await listOrg()).roles;
+    await addUser({ id: "501", name: "Пётр", roleId: roles[0].id, addedBy: "100" });
+    await expect(setUserPosition("501", "нет-такой")).rejects.toThrow(/unknown position/);
+  });
+
+  it("удалённая должность оставляет человека без должности, а не без записи", async () => {
+    const roles = (await listOrg()).roles;
+    await addUser({ id: "502", name: "Ольга", roleId: roles[0].id, addedBy: "100" });
+    const pos = await addPosition({ name: "Бухгалтер" });
+    await setUserPosition("502", pos.id);
+    expect(await removePosition(pos.id)).toBe(true);
+    const org = await listOrg();
+    expect(org.positions).toEqual([]);
+    const olga = org.users.find((u) => u.id === "502");
+    expect(olga).toBeTruthy();
+    expect(olga.position).toBeNull();
+    // Роль на месте: удаляли должность, а не право видеть вкладки.
+    expect(olga.roleId).toBe(roles[0].id);
+    expect(await removePosition("нет-такой")).toBe(false);
   });
 });

@@ -89,6 +89,17 @@ export const setRoleTabs = (id, tabs) =>
     { method: "PUT", body: JSON.stringify({ tabs }) });
 export const removeRole = (id) =>
   json(`/api/org/roles/${encodeURIComponent(id)}`, { method: "DELETE" });
+/* Должность — не роль: роль даёт вкладки (её выбирают при приглашении),
+   должность говорит, кем человек числится. Списки разные и правятся в
+   разных местах: роли — в «Людях и ролях», должности — у воркеров. */
+export const listPositions = () => json("/api/org").then((o) => o.positions || []);
+export const addPosition = (name) =>
+  json("/api/org/positions", { method: "POST", body: JSON.stringify({ name }) });
+export const removePosition = (id) =>
+  json(`/api/org/positions/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const setUserPosition = (id, position) =>
+  json(`/api/org/users/${encodeURIComponent(id)}/position`,
+    { method: "PUT", body: JSON.stringify({ position }) });
 export const setUserRole = (id, roleId) =>
   json(`/api/org/users/${encodeURIComponent(id)}/role`,
     { method: "PUT", body: JSON.stringify({ roleId }) });
@@ -102,27 +113,46 @@ export const putWorkspace = (model) =>
   json("/api/workspace", { method: "PUT", body: JSON.stringify({ model }) });
 export const takeTaskRemote = (id) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/take`, { method: "POST" });
+/* Постановка — своя операция постановщика, как «взять» у исполнителя:
+   модель целиком пишет владелец, а ставить задачу должен тот, кого
+   назначили постановщиком на схеме. В `fields` — что изменилось в форме
+   (название, содержимое, начало, срок, исполнитель, проверяющий) или
+   `{status: "backlog"}` за «Поставить». Отказ сервер объясняет словами в
+   `why` — теми же, что показывает форма, — и они уходят в ошибку целиком,
+   а не кодом «not set». */
+export async function setupTaskRemote(id, fields) {
+  const r = await fetch(`/api/workspace/tasks/${encodeURIComponent(id)}/setup`,
+    { method: "POST", headers: headers(), body: JSON.stringify(fields) });
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    throw new Error(body.why || body.error || `Сервер ответил ${r.status}`);
+  }
+  return r.json();
+}
 export const submitTaskRemote = (id, submission) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/submit`,
     { method: "POST", body: JSON.stringify(submission) });
-export const reviewTaskRemote = (id, { accept, comment, mark }) =>
+export const reviewTaskRemote = (id, { accept, comment, mark, hidden = false }) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/review`,
-    { method: "POST", body: JSON.stringify({ accept, comment, mark }) });
-
-/** Черновик содержимого задачи от Claude — через мост, только владельцу. */
-/** Черновик задачи от Claude. В два шага: поставить вопрос и опрашивать
- *  ответ короткими запросами. Один длинный запрос nginx и WebView Telegram
- *  рвали на минуте — интерфейс видел только «Failed to fetch». */
-export async function draftTask(fields, { intervalMs = 1500, timeoutMs = 190000, signal } = {}) {
-  const started = await json("/api/workspace/draft",
-    { method: "POST", body: JSON.stringify(fields) });
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (signal?.aborted) throw new Error("отменено");
-    await new Promise((r) => setTimeout(r, intervalMs));
-    const st = await json(`/api/workspace/draft/${encodeURIComponent(started.id)}`);
-    if (st.status === "done") return st.text;
-    if (st.status !== "pending") throw new Error(st.error || "Claude не ответил");
-    if (Date.now() > deadline) throw new Error("Claude не ответил вовремя — напишите текст сами");
-  }
-}
+    { method: "POST", body: JSON.stringify({ accept, comment, mark, hidden }) });
+/* Комментарий к задаче: скрытый — только автору и адресату. Своя
+   операция, как у сдачи и приёма: модель целиком пишет владелец, а сказать
+   в задаче должен уметь любой её участник. */
+export const commentTaskRemote = (id, { text, to = null, hidden = false }) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(id)}/comments`,
+    { method: "POST", body: JSON.stringify({ text, to, hidden }) });
+/* Убрать комментарий — своя операция по той же причине: у позванного
+   нажатие ✕ иначе жило бы только в окне и комментарий возвращался бы с
+   перезагрузкой. Сервер разрешает владельцу любой, остальным — только
+   свой; интерфейс показывает ✕ по тому же правилу. */
+export const dropCommentRemote = (taskId, commentId) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`,
+    { method: "DELETE" });
+/* Рейтинги глазами спрашивающего: про себя — только адресованные слова,
+   про остальных — средние и публичные слова, нигде — автор. Сервер при
+   каждом чтении пробует опубликовать то, что стало анонимным. */
+export const getRatings = () => json("/api/workspace/ratings");
+/* Пространство вкладки задач у позванного — своё на сервере: модель
+   целиком пишет владелец, а заметки исполнителя в неё не попадают. */
+export const putSpaceRemote = (space) =>
+  json("/api/workspace/space", { method: "PUT", body: JSON.stringify({ space }) });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import SystemModel from "../components/SystemModel.jsx";
 import TasksBoard, { TaskSetup, autoFlow, autoStatus, floorStatus, newTask,
@@ -35,6 +35,22 @@ const past = () => new Date(Date.now() - 864e5).toISOString().slice(0, 16);
 const task = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
   body: "что сделать", end: soon(), ...over });
 const solo = (over) => task({ setter: "1", assignee: "1", reviewer: "1", ...over });
+
+/* Функция обещала выдать «заявки» (минимум в вилке 1) — без самой заявки
+   работа не сдаётся. Прикладываем её так же, как это делает человек. */
+const attachResult = async (label, name = "результат.txt") => {
+  const input = screen.getByLabelText(label);
+  const f = new File(["x"], name, { type: "text/plain" });
+  Object.defineProperty(input, "files", { value: [f], configurable: true });
+  fireEvent.change(input);
+  await waitFor(() => expect(screen.getByText(new RegExp(name))).toBeTruthy());
+};
+/* Отчёт — словами: без него «Сдать» не появляется (v1.2). */
+const writeReport = (text = "готово") => {
+  const el = screen.getByLabelText("отчёт о работе");
+  fireEvent.change(el, { target: { value: text } });
+  fireEvent.blur(el);
+};
 
 describe("кто с кем совпал", () => {
   it("совпадение считается только когда назначены оба", () => {
@@ -136,20 +152,24 @@ describe("на доске", () => {
   const closeEditor = () => fireEvent.click(screen.getAllByRole("button", { name: "✕" })[0]);
   const column = (name) => screen.getByText(name).closest("div").parentElement;
 
-  it("сдача уходит сразу в готовые, когда сдал и принял один человек", () => {
+  it("сдача уходит сразу в готовые, когда сдал и принял один человек", async () => {
     render(<Board tasks={[solo({ status: "progress" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+    await attachResult("результат: заявки");
+    writeReport();
     // Их две: одна в форме сдачи, другая на карточке в колонке.
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     closeEditor();
     expect(within(column("Готово")).getByText("Задача A")).toBeInTheDocument();
   });
 
-  it("а когда проверяет другой — на проверку, как и было", () => {
+  it("а когда проверяет другой — на проверку, как и было", async () => {
     render(<Board tasks={[solo({ status: "progress", reviewer: "2" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
+    await attachResult("результат: заявки");
+    writeReport();
     // Их две: одна в форме сдачи, другая на карточке в колонке.
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     closeEditor();

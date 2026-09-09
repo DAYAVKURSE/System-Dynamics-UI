@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barOf } from "../components/Timeline.jsx";
+import { barOf, timelineHtml } from "../lib/timelineDoc.js";
 
 /* Полоса задачи на оси времени. Задача без начала и без сдач полосы не
    имеет: рисовать её «от сегодня до сегодня» значило бы выдумать данные. */
@@ -38,5 +38,111 @@ describe("полоса задачи", () => {
       { id: "b", at: "2026-09-17T00:00:00.000Z" },
     ] }, func);
     expect(bar.to).toBe(t("2026-09-17T00:00:00.000Z"));
+  });
+});
+
+/* ─────── ТАЙМЛАЙН ФАЙЛОМ ───────
+
+   Экран показывает то, что есть в модели СЕЙЧАС, а спрашивают другое: «как
+   оно шло». По живой модели на это не ответить — она меняется, и вчерашняя
+   картина исчезает бесследно. */
+describe("таймлайн сохраняется файлом", () => {
+  const FUNCS = [{ id: "f1", e: "e1", name: "Сбор заявок", dur: 2, durUnit: "ч" }];
+  const TASKS = [
+    { id: "t1", funcId: "f1", title: "Первая", status: "deferred", assignee: "2",
+      start: "2026-09-01T10:00", end: "2026-09-03T10:00",
+      deferredAt: "2026-09-01T10:05:00.000Z",
+      submissions: [], reviews: [] },
+    { id: "t2", funcId: "f1", title: "Вторая", status: "done", assignee: "3",
+      start: "2026-09-02T10:00",
+      submissions: [{ id: "s1", at: "2026-09-04T12:00:00.000Z", hours: 3 }],
+      reviews: [{ at: "2026-09-04T13:00:00.000Z", accept: true, mark: 5,
+        comment: "хорошо" }] },
+    { id: "t3", funcId: "f1", title: "Без срока", status: "backlog",
+      submissions: [], reviews: [] },
+  ];
+  const html = () => timelineHtml(TASKS, FUNCS, {
+    statusName: (id) => ({ deferred: "Отложено", done: "Готово",
+      backlog: "Ожидает" }[id] || id),
+    funcName: () => "Сбор заявок",
+    personName: (id) => (id == null ? "не назначен" : `человек ${id}`),
+    now: Date.parse("2026-09-05T00:00:00Z"),
+  });
+
+  it("в файл идут ВСЕ задачи, а не отфильтрованные на экране", () => {
+    const out = html();
+    ["Первая", "Вторая", "Без срока"].forEach((t) => expect(out).toContain(t));
+  });
+
+  it("задача без срока не выпадает, но и на ось не ставится", () => {
+    /* Придумать ей дату нельзя, а потерять — незачем: она в отдельном
+       списке, и там сказано, почему её нет на оси. */
+    const out = html();
+    expect(out).toContain("Без срока — на оси их нет");
+  });
+
+  it("видно, что происходило: отложили, сдали, приняли — но без отметки", () => {
+    const out = html();
+    expect(out).toContain("отложена");
+    expect(out).toContain("сдача");
+    expect(out).toContain("принято");
+    expect(out).toContain("хорошо");
+    /* Отметки в файле нет даже публичной: у задачи один проверяющий, и
+       отметка без имени называет его не хуже подписи; а исполнитель своих
+       оценок не видит — файл же может открыть кто угодно. */
+    expect(out).not.toMatch(/оценка/);
+  });
+
+  /* Файл собирается чьими-то глазами, и правило у него то же, что у среза
+     сервера (`taskViewFor`): скрытые слова — автору и исполнителю, которому
+     они адресованы, остальным их нет вовсе. У владельца модель целиком, и
+     без этого его файл уносил бы наружу скрытые слова всех проверяющих. */
+  describe("скрытое решение проверяющего", () => {
+    const SECRET = "СКРЫТЫЕ СЛОВА ПРОВЕРЯЮЩЕГО";
+    const task = { id: "h1", funcId: "f1", title: "Скрытая", status: "done",
+      assignee: "200", reviewer: "300", start: "2026-09-02T10:00",
+      submissions: [{ id: "s1", at: "2026-09-04T12:00:00.000Z", hours: 1 }],
+      reviews: [{ id: "rv1", by: "300", at: "2026-09-04T13:00:00.000Z",
+        accept: true, mark: 2, hidden: true, comment: SECRET }] };
+    const file = (viewer) => timelineHtml([task], FUNCS,
+      { now: Date.parse("2026-09-05T00:00:00Z"), viewer });
+
+    it("постороннему (и владельцу без зрителя) — ни отметки, ни слов", () => {
+      [file("100"), file(null)].forEach((out) => {
+        expect(out).toContain("принято");
+        expect(out).not.toContain(SECRET);
+        expect(out).not.toMatch(/оценка/);
+      });
+    });
+
+    it("автору слов и исполнителю, которому они адресованы, — слова, но не отметка", () => {
+      [file("300"), file("200")].forEach((out) => {
+        expect(out).toContain(SECRET);
+        expect(out).not.toMatch(/оценка/);
+      });
+    });
+
+    it("публичные слова — всем, кто видит задачу", () => {
+      const open = { ...task, reviews: [{ ...task.reviews[0], hidden: false }] };
+      const out = timelineHtml([open], FUNCS,
+        { now: Date.parse("2026-09-05T00:00:00Z"), viewer: "100" });
+      expect(out).toContain(SECRET);
+    });
+  });
+
+  it("файл самодостаточен: ни скриптов, ни ссылок наружу", () => {
+    // Иначе через год он мог бы и не открыться.
+    const out = html();
+    expect(out).not.toMatch(/<script/);
+    expect(out).not.toMatch(/https?:\/\//);
+  });
+
+  it("название задачи не ломает разметку", () => {
+    const out = timelineHtml(
+      [{ id: "x", title: "<b>жирный</b> & <script>", status: "backlog",
+        start: "2026-09-01T10:00", submissions: [] }], FUNCS,
+      { now: Date.parse("2026-09-05T00:00:00Z") });
+    expect(out).toContain("&lt;b&gt;жирный&lt;/b&gt; &amp; &lt;script&gt;");
+    expect(out).not.toMatch(/<script/);
   });
 });

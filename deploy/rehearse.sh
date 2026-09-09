@@ -39,7 +39,6 @@ rehearse_as() {
   stub systemctl
   stub nginx     # в том числе "nginx -t"
   stub pm2
-  stub claude    # Claude Code «уже стоит»: ставить его в песочнице незачем
   stub chown     # в песочнице менять владельца не нужно и нельзя
   # coturn: ss «видит» 3478; getent резолвит домен в публичный адрес, а
   # hostname -I отдаёт приватный — сервер «за NAT», и ветка external-ip

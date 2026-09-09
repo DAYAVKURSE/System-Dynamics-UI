@@ -15,10 +15,15 @@
    Вся логика — чистая функция `handleUpdate`: она получает обновление и
    зависимости (хранилище, отправку) аргументами, поэтому проверяется
    тестами, а не перепиской с живым ботом.
+
+   В группах бот только слушает: записывает (deps.chats) и молчит — см.
+   начало handleUpdate.
    ════════════════════════════════════════════════════════════════ */
 
 import { CALL_APP_STEPS, CALL_MAIN_STEPS, callAppNameOk, isAppLink, isMainAppLink }
   from "./links.js";
+import { isTaskAction, onTaskButton, onTaskMessage } from "./botTasks.js";
+import { isAssistantAction, onAssistantButton, onAssistantMessage } from "./botAssistant.js";
 
 // Роль, выбранная кнопкой: короткий префикс, чтобы влезть в 64 байта
 // callback_data, которые разрешает Telegram.
@@ -27,6 +32,9 @@ const NEWROLE = "newrole";
 
 const nameOf = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(" ")
   || u?.username || String(u?.id || "");
+
+// Группа и супергруппа — общий чат; канал и личный — нет.
+const isGroupChat = (chat) => chat?.type === "group" || chat?.type === "supergroup";
 
 /** Ожидание ответа на «как назвать роль»: кого зовём, пока имя не пришло. */
 const pending = new Map();
@@ -129,14 +137,6 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
   }], { cache_time: 0, is_personal: true });
 }
 
-/* ─────── мост к Claude Code ───────
-   Только владельцу и только явной командой: «/claude вопрос» либо режим
-   «/claude» без текста, когда каждое следующее сообщение уходит в мост.
-   Явность здесь не формальность — иначе обычная переписка с ботом начала
-   бы уезжать в чужой процесс. */
-
-const bridgeMode = new Set();
-
 const HELP = [
   "Я умею одно: добавлять людей в модель.",
   "",
@@ -147,34 +147,28 @@ const HELP = [
   "приватности), попросите его прислать мне /id и пришлите этот номер",
   "сообщением вида: id 123456789 Имя",
   "",
-  "Ещё умею передавать вопрос в ваш Claude Code: «/claude вопрос».",
-  "«/claude» без текста включает режим, когда туда уходит каждое",
-  "следующее сообщение; «/stop» его выключает.",
-  "",
-  "«/login» — вход в Claude Code прямо отсюда: пришлю ссылку, вы",
-  "подтвердите и вставите код ответным сообщением — целиком, вместе",
-  "с частью после «#». Ни SSH, ни компьютера для этого не нужно.",
-  "",
   "«/callapp» — отдельное мини-приложение для звонков: расскажу, как",
   "завести его в @BotFather, и запомню короткое имя.",
   "",
   "«/callmain» — если на ТЕЛЕФОНЕ звонок открывается на весь экран, а",
   "хочется на половину: расскажу, как сделать его главным приложением",
   "бота. На компьютере половины нет ни у какого мини-приложения.",
+  "",
+  "Любой другой текст — вопрос помощнику: он знает вашу модель и задачи.",
+  "«запомни: …» или присланный документ — в память помощника.",
 ].join("\n");
 
-/**
- * Похоже ли сообщение на одноразовый код подтверждения Claude.
- *
- * Проверка нарочно узкая: длинная строка без пробелов из «код#состояние».
- * Обычная переписка так не выглядит, а перепутать значило бы не передать
- * человеку его же вопрос.
- */
-export const looksLikeCode = (text) =>
-  /^[A-Za-z0-9._~:+/=%-]{16,}#[A-Za-z0-9._~:+/=%-]{8,}$/.test(String(text || "").trim());
-
-/** Пускает долгую работу дальше, не роняя бота на её ошибке. */
-const detach = (p) => { p.catch(() => {}); return p; };
+/* Подсказка позванному не-владельцу — на то, что не разобрали ни сдача,
+   ни помощник (стикер, фото вне шага, пересылка, незнакомая команда). */
+const INVITED_HELP = [
+  "Это сообщение я не разобрал. Что я умею для вас:",
+  "",
+  "— кнопки под уведомлением о задаче: «🔴 Отложить», «🟢 Начать», потом",
+  "«Сдать отчёт» — вся сдача проходит здесь, в чате;",
+  "— вопрос обычным текстом — ответит помощник, он знает ваши задачи;",
+  "— «запомни: …» или присланный документ — в память помощника;",
+  "— /id — ваш номер.",
+].join("\n");
 
 const rolesKeyboard = (roles) => ({
   inline_keyboard: [
@@ -190,10 +184,37 @@ const rolesKeyboard = (roles) => ({
 export async function handleUpdate(update, deps) {
   const { org, send, answer } = deps;
   const msg = update?.message;
+  const edited = update?.edited_message;
   const cb = update?.callback_query;
   const inline = update?.inline_query;
-  const from = msg?.from || cb?.from || inline?.from;
+  const from = msg?.from || edited?.from || cb?.from || inline?.from;
   if (!from) return { ignored: "no sender" };
+
+  /* ─── группы: слушать и молчать ───
+     Всё, что бот видит в группе, ложится на диск (lib/chatStore.js, E):
+     помощник потом отвечает по этим чатам тем, кто в них состоит. Отвечать
+     в группу бот не должен ничем — ни помощником, ни подсказкой, ни
+     «только владельцу»: чат общий, а бот отвечает каждому про своё.
+     Правка сообщения — тоже запись: та же строка с тем же id. Раньше
+     identify: в группе никого не зовём и владельцем не делаем. */
+  const inGroup = msg || edited;
+  if (inGroup && isGroupChat(inGroup.chat)) {
+    if (!deps.chats?.record) return { ignored: "group" };
+    await deps.chats.record(inGroup);
+    return { recorded: true };
+  }
+  // Правка личного сообщения — не новое сообщение: отвечать второй раз нечего.
+  if (!msg && edited) return { ignored: "edited" };
+
+  /* Кнопка под сообщением, ПЕРЕСЛАННЫМ в группу: Telegram сохраняет
+     инлайн-клавиатуру при пересылке и доставляет нажатие исходному боту.
+     Отвечать в группу нельзя ничем (см. выше), а ход сдачи и оценка
+     постановки — личное дело того, кому поручена работа. Поэтому — ответ
+     на само нажатие (его видит только нажавший) и ничего в чат. */
+  if (cb && isGroupChat(cb.message?.chat)) {
+    await answer(cb.id, "Кнопки работают только в личном чате с ботом");
+    return { ignored: "group callback" };
+  }
 
   // Позвать на созвон может любой, кого позвали в модель, — не только
   // владелец: иначе исполнитель не смог бы предложить встречу.
@@ -204,11 +225,72 @@ export async function handleUpdate(update, deps) {
   }
 
   const me = await org.identify(String(from.id), { name: nameOf(from), username: from.username });
+
+  /* «/id» — всем, и незваным в первую очередь: именно незваного просят
+     прислать боту /id, чтобы владелец мог позвать его по номеру. Раньше
+     всего остального: внутри шага сдачи и у не-владельца команда обязана
+     работать так же. Ничего чужого она не выдаёт — свой номер человек и
+     так видит в любом клиенте. */
+  if (msg && /^\/id\b/.test(String(msg.text || "").trim())) {
+    await send(from.id, `Ваш id: ${from.id}`);
+    return { told: String(from.id) };
+  }
+
+  /* ─── кнопки под уведомлением о задаче ───
+
+     Отвечают ВСЕМ позванным, а не одному владельцу: уведомление приходит
+     тому, кому работа поручена, и кнопка под ним обязана работать у него.
+     Проверку «своя ли задача» делает сам склад работы (`deferTask`,
+     `takeTask` в `workspaceStore.js`) — там же, где она делается для
+     нажатия на доске, чтобы два места не разошлись в правилах. */
+  if (cb && deps.work && isTaskAction(cb.data)) {
+    if (!me.known) {
+      await answer(cb.id, "Вас ещё не звали в модель");
+      return { ignored: "not invited" };
+    }
+    return onTaskButton(cb, from, deps);
+  }
+
+  /* Кнопки под статусом помощника — «✖ Отменить», «✎ Уточнить» — у любого
+     позванного: вопрос задавал он, и ход вопроса его. Чей вопрос — сверяет
+     сам помощник (lib/botAssistant.js). */
+  if (cb && deps.assistant && isAssistantAction(cb.data)) {
+    if (!me.known) {
+      await answer(cb.id, "Вас ещё не звали в модель");
+      return { ignored: "not invited" };
+    }
+    return onAssistantButton(cb, from, deps);
+  }
+
+  /* Файл или текст в ответ на вопрос сдачи — у любого позванного. Раньше
+     команд и помощника: человек отвечает на вопрос бота, а не задаёт свой.
+     null — открытого шага нет, сообщение разбирается дальше как обычно. */
+  if (msg && me.known && deps.work) {
+    const r = await onTaskMessage(msg, from, deps);
+    if (r) return r;
+  }
+
+  /* ─── помощник для позванных не-владельцев ───
+     Бот перестал быть «только для владельца»: тому, кому поручена работа,
+     на обычный текст и документ отвечает помощник — по его данным (см.
+     lib/botAssistant.js). Команды и пересылки он возвращает как null, и
+     они попадают в отказ ниже, как прежде. */
+  if (msg && me.known && !me.isOwner && deps.assistant) {
+    const handled = await onAssistantMessage(msg, from, deps);
+    if (handled) return handled;
+  }
+
   if (!me.isOwner) {
-    // Чужим не отвечаем содержательно: бот не должен рассказывать
-    // постороннему, что у него вообще есть роли и люди.
-    if (msg) await send(from.id, "Этот бот отвечает только владельцу модели.");
     if (cb) await answer(cb.id, "Только владелец");
+    /* Позванному — что бот умеет для него: сюда он попадает со стикером,
+       фото без шага сдачи, пересылкой — и «только владельцу» было бы
+       неправдой, бот ему отвечает. Чужим не отвечаем содержательно: бот не
+       должен рассказывать постороннему, что у него вообще есть роли и люди. */
+    if (msg && me.known) {
+      await send(from.id, INVITED_HELP);
+      return { helped: "invited" };
+    }
+    if (msg) await send(from.id, "Этот бот отвечает только владельцу модели.");
     return { ignored: "not owner" };
   }
 
@@ -217,11 +299,10 @@ export async function handleUpdate(update, deps) {
 }
 
 async function onMessage(msg, from, deps) {
-  const { org, send, bridge, login } = deps;
+  const { org, send } = deps;
   const text = String(msg.text || "").trim();
 
-  // 0. Настройка приложения звонка — раньше моста, иначе команда уехала бы
-  //    в Claude Code обычным вопросом.
+  // 1. Настройка приложения звонка.
   if (deps.settings) {
     const m = text.match(/^\/callapp\b\s*([\s\S]*)$/i);
     if (m) return onCallApp(m[1], from, deps);
@@ -229,60 +310,7 @@ async function onMessage(msg, from, deps) {
     if (main) return onCallMain(main[1], from, deps);
   }
 
-  /* 1. Вход в Claude Code — тоже раньше моста: и «/login», и код
-        подтверждения иначе уехали бы в мост обычным вопросом.
-
-        Разговор с claude идёт долго (ссылка — секунды, проверка кода —
-        тоже), а обновления Telegram обрабатываются по очереди. Поэтому
-        сам разговор не ждём: бот остаётся живым и может, в частности,
-        принять «/stop». Обещание отдаётся вызывающему в `done` — тестам
-        есть чего дождаться. */
-  if (login) {
-    if (/^\/login\b/i.test(text)) return { login: "started", done: detach(onLogin(from, deps)) };
-    // «/stop» отменяет вход на любой его стадии, не только пока ждём код:
-    // проверка кода — как раз тот момент, когда отменить хочется сильнее.
-    if (login.loginState().stage !== "idle" && /^\/(stop|cancel)\b/i.test(text)) {
-      login.cancelLogin();
-      await send(from.id, "Вход отменён.");
-      return { login: "cancelled" };
-    }
-    if (login.awaitingCode() && text && !text.startsWith("/")) {
-      return { login: "code", done: detach(onLoginCode(text, from, deps)) };
-    }
-    // Код, присланный без начатого входа (окно закрылось, вход отменили),
-    // не должен уехать в Claude Code обычным вопросом: он одноразовый, но
-    // до сих пор попадал и в чужой процесс, и в журнал воркера.
-    if (looksLikeCode(text)) {
-      await send(from.id, "Похоже на код подтверждения, но вход сейчас не начат"
-        + " — он живёт несколько минут. Отправьте /login и повторите.");
-      return { login: "stale-code" };
-    }
-  }
-
-  // 2. Мост к Claude Code: в режиме моста сообщение уходит туда целиком,
-  //    включая то, что похоже на команду.
-  if (bridge) {
-    const cmd = text.match(/^\/claude\b\s*([\s\S]*)$/i);
-    if (cmd) {
-      const rest = cmd[1].trim();
-      if (!rest) {
-        bridgeMode.add(String(from.id));
-        await send(from.id, "Режим Claude Code включён: пишите вопрос обычным сообщением. «/stop» — выйти.");
-        return { bridgeMode: "on" };
-      }
-      return askBridge(rest, from, deps);
-    }
-    if (/^\/stop\b/i.test(text) && bridgeMode.has(String(from.id))) {
-      bridgeMode.delete(String(from.id));
-      await send(from.id, "Режим Claude Code выключен.");
-      return { bridgeMode: "off" };
-    }
-    if (bridgeMode.has(String(from.id)) && text && !msg.forward_from) {
-      return askBridge(text, from, deps);
-    }
-  }
-
-  // 3. Пересланное сообщение — основной путь.
+  // 2. Пересланное сообщение — основной путь.
   const fwd = msg.forward_from;
   if (fwd) {
     const roles = (await org.listOrg()).roles;
@@ -304,7 +332,7 @@ async function onMessage(msg, from, deps) {
     return { blocked: "hidden" };
   }
 
-  // 4. Ожидаем имя новой роли.
+  // 3. Ожидаем имя новой роли.
   const wait = pending.get(String(from.id));
   if (wait?.awaiting === "roleName" && text) {
     try {
@@ -320,7 +348,7 @@ async function onMessage(msg, from, deps) {
     }
   }
 
-  // 5. Запасной путь: «id 123 Имя» — когда пересылка не сработала.
+  // 4. Запасной путь: «id 123 Имя» — когда пересылка не сработала.
   const byId = text.match(/^id\s+(\d{3,20})\s*(.*)$/i);
   if (byId) {
     const roles = (await org.listOrg()).roles;
@@ -331,10 +359,12 @@ async function onMessage(msg, from, deps) {
     return { asked: byId[1] };
   }
 
-  // 6. Свой номер — чтобы было что переслать владельцу.
-  if (/^\/id\b/.test(text)) {
-    await send(from.id, `Ваш id: ${from.id}`);
-    return { told: String(from.id) };
+  // 5. Всё остальное — вопрос помощнику («запомни: …» и документ — в память).
+  //    Подсказка остаётся для команд и пустых сообщений: их помощник не
+  //    берёт и возвращает null.
+  if (deps.assistant) {
+    const handled = await onAssistantMessage(msg, from, deps);
+    if (handled) return handled;
   }
 
   await send(from.id, HELP);
@@ -424,74 +454,6 @@ async function onCallApp(arg, from, deps) {
   ].join("\n"));
   return { callApp: name };
 }
-
-/* ─────── вход в Claude Code ───────
-   Владелец жмёт ссылку, подтверждает и присылает код обратно сообщением.
-   Токен в чат не уходит: сервер кладёт его в .env сам (см. lib/loginFlow.js).
-
-   Код одноразовый и живёт минуты: если он не подошёл, старая ссылка уже
-   бесполезна — второй код по ней не выдадут. Поэтому на любую осечку бот
-   сразу присылает НОВУЮ ссылку, а не просит вспоминать про «/login». */
-
-const CODE_STEPS = [
-  "1. Откройте ссылку и подтвердите вход в свой аккаунт Claude.",
-  "2. Скопируйте код целиком — вместе с длинной частью после «#».",
-  "3. Пришлите его мне ответным сообщением, одной строкой.",
-  "",
-  "Код живёт несколько минут. «/stop» — отменить.",
-].join("\n");
-
-async function sendAuthLink(from, { send, login }, lead) {
-  if (lead) await send(from.id, lead);
-  try {
-    const { url } = await login.startLogin();
-    await send(from.id, CODE_STEPS, { inline_keyboard: [[{ text: "Войти в Claude", url }]] });
-    return { login: "url" };
-  } catch (e) {
-    await send(from.id, `Вход не запустился: ${e.message}`);
-    return { login: "error", error: e.message };
-  }
-}
-
-async function onLogin(from, deps) {
-  const { login } = deps;
-  // Одно сообщение, а не два: «уже подключён, отправьте /login ещё раз» в
-  // ответ на только что отправленный /login читалось как отказ.
-  return sendAuthLink(from, deps, await login.loggedIn()
-    ? "Claude Code уже подключён — обновляю вход, это несколько секунд…"
-    : "Запускаю вход, это занимает несколько секунд…");
-}
-
-async function onLoginCode(code, from, deps) {
-  const { send, login } = deps;
-  await send(from.id, "Проверяю код…");
-  try {
-    const r = await login.finishLogin(code);
-    await send(from.id, r.restarted
-      ? "Готово: Claude Code подключён, черновики задач заработают сразу."
-      : "Готово: Claude Code подключён. Черновики заработают в течение минуты.");
-    return { login: "done", mode: r.mode };
-  } catch (e) {
-    // Осечка на коде — не тупик: старый код уже сгорел, поэтому выдаём
-    // новую ссылку тем же сообщением, а не отсылаем к «/login».
-    if (e.retry) return sendAuthLink(from, deps, `${e.message}. Вот новая ссылка:`);
-    await send(from.id, `${e.message}\n\nПопробуйте ещё раз: /login`);
-    return { login: "error", error: e.message };
-  }
-}
-
-async function askBridge(text, from, { send, bridge }) {
-  try {
-    const item = bridge.ask({ text, from: from.id, chatId: from.id });
-    await send(from.id, "Передал в Claude Code, жду ответ…");
-    return { asked: item.id };
-  } catch (e) {
-    await send(from.id, `Не вышло: ${e.message}`);
-    return { error: e.message };
-  }
-}
-
-export function resetBridgeMode() { bridgeMode.clear(); }
 
 async function onCallback(cb, from, { org, send, answer }) {
   const data = String(cb.data || "");

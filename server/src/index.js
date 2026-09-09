@@ -3,14 +3,20 @@ import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { store } from "./lib/scheduleStore.js";
-import { answerCallback, answerInline, getMe, getUpdates, sendMessage, sendWithKeyboard }
+import { answerCallback, answerInline, editMessage, getFile, getMe, getUpdates, sendWithKeyboard }
   from "./lib/telegram.js";
 import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
-import * as bridge from "./lib/bridgeStore.js";
-import * as login from "./lib/loginFlow.js";
 import { setSetting } from "./lib/envStore.js";
+import { deferTask, submitTask, takeTask, taskFor, withModel, writeModel }
+  from "./lib/workspaceStore.js";
+import { saveReport } from "./lib/reportStore.js";
+import { publishStep } from "./lib/ratings.js";
+import { askNow, cancel as cancelAsk } from "./lib/assistantQueue.js";
+import * as memory from "./lib/memoryStore.js";
+import { recordGroupMessage } from "./lib/chatStore.js";
+import { resumeTranscripts } from "./lib/transcribe.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +24,16 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`System Dynamics UI server listening on port ${PORT}`);
 });
+
+/* Расшифровки, оборванные перезапуском: запись «идёт» пережить перезапуск
+   не может — ждал её этот процесс, и его больше нет. Байты на месте —
+   расшифровка заново, нет — «прервана» словами (lib/transcribe.js). В
+   фоне и по одной: записи большие, а сервер уже принимает запросы. */
+resumeTranscripts()
+  .then((done) => {
+    if (done.length) console.log(`[transcribe] после перезапуска: ${done.map((d) => `${d.fileId} ${d.status}`).join(", ")}`);
+  })
+  .catch((e) => console.error(`[transcribe] восстановление после перезапуска не удалось: ${e.message}`));
 
 /* Планировщик напоминаний: раз в минуту смотрит расписания всех
    пользователей и отправляет то, чему пришло время. Без токена бота слать
@@ -27,9 +43,17 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   const tick = async () => {
     try {
       const sent = await runTick({
-        store, send: sendMessage, log: (m) => console.warn(`[scheduler] ${m}`),
+        /* Уведомление о начале работы приходит с кнопками «Начать» и
+           «Отложить», поэтому отправка та же, что и у бота. */
+        store, send: sendWithKeyboard, log: (m) => console.warn(`[scheduler] ${m}`),
       });
       if (sent) console.log(`[scheduler] отправлено напоминаний: ${sent}`);
+      /* Попытка публикации оценок — на каждом тике: то, что стало
+         анонимным (два разных автора), публикуется, не дожидаясь чтения
+         рейтинга. Не больше одной за тик — две сразу назвали бы обоих. */
+      await withModel(async (model) => {
+        if (publishStep(model).changed) await writeModel(model);
+      });
     } catch (e) {
       // Планировщик не должен ронять процесс: приложение важнее напоминаний.
       console.error(`[scheduler] тик не выполнен: ${e.message}`);
@@ -42,9 +66,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   console.log("TELEGRAM_BOT_TOKEN не задан — планировщик напоминаний выключен");
 }
 
-/* Бот принимает одно: приглашение людей владельцем. Длинный опрос — цикл
-   без таймера: следующий запрос уходит сразу после предыдущего ответа,
-   поэтому нажатие кнопки не ждёт до минуты. */
+/* Бот: приглашения, кнопки под уведомлениями, помощник — и сообщения
+   групп (их он записывает и молчит; зависимость `chats` — lib/chatStore.js).
+   Длинный опрос — цикл без таймера: следующий запрос уходит сразу после
+   предыдущего ответа, поэтому нажатие кнопки не ждёт до минуты. */
 if (process.env.TELEGRAM_BOT_TOKEN) {
   let offset = 0;
   /* Имя бота нужно, чтобы собрать ссылку на звонок в мини-приложение.
@@ -114,10 +139,40 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
           try {
             await handleUpdate(u, {
               org, calls,
-              bridge: process.env.BRIDGE_TOKEN ? bridge : null,
-              // Вход в Claude Code из чата — только когда мост вообще включён:
-              // логинить некого, если воркеру нечем подключиться.
-              login: process.env.BRIDGE_TOKEN ? login : null,
+              /* Кнопки под уведомлением двигают задачу на общем складе
+                 работы — там же, где её двигает нажатие на доске. «Отложено
+                 до» ставится в расписание сразу: бот отложил — бот и напомнит,
+                 не дожидаясь, пока владелец выгрузит модель заново. */
+              work: {
+                take: async (u, id, o) => {
+                  const r = await takeTask(u, id, o);
+                  if (!r.error) await store.setDeferredUntil(u, id, null).catch(() => {});
+                  return r;
+                },
+                defer: async (u, id, o) => {
+                  const r = await deferTask(u, id, o);
+                  if (!r.error) await store.setDeferredUntil(u, id, r.task.deferredUntil).catch(() => {});
+                  return r;
+                },
+                submit: submitTask,
+                taskFor,
+              },
+              /* Сданная в чате вещь ложится туда же, куда файлы из приложения:
+                 хранилище одно, и в отчёте она найдётся по тому же адресу. */
+              files: { save: (userId, f) => saveReport(userId, f) },
+              tg: { getFile },
+              edit: (chatId, messageId, text, keyboard) => editMessage(chatId, messageId, text, keyboard),
+              /* Помощник: любой позванный пишет боту словами и получает ответ по
+                 своим данным (lib/botAssistant.js). askNow отдаёт обещание
+                 ответа; бот его не ждёт — иначе на время вопроса он не
+                 отвечал бы никому. cancel — кнопка «✖ Отменить» под статусом:
+                 прерывает запрос к модели, а не прячет ответ. Стадии
+                 («собираю данные», «спрашиваю модель») правят статус через
+                 `edit` выше. Память — та же, что в приложении. */
+              assistant: { ask: askNow, cancel: cancelAsk, memory },
+              /* Группы бот только слушает: сообщение ложится в хранилище чатов,
+                 ответа в группу нет никакого (lib/chatStore.js). */
+              chats: { record: recordGroupMessage },
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
               answerInline,
@@ -142,32 +197,4 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   console.log("Бот приглашений запущен (длинный опрос)");
 } else {
   console.log("TELEGRAM_BOT_TOKEN не задан — бот приглашений выключен");
-}
-
-/* Ответы моста разносит по чатам сам сервер: воркер знает только id
-   вопроса, а в какой чат его отправить — знает очередь. */
-if (process.env.TELEGRAM_BOT_TOKEN && process.env.BRIDGE_TOKEN) {
-  setInterval(async () => {
-    for (const item of bridge.takeAnswered()) {
-      if (!item.chatId) continue;
-      const body = item.error
-        ? `Claude Code ответил ошибкой:\n${item.error}`
-        : (item.answer || "(пустой ответ)");
-      try {
-        // Ответ Claude Code бывает длиннее одного сообщения Telegram —
-        // режем по абзацам, иначе API просто откажет.
-        for (const part of bridge.chunk(body)) await sendMessage(item.chatId, part);
-      } catch (e) {
-        console.error(`[bridge] ответ не отправлен: ${e.message}`);
-      }
-    }
-  }, 1000);
-  if (!bridge.asciiSecret(process.env.BRIDGE_TOKEN)) {
-    console.warn("[bridge] BRIDGE_TOKEN должен быть из латиницы и цифр, не короче"
-      + " 8 символов: заголовки HTTP не несут кириллицу, и воркер не сможет"
-      + " подключиться.");
-  }
-  console.log("Мост к Claude Code включён");
-} else if (process.env.TELEGRAM_BOT_TOKEN) {
-  console.log("BRIDGE_TOKEN не задан — мост к Claude Code выключен");
 }

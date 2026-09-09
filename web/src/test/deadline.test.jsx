@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
-import TasksBoard, { BOARD, STATUSES, TaskSetup, autoFlow, defaultEnd, isSet, newTask,
-  nowLocal, taskGaps } from "../components/TasksBoard.jsx";
+import TasksBoard, { BOARD, STATUSES, TaskSetup, autoFlow, autoStatus, defaultEnd,
+  isSet, newTask, nowLocal, taskGaps } from "../components/TasksBoard.jsx";
 import { Workers } from "../components/AssetPanel.jsx";
 import PersonStats from "../components/PersonStats.jsx";
 
@@ -116,17 +116,24 @@ describe("постановка задачи и доска исполнителя
   });
 
   it("«дедлайн» — после бэклога: сперва очередь, потом то, что горит", () => {
+    /* У бэклога два состояния, и они идут подряд: «ожидает» — время ещё не
+       пришло, «отложено» — уже позвали, а работа не началась. */
     expect(STATUSES.map((s) => s.id))
-      .toEqual(["wait", "backlog", "deadline", "progress", "review", "done"]);
+      .toEqual(["wait", "backlog", "deferred", "deadline", "progress", "review", "done"]);
+    // Колонка при этом одна: отложенное не уносят на отдельную полку.
+    expect(BOARD.map((c) => c.name))
+      .toEqual(["Бэклог", "Дедлайн", "В работе", "Проверка", "Готово"]);
+    expect(BOARD[0].states).toEqual(["backlog", "deferred"]);
   });
 
   it("непоставленную задачу не поставить, и сказано, чего не хватает", () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     const put = screen.getByRole("button", { name: "Поставить" });
     expect(put).toBeDisabled();
+    // Постановщик приходит из ролей функции сам; не хватает остальных.
     expect(put).toHaveAttribute("title",
-      expect.stringContaining("Не хватает: постановщик"));
-    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий, срок/))
+      expect.stringContaining("Не хватает: исполнитель"));
+    expect(screen.getByText(/не хватает исполнитель, проверяющий, срок/))
       .toBeInTheDocument();
   });
 
@@ -187,7 +194,64 @@ describe("задача ждёт ресурсов", () => {
     // Пока задача не описана, разговор о ресурсах преждевременный.
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} traits={poor} />);
     expect(screen.getByRole("button", { name: "Поставить" }))
-      .toHaveAttribute("title", expect.stringContaining("Не хватает: постановщик"));
+      .toHaveAttribute("title", expect.stringContaining("Не хватает: исполнитель"));
+  });
+});
+
+/* ─── СПИСОК ВОРКЕРОВ АКТИВА ───
+
+   Один список, и только он: «кто здесь вообще работает». Прежде тут же
+   стояли три списка ролей — постановщики, исполнители, проверяющие
+   актива, — и они отвечали на вопрос, которого никто не задавал: роль
+   человек исполняет НЕ В АКТИВЕ ВООБЩЕ, а в конкретной работе. Роли
+   выставляются у каждой функции отдельно. */
+/* ─────── ДВА СОСТОЯНИЯ БЭКЛОГА ───────
+
+   Бэклог отвечает на «что лежит и ждёт», но лежат там задачи по двум
+   разным причинам: у одной время ещё не пришло, у другой — уже пришло, а
+   работа не началась. Одним словом «бэклог» на обеих написано, что задача
+   просто лежит, и отложенная терялась среди тех, чьё время не наступило. */
+describe("бэклог: ожидает и отложено", () => {
+  const soon = (h) => new Date(Date.now() + h * 3600e3).toISOString().slice(0, 16);
+  const t = (over) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
+    setter: "1", assignee: "2", reviewer: "3", body: "что делать",
+    status: "backlog", end: soon(48), ...over });
+
+  it("время не пришло — «ожидает»; пришло, а работы нет — «отложено»", () => {
+    expect(autoStatus(t({ start: soon(5) }))).toBe("backlog");
+    expect(autoStatus(t({ start: soon(-1) }))).toBe("deferred");
+  });
+
+  it("нажали «Отложить» — отложена, даже если время ещё не пришло", () => {
+    /* Это решение человека, а не следствие часов: он сказал «не сейчас», и
+       доска обязана это показать. */
+    expect(autoStatus(t({ start: soon(5), deferredAt: new Date().toISOString() })))
+      .toBe("deferred");
+  });
+
+  it("взялись — задача уходит в работу, отложенности больше нет", () => {
+    expect(autoStatus(t({ start: soon(-1), taken: true }))).toBe("progress");
+  });
+
+  it("срок прошёл — «Дедлайн» сильнее обоих: его отложенностью не отменить", () => {
+    expect(autoStatus(t({ start: soon(-50), end: soon(-1) }))).toBe("deadline");
+    expect(autoStatus(t({ start: soon(-50), end: soon(-1),
+      deferredAt: new Date().toISOString() }))).toBe("deadline");
+  });
+
+  it("обе живут в одной колонке: отложенное не уносят на отдельную полку", () => {
+    const list = [t({ id: "a", start: soon(5) }), t({ id: "b", start: soon(-1) })];
+    render(<Board tasks={autoFlow(list, { funcs: FUNCS, traits: TRAITS })} />);
+    const col = screen.getByText("Бэклог").closest("div").parentElement;
+    expect(within(col).getAllByText("Задача A")).toHaveLength(2);
+    // И каждая карточка называет своё состояние словом.
+    expect(within(col).getByText("Ожидает")).toBeInTheDocument();
+    expect(within(col).getByText(/Отложено/)).toBeInTheDocument();
+  });
+
+  it("отложенную можно взять в работу прямо с доски", () => {
+    render(<Board tasks={[t({ start: soon(-1), status: "deferred" })]} />);
+    expect(screen.getByRole("button", { name: "Взять в работу" })).toBeTruthy();
   });
 });
 
@@ -195,81 +259,112 @@ describe("список воркеров: кого ставить", () => {
   const done = (id, person, mark) => ({ id, funcId: "f1", assignee: person,
     status: "done", end: "2026-01-02T09:00:00Z",
     submissions: [{ at: "2026-01-01T09:00:00Z", hours: 2, takes: {}, gives: {} }],
-    reviews: [{ accept: true, mark, comment: `за ${mark}` }] });
+    reviews: [{ accept: true, mark, comment: `за ${mark}`, by: "9" }] });
   const TASKS = [done("a", "2", 5), done("b", "3", 3)];
-  const W = { setters: [], owners: ["3", "2"], reviewers: [] };
+  const W = { crew: ["3", "2"] };
+  /* Рейтинг — только из ОПУБЛИКОВАННЫХ оценок: реестр приходит из модели
+     (публикует сервер), здесь он задан руками. */
+  const PUBLISHED = ["a~work~9", "b~work~9"];
 
   const mount = (over = {}) => {
     const props = { workers: W, people: PEOPLE, nameOf: (id) =>
       PEOPLE.find((p) => p.id === id)?.name || id, tasks: TASKS, funcs: FUNCS,
-    onToggle: () => {}, onOrder: () => {}, onOpenPerson: () => {}, ...over };
+    published: PUBLISHED,
+    positionOf: (id) => (id === "2" ? "Дизайнер" : "Аналитик"),
+    onOrder: () => {}, onOpenPerson: () => {}, ...over };
     return render(<Workers {...props} />);
   };
-  // Два списка на форме: сперва воркеры без ролей, потом роли.
   const crewCard = () => screen.getByText("воркеры").parentElement;
-  const roleBlock = (name) => screen.getByText(name).parentElement;
   const namesIn = (el) => [...el.querySelectorAll("button")]
-    .map((b) => b.textContent).filter((t) => t.startsWith("Иван") || t.startsWith("Пётр"));
+    .map((b) => b.textContent).filter((t) => /Иван|Пётр/.test(t));
 
-  it("рядом с каждым — краткая статистика, а не одно имя", () => {
-    mount();
-    expect(screen.getAllByText(/5 · в срок 100% · 1 работа/).length).toBeGreaterThan(0);
+  it("в строке пять вещей и в этом порядке: должность, имя, сроки, рейтинг, работы",
+    () => {
+      /* Свалить это в одну серую строку через точки значило бы заставить
+         искать нужное число глазами. */
+      mount();
+      const row = within(crewCard()).getByText("Иван").closest("button");
+      // Только конечные ячейки: внешняя обёртка содержит весь текст сразу.
+      const parts = [...row.querySelectorAll("span")]
+        .filter((x) => !x.querySelector("span"))
+        .map((x) => x.textContent).filter(Boolean);
+      const at = (t) => parts.findIndex((x) => x.includes(t));
+      expect(at("Дизайнер")).toBeGreaterThanOrEqual(0);
+      expect(at("Дизайнер")).toBeLessThan(at("Иван"));
+      expect(at("Иван")).toBeLessThan(at("в срок"));
+      expect(at("в срок")).toBeLessThan(at("рейтинг"));
+      expect(at("рейтинг")).toBeLessThan(at("сдано"));
+      expect(row.textContent).toMatch(/рейтинг 5/);
+      expect(row.textContent).toMatch(/1 сдано/);
+    });
+
+  it("себя в списке человек видит без рейтинга — «свой рейтинг скрыт»", () => {
+    /* Рейтинг работает на того, кто поручает, а не на самолюбие: Иван
+       (id 2) смотрит на список — его строка без цифры, чужая — с ней. */
+    mount({ me: { id: "2" } });
+    const mine = within(crewCard()).getByText("Иван").closest("button");
+    expect(mine.textContent).toMatch(/свой рейтинг скрыт/);
+    expect(mine.textContent).not.toMatch(/рейтинг 5/);
+    const other = within(crewCard()).getByText("Пётр").closest("button");
+    expect(other.textContent).toMatch(/рейтинг 3/);
   });
 
-  it("воркеры — одним списком, без деления на роли", () => {
-    // Один человек может быть и постановщиком, и исполнителем: в списке
-    // воркеров он один раз, потому что вопрос здесь — «кто здесь работает».
-    mount({ workers: { setters: ["2"], owners: ["3", "2"], reviewers: ["2"] } });
+  it("неопубликованная оценка в рейтинг не идёт", () => {
+    // Оценка есть, но её ещё нельзя показать без имени — значит, её нет.
+    mount({ published: [] });
+    const row = within(crewCard()).getByText("Иван").closest("button");
+    expect(row.textContent).toMatch(/без оценок/);
+  });
+
+  it("чего нет — сказано словом, а не нулём", () => {
+    // Ноль читается как «оценили на ноль», а человека ещё не оценивали.
+    mount({ tasks: [], positionOf: () => "" });
+    const row = within(crewCard()).getByText("Иван").closest("button");
+    expect(row.textContent).toMatch(/без должности/);
+    expect(row.textContent).toMatch(/без оценок/);
+    expect(row.textContent).toMatch(/сроков нет/);
+  });
+
+  it("статус видно прямо в списке: можно ли поручить сейчас", () => {
+    /* Узнавать это, открыв карточку, поздно — выбирают-то здесь. */
+    mount({ people: PEOPLE.map((p) => (p.id === "2"
+      ? { ...p, status: "off" } : p)) });
+    const row = within(crewCard()).getByText("Иван").closest("button");
+    expect(row.textContent).toMatch(/сегодня не работаю/);
+  });
+
+  it("воркеры — одним списком, и списков ролей у актива больше нет", () => {
+    mount();
     expect(namesIn(crewCard())).toHaveLength(2);
+    ["постановщики", "исполнители", "проверяющие"].forEach((t) => {
+      expect(screen.queryByText(t)).toBeNull();
+    });
   });
 
   it("в списке сразу все люди схемы: воркер — это выбор из них", () => {
     /* Обратный порядок — «стал воркером, потому что его куда-то
        назначили» — заставлял бы называть роль раньше человека. */
-    mount({ workers: { setters: [], owners: ["3"], reviewers: [] } });
-    // Отметка стоит у каждого человека схемы, а не только у назначенных.
+    mount({ workers: { crew: ["3"] } });
     expect(crewCard().querySelectorAll("input[type=checkbox]"))
       .toHaveLength(PEOPLE.length);
-    // Отмечен только тот, кто и правда воркер этого актива.
     expect(screen.getByLabelText("воркер актива: Пётр")).toBeChecked();
     expect(screen.getByLabelText("воркер актива: Иван")).not.toBeChecked();
-  });
-
-  it("роли предлагают только из отмеченных воркеров", () => {
-    const free = (name) => [...roleBlock(name).querySelectorAll("button")]
-      .map((b) => b.textContent).filter((t) => t.startsWith("+ "));
-    mount({ workers: { setters: [], owners: ["3"], reviewers: [] } });
-    // Иван не отмечен воркером — в роли его и не предлагают.
-    expect(free("постановщики").join(" ")).not.toMatch(/Иван/);
-    expect(free("постановщики").join(" ")).toMatch(/Пётр/);
   });
 
   it("порядок воркеров — тот, что записан, и его можно менять", () => {
     const moves = [];
     mount({ onOrder: (p, d) => moves.push([p, d]) });
-    expect(namesIn(crewCard())[0]).toMatch(/^Пётр/);
+    expect(namesIn(crewCard())[0]).toMatch(/Пётр/);
     fireEvent.click(screen.getByRole("button", { name: "ниже: Пётр" }));
     expect(moves).toEqual([["3", 1]]);
   });
 
-  it("заданный порядок сильнее порядка ролей", () => {
-    mount({ workers: { ...W, crew: ["2", "3"] } });
-    expect(namesIn(crewCard())[0]).toMatch(/^Иван/);
-  });
-
-  it("в ролях всегда сверху лучшие — и переключателя вида больше нет", () => {
-    /* В ролях вопрос другой: кому поручить. Первым должен стоять тот, кто
-       лучше справлялся, и выбор вида тут только сбивал бы. */
-    mount();
-    expect(namesIn(roleBlock("исполнители"))[0]).toMatch(/^Иван/);
-    expect(screen.queryByRole("button", { name: "по рейтингу" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "свой порядок" })).toBeNull();
-  });
-
-  it("стрелки — только в списке воркеров: рейтинг ими не двигают", () => {
-    mount();
-    expect(within(roleBlock("исполнители"))
-      .queryByRole("button", { name: /^выше: / })).toBeNull();
+  it("прежние роли актива читаются как членство: люди не пропадают", () => {
+    /* У моделей, собранных раньше, людей записывали в три списка ролей.
+       Выбросить их значило бы стереть воркеров у всех прежних активов. */
+    mount({ workers: { setters: ["2"], owners: ["3"], reviewers: [] } });
+    expect(screen.getByLabelText("воркер актива: Иван")).toBeChecked();
+    expect(screen.getByLabelText("воркер актива: Пётр")).toBeChecked();
   });
 
   it("нажатие на человека открывает его карточку", () => {
@@ -285,14 +380,17 @@ describe("карточка человека", () => {
     title: "Сбор заявок", end: "2026-01-02T09:00:00Z",
     submissions: [{ at: "2026-01-01T09:00:00Z", hours: 3,
       takes: { t1: 2 }, gives: { t2: 1 }, text: "собрал" }],
-    reviews: [{ accept: true, mark: 4, comment: "мало заявок" }] },
+    reviews: [{ accept: true, mark: 4, comment: "мало заявок", by: "9" }] },
   { id: "b", funcId: "f1", assignee: "2", status: "backlog",
     title: "Сбор заявок", end: "2026-01-02T09:00:00Z",
     submissions: [{ at: "2026-01-05T09:00:00Z", hours: 1, takes: {}, gives: {} }],
-    reviews: [{ accept: false, comment: "переделать" }] }];
+    reviews: [{ accept: false, comment: "переделать", by: "9" }] }];
 
-  const show = () => render(<PersonStats tasks={rows} funcs={FUNCS} personId="2"
-    traitName={(id) => TRAITS.find((t) => t.id === id)?.l || id} />);
+  /* Смотрит владелец (id 1) на Ивана (id 2); оценка опубликована —
+     реестр из модели. */
+  const show = (over = {}) => render(<PersonStats tasks={rows} funcs={FUNCS} personId="2"
+    viewerId="1" published={["a~work~9"]}
+    traitName={(id) => TRAITS.find((t) => t.id === id)?.l || id} {...over} />);
 
   it("сводка: средняя оценка, доля в срок, объём", () => {
     show();
@@ -304,6 +402,15 @@ describe("карточка человека", () => {
     show();
     expect(screen.getByText("4/5")).toBeInTheDocument();
     expect(screen.getByText(/мало заявок/)).toBeInTheDocument();
+  });
+
+  it("неопубликованная оценка так и подписана — это не «без оценки»", () => {
+    show({ published: [] });
+    expect(screen.queryByText("4/5")).toBeNull();
+    expect(screen.getByText("оценка ещё не опубликована")).toBeInTheDocument();
+    expect(screen.getByText(/ждёт публикации/)).toBeInTheDocument();
+    // И слова до публикации не читаются: они выдали бы автора.
+    expect(screen.queryByText(/мало заявок/)).toBeNull();
   });
 
   it("возвращённая сдача видна отдельно и в средние не идёт", () => {

@@ -150,11 +150,17 @@ function estimate(model, chain, side, qty) {
        так же, как экран. */
     const par = Math.max(1, Math.floor(num(f.par)) || 1);
     const calendar = one * Math.ceil(n / par);
+    /* Насколько двигает ресурсы САМ шаг. Раздел отчёта — это выполняемая
+       функция, и набор данных у него тот же, что и у отчёта целиком: свой
+       прогноз ресурсов. Из общей дельты его не достать — там сложены все
+       шаги сразу. */
+    const own = {};
     takes.forEach((p) => {
       if (!inChain.has(p.trait) || !spends(p)) return;
       const all = per(p, "takes") * n;
       flow[p.trait] = Math.max(0, (flow[p.trait] || 0) - all);
       delta[p.trait] = (delta[p.trait] || 0) - all;
+      own[p.trait] = (own[p.trait] || 0) - all;
       spentBy[p.trait] = str(f.name);
     });
     (f.gives || []).forEach((g) => {
@@ -162,10 +168,11 @@ function estimate(model, chain, side, qty) {
       const all = per(g, "gives") * n;
       flow[g.trait] = (flow[g.trait] || 0) + all;
       delta[g.trait] = (delta[g.trait] || 0) + all;
+      own[g.trait] = (own[g.trait] || 0) + all;
       ready[g.trait] = Math.max(ready[g.trait] ?? 0, start + calendar);
     });
     steps.push({ func: f.id, name: str(f.name), runs: n, factor: f.kind === "factor",
-      par, short: [], startHours: start, calendarHours: calendar,
+      par, short: [], startHours: start, calendarHours: calendar, own,
       // Одно выполнение занимает 1/par времени воркера: он ведёт столько
       // таких дел разом. Правило то же, что в приложении.
       workHours: f.kind === "factor" ? 0 : (one * n) / par });
@@ -235,14 +242,25 @@ function actualOf(model, chain, only) {
   const personName = (id) => people.find((p) => String(p.id) === String(id))?.name || "";
   const no = unitNumbers(model);
   /* Задачи родословной берутся как есть: единица — точка отсчёта, и
-     работа, которая её сделала, лежит до цепочки, а не в ней. */
+     работа, которая её сделала, лежит до цепочки, а не в ней.
+
+     Выбраны конкретные вещи — только работа по ним: заказчик спросил про
+     своё задание, и чужие выполнения тех же функций он прочитал бы как
+     работу по нему. Не выбрано ничего — вопрос другой, «что вообще
+     делается по этой цепочке», и отвечать на него пустотой нельзя. Правило
+     то же, что в приложении (`reportOf` в `web/src/lib/reportDoc.js`):
+     снимок обязан показывать ровно то же, что и экран. */
   /* Только работа по вещам этого блока. Прежде «иначе» отдавало наружу все
      выполнения функций цепочки — то есть работу над ЧУЖИМИ вещами, о
-     которых заказчика никто не спрашивал. Вещь не выбрана — она
-     гипотетическая, работы по ней нет, и список пуст по существу. */
+     которых заказчика никто не спрашивал: отслеживая ОДИН контакт лида, он
+     видел четыре одинаковых «передать заказ разработчикам». Вещь не
+     выбрана — раздел отвечает прогнозом, и работы в нём нет по существу. */
   const mine = tasks.filter((t) => only.has(t.id));
   const done = mine.filter((t) => t.status === "done");
   const delta = {};
+  /* Факт по каждой функции отдельно: раздел отчёта — это функция, и рядом с
+     её прогнозом ресурсов должен стоять её же факт, а не общий по цепочке. */
+  const byFunc = {};
   const made = [];
   let spent = 0;
   done.forEach((t) => {
@@ -251,18 +269,25 @@ function actualOf(model, chain, only) {
     if (!sb) return;
     spent += num(sb.hours);
     const f = (model.funcs || []).find((x) => x.id === t.funcId);
+    const mineDelta = byFunc[str(t.funcId)] || (byFunc[str(t.funcId)] = {});
     Object.entries(sb.takes || {}).forEach(([id, v]) => {
       const port = (f?.takes || []).find((p) => p.trait === id);
       if (port && !spends(port)) return;
       delta[id] = (delta[id] || 0) - num(v);
+      mineDelta[id] = (mineDelta[id] || 0) - num(v);
     });
     Object.entries(sb.gives || {}).forEach(([id, v]) => {
       if (!(num(v) > 0)) return;
       delta[id] = (delta[id] || 0) + num(v);
+      mineDelta[id] = (mineDelta[id] || 0) + num(v);
+      /* Файл ИМЕННО ЭТОЙ вещи: исполнитель прикладывает каждый выданный
+         ресурс отдельно. Старый общий файл отчёта остаётся запасным — у
+         сдач, сделанных до этого, других файлов нет. */
+      const own = (sb.files || {})[id] || sb.file;
       made.push({ task: t.id, no: no[`${sb.id}~${id}`] ?? null, title: str(t.title),
         trait: traitName(id), qty: num(v), at: str(sb.at), by: personName(t.assignee),
-        file: sb.file && sb.file.url
-          ? { name: str(sb.file.name), type: str(sb.file.type), url: str(sb.file.url) }
+        file: own && own.url
+          ? { name: str(own.name), type: str(own.type), url: str(own.url) }
           : null });
     });
   });
@@ -271,6 +296,7 @@ function actualOf(model, chain, only) {
     total: mine.length,
     hours: Math.round(spent * 10) / 10,
     delta,
+    byFunc,
     made: made.sort((a, b) => (b.no || 0) - (a.no || 0)),
     tasks: mine.map((t) => {
       const subs = t.submissions || [];
@@ -343,10 +369,32 @@ export function snapshotOf(model = {}, nodeId) {
           Math.max(lo.calendarHours, hi.calendarHours)],
         steps: hi.steps.map((st) => {
           const low = lo.steps.find((x) => x.func === st.func);
+          const mine = act.tasks.filter((t) => t.func === st.func);
+          const stMade = mine.flatMap((t) => t.made || []);
+          /* Прогноз ресурсов у самого шага: взятое со знаком минус, выданное
+             с плюсом. Раздел отчёта — это функция, и набор данных у него тот
+             же, что и у отчёта целиком. Считать из общей дельты нельзя: там
+             сложены все шаги сразу. */
+          const hiD = st.own || {};
+          const loD = (low && low.own) || {};
+          const factD = act.byFunc[str(st.func)] || null;
+          const stKeys = [...new Set([...Object.keys(hiD), ...Object.keys(loD),
+            ...Object.keys(factD || {})])];
           return { ...st,
+            made: stMade,
+            doneCount: mine.filter((t) => t.hours != null).length,
+            factHours: Math.round(mine
+              .reduce((a, t) => a + num(t.hours), 0) * 10) / 10,
+            changes: stKeys.map((id) => ({ trait: traitLabel(model, id),
+              lo: num(loD[id]), hi: num(hiD[id]),
+              fact: factD ? num(factD[id]) : null })),
+            /* Якорь шага — тот же, что и в приложении (`stepAnchor` в
+               `web/src/lib/reports.js`): по ссылке снаружи человек должен
+               попадать в то же место, что и владелец внутри. */
+            anchor: `shag-${str(n.id)}-${str(st.func)}`,
             workLo: Math.min(num(low?.workHours), num(st.workHours)),
             workHi: Math.max(num(low?.workHours), num(st.workHours)),
-            tasks: act.tasks.filter((t) => t.func === st.func) };
+            tasks: mine };
         }),
       },
       /* Работа, в которой прослеживаемые вещи родились, лежит ДО цепочки:

@@ -41,7 +41,7 @@
    остальное выводится из модели. Записать сюда «нужно 40 часов» значило бы
    завести вторую правду: модель поправили, а число осталось прежним.
    ════════════════════════════════════════════════════════════════ */
-import { DUR_UNITS } from "./funcs.js";
+import { DUR_UNITS, WEEK } from "./funcs.js";
 import { MONTH_H, effect, scheduleOf, solveRange } from "./plan.js";
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -61,12 +61,10 @@ export const RATES = [
 ];
 export const rateOf = (id) => RATES.find((r) => r.id === id) || RATES[0];
 
-/** Дни недели с понедельника: неделя начинается с рабочего дня. */
-export const WEEK = [
-  { id: 1, short: "пн" }, { id: 2, short: "вт" }, { id: 3, short: "ср" },
-  { id: 4, short: "чт" }, { id: 5, short: "пт" }, { id: 6, short: "сб" },
-  { id: 0, short: "вс" },
-];
+/* Дни недели — общий список приложения (`lib/funcs.js`): цель и рабочий
+   график человека обязаны называть их одинаково. Здесь он только
+   переизлучается: прежние места читают его отсюда. */
+export { WEEK };
 
 /** Куда считать срок: через столько-то или к названному числу. */
 export const DUE_IN = "in";
@@ -83,8 +81,12 @@ export const newGoal = (trait = "") => ({
   dueUnit: "мес",
   dueOn: "",
   days: [],
-  costs: [],
   hours: 0,
+  /* Единица У ЧИСЛА времени: «2 ч в день» и «2 дн в неделю» — разные вещи,
+     а поле было одно и молча считало часы. Мера — та же, что и у сроков
+     функций (`DUR_UNITS`): день это 24 часа, неделя — 168. Двух разных
+     «дней» в одной модели быть не должно. */
+  hoursUnit: "ч",
   hoursPer: "day",
   // Когда цель применили. Пока не применили — это черновик: он считается,
   // но ни на графики, ни на доску задач не влияет.
@@ -104,9 +106,6 @@ export const newGoal = (trait = "") => ({
  */
 export const copyGoal = (goal = {}) => ({ ...goal, id: uid("g"), appliedAt: null });
 
-/** Затрата: столько-то другого ресурса на одну цель. */
-export const newCost = (trait = "", qty = 1) => ({ id: uid("c"), trait, qty: num(qty) });
-
 /** Чужая запись достраивается до нынешней — редактор не должен падать. */
 export const normalizeGoal = (g = {}) => ({
   ...g,
@@ -119,10 +118,10 @@ export const normalizeGoal = (g = {}) => ({
   dueUnit: DUR_UNITS[g.dueUnit] ? g.dueUnit : "мес",
   dueOn: g.dueOn ?? "",
   days: Array.isArray(g.days) ? g.days.filter((d) => WEEK.some((w) => w.id === d)) : [],
-  costs: Array.isArray(g.costs)
-    ? g.costs.map((c) => ({ id: c.id ?? uid("c"), trait: c.trait ?? "", qty: num(c.qty) }))
-    : [],
   hours: num(g.hours),
+  /* Прежние цели единицы не знали и считали часы — «ч» и есть их значение
+     по умолчанию, поэтому старые записи ничего не меняют. */
+  hoursUnit: DUR_UNITS[g.hoursUnit] ? g.hoursUnit : "ч",
   hoursPer: rateOf(g.hoursPer).id === "once" ? "day" : rateOf(g.hoursPer).id,
   appliedAt: g.appliedAt || null,
 });
@@ -173,7 +172,8 @@ export const workDays = (goal) => (goal.days?.length ? goal.days.length : 7);
  * выходные, которых он не отдавал.
  */
 export function budgetHours(goal) {
-  const h = num(goal.hours);
+  // Число × его единица: «2 дн в неделю» это 48 часов в неделю, а не 2.
+  const h = num(goal.hours) * (DUR_UNITS[goal.hoursUnit] ?? 1);
   if (h <= 0) return null;
   if (goal.hoursPer === "day") {
     return h * workDays(goal) * (MONTH_H / DUR_UNITS["нед"]);
@@ -191,7 +191,7 @@ export function goalText(goal, traitName) {
     parts.push(`к ${new Date(goal.dueOn).toLocaleDateString("ru-RU")}`);
   } else if (num(goal.dueIn) > 0) parts.push(`через ${goal.dueIn} ${goal.dueUnit}`);
   if (num(goal.hours) > 0) {
-    parts.push(`${goal.hours} ч ${rateOf(goal.hoursPer).name}`
+    parts.push(`${goal.hours} ${goal.hoursUnit || "ч"} ${rateOf(goal.hoursPer).name}`
       + (goal.days?.length ? ` (${goal.days.length} дн/нед)` : ""));
   }
   return parts.join(" · ");
@@ -271,12 +271,11 @@ export function planGoal(model, goal, { runsOf, now = Date.now() } = {}) {
     readyHours: best.criticalHours,
     // Держится ли темп: цикл длиннее периода — «раз в неделю» не выйдет.
     cycle: r.hours ? best.criticalHours <= r.hours + 1e-9 : null,
-    // Заявленная цена против посчитанной по модели.
-    costs: (goal.costs || []).map((c) => ({
-      ...c,
-      name: traits.find((t) => t.id === c.trait)?.l || "ресурс удалён",
-      real: (best.spent?.[c.trait] ?? 0) * k,
-    })),
+    /* Заявленной цены по другим ресурсам у цели больше нет: человек
+       называл число наугад, а модель тут же считала настоящее — и рядом
+       стояли два ответа на один вопрос. Остался посчитанный (`extra`): он
+       не гадает. */
+    costs: [],
     /* Что план сделает с ресурсами и во что превратится на доске задач.
        Считается по щедрой стороне, если она сходится: план ведут по той же
        стороне, по которой считают работу, иначе числа в одной форме
@@ -284,9 +283,9 @@ export function planGoal(model, goal, { runsOf, now = Date.now() } = {}) {
     effect: effect(model, best.steps, { side: hi.ok ? "hi" : "lo", runsOf }),
     schedule: scheduleOf(best.steps, { from: now }),
     steps: best.steps,
-    // Чего модель тратит сверх названного человеком.
+    // Во что цель обходится по другим ресурсам — по модели, а не со слов.
     extra: Object.entries(best.spent || {})
-      .filter(([id]) => id !== goal.trait && !(goal.costs || []).some((c) => c.trait === id))
+      .filter(([id]) => id !== goal.trait)
       .map(([id, v]) => ({ trait: id, name: traits.find((t) => t.id === id)?.l || id,
         real: v * k }))
       .filter((x) => x.real > 1e-9),

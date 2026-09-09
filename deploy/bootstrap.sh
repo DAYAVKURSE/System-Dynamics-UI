@@ -213,39 +213,6 @@ elif [ -z "${TURN_SECRET:-}" ]; then
   echo "TURN_SECRET не задан — TURN пропущен"
 fi
 
-echo "── Claude Code (мост) ──"
-# Запасной путь входа (`claude setup-token`) целиком стоит на псевдотерминале
-# от `script`: без него та команда не печатает вообще ничего. На минимальном
-# образе util-linux бывает урезан, и не хватало бы её молча.
-command -v script >/dev/null 2>&1 \
-  || { echo "ставлю util-linux (нужна команда script)"; $SUDO apt-get install -y -qq util-linux </dev/null >/dev/null 2>&1 || true; }
-command -v script >/dev/null 2>&1 \
-  && echo "команда script есть — запасной путь входа доступен" \
-  || echo "команды script нет — вход пойдёт основным путём (claude auth login)"
-
-# Воркер моста запускает Claude Code здесь же, на сервере. Ставится
-# глобально; вход в аккаунт — отдельный шаг владельца (см. DEPLOYMENT.md).
-#
-# Каждая команда здесь идёт с СОБСТВЕННЫМ сроком и без stdin, и это не
-# перестраховка. Однажды деплой встал ровно тут на пять минут и оборвался с
-# «Broken pipe»: без явного ввода команда наследует stdin деплоя и может
-# ждать его вечно, а без срока — висеть сколько угодно. Claude Code — не та
-# часть, ради которой стоит терять весь деплой: не встал, значит мост
-# ответит «не залогинен», и это переживаемо.
-claude_version=""
-if command -v claude >/dev/null 2>&1; then
-  claude_version="$(timeout 60 claude --version </dev/null 2>/dev/null | head -1 || true)"
-fi
-if [ -n "$claude_version" ]; then
-  echo "Claude Code уже установлен: $claude_version"
-elif command -v claude >/dev/null 2>&1; then
-  echo "Claude Code стоит, но не ответил за 60 с — оставляю как есть"
-elif timeout 600 $SUDO npm i -g @anthropic-ai/claude-code </dev/null >/dev/null 2>&1; then
-  echo "Claude Code установлен"
-else
-  echo "Claude Code не установился за 10 минут — мост будет отвечать, что не залогинен"
-fi
-
 echo "── HTTPS-сертификат ──"
 if $SUDO certbot certificates 2>/dev/null | grep -q "$APP_DOMAIN"; then
   echo "сертификат для $APP_DOMAIN уже выпущен (продление certbot делает сам)"

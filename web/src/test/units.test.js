@@ -170,6 +170,32 @@ describe("номера единиц", () => {
     expect(unitsOfTrait({ tasks, funcs }, "tz").map((u) => u.no)).toEqual([3, 2, 1]);
   });
 
+  /* ─── у каждой вещи свой файл ───
+
+     Сдача выдаёт не число, а вещь. Одна и та же сдача может выдать и макет,
+     и смету — и общий файл отчёта на обеих означал бы, что скачать сам
+     макет неоткуда. Поэтому исполнитель прикладывает каждый выданный ресурс
+     отдельно, а старый общий файл остаётся запасным: у сдач, сделанных до
+     этого, других файлов нет. */
+  it("файл у единицы свой — тот, который приложили к этому ресурсу", () => {
+    const two = [{ id: "tk9", funcId: "f1", title: "Двойная сдача", status: "done",
+      submissions: [{ id: "s9", at: "2026-02-09T10:00:00Z", hours: 2,
+        takes: {}, gives: { maket: 1, smeta: 1 },
+        files: { maket: { name: "макет.pdf", url: "/a" },
+          smeta: { name: "смета.xlsx", url: "/b" } },
+        file: { name: "отчёт.txt", url: "/c" } }] }];
+    const out = unitsOf({ tasks: two, funcs });
+    expect(out.find((u) => u.trait === "maket").file.name).toBe("макет.pdf");
+    expect(out.find((u) => u.trait === "smeta").file.name).toBe("смета.xlsx");
+  });
+
+  it("у старой сдачи файлов по ресурсам нет — берётся общий, а не пустота", () => {
+    const old = [{ id: "tk8", funcId: "f1", title: "Старая сдача", status: "done",
+      submissions: [{ id: "s8", at: "2026-02-08T10:00:00Z", hours: 1,
+        takes: {}, gives: { tz: 1 }, file: { name: "отчёт.txt", url: "/c" } }] }];
+    expect(unitsOf({ tasks: old, funcs })[0].file.name).toBe("отчёт.txt");
+  });
+
   it("обработанное функцией считается по принятым задачам, а не по всем", () => {
     // Непринятая сдача — заявление исполнителя, а не сделанная работа.
     expect(doneBy(tasks, "f1")).toEqual({ in: 2 });

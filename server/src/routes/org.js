@@ -3,6 +3,7 @@ import { telegramUser } from "../middleware/telegramUser.js";
 import {
   addRole, addUser, identify, listOrg, removeRole, removeUser, setProfile,
   setRoleTabs, setUserRole, TABS,
+  addPosition, removePosition, setUserPosition,
 } from "../lib/orgStore.js";
 
 const router = Router();
@@ -71,6 +72,37 @@ router.delete("/users/:id", async (req, res, next) => {
     if (!ok) return res.status(404).json({ error: "not found" });
     res.status(204).end();
   } catch (e) { next(e); }
+});
+
+/* Должности — не роли: роль даёт вкладки, должность говорит, кем человек
+   числится. Списки разные, и правятся они в разных местах интерфейса. */
+router.post("/positions", async (req, res, next) => {
+  try { res.status(201).json(await addPosition(req.body || {})); }
+  catch (e) {
+    if (/required|already exists/.test(e.message)) {
+      return res.status(400).json({ error: e.message });
+    }
+    next(e);
+  }
+});
+
+router.delete("/positions/:id", async (req, res, next) => {
+  try {
+    const ok = await removePosition(req.params.id);
+    if (!ok) return res.status(404).json({ error: "not found" });
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+router.put("/users/:id/position", async (req, res, next) => {
+  try {
+    const user = await setUserPosition(req.params.id, req.body?.position ?? null);
+    if (!user) return res.status(404).json({ error: "not found" });
+    res.json(user);
+  } catch (e) {
+    if (/unknown position/.test(e.message)) return res.status(400).json({ error: e.message });
+    next(e);
+  }
 });
 
 router.post("/roles", async (req, res, next) => {

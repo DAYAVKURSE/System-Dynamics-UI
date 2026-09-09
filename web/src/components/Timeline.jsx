@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
 import { hoursOf } from "../lib/funcs.js";
-import { STATUSES, funcLabel } from "./TasksBoard.jsx";
-import { reportSrc } from "../storage.js";
+import { STATUSES, funcLabel, statusName } from "./TasksBoard.jsx";
+import { putReportFile, reportSrc } from "../storage.js";
+import { barOf, timelineHtml } from "../lib/timelineDoc.js";
+import { deliverReport } from "../lib/reportDoc.js";
+import { getTelegram } from "../telegram.js";
 
 /* ════════════════════════════════════════════════════════════════
    TIMELINE · вся работа во времени — и прошлая, и будущая.
@@ -35,25 +38,20 @@ const ms = (v) => {
   return isNaN(t) ? null : t;
 };
 
-/* Полоса задачи: от её начала (или первой сдачи) до последней сдачи, а если
-   сдач ещё нет — на время одного выполнения функции. Задача без начала и без
-   сдач полосы не имеет: рисовать её «от сегодня до сегодня» значило бы
-   выдумать данные. */
-export function barOf(task, func) {
-  // Сортировка числовая: обычная sort() сравнивает как строки, и «9…» шло
-  // бы после «17…» — последняя сдача оказывалась не последней.
-  const subs = (task.submissions || []).map((s) => ms(s.at)).filter(Boolean)
-    .sort((a, b) => a - b);
-  const from = ms(task.start) ?? subs[0] ?? null;
-  if (from == null) return null;
-  const planned = func ? hoursOf(func) * 3600000 : DAY;
-  const to = subs[subs.length - 1] ?? (from + Math.max(DAY / 4, planned));
-  return { from, to: Math.max(to, from + DAY / 4) };
-}
+/* Полоса задачи считается в `lib/timelineDoc.js`: по ней рисуется и экран, и
+   файл, и правило у них обязано быть одно. Здесь она только переизлучается —
+   прежние места читают её отсюда. */
+export { barOf };
 
-export default function Timeline({ tasks, funcs = [], traits = [], entities = [], nameOf }) {
+/* `meId` — чьими глазами собирается файл: у владельца задачи приходят
+   целиком, со скрытыми словами всех проверяющих, и файл без зрителя
+   унёс бы их наружу. */
+export default function Timeline({ tasks, funcs = [], traits = [], entities = [], nameOf,
+  meId = null }) {
   const [openId, setOpenId] = useState(null);
   const [only, setOnly] = useState("all");
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
   const funcById = useMemo(() =>
     Object.fromEntries((funcs || []).map((f) => [f.id, f])), [funcs]);
   const traitName = (id) => traits.find((x) => x.id === id)?.l || "(ресурс удалён)";
@@ -65,6 +63,38 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
   const rows = useMemo(() => all.filter((r) => r.bar)
     .sort((a, b) => a.bar.from - b.bar.from), [all]);
   const undated = useMemo(() => all.filter((r) => !r.bar), [all]);
+
+  /* ─── таймлайн файлом ───
+
+     Экран показывает то, что есть в модели СЕЙЧАС, а спрашивают другое:
+     «как оно шло». По живой модели на это не ответить — она меняется, и
+     вчерашняя картина исчезает бесследно. Файл ложится туда же, куда и
+     отчёты (своё хранилище на сервере, ссылка наружу), и так же переживает
+     любые правки.
+
+     В файл идут ВСЕ задачи, а не отфильтрованные на экране: его заводят,
+     чтобы проследить, и обрезанная выборка отвечала бы на другой вопрос. */
+  const save = async () => {
+    setSaveErr(""); setSaving(true);
+    try {
+      const html = timelineHtml(tasks || [], funcs, {
+        statusName,
+        funcName: (id) => funcLabel(funcs.find((f) => f.id === id), entities),
+        personName: (id) => (id == null ? "не назначен"
+          : (nameOf ? nameOf(id) : String(id))),
+        title: "Таймлайн работы",
+        viewer: meId,
+      });
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+      await deliverReport(`timeline-${stamp}.html`, html,
+        { telegram: getTelegram(), putFile: putReportFile });
+    } catch (e) {
+      // Молчаливый отказ здесь хуже всего: человек не знает, ждать ему или
+      // нажимать ещё раз.
+      setSaveErr(e.message || "не удалось сохранить таймлайн");
+    }
+    setSaving(false);
+  };
 
   const filterBar = (
     <div style={{ ...S.card, marginBottom: 10 }}>
@@ -79,6 +109,20 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
         Полоса — время выполнения задачи; чёрточки на ней — сдачи; пунктир —
         сегодня. Слева от него прошлое, справа запланированное.
       </div>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
+        marginTop: 8 }}>
+        <button style={{ ...btn(true, OK), fontSize: 11 }} disabled={saving}
+          onClick={save}>
+          {saving ? "Готовлю…" : "Сохранить таймлайн файлом"}</button>
+        <span style={{ fontSize: 10, color: C.muted, flex: "1 1 200px",
+          lineHeight: 1.5 }}>
+          Вся работа с историей — когда отложили, когда взяли, что сдали и
+          как приняли. Модель меняется, файл — нет.
+        </span>
+      </div>
+      {saveErr && (
+        <div style={{ fontSize: 10.5, color: BAD, marginTop: 5, lineHeight: 1.5 }}>
+          {saveErr}</div>)}
     </div>);
 
   if (!rows.length && !undated.length) {

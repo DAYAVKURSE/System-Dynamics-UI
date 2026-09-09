@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { DUR_UNITS, avgOf, byCrew, countWorkers, crewOf, everyOf, everyText,
   fromHours, hoursOf,
   newFunc, newGive,
+  missingGives,
   newPort, normalizeFunc, normalizeFuncs, okRange, pruneWorkers, rangeText,
-  runHours, runQty, workersOf } from "../lib/funcs.js";
+  requiredGives, runHours, runQty, workersOf } from "../lib/funcs.js";
 
 /* Функция — то, что преобразует ресурсы актива: берёт одни, выдаёт другие,
    и на это уходит время. Здесь проверяется её запись, диапазоны, среднее по
@@ -264,5 +265,35 @@ describe("порядок людей актива", () => {
     // Кого в активе нет вовсе — в конец: выдумывать ему место не из чего.
     expect(byCrew({ ...W, crew: ["c"] }, [{ id: "нет" }, { id: "c" }]).map((p) => p.id))
       .toEqual(["c", "нет"]);
+  });
+});
+
+/* ЧТО ЗАДАЧА ОБЯЗАНА ВЫДАТЬ ВЕЩЬЮ.
+
+   Функция выдаёт не число, а вещь: техническое задание, макет, договор.
+   Обязательным выход считается там, где НИЖНЯЯ граница вилки больше нуля:
+   функция обещала выдать хотя бы столько, и работа без этого не сделана.
+   Ноль внизу вилки — прямое разрешение не выдать ничего, и требовать файл
+   там не за что. */
+describe("обязательные результаты работы", () => {
+  const f = { gives: [
+    { id: "g1", trait: "maket", lo: 1, hi: 2 },
+    { id: "g2", trait: "smeta", lo: 0, hi: 1 },
+    { id: "g3", trait: "", lo: 3, hi: 3 },
+  ] };
+
+  it("обязателен тот выход, у которого минимум больше нуля", () => {
+    expect(requiredGives(f).map((p) => p.trait)).toEqual(["maket"]);
+    // Функции без выходов нечего требовать, и пустой записи — тоже.
+    expect(requiredGives({})).toEqual([]);
+    expect(requiredGives(null)).toEqual([]);
+  });
+
+  it("не приложено обязательное — работа не сдана; ноль внизу вилки прощает", () => {
+    expect(missingGives(f, {}).map((p) => p.trait)).toEqual(["maket"]);
+    expect(missingGives(f, { maket: { name: "макет.pdf" } })).toEqual([]);
+    // Смета необязательна: её отсутствие ничего не держит.
+    expect(missingGives(f, { smeta: { name: "смета.xlsx" } }).map((p) => p.trait))
+      .toEqual(["maket"]);
   });
 });

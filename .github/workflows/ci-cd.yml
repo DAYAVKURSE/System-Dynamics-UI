@@ -95,11 +95,6 @@ jobs:
       TURN_URL: ${{ secrets.TURN_URL }}
       TURN_USER: ${{ secrets.TURN_USER }}
       TURN_PASS: ${{ secrets.TURN_PASS }}
-      # Общий секрет с воркером моста к Claude Code. Пусто — мост выключен.
-      BRIDGE_TOKEN: ${{ secrets.BRIDGE_TOKEN }}
-      # Токен входа Claude Code (`claude setup-token`). Необязателен здесь:
-      # если его дописали в .env на сервере, деплой его сохраняет.
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
       - name: Проверить секреты
         id: secrets
@@ -204,32 +199,16 @@ jobs:
           # .env для сервера собирается здесь, из секретов Actions. В репозитории
           # никаких значений нет — server/.env.example нужен только для локальной
           # разработки и на сервер не попадает.
-          # Воркер моста едет вместе с сервером.
-          mkdir -p deploy_pkg/tools && cp tools/claude-bridge.mjs deploy_pkg/tools/
 
-          # Секреты, которые нужны только внутри сервера, рождаются здесь сами,
-          # если их не задали: общий секрет воркера и секрет TURN не должны
-          # требовать от владельца ничего выдумывать. Один раз родившись, они
-          # переживают деплои: файл .env уже лежит на сервере, и мы читаем
-          # прежнее значение оттуда, а не перезаписываем.
+          # Секрет, который нужен только внутри сервера (TURN), рождается здесь
+          # сам, если его не задали: владелец не должен ничего выдумывать. Один
+          # раз родившись, он переживает деплои: файл .env уже лежит на сервере,
+          # и мы читаем прежнее значение оттуда, а не перезаписываем.
           prev_env=$($SSH_CMD "${SSH_USER_R}@${SSH_HOST}" \
             "cat '${DEPLOY_PATH_R}/app/.env' 2>/dev/null || true")
           keep() { echo "$prev_env" | sed -n "s/^$1=//p" | head -1; }
-          BRIDGE_TOKEN="${BRIDGE_TOKEN:-$(keep BRIDGE_TOKEN)}"
-          BRIDGE_TOKEN="${BRIDGE_TOKEN:-$(openssl rand -hex 24)}"
           TURN_SECRET="${TURN_SECRET:-$(keep TURN_SECRET)}"
           TURN_SECRET="${TURN_SECRET:-$(openssl rand -hex 24)}"
-          # Токен входа Claude Code кладёт на сервер команда «/login» в чате
-          # (см. DEPLOYMENT.md 6.7). Что лежит на сервере, то и остаётся:
-          # секрет репозитория — только для первой заливки. Наоборот было бы
-          # хуже всего — старый секрет воскрешал бы мёртвый токен на каждом
-          # деплое и молча отменял вход, сделанный с телефона. Пустая строка
-          # на сервере — это тоже ответ: так помечен вход, который claude
-          # хранит у себя (`claude auth login`), и перебивать его нельзя.
-          if echo "$prev_env" | grep -q '^CLAUDE_CODE_OAUTH_TOKEN='; then
-            CLAUDE_CODE_OAUTH_TOKEN="$(keep CLAUDE_CODE_OAUTH_TOKEN)"
-          fi
-          [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] || echo "::add-mask::$CLAUDE_CODE_OAUTH_TOKEN"
           # Имя мини-приложения звонка владелец задаёт из чата («/callapp call»),
           # а сервер кладёт его в .env. Не сохранить его здесь — значит
           # разучить ссылку открывать мини-приложение на каждом обновлении.
@@ -240,6 +219,19 @@ jobs:
           # на сервере, поэтому его достаточно не потерять.
           TELEGRAM_CALL_MAIN="$(keep TELEGRAM_CALL_MAIN)"
           echo "TELEGRAM_CALL_MAIN_R=$TELEGRAM_CALL_MAIN" >> "$GITHUB_ENV"
+          # Прежние настройки помощника v1.1 (один ключ на всех). Сервер читает
+          # их один раз — чтобы перенести владельцу в ASSISTANT_DIR, — но
+          # переносить их между выкатами всё равно надо: перенос случается
+          # при первом обращении, а не при деплое. Секретов Actions для них
+          # нет намеренно: ключ — счёт человека, а не настройка репозитория.
+          AI_PROVIDER="$(keep AI_PROVIDER)"
+          AI_MODEL="$(keep AI_MODEL)"
+          OPENAI_API_KEY="$(keep OPENAI_API_KEY)"
+          ANTHROPIC_API_KEY="$(keep ANTHROPIC_API_KEY)"
+          HF_API_KEY="$(keep HF_API_KEY)"
+          for k in "$OPENAI_API_KEY" "$ANTHROPIC_API_KEY" "$HF_API_KEY"; do
+            if [ -n "$k" ]; then echo "::add-mask::$k"; fi
+          done
           # Секрет TURN нужен и следующему шагу — он настраивает coturn.
           echo "::add-mask::$TURN_SECRET"
           echo "TURN_SECRET_R=$TURN_SECRET" >> "$GITHUB_ENV"
@@ -255,6 +247,14 @@ jobs:
           WORKSPACE_DIR=${DEPLOY_PATH_R}/data/workspace
           CALLS_DIR=${DEPLOY_PATH_R}/data/calls
           SHARES_DIR=${DEPLOY_PATH_R}/data/shares
+          MEMORY_DIR=${DEPLOY_PATH_R}/data/memory
+          ASSISTANT_DIR=${DEPLOY_PATH_R}/data/assistant
+          CHATS_DIR=${DEPLOY_PATH_R}/data/chats
+          AI_PROVIDER=${AI_PROVIDER:-}
+          AI_MODEL=${AI_MODEL:-}
+          OPENAI_API_KEY=${OPENAI_API_KEY:-}
+          ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+          HF_API_KEY=${HF_API_KEY:-}
           TELEGRAM_CALL_APP=${TELEGRAM_CALL_APP:-}
           TELEGRAM_CALL_MAIN=${TELEGRAM_CALL_MAIN:-}
           PUBLIC_URL=https://${APP_DOMAIN_R}
@@ -263,9 +263,6 @@ jobs:
           TURN_PASS=${TURN_PASS:-}
           TURN_SECRET=${TURN_SECRET}
           TURN_HOST=${APP_DOMAIN_R}
-          BRIDGE_TOKEN=${BRIDGE_TOKEN}
-          BRIDGE_CWD=${DEPLOY_PATH_R}/app
-          CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
           OWNER_TELEGRAM_ID=${OWNER_TELEGRAM_ID:-}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           EOF
@@ -276,10 +273,11 @@ jobs:
       #
       # Почему скрипт СНАЧАЛА кладётся в файл, а не идёт прямо в «| bash».
       # При «| bash» скрипт для bash — это stdin. Любая команда внутри,
-      # которая сама читает stdin (npm при установке, claude при первом
-      # запуске), либо съедает остаток скрипта, либо ждёт ввода вечно: канал
-      # SSH открыт, EOF не приходит. Именно так деплой и завис на пять минут
-      # на блоке Claude Code, пока SSH не оборвался с «Broken pipe».
+      # которая сама читает stdin (например, npm при установке), либо съедает
+      # остаток скрипта, либо ждёт ввода вечно: канал SSH открыт, EOF не
+      # приходит. Именно так деплой однажды и завис на пять минут — на
+      # установке Claude Code, которую он тогда делал, — пока SSH не
+      # оборвался с «Broken pipe».
       # Файл + «< /dev/null» убирают оба исхода разом: bash читает скрипт
       # целиком из файла, а ввода нет ни у кого.
       #

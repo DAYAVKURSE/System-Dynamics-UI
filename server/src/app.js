@@ -9,8 +9,8 @@ import orgRouter from "./routes/org.js";
 import workspaceRouter from "./routes/workspace.js";
 import sharesRouter from "./routes/shares.js";
 import callsRouter from "./routes/calls.js";
+import assistantRouter from "./routes/assistant.js";
 import { callLinkEnv, callLinkFor } from "./lib/links.js";
-import bridgeRouter from "./routes/bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -108,8 +108,8 @@ export function createApp() {
       shares: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Звонки: сигналинг и ретрансляция медиа через этот же сервер.
       calls: Boolean(process.env.TELEGRAM_BOT_TOKEN),
-      // Мост включён, только когда задан общий секрет с воркером.
-      bridge: Boolean(process.env.BRIDGE_TOKEN),
+      // Помощник: настройки, вопросы и память держатся на подписи Telegram.
+      assistant: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Кто и как открывал страницу звонка — см. выше.
       callPage: { ...callPage, recent: [...callPage.recent], views: [...callPage.views] },
       // Какую ссылку бот кладёт в приглашение ПРЯМО СЕЙЧАС. Настроек три
@@ -142,8 +142,10 @@ export function createApp() {
      lib/shareStore.js). */
   app.use("/api/shares", sharesRouter);
   app.use("/api/calls", callsRouter);
-  // Мост к Claude Code: очередь для воркера на машине владельца.
-  app.use("/api/bridge", bridgeRouter);
+  /* Помощник: настройки (ключ ставит владелец, наружу не уходит), вопрос в
+     два шага и память. Только позванным. Файл памяти — сырые байты, поэтому
+     свой парсер тела внутри маршрута (см. routes/assistant.js). */
+  app.use("/api/assistant", assistantRouter);
 
   // Собранный фронтенд (web build) кладётся сюда шагом деплоя — см. docs/DEPLOYMENT.md.
   // Локально в dev-режиме этой папки обычно нет: фронтенд поднимается отдельно

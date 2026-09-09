@@ -153,6 +153,92 @@ describe("задача по определённым дням", () => {
   });
 });
 
+/* ─── отложенная задача напоминает о себе заново ───
+
+   «Отложить» спрашивает, на сколько, и в названный момент человек должен
+   получить то же уведомление с теми же двумя кнопками — иначе «отложить»
+   было бы «забыть». Момент хранится UTC-меткой: его назвал сервер, сложив
+   «на сколько» с «сейчас», а не человек в поле формы. */
+describe("отложенная задача", () => {
+  // Позвали в 10:00 по Москве, отложили на два часа.
+  const until = new Date(at("2026-09-15T12:00")).toISOString();
+  const s = (over) => ({ tzOffset: MSK, tasks: [task({ status: "deferred", deferredUntil: until,
+    ...over })] });
+
+  it("в момент «до» уходит новое уведомление о начале — с кнопками", () => {
+    const due = dueNotifications(s(), at("2026-09-15T12:00"));
+    expect(due).toHaveLength(1);
+    expect(due[0].kind).toBe("start");
+    expect(due[0].deferred).toBe(true);
+    // Время начала показывается в поясе человека, а не сервера.
+    expect(due[0].startWall).toBe("2026-09-15T12:00");
+    expect(formatMessage(due[0])).toContain("отложенная: Позвонить рефералам");
+    expect(formatMessage(due[0])).toContain("Начало: 2026-09-15 12:00");
+  });
+
+  it("отметка об исходном уведомлении повторное не глушит", () => {
+    // Исходное «Начинается» ушло в 10:00, ПОКА задача ещё не была отложена.
+    const first = dueNotifications({ tzOffset: MSK, tasks: [task()] }, at("2026-09-15T10:00"))
+      .find((d) => d.kind === "start");
+    const later = dueNotifications(s(), at("2026-09-15T12:00"), { [first.key]: 1 });
+    expect(later.map((d) => d.kind)).toEqual(["start"]);
+    expect(later[0].key).not.toBe(first.key);
+  });
+
+  /* «Отложить» под предупреждением: «в назначенный час не начну, напомни
+     позже». Плановые warn/start раньше названного момента не шлются —
+     иначе в 10:00 приходило бы «Начинается» с кнопками, и откладывать
+     пришлось бы заново, вопреки обещанию «когда время выйдет, напомню». */
+  it("отложено с предупреждения — в плановый момент начала тишина, в «до» одно отложенное", () => {
+    // Предупреждение за 10 минут ушло в 9:50, человек нажал «Отложить на 2 часа 10 минут» → до 12:00.
+    const warned = dueNotifications({ tzOffset: MSK, tasks: [task()] }, at("2026-09-15T09:50"))[0];
+    expect(warned.kind).toBe("warn");
+    const sent = { [warned.key]: 1 };
+    expect(dueNotifications(s({ status: "backlog" }), at("2026-09-15T10:00"), sent)).toEqual([]);
+    expect(dueNotifications(s({ status: "backlog" }), at("2026-09-15T10:00") + 30000, sent)).toEqual([]);
+    const due = dueNotifications(s({ status: "backlog" }), at("2026-09-15T12:00"), sent);
+    expect(due).toHaveLength(1);
+    expect(due[0]).toMatchObject({ kind: "start", deferred: true });
+  });
+
+  it("отложено ещё до предупреждения — молчат и предупреждение, и начало", () => {
+    // Отложили с вечера накануне: до 12:00; в 9:50 и 10:00 — ничего.
+    expect(dueNotifications(s(), at("2026-09-15T09:50"))).toEqual([]);
+    expect(dueNotifications(s(), at("2026-09-15T10:00"))).toEqual([]);
+    expect(dueNotifications(s(), at("2026-09-15T12:00")).map((d) => d.deferred)).toEqual([true]);
+  });
+
+  it("плановое ПОСЛЕ «до» не глушится: отложили на пять минут, а начало через десять", () => {
+    const soon = new Date(at("2026-09-15T09:55")).toISOString();
+    const [deferred] = dueNotifications(s({ deferredUntil: soon }), at("2026-09-15T09:55"));
+    expect(deferred.deferred).toBe(true);
+    const due = dueNotifications(s({ deferredUntil: soon }), at("2026-09-15T10:00"), { [deferred.key]: 1 });
+    expect(due.map((d) => [d.kind, d.deferred])).toEqual([["start", false]]);
+  });
+
+  it("взятая задача со старым «до» напоминает по плану: отложение её больше не касается", () => {
+    // status progress: плановое начало «взятой» и так не шлётся? Нет —
+    // планировщик глушит только done; проверяем, что фильтр отложения
+    // действует лишь на лежащие (DEFERRABLE), а не на все подряд.
+    const due = dueNotifications(s({ status: "progress" }), at("2026-09-15T10:00"));
+    expect(due.map((d) => [d.kind, d.deferred])).toEqual([["start", false]]);
+  });
+
+  it("предупреждения «за 10 минут» у отложенного нет: момент назвал сам человек", () => {
+    expect(dueNotifications(s(), at("2026-09-15T11:50"))).toEqual([]);
+  });
+
+  it("взятую или сданную за это время задачу заново не начинают", () => {
+    expect(dueNotifications(s({ status: "progress" }), at("2026-09-15T12:00"))).toEqual([]);
+    expect(dueNotifications(s({ status: "review" }), at("2026-09-15T12:00"))).toEqual([]);
+  });
+
+  it("без «до» отложенная молчит, и порченая дата — тоже не дата", () => {
+    expect(dueNotifications(s({ deferredUntil: null }), at("2026-09-15T12:00"))).toEqual([]);
+    expect(dueNotifications(s({ deferredUntil: "потом" }), at("2026-09-15T12:00"))).toEqual([]);
+  });
+});
+
 describe("occurrencesNear", () => {
   it("для разовой задачи даёт ровно одно срабатывание", () => {
     expect(occurrencesNear(task(), at("2026-09-15T10:00"), MSK)).toHaveLength(1);
@@ -191,7 +277,8 @@ describe("текст сообщения", () => {
 });
 
 describe("проход планировщика", () => {
-  const schedule = { chatId: "42", tzOffset: MSK, tasks: [task()], sent: {} };
+  // Задача поручена тому же, у кого расписание: ему и кнопки.
+  const schedule = { chatId: "42", tzOffset: MSK, tasks: [task({ assignee: "42" })], sent: {} };
   const makeStore = (schedules) => {
     const marked = [];
     return {
@@ -208,8 +295,100 @@ describe("проход планировщика", () => {
     const n = await runTick({ store, send, now: at("2026-09-15T09:50") });
 
     expect(n).toBe(1);
-    expect(send).toHaveBeenCalledWith("42", expect.stringContaining("Через 10 минут"));
+    /* Предупреждение «через 10 минут» — с теми же кнопками, что и «пора
+       начинать»: именно сейчас человек решает, успевает ли он. В v1.1
+       кнопок под ним не было, и решить было нечем до самого начала. */
+    const [chatId, text, keyboard] = send.mock.calls[0];
+    expect(chatId).toBe("42");
+    expect(text).toContain("Через 10 минут");
+    expect(text).toContain("прямо сейчас, не дожидаясь начала");
+    expect(keyboard.inline_keyboard[0].map((b) => b.callback_data))
+      .toEqual(["task:defer:t1", "task:start:t1"]);
     expect(store.marked).toHaveLength(1);
+  });
+
+  it("предупреждение владельцу о чужой задаче — без кнопок, как и «пора начинать»", async () => {
+    const store = makeStore([{ userId: "100", schedule: { ...schedule, chatId: "100" } }]);
+    const send = vi.fn().mockResolvedValue({});
+    await runTick({ store, send, now: at("2026-09-15T09:50") });
+    const [, text, keyboard] = send.mock.calls[0];
+    expect(text).toContain("Через 10 минут");
+    expect(text).not.toContain("Отложить");
+    expect(keyboard).toBeNull();
+  });
+
+  /* Расписания, сохранённые до v1.1, исполнителя не несут вовсе: поле
+     отсутствует. После выката такие напоминания приходили без кнопок, и
+     ответить на них было нечем. Запись без поля — запись того, у кого
+     лежит; «никому» (null) — по-прежнему никому. */
+  it("запись без поля исполнителя (до v1.1) считается записью того, у кого лежит", async () => {
+    const old = { ...task() };
+    delete old.assignee;
+    const store = makeStore([{ userId: "42", schedule: { ...schedule, tasks: [old] } }]);
+    const send = vi.fn().mockResolvedValue({});
+    await runTick({ store, send, now: at("2026-09-15T10:00") });
+    const [, text, keyboard] = send.mock.calls[0];
+    expect(keyboard.inline_keyboard[0].map((b) => b.text)).toEqual(["🔴 Отложить", "🟢 Начать"]);
+    expect(text).toContain("«🟢 Начать»");
+    // Ключ есть, значения нет — то же самое, что ключа нет.
+    const store2 = makeStore([{ userId: "42", schedule: { ...schedule, tasks: [task({ assignee: undefined })] } }]);
+    const send2 = vi.fn().mockResolvedValue({});
+    await runTick({ store: store2, send: send2, now: at("2026-09-15T10:00") });
+    expect(send2.mock.calls[0][2]).not.toBeNull();
+  });
+
+  /* ─── две кнопки под уведомлением о начале ───
+
+     Человека позвали, и он решает ровно одно: начинает он сейчас или нет.
+     Без кнопок решение оставалось в голове, и доска показывала задачу
+     лежащей в бэклоге и когда за неё взялись, и когда её отложили. */
+  it("уведомление о начале приходит с кнопками «🔴 Отложить» и «🟢 Начать» — в этом порядке",
+    async () => {
+      const store = makeStore([{ userId: "42", schedule }]);
+      const send = vi.fn().mockResolvedValue({});
+
+      await runTick({ store, send, now: at("2026-09-15T10:00") });
+
+      const [, text, keyboard] = send.mock.calls[0];
+      expect(text).toContain("Начинается:");
+      // Сказано, что кнопки делают: молчаливая «Отложить» обещала бы перенос.
+      expect(text).toContain("останется в бэклоге как отложенная");
+      expect(text).toContain("напомню снова");
+      /* Отказ слева, действие справа. Красить инлайн-кнопки Telegram нельзя —
+         цвет несёт только эмодзи в подписи. */
+      expect(keyboard.inline_keyboard[0].map((b) => b.text))
+        .toEqual(["🔴 Отложить", "🟢 Начать"]);
+      expect(keyboard.inline_keyboard[0].map((b) => b.callback_data))
+        .toEqual(["task:defer:t1", "task:start:t1"]);
+    });
+
+  /* Уведомление о той же задаче приходит и владельцу (у него в расписании
+     вся модель), и постановщику с проверяющим — но взять или отложить её
+     может только исполнитель; у остальных кнопка отвечала бы «не ваша». */
+  it("владельцу и постановщику — то же уведомление, но без кнопок и без абзаца про них",
+    async () => {
+      const store = makeStore([{ userId: "100", schedule: { ...schedule, chatId: "100" } }]);
+      const send = vi.fn().mockResolvedValue({});
+
+      await runTick({ store, send, now: at("2026-09-15T10:00") });
+
+      const [, text, keyboard] = send.mock.calls[0];
+      expect(text).toContain("Начинается: Позвонить рефералам");
+      expect(text).not.toContain("Отложить");
+      expect(keyboard).toBeNull();
+    });
+
+  it("задача без исполнителя кнопок не получает: нажать их некому", async () => {
+    const store = makeStore([{ userId: "42",
+      schedule: { ...schedule, tasks: [task({ assignee: null })] } }]);
+    const send = vi.fn().mockResolvedValue({});
+    await runTick({ store, send, now: at("2026-09-15T10:00") });
+    expect(send.mock.calls[0][2]).toBeNull();
+    // Исполнитель — числом или строкой — одно и то же лицо.
+    const store2 = makeStore([{ userId: "42", schedule: { ...schedule, tasks: [task({ assignee: 42 })] } }]);
+    const send2 = vi.fn().mockResolvedValue({});
+    await runTick({ store: store2, send: send2, now: at("2026-09-15T10:00") });
+    expect(send2.mock.calls[0][2]).not.toBeNull();
   });
 
   it("без chatId не отправляет", async () => {

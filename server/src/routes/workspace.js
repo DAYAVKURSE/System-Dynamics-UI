@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
-import { identify } from "../lib/orgStore.js";
-import { readModel, reviewTask, submitTask, takeTask, viewFor, writeModel }
+import { identify, listOrg } from "../lib/orgStore.js";
+import { addComment, deferTask, dropComment, peopleOf, readModel, readSpace, reviewTask,
+  setupTask, submitTask, takeTask, taskViewFor, viewFor, withModel, writeModel, writeSpace }
   from "../lib/workspaceStore.js";
-import { ask, find, pending } from "../lib/bridgeStore.js";
+import { publishStep, viewRatingsFor } from "../lib/ratings.js";
 
 const router = Router();
 router.use(telegramUser);
@@ -12,12 +13,54 @@ router.use(async (req, res, next) => {
   catch (e) { next(e); }
 });
 
+/* Задача в ответе на нажатие — глазами того, кто нажал, а не целиком:
+   в целой лежат чужие оценки и чужие скрытые слова, а ответ на POST виден
+   в отладчике так же, как ответ на GET. Владельцу — целиком, модель его.
+   Один хелпер на все нажатия, чтобы ни одно не осталось без среза. */
+const seen = (req, task) => (req.me.isOwner ? task : taskViewFor(task, req.telegramUserId));
+
 // Срез модели под спрашивающего. Фильтрует сервер: спрятать чужие задачи
 // в интерфейсе значит не спрятать их вовсе.
 router.get("/", async (req, res, next) => {
   try {
     if (!req.me.known) return res.status(403).json({ error: "not invited" });
-    res.json(viewFor(await readModel(), req.me));
+    const view = viewFor(await readModel(), req.me);
+    /* Пространство вкладки задач у позванного — своё, не владельца: срез
+       модели его не несёт, а файл на человека — несёт. */
+    if (!req.me.isOwner) {
+      view.space = await readSpace(req.telegramUserId);
+      /* Имена — только тех, с кем он работает: воркеров видимых ему
+         активов и участников его задач. Список организации целиком (с
+         анкетами и должностями) — владельцу; здесь ровно имя, чтобы
+         постановщику было из кого выбирать, а «поставил: 100» читалось
+         как человек. */
+      const ids = peopleOf(view);
+      view.people = (await listOrg()).users
+        .filter((u) => ids.has(String(u.id)))
+        .map((u) => ({ id: u.id, name: u.name }));
+    }
+    res.json(view);
+  } catch (e) { next(e); }
+});
+
+/* Пространство пишет каждый своё. Владельцу оно приезжает в составе модели
+   (PUT выше), но и этот путь ему открыт — тогда запись ложится в модель,
+   чтобы двух пространств у владельца не было. */
+router.put("/space", async (req, res, next) => {
+  try {
+    if (!req.me.known) return res.status(403).json({ error: "not invited" });
+    const space = req.body?.space;
+    if (!space || typeof space !== "object" || Array.isArray(space)) {
+      return res.status(400).json({ error: "space is required" });
+    }
+    if (req.me.isOwner) {
+      const saved = await withModel(async (model) => {
+        model.space = space;
+        return writeModel(model);
+      });
+      return res.json({ savedAt: saved.savedAt });
+    }
+    res.json(await writeSpace(req.telegramUserId, space));
   } catch (e) { next(e); }
 });
 
@@ -26,12 +69,52 @@ router.get("/", async (req, res, next) => {
 router.put("/", async (req, res, next) => {
   try {
     if (!req.me.isOwner) return res.status(403).json({ error: "only the owner can save the model" });
-    const saved = await writeModel(req.body?.model);
+    /* Реестр опубликованных оценок ведёт сервер: у клиента он на полторы
+       секунды старше, и, приняв его, сервер стирал бы только что
+       опубликованное. */
+    const model = req.body?.model;
+    if (model && typeof model === "object") delete model.published;
+    // В очереди, а не мимо неё: запись целиком читает реестр опубликованного
+    // из файла, и нажатие исполнителя между этим чтением и записью пропало бы.
+    const saved = await withModel(() => writeModel(model));
     res.json({ savedAt: saved.savedAt });
   } catch (e) {
     if (/required/.test(e.message)) return res.status(400).json({ error: e.message });
     next(e);
   }
+});
+
+/* Рейтинги глазами спрашивающего: про себя — только адресованные ему
+   слова, про остальных — средние и публичные слова, нигде — автор. Каждое
+   чтение — попытка публикации: то, что стало анонимным, публикуется, не
+   дожидаясь тика планировщика. */
+router.get("/ratings", async (req, res, next) => {
+  try {
+    if (!req.me.known) return res.status(403).json({ error: "not invited" });
+    const model = await withModel(async (m) => {
+      if (publishStep(m).changed) await writeModel(m);
+      return m;
+    });
+    res.json(viewRatingsFor(model, req.telegramUserId));
+  } catch (e) { next(e); }
+});
+
+/* Поставить задачу может её постановщик (и владелец — модель его). Модель
+   целиком пишет владелец, но ставить работу должен тот, кого назначили
+   постановщиком на схеме: иначе его правки жили бы только в его окне, а
+   «Поставить» меняло бы статус в памяти и нигде больше. В теле — поля
+   постановки (название, содержимое, начало, срок, исполнитель,
+   проверяющий) и `status: "backlog"` для «Поставить»; отказ — словами
+   в `why`, теми же, что показывает форма. */
+router.post("/tasks/:id/setup", async (req, res, next) => {
+  try {
+    const r = await setupTask(req.telegramUserId, req.params.id, req.body || {},
+      { isOwner: req.me.isOwner });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not yours") return res.status(403).json({ error: r.error });
+    if (r.error) return res.status(400).json({ error: r.error, why: r.why || "" });
+    res.json(seen(req, r.task));
+  } catch (e) { next(e); }
 });
 
 /* Взять задачу в работу может только её исполнитель. Модель целиком пишет
@@ -43,7 +126,20 @@ router.post("/tasks/:id/take", async (req, res, next) => {
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
-    res.json(r.task);
+    res.json(seen(req, r.task));
+  } catch (e) { next(e); }
+});
+
+/* Отложить — то же право, что и взять: решает тот, кого позвали. Задача
+   остаётся в бэклоге, но уже с отметкой, что за неё не взялись. `until`
+   в теле — до какого момента (ISO); без него откладывается без срока. */
+router.post("/tasks/:id/defer", async (req, res, next) => {
+  try {
+    const r = await deferTask(req.telegramUserId, req.params.id, { until: req.body?.until });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
+    if (r.error) return res.status(403).json({ error: r.error });
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 
@@ -51,8 +147,37 @@ router.post("/tasks/:id/submit", async (req, res, next) => {
   try {
     const r = await submitTask(req.telegramUserId, req.params.id, req.body || {});
     if (r.error === "not found") return res.status(404).json({ error: r.error });
+    // Без вещи по обязательному выходу сдачи нет — и сказано, чего не хватает.
+    if (r.error === "missing files") {
+      return res.status(400).json({ error: r.error, missing: r.missing });
+    }
     if (r.error) return res.status(403).json({ error: r.error });
-    res.json(r.task);
+    res.json(seen(req, r.task));
+  } catch (e) { next(e); }
+});
+
+/* Комментарий пишет любой участник задачи (или владелец). В ответе —
+   задача глазами писавшего: чужих скрытых слов в ней нет. */
+router.post("/tasks/:id/comments", async (req, res, next) => {
+  try {
+    const r = await addComment(req.telegramUserId, req.params.id, req.body || {},
+      { isOwner: req.me.isOwner });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not yours") return res.status(403).json({ error: r.error });
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.status(201).json({ comment: r.comment, task: seen(req, r.task) });
+  } catch (e) { next(e); }
+});
+
+/* Убрать комментарий: владелец — любой, остальные — только свой. Ответ —
+   задача глазами убравшего, как и у остальных нажатий. */
+router.delete("/tasks/:id/comments/:cid", async (req, res, next) => {
+  try {
+    const r = await dropComment(req.telegramUserId, req.params.id, req.params.cid,
+      { isOwner: req.me.isOwner });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error) return res.status(403).json({ error: r.error });
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 
@@ -62,60 +187,8 @@ router.post("/tasks/:id/review", async (req, res, next) => {
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "comment required") return res.status(400).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
-    res.json(r.task);
+    res.json(seen(req, r.task));
   } catch (e) { next(e); }
 });
 
 export default router;
-
-/* Черновик содержимого задачи от Claude — только владельцу, только через
-   мост. Без моста отвечаем 503 словами, а не пустым текстом: интерфейс
-   тогда ничего не подставит и не сделает вид, что подставил. */
-export const draftPrompt = ({ title, goal, move, assignee, reviewer }) => [
-  "Ты помогаешь владельцу бизнес-модели сформулировать задачу исполнителю.",
-  "Ответь только текстом задачи на русском, 3–6 коротких предложений, без",
-  "заголовков и без markdown: что сделать, какой результат считать сделанным,",
-  "как отчитаться. Не выдумывай чисел, которых нет ниже.",
-  "",
-  `Название задачи: ${title || "—"}`,
-  goal ? `Цель: ${goal}` : "",
-  move ? `Движение (гипотеза), которое задача выполняет: ${move}` : "",
-  assignee ? `Исполнитель: ${assignee}` : "",
-  reviewer ? `Проверяющий: ${reviewer}` : "",
-].filter(Boolean).join("\n");
-
-/* Черновик — в два шага: POST ставит вопрос в очередь и сразу отвечает id,
-   GET по этому id говорит «ещё думает», «готово» или «не вышло». Ждать ответ
-   в одном HTTP-запросе нельзя: Claude отвечает десятки секунд, а nginx и
-   WebView Telegram рвут запрос раньше — интерфейс видел «Failed to fetch»
-   и ничего больше. Опрос короткими запросами этим не страдает. */
-const draftTtl = () => Number(process.env.BRIDGE_DRAFT_TIMEOUT_MS || 180000);
-
-router.post("/draft", async (req, res, next) => {
-  try {
-    if (!req.me.isOwner) return res.status(403).json({ error: "only the owner" });
-    if (!process.env.BRIDGE_TOKEN) return res.status(503).json({ error: "bridge is disabled" });
-    const item = ask({ text: draftPrompt(req.body || {}), from: req.telegramUserId,
-      chatId: null, sid: null });
-    res.status(202).json({ id: item.id, status: "pending" });
-  } catch (e) { next(e); }
-});
-
-router.get("/draft/:id", (req, res) => {
-  if (!req.me.isOwner) return res.status(403).json({ error: "only the owner" });
-  const item = find(req.params.id);
-  // Чужой или забытый черновик не читается: очередь общая на всех.
-  if (!item || item.from !== String(req.telegramUserId) || item.chatId) {
-    return res.status(404).json({ error: "not found" });
-  }
-  if (item.status === "done") {
-    item.sent = true;
-    return item.error
-      ? res.json({ status: "error", error: item.error })
-      : res.json({ status: "done", text: item.answer });
-  }
-  if (Date.now() - item.at > draftTtl()) {
-    return res.json({ status: "timeout", error: "Claude не ответил вовремя — напишите текст сами" });
-  }
-  res.json({ status: "pending", queued: pending() });
-});

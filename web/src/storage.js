@@ -182,6 +182,12 @@ async function remindersAvailable() {
   return remindersOk;
 }
 
+/**
+ * Отдать планировщику задачи как есть. «За сколько предупредить» (`warn`)
+ * в каждой уже подставлено вызывающим — из анкеты того, кто шлёт
+ * (`me.profile.warnMin` в SystemModel): это его настройка, а не задачи, и
+ * здесь её не откуда взять. Пересылается при входе и при каждой правке.
+ */
 export async function syncSchedule(tasks) {
   if (!(await remindersAvailable())) return false;
   const r = await fetch("/api/schedule", {
@@ -229,7 +235,7 @@ const readAsDataUrl = (file) => new Promise((resolve, reject) => {
 
 /** Кладёт файл отчёта туда, где он переживёт перезагрузку, и возвращает
  *  запись для сдачи: `{name, type, size, url}` либо `{name, type, size, data}`. */
-export async function putReportFile(file, { kind = "" } = {}) {
+export async function putReportFile(file, { kind = "", meeting = "" } = {}) {
   const meta = { name: file.name, type: file.type, size: file.size };
   if (await reportsAvailable()) {
     if (file.size > MAX_UPLOAD_REPORT_BYTES) {
@@ -246,6 +252,9 @@ export async function putReportFile(file, { kind = "" } = {}) {
         // Вид файла: «call» у записей созвонов. По нему вкладка звонков
         // показывает записи, а не всё, что человек когда-либо приложил.
         ...(kind ? { "X-Report-Kind": kind } : {}),
+        // Встреча, к которой относится запись: по ней расшифровка ложится
+        // и к встрече, а не только к файлу (routes/reports.js).
+        ...(meeting ? { "X-Report-Meeting": String(meeting) } : {}),
         "X-Telegram-Init-Data": getInitData(),
       },
       body: file,

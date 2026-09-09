@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { handleUpdate, resetBridgeMode, resetPending } from "../lib/bot.js";
+import { handleUpdate, resetPending } from "../lib/bot.js";
 import * as org from "../lib/orgStore.js";
 
 /* Бот умеет одно: владелец пересылает сообщение от человека и выбирает
@@ -20,6 +20,8 @@ const deps = {
 beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sd-bot-"));
   process.env.ORG_DIR = path.join(tmp, "org");
+  // Шаги сдачи пишутся на диск — не в каталог проекта.
+  process.env.BOT_STEPS_FILE = path.join(tmp, "bot-steps.json");
 });
 afterAll(async () => { await fs.rm(tmp, { recursive: true, force: true }); });
 beforeEach(async () => {
@@ -133,116 +135,43 @@ describe("когда пересылка не сообщает id", () => {
     expect(petr.name).toBe("Пётр");
   });
 
-  it("человеку бот сообщает его номер по /id", async () => {
-    // Это единственное, что бот делает для не-владельца, — и оно безопасно:
-    // свой собственный id человек и так видит в любом клиенте.
+  it("незваному бот сообщает его номер по /id — именно его об этом и просят", async () => {
+    // Безопасно: свой собственный id человек и так видит в любом клиенте,
+    // а ничего чужого ответ не содержит.
+    const r = await handleUpdate(msg(guest, { text: "/id" }), deps);
+    expect(r).toEqual({ told: "777" });
+    expect(lastText()).toBe("Ваш id: 777");
+    expect(lastText()).not.toMatch(/только владельцу/);
     await handleUpdate(msg(owner, { text: "/id" }), deps);
-    expect(lastText()).toMatch(/Ваш id: 100/);
+    expect(lastText()).toBe("Ваш id: 100");
   });
 });
 
-/* ─────── вход в Claude Code из чата ───────
-   Сам разговор с `claude` проверяется в loginFlow.test.js; здесь — что бот
-   зовёт его в нужный момент и не путает код подтверждения с вопросом. */
-
-describe("вход в Claude Code", () => {
-  const calls = [];
-  let awaiting = false;
-  let startFails = "";
-  const login = {
-    loggedIn: async () => false,
-    loginState: () => ({ stage: awaiting ? "code" : "idle" }),
-    awaitingCode: () => awaiting,
-    startLogin: async () => {
-      calls.push({ start: true });
-      if (startFails) throw new Error(startFails);
-      awaiting = true;
-      return { url: "https://claude.com/cai/oauth/authorize?code_challenge=c&state=s" };
-    },
-    finishLogin: async (code) => {
-      calls.push({ code });
-      awaiting = false;
-      return { saved: true, restarted: true };
-    },
-    cancelLogin: () => { calls.push({ cancel: true }); awaiting = false; return true; },
-  };
-  const asked = [];
-  const bridge = { ask: ({ text }) => { asked.push(text); return { id: "q1" }; } };
-  const deps2 = { ...deps, bridge, login };
-  const lastButton = () => (sent[sent.length - 1]?.keyboard?.inline_keyboard || [])[0]?.[0];
-
-  beforeEach(() => { calls.length = 0; asked.length = 0; awaiting = false; startFails = ""; });
-
-  // Разговор с claude бот не ждёт — иначе он глохнет на всё время входа.
-  // Обещание отдаётся в `done`, и тесту есть чего дождаться.
-  const step = async (text, from = owner, d = deps2) => {
-    const r = await handleUpdate(msg(from, { text }), d);
-    if (r?.done) await r.done;
-    return r;
-  };
-
-  it("«/login» присылает ссылку кнопкой, а не текстом инструкции", async () => {
-    await step("/login");
-    expect(calls[0]).toEqual({ start: true });
-    expect(lastButton()?.url).toMatch(/oauth\/authorize/);
-    expect(lastText()).toMatch(/код/i);
+/* ─────── позванный не-владелец ───────
+   Бот ему отвечает — кнопками, помощником, памятью, — поэтому «только
+   владельцу» на стикер или фото было бы неправдой. Незваному — по-прежнему
+   отказ без подробностей. */
+describe("позванному не-владельцу", () => {
+  const invited = { id: 200, first_name: "Иван" };
+  beforeEach(async () => {
+    const roles = (await org.listOrg()).roles;
+    await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
   });
 
-  it("бот не глохнет на время входа: ответ приходит сразу", async () => {
-    const r = await handleUpdate(msg(owner, { text: "/login" }), deps2);
-    expect(r.login).toBe("started");
-    expect(r.done).toBeInstanceOf(Promise);
-    await r.done;
+  it("на стикер — что бот умеет для него, а не «только владельцу»", async () => {
+    const r = await handleUpdate(msg(invited, { sticker: { file_id: "s1" } }), { ...deps, work: {} });
+    expect(r).toEqual({ helped: "invited" });
+    expect(lastText()).toMatch(/Отложить/);
+    expect(lastText()).toMatch(/помощник/);
+    expect(lastText()).toMatch(/запомни/);
+    expect(lastText()).not.toMatch(/только владельцу/);
   });
 
-  it("следующее сообщение считается кодом и доводит вход до конца", async () => {
-    await step("/login");
-    await step("aBc123-code");
-    expect(calls).toContainEqual({ code: "aBc123-code" });
-    expect(lastText()).toMatch(/подключён/i);
-  });
-
-  it("код не уезжает вопросом в Claude, даже когда включён режим моста", async () => {
-    await step("/claude");                            // режим моста
-    await step("/login");
-    await step("secret-code");
-    expect(asked).toEqual([]);                        // в мост не ушло ничего
-    expect(calls).toContainEqual({ code: "secret-code" });
-    resetBridgeMode();
-  });
-
-  it("код без начатого входа не уезжает в Claude и не пишется в журнал", async () => {
-    // Одноразовый код, присланный после того, как окно закрылось.
-    await step("/claude");
-    await step(`ac_${"A".repeat(70)}#${"s".repeat(43)}`);
-    expect(asked).toEqual([]);
-    expect(lastText()).toMatch(/вход сейчас не начат/i);
-    resetBridgeMode();
-  });
-
-  it("«/stop» отменяет вход и во время проверки кода", async () => {
-    await step("/login");
-    await step("/stop");
-    expect(calls).toContainEqual({ cancel: true });
-    expect(lastText()).toMatch(/отмен/i);
-  });
-
-  it("сбой запуска объясняется словами, а не молчанием", async () => {
-    startFails = "на сервере нет команды script или claude";
-    await step("/login");
-    expect(lastText()).toMatch(/нет команды script/);
-  });
-
-  it("посторонний вход не начинает", async () => {
-    await step("/login", guest);
-    expect(calls).toEqual([]);
+  it("незваному на тот же стикер — отказ без подробностей", async () => {
+    const r = await handleUpdate(msg(guest, { sticker: { file_id: "s1" } }), deps);
+    expect(r).toEqual({ ignored: "not owner" });
     expect(lastText()).toMatch(/только владельцу/);
-  });
-
-  it("без моста «/login» не предлагается вовсе — логинить некого", async () => {
-    await step("/login", owner, { ...deps, bridge: null, login: null });
-    expect(calls).toEqual([]);
-    expect(lastText()).toMatch(/перешлите мне сообщение/i);
+    expect(lastText()).not.toMatch(/Отложить/);
   });
 });
 
@@ -377,5 +306,188 @@ describe("звонок главным приложением", () => {
     await handleUpdate(msg(guest, { text: "/callmain on" }), deps4);
     expect(main).toBe(false);
     expect(lastText()).toMatch(/только владельцу/);
+  });
+});
+
+/* ─────── «Начать» и «Отложить» под уведомлением ───────
+
+   Уведомление приходит тому, кому работа поручена, — значит и кнопка под
+   ним обязана работать у него, а не у одного владельца. Нажатие должно
+   ДВИГАТЬ задачу: иначе доска показывала бы её лежащей в бэклоге и когда
+   за неё взялись, и когда её отложили. */
+describe("кнопки задачи под уведомлением", () => {
+  const worker = { id: 200, first_name: "Иван" };
+  const press = (from, data) => handleUpdate(
+    { update_id: 9, callback_query: { id: "cb1", from, data } },
+    { ...deps, work },
+  );
+  let calls;
+  let work;
+  beforeEach(async () => {
+    calls = [];
+    work = {
+      take: async (u, id) => { calls.push(["take", String(u), id]);
+        return { task: { id, title: "Сбор заявок" } }; },
+      defer: async (u, id) => { calls.push(["defer", String(u), id]);
+        return { task: { id, title: "Сбор заявок" } }; },
+      taskFor: async (u, id) => ({ task: { id, title: "Сбор заявок", status: "backlog" }, func: null, traits: [] }),
+    };
+    await org.addRole("Исполнитель").catch(() => {});
+    const roles = (await org.listOrg()).roles;
+    await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+  });
+
+  it("«Начать» переводит задачу в работу — и у не-владельца тоже", async () => {
+    const r = await press(worker, "task:start:tk1");
+    expect(r).toMatchObject({ task: "tk1", action: "take" });
+    expect(calls).toEqual([["take", "200", "tk1"]]);
+    // Подтверждение на кнопке гаснет через секунду — говорим и в переписке.
+    expect(lastText()).toMatch(/Взял в работу: «Сбор заявок»/);
+  });
+
+  it("«Отложить» сначала спрашивает, на сколько: часы, потом минуты", async () => {
+    const r = await press(worker, "task:defer:tk1");
+    expect(r).toMatchObject({ task: "tk1", stage: "hour" });
+    // Задача ещё не тронута: «на сколько» человек пока не сказал.
+    expect(calls).toEqual([]);
+    expect(lastKeys()).toContain("23");
+  });
+
+  it("отказ называется словами, а не молча гасит часики", async () => {
+    work.take = async () => ({ error: "not yours" });
+    const r = await press(worker, "task:start:tk1");
+    expect(r).toMatchObject({ error: "not yours" });
+    expect(answered[answered.length - 1].text).toBe("Эта задача не ваша");
+    expect(lastText()).toMatch(/ничего не поменял/);
+  });
+
+  it("непозванному кнопки не отвечают: модель ему не показывали", async () => {
+    const r = await press({ id: 777, first_name: "Чужой" }, "task:start:tk1");
+    expect(r).toMatchObject({ ignored: "not invited" });
+    expect(calls).toEqual([]);
+  });
+});
+
+/* ─── группы: слушать и молчать ───
+   Всё, что бот видит в группе, записывается (lib/chatStore.js) и НИЧЕМ не
+   отвечается: чат общий, а бот отвечает каждому про своё. Без записи —
+   тоже молчание: подсказка «только владельцу» в группе была бы спамом. */
+describe("сообщения из групп", () => {
+  const group = { id: -100123, type: "supergroup", title: "Команда" };
+  const inGroup = (from, patch = {}) => msg(from, { chat: group, ...patch });
+
+  it("записываются и не получают ответа — ни от владельца, ни от чужого", async () => {
+    const recorded = [];
+    const chats = { record: async (m) => { recorded.push(m); } };
+    expect(await handleUpdate(inGroup(owner, { text: "решили: счёт в пятницу" }), { ...deps, chats }))
+      .toEqual({ recorded: true });
+    expect(await handleUpdate(inGroup(guest, { text: "/id" }), { ...deps, chats })).toEqual({ recorded: true });
+    expect(recorded.map((m) => m.text)).toEqual(["решили: счёт в пятницу", "/id"]);
+    expect(recorded[0].chat).toEqual(group);
+    expect(sent).toEqual([]);
+  });
+
+  it("правка сообщения в группе — тоже запись; в личке правка не отвечается", async () => {
+    const recorded = [];
+    const chats = { record: async (m) => { recorded.push(m); } };
+    const r = await handleUpdate({ update_id: 3, edited_message: { from: owner, chat: group, text: "поправил" } },
+      { ...deps, chats });
+    expect(r).toEqual({ recorded: true });
+    expect(recorded[0].text).toBe("поправил");
+    expect(await handleUpdate({ update_id: 4, edited_message: { from: owner, chat: { id: 100, type: "private" },
+      text: "поправил" } }, { ...deps, chats })).toEqual({ ignored: "edited" });
+    expect(sent).toEqual([]);
+  });
+
+  it("записи нет — всё равно молчит, и ничего не заводит", async () => {
+    const r = await handleUpdate(inGroup(guest, { text: "привет" }), deps);
+    expect(r).toEqual({ ignored: "group" });
+    expect(sent).toEqual([]);
+    // Обычная группа — тоже группа; личка — нет: помощник в личке отвечает как прежде.
+    expect(await handleUpdate(msg(guest, { chat: { id: 5, type: "group" }, text: "x" }), deps))
+      .toEqual({ ignored: "group" });
+    expect(sent).toEqual([]);
+  });
+});
+
+/* ─── кнопки под пересланным в группу сообщением ───
+   Telegram сохраняет инлайн-клавиатуру при пересылке и доставляет нажатие
+   исходному боту. Отвечать в группу нельзя ничем, а ход сдачи — личное
+   дело исполнителя: ответ только на само нажатие, в чат — ничего. */
+describe("кнопки из группы", () => {
+  const group = { id: -100123, type: "supergroup", title: "Команда" };
+  const worker = { id: 200, first_name: "Иван" };
+  let touched;
+  const work = {
+    take: async () => { touched.push("take"); return { task: { id: "tk1", title: "Макет" } }; },
+    defer: async () => { touched.push("defer"); return { task: { id: "tk1", title: "Макет" } }; },
+    taskFor: async () => ({ task: { id: "tk1", title: "Макет", status: "backlog" }, func: null, traits: [] }),
+  };
+  const assistant = { ask: () => { const p = new Promise(() => {}); p.id = "q1"; return p; }, cancel: () => true };
+  const pressInGroup = (from, data) => handleUpdate({ update_id: 9, callback_query: {
+    id: "cb9", from, data, message: { message_id: 7, chat: group, text: "Начинается: Макет" } } },
+  { ...deps, work, assistant, edit: async () => {} });
+  beforeEach(async () => {
+    touched = [];
+    const roles = (await org.listOrg()).roles;
+    await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+  });
+
+  it("«Начать», «Отложить» и кнопки помощника из группы: ответ на нажатие, в группу — ничего, задача не тронута",
+    async () => {
+      for (const data of ["task:start:tk1", "task:defer:tk1", "ai:refine:q1", "r:executor"]) {
+        expect(await pressInGroup(worker, data)).toEqual({ ignored: "group callback" });
+        expect(answered[answered.length - 1].text).toBe("Кнопки работают только в личном чате с ботом");
+      }
+      expect(await pressInGroup(owner, "task:start:tk1")).toEqual({ ignored: "group callback" });
+      expect(sent).toEqual([]);
+      expect(touched).toEqual([]);
+    });
+
+  it("та же кнопка в личном чате работает как прежде", async () => {
+    const r = await handleUpdate({ update_id: 9, callback_query: {
+      id: "cb9", from: worker, data: "task:start:tk1", message: { message_id: 7, chat: { id: 200, type: "private" } } } },
+    { ...deps, work, edit: async () => {} });
+    expect(r).toMatchObject({ task: "tk1", action: "take" });
+    expect(touched).toEqual(["take"]);
+  });
+});
+
+/* ─── кнопки под статусом помощника ───
+   «✖ Отменить» и «✎ Уточнить» — у любого позванного, не только у
+   владельца: вопрос задавал он. Чужой вопрос помощник не отменяет. */
+describe("кнопки помощника под статусом", () => {
+  const worker = { id: 200, first_name: "Иван" };
+  let cancelled;
+  const assistant = () => ({
+    ask: (userId, q) => { const p = new Promise(() => {}); p.id = "q1"; return p; },
+    cancel: (id, userId) => { cancelled.push([id, userId]); return true; },
+  });
+  const pressAi = (from, data) => handleUpdate(
+    { update_id: 9, callback_query: { id: "cb2", from, data, message: { message_id: 7, chat: { id: from.id } } } },
+    { ...deps, assistant: assistant(), edit: async () => {} },
+  );
+  beforeEach(async () => {
+    cancelled = [];
+    const roles = (await org.listOrg()).roles;
+    await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
+  });
+
+  it("позванный не-владелец отменяет свой вопрос через очередь", async () => {
+    const asked = await handleUpdate(msg(worker, { text: "что у меня?" }), { ...deps, assistant: assistant(), edit: async () => {} });
+    expect(asked.answered).toBe("queued");
+    expect(lastKeys()).toEqual(["✖ Отменить", "✎ Уточнить"]);
+    const r = await pressAi(worker, "ai:cancel:q1");
+    expect(r).toEqual({ cancelled: true, id: "q1" });
+    expect(cancelled).toEqual([["q1", "200"]]);
+    expect(answered[answered.length - 1].text).toBe("Отменил");
+  });
+
+  it("владелец чужой вопрос не отменяет, незваному кнопки не отвечают", async () => {
+    await handleUpdate(msg(worker, { text: "что у меня?" }), { ...deps, assistant: assistant(), edit: async () => {} });
+    expect(await pressAi(owner, "ai:cancel:q1")).toEqual({ stale: true });
+    expect(answered[answered.length - 1].text).toMatch(/не ваш/);
+    expect(await pressAi(guest, "ai:cancel:q1")).toEqual({ ignored: "not invited" });
+    expect(cancelled).toEqual([]);
   });
 });

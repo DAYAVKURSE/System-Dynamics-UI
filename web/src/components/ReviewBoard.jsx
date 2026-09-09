@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
-import { STATUSES, TaskSetup, funcLabel, whyNotSet } from "./TasksBoard.jsx";
+import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, whyNotSet }
+  from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { reportSrc } from "../storage.js";
 
@@ -20,6 +21,17 @@ import { reportSrc } from "../storage.js";
    оценки не складываются в историю человека. Из этих оценок и растёт его
    рейтинг, по которому постановщик выбирает, кому поручить следующую
    работу, — поэтому «принял молча» здесь не бывает.
+
+   Оценка при этом публикуется БЕЗ ИМЕНИ и не сразу: только когда по ней
+   нельзя вычислить, кто её поставил (сервер, `lib/ratings.js`). Решение
+   можно сделать скрытым — переключатель один на отметку и слова: скрытую
+   отметку видит только проверяющий (в средние она входит), скрытые слова —
+   он и исполнитель. Публично — по умолчанию: приём — это ответ о работе,
+   и прятать его — решение, а не привычка.
+
+   Оценку постановки из сдачи проверяющему НЕ показывают: она про
+   постановщика и доходит до него по тем же правилам публикации, а не
+   через третьего.
    ════════════════════════════════════════════════════════════════ */
 
 const fmtDT = (v) => {
@@ -35,8 +47,8 @@ const lastOf = lastSubmission;
 /* Карточка вынесена из компонента намеренно: объявленная внутри рендера,
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
    на каждой букве. */
-function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
-  funcs, traits, entities, nameOf, onAccept, onReturn }) {
+function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden, setHidden,
+  funcs, traits, entities, nameOf, meId, onAccept, onReturn }) {
     const on = openId === t.id;
     const sub = lastOf(t);
     const f = funcs.find((x) => x.id === t.funcId) || null;
@@ -86,6 +98,15 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
                     Проверяющий должен видеть их до того, как примет. */}
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
                   взято: {qty(sb.takes)} · выдано: {qty(sb.gives)}</div>
+                {/* Сами результаты — до того, как их примут: принимают
+                    работу по тому, что вышло, а не по числу «1». */}
+                {!!Object.keys(sb.files || {}).length && (
+                  <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+                    {Object.entries(sb.files).map(([id, f]) => (
+                      <a key={id} href={reportSrc(f)} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 10.5, color: ACC }}>
+                        📎 {traitName(id)}: {f.name}</a>))}
+                  </div>)}
                 {sb.text && <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
                   {sb.text}</div>}
                 {sb.file && (/^image\//.test(sb.file.type || "")
@@ -116,18 +137,24 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
                   aria-label="комментарий к оценке"
                   onChange={(e) => setNote(e.target.value)}
                   style={{ ...S.inp, marginBottom: 6 }} />
+                {/* Один переключатель на отметку и слова: скрытую отметку
+                    видит только автор (в средние она входит), скрытые слова
+                    — автор и исполнитель, которому они адресованы. */}
+                <div style={{ marginBottom: 6 }}>
+                  <HiddenSwitch hidden={hidden} onChange={setHidden} whoElse="исполнитель" />
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button style={btn(true, OK)}
                     disabled={!mark || !note.trim()}
                     title={mark && note.trim() ? "" : "Поставьте оценку и напишите, за что"}
-                    onClick={() => { onAccept(t, note, mark); setNote(""); setMark(0);
-                      setOpenId(null); }}>
+                    onClick={() => { onAccept(t, note, mark, hidden); setNote(""); setMark(0);
+                      setHidden(false); setOpenId(null); }}>
                     Принять</button>
                   <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
                     disabled={!note.trim()}
                     title={note.trim() ? "" : "Напишите, что доработать"}
-                    onClick={() => { onReturn(t, note, mark); setNote(""); setMark(0);
-                      setOpenId(null); }}>
+                    onClick={() => { onReturn(t, note, mark, hidden); setNote(""); setMark(0);
+                      setHidden(false); setOpenId(null); }}>
                     Вернуть в бэклог</button>
                 </div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
@@ -135,27 +162,37 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark,
                   расчёт как фактическое выполнение функции, а оценка и
                   комментарий — в историю исполнителя. Без оценки и без слов
                   принять нельзя: оценка без слов не говорит, что исправить, а
-                  слова без оценки не складываются в историю. «Вернуть» — в
-                  бэклог с текстом доработки.
+                  слова без оценки не складываются в историю. Оценка
+                  публикуется без вашего имени и только когда её нельзя
+                  вычислить. «Вернуть» — в бэклог с текстом доработки.
                 </div>
               </>)}
-            {!!(t.comments || []).length && (
+            {/* Чужие скрытые слова здесь не читаются: скрытое — автору и
+                адресату. Пометка «только вам» — у адресованных мне. */}
+            {!!(t.comments || []).filter((c) => canSeeComment(c, meId)).length && (
               <div style={{ marginTop: 8 }}>
                 <div style={S.lbl}>комментарии</div>
-                {(t.comments || []).map((c) => (
+                {(t.comments || []).filter((c) => canSeeComment(c, meId)).map((c) => (
                   <div key={c.id} style={{ fontSize: 11.5, color: C.muted,
                     marginTop: 4, lineHeight: 1.5 }}>
-                    {c.text} <span style={{ fontSize: 10 }}>· {fmtDT(c.at)}</span></div>))}
+                    {c.text} <span style={{ fontSize: 10 }}>
+                      {c.by && nameOf ? `· ${nameOf(c.by)} ` : ""}· {fmtDT(c.at)}
+                      {c.hidden ? (String(c.to) === String(meId)
+                        ? " · скрытый · только вам" : " · скрытый") : ""}</span></div>))}
               </div>)}
           </div>)}
       </div>);
   }
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
-  meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true }) {
+  meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
+  published, onComment, onDropComment, onSetup }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
+  // Скрыто ли решение — отметка и слова разом. Публично по умолчанию:
+  // приём — это ответ о работе, и прятать его — решение, а не привычка.
+  const [hidden, setHidden] = useState(false);
   const [setupId, setSetupId] = useState(null);
 
   // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
@@ -223,11 +260,16 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
               </div>
               {on && setup && (
                 <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits}
-                  entities={entities} people={people} canAssign={canAssign}
-                  nameOf={nameOf} setTasks={setTasks}
-                  onClose={() => setSetupId(null)}
-                  onDelete={() => { setTasks((p) => p.filter((x) => x.id !== setup.id));
-                    setSetupId(null); }} />)}
+                  entities={entities} people={people}
+                  /* Людей назначает тот, кто ставит: постановщик этой
+                     задачи — или владелец, у которого модель целиком.
+                     Форма постановки — для постановщика, а не для
+                     владельца (ROADMAP v1.2), и запертые выпадающие списки
+                     у него делали бы «Поставить» недостижимой навсегда. */
+                  canAssign={canAssign || String(setup.setter || "") === String(meId)}
+                  nameOf={nameOf} setTasks={setTasks} onSetup={onSetup}
+                  published={published} meId={meId}
+                  onClose={() => setSetupId(null)} />)}
             </div>);
         })}
       </div>
@@ -236,14 +278,18 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>
           Ничего не ждёт проверки.</div>)}
       {waiting.map((t) => <Card key={t.id} t={t} openId={openId} setOpenId={setOpenId}
-        note={note} setNote={setNote} mark={mark} setMark={setMark} funcs={funcs} traits={traits} entities={entities}
+        note={note} setNote={setNote} mark={mark} setMark={setMark}
+        hidden={hidden} setHidden={setHidden} meId={meId}
+        funcs={funcs} traits={traits} entities={entities}
         nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
 
       {!!rest.length && (
         <>
           <div style={{ ...S.lbl, margin: "12px 0 6px" }}>остальные задачи под вашей проверкой</div>
           {rest.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
-            note={note} setNote={setNote} mark={mark} setMark={setMark} funcs={funcs} traits={traits} entities={entities}
+            note={note} setNote={setNote} mark={mark} setMark={setMark}
+            hidden={hidden} setHidden={setHidden} meId={meId}
+            funcs={funcs} traits={traits} entities={entities}
             nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
         </>)}
     </div>);
