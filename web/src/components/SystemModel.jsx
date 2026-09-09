@@ -5,9 +5,8 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addPosition, removePosition, setUserPosition,
   takeTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote, getRatings,
-  putSpaceRemote, setupTaskRemote }
+  setupTaskRemote }
   from "../identity.js";
-import { askAssistant, listMemory } from "../assistant.js";
 import { callFromLocation } from "../calls.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
@@ -19,7 +18,6 @@ import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { autoFlow, runsOfFunc } from "./TasksBoard.jsx";
-import TasksTab from "./TasksTab.jsx";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
@@ -32,7 +30,6 @@ import ProfilePanel, { RemindersCard, warnMinOf } from "./ProfilePanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { countKind, dropKind } from "../lib/traits.js";
-import { emptySpace, filesOf, normalizeSpace } from "../lib/space.js";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v9
@@ -333,20 +330,12 @@ export const TAB_LIST=[SELF_TAB,["tasks","Задачи"],["review","Провер
   ["scheme","Схема"],["reports","Отчёты"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
-/* Пространство — вспомогательный слой, и терять из-за него модель нельзя.
-   Достройка (normalizeSpace) терпит мусор, но если она всё же упадёт, на
-   экране должна остаться модель с пустым пространством, а не исключение:
-   в загрузке сценария исключение уходило в .catch, .finally ставило
-   ready=true — и на сервер уезжала демонстрационная модель ПОВЕРХ
-   рабочей. */
-const safeSpace=(v)=>{ try{ return normalizeSpace(v); }catch{ return emptySpace(); } };
-
 /* Документ из внешней записи — сценария с диска или JSON из выгрузки —
    поверх текущего `cur`. Старые записи могут не знать про часть
    документа: недостающее остаётся текущим, а не превращается в пустоту.
    Путь один на все входы нарочно: пока «Загрузить» из выгрузки собирал
-   документ своим набором сеттеров, он молча терял пространство, цели,
-   факторы и отчёты — всё, что появилось в документе позже него. */
+   документ своим набором сеттеров, он молча терял цели, факторы и
+   отчёты — всё, что появилось в документе позже него. */
 export function docFrom(data,cur){
   const d=data&&typeof data==="object"?data:{};
   const arr=(v,c,need)=>Array.isArray(v)&&(!need||v.length)?v:c;
@@ -359,7 +348,6 @@ export function docFrom(data,cur){
     goals:normalizeGoals(arr(d.goals,cur.goals)),
     factors:normalizeFactors(arr(d.factors,cur.factors)),
     reports:normalizeReports(arr(d.reports,cur.reports)),
-    space:safeSpace(d.space??cur.space),
   };
 }
 
@@ -384,7 +372,6 @@ export default function SystemModel(){
   /* Пространство вкладки задач — часть документа наравне с отчётами:
      положение блоков, стрелки и заметки живут с моделью, а не в браузере.
      У позванного оно своё и уезжает на сервер отдельно (см. ниже). */
-  const [space,setSpace]=useState(()=>normalizeSpace(null));
   // Какой блок карты просят открыть ссылкой — читается из адреса один раз.
   const [reportFocus,setReportFocus]=useState(()=>
     reportFromLocation(typeof window==="undefined"?"":window.location.search));
@@ -467,8 +454,8 @@ export default function SystemModel(){
   const kindOf=useMemo(()=>kindLookup(kinds),[kinds]);
 
   // ─── история правок: отмена и возврат ───
-  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports,space}),
-    [entities,traits,kinds,tasks,funcs,goals,factors,reports,space]);
+  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports}),
+    [entities,traits,kinds,tasks,funcs,goals,factors,reports]);
   const restoreDoc=useCallback((d)=>{
     // Документ достраивается до нынешней записи, но НЕ переносится из
     // прежних версий: модели, собранные под старый расчёт, работать не
@@ -479,7 +466,6 @@ export default function SystemModel(){
     setGoals(normalizeGoals(d.goals));
     setFactors(normalizeFactors(d.factors));
     setReports(normalizeReports(d.reports));
-    setSpace(safeSpace(d.space));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -612,7 +598,6 @@ export default function SystemModel(){
     tasks:w?.tasks||[], funcs:w?.funcs, goals:w?.goals||[],
     factors:w?.factors||[],
     reports:w?.reports||[],
-    space:w?.space||null,
   }),[]);
   /* Разобрались ли, что открывать. До этого момента на экране может стоять
      встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
@@ -645,8 +630,6 @@ export default function SystemModel(){
   },[scheduled,settled]);
 
   const pulled=useRef(false);
-  // Что из пространства позванного сервер уже хранит (см. эффект ниже).
-  const spaceSaved=useRef(null);
   useEffect(()=>{
     if(me.solo) return;
     if(pulled.current) return;
@@ -663,23 +646,8 @@ export default function SystemModel(){
          участников его задач. Без них постановщику было бы не из кого
          выбирать исполнителя, а «поставил: 100» читалось бы номером. */
       if(Array.isArray(w?.people)) setPeople(w.people);
-      // С этого момента пространство позванного — его собственное на
-      // сервере; до ответа выгружать было бы нечего, кроме пустоты.
-      spaceSaved.current=JSON.stringify(normalizeSpace(w?.space));
     }).catch(()=>{});
   },[me.solo,me.isOwner,restoreDoc,fromWorkspace]);
-  /* Пространство позванного едет на сервер само, отдельно от модели:
-     модель целиком пишет владелец, а заметки исполнителя — его, и в
-     модель они не попадают. Пока серверное не приехало, писать нечего. */
-  useEffect(()=>{
-    if(me.solo||me.isOwner||spaceSaved.current==null) return;
-    const now=JSON.stringify(space);
-    if(now===spaceSaved.current) return;
-    const id=setTimeout(()=>{
-      putSpaceRemote(space).then(()=>{ spaceSaved.current=now; }).catch(()=>{});
-    },1500);
-    return ()=>clearTimeout(id);
-  },[space,me.solo,me.isOwner]);
   /* Рейтинги — с сервера и его глазами: про себя человек видит только
      адресованные ему слова. Читаются при входе и при каждом заходе на
      анкету: каждое чтение — попытка опубликовать то, что стало анонимным. */
@@ -861,13 +829,6 @@ export default function SystemModel(){
   // Кому какие задачи видны. Владельцу — все; остальным — только его.
   const myTasks=useMemo(()=>(me.isOwner?tasks:tasks.filter(t=>
     String(t.assignee||"")===String(me.id))),[tasks,me.isOwner,me.id]);
-  /* Файлы для пространства — из сдач (submissions[].files и .file) и
-     разделов отчёта; считаются из модели, а не хранятся. */
-  const spaceFiles=useMemo(()=>filesOf({tasks:myTasks,reports}),[myTasks,reports]);
-  /* Память помощника — своя у каждого; читается при заходе на вкладку задач. */
-  const [memory,setMemory]=useState([]);
-  useEffect(()=>{ if(tab!=="tasks"||me.solo) return;
-    listMemory().then(m=>setMemory(Array.isArray(m)?m:[])).catch(()=>setMemory([])); },[tab,me.solo]);
   /* В строке воркера — ДОЛЖНОСТЬ (кем человек числится), а не роль (что
      ему показывать): роль отвечает на вопрос интерфейса, должность — на
      вопрос того, кто выбирает, кому поручить работу. Не задана — так и
@@ -1088,7 +1049,7 @@ export default function SystemModel(){
 
       {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && me.tabs.includes("tasks") && (
-        <TasksTab funcs={funcs} entities={entities} traits={traits}
+        <TasksBoard funcs={funcs} entities={entities} traits={traits}
           tasks={myTasks} setTasks={setTasks}
           openId={openTask} setOpenId={setOpenTask}
           people={people} canAssign={me.isOwner} nameOf={personName}
@@ -1098,9 +1059,7 @@ export default function SystemModel(){
              putWorkspace; POST'ить их ещё раз значило бы записать дважды. */
           onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).catch(()=>{}); }}
           onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).catch(()=>{}); }}
-          onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).catch(()=>{}); }}
-          space={space} setSpace={setSpace} files={spaceFiles} memory={memory}
-          ask={me.solo?undefined:(q,ctx)=>askAssistant(q,ctx,{task:"space"})}/>)}
+          onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).catch(()=>{}); }}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (

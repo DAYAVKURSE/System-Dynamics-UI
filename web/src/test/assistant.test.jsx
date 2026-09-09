@@ -20,10 +20,10 @@ const KINDS = [
   { id: "hf", name: "Hugging Face", defaultBaseUrl: "https://router.huggingface.co/v1" },
 ];
 const TASKS = [
-  { id: "chat", name: "Помощник (по умолчанию)" }, { id: "space", name: "Вопрос в пространстве" },
+  { id: "chat", name: "Помощник (по умолчанию)" },
   { id: "bot", name: "Помощник в чате бота" }, { id: "transcribe", name: "Расшифровка записей звонков" },
 ];
-const EMPTY_TASKS = { chat: null, space: null, bot: null, transcribe: null };
+const EMPTY_TASKS = { chat: null, bot: null, transcribe: null };
 const settingsOf = (providers, tasks = EMPTY_TASKS) => ({ providers, tasks, kinds: KINDS, taskList: TASKS });
 const SETTINGS = settingsOf([]);
 const P1 = { id: "p_1", name: "Мой OpenAI", kind: "openai", baseUrl: "", models: ["gpt-4.1", "gpt-4o-mini"], hasKey: true };
@@ -171,21 +171,21 @@ describe("чем думает помощник", () => {
     expect(chat).toHaveValue("p_1|gpt-4.1");
     TASKS.forEach((t) => expect(screen.getByLabelText(`модель для: ${t.name}`)).toBeInTheDocument());
     // Выпадающий список — «провайдер / модель» по всем провайдерам.
-    const space = screen.getByLabelText("модель для: Вопрос в пространстве");
-    expect([...space.options].map((o) => o.textContent)).toEqual([
+    const bot = screen.getByLabelText("модель для: Помощник в чате бота");
+    expect([...bot.options].map((o) => o.textContent)).toEqual([
       "— как по умолчанию", "Мой OpenAI / gpt-4.1", "Мой OpenAI / gpt-4o-mini", "Claude / claude-sonnet-4-5"]);
     // У расшифровки отката на «по умолчанию» нет: пустая строка так и подписана.
     const transcribe = screen.getByLabelText("модель для: Расшифровка записей звонков");
     expect(transcribe.options[0].textContent).toBe("— не выбрана (расшифровки не будет)");
     expect(chat.options[0].textContent).toBe("— не выбрана");
-    fireEvent.change(space, { target: { value: "p_2|claude-sonnet-4-5" } });
-    await waitFor(() => expect(screen.getByLabelText("модель для: Вопрос в пространстве")).toHaveValue("p_2|claude-sonnet-4-5"));
+    fireEvent.change(bot, { target: { value: "p_2|claude-sonnet-4-5" } });
+    await waitFor(() => expect(screen.getByLabelText("модель для: Помощник в чате бота")).toHaveValue("p_2|claude-sonnet-4-5"));
     const put = log.find((r) => r.method === "PUT" && r.url === "/api/assistant/tasks");
-    expect(JSON.parse(put.body)).toEqual({ space: { providerId: "p_2", model: "claude-sonnet-4-5" } });
+    expect(JSON.parse(put.body)).toEqual({ bot: { providerId: "p_2", model: "claude-sonnet-4-5" } });
     // Снять выбор — null той же строкой.
-    fireEvent.change(screen.getByLabelText("модель для: Вопрос в пространстве"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("модель для: Помощник в чате бота"), { target: { value: "" } });
     await waitFor(() => expect(log.filter((r) => r.url === "/api/assistant/tasks")).toHaveLength(2));
-    expect(JSON.parse(log.filter((r) => r.url === "/api/assistant/tasks")[1].body)).toEqual({ space: null });
+    expect(JSON.parse(log.filter((r) => r.url === "/api/assistant/tasks")[1].body)).toEqual({ bot: null });
   });
 
   it("удалить провайдера — только после подтверждения словами; DELETE, вкладка исчезает, строка таблицы пуста", async () => {
@@ -348,8 +348,8 @@ describe("вопрос в два шага", () => {
       "POST /api/assistant/ask": { status: 202, body: { id: "q1" } },
       "GET /api/assistant/ask/q1": { body: { status: "done", text: "ок" } },
     });
-    await askAssistant("?", "блок", { intervalMs: 1, task: "space" });
-    expect(JSON.parse(log[0].body)).toEqual({ question: "?", context: "блок", task: "space" });
+    await askAssistant("?", "блок", { intervalMs: 1, task: "bot" });
+    expect(JSON.parse(log[0].body)).toEqual({ question: "?", context: "блок", task: "bot" });
   });
 
   it("отмена и срок ожидания — тоже словами", async () => {

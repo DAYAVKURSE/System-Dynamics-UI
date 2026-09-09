@@ -193,45 +193,6 @@ describe("взять в работу через сервер", () => {
    работа не началась. Задача остаётся в бэклоге, и срок не сдвигается:
    срок ставит постановщик, и менять его нажатием исполнителя значило бы
    переписывать договорённость в одну сторону. */
-describe("пространство вкладки задач", () => {
-  const SPACE = { notes: [{ id: "n1", title: "Мысль", text: "" }], pos: {}, arrows: [] };
-
-  it("позванный пишет своё, и оно приезжает ему же, а не владельцу", async () => {
-    await invite(200, "executor", "Иван");
-    const put = await request(app).put("/api/workspace/space").set(as(200)).send({ space: SPACE });
-    expect(put.status).toBe(200);
-    expect(put.body.savedAt).toBeTruthy();
-    const mine = await request(app).get("/api/workspace").set(as(200));
-    expect(mine.body.space).toEqual(SPACE);
-    // Заметки исполнителя — его: у владельца в модели их нет.
-    const owner = await request(app).get("/api/workspace").set(as(100));
-    expect(owner.body.space).toBeUndefined();
-  });
-
-  it("у владельца пространство — часть модели, и позванный его не видит", async () => {
-    await invite(200, "executor", "Иван");
-    await request(app).put("/api/workspace").set(as(100)).send({ model: { entities: [], space: SPACE } });
-    const owner = await request(app).get("/api/workspace").set(as(100));
-    expect(owner.body.space).toEqual(SPACE);
-    const other = await request(app).get("/api/workspace").set(as(200));
-    expect(other.body.space).toBeNull();
-    // И тот же путь у владельца пишет в модель, а не в отдельный файл.
-    const put = await request(app).put("/api/workspace/space").set(as(100))
-      .send({ space: { ...SPACE, notes: [] } });
-    expect(put.status).toBe(200);
-    const again = await request(app).get("/api/workspace").set(as(100));
-    expect(again.body.space.notes).toEqual([]);
-  });
-
-  it("не запись — не пространство", async () => {
-    await invite(200, "executor", "Иван");
-    const res = await request(app).put("/api/workspace/space").set(as(200)).send({ space: [1] });
-    expect(res.status).toBe(400);
-    const none = await request(app).put("/api/workspace/space").set(as(777)).send({ space: SPACE });
-    expect(none.status).toBe(403);
-  });
-});
-
 describe("отложить через сервер", () => {
   const defer = (id, who) => request(app).post(`/api/workspace/tasks/${id}/defer`)
     .set(as(who));

@@ -1355,6 +1355,19 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
   const undrop=(t)=>setTasks(p=>p.map(x=>(x.id===t.id?{...x,canceled:false}:x)));
   return (
     <div>
+      {/* Вводная карточка — на своём месте. Её убирали ради переключателя
+          «Доска / Пространство»; пространства больше нет, и объяснение,
+          откуда берутся задачи, снова стоит там, где его читают. */}
+      <div style={{...S.card,marginBottom:10}}>
+        <div style={S.lbl}>задачи — то, что поручено</div>
+        <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
+          Задачи заводятся из применённых целей и ставятся во вкладке
+          «Проверка»: работа, не следующая ни из какой цели, — это работа, о
+          которой никто не спросил, зачем она. Здесь её делают: берут,
+          сдают и спрашивают в комментариях.
+        </div>
+      </div>
+
       {open&&(
         <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits}
           entities={entities} meId={meId} isOwner={canAssign}

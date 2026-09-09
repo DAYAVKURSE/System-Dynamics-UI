@@ -228,11 +228,11 @@ describe("модель — на человека и задачу", () => {
     const asked = [];
     const { q } = make({ modelFor: (userId, task) => { asked.push([userId, task]); return MODEL; } });
     await q.askNow("200", "?", "", { task: "bot" });
-    const { id } = q.ask({ userId: "300", question: "?", task: "space" });
+    const { id } = q.ask({ userId: "300", question: "?", task: "transcribe" });
     await settled(q, id, "300");
     const plain = q.ask({ userId: "400", question: "?" });
     await settled(q, plain.id, "400");
-    expect(asked).toEqual([["200", "bot"], ["300", "space"], ["400", "chat"]]);
+    expect(asked).toEqual([["200", "bot"], ["300", "transcribe"], ["400", "chat"]]);
   });
 
   it("настройки человека не прочитались — ошибка словами, а не падение очереди", async () => {

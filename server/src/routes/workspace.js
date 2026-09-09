@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify, listOrg } from "../lib/orgStore.js";
-import { addComment, deferTask, dropComment, peopleOf, readModel, readSpace, reviewTask,
-  setupTask, submitTask, takeTask, taskViewFor, viewFor, withModel, writeModel, writeSpace }
+import { addComment, deferTask, dropComment, peopleOf, readModel, reviewTask,
+  setupTask, submitTask, takeTask, taskViewFor, viewFor, withModel, writeModel }
   from "../lib/workspaceStore.js";
 import { publishStep, viewRatingsFor } from "../lib/ratings.js";
 
@@ -25,10 +25,7 @@ router.get("/", async (req, res, next) => {
   try {
     if (!req.me.known) return res.status(403).json({ error: "not invited" });
     const view = viewFor(await readModel(), req.me);
-    /* Пространство вкладки задач у позванного — своё, не владельца: срез
-       модели его не несёт, а файл на человека — несёт. */
     if (!req.me.isOwner) {
-      view.space = await readSpace(req.telegramUserId);
       /* Имена — только тех, с кем он работает: воркеров видимых ему
          активов и участников его задач. Список организации целиком (с
          анкетами и должностями) — владельцу; здесь ровно имя, чтобы
@@ -40,27 +37,6 @@ router.get("/", async (req, res, next) => {
         .map((u) => ({ id: u.id, name: u.name }));
     }
     res.json(view);
-  } catch (e) { next(e); }
-});
-
-/* Пространство пишет каждый своё. Владельцу оно приезжает в составе модели
-   (PUT выше), но и этот путь ему открыт — тогда запись ложится в модель,
-   чтобы двух пространств у владельца не было. */
-router.put("/space", async (req, res, next) => {
-  try {
-    if (!req.me.known) return res.status(403).json({ error: "not invited" });
-    const space = req.body?.space;
-    if (!space || typeof space !== "object" || Array.isArray(space)) {
-      return res.status(400).json({ error: "space is required" });
-    }
-    if (req.me.isOwner) {
-      const saved = await withModel(async (model) => {
-        model.space = space;
-        return writeModel(model);
-      });
-      return res.json({ savedAt: saved.savedAt });
-    }
-    res.json(await writeSpace(req.telegramUserId, space));
   } catch (e) { next(e); }
 });
 

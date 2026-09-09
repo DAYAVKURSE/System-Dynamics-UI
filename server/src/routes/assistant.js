@@ -115,7 +115,7 @@ router.put("/tasks", (req, res, next) => {
 
 router.post("/ask", (req, res, next) => {
   try {
-    // task («space» из пространства, «bot» из чата) выбирает строку
+    // task («bot» из чата бота) выбирает строку
     // таблицы «задача → модель»; очередь (B) принимает его как есть.
     const { question, context, task } = req.body || {};
     if (!String(question || "").trim()) return res.status(400).json({ error: "question is required" });

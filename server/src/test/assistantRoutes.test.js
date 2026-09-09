@@ -85,10 +85,10 @@ describe("настройки", () => {
     const res = await request(app).get("/api/assistant/settings").set(as(200));
     expect(res.status).toBe(200);
     expect(res.body.providers).toEqual([]);
-    expect(res.body.tasks).toEqual({ chat: null, space: null, bot: null, transcribe: null });
+    expect(res.body.tasks).toEqual({ chat: null, bot: null, transcribe: null });
     expect(res.body.kinds.map((k) => k.id)).toEqual(["openai", "anthropic", "hf"]);
     expect(res.body.kinds[0].defaultBaseUrl).toBe("https://api.openai.com/v1");
-    expect(res.body.taskList.map((t) => t.id)).toEqual(["chat", "space", "bot", "transcribe"]);
+    expect(res.body.taskList.map((t) => t.id)).toEqual(["chat", "bot", "transcribe"]);
   });
 
   it("свой провайдер виден только себе, ключа нет ни в одном ответе", async () => {
@@ -240,13 +240,13 @@ describe("вопрос в два шага", () => {
         text: async () => JSON.stringify({ choices: [{ message: { content: "Задач нет." } }] }) };
     };
     const asked = await request(app).post("/api/assistant/ask").set(as(100))
-      .send({ question: "что у меня?", context: "открыт блок «заметка»", task: "space" });
+      .send({ question: "что у меня?", context: "открыта задача «Сбор заявок»", task: "bot" });
     expect(asked.status).toBe(202);
     const r = await poll(asked.body.id, 100);
     expect(r.body).toEqual({ status: "done", text: "Задач нет." });
     expect(sent[0].url).toBe("https://api.openai.com/v1/chat/completions");
     expect(sent[0].body.model).toBe("gpt-4o-mini");
-    expect(sent[0].body.messages[0].content).toContain("открыт блок «заметка»");
+    expect(sent[0].body.messages[0].content).toContain("открыта задача «Сбор заявок»");
     expect(sent[0].body.messages[1].content).toBe("что у меня?");
   });
 

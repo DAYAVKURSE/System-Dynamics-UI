@@ -404,8 +404,9 @@ ${DEPLOY_PATH}/data/reports/users/<telegram_user_id>             — указа�
 ${DEPLOY_PATH}/data/reports/<scope>/manifest.json                — список файлов
 ${DEPLOY_PATH}/data/reports/<scope>/<uuid>                       — сами файлы (отчёты, сдачи, записи, файлы памяти)
 ${DEPLOY_PATH}/data/org/org.json                                 — владелец, роли, люди
-${DEPLOY_PATH}/data/workspace/model.json                         — общая модель (и пространство владельца)
-${DEPLOY_PATH}/data/workspace/space-<telegram_user_id>.json      — пространство позванного
+${DEPLOY_PATH}/data/workspace/model.json                         — общая модель
+${DEPLOY_PATH}/data/workspace/space-<telegram_user_id>.json      — пространство позванного: убрано,
+                                                                   файлы прежних версий можно удалить
 ${DEPLOY_PATH}/data/workspace/bot-steps.json                     — шаги сдачи в чате (переживают выкат)
 ${DEPLOY_PATH}/data/schedules/<telegram_user_id>.json            — расписание напоминаний и «отложено до»
 ${DEPLOY_PATH}/data/memory/<telegram_user_id>.json               — память помощника

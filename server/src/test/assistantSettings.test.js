@@ -35,11 +35,11 @@ const withModels = (user, over = {}, models = ["gpt-4.1", "gpt-4o-mini"]) => {
 describe("файл на человека", () => {
   it("пусто — так и сказано: ни провайдеров, ни строк таблицы, и modelFor — null", () => {
     expect(readUserSettings("200")).toEqual({ providers: [],
-      tasks: { chat: null, space: null, bot: null, transcribe: null } });
+      tasks: { chat: null, bot: null, transcribe: null } });
     expect(settingsView("200").providers).toEqual([]);
     expect(modelFor("200", "chat")).toBeNull();
     expect(NOT_CONFIGURED).toMatch(/добавьте провайдера/);
-    expect(TASKS.map((t) => t.id)).toEqual(["chat", "space", "bot", "transcribe"]);
+    expect(TASKS.map((t) => t.id)).toEqual(["chat", "bot", "transcribe"]);
   });
 
   it("настройки не текут между людьми: у Ивана свой файл, у владельца — свой", () => {
@@ -109,7 +109,7 @@ describe("провайдер = вид API + адрес + ключ", () => {
     expect(removeProvider("200", p.id)).toBe(true);
     expect(removeProvider("200", p.id)).toBe(false);
     expect(providerFor("200", p.id)).toBeNull();
-    expect(settingsView("200").tasks).toEqual({ chat: null, space: null, bot: { providerId: q.id, model: "gpt-4o" }, transcribe: null });
+    expect(settingsView("200").tasks).toEqual({ chat: null, bot: { providerId: q.id, model: "gpt-4o" }, transcribe: null });
     expect(fs.readFileSync(path.join(process.env.ASSISTANT_DIR, "200.json"), "utf8")).not.toContain(p.id);
   });
 });
@@ -121,7 +121,7 @@ describe("таблица «задача → модель» и modelFor", () => {
     expect(() => setTasks("200", { chat: { providerId: "x", model: "gpt-4.1" } })).toThrow(/провайдер, которого нет/);
     setTasks("200", { chat: { providerId: p.id, model: "gpt-4.1" } });
     const tasks = setTasks("200", { transcribe: { providerId: p.id, model: "gpt-4o-mini" } });
-    expect(tasks).toEqual({ chat: { providerId: p.id, model: "gpt-4.1" }, space: null, bot: null,
+    expect(tasks).toEqual({ chat: { providerId: p.id, model: "gpt-4.1" }, bot: null,
       transcribe: { providerId: p.id, model: "gpt-4o-mini" } });
     expect(setTasks("200", { chat: null }).chat).toBeNull();
   });
@@ -129,17 +129,17 @@ describe("таблица «задача → модель» и modelFor", () => {
   it("modelFor: своя строка → строка chat → первый провайдер с ключом и первой моделью → null", () => {
     const p = withModels("200", { name: "Мой OpenAI" });
     // Ничего не выбрано — первый провайдер, первая модель.
-    expect(modelFor("200", "space")).toEqual({ kind: "openai", baseUrl: "https://api.openai.com/v1",
+    expect(modelFor("200", "bot")).toEqual({ kind: "openai", baseUrl: "https://api.openai.com/v1",
       key: KEY, model: "gpt-4.1", providerName: "Мой OpenAI" });
     setTasks("200", { chat: { providerId: p.id, model: "gpt-4o-mini" } });
     // Своей строки нет — берётся chat.
-    expect(modelFor("200", "space").model).toBe("gpt-4o-mini");
+    expect(modelFor("200", "bot").model).toBe("gpt-4o-mini");
     expect(modelFor("200", "неизвестная задача").model).toBe("gpt-4o-mini");
     const q = withModels("200", { name: "Claude", kind: "anthropic" }, ["claude-sonnet-4-5"]);
-    setTasks("200", { space: { providerId: q.id, model: "claude-sonnet-4-5" } });
-    // Своя строка — она.
-    expect(modelFor("200", "space")).toMatchObject({ kind: "anthropic", model: "claude-sonnet-4-5", providerName: "Claude" });
-    expect(modelFor("200", "bot").model).toBe("gpt-4o-mini");
+    setTasks("200", { bot: { providerId: q.id, model: "claude-sonnet-4-5" } });
+    // Своя строка — она; у задачи без своей строки по-прежнему chat.
+    expect(modelFor("200", "bot")).toMatchObject({ kind: "anthropic", model: "claude-sonnet-4-5", providerName: "Claude" });
+    expect(modelFor("200", "неизвестная задача").model).toBe("gpt-4o-mini");
   });
 
   it("провайдер без моделей в умолчание не попадает — выбирать у него нечего", () => {
