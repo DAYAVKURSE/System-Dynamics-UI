@@ -190,6 +190,41 @@ describe("новое в форме функции", () => {
     expect(dump().funcs.pop().accepted).toBe(false);
   });
 
+  it("правка на соседней вкладке тоже снимает «принято»", () => {
+    /* Пометка — слово человека о ТОЙ функции, которую он видел. Удаление
+       ресурса меняет её рецепт, и если пометка остаётся, зелёное «готова»
+       стоит на работе, которую в этом виде никто не одобрял. Раньше сброс
+       жил в одной панели, и правки с других вкладок его обходили. */
+    addFunc();
+    const name = addPort("takes");
+    addPort("gives");
+    fireEvent.click(btnAccept());
+    expect(dump().funcs.pop().accepted).toBe(true);
+
+    assetTab("Ресурсы");
+    const card = screen.getByDisplayValue(name).closest("div");
+    fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
+    const after = dump().funcs.pop();
+    expect(after.accepted).toBe(false);
+    expect(after.takes).toHaveLength(0);
+  });
+
+  it("расфокус без правки «принято» не снимает", () => {
+    /* Поля отдают значение по расфокусу, и клик мимо поля — не правка.
+       Иначе пометка слетала бы от того, что человек ткнул в название и
+       передумал, а в историю падал бы шаг за действие, которого никто не
+       совершал. */
+    addFunc();
+    addPort("takes");
+    addPort("gives");
+    fireEvent.click(btnAccept());
+    const title = screen.getAllByLabelText("название функции").pop();
+    fireEvent.focus(title);
+    fireEvent.blur(title);
+    expect(within(myCard()).getByText("готова")).toBeInTheDocument();
+    expect(dump().funcs.pop().accepted).toBe(true);
+  });
+
   it("«точное время» называется одинаково у работы и у попытки", () => {
     /* Точное время и точный срок — это одно и то же, и двух имён у него
        быть не должно. */

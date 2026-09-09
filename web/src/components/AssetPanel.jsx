@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, countWorkers,
-  funcState,
+  editFunc, funcState,
   crewOf,
   chanceOf, everyOf, everyRange, factorChance, factorsOf, groupsOf, sameEvery, sameHours,
   funcKind, isFactor, newFactor, fromHours,
@@ -521,7 +521,7 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                             color: portSpends(p) ? WARN : C.muted,
                             borderRadius: 20, padding: "1px 7px", fontSize: 10,
                             whiteSpace: "nowrap" }}>
-                          {portSpends(p) ? "расходует" : "остаётся"}</button>)}
+                          {portSpends(p) ? "✓ расходует" : "○ расходует"}</button>)}
                       <span style={{ flex: 1 }} />
                       {/* Сводка словами: «ровно 3» или «от 3 до 5», а рядом
                           факт по выполнениям, когда он есть. Она отвечает не
@@ -596,11 +596,12 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
   const pool = () => byCrew(workers,
     people.filter((p) => crew.some((id) => String(id) === String(p.id))));
 
-  /* Любая правка снимает «принято»: зелёная метка на изменённой функции
-     врала бы про то, что человек её видел и одобрил. Само принятие идёт
-     мимо этой двери — иначе оно снимало бы себя же. */
+  /* Правка идёт через `editFunc` — ту же дверь, что и удаление ресурса или
+     снятие человека с актива: пометка «принята» должна слетать от ЛЮБОГО
+     изменения и не слетать от того, что человек ткнул в поле и передумал.
+     Само принятие идёт мимо — иначе оно снимало бы себя же. */
   const up = (id, make) => setFuncs((p) => p.map((f) => (f.id === id
-    ? { ...make(f), accepted: false } : f)));
+    ? editFunc(f, make) : f)));
   const accept = (id) => setFuncs((p) => p.map((f) => (f.id === id
     ? { ...f, accepted: true } : f)));
   const upPort = (id, kind, pid, patch) => up(id, (f) => ({
@@ -628,7 +629,10 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)}
             onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(null); }}
             accent={st.kind === "ready" ? OK : BAD}
-            mark={<span className="flex items-center gap-2">
+            /* role="status" — чтобы смена состояния («готова» → «не принята»)
+               прозвучала: без неё читалка молчит, и правка выглядит так,
+               будто ничего не произошло. */
+            mark={<span role="status" className="flex items-center gap-2">
               <span style={{ width: 7, height: 7, borderRadius: "50%",
                 background: st.kind === "ready" ? OK : BAD }} />
               {/* Слово, а не только цвет: цвет один и тот же у «не
@@ -878,8 +882,16 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 автоматически оно не появляется. Пока чего-то не хватает,
                 кнопка не нажимается и прямо называет, чего именно: кнопка,
                 которая молча не работает, злит сильнее, чем её отсутствие. */}
-            <button onClick={() => accept(f.id)} disabled={!st.ok || st.kind === "ready"}
-              aria-label={`принять функцию ${f.name || "без названия"}`}
+            {/* Нативный `disabled` только у незаполненной: принятая кнопка
+                остаётся в обходе клавиатурой, иначе фокус на ней просто
+                исчезает и человек не узнаёт, что она вообще есть. Причина
+                отказа входит в доступное имя — иначе читалка объявит
+                «принять функцию», и почему нельзя, не скажет никто. */}
+            <button onClick={() => st.kind !== "ready" && accept(f.id)}
+              disabled={!st.ok} aria-disabled={st.kind === "ready"}
+              aria-label={st.ok
+                ? `принять функцию ${f.name || "без названия"}`
+                : `принять функцию ${f.name || "без названия"} — пока нельзя: ${st.gaps.join("; ")}`}
               style={{ width: "100%", marginTop: 10, borderRadius: 7, padding: "7px",
                 fontSize: 12, cursor: st.ok && st.kind !== "ready" ? "pointer" : "default",
                 background: st.kind === "draft" ? "rgba(61,220,151,.13)" : "transparent",
@@ -911,7 +923,8 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
        ссылкой: они краснеют подписью «фактор не выбран», а не молча
        считаются исправными. */
     setFuncs((p) => p.map((f) => (factorsOf(f).includes(id)
-      ? { ...f, factors: factorsOf(f).filter((x) => x !== id) } : f)));
+      ? editFunc(f, (x) => ({ ...x, factors: factorsOf(x).filter((z) => z !== id) }))
+      : f)));
   };
   return (
     <Section title="факторы актива"

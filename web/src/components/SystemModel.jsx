@@ -13,7 +13,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, checkAsset, countWorkers, crewOf,
   normalizeAssets,
-  normalizeFactors, normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
+  editFunc, normalizeFactors, normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
@@ -540,9 +540,13 @@ export default function SystemModel(){
     // никуда. А чужие функции могли брать и выдавать его ресурсы — такие
     // входы и выходы тоже уходят вместе с ресурсами.
     const gone=new Set(funcs.filter(f=>f.e===id).map(f=>f.id));
-    setFuncs(p=>p.filter(f=>f.e!==id).map(f=>({...f,
-      takes:f.takes.filter(t=>!own.has(t.trait)),
-      gives:f.gives.filter(g=>!own.has(g.trait))})));
+    /* Через `editFunc`: у функции, которой срезали вход или выход, слетает
+       и «принято» — рецепт стал другим, а человек его в глаза не видел. У
+       тех, кого удаление не задело, пометка остаётся: чужой актив им не
+       родня. */
+    setFuncs(p=>p.filter(f=>f.e!==id).map(f=>editFunc(f,(x)=>({...x,
+      takes:x.takes.filter(t=>!own.has(t.trait)),
+      gives:x.gives.filter(g=>!own.has(g.trait))}))));
     // Задачи выполняли функции этого актива — выполнять больше нечего.
     setTasks(p=>p.filter(t=>!gone.has(t.funcId)));
     // Факторы принадлежат активу так же, как ресурсы: без него им негде быть.
@@ -554,9 +558,9 @@ export default function SystemModel(){
     setTraits(p=>p.filter(t=>t.id!==id));
     // Удалённый ресурс не должен оставаться во входах и выходах функций:
     // там он превратился бы в «(ресурс удалён)» и в ноль в расчёте.
-    setFuncs(p=>p.map(f=>({...f,
-      takes:f.takes.filter(t=>t.trait!==id),
-      gives:f.gives.filter(g=>g.trait!==id)})));
+    setFuncs(p=>p.map(f=>editFunc(f,(x)=>({...x,
+      takes:x.takes.filter(t=>t.trait!==id),
+      gives:x.gives.filter(g=>g.trait!==id)}))));
   };
   /* Воркер актива — прямой выбор из всех людей схемы: сперва отмечают, кто
      здесь работает, и уже из отмеченных выбирают постановщика, исполнителя
