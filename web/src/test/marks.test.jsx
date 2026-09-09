@@ -163,7 +163,11 @@ describe("подпись у функции", () => {
     freshFunc();
     const ask = screen.getByRole("button", { name: /почему «функция»/ });
     fireEvent.click(ask);
-    expect(within(dialog()).getByText(WHY_FUNC)).toBeInTheDocument();
+    /* Ищем по первой фразе, а не по всему тексту: объяснение — определение
+       и список условий под ним, и привязывать тест к каждому пункту значит
+       ломать его при любой правке формулировки. */
+    expect(within(dialog()).getByText(/Функция обменивает одни ресурсы на другие/))
+      .toBeInTheDocument();
   });
 
   it("функция с входом и выходом внутри актива становится белой", () => {

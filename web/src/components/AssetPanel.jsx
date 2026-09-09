@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, countWorkers,
+  funcState,
   crewOf,
   chanceOf, everyOf, everyRange, factorChance, factorsOf, groupsOf, sameEvery, sameHours,
   funcKind, isFactor, newFactor, fromHours,
@@ -55,10 +56,14 @@ export function Section({ title, hint, addLabel, onAdd, empty, children, count }
 
 /** Одна карточка раздела: заголовок, подпись строения, раскрытая часть. */
 export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle,
-  onDelete, children }) {
+  onDelete, children, accent }) {
   return (
+    /* Полоса слева — состояние карточки одним взглядом, без чтения. В
+       списке из двадцати функций это единственный способ увидеть, где
+       недоделано: подпись под названием для этого приходится читать. */
     <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-      padding: 8, marginBottom: 6 }}>
+      padding: 8, marginBottom: 6,
+      borderLeft: `2px solid ${accent || C.line}` }}>
       <div className="flex items-center gap-2">
         <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
           onClick={onToggle} aria-label={open ? `свернуть ${titleLabel}` : `развернуть ${titleLabel}`}>
@@ -314,11 +319,29 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
         {g.list.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
       </optgroup>))}
   </>);
+  /* ─── вход и выход — два РАЗНЫХ блока ───
+
+     Прежде это были две одинаковые серые надписи посреди сплошной ленты
+     одинаковых тёмных карточек: где кончается «берёт» и начинается
+     «выдаёт», глазом не находилось вовсе. Теперь у каждой секции своя
+     шапка со своим цветом и счётчиком, и цвет тот же, каким вход и выход
+     говорят везде: голубой — то, что приходит, зелёный — то, что выходит. */
+  const tone = out ? OK : ACC;
+  const wash = out ? "rgba(61,220,151,.10)" : "rgba(124,224,255,.10)";
+  const edge = out ? "rgba(61,220,151,.25)" : "rgba(124,224,255,.25)";
   return (
-    <div style={{ marginTop: 8 }}>
-      <div style={{ ...S.lbl, marginBottom: 4 }}>{title}</div>
+    <div style={{ marginTop: 8, border: `1px solid ${edge}`, borderRadius: 8,
+      overflow: "hidden" }}>
+      <div className="flex items-center gap-2"
+        style={{ ...S.lbl, color: tone, background: wash, padding: "5px 8px",
+          borderBottom: `1px solid ${edge}` }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: tone }} />
+        {title}
+        <span style={{ color: C.muted }}>· {list.length}</span>
+      </div>
+      <div style={{ padding: "7px 8px" }}>
       {list.length === 0 && (
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{hint}</div>)}
+        <div style={{ fontSize: 11, color: BAD, marginBottom: 6 }}>{hint}</div>)}
       {groups.map((g, gi) => (
         <div key={g[0].id}>
           {/* «И» между требованиями: разделитель стоит МЕЖДУ группами, а не
@@ -335,55 +358,62 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                   {i > 0 && (
                     <div style={{ ...S.lbl, color: ACC, textAlign: "center",
                       margin: "3px 0" }}>или</div>)}
-                  <div style={{ border: `1px solid ${okRange(p) ? C.line : BAD}`,
-                    borderRadius: 6, padding: 7 }}>
-                    <div className="flex items-center gap-2">
-                      <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
+                  {/* Ресурс — ОДНОЙ строкой: название, сколько, расходует
+                      ли, убрать. Прежде на каждый вход уходило пять строк,
+                      и две из них были одним и тем же пояснением, повторённым
+                      у каждого ресурса. Теперь пояснение стоит один раз под
+                      секцией, а строки читаются списком. */}
+                  <div style={{ borderTop: i > 0 || gi > 0 ? `1px dashed ${C.line}` : "none",
+                    padding: "6px 0" }}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span style={{ flex: "1 1 90px", fontSize: 12.5, minWidth: 0 }}>
                         {traitName(p.trait)}
                         {/* Чужой ресурс — это и есть связь с другим активом:
                             взятый приходит оттуда, выданный уходит туда. */}
                         {at && (
                           <span style={{ color: ACC, fontSize: 11 }}>
-                            {out ? " → в актив «" : " ← из актива «"}{assetName(at.e)}»</span>)}
+                            {out ? " → «" : " ← «"}{assetName(at.e)}»</span>)}
                       </span>
-                      <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px",
-                        color: BAD }}
+                      {/* Вилка держится вместе: два поля и многоточие между
+                          ними — одно значение, и разрывать их переносом
+                          нельзя. */}
+                      <span style={{ display: "inline-flex", alignItems: "center",
+                        gap: 3, whiteSpace: "nowrap" }}>
+                        <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
+                          style={{ width: 42, fontSize: 11.5, padding: "3px 4px",
+                            borderColor: okRange(p) ? C.line : BAD }}
+                          onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
+                        <span style={{ color: C.muted, fontSize: 11 }}>…</span>
+                        <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
+                          style={{ width: 42, fontSize: 11.5, padding: "3px 4px",
+                            borderColor: okRange(p) ? C.line : BAD }}
+                          onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
+                      </span>
+                      {/* Расходует или только обрабатывает. Вопрос стоит у
+                          входа, а не у ресурса: одна функция ткань режет, а
+                          другая на неё смотрит — и это про функции, а не про
+                          ткань. */}
+                      {!out && (
+                        <button aria-label={`расходует ${traitName(p.trait)}`}
+                          aria-pressed={portSpends(p)}
+                          onClick={() => onSet(p.id, { spend: !portSpends(p) })}
+                          style={{ background: "transparent", cursor: "pointer",
+                            border: `1px solid ${portSpends(p) ? WARN : C.line}`,
+                            color: portSpends(p) ? WARN : C.muted,
+                            borderRadius: 20, padding: "1px 7px", fontSize: 10,
+                            whiteSpace: "nowrap" }}>
+                          {portSpends(p) ? "расходует" : "остаётся"}</button>)}
+                      <button style={{ ...btn(false), fontSize: 11, padding: "0 5px",
+                        color: BAD, borderColor: "#5A2436" }}
                         aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
                         onClick={() => onDel(p.id)}>×</button>
                     </div>
-                    <div className="flex items-center gap-2"
-                      style={{ marginTop: 5, flexWrap: "wrap" }}>
-                      <span style={S.lbl}>от</span>
-                      <Num value={p.lo} label={`сколько минимум ${traitName(p.trait)}`}
-                        onChange={(v) => onSet(p.id, { lo: Number(v) || 0 })} />
-                      <span style={S.lbl}>до</span>
-                      <Num value={p.hi} label={`сколько максимум ${traitName(p.trait)}`}
-                        onChange={(v) => onSet(p.id, { hi: Number(v) || 0 })} />
-                      <span style={{ flex: 1 }} />
-                      <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
-                    </div>
-                    {/* Расходует или только обрабатывает. Вопрос стоит у
-                        входа, а не у ресурса: одна функция ткань режет, а
-                        другая на неё смотрит — и это про функции, а не про
-                        ткань. */}
-                    {!out && (<>
-                      <label className="flex items-center gap-2"
-                        style={{ marginTop: 6, fontSize: 11, color: C.muted,
-                          cursor: "pointer" }}>
-                        <input type="checkbox"
-                          aria-label={`расходует ${traitName(p.trait)}`}
-                          checked={portSpends(p)}
-                          onChange={(e) => onSet(p.id, { spend: e.target.checked })}
-                          style={{ accentColor: ACC }} />
-                        расходует
-                      </label>
-                      <div style={{ fontSize: 10, color: C.muted, marginTop: 3,
-                        lineHeight: 1.5 }}>
-                        {portSpends(p)
-                          ? "Взятое исчезает: ни эта функция, ни соседняя больше его не получат."
-                          : "Взятое остаётся и достаётся другим функциям. Но эта второй раз ту же единицу не берёт — работа по ней уже сделана."}
-                      </div>
-                    </>)}
+                    {/* Факт — только когда он есть: пустая строка «плана»
+                        рядом с каждым ресурсом была бы шумом. */}
+                    {runQty(runs, kind, p.trait) != null && (
+                      <div style={{ marginTop: 3 }}>
+                        <Fact plan={rangeText(p)} fact={runQty(runs, kind, p.trait)} />
+                      </div>)}
                   </div>
                 </div>);
             })}
@@ -395,7 +425,10 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                 onChange={(e) => { if (e.target.value) onAdd(e.target.value, g[0].group); }}
                 style={{ ...S.inp, width: "100%", maxWidth: "100%", minWidth: 0,
                   boxSizing: "border-box", padding: "4px 6px", fontSize: 11,
-                  marginTop: 4, color: C.muted }}>
+                  marginTop: 4, color: C.muted,
+                  // Действие, а не данные: пунктир отличает «добавить» от
+                  // самих ресурсов, которые уже добавлены.
+                  background: "transparent", borderStyle: "dashed" }}>
                 <option value="">или вместо этого…</option>
                 {options}
               </select>)}
@@ -408,10 +441,18 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
         <select value={pick} aria-label={out ? "выдать ресурс" : "взять ресурс"}
           onChange={(e) => { if (e.target.value) { onAdd(e.target.value); setPick(""); } }}
           style={{ ...S.inp, width: "100%", maxWidth: "100%", minWidth: 0,
-            boxSizing: "border-box", padding: "5px 6px", fontSize: 12 }}>
+            boxSizing: "border-box", padding: "5px 6px", fontSize: 12, marginTop: 6,
+            background: "transparent", borderStyle: "dashed", color: C.muted }}>
           <option value="">{out ? "+ выдаёт ресурс…" : "+ берёт ресурс… (и)"}</option>
           {options}
         </select>)}
+      {/* Пояснение про расход — ОДИН раз на секцию, а не у каждого входа. */}
+      {!out && list.length > 0 && (
+        <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+          «Расходует» — взятое исчезает у всех. Снятая метка значит, что ресурс
+          остаётся и достаётся другим функциям, но эта по нему уже отработала.
+        </div>)}
+      </div>
     </div>);
 }
 
@@ -431,7 +472,13 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
   const pool = (k) => byCrew(workers,
     people.filter((p) => workers[k].some((id) => String(id) === String(p.id))));
 
-  const up = (id, make) => setFuncs((p) => p.map((f) => (f.id === id ? make(f) : f)));
+  /* Любая правка снимает «принято»: зелёная метка на изменённой функции
+     врала бы про то, что человек её видел и одобрил. Само принятие идёт
+     мимо этой двери — иначе оно снимало бы себя же. */
+  const up = (id, make) => setFuncs((p) => p.map((f) => (f.id === id
+    ? { ...make(f), accepted: false } : f)));
+  const accept = (id) => setFuncs((p) => p.map((f) => (f.id === id
+    ? { ...f, accepted: true } : f)));
   const upPort = (id, kind, pid, patch) => up(id, (f) => ({
     ...f, [kind]: f[kind].map((p) => (p.id === pid ? { ...p, ...patch } : p)),
   }));
@@ -446,16 +493,29 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
 
   return (
     <Section title="функции актива" addLabel="+ функция" onAdd={add}
-      empty={mine.length ? null : "Функций пока нет. Функция может только взять и дать: взять несколько ресурсов и выдать несколько других, а выданное — передать в другие активы. Сколько берёт и сколько выдаёт — диапазон: сначала закладывается, потом уточняется реальными выполнениями."}>
+      empty={mine.length ? null
+        : "Функций пока нет. Функция обменивает одни ресурсы на другие: берёт одни, выдаёт другие."}>
       {mine.map((f) => {
         const runs = runsOf ? runsOf(f.id) : [];
+        const st = funcState(f, { traits, factors });
         return (
           <Card key={f.id} title={f.name} titleLabel="функции"
             onTitle={(v) => up(f.id, (x) => ({ ...x, name: v }))}
             open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)}
             onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(null); }}
-            mark={<Mark text="функция" ok={checkFunc(f, { traits, factors }).ok}
-              onWhy={() => onWhy && onWhy(f.id)} />}
+            accent={st.kind === "ready" ? OK : BAD}
+            mark={<span className="flex items-center gap-2">
+              <span style={{ width: 7, height: 7, borderRadius: "50%",
+                background: st.kind === "ready" ? OK : BAD }} />
+              {/* Слово, а не только цвет: цвет один и тот же у «не
+                  заполнена» и «не принята», и различает их подпись. */}
+              <Mark text={st.word} label="функция" ok={st.ok}
+                tone={st.kind === "ready" ? OK : BAD}
+                onWhy={() => onWhy && onWhy(f.id)} />
+              <span style={{ fontSize: 10.5, color: C.muted }}>
+                {st.kind === "gaps" ? `— ${st.gaps[0]}`
+                  : st.kind === "draft" ? "— осталось нажать «Принять»" : ""}</span>
+            </span>}
             summary={<>
               {/* В свёрнутой строке «или» обязано быть видно: без него
                   «спрос, пользователи» читается как «и то, и другое», а это
@@ -681,6 +741,24 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 nameOf={nameOf}
                 empty={`в активе ещё нет ${k.many.toLowerCase()} — добавьте их в «воркерах актива»`}
                 onToggle={(pid) => togglePerson(f.id, k.id, pid)} />))}
+
+            {/* ─── «Принять» ───
+
+                Проверки говорят, что функция СОБРАНА. Принять — сказать, что
+                она дособрана и её можно пускать в дело; это слово человека, и
+                автоматически оно не появляется. Пока чего-то не хватает,
+                кнопка не нажимается и прямо называет, чего именно: кнопка,
+                которая молча не работает, злит сильнее, чем её отсутствие. */}
+            <button onClick={() => accept(f.id)} disabled={!st.ok || st.kind === "ready"}
+              aria-label={`принять функцию ${f.name || "без названия"}`}
+              style={{ width: "100%", marginTop: 10, borderRadius: 7, padding: "7px",
+                fontSize: 12, cursor: st.ok && st.kind !== "ready" ? "pointer" : "default",
+                background: st.kind === "draft" ? "rgba(61,220,151,.13)" : "transparent",
+                border: `1px solid ${st.kind === "draft" ? OK : C.line}`,
+                color: st.kind === "draft" ? OK : C.muted }}>
+              {st.kind === "ready" ? "Принята — любая правка снимет пометку"
+                : st.ok ? "Принять"
+                  : `Принять — пока нельзя: ${st.gaps.join("; ")}`}</button>
           </Card>);
       })}
     </Section>);

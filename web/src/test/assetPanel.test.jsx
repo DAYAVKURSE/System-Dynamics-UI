@@ -98,11 +98,16 @@ describe("новое в форме функции", () => {
        второй раз ту же единицу не берёт. */
     addFunc();
     const name = addPort("takes");
-    // По умолчанию расходует: молчание прежних моделей их смысла не меняет.
-    expect(screen.getByLabelText(`расходует ${name}`)).toBeChecked();
+    /* Метка-переключатель, а не галочка с абзацем под каждым входом:
+       пояснение стоит один раз под секцией, и строка ресурса читается
+       строкой. Состояние — в aria-pressed, его же слышит читалка. */
+    expect(screen.getByLabelText(`расходует ${name}`))
+      .toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByLabelText(`расходует ${name}`));
-    expect(screen.getByText(/Взятое остаётся и достаётся другим функциям/))
-      .toBeInTheDocument();
+    expect(screen.getByLabelText(`расходует ${name}`))
+      .toHaveAttribute("aria-pressed", "false");
+    // Пояснение — одно на секцию, а не под каждым входом.
+    expect(screen.getByText(/взятое исчезает у всех/i)).toBeInTheDocument();
     expect(dump().funcs.pop().takes[0].spend).toBe(false);
   });
 
@@ -137,6 +142,52 @@ describe("новое в форме функции", () => {
     const box = screen.getByLabelText("одновременных выполнений");
     fireEvent.change(box, { target: { value: "0" } });
     expect(dump().funcs.pop().par).toBe(1);
+  });
+
+  /* ─── готовность функции ───
+
+     Проверки говорят, что функция СОБРАНА. «Принята» — слово человека:
+     заполнено может быть всё, а автор ещё думает. Цвета два, состояния
+     три, и различаются они подписью — так просил владелец. */
+  /* Схема открыта не пустой, функций в ней несколько — смотрим на свою:
+     кнопка «Принять» лежит в раскрытой карточке, а от неё два шага до
+     самой карточки со статусом. */
+  const btnAccept = () => screen.getAllByLabelText(/принять функцию/).pop();
+  const myCard = () => btnAccept().parentElement.parentElement;
+
+  it("незаполненная функция красная и говорит, чего не хватает", () => {
+    addFunc();
+    expect(within(myCard()).getByText("не заполнена")).toBeInTheDocument();
+    // Причина названа и в подписи, и на самой кнопке — это одно и то же.
+    expect(within(myCard()).getAllByText(/не сказано, что берёт/).length)
+      .toBeGreaterThan(0);
+    // Кнопка не работает и прямо называет причину: молча неактивная злит.
+    expect(btnAccept()).toBeDisabled();
+    expect(btnAccept().textContent).toMatch(/пока нельзя/);
+  });
+
+  it("собранная функция ещё не зелёная — её принимает человек", () => {
+    addFunc();
+    addPort("takes");
+    addPort("gives");
+    expect(within(myCard()).getByText("не принята")).toBeInTheDocument();
+    expect(btnAccept()).toBeEnabled();
+    fireEvent.click(btnAccept());
+    expect(within(myCard()).getByText("готова")).toBeInTheDocument();
+    expect(dump().funcs.pop().accepted).toBe(true);
+  });
+
+  it("правка снимает «принято»: зелёная метка на изменённой функции врала бы", () => {
+    addFunc();
+    addPort("takes");
+    addPort("gives");
+    fireEvent.click(btnAccept());
+    expect(within(myCard()).getByText("готова")).toBeInTheDocument();
+    // Меняем время — функция снова ждёт слова человека.
+    fireEvent.change(screen.getAllByLabelText("время одного выполнения").pop(),
+      { target: { value: "4" } });
+    expect(within(myCard()).getByText("не принята")).toBeInTheDocument();
+    expect(dump().funcs.pop().accepted).toBe(false);
   });
 
   it("«точное время» называется одинаково у работы и у попытки", () => {
@@ -180,7 +231,11 @@ describe("функция заводится и живёт", () => {
     fireEvent.change(screen.getByLabelText(`сколько минимум ${name}`), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText(`сколько максимум ${name}`), { target: { value: "5" } });
 
-    expect(screen.getAllByText("от 3 до 5").length).toBeGreaterThan(0);
+    /* Числа стоят в самих полях, а не пересказываются рядом словами:
+       «от 3 до 5» рядом с полями «3» и «5» — это одно и то же, сказанное
+       дважды. Пересказ остался там, где полей нет: в сводке выполнений. */
+    expect(screen.getByLabelText(`сколько минимум ${name}`)).toHaveValue(3);
+    expect(screen.getByLabelText(`сколько максимум ${name}`)).toHaveValue(5);
     expect(dump().funcs.pop().takes[0]).toMatchObject({ lo: 3, hi: 5 });
   });
 

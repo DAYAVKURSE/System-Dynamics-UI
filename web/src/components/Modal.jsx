@@ -46,7 +46,11 @@ export default function Modal({ title, children, onClose }) {
           <button aria-label="закрыть" style={{ ...btn(false), padding: "2px 8px" }}
             onClick={onClose}>✕</button>
         </div>
-        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: C.text }}>{children}</div>
+        {/* Переносы строк сохраняются: объяснения устроены как определение
+            и список условий под ним, а HTML схлопнул бы их в один абзац —
+            и список перестал бы читаться списком. */}
+        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: C.text,
+          whiteSpace: "pre-line" }}>{children}</div>
       </div>
     </div>);
 }
@@ -58,12 +62,17 @@ export default function Modal({ title, children, onClose }) {
  * появляется ТОЛЬКО у красной: у белой объяснять нечего, а лишний значок
  * рядом с каждым названием превратил бы схему в частокол.
  */
-export function Mark({ text, ok, onWhy, style }) {
+/* `label` — то, как подпись зовут в вопросе «почему не сходится»: слово в
+   подписи бывает состоянием («не заполнена»), а спрашивают всё равно про
+   функцию. `tone` задаёт цвет там, где состояний больше двух: «собрана, но
+   не принята» — это ещё не зелёный, хотя проверки уже проходят. */
+export function Mark({ text, ok, onWhy, style, label = text, tone }) {
   return (
-    <span style={{ fontSize: 10.5, color: ok ? C.text : BAD, whiteSpace: "nowrap", ...style }}>
+    <span style={{ fontSize: 10.5, color: tone || (ok ? C.text : BAD),
+      whiteSpace: "nowrap", ...style }}>
       {text}
       {!ok && (
-        <button aria-label={`почему «${text}» не сходится`} title="почему подпись красная"
+        <button aria-label={`почему «${label}» не сходится`} title="почему подпись красная"
           onClick={(e) => { e.stopPropagation(); onWhy(); }}
           style={{ marginLeft: 4, width: 15, height: 15, lineHeight: "13px", padding: 0,
             borderRadius: "50%", background: "transparent", color: BAD,
