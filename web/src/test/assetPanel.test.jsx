@@ -161,9 +161,21 @@ describe("новое в форме функции", () => {
     // Причина названа и в подписи, и на самой кнопке — это одно и то же.
     expect(within(myCard()).getAllByText(/не сказано, что берёт/).length)
       .toBeGreaterThan(0);
-    // Кнопка не работает и прямо называет причину: молча неактивная злит.
-    expect(btnAccept()).toBeDisabled();
-    expect(btnAccept().textContent).toMatch(/пока нельзя/);
+    // Но кнопка нажимается: подсказка — не запрет.
+    expect(btnAccept()).toBeEnabled();
+    expect(btnAccept().textContent).toBe("Принять");
+  });
+
+  it("принять можно всегда: незаполненная после «Принять» — зелёная «готова»", () => {
+    /* Проверка находит пробелы, а годится ли функция — решает человек.
+       Кнопка, которая «пока нельзя», была условием сверх того, что он
+       просил: убрана. */
+    addFunc();
+    expect(within(myCard()).getByText("не заполнена")).toBeInTheDocument();
+    fireEvent.click(btnAccept());
+    expect(within(myCard()).getByText("готова")).toBeInTheDocument();
+    expect(within(myCard()).queryByText(/не сказано, что берёт/)).toBeNull();
+    expect(dump().funcs.pop().accepted).toBe(true);
   });
 
   it("собранная функция ещё не зелёная — её принимает человек", () => {
