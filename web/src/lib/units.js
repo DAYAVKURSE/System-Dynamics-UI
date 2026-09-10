@@ -160,7 +160,7 @@ export function unitsOf({ tasks = [], funcs = [], materials = [] } = {}) {
      рождённых сдачей. Приняты всегда: их не сдавали, их положили. */
   normalizeMaterials(materials).forEach((m) => {
     rows.push({
-      id: m.id, trait: m.trait, qty: m.qty, took: [],
+      id: m.id, trait: m.trait, qty: m.qty, took: [], takes: {},
       task: null, title: "", func: null, funcName: "", sub: null,
       at: m.at || null, by: m.by ?? null,
       text: m.kind === "text" ? (m.text || "") : "",
@@ -186,6 +186,9 @@ export function unitsOf({ tasks = [], funcs = [], materials = [] } = {}) {
         qty,
         // Из каких единиц это сделано — как сказал исполнитель при сдаче.
         took: [...new Set(Object.values(sb.took || {}).flat().filter(Boolean))],
+        /* Что отдано взамен — по ресурсам и сколько: из этого читается,
+           из чего вещь сделана, даже когда номера не назвали. */
+        takes: { ...(sb.takes || {}) },
         task: t.id,
         title: t.title || "",
         func: t.funcId || null,

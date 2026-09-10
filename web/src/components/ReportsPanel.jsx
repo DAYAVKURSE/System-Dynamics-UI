@@ -11,7 +11,7 @@ import {
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
   from "../lib/reportDoc.js";
 import { chainOf } from "../lib/chain.js";
-import { MATERIAL_KINDS, newCode, newMaterials, spentIds, unitLabel, unitsOfTrait }
+import { MATERIAL_KINDS, newCode, newMaterials, spentIds, unitsOf, unitsOfTrait }
   from "../lib/units.js";
 import Modal from "./Modal.jsx";
 
@@ -621,22 +621,30 @@ const kindName = (id) => MATERIAL_KINDS.find((k) => k.id === id)?.name || id;
 /** Файл для скачивания текста или кода: вещь без файла всё равно скачивают. */
 const textHref = (text) => `data:text/plain;charset=utf-8,${encodeURIComponent(text || "")}`;
 
-function UnitRow({ u, unit, spent, nameOf }) {
+function UnitRow({ u, unit, spent, nameOf, traitName, unitNo }) {
   const when = u.at ? fmtDT(u.at) : "";
   /* Имя — только когда оно есть: голый идентификатор («local», «100»)
      читается номером, а не человеком, и говорить его незачем. */
   const named = u.by != null && u.by !== "" && nameOf ? String(nameOf(u.by) ?? "") : "";
   const who = named && named !== String(u.by) ? named : "";
-  const source = u.from === "material"
-    ? `загружено${who ? ` · ${who}` : ""}${when ? ` · ${when}` : ""}`
-    : `из задачи «${u.title || "без названия"}»${when ? ` · ${when}` : ""}`;
   const body = u.kind === "code" && u.code
     ? <span style={{ fontFamily: "ui-monospace, monospace", letterSpacing: 1 }}>{u.code}</span>
     : u.file ? <span>{/^image\//.test(u.file.type || "") ? "🖼" : "📎"} {u.file.name}</span>
-      : u.text ? <span style={{ whiteSpace: "pre-wrap" }}>{u.text}</span>
-        : <span style={{ color: WARN }}>содержимого нет</span>;
+      : u.text && u.from === "material" ? <span style={{ whiteSpace: "pre-wrap" }}>{u.text}</span>
+        : u.from === "task" ? <span style={{ color: C.muted }}>{u.title || "без названия"}</span>
+          : <span style={{ color: WARN }}>содержимого нет</span>;
   const href = u.file ? reportSrc(u.file) : textHref(u.code || u.text);
   const fileName = u.file ? u.file.name : `${unit}-${u.no}.txt`;
+  /* Что отдано взамен: ресурс, сколько и — если исполнитель назвал —
+     какие именно номера. По этому видно, из чего вещь сделана. */
+  const given = Object.entries(u.takes || {})
+    .filter(([, v]) => Number(v) > 0)
+    .map(([trait, v]) => {
+      const nos = (u.took || []).map((id) => unitNo?.(id)).filter((x) => x && x.trait === trait)
+        .map((x) => `№${x.no}`);
+      return `${traitName(trait)} ${nm(Number(v))}${nos.length ? ` (${nos.join(", ")})` : ""}`;
+    });
+  const line = { fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 };
   return (
     <div style={{ borderTop: `1px solid ${C.line}`, padding: "6px 0" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center", fontSize: 11.5 }}>
@@ -654,7 +662,23 @@ function UnitRow({ u, unit, spent, nameOf }) {
             style={{ ...btn(false), fontSize: 11, textDecoration: "none", color: ACC }}>
             скачать</a>)}
       </div>
-      <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{source}</div>
+      {/* Откуда и когда — у каждой единицы своя история. Из задачи:
+          какая функция руководила, что написали при сдаче, что отдано
+          взамен. Из материалов: так и сказано, без домыслов. */}
+      {u.from === "task" ? (<>
+        <div style={line}>
+          из задачи «{u.title || "без названия"}»
+          {u.funcName ? <> · функция «{u.funcName}»</> : " · функция удалена"}
+          {when ? ` · ${when}` : ""}{who ? ` · ${who}` : ""}
+        </div>
+        <div style={line}>отчёт при сдаче: {u.text
+          ? <span style={{ color: C.text, whiteSpace: "pre-wrap" }}>{u.text}</span>
+          : <span style={{ color: WARN }}>не написан</span>}</div>
+        <div style={line}>отдано взамен: {given.length ? given.join(", ") : "ничего"}</div>
+      </>) : (
+        <div style={line}>
+          добавлен на вкладке «Материалы»{when ? ` · ${when}` : ""}{who ? ` · ${who}` : ""}
+        </div>)}
     </div>);
 }
 
@@ -766,56 +790,105 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
 export function Materials({ model = {}, entities = [], materials = [], setMaterials,
   meId, nameOf }) {
   const traits = model.traits || [];
-  const [picked, setPicked] = useState(traits[0]?.id || "");
+  const traitName = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
+  /* Все активы разом, а не один ресурс из списка: по форме ходят, чтобы
+     видеть, где чего и сколько. Актив раскрывается в ресурсы, ресурс —
+     в число и кнопки, «Посмотреть» — в сами единицы. */
+  const [openAsset, setOpenAsset] = useState(() => new Set());
+  const [picked, setPicked] = useState("");
+  const [shown, setShown] = useState(false);
   const [adding, setAdding] = useState(false);
-  // Выбранный ресурс мог исчезнуть — тогда первый из оставшихся, а не пустота.
-  const cur = traits.find((t) => t.id === picked) || traits[0] || null;
-  const assetName = (id) => entities.find((e) => e.id === id)?.name || "";
-  const units = cur ? unitsOfTrait(model, cur.id) : [];
+  const all = useMemo(() => unitsOf(model), [model]);
   const spent = useMemo(() => spentIds(model), [model]);
-  const unit = cur?.unit || "ед.";
+  const stock = (t) => nm(Number(t.have) || 0);
+  const unitNo = (id) => { const u = all.find((x) => x.id === id); return u ? { no: u.no, trait: u.trait } : null; };
+  const toggleAsset = (id) => setOpenAsset((p) => {
+    const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n;
+  });
+  const pick = (id) => { setPicked((p) => (p === id ? "" : id)); setShown(false); };
+  const cur = traits.find((t) => t.id === picked) || null;
   return (
     <div style={{ ...S.card, marginBottom: 10 }}>
       <div className="flex items-center gap-2">
         <span style={S.lbl}>материалы — единицы ресурсов</span>
-        <span style={{ flex: 1 }} />
-        {!!cur && (
-          <button style={btn(true)} onClick={() => setAdding(true)}>
-            Загрузить единицу ресурса</button>)}
       </div>
       <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
         Здесь лежат все единицы ресурсов: вышедшие из сдач и загруженные
         руками. Сколько ресурса есть — считается отсюда, а не вводится.
+        Нажмите на актив, потом на ресурс.
       </div>
-      {!traits.length ? (
+      {!entities.length && (
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>
-          Ресурсов в схеме пока нет — заведите их у актива.</div>
-      ) : (<>
-        <div style={{ ...S.lbl, marginTop: 8 }}>ресурс</div>
-        <select value={cur?.id || ""} aria-label="ресурс материалов"
-          onChange={(e) => setPicked(e.target.value)}
-          style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12, maxWidth: 360 }}>
-          {traits.map((t) => (
-            <option key={t.id} value={t.id}>
-              {assetName(t.e) ? `${assetName(t.e)} · ` : ""}{t.l || "без названия"}</option>))}
-        </select>
-        {!!cur && (
-          <div style={{ fontSize: 11.5, marginTop: 8 }}>
-            есть <b>{nm(Number(cur.have) || 0)}</b> {unit}
-            <span style={{ color: C.muted }}> · единиц в списке {units.length}</span>
-          </div>)}
-        {!!cur && (units.length
-          ? <div style={{ marginTop: 6 }}>
-            {units.map((u) => (
-              <UnitRow key={u.id} u={u} unit={unit} spent={spent.has(u.id)} nameOf={nameOf} />))}
-          </div>
-          : <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
-            Единиц пока нет: их сдают в задачах или загружают здесь.</div>)}
-      </>)}
+          Активов в схеме пока нет.</div>)}
+      {entities.map((e) => {
+        const own = traits.filter((t) => t.e === e.id);
+        const open = openAsset.has(e.id);
+        const count = own.reduce((a, t) => a + (all.filter((u) => u.trait === t.id).length), 0);
+        return (
+          <div key={e.id} style={{ marginTop: 8 }}>
+            <button aria-expanded={open} aria-label={`актив ${e.name || "без названия"}`}
+              onClick={() => toggleAsset(e.id)}
+              style={{ ...btn(open), width: "100%", textAlign: "left", fontSize: 12.5,
+                display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: e.color || NEU,
+                flexShrink: 0 }} />
+              <span style={{ flex: 1, fontWeight: 600 }}>{e.name || "без названия"}</span>
+              <span style={{ fontSize: 10.5, color: C.muted, fontWeight: 400 }}>
+                ресурсов {own.length} · единиц {count}</span>
+              <span style={{ fontSize: 11, color: C.muted }}>{open ? "▾" : "▸"}</span>
+            </button>
+            {open && (
+              <div style={{ marginLeft: 10, borderLeft: `2px solid ${C.line}`, paddingLeft: 8,
+                marginTop: 4 }}>
+                {!own.length && (
+                  <div style={{ fontSize: 11, color: C.muted, padding: "4px 0" }}>
+                    Ресурсов у актива нет.</div>)}
+                {own.map((t) => {
+                  const on = picked === t.id;
+                  const units = on ? unitsOfTrait(model, t.id) : [];
+                  return (
+                    <div key={t.id} style={{ marginTop: 4 }}>
+                      <button aria-pressed={on} aria-label={`ресурс ${t.l || "без названия"}`}
+                        onClick={() => pick(t.id)}
+                        style={{ ...btn(on), width: "100%", textAlign: "left", fontSize: 12,
+                          display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ flex: 1 }}>{t.l || "без названия"}</span>
+                        <span style={{ fontSize: 10.5, color: C.muted }}>
+                          есть {stock(t)} {t.unit || ""}</span>
+                      </button>
+                      {on && (
+                        <div style={{ padding: "6px 2px 2px" }}>
+                          <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
+                            fontSize: 11.5 }}>
+                            <span>есть <b>{stock(t)}</b> {t.unit || ""}</span>
+                            <span style={{ color: C.muted }}>
+                              · единиц в списке {all.filter((u) => u.trait === t.id).length}</span>
+                            <span style={{ flex: 1 }} />
+                            <button style={btn(shown)} aria-pressed={shown}
+                              onClick={() => setShown((v) => !v)}>
+                              {shown ? "Скрыть" : "Посмотреть"}</button>
+                            <button style={btn(true)} onClick={() => setAdding(true)}>
+                              Загрузить единицу ресурса</button>
+                          </div>
+                          {shown && (units.length
+                            ? <div style={{ marginTop: 6 }}>
+                              {units.map((u) => (
+                                <UnitRow key={u.id} u={u} unit={t.unit || "ед."}
+                                  spent={spent.has(u.id)} nameOf={nameOf}
+                                  traitName={traitName} unitNo={unitNo} />))}
+                            </div>
+                            : <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
+                              Единиц пока нет: их сдают в задачах или загружают здесь.</div>)}
+                        </div>)}
+                    </div>);
+                })}
+              </div>)}
+          </div>);
+      })}
       {adding && cur && (
         <UploadMaterial trait={cur.id} traitName={cur.l || "ресурс"} existing={materials}
           meId={meId} onClose={() => setAdding(false)}
-          onAdd={(rows) => setMaterials?.((p) => [...(p || []), ...rows])} />)}
+          onAdd={(rows) => { setMaterials?.((p) => [...(p || []), ...rows]); setShown(true); }} />)}
     </div>);
 }
 

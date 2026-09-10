@@ -4,18 +4,21 @@ import SystemModel from "../components/SystemModel.jsx";
 
 /* «МАТЕРИАЛЫ» НА ВКЛАДКЕ ОТЧЁТОВ.
 
-   Все единицы ресурсов в одном месте: по ресурсу, с номерами, со
-   скачиванием. Загрузка — окном: количество, вид (файл / текст /
-   уникальное поле) и ровно одно поле под вид. Отсюда же считается,
-   сколько ресурса есть: у ресурса это число больше не вводят. */
+   Все активы разом: актив раскрывается в ресурсы, ресурс — в «сколько
+   есть» и кнопки, «Посмотреть» — в сами единицы с историей каждой: откуда
+   и когда, что написали при сдаче, что отдано взамен и какая функция
+   руководила; из материалов — так и сказано. Загрузка — окном:
+   количество, вид (файл / текст / уникальное поле) и ровно одно поле
+   под вид. Отсюда же считается, сколько ресурса есть. */
 
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
 const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
 const reports = () => tab("Отчёты");
-const pickTrait = (id) => fireEvent.change(screen.getByLabelText("ресурс материалов"),
-  { target: { value: id } });
+const openAsset = (name) => fireEvent.click(screen.getByRole("button", { name: `актив ${name}` }));
+const pickTrait = (name) => fireEvent.click(screen.getByRole("button", { name: `ресурс ${name}` }));
+const view = () => fireEvent.click(screen.getByRole("button", { name: "Посмотреть" }));
 const openUpload = () => fireEvent.click(screen.getByRole("button", { name: "Загрузить единицу ресурса" }));
 const dialog = () => screen.getByRole("dialog");
 const materialsCard = () => screen.getByText("материалы — единицы ресурсов").closest("div").parentElement;
@@ -36,26 +39,35 @@ const loadJson = (m) => {
 };
 
 describe("форма «Материалы»", () => {
-  it("стоит перед проектами и показывает единицы выбранного ресурса с номерами", () => {
+  it("стоит перед проектами и показывает все активы; актив → ресурсы с «есть», ресурс → единицы", () => {
     reports();
     const card = materialsCard();
     const projects = screen.getByText("отчёты — карта проектов");
     // Материалы — выше карты проектов: проект начинается с единицы.
     expect(card.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const sel = screen.getByLabelText("ресурс материалов");
-    expect([...sel.options].map((o) => o.textContent)).toContain("Рынок услуг · спрос");
-    pickTrait("dem");
-    // Образец: 3000 обращений одной записью «×3000» — и «есть» из неё.
+    // Все активы сразу — по ним и ходят.
+    ["Рынок услуг", "Пользователи", "Виртуальный менеджер"].forEach((n) => {
+      expect(within(card).getByRole("button", { name: `актив ${n}` })).toBeInTheDocument();
+    });
+    expect(within(card).queryByRole("button", { name: "ресурс спрос" })).toBeNull();
+    openAsset("Рынок услуг");
+    const res = within(card).getByRole("button", { name: "ресурс спрос" });
+    expect(res.textContent).toMatch(/есть 3.?000 обращ\./);
+    // Единицы — только по «Посмотреть», иначе форма была бы километровой.
+    pickTrait("спрос");
+    expect(within(card).queryByText("№1")).toBeNull();
+    view();
     expect(within(card).getByText("№1")).toBeInTheDocument();
     expect(within(card).getByText(/^×3.?000$/)).toBeInTheDocument();
-    expect(within(card).getByText(/обращения с рынка/)).toBeInTheDocument();
-    expect(within(card).getByText(/^3.?000$/)).toBeInTheDocument();
+    expect(within(card).getByText(/добавлен на вкладке «Материалы»/)).toBeInTheDocument();
     expect(within(card).getByRole("link", { name: "скачать обращ. №1" })).toBeInTheDocument();
   });
 
-  it("текст: окно с количеством и видом, загрузка → строка, «есть» выросло, запись в модели", () => {
+  it("текст: окно с количеством и видом, загрузка → строки, «есть» выросло, записи в модели", () => {
     reports();
-    pickTrait("req");
+    openAsset("Пользователи");
+    pickTrait("заявки");
+    view();
     expect(screen.getByText(/Единиц пока нет/)).toBeInTheDocument();
     openUpload();
     const d = dialog();
@@ -80,8 +92,8 @@ describe("форма «Материалы»", () => {
     expect(within(card).getByText("№1")).toBeInTheDocument();
     expect(within(card).getByText("№2")).toBeInTheDocument();
     expect(within(card).getAllByText("заявка от Иванова")).toHaveLength(2);
-    expect(within(card).getAllByText(/загружено/)).toHaveLength(2);
-    expect(within(card).getByText("2")).toBeInTheDocument();
+    expect(within(card).getAllByText(/добавлен на вкладке «Материалы»/)).toHaveLength(2);
+    expect(within(card).getByRole("button", { name: "ресурс заявки" }).textContent).toMatch(/есть 2 шт\./);
     const ms = dump().materials.filter((x) => x.trait === "req");
     expect(ms).toHaveLength(2);
     ms.forEach((m) => expect(m).toMatchObject({ kind: "text", qty: 1, text: "заявка от Иванова", file: null, code: "" }));
@@ -95,7 +107,8 @@ describe("форма «Материалы»", () => {
 
   it("уникальное поле: код виден до загрузки, у каждой единицы свой, и он же сохраняется", () => {
     reports();
-    pickTrait("req");
+    openAsset("Пользователи");
+    pickTrait("заявки");
     openUpload();
     const d = dialog();
     fireEvent.click(within(d).getByLabelText("уникальное поле"));
@@ -115,7 +128,8 @@ describe("форма «Материалы»", () => {
 
   it("тысяча кодов не уводит кнопку «Загрузить» вниз: список прокручивается сам", () => {
     reports();
-    pickTrait("req");
+    openAsset("Пользователи");
+    pickTrait("заявки");
     openUpload();
     const d = dialog();
     fireEvent.click(within(d).getByLabelText("уникальное поле"));
@@ -132,7 +146,8 @@ describe("форма «Материалы»", () => {
 
   it("файл: без сервера ложится внутрь сценария, и скачать его можно из списка", async () => {
     reports();
-    pickTrait("req");
+    openAsset("Пользователи");
+    pickTrait("заявки");
     openUpload();
     const d = dialog();
     const input = within(d).getByLabelText("файл единицы");
@@ -148,14 +163,49 @@ describe("форма «Материалы»", () => {
     expect(dump().materials.filter((x) => x.trait === "req").map((x) => x.file.name)).toEqual(["договор.pdf"]);
   });
 
+  it("единица из задачи рассказывает: какая функция, что написали при сдаче, что отдано взамен", () => {
+    const m = dump();
+    loadJson({
+      ...m,
+      entities: [{ id: "a", name: "Бюро", color: "#fff", x: 0, y: 0 }],
+      traits: [{ id: "t1", e: "a", l: "заявка", unit: "шт." }, { id: "t2", e: "a", l: "макет", unit: "шт." }],
+      funcs: [{ id: "f1", e: "a", name: "Собрать макет", dur: 1, durHi: 1, durUnit: "дн",
+        takes: [{ id: "p1", trait: "t1", lo: 1, hi: 1 }], gives: [{ id: "g1", trait: "t2", lo: 1, hi: 1 }] }],
+      materials: [{ id: "m1", trait: "t1", kind: "text", qty: 1, text: "заявка с сайта", at: "2026-02-01T09:00:00Z" }],
+      tasks: [{ id: "tk1", funcId: "f1", title: "Макет главной", status: "done", assignee: null,
+        submissions: [{ id: "s1", at: "2026-02-03T10:00:00Z", hours: 4, takes: { t1: 1 }, gives: { t2: 1 },
+          took: { t1: ["m1"] }, text: "сделал в две итерации" }], reviews: [], comments: [] }],
+      goals: [], factors: [], reports: [],
+    });
+    reports();
+    openAsset("Бюро");
+    // Где чего и сколько — видно без раскрытия единиц.
+    expect(screen.getByRole("button", { name: "ресурс заявка" }).textContent).toMatch(/есть 0 шт\./);
+    expect(screen.getByRole("button", { name: "ресурс макет" }).textContent).toMatch(/есть 1 шт\./);
+    pickTrait("макет");
+    view();
+    const card = materialsCard();
+    expect(within(card).getByText(/из задачи «Макет главной»/)).toBeInTheDocument();
+    expect(within(card).getByText(/функция «Собрать макет»/)).toBeInTheDocument();
+    expect(within(card).getByText("сделал в две итерации")).toBeInTheDocument();
+    expect(within(card).getByText(/отдано взамен: заявка 1 \(№1\)/)).toBeInTheDocument();
+    // А взятая заявка помечена израсходованной.
+    pickTrait("заявка");
+    view();
+    expect(within(card).getByText("израсходована")).toBeInTheDocument();
+    expect(within(card).getByText(/добавлен на вкладке «Материалы»/)).toBeInTheDocument();
+  });
+
   it("материалы переживают выгрузку и загрузку", () => {
     const m = dump();
     loadJson({ ...m, materials: [{ id: "mx", trait: "req", kind: "code", qty: 1, code: "LOADED22" }] });
     reports();
-    pickTrait("req");
+    openAsset("Пользователи");
+    pickTrait("заявки");
+    view();
     expect(within(materialsCard()).getByText("LOADED22")).toBeInTheDocument();
     // Записанное у ресурса число не читается: «есть» — по материалам.
-    pickTrait("dem");
-    expect(screen.getByText(/Единиц пока нет/)).toBeInTheDocument();
+    openAsset("Рынок услуг");
+    expect(screen.getByRole("button", { name: "ресурс спрос" }).textContent).toMatch(/есть 0 обращ\./);
   });
 });
