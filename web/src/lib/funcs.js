@@ -820,9 +820,12 @@ export function funcGaps(f, { traits = [], factors = [] } = {}) {
      ссылку не проверяем. */
   if (isFactor(f) && factors.length > 0) {
     const ids = factorsOf(f);
-    if (!ids.length || ids.some((id) => !factors.some((x) => x.id === id))) {
-      out.push("не выбран фактор");
-    }
+    const found = ids.map((id) => factors.find((x) => x.id === id));
+    if (!ids.length || found.some((x) => !x)) out.push("не выбран фактор");
+    /* Фактор — свой у актива: сезон одного актива не двигает ресурсы
+       другого. Чужой в списке — не «наружу», а ошибка ссылки; выбрать его
+       форма не даёт, а в старой записи он мог остаться. */
+    else if (found.some((x) => x.e !== f.e)) out.push("выбран фактор другого актива");
   }
   const ports = [...(f.takes || []), ...(f.gives || [])];
   // Ссылка на удалённый ресурс — не «наружу», а обрыв: функция с ней не

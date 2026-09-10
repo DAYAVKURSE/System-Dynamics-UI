@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { FUNC_KINDS, chanceOf, factorsOf, isFactor, funcKind, newFactor, newFunc,
-  normalizeFunc, normalizeFactors, checkFunc } from "../lib/funcs.js";
+  normalizeFunc, normalizeFactors, checkFunc, funcGaps } from "../lib/funcs.js";
 import { factorHit, scheduleOf, solve } from "../lib/plan.js";
 
 /* Функция выполняется либо людьми, либо сама собой.
@@ -48,6 +48,15 @@ describe("проверка строения", () => {
     expect(checkFunc(F({ kind: "factor", factor: "x1" }), { traits, factors }).ok).toBe(true);
     expect(checkFunc(F({ kind: "factor", factor: "нет-такого" }), { traits, factors }).ok)
       .toBe(false);
+  });
+
+  it("фактор другого актива — обрыв: сезон одного актива не двигает другой", () => {
+    const factors = [{ id: "x1", e: "A", name: "сезон" }, { id: "x2", e: "B", name: "чужой" }];
+    const own = checkFunc(F({ kind: "factor", factors: ["x1"] }), { traits, factors });
+    expect(own.ok).toBe(true);
+    const foreign = F({ kind: "factor", factors: ["x1", "x2"] });
+    expect(checkFunc(foreign, { traits, factors }).ok).toBe(false);
+    expect(funcGaps(foreign, { traits, factors })).toContain("выбран фактор другого актива");
   });
 
   it("задаче фактор не нужен — с неё спрашивают людей", () => {
@@ -290,6 +299,44 @@ describe("несколько факторов в форме", () => {
     fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
     const m = JSON.parse(container.querySelector("textarea").value);
     expect(m.funcs.find((x) => x.kind === "factor").factors).toHaveLength(2);
+  });
+
+  it("выбрать дают только фактор своего актива; чужой из старой записи назван", () => {
+    /* Фактор — свой у актива, как и функции. В списке для выбора — только
+       свои; чужой, оставшийся в старой записи, показан с именем актива и
+       красит функцию, чтобы его сняли. */
+    let container;
+    ({ container } = render(<SystemModel />));
+    const load = (m) => {
+      fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+      if (!container.querySelector("textarea")) {
+        fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+      }
+      const area = container.querySelector("textarea");
+      fireEvent.change(area, { target: { value: JSON.stringify(m) } });
+      fireEvent.blur(area);
+      const row = screen.getByRole("button", { name: "Выгрузить" }).parentElement;
+      fireEvent.click(within(row).getByRole("button", { name: "Загрузить" }));
+    };
+    load({
+      entities: [{ id: "a", name: "Свой", color: "#fff", x: 0, y: 0 },
+        { id: "b", name: "Соседний", color: "#fff", x: 200, y: 0 }],
+      traits: [{ id: "t1", e: "a", l: "раз", unit: "шт.", have: 0 },
+        { id: "t2", e: "a", l: "два", unit: "шт.", have: 0 }],
+      factors: [{ id: "x1", e: "b", name: "чужой сезон" }],
+      funcs: [{ id: "f1", e: "a", name: "само", kind: "factor", factors: ["x1"],
+        takes: [{ trait: "t1", lo: 1, hi: 1 }], gives: [{ trait: "t2", lo: 1, hi: 1 }],
+        dur: 1, durHi: 1, durUnit: "дн" }],
+      tasks: [],
+    });
+    openFunc();
+    // Чужой фактор не предлагается — выбирать не из чего.
+    expect(screen.queryByLabelText("фактор функции")).toBeNull();
+    expect(screen.getByText(/Факторов в активе ещё нет/)).toBeInTheDocument();
+    // А тот, что уже стоит, назван по активу и красит функцию.
+    expect(screen.getAllByText(/чужой сезон \(фактор актива «Соседний»\)/).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText(/выбран фактор другого актива/).length).toBeGreaterThan(0);
   });
 
   it("выбранный фактор из списка убирается", () => {

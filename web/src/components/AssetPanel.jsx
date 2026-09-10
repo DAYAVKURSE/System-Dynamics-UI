@@ -579,7 +579,15 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
   const others = traits.filter((t) => t.e !== entityId);
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
   const assetName = (id) => entities.find((e) => e.id === id)?.name || "другой актив";
-  const factorName = (id) => factors.find((x) => x.id === id)?.name || "(фактор удалён)";
+  /* Фактор — свой у актива, как и его функции: сезон одного актива не
+     двигает ресурсы другого. Поэтому выбирать дают только из своих, а
+     чужой, попавший в старую запись, показан с пометкой, чтобы его сняли. */
+  const ownFactors = factors.filter((x) => x.e === entityId);
+  const factorName = (id) => {
+    const x = factors.find((z) => z.id === id);
+    if (!x) return "(фактор удалён)";
+    return x.e === entityId ? x.name : `${x.name} (фактор актива «${assetName(x.e)}»)`;
+  };
   /* ─── кого можно назначить на функцию ───
 
      ВСЕХ воркеров актива, и одинаково для всех трёх ролей. Прежде каждая
@@ -848,18 +856,18 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                         factors: factorsOf(x).filter((_, j) => j !== i) }))}>×</button>
                   </div>
                 </div>))}
-              {factors.length > 0 && (
+              {ownFactors.length > 0 && (
                 <select value="" aria-label="фактор функции"
                   onChange={(e) => { if (e.target.value) {
                     up(f.id, (x) => ({ ...x, factors: [...factorsOf(x), e.target.value] }));
                   } }}
                   style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12 }}>
                   <option value="">{factorsOf(f).length ? "+ затем фактор…" : "+ фактор…"}</option>
-                  {factors.filter((x) => !factorsOf(f).includes(x.id))
+                  {ownFactors.filter((x) => !factorsOf(f).includes(x.id))
                     .map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
                 </select>)}
               <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-                {!factors.length
+                {!ownFactors.length
                   ? "Факторов в активе ещё нет — заведите их во вкладке «Факторы»."
                   : !factorsOf(f).length
                     ? "Пока не сказано, от чего это происходит: выберите хотя бы один фактор."
