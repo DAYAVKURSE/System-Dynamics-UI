@@ -76,13 +76,15 @@ describe("форма «Материалы»", () => {
 
     expect(screen.queryByRole("dialog")).toBeNull();
     const card = materialsCard();
+    // Две единицы — две строки с номерами, у обеих тот же текст.
     expect(within(card).getByText("№1")).toBeInTheDocument();
-    expect(within(card).getByText("×2")).toBeInTheDocument();
-    expect(within(card).getByText("заявка от Иванова")).toBeInTheDocument();
-    expect(within(card).getByText(/загружено/)).toBeInTheDocument();
+    expect(within(card).getByText("№2")).toBeInTheDocument();
+    expect(within(card).getAllByText("заявка от Иванова")).toHaveLength(2);
+    expect(within(card).getAllByText(/загружено/)).toHaveLength(2);
     expect(within(card).getByText("2")).toBeInTheDocument();
-    const m = dump().materials.find((x) => x.trait === "req");
-    expect(m).toMatchObject({ kind: "text", qty: 2, text: "заявка от Иванова", file: null, code: "" });
+    const ms = dump().materials.filter((x) => x.trait === "req");
+    expect(ms).toHaveLength(2);
+    ms.forEach((m) => expect(m).toMatchObject({ kind: "text", qty: 1, text: "заявка от Иванова", file: null, code: "" }));
 
     // У ресурса «есть сейчас» — это число, и руками оно не вводится.
     tab("Схема");
@@ -111,6 +113,23 @@ describe("форма «Материалы»", () => {
     expect(dump().materials.filter((x) => x.trait === "req").map((x) => x.code)).toEqual(codes);
   });
 
+  it("тысяча кодов не уводит кнопку «Загрузить» вниз: список прокручивается сам", () => {
+    reports();
+    pickTrait("req");
+    openUpload();
+    const d = dialog();
+    fireEvent.click(within(d).getByLabelText("уникальное поле"));
+    fireEvent.change(within(d).getByLabelText("количество"), { target: { value: "1000" } });
+    const list = within(d).getByRole("list", { name: "уникальные коды" });
+    expect(list.querySelectorAll("input")).toHaveLength(1000);
+    expect(list.style.overflowY).toBe("auto");
+    expect(list.style.maxHeight).toBe("180px");
+    // Кнопки — вне прокручиваемого списка.
+    expect(list.contains(within(d).getByRole("button", { name: "Загрузить" }))).toBe(false);
+    fireEvent.click(within(d).getByRole("button", { name: "Загрузить" }));
+    expect(dump().materials.filter((x) => x.trait === "req")).toHaveLength(1000);
+  });
+
   it("файл: без сервера ложится внутрь сценария, и скачать его можно из списка", async () => {
     reports();
     pickTrait("req");
@@ -126,7 +145,7 @@ describe("форма «Материалы»", () => {
     const link = within(materialsCard()).getByRole("link", { name: "скачать шт. №1" });
     expect(link.getAttribute("href")).toMatch(/^data:/);
     expect(link.getAttribute("download")).toBe("договор.pdf");
-    expect(dump().materials.find((x) => x.trait === "req").file.name).toBe("договор.pdf");
+    expect(dump().materials.filter((x) => x.trait === "req").map((x) => x.file.name)).toEqual(["договор.pdf"]);
   });
 
   it("материалы переживают выгрузку и загрузку", () => {

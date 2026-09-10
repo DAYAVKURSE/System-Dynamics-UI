@@ -731,7 +731,7 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
           {err && <div style={{ fontSize: 11, color: BAD, marginTop: 3 }}>{err}</div>}
           {n > 1 && (
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>
-              один файл на все {nm(n)} единиц — одна запись «×{nm(n)}»</div>)}
+              один и тот же файл у всех {nm(n)} единиц — у каждой свой номер</div>)}
         </div>)}
       {kind === "text" && (
         <div style={{ marginTop: 8 }}>
@@ -742,11 +742,18 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
       {kind === "code" && (
         <div style={{ marginTop: 8 }}>
           <div style={S.lbl}>уникальный код — {n > 1 ? "свой у каждой единицы" : "создан программой"}</div>
-          {codes.map((c, i) => (
-            <input key={i} readOnly value={c} aria-label={`уникальный код ${i + 1}`}
-              style={{ ...field, fontFamily: "ui-monospace, monospace", letterSpacing: 1 }} />))}
-          <button style={{ ...btn(false), fontSize: 11, marginTop: 4 }} onClick={regen}>
-            другой код</button>
+          {/* Список кодов прокручивается сам, внутри окна: тысяча кодов —
+              тысяча полей, и кнопка «Загрузить» обязана оставаться под
+              рукой, а не в конце километровой ленты. */}
+          <div role="list" aria-label="уникальные коды"
+            style={{ maxHeight: 180, overflowY: "auto", marginTop: 4, paddingRight: 4,
+              border: `1px solid ${C.line}`, borderRadius: 6, padding: "2px 6px 6px" }}>
+            {codes.map((c, i) => (
+              <input key={i} readOnly value={c} aria-label={`уникальный код ${i + 1}`}
+                style={{ ...field, fontFamily: "ui-monospace, monospace", letterSpacing: 1 }} />))}
+          </div>
+          <button style={{ ...btn(false), fontSize: 11, marginTop: 6 }} onClick={regen}>
+            {n > 1 ? "другие коды" : "другой код"}</button>
         </div>)}
       <div className="flex gap-2" style={{ marginTop: 12, justifyContent: "flex-end" }}>
         <button style={btn(false)} onClick={onClose}>Отмена</button>

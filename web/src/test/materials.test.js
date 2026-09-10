@@ -11,13 +11,17 @@ import { MATERIAL_KINDS, newCode, newMaterials, normalizeMaterials, spentIds, st
 const FILE = { name: "договор.pdf", type: "application/pdf", size: 10, url: "/api/reports/x/1" };
 
 describe("запись материалов", () => {
-  it("файл и текст — одна запись с количеством; код — по записи на единицу", () => {
+  it("«количество N» — N записей любого вида: у каждой свой номер, у кода — свой код", () => {
+    /* Пять договоров одним файлом — пять договоров, и на каждый ссылаются
+       отдельно. Прежде файл и текст ложились одной записью «×N» — владелец
+       сказал, что это неправильно. */
     const file = newMaterials({ trait: "t1", qty: 3, kind: "file", file: FILE });
-    expect(file).toHaveLength(1);
-    expect(file[0]).toMatchObject({ trait: "t1", kind: "file", qty: 3, file: FILE, text: "", code: "" });
+    expect(file).toHaveLength(3);
+    file.forEach((m) => expect(m).toMatchObject({ trait: "t1", kind: "file", qty: 1, file: FILE, text: "", code: "" }));
+    expect(new Set(file.map((m) => m.id)).size).toBe(3);
     const text = newMaterials({ trait: "t1", qty: 2, kind: "text", text: "шаблон" });
-    expect(text).toHaveLength(1);
-    expect(text[0]).toMatchObject({ kind: "text", qty: 2, text: "шаблон", file: null });
+    expect(text).toHaveLength(2);
+    text.forEach((m) => expect(m).toMatchObject({ kind: "text", qty: 1, text: "шаблон", file: null }));
     const codes = newMaterials({ trait: "t1", qty: 3, kind: "code" });
     expect(codes).toHaveLength(3);
     expect(new Set(codes.map((m) => m.code)).size).toBe(3);
