@@ -209,14 +209,31 @@ describe("карта в форме", () => {
     expect(screen.queryByRole("button", { name: "+ раздел внутри" })).toBeNull();
   });
 
-  it("в отчёте две части: прогноз ресурсов и задачи — и в проекте тоже", () => {
-    /* Отдельного списка «созданные ресурсы» нет: вопрос «что уже вышло»
-       задают про конкретный ресурс, и ответ стоит там же, где сам ресурс. */
+  it("в отчёте пять разделов, у каждого своя тема и подпись, что внутри", () => {
+    /* Владелец: «зачем мне в прогнозе ресурсов, сколько функция займёт
+       времени». Ресурсы — про ресурсы, сроки — про сроки, и у каждого
+       раздела под заголовком сказано, что в нём. */
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    expect(screen.getByText("1. прогноз ресурсов")).toBeInTheDocument();
-    expect(screen.getByText("2. задачи")).toBeInTheDocument();
+    expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
+    expect(screen.getByText("2. Функции — что будет сделано")).toBeInTheDocument();
+    expect(screen.getByText("3. Сроки и трудозатраты")).toBeInTheDocument();
+    expect(screen.getByText("4. Задачи — что уже сделано")).toBeInTheDocument();
+    // Факторов в модели нет — раздела про них нет: пустой раздел — не раздел.
+    expect(screen.queryByText(/5\. Факторы/)).toBeNull();
     expect(screen.queryByText(/созданные ресурсы/)).toBeNull();
+    // Часы и сроки стоят в третьем разделе и ТОЛЬКО там.
+    const part1 = screen.getByText("1. Ресурсы — что изменится").closest("section");
+    expect(within(part1).queryByText(/человеко-часов/)).toBeNull();
+    expect(within(part1).queryByText(/Займёт/)).toBeNull();
+    const part3 = screen.getByText("3. Сроки и трудозатраты").closest("section");
+    expect(within(part3).getByText("Займёт времени — вся цепочка")).toBeInTheDocument();
+    expect(within(part3).getByText("Работы людей, человеко-часов")).toBeInTheDocument();
+    // Функция названа и сказано, что берёт и даёт.
+    const part2 = screen.getByText("2. Функции — что будет сделано").closest("section");
+    expect(within(part2).getByText("Собрать макет")).toBeInTheDocument();
+    expect(within(part2).getByText("Берёт")).toBeInTheDocument();
+    expect(within(part2).getByText("Даёт")).toBeInTheDocument();
   });
 
   it("ссылка есть у РАЗДЕЛА ОТЧЁТА — функции, а не у части страницы",
@@ -262,13 +279,13 @@ describe("карта в форме", () => {
        одно число и начинается другое, и что за величина названа. */
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    ["Кол-во выполнений ожидается", "Начнётся через", "Займёт времени",
-      "Берёт ресурсов", "Даёт ресурсов", "Выполнений принято"]
+    ["Выполнений ожидается", "Берёт", "Даёт", "Займёт времени — вся цепочка",
+      "Работы людей, человеко-часов", "Задач принято"]
       .forEach((t) => {
         expect(screen.getAllByText(t).length).toBeGreaterThan(0);
       });
-    // Ноль часов до старта — это не «мгновенно», а «сразу после постановки».
-    expect(screen.getByText("сразу после постановки")).toBeInTheDocument();
+    // Ноль часов до старта — это не «мгновенно», а «сразу».
+    expect(screen.getAllByText(/начнётся сразу/).length).toBeGreaterThan(0);
   });
 
   it("таймлайн стоит на календарной линейке, а не на безымянной полосе", () => {
@@ -313,7 +330,7 @@ describe("карта в форме", () => {
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     // Шаг посчитан по модели: сколько выполнений, когда и сколько работы.
     expect(screen.getAllByText("Собрать макет").length).toBeGreaterThan(0);
-    expect(screen.getByText("Кол-во выполнений ожидается")).toBeInTheDocument();
+    expect(screen.getByText("Выполнений ожидается")).toBeInTheDocument();
   });
 
   it("работа показана только по выбранным вещам", () => {
@@ -351,18 +368,20 @@ describe("карта в форме", () => {
       title: "Макеты",
     });
     // Те же две части и в том же порядке, что и на экране.
-    expect(html).toContain("1. Прогноз ресурсов");
-    expect(html).toContain("2. Задачи");
+    expect(html).toContain("1. Ресурсы — что изменится");
+    expect(html).toContain("2. Функции — что будет сделано");
+    expect(html).toContain("3. Сроки и трудозатраты");
+    expect(html).toContain("4. Задачи — что уже сделано");
     expect(html).not.toContain("Созданные ресурсы");
     expect(html).toContain("Макет главной");
     expect(html).toContain("с ресурса «заявка»");
     // В файле сказано то же, что на экране: по каким именно вещам отчёт.
     expect(html).toContain("по единицам №1");
     // Оценка — списком «величина → значение», а не строкой через точки.
-    expect(html).toContain("Кол-во выполнений ожидается");
-    expect(html).toContain("сразу после постановки");
-    expect(html).toContain("прогноз, ч");
-    expect(html).toContain("факт, ч");
+    expect(html).toContain("Выполнений ожидается");
+    expect(html).toContain("<td>сразу</td>");
+    expect(html).toContain("по плану, ч");
+    expect(html).toContain("по факту, ч");
     // У раздела отчёта свой якорь — на функцию и ссылаются.
     expect(html).toContain('id="shag-rs1-f1"');
     // Файл самодостаточен: ни одной ссылки наружу, чтобы он не рассыпался.
@@ -513,7 +532,7 @@ describe("карта в форме", () => {
     fireEvent.change(qty, { target: { value: "3" } });
     fireEvent.blur(qty);
     // Три заявки — три выполнения, а не одно, повторённое трижды.
-    expect(screen.getByText("Кол-во выполнений ожидается")).toBeInTheDocument();
+    expect(screen.getByText("Выполнений ожидается")).toBeInTheDocument();
     expect(screen.getAllByText("3").length).toBeGreaterThan(0);
   });
 
@@ -561,7 +580,7 @@ describe("карта в форме", () => {
     expect(screen.queryByText("Второй заход")).toBeNull();
     // И сказано, как увидеть сделанное: выбрать конкретную единицу.
     expect(screen.getByText(/это ПРОГНОЗ/)).toBeInTheDocument();
-    expect(screen.getByText("Задач на этот шаг ещё не заведено."))
+    expect(screen.getByText(/Задач по этому разделу ещё не заведено/))
       .toBeInTheDocument();
   });
 
@@ -663,14 +682,16 @@ describe("страница по ссылке", () => {
       expect((await screen.findAllByText("Макет главной")).length)
         .toBeGreaterThan(0);
       expect(screen.getByText(/с ресурса «заявка»/)).toBeInTheDocument();
-      // Те же две части и в том же порядке, что и на экране владельца.
+      // Те же разделы и в том же порядке, что и на экране владельца.
       // Вложенный раздел устроен так же — потому части и находятся дважды.
-      expect(screen.getAllByText("1. прогноз ресурсов").length).toBe(2);
-      expect(screen.getAllByText("2. задачи").length).toBe(2);
+      expect(screen.getAllByText("1. Ресурсы — что изменится").length).toBe(2);
+      expect(screen.getAllByText("2. Функции — что будет сделано").length).toBe(2);
+      expect(screen.getAllByText("3. Сроки и трудозатраты").length).toBe(2);
+      expect(screen.getAllByText("4. Задачи — что уже сделано").length).toBe(2);
       expect(screen.queryByText(/созданные ресурсы/)).toBeNull();
       expect(screen.getByText(/1. Собрать макет/)).toBeInTheDocument();
       // Оценка читается: каждая величина названа полностью и своей строкой.
-      expect(screen.getAllByText("Кол-во выполнений ожидается").length)
+      expect(screen.getAllByText("Выполнений ожидается").length)
         .toBeGreaterThan(0);
       expect(screen.getAllByText("Задач принято").length).toBeGreaterThan(0);
       expect(screen.getAllByText("1 из 2").length).toBeGreaterThan(0);

@@ -110,6 +110,28 @@ function ChangeRow({ c, made = [] }) {
     </div>);
 }
 
+/* Раздел снимка — тот же, что `Part` в ReportsPanel: номер, тема, строка
+   «что внутри». Заголовки совпадают слово в слово нарочно. */
+function Part({ n, title, hint, children }) {
+  return (
+    <section style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700 }}>{n}. {title}</div>
+      {hint && (
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+          {hint}</div>)}
+      <div style={{ marginTop: 6 }}>{children}</div>
+    </section>);
+}
+
+/* Часы — словами, как в приложении: «1.3 дн», а не «31 ч». */
+const hoursText = (h) => {
+  const v = Number(h) || 0;
+  if (v < 1) return `${Math.round(v * 60)} мин`;
+  if (v < 24) return `${Math.round(v * 10) / 10} ч`;
+  if (v < 24 * 30) return `${Math.round((v / 24) * 10) / 10} дн`;
+  return `${Math.round((v / (24 * 30)) * 10) / 10} мес`;
+};
+
 /** Одна задача: срок, состояние, сколько вышло и что из неё родилось. */
 function Task({ t }) {
   return (
@@ -163,87 +185,86 @@ function Block({ block, depth = 0 }) {
           Определённая единица не выбрана: это прогноз — что произойдёт, когда
           она появится в системе. Работы по ней пока нет.</div>)}
 
-      {/* ═══ 1. ПРОГНОЗ РЕСУРСОВ ═══
+      {/* Те же пять разделов, что и у владельца (ReportsPanel, `Part`):
+          заказчик должен видеть ровно то, что видит владелец, — иначе
+          разговор пойдёт про разное. */}
+      <Part n={1} title="Ресурсы — что изменится"
+        hint="Сколько каждого ресурса прибавится или убавится. Прогноз — вилка «от и до», факт — по принятым задачам.">
+        {changes.length
+          ? changes.map((c) => (
+            <ChangeRow key={c.trait} c={c}
+              made={(block.made || []).filter((r) => r.trait === c.trait)} />))
+          : <div style={{ fontSize: 11, color: C.muted }}>Ресурсы по этой цепочке не меняются.</div>}
+        {!!changes.length && !!(block.made || []).length && (
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+            Нажмите на ресурс — откроются сами вещи, которые по нему вышли.</div>)}
+      </Part>
 
-          Отдельного списка «созданные ресурсы» нет: вещи открываются
-          нажатием на строку своего ресурса. Второй список отвечал бы на тот
-          же вопрос второй раз и в другом порядке. */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>1. прогноз ресурсов</div>
-      <Facts rows={[
-        { label: "Работы (человеко-часов)", color: WARN,
-          value: `${nm(plan.workHours[0])}–${nm(plan.workHours[1])} ч` },
-        { label: "Задач принято", color: act.done ? OK : C.muted,
-          value: act.done ? `${nm(act.done)} из ${nm(act.total)}` : "ни одной" },
-        { label: "Фактически ушло часов", color: act.done ? OK : C.muted,
-          value: act.done ? `${nm(act.hours)} ч` : "факта пока нет" },
-      ]} />
-      {changes.map((c) => (
-        <ChangeRow key={c.trait} c={c}
-          made={(block.made || []).filter((r) => r.trait === c.trait)} />))}
-      {!!changes.length && !!(block.made || []).length && (
-        <div style={{ fontSize: 10, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-          Нажмите на ресурс — откроются сами вещи, которые по нему вышли.</div>)}
+      <Part n={2} title="Функции — что будет сделано"
+        hint="Цепочка функций по порядку и сколько раз каждая выполнится.">
+        {!plan.steps.length && (
+          <div style={{ fontSize: 11, color: C.muted }}>Функций нет: цепочка пуста.</div>)}
+        {plan.steps.map((s2, i) => (
+          <div key={`${s2.name}-${i}`} id={s2.anchor || undefined}
+            style={{ borderTop: i ? `1px solid ${C.line}` : "none", padding: "5px 0" }}>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>
+              {i + 1}. {s2.name}{s2.factor ? " · фактор, без людей" : ""}</div>
+            {/* Шаг, который не выполнится, остаётся в снимке — но со словами
+                вместо чисел: обещать заказчику работу, которая не начнётся,
+                нельзя, а молчать о ней ещё хуже. */}
+            {(s2.short || []).length ? (
+              <div style={{ fontSize: 10.5, color: WARN, lineHeight: 1.5 }}>
+                не выполнится: не хватает{" "}
+                {s2.short.map((x) => `${x.trait}${x.spentBy
+                  ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
+              </div>
+            ) : (
+              <Facts rows={[
+                { label: "Выполнений ожидается", value: nm(s2.runs), color: WARN },
+              ]} />)}
+          </div>))}
+      </Part>
 
-      {/* ═══ 2. ЗАДАЧИ ═══ */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>2. задачи</div>
-      <Facts rows={[
-        { label: "Шагов в цепочке", value: nm(plan.steps.length), color: WARN },
-      ]} />
-      {!!(block.before || []).length && (<>
-        <div style={{ ...S.lbl, marginTop: 8 }}>как эти вещи появились</div>
-        {block.before.map((t, k) => (<Task key={`${t.title}-b${k}`} t={t} />))}
-      </>)}
+      <Part n={3} title="Сроки и трудозатраты"
+        hint="Сколько продлится вся цепочка и сколько часов работы людей потребует — по прогнозу и по факту.">
+        <Facts rows={[
+          { label: "Займёт времени — вся цепочка", color: WARN,
+            value: `${hoursText(plan.calendarHours[0])}–${hoursText(plan.calendarHours[1])}` },
+          { label: "Работы людей, человеко-часов", color: WARN,
+            value: `${nm(plan.workHours[0])}–${nm(plan.workHours[1])} ч` },
+          { label: "Фактически ушло часов", color: act.done ? OK : C.muted,
+            value: act.done ? `${nm(act.hours)} ч` : "факта пока нет" },
+        ]} />
+        {plan.steps.filter((s2) => !(s2.short || []).length && !s2.factor).map((s2, i) => (
+          <div key={`${s2.name}-h${i}`} className="flex flex-wrap gap-2"
+            style={{ alignItems: "baseline", fontSize: 10.5, lineHeight: 1.6,
+              borderTop: `1px solid ${C.line}`, padding: "3px 0" }}>
+            <span style={{ fontSize: 11.5, flex: "1 1 120px" }}>{s2.name}</span>
+            <span style={{ color: WARN }}>работы {nm(s2.workLo)}–{nm(s2.workHi)} ч</span>
+            {!!s2.doneCount && (
+              <span style={{ color: OK }}>по факту {nm(s2.factHours)} ч</span>)}
+          </div>))}
+      </Part>
 
-      {/* ─── разделы отчёта: по одному на выполняемую функцию ─── */}
-      {!!plan.steps.length && (
-        <div style={{ ...S.lbl, marginTop: 10 }}>
-          разделы отчёта — по одному на функцию</div>)}
-      {plan.steps.map((s2, i) => (
-        <section key={`${s2.name}-${i}`} id={s2.anchor || undefined}
-          style={{ borderTop: `1px solid ${C.line}`, padding: "7px 0" }}>
-          <div style={{ fontSize: 12, fontWeight: 600 }}>
-            {i + 1}. {s2.name}{s2.factor ? " · фактор" : ""}</div>
-          {/* Шаг, который не выполнится, остаётся в снимке — но со словами
-              вместо сроков: обещать заказчику работу, которая не начнётся,
-              нельзя, а молчать о ней ещё хуже. */}
-          {(s2.short || []).length ? (
-            <div style={{ fontSize: 10.5, color: WARN, lineHeight: 1.5 }}>
-              не выполнится: не хватает{" "}
-              {s2.short.map((x) => `${x.trait}${x.spentBy
-                ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
-            </div>
-          ) : (
-            <Facts rows={[
-              { label: "Кол-во выполнений ожидается", value: nm(s2.runs), color: WARN },
-              s2.factor ? null
-                : { label: "Работы (человеко-часов)", color: WARN,
-                  value: `${nm(s2.workLo)}–${nm(s2.workHi)} ч` },
-              s2.factor ? null
-                : { label: "Выполнений принято", color: s2.doneCount ? OK : C.muted,
-                  value: s2.doneCount
-                    ? `${nm(s2.doneCount)} из ${nm((s2.tasks || []).length)}`
-                    : "ни одного" },
-              s2.factor ? null
-                : { label: "Фактически ушло часов", color: s2.doneCount ? OK : C.muted,
-                  value: s2.doneCount ? `${nm(s2.factHours)} ч` : "факта пока нет" },
-            ]} />)}
-          {/* Тот же набор данных, что и у отчёта целиком: свой прогноз
-              ресурсов, и вещи открываются из него же. */}
-          {!!(s2.changes || []).length && (<>
-            <div style={{ ...S.lbl, marginTop: 6 }}>прогноз ресурсов</div>
-            {s2.changes.map((c) => (
-              <ChangeRow key={c.trait} c={c}
-                made={(s2.made || []).filter((r) => r.trait === c.trait)} />))}
-          </>)}
-          <div style={{ ...S.lbl, marginTop: 6 }}>задачи</div>
-          {s2.factor
-            ? (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-                Задач тут не бывает: фактор случается сам.</div>)
-            : (s2.tasks || []).length
-              ? s2.tasks.map((t, k) => (<Task key={`${t.title}-${k}`} t={t} />))
-              : (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-                  Задач на этот шаг ещё не заведено.</div>)}
-        </section>))}
+      <Part n={4} title="Задачи — что уже сделано"
+        hint="Задачи по этой цепочке: срок, состояние, часы по факту и что вышло.">
+        <Facts rows={[
+          { label: "Задач принято", color: act.done ? OK : C.muted,
+            value: act.done ? `${nm(act.done)} из ${nm(act.total)}` : "ни одной" },
+        ]} />
+        {!(block.before || []).length && !plan.steps.some((s2) => (s2.tasks || []).length) && (
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+            Задач по этому разделу ещё не заведено — пока это только прогноз.</div>)}
+        {!!(block.before || []).length && (<>
+          <div style={{ ...S.lbl, margin: "8px 0 2px" }}>как эти вещи появились</div>
+          {block.before.map((t, k) => (<Task key={`${t.title}-b${k}`} t={t} />))}
+        </>)}
+        {plan.steps.filter((s2) => !s2.factor && (s2.tasks || []).length).map((s2, i) => (
+          <div key={`${s2.name}-t${i}`} style={{ marginTop: 8 }}>
+            <div style={S.lbl}>функция «{s2.name}»</div>
+            {s2.tasks.map((t, k) => (<Task key={`${t.title}-${k}`} t={t} />))}
+          </div>))}
+      </Part>
 
       {(block.sections || []).map((s2, i) => (
         <Block key={`${s2.name}-${i}`} block={s2} depth={depth + 1} />))}

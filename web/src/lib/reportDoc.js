@@ -496,91 +496,95 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   ${d.unit && !d.traced ? '<p class="w">По этой единице не записано, что из чего сделано: при сдаче не отметили взятое. Ниже — только она сама.</p>' : ""}
   ${d.parents.length ? `<p class="m">сделано из: ${d.parents.map((u) => `№${u.no} ${esc(u.title || "без названия")}`).join(", ")}</p>` : ""}
 
-  <h${h + 1}>1. Прогноз ресурсов</h${h + 1}>
-  ${factsHtml([
-    { label: "Считано на", value: `${nm(plan.hi.qty)} × ${tnRaw(node.trait, traitName)}`
-      + (d.hypothetical ? " (единица не выбрана — прогноз для новой)" : "") },
-    { label: "Работы (человеко-часов)",
-      value: hoursRange(plan.lo.workHours, plan.hi.workHours) },
-    { label: "Займёт времени",
-      value: rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours) },
-    { label: "Фактически ушло часов",
-      value: actual.any ? `${nm(actual.hours)} ч` : "факта пока нет" },
-    Object.keys(plan.hi.need || {}).length
-      ? { label: "Нужно со стороны", value: Object.entries(plan.hi.need)
-        .map(([id, q]) => `${tnRaw(id, traitName)} ${nm(q)}`).join(", ") }
-      : null,
-    factors.length
-      ? { label: "На это влияют факторы", value: factors.map((x) => `${x.name}${
-        x.factors.length
-          ? ` (${x.factors.map((y) => `${y.name} ${y.chance}%`).join(", ")})` : ""}`)
-        .join("; ") }
-      : null,
-  ])}
+  <h${h + 1}>1. Ресурсы — что изменится</h${h + 1}>
+  <p class="m">Сколько каждого ресурса прибавится или убавится по этой цепочке.
+    Прогноз — вилка «от и до», факт — по принятым задачам. Считано на
+    ${nm(plan.hi.qty)} × ${tn(node.trait)}${d.hypothetical ? " — единица не выбрана, прогноз для новой" : ""}.</p>
   ${changes.length
     ? changes.map((c) => barRow(c, tn, d.made.filter((u) => u.trait === c.trait))).join("")
-      + `<p class="m">Полоса прогноза — вилка «от и до», полоса факта — то, что
-        вышло. У каждого ресурса своя шкала: доход в сотнях тысяч и договоры
-        в штуках на общей шкале несравнимы, да их и не складывают. Сравнивают
-        прогноз с фактом — и это сравнение внутри строки честное. Под
-        ресурсом стоят сами вещи, которые по нему вышли.</p>`
+      + `<p class="m">У каждого ресурса своя шкала: доход в сотнях тысяч и договоры
+        в штуках на общей шкале несравнимы. Под ресурсом стоят сами вещи,
+        которые по нему вышли.</p>`
     : '<p class="m">Ресурсы по этой цепочке не меняются.</p>'}
+  ${Object.keys(plan.hi.need || {}).length
+    ? `<p class="w">Своего не хватит — нужно со стороны: ${esc(Object.entries(plan.hi.need)
+      .map(([id, q]) => `${tnRaw(id, traitName)} ${nm(q)}`).join(", "))}</p>`
+    : ""}
 
-  <h${h + 1}>2. Задачи</h${h + 1}>
+  <h${h + 1}>2. Функции — что будет сделано</h${h + 1}>
+  <p class="m">Цепочка функций от выбранного ресурса до звена, по порядку.
+    У каждой — что берёт, что даёт и сколько раз выполнится.</p>
+  ${d.steps.length ? d.steps.map((s2, i2) => `
+    <h${Math.min(6, h + 2)} id="${esc(stepAnchor(node.id, s2.func))}">${
+      i2 + 1}. ${esc(s2.name)}${s2.factor ? " · фактор, без людей" : ""}</h${Math.min(6, h + 2)}>
+    ${(s2.short || []).length
+      ? `<p class="w">не выполнится: не хватает ${esc((s2.short || [])
+        .map((x) => `${tnRaw(x.trait, traitName)}${x.spentBy
+          ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", "))}</p>`
+      : factsHtml([
+        { label: "Берёт", value: portText(s2.takes, (x) => tnRaw(x, traitName)) || "ничего" },
+        { label: "Даёт", value: portText(s2.gives, (x) => tnRaw(x, traitName)) || "ничего" },
+        { label: "Выполнений ожидается", value: nm(s2.runs) },
+        (() => { const own = factors.find((x) => x.func === s2.func);
+          return own && own.factors.length
+            ? { label: "Зависит от факторов",
+              value: own.factors.map((y) => `${y.name} ${y.chance}%`).join(", ") }
+            : null; })(),
+      ])}`).join("")
+    : '<p class="m">Функций нет: с этого ресурса цепочка никуда не ведёт.</p>'}
+
+  <h${h + 1}>3. Сроки и трудозатраты</h${h + 1}>
+  <p class="m">Когда какая функция начнётся и сколько продлится; сколько часов
+    работы людей это потребует — по прогнозу и по факту.</p>
   ${factsHtml([
-    { label: "Шагов в цепочке", value: nm(plan.hi.steps.length) },
-    { label: "Работы (человеко-часов)",
+    { label: "Займёт времени — вся цепочка",
+      value: rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours) },
+    { label: "Работы людей, человеко-часов",
       value: hoursRange(plan.lo.workHours, plan.hi.workHours) },
-    { label: "Задач принято",
-      value: actual.any ? `${nm(actual.done)} из ${nm(actual.total)}` : "ни одной" },
     { label: "Фактически ушло часов",
       value: actual.any ? `${nm(actual.hours)} ч` : "факта пока нет" },
   ])}
   ${timelineHtml(d.steps, d.before)}
+  ${d.steps.filter((s2) => !(s2.short || []).length).length ? `<table>
+    <tr><th>функция</th><th>начнётся</th><th>займёт</th><th>работы, ч</th><th>по факту, ч</th></tr>
+    ${d.steps.filter((s2) => !(s2.short || []).length).map((s2) => `<tr><td>${esc(s2.name)}</td>
+      <td>${num(s2.startHours) > 0 ? `через ${esc(timeText(s2.startHours))}` : "сразу"}</td>
+      <td>${esc(timeText(s2.calendarHours))}</td>
+      <td>${s2.factor ? "—" : esc(hoursRange(s2.workLo, s2.workHi))}</td>
+      <td>${s2.factor || !s2.doneCount ? "—" : nm(Math.round(num(s2.factHours) * 10) / 10)}</td></tr>`).join("")}
+  </table>` : ""}
+
+  <h${h + 1}>4. Задачи — что уже сделано</h${h + 1}>
+  <p class="m">Задачи, заведённые по этой цепочке: кто делает, срок, состояние,
+    часы по плану и по факту, что взято и что вышло.</p>
+  ${factsHtml([
+    { label: "Задач принято",
+      value: actual.any ? `${nm(actual.done)} из ${nm(actual.total)}` : "ни одной" },
+  ])}
+  ${!d.before.length && !d.steps.some((s2) => s2.tasks.length)
+    ? '<p class="m">Задач по этому разделу ещё не заведено — пока это только прогноз.</p>' : ""}
   ${d.before.length ? `<p class="m">как эти вещи появились:</p><table>
     <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th><th>вышло</th></tr>
     ${d.before.map((t) => `<tr><td>${esc(t.title)}</td><td>${pn(t.assignee)}</td>
       <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td>
       <td>${esc(linkText(t, traitName))}</td></tr>`).join("")}
   </table>` : ""}
+  ${d.steps.filter((s2) => !s2.factor && s2.tasks.length).map((s2) => `
+    <p class="m">функция «${esc(s2.name)}»:</p><table>
+      <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th>
+        <th>по плану, ч</th><th>по факту, ч</th><th>взяла → вышло</th></tr>
+      ${s2.tasks.map((t) => `<tr><td>${esc(t.title)}</td><td>${pn(t.assignee)}</td>
+        <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td>
+        <td>${perRun(s2)}</td><td>${t.hours == null ? "—" : nm(t.hours)}</td>
+        <td>${esc(linkText(t, traitName))}</td></tr>`).join("")}
+    </table>`).join("")}
 
-  ${d.steps.length ? d.steps.map((s2, i2) => `
-    <h${Math.min(6, h + 2)} id="${esc(stepAnchor(node.id, s2.func))}">${
-      i2 + 1}. ${esc(s2.name)}${s2.factor ? " · фактор" : ""}</h${Math.min(6, h + 2)}>
-    ${(s2.short || []).length
-      ? `<p class="w">не выполнится: не хватает ${esc((s2.short || [])
-        .map((x) => `${tnRaw(x.trait, traitName)}${x.spentBy
-          ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", "))}</p>`
-      : factsHtml([
-        { label: "Кол-во выполнений ожидается", value: nm(s2.runs) },
-        { label: "Начнётся через", value: num(s2.startHours) > 0
-          ? timeText(s2.startHours) : "сразу после постановки" },
-        { label: "Займёт времени", value: timeText(s2.calendarHours) },
-        s2.factor ? null
-          : { label: "Работы (человеко-часов)",
-            value: hoursRange(s2.workLo, s2.workHi) },
-        { label: "Берёт ресурсов", value: portText(s2.takes, (x) => tnRaw(x, traitName)) },
-        { label: "Даёт ресурсов", value: portText(s2.gives, (x) => tnRaw(x, traitName)) },
-        s2.factor ? null : { label: "Выполнений принято", value: s2.doneCount
-          ? `${nm(s2.doneCount)} из ${nm(s2.tasks.length)}` : "ни одного" },
-        s2.factor ? null : { label: "Фактически ушло часов", value: s2.doneCount
-          ? `${nm(Math.round(num(s2.factHours) * 10) / 10)} ч` : "факта пока нет" },
-      ])}
-    ${(s2.changes || []).length
-      ? s2.changes.map((c) => barRow(c, tn,
-        (s2.made || []).filter((u) => u.trait === c.trait))).join("")
-      : '<p class="m">Ресурсы этим шагом не меняются.</p>'}
-    ${s2.factor
-      ? '<p class="m">Задач тут не бывает: фактор случается сам, и спрашивать за него не с кого.</p>'
-      : s2.tasks.length ? `<table>
-        <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th>
-          <th>прогноз, ч</th><th>факт, ч</th><th>взяла → вышло</th></tr>
-        ${s2.tasks.map((t) => `<tr><td>${esc(t.title)}</td><td>${pn(t.assignee)}</td>
-          <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td>
-          <td>${perRun(s2)}</td><td>${t.hours == null ? "—" : nm(t.hours)}</td>
-          <td>${esc(linkText(t, traitName))}</td></tr>`).join("")}
-      </table>` : '<p class="m">Задач на этот шаг ещё не заведено.</p>'}
-  `).join("") : '<p class="m">Шагов нет: цепочка пуста.</p>'}
+  ${factors.length ? `<h${h + 1}>5. Факторы — что влияет</h${h + 1}>
+  <p class="m">Что в этой цепочке случается само, без людей, и с какой вероятностью.</p>
+  <table><tr><th>функция</th><th>факторы</th></tr>
+    ${factors.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.factors.length
+      ? x.factors.map((y) => `${y.name} ${y.chance}%`).join(", ") : "фактор не назван")}</td></tr>`).join("")}
+  </table>` : ""}
 
   ${(d.sections || []).map((k) => block(k, depth + 1)).join("")}
 </section>`;

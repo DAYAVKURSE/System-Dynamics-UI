@@ -98,7 +98,7 @@ const fmtDT = (v) => {
    значениях вылезали из формы; текст в потоке переносится и не вылезает
    никогда. Заодно это второе кодирование к цвету: пара «прогноз/факт»
    читается и без цвета — так требует правило про план и факт. */
-export function ChangeChart({ rows = [], traitName, madeOf }) {
+export function ChangeChart({ rows = [], traitName, madeOf, haveOf }) {
   const [open, setOpen] = useState("");
   if (!rows.length) return null;
   const dot = (color, label) => (
@@ -110,7 +110,7 @@ export function ChangeChart({ rows = [], traitName, madeOf }) {
     <div>
       <div className="flex flex-wrap gap-2"
         style={{ alignItems: "center", marginBottom: 6 }}>
-        {dot(WARN, "прогноз (от и до)")}{dot(OK, "факт")}
+        {dot(WARN, "прогноз — на сколько изменится (от и до)")}{dot(OK, "факт")}
       </div>
       {rows.map((r) => {
         const lo = Math.min(r.lo, r.hi);
@@ -147,6 +147,13 @@ export function ChangeChart({ rows = [], traitName, madeOf }) {
           <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
             <span style={{ fontSize: 11.5, flex: "1 1 110px" }}>
               {traitName(r.trait)}</span>
+            {/* Сколько есть сейчас — точка отсчёта: «+3» без неё не говорит,
+                много это или мало. */}
+            {haveOf && (
+              <span style={{ fontSize: 10.5, color: C.muted }}>
+                сейчас{" "}
+                <b style={{ fontFamily: "ui-monospace, monospace" }}>{nm(haveOf(r.trait))}</b>
+              </span>)}
             <span style={{ fontSize: 10.5, color: WARN }}>
               прогноз{" "}
               <b style={{ fontFamily: "ui-monospace, monospace" }}>{planText}</b>
@@ -447,93 +454,14 @@ function AnchorLink({ href, label }) {
  * ресурсов и задачи. Иначе «раздел» означал бы то одно, то другое, и
  * ссылка на раздел вела бы неизвестно на что.
  */
-function StepSection({ s, no, nodeId, own, traitName, personName, row, perRun,
-  portLine }) {
-  const factHours = Math.round((s.factHours || 0) * 10) / 10;
-  const madeOf = (trait) => (s.made || []).filter((u) => u.trait === trait);
+/* Строка задачи — одна на все разделы, где задачи показываются: срок,
+   исполнитель, состояние, часы по плану и по факту, что взяла и что вышло.
+   Ожидалось и вышло — рядом, на одной задаче: ради этого сравнения отчёт
+   и заводят. Часы у непринятой работы не показываются: их ещё никто не
+   измерил, а ноль читался бы как «сделано даром». */
+function TaskRow({ t, planHours, twins, personName, traitName }) {
   return (
-    <section id={stepAnchor(nodeId, s.func)}
-      style={{ borderTop: `1px solid ${C.line}`, padding: "9px 0" }}>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
-        <span style={{ fontSize: 10.5, color: C.muted, minWidth: 18 }}>{no}.</span>
-        <span style={{ fontSize: 12, flex: "1 1 120px", fontWeight: 600 }}>
-          {s.name}
-          {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор</span>}
-        </span>
-        <AnchorLink href={stepLink(nodeId, s.func)} label={s.name} />
-      </div>
-
-      <div style={{ marginLeft: 26 }}>
-        {/* ─── оценка ─── */}
-        <div style={{ ...S.lbl, marginTop: 6 }}>оценка</div>
-        {s.short?.length ? (
-          <div style={{ fontSize: 10.5, color: WARN, lineHeight: 1.5 }}>
-            не выполнится: не хватает{" "}
-            {s.short.map((x) => `${traitName(x.trait)}${x.spentBy
-              ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
-          </div>
-        ) : (
-          <Facts rows={[
-            { label: "Кол-во выполнений ожидается", value: nm(s.runs), color: WARN },
-            { label: "Начнётся через",
-              color: WARN,
-              value: s.startHours > 0 ? timeText(s.startHours)
-                : "сразу после постановки" },
-            { label: "Займёт времени", value: timeText(s.calendarHours), color: WARN },
-            s.factor ? null
-              : { label: "Работы (человеко-часов)",
-                value: hoursRange(s.workLo, s.workHi), color: WARN },
-            { label: "Берёт ресурсов", value: portLine(s.takes) },
-            { label: "Даёт ресурсов", value: portLine(s.gives) },
-            { label: "Выполнений принято",
-              color: s.doneCount ? OK : C.muted,
-              value: s.factor ? "" : (s.doneCount
-                ? `${nm(s.doneCount)} из ${nm(s.tasks.length)}`
-                : "ни одного") },
-            { label: "Фактически ушло часов",
-              color: s.doneCount ? OK : C.muted,
-              value: s.factor ? "" : (s.doneCount ? `${nm(factHours)} ч`
-                : "факта пока нет") },
-            own && own.factors.length
-              ? { label: "На это влияют факторы",
-                color: ACC,
-                value: own.factors.map((y) => `${y.name} ${y.chance}%`).join(", ") }
-              : null,
-          ]} />)}
-
-        {/* ─── прогноз ресурсов этого шага ─── */}
-        <div style={{ ...S.lbl, marginTop: 8 }}>прогноз ресурсов</div>
-        {(s.changes || []).length
-          ? <ChangeChart rows={s.changes} traitName={traitName} madeOf={madeOf} />
-          : (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-              Ресурсы этим шагом не меняются.</div>)}
-
-        {/* ─── задачи ─── */}
-        <div style={{ ...S.lbl, marginTop: 8 }}>задачи</div>
-        {s.factor
-          ? (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-              Задач тут не бывает: фактор случается сам, и спрашивать за него
-              не с кого.</div>)
-          : s.tasks.length
-            ? s.tasks.map((t) => row(t, perRun(s)))
-            : (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-                Задач на этот шаг ещё не заведено.</div>)}
-      </div>
-    </section>);
-}
-
-function Tasks({ steps = [], before = [], plan, actual, factors = [],
-  funcName, personName, traitName, nodeId }) {
-  /* Задачи, названные одинаково, различаются номером при ПОКАЗЕ: править
-     сохранённое название приложение не должно — это слова человека. */
-  const twins = twinNo([...steps.flatMap((s) => s.tasks), ...before]);
-  const portLine = (list) => (list || [])
-    .filter((x) => nm(x.qty) !== "0")
-    .map((x) => `${traitName(x.trait)} ${nm(x.qty)}`).join(", ");
-  const perRun = (s) => (s.runs > 0 ? nm(Math.round((s.workHi / s.runs) * 10) / 10) : "0");
-
-  const row = (t, planHours) => (
-    <div key={t.id} style={{ borderTop: `1px solid ${C.line}`, padding: "4px 0" }}>
+    <div style={{ borderTop: `1px solid ${C.line}`, padding: "4px 0" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <span style={{ fontSize: 11.5, flex: "1 1 130px" }}>
           {t.title}
@@ -550,13 +478,10 @@ function Tasks({ steps = [], before = [], plan, actual, factors = [],
           {t.canceled ? "отменена"
             : t.status === "done" ? "принято" : t.status}</span>
       </div>
-      {/* Ожидалось и вышло — рядом, на одной задаче: ради этого сравнения
-          отчёт и заводят. Часы у непринятой работы не показываются: их
-          ещё никто не измерил, а ноль читался бы как «сделано даром». */}
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
-        {planHours === "—" ? "" : `прогноз ${planHours} ч · `}
+        {planHours === "—" ? "" : `по плану ${planHours} ч · `}
         {t.hours == null ? "факта пока нет"
-          : <span style={{ color: OK }}>факт {nm(t.hours)} ч</span>}
+          : <span style={{ color: OK }}>по факту {nm(t.hours)} ч</span>}
         {!!t.took.length && (
           <span style={{ color: ACC }}>
             {" · взяла "}{t.took.map((u) => `${traitName(u.trait)} №${u.no}`).join(", ")}
@@ -564,45 +489,149 @@ function Tasks({ steps = [], before = [], plan, actual, factors = [],
       </div>
       {t.made.map((u) => (<MadeUnit key={u.id} u={u} traitName={traitName} />))}
     </div>);
+}
 
+/* Что функция берёт и что даёт — одной строкой; нули не пишутся, иначе
+   строка заполняется тем, чего не происходит. */
+const portLine = (list, traitName) => (list || [])
+  .filter((x) => nm(x.qty) !== "0")
+  .map((x) => `${traitName(x.trait)} ${nm(x.qty)}`).join(", ");
+
+/* Сколько по плану уходит на ОДНО выполнение: с этим числом и сравнивают
+   потраченные часы задачи. Выполнений нет — сравнивать не с чем. */
+const perRun = (s) => (s.runs > 0 ? nm(Math.round((s.workHi / s.runs) * 10) / 10) : "—");
+
+/* ─── 2. функции ─── */
+function FuncRows({ steps = [], factors = [], nodeId, traitName }) {
+  if (!steps.length) {
+    return (
+      <div style={{ fontSize: 11, color: C.muted }}>
+        Функций нет: с этого ресурса цепочка никуда не ведёт — ни одна функция его не берёт.
+      </div>);
+  }
+  return steps.map((s, i) => {
+    const own = factors.find((x) => x.func === s.func);
+    return (
+      <div key={s.func} id={stepAnchor(nodeId, s.func)}
+        style={{ borderTop: i ? `1px solid ${C.line}` : "none", padding: "6px 0" }}>
+        <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
+          <span style={{ fontSize: 10.5, color: C.muted, minWidth: 18 }}>{i + 1}.</span>
+          <span style={{ fontSize: 12, flex: "1 1 120px", fontWeight: 600 }}>
+            {s.name}
+            {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор, без людей</span>}
+          </span>
+          <AnchorLink href={stepLink(nodeId, s.func)} label={s.name} />
+        </div>
+        <div style={{ marginLeft: 26 }}>
+          {s.short?.length ? (
+            <div style={{ fontSize: 10.5, color: WARN, lineHeight: 1.5 }}>
+              не выполнится: не хватает{" "}
+              {s.short.map((x) => `${traitName(x.trait)}${x.spentBy
+                ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
+            </div>
+          ) : (
+            <Facts rows={[
+              { label: "Берёт", value: portLine(s.takes, traitName) || "ничего" },
+              { label: "Даёт", value: portLine(s.gives, traitName) || "ничего" },
+              { label: "Выполнений ожидается", value: nm(s.runs), color: WARN },
+              own && own.factors.length
+                ? { label: "Зависит от факторов", color: ACC,
+                  value: own.factors.map((y) => `${y.name} ${y.chance}%`).join(", ") }
+                : null,
+            ]} />)}
+        </div>
+      </div>);
+  });
+}
+
+/* ─── 3. сроки и трудозатраты ─── */
+function Schedule({ steps = [], before = [], plan, actual }) {
+  const live = steps.filter((s) => !s.short?.length);
   return (
     <div>
-      {/* Итог по разделу — теми же подписанными строками, что и у шага:
-          одна величина, одно название, одна строка. */}
       <Facts rows={[
-        { label: "Шагов в цепочке", value: nm(plan.hi.steps.length), color: WARN },
-        { label: "Работы (человеко-часов)", color: WARN,
+        { label: "Займёт времени — вся цепочка", color: WARN,
+          value: rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours) },
+        { label: "Работы людей, человеко-часов", color: WARN,
           value: hoursRange(plan.lo.workHours, plan.hi.workHours) },
-        { label: "Задач принято", color: actual.any ? OK : C.muted,
-          value: actual.any ? `${nm(actual.done)} из ${nm(actual.total)}`
-            : "ни одной" },
         { label: "Фактически ушло часов", color: actual.any ? OK : C.muted,
           value: actual.any ? `${nm(actual.hours)} ч` : "факта пока нет" },
       ]} />
-      {!steps.length && (
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
-          Шагов нет: с этого ресурса цепочка никуда не ведёт.</div>)}
       {/* Таймлайн — на календарной линейке: по ней и читают, когда что. */}
       <div style={{ marginTop: 8 }}>
         <Timeline steps={steps} before={before} />
       </div>
+      {!!live.length && (
+        <div style={{ marginTop: 6 }}>
+          <div style={S.lbl}>по функциям</div>
+          {live.map((s) => (
+            <div key={s.func} className="flex flex-wrap gap-2"
+              style={{ alignItems: "baseline", fontSize: 10.5, lineHeight: 1.6,
+                borderTop: `1px solid ${C.line}`, padding: "3px 0" }}>
+              <span style={{ fontSize: 11.5, flex: "1 1 120px" }}>{s.name}</span>
+              <span style={{ color: C.muted }}>
+                начнётся {s.startHours > 0 ? `через ${timeText(s.startHours)}` : "сразу"}</span>
+              <span style={{ color: C.muted }}>займёт {timeText(s.calendarHours)}</span>
+              {!s.factor && (
+                <span style={{ color: WARN }}>работы {hoursRange(s.workLo, s.workHi)}</span>)}
+              {!s.factor && !!s.doneCount && (
+                <span style={{ color: OK }}>
+                  по факту {nm(Math.round((s.factHours || 0) * 10) / 10)} ч</span>)}
+            </div>))}
+        </div>)}
+    </div>);
+}
+
+/* ─── 4. задачи ─── */
+function TaskList({ steps = [], before = [], actual, personName, traitName }) {
+  /* Задачи, названные одинаково, различаются номером при ПОКАЗЕ: править
+     сохранённое название приложение не должно — это слова человека. */
+  const twins = twinNo([...steps.flatMap((s) => s.tasks), ...before]);
+  const any = before.length || steps.some((s) => s.tasks.length);
+  const row = (t, planHours) => (
+    <TaskRow key={t.id} t={t} planHours={planHours} twins={twins}
+      personName={personName} traitName={traitName} />);
+  return (
+    <div>
+      <Facts rows={[
+        { label: "Задач принято", color: actual.any ? OK : C.muted,
+          value: actual.any ? `${nm(actual.done)} из ${nm(actual.total)}` : "ни одной" },
+      ]} />
+      {!any && (
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+          Задач по этому разделу ещё не заведено — пока это только прогноз.
+        </div>)}
       {!!before.length && (<>
-        <div style={{ ...S.lbl, margin: "10px 0 4px" }}>как эти вещи появились</div>
+        <div style={{ ...S.lbl, margin: "8px 0 2px" }}>как эти вещи появились</div>
         {/* Работа, в которой выбранные вещи родились, лежит ДО цепочки.
             Выбросить её значило бы не ответить, откуда они взялись. */}
         {before.map((t) => row(t, "—"))}
       </>)}
-
-      {/* ─── разделы отчёта: по одному на выполняемую функцию ─── */}
-      {!!steps.length && (
-        <div style={{ ...S.lbl, margin: "12px 0 0" }}>
-          разделы отчёта — по одному на функцию</div>)}
-      {steps.map((s, i) => (
-        <StepSection key={s.func} s={s} no={i + 1} nodeId={nodeId}
-          own={factors.find((x) => x.func === s.func)}
-          traitName={traitName} personName={personName} row={row}
-          perRun={perRun} portLine={portLine} />))}
+      {any && steps.map((s) => (
+        <div key={s.func} style={{ marginTop: 8 }}>
+          <div style={S.lbl}>функция «{s.name}»</div>
+          {s.factor
+            ? (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+                Фактор — задач не бывает: случается сам, спрашивать не с кого.</div>)
+            : s.tasks.length
+              ? s.tasks.map((t) => row(t, perRun(s)))
+              : (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+                  Задач по этой функции ещё не заведено.</div>)}
+        </div>))}
     </div>);
+}
+
+/* ─── 5. факторы ─── */
+function FactorRows({ factors = [] }) {
+  return factors.map((x) => (
+    <div key={x.func} className="flex flex-wrap gap-2"
+      style={{ alignItems: "baseline", fontSize: 11, lineHeight: 1.6 }}>
+      <span style={{ flex: "1 1 120px" }}>{x.name}</span>
+      <span style={{ color: ACC }}>
+        {x.factors.length
+          ? x.factors.map((y) => `${y.name} ${y.chance}%`).join(", ")
+          : "фактор не назван"}</span>
+    </div>));
 }
 
 /* ─────── МАТЕРИАЛЫ ───────
@@ -928,12 +957,29 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
    ссылаются. Раздел отчёта — это выполняемая функция, и адрес есть у неё:
    ссылка «на первый блок страницы» отвечала бы не на тот вопрос, ради
    которого её берут. */
-function Part({ n, title, children }) {
+/* ─────── РАЗДЕЛЫ ОТЧЁТА ───────
+
+   Пять разделов, и у каждого один вопрос:
+     1. Ресурсы — что изменится: сколько чего прибавится или убавится.
+     2. Функции — что будет сделано: цепочка, у каждой — берёт, даёт, сколько раз.
+     3. Сроки и трудозатраты: когда что начнётся, сколько продлится, сколько часов.
+     4. Задачи — что уже сделано: заведённая работа, кто, срок, состояние, часы.
+     5. Факторы — что влияет: что случается само и с какой вероятностью.
+
+   Прежде «прогноз ресурсов» открывался часами работы и сроками, а каждая
+   функция была «разделом отчёта» с тем же набором — оценка, ресурсы,
+   задачи, — и всё это трижды. Читалось это так: «зачем мне в ресурсах,
+   сколько функция займёт времени». Теперь у раздела своя тема, под
+   заголовком сказано, что в нём, и одно и то же в двух местах не стоит. */
+function Part({ n, title, hint, children }) {
   return (
-    <section style={{ marginTop: 10, borderTop: `1px solid ${C.line}`,
+    <section style={{ marginTop: 12, borderTop: `1px solid ${C.line}`,
       paddingTop: 8 }}>
-      <div style={{ ...S.lbl, marginBottom: 6 }}>{n}. {title}</div>
-      {children}
+      <div style={{ fontSize: 12.5, fontWeight: 700 }}>{n}. {title}</div>
+      {hint && (
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+          {hint}</div>)}
+      <div style={{ marginTop: 6 }}>{children}</div>
     </section>);
 }
 
@@ -1024,9 +1070,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           и подпись обязана говорить это словами, а не оставлять человека
           гадать, почему числа разные. */}
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
-        шагов в цепочке: {plan.hi.steps.length} ·
-        {" "}работ по вещам этого блока: {sum.rows} · принято: {sum.accepted} ·
-        {" "}{nm(sum.hours)} ч
+        функций в цепочке: {plan.hi.steps.length} ·
+        {" "}задач по этому разделу: {sum.rows} (принято {sum.accepted}) ·
+        {" "}часов по факту: {nm(sum.hours)}
       </div>
 
       {open && (<>
@@ -1183,66 +1229,57 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           </div>)}
 
         {!!node.trait && (<>
-          {/* ═══ 1. ПРОГНОЗ РЕСУРСОВ ═══
-
-              Первым — потому что раздел и заводят ради вопроса «что будет с
-              этим ресурсом». Отдельного списка «созданные ресурсы» здесь
-              нет: вещи открываются нажатием на строку своего ресурса прямо
-              в прогнозе. Второй список отвечал бы на тот же вопрос второй
-              раз и в другом порядке. */}
-          <Part n={1} title="прогноз ресурсов">
-            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6,
-              lineHeight: 1.5 }}>
+          <Part n={1} title="Ресурсы — что изменится"
+            hint="Сколько каждого ресурса прибавится или убавится по этой цепочке. Прогноз — вилка «от и до», факт — по принятым задачам. Сроки и часы — в разделе 3.">
+            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
               считано на {nm(plan.hi.qty)} × {traitName(node.trait)}
-              {doc.hypothetical ? " (единица не выбрана — прогноз для новой)" : ""}
+              {doc.hypothetical ? " — единица не выбрана, прогноз для новой" : ""}
             </div>
-            <Facts rows={[
-              { label: "Работы (человеко-часов)", color: WARN,
-                value: hoursRange(plan.lo.workHours, plan.hi.workHours) },
-              { label: "Займёт времени", color: WARN,
-                value: rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours) },
-              { label: "Фактически ушло часов", color: actual.any ? OK : C.muted,
-                value: actual.any ? `${nm(actual.hours)} ч` : "факта пока нет" },
-              Object.keys(plan.hi.need || {}).length
-                ? { label: "Нужно со стороны", color: WARN,
-                  value: Object.entries(plan.hi.need)
-                    .map(([id, q]) => `${traitName(id)} ${nm(q)}`).join(", ") }
-                : null,
-              factors.length
-                ? { label: "На это влияют факторы", color: ACC,
-                  value: factors.map((x) => `${x.name}${x.factors.length
-                    ? ` (${x.factors.map((y) => `${y.name} ${y.chance}%`).join(", ")})`
-                    : ""}`).join("; ") }
-                : null,
-            ]} />
-            <div style={{ height: 8 }} />
             {changes.length
               ? <ChangeChart rows={changes} traitName={traitName}
+                  haveOf={(t) => Number(traits.find((x) => x.id === t)?.have) || 0}
                   madeOf={(t) => doc.made.filter((u) => u.trait === t)} />
               : <div style={{ fontSize: 11, color: C.muted }}>
                   Ресурсы по этой цепочке не меняются.</div>}
+            {!!Object.keys(plan.hi.need || {}).length && (
+              <div style={{ fontSize: 10.5, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
+                Своего не хватит — нужно со стороны:{" "}
+                {Object.entries(plan.hi.need)
+                  .map(([id, q]) => `${traitName(id)} ${nm(q)}`).join(", ")}
+              </div>)}
             {/* Нажимать не на что — так и сказано: молчаливо неактивная
                 строка читается как поломка. */}
             {!!changes.length && (
-              <div style={{ fontSize: 10, color: C.muted, marginTop: 6,
-                lineHeight: 1.5 }}>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
                 {doc.made.length
                   ? "Нажмите на ресурс — откроются сами вещи, которые по нему вышли, и их можно скачать."
                   : "Готовых вещей по этой цепочке ещё нет — открывать пока нечего."}
               </div>)}
           </Part>
 
-          {/* ═══ 2. ЗАДАЧИ ═══
+          <Part n={2} title="Функции — что будет сделано"
+            hint="Цепочка функций от выбранного ресурса до звена, по порядку. У каждой — что берёт, что даёт и сколько раз выполнится.">
+            <FuncRows steps={doc.steps} factors={factors} nodeId={node.id}
+              traitName={traitName} />
+          </Part>
 
-              Таймлайн того, что делалось и что будет сделано, на
-              календарной линейке — а под ним разделы отчёта, по одному на
-              каждую выполняемую функцию, с тем же набором данных. */}
-          <Part n={2} title="задачи">
-            <Tasks steps={doc.steps} before={doc.before} plan={plan}
-              actual={actual} factors={factors} funcName={funcName}
-              traitName={traitName} nodeId={node.id}
+          <Part n={3} title="Сроки и трудозатраты"
+            hint="Когда какая функция начнётся и сколько продлится; сколько часов работы людей это потребует — по прогнозу и по факту.">
+            <Schedule steps={doc.steps} before={doc.before} plan={plan} actual={actual} />
+          </Part>
+
+          <Part n={4} title="Задачи — что уже сделано"
+            hint="Задачи, заведённые по этой цепочке: кто делает, срок, состояние, часы по плану и по факту, что взято и что вышло.">
+            <TaskList steps={doc.steps} before={doc.before} actual={actual}
+              traitName={traitName}
               personName={(id) => (nameOf ? nameOf(id) : id)} />
           </Part>
+
+          {!!factors.length && (
+            <Part n={5} title="Факторы — что влияет"
+              hint="Что в этой цепочке случается само, без людей, и с какой вероятностью.">
+              <FactorRows factors={factors} />
+            </Part>)}
         </>)}
 
         <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
