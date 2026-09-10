@@ -46,6 +46,94 @@ import { portSpends } from "./funcs.js";
 
 const num = (v) => Number(v) || 0;
 
+/* ═══ МАТЕРИАЛЫ · единицы, которые завели руками ═══
+
+   Не всё рождается сдачей: договор пришёл от заказчика, макет прислали
+   письмом, ключи выдали при регистрации. Такое кладут в «Материалы» на
+   вкладке отчётов — и это ВТОРОЙ, и последний, источник единиц. Ресурс
+   не имеет отдельного поля «есть сейчас»: сколько его есть — столько
+   единиц в материалах и в принятых сдачах, минус то, что израсходовано
+   (`stockOf`). Число, которое вводят руками, разошлось бы с вещами в
+   первый же день: «есть 5», а скачать — три.
+
+   Единица — что-то ОДНО: файл, текст или поле с уникальным кодом. Файл
+   и текст — вещь, которую можно показать; код — вещь, которую можно
+   назвать, когда показать нечего (ключ, номер, талон). Смешивать их в
+   одной единице незачем: у неё либо есть содержимое, либо есть код.
+
+   Хранится записью `{id, trait, kind, qty, file|text|code, at, by}`.
+   Файл и текст могут стоять «×N» — пять одинаковых договоров-шаблонов
+   это одна запись с количеством, как и у сдачи. Код — всегда по одному:
+   уникальный код на пятерых не уникален. */
+
+export const MATERIAL_KINDS = [
+  { id: "file", name: "файл" },
+  { id: "text", name: "текст" },
+  { id: "code", name: "уникальное поле" },
+];
+
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // без 0/O, 1/I — их путают
+
+/**
+ * Уникальный код единицы: восемь знаков, читаемых вслух.
+ *
+ * Случайность — из `crypto`, где она есть; повтор с уже занятыми кодами
+ * исключён перебором, а не верой в вероятность.
+ */
+export function newCode(taken = new Set()) {
+  const bytes = new Uint8Array(8);
+  for (let tries = 0; tries < 100; tries += 1) {
+    if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+    else bytes.forEach((_, i) => { bytes[i] = Math.floor(Math.random() * 256); });
+    const code = [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+    if (!taken.has(code)) return code;
+  }
+  return `${Date.now().toString(36).toUpperCase()}`;
+}
+
+export const materialKind = (m) => (["file", "text", "code"].includes(m?.kind) ? m.kind : "text");
+
+/**
+ * Записи материалов для одной загрузки.
+ *
+ * Файл и текст — одна запись с количеством; код — по записи на единицу,
+ * у каждой свой код. Возвращает список, потому что и то и другое —
+ * «единицы», и складываются они в один список.
+ */
+export function newMaterials({ trait, qty = 1, kind = "text", file = null, text = "",
+  by = null, at = new Date().toISOString(), existing = [], codes = [] } = {}) {
+  const n = Math.max(1, Math.floor(num(qty)) || 1);
+  const k = materialKind({ kind });
+  const stamp = Date.now().toString(36);
+  const base = { trait, kind: k, at, by, qty: 1, file: null, text: "", code: "" };
+  if (k === "code") {
+    const taken = new Set(existing.map((m) => m.code).filter(Boolean));
+    /* Коды, которые человек уже видел в окне (`codes`), и ложатся в
+       запись: показать один код, а сохранить другой — обман. Занятый или
+       пустой заменяется новым. */
+    return Array.from({ length: n }, (_, i) => {
+      const code = codes[i] && !taken.has(codes[i]) ? codes[i] : newCode(taken);
+      taken.add(code);
+      return { ...base, id: `m${stamp}${i.toString(36)}`, code };
+    });
+  }
+  return [{ ...base, id: `m${stamp}`, qty: n,
+    file: k === "file" ? (file || null) : null,
+    text: k === "text" ? String(text || "") : "" }];
+}
+
+/** Чужая запись — к нынешнему виду, без переноса чисел. */
+export const normalizeMaterials = (list) => (Array.isArray(list) ? list : [])
+  .filter((m) => m && typeof m === "object" && m.trait)
+  .map((m) => ({
+    ...m,
+    id: m.id ?? `m${Math.random().toString(36).slice(2, 10)}`,
+    kind: materialKind(m),
+    qty: Math.max(1, Math.floor(num(m.qty)) || 1),
+    at: m.at || null,
+    by: m.by ?? null,
+  }));
+
 /** Одна сдача задачи — последняя: по ней и судят о выполнении. */
 const lastSub = (t) => {
   const s = t?.submissions || [];
@@ -63,8 +151,22 @@ const lastSub = (t) => {
  * Номер (`no`) — порядковый внутри своего ресурса, от старых к новым: он
  * должен читаться вслух («задание №3»), а не быть строкой из букв.
  */
-export function unitsOf({ tasks = [], funcs = [] } = {}) {
+export function unitsOf({ tasks = [], funcs = [], materials = [] } = {}) {
   const rows = [];
+  /* Материалы — единицы, заведённые руками (см. выше): у них нет задачи
+     и сдачи, но есть номер, автор, дата и содержимое — то же, что и у
+     рождённых сдачей. Приняты всегда: их не сдавали, их положили. */
+  normalizeMaterials(materials).forEach((m) => {
+    rows.push({
+      id: m.id, trait: m.trait, qty: m.qty, took: [],
+      task: null, title: "", func: null, funcName: "", sub: null,
+      at: m.at || null, by: m.by ?? null,
+      text: m.kind === "text" ? (m.text || "") : "",
+      file: m.kind === "file" ? (m.file || null) : null,
+      code: m.kind === "code" ? (m.code || "") : "",
+      kind: m.kind, from: "material", accepted: true,
+    });
+  });
   tasks.forEach((t) => {
     /* Отменённая работа вещей не порождает: сдача по ней есть, но решение
        — «этого не делаем», и ставить её результат в один ряд с настоящими
@@ -97,6 +199,8 @@ export function unitsOf({ tasks = [], funcs = [] } = {}) {
            (`gives` → `files`), а старый общий файл остаётся запасным: у
            сдач, сделанных до этого, других файлов нет. */
         file: (sb.files || {})[trait] || sb.file || null,
+        code: "", kind: (sb.files || {})[trait] || sb.file ? "file" : "text",
+        from: "task",
         accepted: t.status === "done",
       });
     });
@@ -105,6 +209,21 @@ export function unitsOf({ tasks = [], funcs = [] } = {}) {
   const seq = {};
   rows.forEach((r) => { seq[r.trait] = (seq[r.trait] || 0) + 1; r.no = seq[r.trait]; });
   return rows;
+}
+
+/**
+ * Как единицу назвать в одну строку: код, имя файла, начало текста — или
+ * название задачи, из которой она вышла. Одно правило на все списки, чтобы
+ * одна и та же вещь в разных местах не звалась по-разному.
+ */
+export function unitLabel(u = {}) {
+  if (u.from === "material") {
+    if (u.code) return u.code;
+    if (u.file?.name) return u.file.name;
+    const t = String(u.text || "").trim();
+    return t ? (t.length > 40 ? `${t.slice(0, 39)}…` : t) : "материал";
+  }
+  return u.title || "без названия";
 }
 
 /** Единицы одного ресурса — от новых к старым, как их и выбирают. */
@@ -153,6 +272,68 @@ export function heldBy(tasks = [], f) {
     if (all[p.trait] != null) out[p.trait] = all[p.trait];
   });
   return out;
+}
+
+/* ─────── сколько есть ───────
+
+   Ресурс — это то, что есть, и есть его ровно столько, сколько единиц
+   лежит: материалы плюс принятые сдачи, минус израсходованное. Поле
+   «есть сейчас» у ресурса больше не вводят руками — оно считается отсюда,
+   и число сходится с вещами, которые можно скачать. */
+
+/** Какие единицы уже израсходованы — по номерам, которые назвали при сдаче. */
+export function spentIds({ tasks = [], funcs = [] } = {}) {
+  const out = new Set();
+  tasks.filter((t) => t.status === "done" && t.canceled !== true).forEach((t) => {
+    const sb = lastSub(t);
+    const f = funcs.find((x) => x.id === t.funcId);
+    if (!sb || !f) return;
+    Object.entries(sb.took || {}).forEach(([trait, ids]) => {
+      const p = (f.takes || []).find((x) => x.trait === trait);
+      if (p && portSpends(p)) (ids || []).forEach((id) => out.add(id));
+    });
+  });
+  return out;
+}
+
+/**
+ * Остаток каждого ресурса: сумма принятых единиц минус расход.
+ *
+ * Расход считается количеством, а не номерами: у старых сдач взятое не
+ * названо, а взято оно было. Номера (`spentIds`) — для пометки в списке,
+ * количество — для числа: так число не врёт на старых записях, а список
+ * не выдумывает, какая именно единица ушла.
+ */
+export function stockOf(model = {}) {
+  const { tasks = [], funcs = [] } = model;
+  const have = {};
+  unitsOf(model).filter((u) => u.accepted).forEach((u) => {
+    have[u.trait] = (have[u.trait] || 0) + num(u.qty);
+  });
+  tasks.filter((t) => t.status === "done" && t.canceled !== true).forEach((t) => {
+    const sb = lastSub(t);
+    const f = funcs.find((x) => x.id === t.funcId);
+    if (!sb || !f) return;
+    Object.entries(sb.takes || {}).forEach(([trait, v]) => {
+      const p = (f.takes || []).find((x) => x.trait === trait);
+      if (p && portSpends(p) && num(v) > 0) have[trait] = (have[trait] || 0) - num(v);
+    });
+  });
+  Object.keys(have).forEach((k) => { have[k] = Math.max(0, have[k]); });
+  return have;
+}
+
+/**
+ * Ресурсы с посчитанным «есть» вместо записанного.
+ *
+ * Расчёт (`plan`, `chain`, `shortage`) читает `t.have`, и переучивать его
+ * незачем: подставляем ему ресурсы, у которых `have` — остаток по
+ * материалам. Записанное в модели число при этом не трогается и не
+ * читается: см. «сколько есть» выше.
+ */
+export function withStock(model = {}) {
+  const stock = stockOf(model);
+  return (model.traits || []).map((t) => ({ ...t, have: stock[t.id] || 0 }));
 }
 
 /* ─────── родословная ───────

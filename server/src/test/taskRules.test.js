@@ -7,7 +7,9 @@ import { assetWorkers, heldBy, shortage, taskGaps, whyNotSet } from "../lib/task
    случаи, что в тестах фронтенда (deadline.test.jsx, orGroups.test.js,
    units.test.js), — чтобы два места не разошлись молча. */
 
-const TRAITS = [{ id: "t1", l: "спрос", have: 100 }, { id: "t2", l: "заявки", have: 0 }];
+const TRAITS = [{ id: "t1", l: "спрос" }, { id: "t2", l: "заявки" }];
+/* «Есть» — по материалам, а не по числу в ресурсе (`lib/stock.js`). */
+const M = (trait, qty) => ({ id: `m_${trait}_${qty}`, trait, kind: "text", qty });
 const FUNC = { id: "f1", e: "usr", name: "Сбор заявок",
   takes: [{ id: "p1", trait: "t1", lo: 2, hi: 4 }],
   gives: [{ id: "p2", trait: "t2", lo: 1, hi: 1 }] };
@@ -22,20 +24,22 @@ describe("незаполненность — словами и в порядке
   });
 
   it("незаполненной задаче сперва называют незаполненное, а не ресурсы", () => {
-    const poor = { funcs: [FUNC], traits: [{ id: "t1", l: "спрос", have: 1 }], tasks: [] };
+    const poor = { funcs: [FUNC], traits: [{ id: "t1", l: "спрос" }], tasks: [] };
     expect(whyNotSet(full({ assignee: null }), poor)).toBe("Не хватает: исполнитель");
   });
 });
 
 describe("ресурсы", () => {
   it("описать можно, а поставить — нет: сказано, чего и сколько", () => {
-    const poor = { funcs: [FUNC], traits: [{ id: "t1", l: "спрос", have: 1 }], tasks: [] };
+    const poor = { funcs: [FUNC], traits: [{ id: "t1", l: "спрос" }], tasks: [],
+      materials: [M("t1", 1)] };
     // «Сбор заявок» берёт до 4 «спроса», а его всего 1 — как в deadline.test.jsx.
     expect(whyNotSet(full(), poor)).toBe("Не хватает ресурсов: спрос — есть 1, нужно 4");
   });
 
   it("ресурса хватило — можно", () => {
-    expect(whyNotSet(full(), { funcs: [FUNC], traits: TRAITS, tasks: [] })).toBe("");
+    expect(whyNotSet(full(), { funcs: [FUNC], traits: TRAITS, tasks: [],
+      materials: [M("t1", 100)] })).toBe("");
   });
 
   it("«или» внутри группы: нет первого ресурса — работа идёт на втором", () => {
@@ -51,11 +55,11 @@ describe("ресурсы", () => {
 
   it("нерасходуемый вход второй раз этой функции не даётся", () => {
     const f = { ...FUNC, takes: [{ id: "a", trait: "t1", lo: 1, hi: 1, spend: false }] };
-    const traits = [{ id: "t1", l: "заявка", have: 1 }];
+    const traits = [{ id: "t1", l: "заявка" }];
     const done = [{ id: "d", funcId: "f1", status: "done",
       submissions: [{ takes: { t1: 1 } }] }];
     expect(heldBy(done, f)).toEqual({ t1: 1 });
-    expect(whyNotSet(full(), { funcs: [f], traits, tasks: done }))
+    expect(whyNotSet(full(), { funcs: [f], traits, tasks: done, materials: [M("t1", 1)] }))
       .toBe("Не хватает ресурсов: заявка — необработанного 0, нужно 1 (1 эта функция уже обработала)");
     // Непринятая сдача — ещё не результат.
     expect(heldBy(done.map((t) => ({ ...t, status: "review" })), f)).toEqual({});

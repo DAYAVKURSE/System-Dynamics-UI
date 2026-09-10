@@ -35,10 +35,13 @@ const MODEL = {
   entities: [{ id: "e1", name: "Продажи" }, { id: "e2", name: "Юристы" }],
   kinds: [{ id: "k1", name: "документы" }],
   traits: [
-    { id: "t1", e: "e1", l: "заявки", unit: "шт", have: 12 },
-    { id: "t2", e: "e2", l: "договоры", k: "k1", unit: "шт", have: null },
-    { id: "t9", e: "e2", l: "тайный бюджет", unit: "₽", have: 1000000 },
+    { id: "t1", e: "e1", l: "заявки", unit: "шт" },
+    { id: "t2", e: "e2", l: "договоры", k: "k1", unit: "шт" },
+    { id: "t9", e: "e2", l: "тайный бюджет", unit: "₽" },
   ],
+  // «Есть» — по материалам, а не по числу в ресурсе (`lib/stock.js`).
+  materials: [{ id: "m1", trait: "t1", kind: "text", qty: 12 },
+    { id: "m9", trait: "t9", kind: "code", qty: 1, code: "SECRET99" }],
   funcs: [
     { id: "f1", e: "e1", name: "Обработать заявку", about: "позвонить и записать",
       takes: [{ id: "p1", trait: "t1", lo: 1, hi: 2 }],
@@ -99,6 +102,7 @@ describe("не-владелец", () => {
     expect(ctx).not.toContain("Задача Петра");
     expect(ctx).not.toContain("Задача владельца");
     expect(ctx).not.toContain("тайный бюджет");
+    expect(ctx).not.toContain("SECRET99");
     expect(ctx).not.toContain("## Модель");
     expect(ctx).not.toContain("## Цели");
   });
@@ -145,7 +149,7 @@ describe("владелец", () => {
     expect(ctx).toContain("## Модель");
     expect(ctx).toContain("Актив «Продажи»");
     expect(ctx).toContain("заявки — есть 12 шт");
-    expect(ctx).toContain("договоры (документы) — количество не названо");
+    expect(ctx).toContain("договоры (документы) — есть 0 шт");
     expect(ctx).toContain("«Обработать заявку»: берёт заявки 1–2 шт; даёт договоры 0–1 шт → в актив «Юристы»");
     expect(ctx).toContain("время одного выполнения 1–2 ч; повтор раз в 1 дн");
     expect(ctx).toContain("«Сезон» (фактор");

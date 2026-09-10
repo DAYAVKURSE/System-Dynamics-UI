@@ -52,6 +52,10 @@ const MODEL = {
     { id: "t9", e: "e2", l: "тайна" }],
   edges: [{ id: "ed1", from: "e1", fromTrait: "t1", to: "t2", gives: 5 }],
   kinds: [], okrs: [], hypos: [],
+  /* Материалы — единицы ресурсов; чужого ресурса исполнитель не видит и
+     здесь: код «тайны» — такая же тайна, как она сама. */
+  materials: [{ id: "m9", trait: "t9", kind: "code", qty: 1, code: "SECRETCD" },
+    { id: "m2", trait: "t2", kind: "text", qty: 3, text: "заявки с сайта" }],
   tasks: [
     { id: "tk1", goalId: "t2", edgeId: "ed1", assignee: "200", reviewer: "300",
       title: "Задача Ивана", status: "progress", submissions: [], comments: [] },
@@ -108,12 +112,15 @@ describe("что приходит с сервера", () => {
     // Чужой задачи нет ни под каким ключом ответа.
     expect(JSON.stringify(res.body)).not.toContain("Задача владельца");
     expect(JSON.stringify(res.body)).not.toContain("тайна");
+    expect(JSON.stringify(res.body)).not.toContain("SECRETCD");
+    expect(Array.isArray(res.body.materials)).toBe(true);
   });
 
-  it("владельцу — модель целиком", async () => {
+  it("владельцу — модель целиком, материалы в ней", async () => {
     await saveModel();
     const res = await request(app).get("/api/workspace").set(as(100));
     expect(res.body.tasks).toHaveLength(2);
+    expect(res.body.materials.map((m) => m.id)).toEqual(["m9", "m2"]);
   });
 
   it("незваному — отказ, а не пустая модель", async () => {
@@ -661,7 +668,9 @@ describe("постановка через сервер", () => {
   const SETUP_MODEL = {
     entities: [{ id: "e1", name: "Я", crew: ["500", "200", "300"] },
       { id: "e2", name: "Чужой актив", crew: ["900"] }],
-    traits: [{ id: "t1", e: "e1", l: "спрос", have: 100 }],
+    traits: [{ id: "t1", e: "e1", l: "спрос" }],
+    // «Есть» — по материалам (`lib/stock.js`), а не по числу в ресурсе.
+    materials: [{ id: "m1", trait: "t1", kind: "text", qty: 100 }],
     funcs: [{ id: "f1", e: "e1", name: "Сбор заявок", dur: 2, durUnit: "ч",
       takes: [{ id: "p1", trait: "t1", lo: 2, hi: 4 }], gives: [],
       setters: ["500"], owners: ["200"], reviewers: ["300"] }],
@@ -727,7 +736,7 @@ describe("постановка через сервер", () => {
   });
 
   it("ресурсов не хватает — та же проверка, что у кнопки «Поставить»", async () => {
-    await saveSetupModel({ traits: [{ id: "t1", e: "e1", l: "спрос", have: 1 }] });
+    await saveSetupModel({ materials: [{ id: "m1", trait: "t1", kind: "text", qty: 1 }] });
     await inviteAll();
     const res = await setup("w1", 500, { assignee: "200", reviewer: "300", status: "backlog" });
     expect(res.status).toBe(400);

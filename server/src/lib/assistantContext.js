@@ -1,5 +1,6 @@
 import { identify, readOrg } from "./orgStore.js";
 import { readModel, viewFor } from "./workspaceStore.js";
+import { withStock } from "./stock.js";
 import { listReports } from "./reportStore.js";
 import { listMeetings, listTranscripts } from "./callStore.js";
 import { listMemory } from "./memoryStore.js";
@@ -77,7 +78,8 @@ const namesOf = (org) => {
 /* ─────── модель (только владельцу) ─────── */
 
 export function describeModel(model = {}) {
-  const traits = model.traits || [];
+  /* «Есть» — по материалам и принятым сдачам, а не по записанному числу. */
+  const traits = withStock(model);
   const kinds = new Map((model.kinds || []).map((k) => [k.id, k.name]));
   const entities = model.entities || [];
   const entName = (id) => entities.find((e) => e.id === id)?.name || "актив без названия";
@@ -106,7 +108,7 @@ export function describeModel(model = {}) {
         const named = (Array.isArray(t.ks) ? t.ks : (t.k ? [t.k] : []))
           .map((id) => kinds.get(id)).filter(Boolean);
         const kind = named.length ? ` (${named.join(", ")})` : "";
-        return `${t.l || "без названия"}${kind} — ${have == null ? "количество не названо" : `есть ${have}${t.unit ? ` ${t.unit}` : ""}`}`;
+        return `${t.l || "без названия"}${kind} — есть ${have}${t.unit ? ` ${t.unit}` : ""}`;
       }).join("; ")}`
       : "  ресурсы: не заведены");
     const fns = (model.funcs || []).filter((f) => f.e === e.id);

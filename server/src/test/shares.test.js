@@ -183,6 +183,25 @@ describe("что видно по ссылке", () => {
     expect(got.snapshot.path).toEqual(["Заказ «Сайт»", "Макеты"]);
   });
 
+  it("единица из материалов — тоже единица: с номером по общему счёту и не гипотетическая", async () => {
+    /* Заказчик прислал заявку письмом — её положили в «Материалы». Снимок
+       зовёт её тем же номером, что и приложение: материалы и сдачи
+       нумеруются одним счётом по времени (`web/src/lib/units.js`). */
+    await request(app).put("/api/workspace").set(as(100)).send({ model: {
+      ...MODEL,
+      materials: [{ id: "m1", trait: "t2", kind: "text", qty: 1, text: "макет от заказчика",
+        at: "2026-01-20T10:00:00Z" }],
+      reports: [MODEL.reports[0],
+        { ...MODEL.reports[1], trait: "t2", unit: "m1" }] } });
+    const { body } = await share("rs1");
+    const { body: got } = await request(app).get(`/api/shares/${body.token}`);
+    const b = got.snapshot.block;
+    expect(b.unit).toMatchObject({ no: 1, trait: "макет" });
+    expect(b.hypothetical).toBe(false);
+    // Сданный макет теперь второй: материал старше.
+    expect(b.made.map((r) => r.no)).toEqual([]);
+  });
+
   it("снимок по одной единице показывает её и то, что из неё выросло", async () => {
     /* Заказчик спрашивает не «покажи всё», а «что с моим заданием». */
     await request(app).put("/api/workspace").set(as(100)).send({ model: {

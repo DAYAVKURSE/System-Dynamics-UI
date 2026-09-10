@@ -1,3 +1,5 @@
+import { withStock } from "./stock.js";
+
 /* ════════════════════════════════════════════════════════════════
    ЧЕГО НЕ ХВАТАЕТ, ЧТОБЫ ЗАДАЧУ ПОСТАВИТЬ
 
@@ -101,7 +103,9 @@ export function whyNotSet(task = {}, model = {}) {
   const gaps = taskGaps(task);
   if (gaps.length) return `Не хватает: ${gaps.join(", ")}`;
   const f = (model.funcs || []).find((x) => x.id === task.funcId);
-  const miss = shortage(f, model.traits || [], heldBy(model.tasks || [], f));
+  /* «Есть» — по материалам и сдачам, а не по числу в ресурсе: то же, что
+     видит постановщик в форме (`withStock` на клиенте). */
+  const miss = shortage(f, withStock(model), heldBy(model.tasks || [], f));
   if (!miss.length) return "";
   return "Не хватает ресурсов: " + miss.map((x) => (x.spend
     ? `${x.name} — есть ${nm(x.have)}, нужно ${nm(x.need)}`

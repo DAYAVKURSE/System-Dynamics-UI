@@ -409,18 +409,18 @@ describe("воркеры принадлежат активу", () => {
 });
 
 describe("ресурс — такая же карточка", () => {
-  it("правится значением и единицей, а цели у него нет", () => {
-    // Цель ушла с ресурса в «Прогноз»: полем «сколько нужно» она обеднялась
-    // до числа, а у цели есть ещё темп, срок и цена.
+  it("«есть сейчас» не вводится — считается по материалам; цели у ресурса нет", () => {
+    /* Число, введённое руками, разошлось бы с вещами, которые можно скачать:
+       «есть 5», а скачать — три. Поэтому поле показывает остаток по
+       материалам и сдачам (lib/units.js, `stockOf`) и не правится. Цель
+       ушла с ресурса в «Прогноз»: у неё есть темп, срок и цена. */
     scheme();
     assetTab("Ресурсы");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[0]);
     expect(screen.queryByPlaceholderText("без цели")).toBeNull();
     const box = screen.getByText("есть сейчас").parentElement;
-    const inp = box.querySelector("input");
-    fireEvent.change(inp, { target: { value: "42" } });
-    fireEvent.blur(inp);
-    expect(dump().traits.some((t) => Number(t.have) === 42)).toBe(true);
+    expect(box.querySelector("input")).toBeNull();
+    expect(screen.getByLabelText("есть сейчас").textContent).toMatch(/по материалам/);
     expect(dump().traits.every((t) => t.want === undefined)).toBe(true);
   });
 

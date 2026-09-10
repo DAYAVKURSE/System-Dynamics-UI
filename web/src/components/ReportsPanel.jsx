@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
@@ -11,7 +11,9 @@ import {
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
   from "../lib/reportDoc.js";
 import { chainOf } from "../lib/chain.js";
-import { unitsOfTrait } from "../lib/units.js";
+import { MATERIAL_KINDS, newCode, newMaterials, spentIds, unitLabel, unitsOfTrait }
+  from "../lib/units.js";
+import Modal from "./Modal.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ОТЧЁТЫ · карта проектов
@@ -603,6 +605,213 @@ function Tasks({ steps = [], before = [], plan, actual, factors = [],
     </div>);
 }
 
+/* ─────── МАТЕРИАЛЫ ───────
+
+   Все единицы ресурсов в одном месте: те, что вышли из сдач, и те, что
+   положили руками. Здесь их смотрят по ресурсу, по номерам и скачивают —
+   ради этого вещи и хранят. Отсюда же считается, сколько ресурса есть:
+   отдельного поля «есть сейчас» у ресурса нет (lib/units.js, `stockOf`).
+
+   Загрузка — окном, а не полем в строке: у единицы три вида (файл, текст,
+   уникальное поле), и она может быть только чем-то одним. В окне это
+   видно сразу — переключатель, и под ним ровно одно поле. */
+
+const kindName = (id) => MATERIAL_KINDS.find((k) => k.id === id)?.name || id;
+
+/** Файл для скачивания текста или кода: вещь без файла всё равно скачивают. */
+const textHref = (text) => `data:text/plain;charset=utf-8,${encodeURIComponent(text || "")}`;
+
+function UnitRow({ u, unit, spent, nameOf }) {
+  const when = u.at ? fmtDT(u.at) : "";
+  /* Имя — только когда оно есть: голый идентификатор («local», «100»)
+     читается номером, а не человеком, и говорить его незачем. */
+  const named = u.by != null && u.by !== "" && nameOf ? String(nameOf(u.by) ?? "") : "";
+  const who = named && named !== String(u.by) ? named : "";
+  const source = u.from === "material"
+    ? `загружено${who ? ` · ${who}` : ""}${when ? ` · ${when}` : ""}`
+    : `из задачи «${u.title || "без названия"}»${when ? ` · ${when}` : ""}`;
+  const body = u.kind === "code" && u.code
+    ? <span style={{ fontFamily: "ui-monospace, monospace", letterSpacing: 1 }}>{u.code}</span>
+    : u.file ? <span>{/^image\//.test(u.file.type || "") ? "🖼" : "📎"} {u.file.name}</span>
+      : u.text ? <span style={{ whiteSpace: "pre-wrap" }}>{u.text}</span>
+        : <span style={{ color: WARN }}>содержимого нет</span>;
+  const href = u.file ? reportSrc(u.file) : textHref(u.code || u.text);
+  const fileName = u.file ? u.file.name : `${unit}-${u.no}.txt`;
+  return (
+    <div style={{ borderTop: `1px solid ${C.line}`, padding: "6px 0" }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", fontSize: 11.5 }}>
+        <span style={{ color: ACC, fontWeight: 700 }}>№{u.no}</span>
+        {u.qty > 1 && <span style={{ color: C.muted }}>×{nm(u.qty)}</span>}
+        <span style={{ fontSize: 10, color: C.muted }}>{kindName(u.kind)}</span>
+        <span style={{ flex: "1 1 160px", minWidth: 0, overflowWrap: "anywhere" }}>{body}</span>
+        {/* Слово, не только цвет: «израсходована» и «не принята» — разные
+            вещи, и обе должны читаться без цвета. */}
+        {spent && <span style={{ fontSize: 10, color: NEU }}>израсходована</span>}
+        {!u.accepted && <span style={{ fontSize: 10, color: WARN }}>не принята</span>}
+        {(u.file || u.text || u.code) && (
+          <a href={href} target="_blank" rel="noreferrer" download={fileName}
+            aria-label={`скачать ${unit} №${u.no}`}
+            style={{ ...btn(false), fontSize: 11, textDecoration: "none", color: ACC }}>
+            скачать</a>)}
+      </div>
+      <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{source}</div>
+    </div>);
+}
+
+/** Окно «загрузить единицу ресурса»: количество, вид, одно поле под вид. */
+function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose }) {
+  const [qty, setQty] = useState(1);
+  const [kind, setKind] = useState("file");
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [text, setText] = useState("");
+  /* Коды рождаются здесь, в окне, и показываются до загрузки: то, что
+     человек видит, то и сохранится. Количество выросло — кодов стало
+     больше, прежние остались на месте. */
+  const taken = useMemo(() => new Set(existing.map((m) => m.code).filter(Boolean)), [existing]);
+  const [codes, setCodes] = useState(() => [newCode(taken)]);
+  const n = Math.max(1, Math.floor(Number(qty)) || 1);
+  useEffect(() => {
+    setCodes((p) => {
+      if (p.length >= n) return p.slice(0, n);
+      const used = new Set([...taken, ...p]);
+      const more = Array.from({ length: n - p.length }, () => {
+        const c = newCode(used); used.add(c); return c;
+      });
+      return [...p, ...more];
+    });
+  }, [n, taken]);
+  const regen = () => {
+    const used = new Set(taken);
+    setCodes(Array.from({ length: n }, () => { const c = newCode(used); used.add(c); return c; }));
+  };
+  const pick = async (f) => {
+    setErr("");
+    if (!f) return;
+    setBusy(true);
+    try { setFile(await putReportFile(f)); } catch (e) { setErr(e.message || "не удалось сохранить файл"); }
+    setBusy(false);
+  };
+  const ready = kind === "file" ? !!file && !busy
+    : kind === "text" ? !!text.trim() : codes.length === n;
+  const submit = () => {
+    if (!ready) return;
+    onAdd(newMaterials({ trait, qty: n, kind, file, text, by: meId, existing, codes }));
+    onClose();
+  };
+  const field = { ...S.inp, width: "100%", marginTop: 4, fontSize: 12 };
+  return (
+    <Modal title={`Добавить: ${traitName}`} onClose={onClose}>
+      <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>
+        Единица ресурса — что-то одно: файл, текст или поле с уникальным кодом.
+      </div>
+      <div style={{ ...S.lbl, marginTop: 8 }}>количество</div>
+      <input type="number" min="1" step="1" value={qty} aria-label="количество"
+        onChange={(e) => setQty(e.target.value)} style={{ ...field, width: 120 }} />
+      <div style={{ ...S.lbl, marginTop: 8 }}>прилагаемые материалы</div>
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="прилагаемые материалы"
+        style={{ marginTop: 4 }}>
+        {MATERIAL_KINDS.map((k) => (
+          <label key={k.id} style={{ ...btn(kind === k.id), fontSize: 11.5, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <input type="radio" name="material-kind" value={k.id} checked={kind === k.id}
+              onChange={() => setKind(k.id)} aria-label={k.name} />
+            {k.name}
+          </label>))}
+      </div>
+      {kind === "file" && (
+        <div style={{ marginTop: 8 }}>
+          <div style={S.lbl}>файл</div>
+          <input type="file" aria-label="файл единицы" disabled={busy}
+            onChange={(e) => pick(e.target.files?.[0])} style={{ marginTop: 4, fontSize: 11.5 }} />
+          {busy && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>сохраняем…</div>}
+          {file && !busy && (
+            <div style={{ fontSize: 11, color: OK, marginTop: 3 }}>📎 {file.name}</div>)}
+          {err && <div style={{ fontSize: 11, color: BAD, marginTop: 3 }}>{err}</div>}
+          {n > 1 && (
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>
+              один файл на все {nm(n)} единиц — одна запись «×{nm(n)}»</div>)}
+        </div>)}
+      {kind === "text" && (
+        <div style={{ marginTop: 8 }}>
+          <div style={S.lbl}>текст</div>
+          <textarea value={text} aria-label="текст единицы" rows={4}
+            onChange={(e) => setText(e.target.value)} style={{ ...field, resize: "vertical" }} />
+        </div>)}
+      {kind === "code" && (
+        <div style={{ marginTop: 8 }}>
+          <div style={S.lbl}>уникальный код — {n > 1 ? "свой у каждой единицы" : "создан программой"}</div>
+          {codes.map((c, i) => (
+            <input key={i} readOnly value={c} aria-label={`уникальный код ${i + 1}`}
+              style={{ ...field, fontFamily: "ui-monospace, monospace", letterSpacing: 1 }} />))}
+          <button style={{ ...btn(false), fontSize: 11, marginTop: 4 }} onClick={regen}>
+            другой код</button>
+        </div>)}
+      <div className="flex gap-2" style={{ marginTop: 12, justifyContent: "flex-end" }}>
+        <button style={btn(false)} onClick={onClose}>Отмена</button>
+        <button style={{ ...btn(true, OK), opacity: ready ? 1 : 0.5 }} disabled={!ready}
+          onClick={submit}>Загрузить</button>
+      </div>
+    </Modal>);
+}
+
+export function Materials({ model = {}, entities = [], materials = [], setMaterials,
+  meId, nameOf }) {
+  const traits = model.traits || [];
+  const [picked, setPicked] = useState(traits[0]?.id || "");
+  const [adding, setAdding] = useState(false);
+  // Выбранный ресурс мог исчезнуть — тогда первый из оставшихся, а не пустота.
+  const cur = traits.find((t) => t.id === picked) || traits[0] || null;
+  const assetName = (id) => entities.find((e) => e.id === id)?.name || "";
+  const units = cur ? unitsOfTrait(model, cur.id) : [];
+  const spent = useMemo(() => spentIds(model), [model]);
+  const unit = cur?.unit || "ед.";
+  return (
+    <div style={{ ...S.card, marginBottom: 10 }}>
+      <div className="flex items-center gap-2">
+        <span style={S.lbl}>материалы — единицы ресурсов</span>
+        <span style={{ flex: 1 }} />
+        {!!cur && (
+          <button style={btn(true)} onClick={() => setAdding(true)}>
+            Загрузить единицу ресурса</button>)}
+      </div>
+      <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+        Здесь лежат все единицы ресурсов: вышедшие из сдач и загруженные
+        руками. Сколько ресурса есть — считается отсюда, а не вводится.
+      </div>
+      {!traits.length ? (
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>
+          Ресурсов в схеме пока нет — заведите их у актива.</div>
+      ) : (<>
+        <div style={{ ...S.lbl, marginTop: 8 }}>ресурс</div>
+        <select value={cur?.id || ""} aria-label="ресурс материалов"
+          onChange={(e) => setPicked(e.target.value)}
+          style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12, maxWidth: 360 }}>
+          {traits.map((t) => (
+            <option key={t.id} value={t.id}>
+              {assetName(t.e) ? `${assetName(t.e)} · ` : ""}{t.l || "без названия"}</option>))}
+        </select>
+        {!!cur && (
+          <div style={{ fontSize: 11.5, marginTop: 8 }}>
+            есть <b>{nm(Number(cur.have) || 0)}</b> {unit}
+            <span style={{ color: C.muted }}> · единиц в списке {units.length}</span>
+          </div>)}
+        {!!cur && (units.length
+          ? <div style={{ marginTop: 6 }}>
+            {units.map((u) => (
+              <UnitRow key={u.id} u={u} unit={unit} spent={spent.has(u.id)} nameOf={nameOf} />))}
+          </div>
+          : <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
+            Единиц пока нет: их сдают в задачах или загружают здесь.</div>)}
+      </>)}
+      {adding && cur && (
+        <UploadMaterial trait={cur.id} traitName={cur.l || "ресурс"} existing={materials}
+          meId={meId} onClose={() => setAdding(false)}
+          onAdd={(rows) => setMaterials?.((p) => [...(p || []), ...rows])} />)}
+    </div>);
+}
+
 /** Один блок карты — и проект, и раздел: они устроены одинаково. */
 /* Часть отчёта. Объявлена снаружи Node намеренно: объявленная внутри, она
    была бы новым типом компонента на каждой перерисовке — React разбирал бы
@@ -967,7 +1176,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
 }
 
 export default function ReportsPanel({ nodes = [], setNodes, model = {},
-  entities = [], nameOf, focus, onFocus, runsOf }) {
+  entities = [], nameOf, focus, onFocus, runsOf, materials = [], setMaterials, meId }) {
   const traitName = (id) => (model.traits || []).find((t) => t.id === id)?.l
     || (id ? "(ресурс удалён)" : "");
   const funcName = (id) => {
@@ -993,6 +1202,10 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
 
   return (
     <div>
+      {/* Материалы — перед проектами: проект начинается с единицы, и
+          прежде чем на неё ссылаться, её надо иметь. */}
+      <Materials model={model} entities={entities} materials={materials}
+        setMaterials={setMaterials} meId={meId} nameOf={nameOf} />
       <div style={{ ...S.card, marginBottom: 10 }}>
         <div className="flex items-center gap-2">
           <span style={S.lbl}>отчёты — карта проектов</span>

@@ -3,7 +3,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui
 import { DUR_UNITS, WORKER_KINDS, byCrew, crewOf, hoursOf, isFactor, missingGives,
   rangeText, requiredGives, shortage } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
-import { heldBy, unitsOf } from "../lib/units.js";
+import { heldBy, unitsOf, unitLabel } from "../lib/units.js";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -822,7 +822,7 @@ export function HiddenSwitch({hidden,onChange,whoElse}){
     </div>);
 }
 
-export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
+export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials=[],setTasks,
   onClose,nameOf,meId,isOwner=true,onComment,onDropComment,onSubmit}){
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const up=(f,v)=>upMany({[f]:v});
@@ -853,7 +853,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
      штука», а появление ВЕЩИ: вот это техническое задание, вот этот макет.
      На них потом и ссылаются разделы отчёта. */
   const unitNo={};
-  unitsOf({tasks:tasks.length?tasks:[task],funcs}).forEach(u=>{unitNo[u.id]=u.no;});
+  unitsOf({tasks:tasks.length?tasks:[task],funcs,materials}).forEach(u=>{unitNo[u.id]=u.no;});
   const tasksAll=tasks.length?tasks:[task];
 
   const reset=()=>{
@@ -929,7 +929,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
        единицы с номерами, исполнитель отмечает те, которые взял. Без этого
        потом не ответить, что выросло вот из этого задания. */
     const own=kind==="takes"
-      ?unitsOf({tasks:tasksAll,funcs}).filter(u=>u.trait===port.trait).reverse():[];
+      ?unitsOf({tasks:tasksAll,funcs,materials}).filter(u=>u.trait===port.trait).reverse():[];
     const on=(id)=>(took[port.trait]||[]).includes(id);
     const flip=(id)=>setTook(p=>{
       const was=p[port.trait]||[];
@@ -951,7 +951,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],setTasks,
                 fontSize:10.5,padding:"2px 6px"}}
                 aria-label={`взял ${traitName(port.trait)} №${u.no}`}
                 onClick={()=>flip(u.id)}>
-                №{u.no} {u.title||"без названия"}</button>))}
+                №{u.no} {unitLabel(u)}</button>))}
           </div>)}
         {!!own.length&&(
           <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
@@ -1306,7 +1306,7 @@ function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop,readOnly=false}){
    Слева — функции модели: под каждой заводятся её выполнения. Справа —
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
-export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTasks,
+export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],tasks,setTasks,
   openId,setOpenId,nameOf,onTake,meId,canAssign=true,onComment,onDropComment,onSubmit}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
@@ -1369,7 +1369,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],tasks,setTask
       </div>
 
       {open&&(
-        <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits}
+        <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
           entities={entities} meId={meId} isOwner={canAssign}
           onComment={onComment} onDropComment={onDropComment} onSubmit={onSubmit}
           nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}

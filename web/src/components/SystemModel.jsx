@@ -30,6 +30,7 @@ import ProfilePanel, { RemindersCard, warnMinOf } from "./ProfilePanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { countKind, dropKind } from "../lib/traits.js";
+import { normalizeMaterials, withStock } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
    СХЕМА ЖИЗНЕСПОСОБНОСТИ · v9
@@ -72,12 +73,18 @@ const ENTITIES0=normalizeAssets([
   {id:"usr",name:"Пользователи",color:"#7CE0FF",x:398,y:24},
   {id:"vm",name:"Виртуальный менеджер",color:"#3DDC97",x:398,y:300},
 ]);
-const T=(id,e,k,l,unit,have)=>({id,e,k,l,unit,have});
+const T=(id,e,k,l,unit)=>({id,e,k,l,unit});
 const TRAITS0=[
-  T("dem","mkt","res","спрос","обращ.",3000),
-  T("act","usr","growth","активные пользователи","чел.",20),
-  T("req","usr","res","заявки","шт.",0),
-  T("hdl","vm","growth","обработанные заявки","шт.",0),
+  T("dem","mkt","res","спрос","обращ."),
+  T("act","usr","growth","активные пользователи","чел."),
+  T("req","usr","res","заявки","шт."),
+  T("hdl","vm","growth","обработанные заявки","шт."),
+];
+/* Сколько чего есть — не поле ресурса, а материалы (lib/units.js): в
+   образце это две записи «×N», чтобы прогнозу было с чего начинать. */
+const MATERIALS0=[
+  {id:"m_dem",trait:"dem",kind:"text",qty:3000,text:"обращения с рынка",at:null,by:null},
+  {id:"m_act",trait:"act",kind:"text",qty:20,text:"пользователи на старте",at:null,by:null},
 ];
 /* Стартовая цель — образец записи, а не значение по умолчанию: она
    показывает, из чего цель состоит. Прежде цель была числом в поле
@@ -348,6 +355,7 @@ export function docFrom(data,cur){
     goals:normalizeGoals(arr(d.goals,cur.goals)),
     factors:normalizeFactors(arr(d.factors,cur.factors)),
     reports:normalizeReports(arr(d.reports,cur.reports)),
+    materials:normalizeMaterials(arr(d.materials,cur.materials)),
   };
 }
 
@@ -369,6 +377,9 @@ export default function SystemModel(){
      ресурсами: она про ту же работу, только собранную по заказам, а не по
      активам, и жить отдельно от модели ей незачем. */
   const [reports,setReports]=useState([]);
+  /* Материалы — единицы ресурсов, заведённые руками (lib/units.js). Часть
+     документа: из них и из принятых сдач считается, сколько ресурса есть. */
+  const [materials,setMaterials]=useState(MATERIALS0);
   /* Пространство вкладки задач — часть документа наравне с отчётами:
      положение блоков, стрелки и заметки живут с моделью, а не в браузере.
      У позванного оно своё и уезжает на сервер отдельно (см. ниже). */
@@ -454,8 +465,13 @@ export default function SystemModel(){
   const kindOf=useMemo(()=>kindLookup(kinds),[kinds]);
 
   // ─── история правок: отмена и возврат ───
-  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports}),
-    [entities,traits,kinds,tasks,funcs,goals,factors,reports]);
+  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports,materials}),
+    [entities,traits,kinds,tasks,funcs,goals,factors,reports,materials]);
+  /* Ресурсы с посчитанным «есть»: расчёт, доска задач и карточка ресурса
+     смотрят на остаток по материалам, а не на записанное число. Правят
+     при этом `traits` — по id, так что подмена здесь их не задевает. */
+  const traitsLive=useMemo(()=>withStock({traits,tasks,funcs,materials}),
+    [traits,tasks,funcs,materials]);
   const restoreDoc=useCallback((d)=>{
     // Документ достраивается до нынешней записи, но НЕ переносится из
     // прежних версий: модели, собранные под старый расчёт, работать не
@@ -466,6 +482,7 @@ export default function SystemModel(){
     setGoals(normalizeGoals(d.goals));
     setFactors(normalizeFactors(d.factors));
     setReports(normalizeReports(d.reports));
+    setMaterials(normalizeMaterials(d.materials));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -598,6 +615,7 @@ export default function SystemModel(){
     tasks:w?.tasks||[], funcs:w?.funcs, goals:w?.goals||[],
     factors:w?.factors||[],
     reports:w?.reports||[],
+    materials:w?.materials||[],
   }),[]);
   /* Разобрались ли, что открывать. До этого момента на экране может стоять
      встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
@@ -881,7 +899,7 @@ export default function SystemModel(){
     const id=setInterval(()=>setTick(v=>v+1),60000);
     return ()=>clearInterval(id);
   },[]);
-  useEffect(()=>{ setTasks(p=>autoFlow(p,{funcs,traits})); },[tasks,funcs,traits,tick]);
+  useEffect(()=>{ setTasks(p=>autoFlow(p,{funcs,traits:traitsLive})); },[tasks,funcs,traitsLive,tick]);
 
 
   /* ─── РАСЧЁТ ───
@@ -894,14 +912,14 @@ export default function SystemModel(){
      прогноз: функция сама по себе не повторяется, «как часто может» — её
      потолок, а не расписание. Нет применённых целей — ничего и не
      происходит, и это честный ответ, а не пустой график. */
-  const runsPlan=useMemo(()=>goalRuns({traits,funcs},goals,{runsOf}),
-    [traits,funcs,goals,runsOf]);
+  const runsPlan=useMemo(()=>goalRuns({traits:traitsLive,funcs},goals,{runsOf}),
+    [traitsLive,funcs,goals,runsOf]);
   /* Очередь действий по применённым целям — та же, что человек видел в
      форме цели, только собранная со всех целей сразу. */
   const appliedSteps=useMemo(()=>{
     const by=new Map();
     goals.filter(g=>g.appliedAt).forEach(g=>{
-      actionsOf(planGoal({traits,funcs},g,{runsOf})).forEach(st=>{
+      actionsOf(planGoal({traits:traitsLive,funcs},g,{runsOf})).forEach(st=>{
         const was=by.get(st.func);
         by.set(st.func,was
           ?{...was,runs:was.runs+st.runs,startHours:Math.min(was.startHours,st.startHours)}
@@ -909,16 +927,16 @@ export default function SystemModel(){
       });
     });
     return [...by.values()].sort((a,b)=>a.startHours-b.startHours||b.runs-a.runs);
-  },[traits,funcs,goals,runsOf]);
+  },[traitsLive,funcs,goals,runsOf]);
   /* Семя жребия. Факторы случаются не наверняка, и один и тот же набор
      чисел может развиться по-разному; семя выбирает, КАКОЙ именно вариант
      сейчас на экране. Оно живёт в состоянии, а не в модели: это не свойство
      системы, а то, на какой её вариант мы сейчас смотрим. */
   const [seed,setSeed]=useState(1);
-  const fc=useMemo(()=>forecast({traits,funcs,factors},{span,runsOf,plan:runsPlan,seed}),
-    [traits,funcs,factors,span,runsOf,runsPlan,seed]);
-  const moves=useMemo(()=>transfers({funcs,traits},{runsOf,plan:runsPlan}),
-    [funcs,traits,runsOf,runsPlan]);
+  const fc=useMemo(()=>forecast({traits:traitsLive,funcs,factors},{span,runsOf,plan:runsPlan,seed}),
+    [traitsLive,funcs,factors,span,runsOf,runsPlan,seed]);
+  const moves=useMemo(()=>transfers({funcs,traits:traitsLive},{runsOf,plan:runsPlan}),
+    [funcs,traitsLive,runsOf,runsPlan]);
   const workload=useMemo(()=>load({funcs},{runsOf,plan:runsPlan}),
     [funcs,runsOf,runsPlan]);
   const valuesFor=useCallback((tid)=>{
@@ -1043,13 +1061,14 @@ export default function SystemModel(){
           можно только с чужого разрешения. */}
       {tab==="reports" && (me.isOwner||me.solo) && (
         <ReportsPanel nodes={reports} setNodes={setReports}
-          model={{traits,funcs,tasks,factors}} entities={entities} nameOf={personName}
+          model={{traits:traitsLive,funcs,tasks,factors,materials}} entities={entities}
+          nameOf={personName} materials={materials} setMaterials={setMaterials} meId={me.id}
           runsOf={runsOf}
           focus={reportFocus} onFocus={setReportFocus}/>)}
 
       {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && me.tabs.includes("tasks") && (
-        <TasksBoard funcs={funcs} entities={entities} traits={traits}
+        <TasksBoard funcs={funcs} entities={entities} traits={traitsLive} materials={materials}
           tasks={myTasks} setTasks={setTasks}
           openId={openTask} setOpenId={setOpenTask}
           people={people} canAssign={me.isOwner} nameOf={personName}
@@ -1063,7 +1082,7 @@ export default function SystemModel(){
 
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (
-        <ReviewBoard tasks={tasks} traits={traits} entities={entities} funcs={funcs}
+        <ReviewBoard tasks={tasks} traits={traitsLive} entities={entities} funcs={funcs}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}
@@ -1126,7 +1145,7 @@ export default function SystemModel(){
         </div>
 
         {under==="time" && me.tabs.includes("timeline") && (
-          <Timeline tasks={myTasks} funcs={funcs} traits={traits} entities={entities}
+          <Timeline tasks={myTasks} funcs={funcs} traits={traitsLive} entities={entities}
             nameOf={personName} meId={me.id}/>)}
 
         {under==="edit" && selE && (
@@ -1150,7 +1169,7 @@ export default function SystemModel(){
               me={me} published={published}
               workers={workers} positionOf={positionName}
               funcs={funcs} setFuncs={setFuncs}
-              traits={traits} setTraits={setTraits}
+              traits={traitsLive} setTraits={setTraits} materials={materials}
               entities={entities} kinds={kinds} kindOf={kindOf}
               factors={factors} setFactors={setFactors}
               people={people} nameOf={personName} runsOf={runsOf}
@@ -1238,8 +1257,8 @@ export default function SystemModel(){
 
         {/* Цели: сколько, чего, к какому сроку, каким темпом и какой ценой.
             Модель отвечает тем, что из цели следует, — см. GoalsPanel. */}
-        <GoalsPanel goals={goals} setGoals={setGoals} traits={traits}
-          model={{traits,funcs}} runsOf={runsOf}
+        <GoalsPanel goals={goals} setGoals={setGoals} traits={traitsLive}
+          model={{traits:traitsLive,funcs}} runsOf={runsOf}
           /* Постановщика назначают на схеме, в ролях функции, — и задача
              рождается уже с ним: форма постановки его не выбирает. Без
              этого позванный постановщик не увидел бы задачу в «ждут
@@ -1254,7 +1273,7 @@ export default function SystemModel(){
             t.goalId!==id||t.status==="done"||(t.submissions||[]).length>0)))}/>
 
         {entities.map(en=>{
-          const ts=traits.filter(t=>t.e===en.id);
+          const ts=traitsLive.filter(t=>t.e===en.id);
           if(!ts.length) return null;
           return (
             <div key={en.id} style={{...S.card,marginBottom:10}}>

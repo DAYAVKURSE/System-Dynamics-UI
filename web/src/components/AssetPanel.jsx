@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { C, OK, BAD, ACC, WARN, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import { C, OK, BAD, ACC, WARN, S, btn, nm, TxtField } from "./ui.jsx";
 import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, countWorkers,
   editFunc, funcState,
   crewOf,
@@ -10,7 +10,7 @@ import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, cou
 import { Mark } from "./Modal.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
 import { scheduleOfPerson, statusOf, visibleStats } from "../lib/workers.js";
-import { unitsOf } from "../lib/units.js";
+import { unitLabel, unitsOf } from "../lib/units.js";
 import { hasKind, kindIdsOf, toggleKind } from "../lib/traits.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -1029,12 +1029,14 @@ export function Kinds({ kinds, onUp, onAdd, onDel, msg }) {
    Цели здесь тоже нет, и это осознанно. Поле «сколько нужно» обедняло
    цель до числа, а цель — это ещё темп («один клиент В НЕДЕЛЮ»), срок и
    цена. Всё это живёт в «Прогнозе», где считается; здесь ему места нет. */
-export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, kindOf,
-  open, setOpen,
+export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materials = [],
+  kinds, kindOf, open, setOpen,
   onWhy, onDelete, onUpKind, onAddKind, onDelKind, kindMsg }) {
   const mine = traits.filter((t) => t.e === entityId);
-  // Единицы с номерами: их не заводят руками, они рождаются сдачами.
-  const units = unitsOf({ tasks, funcs });
+  /* Единицы с номерами: из сдач и из материалов (вкладка «Отчёты»). Сколько
+     ресурса есть — это они и есть: `have` здесь уже посчитан по ним
+     (`withStock`), и руками его не вводят. */
+  const units = unitsOf({ tasks, funcs, materials });
   const [draft, setDraft] = useState("");
   const up = (id, patch) => setTraits((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   const add = (kindId) => {
@@ -1044,7 +1046,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
        нужно». */
     const t = { id: `t${Date.now().toString(36)}`, e: entityId,
       ks: kindId ? [kindId] : [], k: kindId || "", l: draft.trim(),
-      unit: "ед.", have: 0 };
+      unit: "ед." };
     setTraits((p) => [...p, t]);
     setDraft(""); setOpen(t.id);
   };
@@ -1076,9 +1078,15 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
               {` · выдают ${made}, берут ${used}`}
             </>}>
             <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+              {/* «Есть сейчас» не вводят: это число единиц в материалах и
+                  принятых сдачах минус израсходованное. Введённое руками
+                  число разошлось бы с вещами, которые можно скачать. */}
               <div style={{ flex: "1 1 110px" }}>
                 <div style={S.lbl}>есть сейчас</div>
-                <NumField value={t.have} onCommit={(v) => up(t.id, { have: v ?? 0 })} />
+                <div style={{ fontSize: 12.5, padding: "6px 0" }} aria-label="есть сейчас">
+                  {nm(Number(t.have) || 0)} {t.unit || ""}
+                  <span style={{ fontSize: 10.5, color: C.muted }}> · по материалам</span>
+                </div>
               </div>
               <div style={{ flex: "1 1 110px" }}>
                 <div style={S.lbl}>единица</div>
@@ -1103,10 +1111,9 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
             {/* ─── единицы с номерами ───
                 Количество говорит, сколько всего, и молчит о том, ЧТО
                 именно. Работают же не с количеством: вот это техническое
-                задание от того заказчика, вот дизайн к нему. Номера тут
-                не заводятся руками — единица рождается сдачей задачи, и
-                это единственный честный способ: заведённый руками номер
-                означал бы вещь, которой никто не делал. */}
+                задание от того заказчика, вот дизайн к нему. Единица
+                рождается сдачей задачи или кладётся в «Материалы» на
+                вкладке отчётов — там же её и скачивают. */}
             <div style={{ ...S.lbl, marginTop: 8 }}>единицы с номерами</div>
             {(() => {
               const own = units.filter((u) => u.trait === t.id);
@@ -1114,8 +1121,8 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
                 return (
                   <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4,
                     lineHeight: 1.5 }}>
-                    Пока ни одной: единица появляется, когда сдают задачу, —
-                    и на неё уже можно сослаться в отчёте.
+                    Пока ни одной: единица появляется, когда сдают задачу или
+                    загружают её в «Материалы» на вкладке «Отчёты».
                   </div>);
               }
               return [...own].reverse().slice(0, 8).map((u) => (
@@ -1123,14 +1130,14 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], kinds, 
                   style={{ alignItems: "center", fontSize: 11, marginTop: 4 }}>
                   <span style={{ color: ACC, fontWeight: 700 }}>№{u.no}</span>
                   <span style={{ flex: "1 1 110px", minWidth: 0 }}>
-                    {u.title || "без названия"}</span>
+                    {unitLabel(u)}</span>
                   <span style={{ color: u.accepted ? OK : WARN, fontSize: 10 }}>
                     {u.accepted ? "принято" : "не принято"}</span>
                 </div>));
             })()}
             {units.filter((u) => u.trait === t.id).length > 8 && (
               <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>
-                показаны последние 8 — остальные видно в отчётах.</div>)}
+                показаны последние 8 — все видно в «Материалах» на вкладке «Отчёты».</div>)}
 
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
               Ресурс сам себя не меняет: его берут и выдают функции. Цель по
@@ -1208,7 +1215,8 @@ export default function AssetPanel(props) {
 
       {tab === "traits" && (
         <Traits entityId={props.entityId} traits={props.traits} setTraits={props.setTraits}
-          funcs={props.funcs} tasks={props.tasks} kinds={props.kinds} kindOf={props.kindOf}
+          funcs={props.funcs} tasks={props.tasks} materials={props.materials}
+          kinds={props.kinds} kindOf={props.kindOf}
           open={openTrait} setOpen={setOpenTrait}
           onWhy={props.onWhyTrait} onDelete={props.onDeleteTrait}
           onUpKind={props.onUpKind} onAddKind={props.onAddKind}
