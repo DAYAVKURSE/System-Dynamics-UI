@@ -1430,7 +1430,11 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                     {/* Ровно одно действие на карточке — то, которое сейчас
                         и есть работа. Ни «назад», ни «дальше»: колонка
                         говорит, что с задачей, а не куда её положить. */}
-                    <div className="flex gap-2" style={{marginTop:6}}>
+                    {/* Ряд переносится: колонка узкая, и «Взять в работу»
+                        с «Отменить» рядом в неё не влезают — вторая уезжала
+                        за край карточки. */}
+                    <div className="flex gap-2" style={{marginTop:6,flexWrap:"wrap",
+                      alignItems:"center"}}>
                       {!isCanceled(t)&&!isTaken(t)&&(BACKLOG_STATES.includes(t.status)
                         ||t.status==="deadline")&&(
                         <button style={{...btn(true,ACC),padding:"3px 9px",fontSize:11}}
@@ -1456,7 +1460,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                           Вернуть</button>)}
                       {canAssign&&!isCanceled(t)&&dropId!==t.id&&(
                         <button style={{...btn(false),padding:"3px 8px",fontSize:11,
-                          color:BAD,borderColor:"#5A2436"}}
+                          color:BAD,borderColor:"#5A2436",whiteSpace:"nowrap"}}
                           aria-label={`отменить задачу ${t.title}`}
                           onClick={e=>{e.stopPropagation();setDropId(t.id);}}>
                           Отменить</button>)}
