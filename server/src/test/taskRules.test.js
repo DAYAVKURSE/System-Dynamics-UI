@@ -83,11 +83,22 @@ describe("кого можно назначить", () => {
     expect(w.has("9")).toBe(false);
   });
 
-  it("выполнять может только тот, у кого функция отмечена «может выполнять»", () => {
-    const model = { funcs: [{ ...FUNC, owners: ["2", 7, ""] }] };
-    expect([...funcExecutors(model, { funcId: "f1" })].sort()).toEqual(["2", "7"]);
-    expect(funcExecutors({ funcs: [{ ...FUNC, owners: [] }] }, { funcId: "f1" }).size).toBe(0);
-    expect(funcExecutors(model, { funcId: "нет" }).size).toBe(0);
+  it("выполняет тот, у кого ДОЛЖНОСТЬ исполнителя и функция ему не закрыта", () => {
+    /* Владелец: роль — это должность; воркер с ней назначается, если ему не
+       отмечено исключение. Правило то же, что в приложении (`eligible`). */
+    const model = {
+      entities: [{ id: "usr", crew: ["2", "4", "9"] }],
+      funcs: [{ ...FUNC, e: "usr", owners: [], posts: { owners: ["designer"] }, except: ["4"] }],
+    };
+    const positionOf = (id) => ({ 2: "designer", 4: "designer", 9: "editor" })[id] || "";
+    expect([...funcExecutors(model, { funcId: "f1" }, positionOf)]).toEqual(["2"]);
+    // Должность у роли не названа — читается старый список людей.
+    const legacy = { funcs: [{ ...FUNC, owners: ["2", 7, ""], posts: {} }] };
+    expect([...funcExecutors(legacy, { funcId: "f1" }, positionOf)].sort()).toEqual(["2", "7"]);
+    // Исключение действует и там: человек закрыт независимо от того, как он попал.
+    const banned = { funcs: [{ ...FUNC, owners: ["2"], posts: {}, except: ["2"] }] };
+    expect(funcExecutors(banned, { funcId: "f1" }, positionOf).size).toBe(0);
+    expect(funcExecutors(model, { funcId: "нет" }, positionOf).size).toBe(0);
   });
 
   it("задача без функции — назначать не из кого", () => {

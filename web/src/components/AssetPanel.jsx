@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, byCrew, checkFunc, checkTrait, countWorkers,
+import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWorkers,
+  eligible, exceptOf, postsOf, togglePost, toggleExcept,
   editFunc, funcState,
   crewOf,
   chanceOf, everyOf, everyRange, factorChance, factorsOf, groupsOf, sameEvery, sameHours,
@@ -179,6 +180,35 @@ export function Timing({ func, runs = [] }) {
 }
 
 /** Люди — по человеку на нажатие. */
+/* Должности роли: какие должности эту работу ставят, делают, принимают.
+   Рядом — кто под них попадает СЕЙЧАС: выбор должности без ответа «и кто
+   же это» читался бы как обещание, которого никто не проверял. */
+function Posts({ title, ids, positions, who, nameOf, legacy, empty, onToggle }) {
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ ...S.lbl, marginBottom: 3 }}>{title} — должности</div>
+      <div className="flex flex-wrap gap-2">
+        {!positions.length && (
+          <span style={{ fontSize: 11, color: C.muted }}>{empty}</span>)}
+        {positions.map((p) => {
+          const on = ids.includes(p.id);
+          return (
+            <button key={p.id} aria-pressed={on} aria-label={`${title}: ${p.name}`}
+              style={{ ...btn(on, on ? ACC : null), fontSize: 11, padding: "3px 7px" }}
+              onClick={() => onToggle(p.id)}>{p.name}</button>);
+        })}
+      </div>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
+        {who.length
+          ? `подходят: ${who.map((id) => (nameOf ? nameOf(id) : id)).join(", ")}`
+          : (legacy.length
+            ? `должность не выбрана — назначать можно записанных прежде: ${
+              legacy.map((id) => (nameOf ? nameOf(id) : id)).join(", ")}`
+            : (ids.length ? "с такой должностью в активе никого нет" : empty))}
+      </div>
+    </div>);
+}
+
 function People({ title, ids, people, nameOf, empty, onToggle }) {
   return (
     <div style={{ marginTop: 6 }}>
@@ -254,15 +284,17 @@ function WorkerLine({ pid, name, stat, person, positionName }) {
 
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
   entityId, onToggleFunc,
-  positionOf, onToggleCrew, onOrder, onOpenPerson, published, me,
+  positionOf = () => "", onToggleCrew, onOrder, onOpenPerson, published, me,
   positions = [], onAddPosition, onDropPosition, onSetPosition }) {
-  /* Какие функции воркер МОЖЕТ выполнять — отмечается здесь, у воркера.
-     Это те же исполнители функции (`funcs[].owners`), что и у самой
-     функции, только глазами человека: «что он умеет», а не «кто это
-     делает». Задачу по функции назначают только тому, у кого она
-     отмечена. Фактор — не работа людей, и у него исполнителей нет. */
+  /* ИСКЛЮЧЕНИЯ. Что человек делает, решает его ДОЛЖНОСТЬ: функция называет
+     должность, и всякий воркер актива с ней эту работу берёт. Здесь —
+     обратное: «эту функцию он не берёт». Поэтому в строке стоят только те
+     функции, к которым у него и так есть доступ по должности, а нажатие
+     закрывает одну из них (`funcs[].except`). */
   const own = funcs.filter((f) => f.e === entityId);
-  const can = (pid, f) => (f.owners || []).some((x) => String(x) === String(pid));
+  const reachable = (pid) => own.filter((f) => WORKER_KINDS
+    .some((k) => byPost(f, k.id, positionOf, pid)));
+  const off = (pid, f) => exceptOf(f).some((x) => String(x) === String(pid));
   /* Должности заводятся ЗДЕСЬ, рядом с людьми: кем человек числится,
      решают там же, где решают, кто где работает. Роль в организации —
      ДРУГОЕ: она отвечает на «что человеку показывать» (вкладки) и живёт в
@@ -351,25 +383,26 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                   {on && (
                     <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
                       alignItems: "center", paddingLeft: 22 }}>
-                      <span style={{ fontSize: 10.5, color: C.muted }}>может выполнять:</span>
-                      {!own.length && (
+                      <span style={{ fontSize: 10.5, color: C.muted }}>исключения:</span>
+                      {!reachable(pid).length && (
                         <span style={{ fontSize: 10.5, color: C.muted }}>
-                          функций у актива ещё нет</span>)}
-                      {own.map((f) => (
-                        <button key={f.id} aria-pressed={can(pid, f)}
-                          aria-label={`может выполнять «${f.name || "без названия"}»: ${name(pid)}`}
-                          style={{ ...btn(can(pid, f), OK), fontSize: 11, padding: "2px 7px" }}
+                          {own.length
+                            ? "по должности ему пока ничего не поручено"
+                            : "функций у актива ещё нет"}</span>)}
+                      {reachable(pid).map((f) => (
+                        <button key={f.id} aria-pressed={off(pid, f)}
+                          aria-label={`исключение «${f.name || "без названия"}»: ${name(pid)}`}
+                          style={{ ...btn(off(pid, f), BAD), fontSize: 11, padding: "2px 7px" }}
                           onClick={() => onToggleFunc && onToggleFunc(pid, f.id)}>
-                          {can(pid, f) ? "✓ " : ""}{f.name || "без названия"}</button>))}
+                          {off(pid, f) ? "✕ " : ""}{f.name || "без названия"}</button>))}
                     </div>)}
                 </div>);
             })}
           <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
             Здесь все, кого вообще добавили на эту схему. Отмеченные — воркеры
-            этого актива: из них и только из них выбираются постановщик,
-            исполнитель и проверяющий У КАЖДОЙ ФУНКЦИИ. У воркера отмечают,
-            какие функции он может выполнять: задачу по функции назначат
-            только тому, у кого она отмечена.
+            этого актива. Кто что делает, решает ДОЛЖНОСТЬ: она выбирается у
+            функции, и работу берёт любой воркер с этой должностью.
+            Исключения закрывают одну функцию одному человеку.
             {crew.length > 1
               ? " Порядок задаёте вы: кого поставили выше, того и предлагают первым."
               : ""}
@@ -596,7 +629,8 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
 }
 
 export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], workers,
-  factors = [], people = [], nameOf, runsOf, open, setOpen, onWhy }) {
+  factors = [], people = [], nameOf, runsOf, open, setOpen, onWhy,
+  positions = [], positionOf = () => "" }) {
   const mine = funcs.filter((f) => f.e === entityId);
   const own = traits.filter((t) => t.e === entityId);
   const others = traits.filter((t) => t.e !== entityId);
@@ -872,15 +906,19 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   : "по одному, друг за другом"}</span>
             </div>
 
-            {/* Роли — У ФУНКЦИИ, и это единственное место, где их назначают:
-                работу ставят, выполняют и принимают в ней. Они есть у ЛЮБОЙ
-                функции: деления на «задачу» и «фактор» больше нет — факторы
-                это конверсия, а не другой вид работы. */}
+            {/* Роли — У ФУНКЦИИ, и назначается ДОЛЖНОСТЬ, а не человек:
+                «ставит юрист, делает дизайнер, принимает редактор». Взять
+                работу сможет любой воркер актива с такой должностью — кроме
+                тех, кому её закрыли исключением (карточка «Воркеры»). */}
             {WORKER_KINDS.map((k) => (
-              <People key={k.id} title={k.many} ids={f[k.id] || []} people={pool()}
+              <Posts key={k.id} title={k.many} ids={postsOf(f, k.id)} positions={positions}
+                who={eligible(f, k.id, { crew: crewOf(workers), positionOf, people })}
                 nameOf={nameOf}
-                empty={"в активе ещё нет воркеров — отметьте их в «воркерах актива»"}
-                onToggle={(pid) => togglePerson(f.id, k.id, pid)} />))}
+                legacy={postsOf(f, k.id).length ? [] : (f[k.id] || [])}
+                empty={positions.length
+                  ? "должность не выбрана — назначать некого"
+                  : "должностей ещё нет: заведите их в «воркерах актива»"}
+                onToggle={(pid) => up(f.id, (x) => togglePost(x, k.id, pid))} />))}
 
             {/* ─── «Принять» ───
 
@@ -1167,12 +1205,9 @@ export default function AssetPanel(props) {
       {tab === "workers" && (
         <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
           tasks={props.tasks} funcs={props.funcs} positionOf={props.positionOf}
-          entityId={props.entityId}
+          entityId={props.entityId} positionOf={props.positionOf}
           onToggleFunc={(pid, fid) => props.setFuncs((p) => p.map((f) => (f.id === fid
-            ? editFunc(f, (x) => ({ ...x, owners: (x.owners || []).some((z) => String(z) === String(pid))
-              ? (x.owners || []).filter((z) => String(z) !== String(pid))
-              : [...(x.owners || []), pid] }))
-            : f)))}
+            ? editFunc(f, (x) => toggleExcept(x, pid)) : f)))}
           onToggleCrew={props.onToggleCrew} onOrder={props.onOrderWorker}
           onOpenPerson={props.onOpenPerson}
           published={props.published} me={props.me}

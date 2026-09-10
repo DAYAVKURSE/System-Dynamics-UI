@@ -494,7 +494,7 @@ const parseWhen = (v) => {
   const s = String(v);
   return Number.isFinite(Date.parse(s)) ? s : undefined;
 };
-export const setupTask = (userId, taskId, fields = {}, { isOwner = false } = {}) =>
+export const setupTask = (userId, taskId, fields = {}, { isOwner = false, positionOf = null } = {}) =>
   withModel(async (model) => {
     const task = (model.tasks || []).find((t) => t.id === taskId);
     if (!task) return { error: "not found" };
@@ -516,7 +516,7 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false } = {})
     }
     if ("endBy" in f && (f.endBy === "auto" || f.endBy === "hand")) patch.endBy = f.endBy;
     const workers = assetWorkers(model, task);
-    const doers = funcExecutors(model, task);
+    const doers = funcExecutors(model, task, positionOf);
     for (const [k, word] of [["assignee", "Исполнитель"], ["reviewer", "Проверяющий"]]) {
       if (!(k in f)) continue;
       const id = f[k] == null || f[k] === "" ? null : String(f[k]);
@@ -527,7 +527,7 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false } = {})
          выполнять»: то же правило, что в форме постановки. */
       if (k === "assignee" && id != null && !doers.has(id)) {
         return { error: "not an executor",
-          why: "Исполнитель не может выполнять эту функцию: отметьте её у воркера в карточке актива." };
+          why: "Исполнитель не может выполнять эту функцию: нет нужной должности или она ему закрыта исключением." };
       }
       patch[k] = id;
     }

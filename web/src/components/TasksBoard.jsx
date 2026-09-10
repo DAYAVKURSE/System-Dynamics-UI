@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, byCrew, crewOf, hoursOf, isFactor, missingGives,
+import { DUR_UNITS, WORKER_KINDS, byCrew, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
 import { heldBy, unitsOf, unitLabel } from "../lib/units.js";
@@ -548,7 +548,8 @@ function FuncCard({func,entities,traitName}){
    ждала бы постановки. Отказ сервера — словами под кнопкой. Владельцу
    `onSetup` не нужен: его правки уезжают в составе модели. */
 export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=[],
-  setTasks,onClose,people=[],canAssign=true,nameOf,
+  setTasks,onClose,people=[],canAssign=true,nameOf,positionOf=(id)=>
+    (people.find(p=>String(p.id)===String(id))?.position||""),
   published,meId,onSetup}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
@@ -602,18 +603,13 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
      Порядок: роль функции → роль актива (старые модели) → все воркеры
      актива, если роль никому не дана. Сортировка — как в списке людей
      актива: кого поставили выше, того и предлагают первым. */
-  /* ИСПОЛНИТЕЛЬ — строго из тех, у кого эта функция отмечена как «может
-     выполнять» (`funcs[].owners`, ставится у воркера в карточке актива).
-     Никого не отметили — назначать некого, и это сказано словами, а не
-     подменено «всеми воркерами»: владелец просил, чтобы задачу могли
-     получить только выбранные. Проверяющий — по-прежнему с запасным
-     вариантом: роль никому не дана — все воркеры актива. */
+  /* Кого предлагать: воркеры актива с ДОЛЖНОСТЬЮ этой роли, кроме тех,
+     кому функцию закрыли исключением (`eligible` в lib/funcs.js). Должность
+     у роли не названа — читается старый список людей; нет и его — никого, и
+     это ответ, а не «значит, всех». */
   const pool=(k)=>{
-    const ids=new Set([...(func?.[k]||[]),...(k==="owners"?[]:(asset?.[k]||[]))].map(String));
-    const byRole=people.filter(p=>ids.has(String(p.id)));
-    if(byRole.length||k==="owners") return byCrew(asset||{},byRole);
-    const crew=new Set(crewOf(asset||{}).map(String));
-    return byCrew(asset||{},people.filter(p=>crew.has(String(p.id))));
+    const ok=new Set(eligible(func,k,{crew:crewOf(asset||{}),positionOf,people}).map(String));
+    return byCrew(asset||{},people.filter(p=>ok.has(String(p.id))));
   };
   const gaps=taskGaps(task);
   const why=whyNotSet(task,funcs,traits,tasks,factors);
@@ -662,10 +658,10 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
       </div>
       <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
         {canAssign
-          ? "Выбирать можно только воркеров этого актива: люди — его свойство. Поставленная задача уходит исполнителю во вкладку «Задачи»."
+          ? "Предлагаются воркеры актива с должностью этой роли — кроме тех, кому функцию закрыли исключением. Поставленная задача уходит исполнителю во вкладку «Задачи»."
           : "Кого назначить, решает постановщик задачи или владелец."}
         {!pool("owners").length&&asset
-          &&" Эту функцию никто не может выполнять — отметьте её у воркера в карточке актива («может выполнять»)."}
+          &&" Некого назначить: у функции не выбрана должность исполнителя или ни у кого из воркеров её нет."}
       </div>
 
       {/* Когда по обе стороны один и тот же человек, передавать нечего, и

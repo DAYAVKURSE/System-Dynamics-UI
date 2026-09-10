@@ -385,6 +385,11 @@ export const normalizeFunc = (f = {}) => {
     name: f.name ?? "",
     about: f.about == null ? "" : String(f.about),
     factors: factorsOf(f),
+    /* Должности ролей и исключения — часть записи функции. Старые списки
+       людей в `setters/owners/reviewers` остаются: по ним читаются схемы,
+       собранные до должностей. */
+    posts: Object.fromEntries(WORKER_KINDS.map((k) => [k.id, postsOf(f, k.id)])),
+    except: exceptOf(f),
     takes: Array.isArray(f.takes) ? f.takes.map((p) => port(p, true)) : [],
     gives: Array.isArray(f.gives) ? f.gives.map((p) => port(p)) : [],
     dur: num(f.dur),
@@ -518,6 +523,71 @@ export const WEEK = [
   { id: 4, short: "чт" }, { id: 5, short: "пт" }, { id: 6, short: "сб" },
   { id: 0, short: "вс" },
 ];
+
+/* ─────── роль — это ДОЛЖНОСТЬ, а не человек ───────
+
+   Прежде на функцию назначали конкретных людей. Владелец это снял: у
+   функции стоят ДОЛЖНОСТИ («юрист ставит, дизайнер делает, редактор
+   принимает»), а взять работу может любой воркер актива с такой
+   должностью. Человек в функции больше не записан — записана роль, и
+   уволившийся дизайнер не уносит с собой половину схемы.
+
+   Исключения (`except`) — обратная сторона: «этот дизайнер эту функцию не
+   берёт». Список людей, а не должностей: исключение всегда про человека.
+
+   Старая запись (люди в `setters/owners/reviewers`) читается как была: где
+   должность у роли не названа, а люди записаны, назначать дают их —
+   иначе выкат сломал бы уже собранные схемы. */
+export const postsOf = (f = {}, role) => {
+  const all = f && typeof f.posts === "object" && f.posts ? f.posts : {};
+  const list = Array.isArray(all[role]) ? all[role] : [];
+  return [...new Set(list.map((x) => String(x)).filter(Boolean))];
+};
+
+/** Поставить или снять должность у роли функции. */
+export const togglePost = (f = {}, role, posId) => {
+  const key = String(posId || "");
+  if (!key) return f;
+  const now = postsOf(f, role);
+  const next = now.includes(key) ? now.filter((x) => x !== key) : [...now, key];
+  return { ...f, posts: { ...(f.posts || {}), [role]: next } };
+};
+
+/** Кому эта функция закрыта, хотя должность подходит. */
+export const exceptOf = (f = {}) => (Array.isArray(f.except)
+  ? [...new Set(f.except.map((x) => String(x)).filter(Boolean))] : []);
+
+export const toggleExcept = (f = {}, personId) => {
+  const key = String(personId || "");
+  if (!key) return f;
+  const now = exceptOf(f);
+  return { ...f, except: now.includes(key) ? now.filter((x) => x !== key) : [...now, key] };
+};
+
+/**
+ * Кого можно назначить на роль функции: воркеры актива с нужной должностью,
+ * кроме исключённых. Должность роли не названа — читается старый список
+ * людей; нет и его — никого (это ответ, а не «значит, всех»).
+ */
+export function eligible(f, role, { crew = [], positionOf = () => "", people = [] } = {}) {
+  if (!f) return [];
+  const ids = crew.length ? crew.map(String)
+    : people.map((p) => String(p.id ?? p));
+  const posts = postsOf(f, role);
+  const legacy = (Array.isArray(f[role]) ? f[role] : []).map(String);
+  const banned = new Set(exceptOf(f));
+  const base = posts.length
+    ? ids.filter((id) => posts.includes(String(positionOf(id) || "")))
+    : ids.filter((id) => legacy.includes(id));
+  return base.filter((id) => !banned.has(id));
+}
+
+/** Доступна ли функция человеку по должности (до исключений). */
+export const byPost = (f, role, positionOf, id) => {
+  const posts = postsOf(f, role);
+  return posts.length ? posts.includes(String(positionOf(id) || ""))
+    : (Array.isArray(f?.[role]) ? f[role] : []).map(String).includes(String(id));
+};
 
 export const WORKER_KINDS = [
   { id: "setters", one: "постановщик", many: "постановщики", task: "постановщик" },

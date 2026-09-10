@@ -271,25 +271,33 @@ describe("назначения берутся из воркеров актива
     expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр"]);
   });
 
-  it("исполнитель — только тот, у кого функция отмечена «может выполнять»; никого — так и сказано", () => {
-    /* Владелец: каждому воркеру назначаются функции, которые он может
-       выполнить, и задачи назначаются только выбранным. Запасного «все
-       воркеры актива» у исполнителя нет; у проверяющего — есть. */
-    const entities = [{ id: "usr", name: "Пользователи", crew: ["4", "2"] }];
-    const funcs = [{ ...FUNCS[0], owners: [], reviewers: [] }];
-    const people = [...PEOPLE, { id: "4", name: "Ольга" }];
-    render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })} tasks={[]}
-      funcs={funcs} traits={TRAITS} entities={entities} people={people}
-      canAssign nameOf={(id) => id} setTasks={() => {}} />);
+  it("исполнитель — по ДОЛЖНОСТИ роли, кроме исключённых; некого — так и сказано", () => {
+    /* Владелец: роль — это должность, а взять работу может любой воркер с
+       ней, если ему её не закрыли исключением. */
+    const entities = [{ id: "usr", name: "Пользователи", crew: ["2", "4"] }];
+    const people = [{ id: "2", name: "Иван", position: "designer" },
+      { id: "4", name: "Ольга", position: "designer" },
+      { id: "3", name: "Пётр", position: "editor" }];
+    const byPost = [{ ...FUNCS[0], setters: [], owners: [], reviewers: [],
+      posts: { owners: ["designer"], reviewers: ["editor"] }, except: ["4"] }];
     const names = (label) => [...screen.getByLabelText(label).options]
       .map((o) => o.textContent.split(" · ")[0]);
-    expect(names("исполнитель")).toEqual(["— не назначен —"]);
-    expect(screen.getByText(/никто не может выполнять — отметьте её у воркера/))
-      .toBeInTheDocument();
-    // Проверяющий — все воркеры актива, в порядке списка.
-    expect(names("проверяющий")).toEqual(["— не назначен —", "Ольга", "Иван"]);
-  });
+    const { unmount } = render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })}
+      tasks={[]} funcs={byPost} traits={TRAITS} entities={entities} people={people}
+      canAssign nameOf={(id) => id} setTasks={() => {}} />);
+    // Ольга — дизайнер, но функция ей закрыта исключением.
+    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван"]);
+    expect(names("проверяющий")).toEqual(["— не назначен —"]);   // редактора в активе нет
+    unmount();
 
+    // Должность роли не выбрана и людей прежде не записывали — назначать некого.
+    const empty = [{ ...FUNCS[0], setters: [], owners: [], reviewers: [], posts: {} }];
+    render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })} tasks={[]}
+      funcs={empty} traits={TRAITS} entities={entities} people={people}
+      canAssign nameOf={(id) => id} setTasks={() => {}} />);
+    expect(names("исполнитель")).toEqual(["— не назначен —"]);
+    expect(screen.getByText(/Некого назначить/)).toBeInTheDocument();
+  });
   it("все три роли обязательны — сказано, чего не хватает", () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     // Постановщик подставился из ролей функции; двух остальных ещё нет.

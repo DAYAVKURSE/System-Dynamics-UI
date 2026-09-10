@@ -84,8 +84,12 @@ router.get("/ratings", async (req, res, next) => {
    в `why`, теми же, что показывает форма. */
 router.post("/tasks/:id/setup", async (req, res, next) => {
   try {
+    /* Должности живут в org.json, а не в модели: правило «исполнитель по
+       должности» без них не проверить, поэтому карта приходит сюда. */
+    const org = await listOrg();
+    const posts = new Map((org.users || []).map((u) => [String(u.id), u.position || ""]));
     const r = await setupTask(req.telegramUserId, req.params.id, req.body || {},
-      { isOwner: req.me.isOwner });
+      { isOwner: req.me.isOwner, positionOf: (id) => posts.get(String(id)) || "" });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not yours") return res.status(403).json({ error: r.error });
     if (r.error) return res.status(400).json({ error: r.error, why: r.why || "" });

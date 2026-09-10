@@ -146,14 +146,29 @@ export function whyNotSet(task = {}, model = {}) {
  * не влияет. Назначенные на саму функцию — тоже её актива.
  */
 /**
- * Кто может ВЫПОЛНЯТЬ задачу: те, у кого её функция отмечена «может
- * выполнять» (`funcs[].owners`). Строго они — так просил владелец: задача
- * назначается только выбранным воркерам, без запасного «все воркеры».
+ * Кто может ВЫПОЛНЯТЬ задачу: воркеры актива с ДОЛЖНОСТЬЮ, которую функция
+ * назвала исполнителем, кроме тех, кому она закрыта исключением. Повтор
+ * `eligible` из `web/src/lib/funcs.js` — правило одно, а код у сервера свой
+ * (он отдаётся отдельным пакетом).
+ *
+ * `positionOf` — должность человека из org.json: в модели её нет, поэтому
+ * приходит снаружи. Не дали — считаем по старому списку людей у функции,
+ * чтобы схемы, собранные до должностей, ставились как прежде.
  */
-export function funcExecutors(model = {}, task = {}) {
+export function funcExecutors(model = {}, task = {}, positionOf = null) {
   const f = (model.funcs || []).find((x) => x.id === task.funcId) || null;
-  return new Set((Array.isArray(f?.owners) ? f.owners : [])
-    .filter((id) => id != null && id !== "").map(String));
+  if (!f) return new Set();
+  const posts = Array.isArray(f.posts?.owners) ? f.posts.owners.map(String) : [];
+  const except = new Set((Array.isArray(f.except) ? f.except : []).map(String));
+  const legacy = (Array.isArray(f.owners) ? f.owners : [])
+    .filter((id) => id != null && id !== "").map(String);
+  if (!posts.length || !positionOf) {
+    return new Set(legacy.filter((id) => !except.has(id)));
+  }
+  const crew = [...assetWorkers(model, task)];
+  return new Set(crew
+    .filter((id) => posts.includes(String(positionOf(id) || "")))
+    .filter((id) => !except.has(id)));
 }
 
 export function assetWorkers(model = {}, task = {}) {

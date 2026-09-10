@@ -396,51 +396,64 @@ describe("воркеры принадлежат активу", () => {
     expect(screen.getByText(/Людей ещё нет/)).toBeInTheDocument();
   });
 
-  it("роли выставляются У ФУНКЦИИ, и все три — из воркеров актива", () => {
-    /* Роль человек исполняет не в активе вообще, а в конкретной работе:
-       одну функцию ставит, другую выполняет, третью проверяет. Списки
-       ролей у самого актива это стирали, поэтому их там больше нет. */
+  it("роли выставляются У ФУНКЦИИ, и назначается ДОЛЖНОСТЬ, а не человек", () => {
+    /* Владелец: «постановщикам, исполнителям и проверяющим должен
+       выбираться не конкретный человек, а должность, которая есть в этом
+       активе». Человек в функции больше не записан. */
     addFunc();
     ["постановщики", "исполнители", "проверяющие"].forEach((many) => {
-      expect(screen.getByText(many)).toBeInTheDocument();
+      expect(screen.getByText(`${many} — должности`)).toBeInTheDocument();
     });
-    // Пул у всех трёх один и тот же — воркеры актива.
-    expect(screen.getAllByText(/в активе ещё нет воркеров/)).toHaveLength(3);
+    // Должностей в схеме ещё нет — так и сказано, у всех трёх ролей.
+    expect(screen.getAllByText(/должностей ещё нет/).length).toBeGreaterThanOrEqual(3);
   });
 });
 
-describe("что воркер может выполнять", () => {
-  /* Владелец: каждому воркеру назначаются функции, которые он может
-     выполнить, и задачи по функции назначаются только им. Отметка стоит у
-     воркера, а хранится там же, где исполнители функции (`owners`), —
-     это одна правда с двух сторон. */
-  const PEOPLE = [{ id: "2", name: "Иван" }, { id: "3", name: "Пётр" }];
+describe("исключения у воркера", () => {
+  /* Владелец: «воркеры, имеющие эту должность, могут быть назначены на
+     задачи этой функции, если у самого воркера не отмечено, что он не может
+     взять эту задачу». Поэтому в строке воркера — не «что он умеет», а
+     ИСКЛЮЧЕНИЯ: функции, к которым он и так допущен должностью. */
+  const PEOPLE = [{ id: "2", name: "Иван", position: "designer" },
+    { id: "3", name: "Пётр", position: "editor" }];
+  const POSITIONS = [{ id: "designer", name: "Дизайнер" }, { id: "editor", name: "Редактор" }];
   const FUNCS = [
-    { id: "f1", e: "a", name: "Верстать", owners: ["2"], takes: [], gives: [] },
-    { id: "f2", e: "a", name: "Проверять", owners: [], takes: [], gives: [] },
-    { id: "f9", e: "b", name: "Чужая", owners: [], takes: [], gives: [] },
+    { id: "f1", e: "a", name: "Верстать", posts: { owners: ["designer"] }, except: [], takes: [], gives: [] },
+    { id: "f2", e: "a", name: "Принимать", posts: { reviewers: ["editor"] }, except: [], takes: [], gives: [] },
+    { id: "f9", e: "b", name: "Чужая", posts: { owners: ["designer"] }, except: [], takes: [], gives: [] },
   ];
+  const positionOf = (id) => PEOPLE.find((p) => String(p.id) === String(id))?.position || "";
+  const show = (over = {}) => render(<Workers workers={{ crew: ["2", "3"] }} people={PEOPLE}
+    funcs={FUNCS} entityId="a" positions={POSITIONS} positionOf={positionOf}
+    nameOf={(id) => PEOPLE.find((p) => p.id === id)?.name || id} onToggleFunc={() => {}} {...over} />);
 
-  it("у воркера — кнопки функций своего актива с отметкой; чужие не предлагаются", () => {
-    const calls = [];
-    render(<Workers workers={{ crew: ["2", "3"] }} people={PEOPLE} funcs={FUNCS}
-      entityId="a" nameOf={(id) => PEOPLE.find((p) => p.id === id)?.name || id}
-      onToggleFunc={(pid, fid) => calls.push([pid, fid])} />);
-    expect(screen.getByRole("button", { name: "может выполнять «Верстать»: Иван" }))
-      .toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "может выполнять «Проверять»: Иван" }))
+  it("в строке — только то, к чему допускает должность; чужой актив не предлагается", () => {
+    show();
+    expect(screen.getByRole("button", { name: "исключение «Верстать»: Иван" }))
       .toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "может выполнять «Верстать»: Пётр" }))
-      .toHaveAttribute("aria-pressed", "false");
-    expect(screen.queryByRole("button", { name: /может выполнять «Чужая»/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "может выполнять «Проверять»: Пётр" }));
-    expect(calls).toEqual([["3", "f2"]]);
+    // Иван — дизайнер: «Принимать» ему не поручают, и исключать нечего.
+    expect(screen.queryByRole("button", { name: "исключение «Принимать»: Иван" })).toBeNull();
+    expect(screen.getByRole("button", { name: "исключение «Принимать»: Пётр" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Чужая/ })).toBeNull();
   });
 
-  it("не-воркеру актива функции не предлагаются: сперва «кто здесь работает»", () => {
-    render(<Workers workers={{ crew: ["2"] }} people={PEOPLE} funcs={FUNCS} entityId="a"
-      nameOf={(id) => PEOPLE.find((p) => p.id === id)?.name || id} onToggleFunc={() => {}} />);
-    expect(screen.queryByRole("button", { name: /: Пётр$/ })).toBeNull();
+  it("нажатие закрывает функцию человеку, повторное — открывает", () => {
+    const calls = [];
+    show({ onToggleFunc: (pid, fid) => calls.push([pid, fid]) });
+    fireEvent.click(screen.getByRole("button", { name: "исключение «Верстать»: Иван" }));
+    expect(calls).toEqual([["2", "f1"]]);
+  });
+
+  it("исключённый показан помеченным", () => {
+    show({ funcs: FUNCS.map((f) => (f.id === "f1" ? { ...f, except: ["2"] } : f)) });
+    expect(screen.getByRole("button", { name: "исключение «Верстать»: Иван" }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("должность никому ничего не поручила — так и сказано", () => {
+    show({ funcs: [{ id: "f1", e: "a", name: "Верстать", posts: {}, except: [], takes: [], gives: [] }] });
+    expect(screen.getAllByText(/по должности ему пока ничего не поручено/).length)
+      .toBeGreaterThan(0);
   });
 });
 
