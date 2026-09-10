@@ -635,7 +635,7 @@ describe("карта в форме", () => {
     expect(calls[0][0]).toBe("/api/shares");
     expect(await screen.findByText(new RegExp(`\\?share=${"b".repeat(64)}`)))
       .toBeInTheDocument();
-    expect(screen.getByText(/Открывается у кого угодно и без входа/)).toBeInTheDocument();
+    expect(screen.getByText(/Открывается без входа/)).toBeInTheDocument();
   });
 
   it("сервер отказал — сказано словами, а ссылка остаётся внутренней", async () => {

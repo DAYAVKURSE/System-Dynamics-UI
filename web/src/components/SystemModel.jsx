@@ -1125,9 +1125,7 @@ export default function SystemModel(){
             <span style={{fontSize:11,color:ACC,minWidth:34}}>{simMonth} мес</span>
           </div>
           <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5}}>
-            На блоке — сколько ресурса будет к этому месяцу: от и до. Это
-            вилка, а не число: сколько функция берёт и выдаёт, задано
-            диапазоном. Пунктирные стрелки — передачи между активами.
+            На блоке — сколько ресурса будет к этому месяцу, вилкой. Пунктир — передачи между активами.
           </div>
         </div>
 
@@ -1169,9 +1167,7 @@ export default function SystemModel(){
               style={{fontSize:15,fontWeight:700,marginBottom:6}}
               onCommit={v=>setEntities(p=>p.map(e=>e.id===selE.id?{...e,name:v}:e))}/>
             <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
-              Актив — это его воркеры, его функции и его ресурсы, а ещё
-              факторы: то, что меняет ресурсы без человека. Вкладки ниже —
-              они и есть, все одного вида.
+              Актив — это воркеры, функции, факторы и ресурсы. Они и есть вкладки ниже.
             </div>
 
             <AssetPanel entityId={selE.id}
@@ -1219,10 +1215,7 @@ export default function SystemModel(){
               </div>
             : !goals.some(g=>g.appliedAt)&&
               <div style={{fontSize:11.5,color:WARN,marginTop:8,lineHeight:1.6}}>
-                Ни одна цель не применена — работать никто не просил, и
-                ресурсы остаются на своих значениях. Поставьте цель ниже и
-                нажмите «Применить цель»: тогда станет видно, что из этого
-                выйдет.
+                Ни одна цель не применена — работать никто не просил. Поставьте цель ниже и примените её.
               </div>}
         </div>
 
@@ -1325,9 +1318,7 @@ export default function SystemModel(){
         <div style={{...S.card,marginBottom:10}}>
           <div style={S.lbl}>нагрузка исполнителей</div>
           <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
-            Сколько часов в месяц выходит по функциям, где человек назначен
-            исполнителем. Если функцию делают несколько, часы делятся между
-            ними поровну.
+            Часы в месяц по функциям человека; на нескольких исполнителей делятся поровну.
           </div>
           {Object.keys(workload).length===0
             ? <div style={{fontSize:11.5,color:C.muted,marginTop:8}}>

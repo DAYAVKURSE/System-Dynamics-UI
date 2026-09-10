@@ -859,9 +859,7 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
         <span style={S.lbl}>материалы — единицы ресурсов</span>
       </div>
       <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-        Здесь лежат все единицы ресурсов: вышедшие из сдач и загруженные
-        руками. Сколько ресурса есть — считается отсюда, а не вводится.
-        Нажмите на актив, потом на ресурс.
+        Все единицы ресурсов — из сдач и загруженные руками. Нажмите на актив, потом на ресурс.
       </div>
       {!entities.length && (
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>
@@ -1175,16 +1173,12 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
 
         {!node.trait && (
           <div style={{ fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-            Выберите ресурс, с которого начинается работа, и звено, до которого
-            её прослеживать. Дальше приложение посчитает само: как изменятся
-            ресурсы, сколько это займёт, какие шаги будут сделаны и что на них
-            повлияет.
+            Выберите ресурс, с которого начинается работа, и звено, до которого её прослеживать.
           </div>)}
 
         {doc.broken && (
           <div style={{ fontSize: 11, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
-            До этого звена цепочка не доходит: между ним и выбранным ресурсом
-            разрыв — ни одна функция не берёт то, что выдаёт предыдущая.
+            До этого звена цепочка не доходит: между ним и ресурсом разрыв.
           </div>)}
 
         {!!doc.unit && (
@@ -1216,13 +1210,13 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               color: doc.traced ? C.muted : WARN }}>
               {doc.traced
                 ? `Дальше — только то, что выросло из неё: вещей в родословной ${doc.family.length}.`
-                : "Что из чего сделано, по ней не записано: при сдаче не отметили взятое. Показана она одна — достраивать родословную по датам значило бы выдать догадку за знание."}
+                : "Что из чего сделано, не записано: при сдаче не отметили взятое."}
             </div>
           </div>)}
 
         {!!node.trait && (<>
           <Part n={1} title="Ресурсы — что изменится"
-            hint="Сколько каждого ресурса прибавится или убавится по этой цепочке. Прогноз — вилка «от и до», факт — по принятым задачам. Сроки и часы — в разделе 3.">
+            hint="Насколько изменится каждый ресурс. Прогноз — вилка, факт — по принятым задачам.">
             <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
               считано на {nm(plan.hi.qty)} × {traitName(node.trait)}
               {doc.hypothetical ? " — единица не выбрана, прогноз для новой" : ""}
@@ -1250,18 +1244,18 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           </Part>
 
           <Part n={2} title="Функции — что будет сделано"
-            hint="Цепочка функций от выбранного ресурса до звена, по порядку. У каждой — что берёт, что даёт и сколько раз выполнится.">
+            hint="Цепочка функций по порядку: что берёт, что даёт, сколько раз.">
             <FuncRows steps={doc.steps} factors={factors} nodeId={node.id}
               traitName={traitName} />
           </Part>
 
           <Part n={3} title="Сроки и трудозатраты"
-            hint="Когда какая функция начнётся и сколько продлится; сколько часов работы людей это потребует — по прогнозу и по факту.">
+            hint="Когда что начнётся, сколько продлится и сколько часов потребует.">
             <Schedule steps={doc.steps} before={doc.before} plan={plan} actual={actual} />
           </Part>
 
           <Part n={4} title="Задачи — что уже сделано"
-            hint="Задачи, заведённые по этой цепочке: кто делает, срок, состояние, часы по плану и по факту, что взято и что вышло.">
+            hint="Заведённые задачи: кто, срок, состояние, часы и что вышло.">
             <TaskList steps={doc.steps} before={doc.before} actual={actual}
               traitName={traitName}
               personName={(id) => (nameOf ? nameOf(id) : id)} />
@@ -1296,7 +1290,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             <div style={{ color: linkErr ? WARN : C.muted }}>
               {linkErr
                 ? `Снимок не сохранился (${linkErr}) — эта ссылка откроется только у тех, у кого модель уже есть.`
-                : "Открывается у кого угодно и без входа: там снимок этого блока — оценка, шаги, созданные ресурсы и факт, и ничего сверх."}
+                : "Открывается без входа: снимок этого блока и ничего сверх."}
             </div>
           </div>)}
 
@@ -1348,10 +1342,7 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
             onClick={() => setNodes((p) => [...p, newProject()])}>+ проект</button>
         </div>
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-          В разделе называют две вещи: ресурс, с которого начинается работа
-          (и прикладывают его самого), и звено, до которого её прослеживать.
-          Остальное приложение считает по модели — как изменятся ресурсы,
-          сколько это займёт, какие шаги будут сделаны и что на них повлияет.
+          В проекте называют ресурс, с которого начинается работа, и звено, до которого её прослеживать. Остальное считается по модели.
         </div>
         {!!path.length && (
           <div className="flex flex-wrap gap-2" style={{ marginTop: 8, alignItems: "center" }}>
@@ -1364,8 +1355,7 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
 
       {!nodes.length && (
         <div style={{ ...S.card, fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
-          Проектов пока нет. Проект — это заказ или направление работы: с
-          какого ресурса он начинается и до какого звена его вести.
+          Проектов пока нет. Проект — заказ или направление работы.
         </div>)}
 
       {focus && !path.length && (

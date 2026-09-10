@@ -70,8 +70,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
             onClick={() => setOnly(s.id)}>{s.name}</button>))}
       </div>
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-        Полоса — время выполнения задачи; чёрточки на ней — сдачи; пунктир —
-        сегодня. Слева от него прошлое, справа запланированное.
+        Полоса — время задачи, чёрточки — сдачи, пунктир — сегодня.
       </div>
 
     </div>);

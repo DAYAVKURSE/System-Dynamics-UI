@@ -210,7 +210,7 @@ describe("на доске", () => {
         canAssign nameOf={(id) => id} />);
     };
     render(<List />);
-    expect(screen.getByText(/Всё делает один человек/)).toBeInTheDocument();
+    expect(screen.getByText(/Один человек во всех ролях/)).toBeInTheDocument();
   });
 });
 

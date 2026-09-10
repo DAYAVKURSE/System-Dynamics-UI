@@ -426,6 +426,6 @@ describe("карточка человека", () => {
 
   it("ничего не сдавал — так и сказано: это «неизвестно», а не «плохо»", () => {
     render(<PersonStats tasks={[]} funcs={FUNCS} personId="9" />);
-    expect(screen.getByText(/ещё ничего не сдавал/)).toBeInTheDocument();
+    expect(screen.getByText(/Ещё ничего не сдавал/)).toBeInTheDocument();
   });
 });

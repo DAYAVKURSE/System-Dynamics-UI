@@ -1,5 +1,6 @@
 import { identify, readOrg } from "./orgStore.js";
 import { readModel, viewFor } from "./workspaceStore.js";
+import { readSchedule } from "./scheduleStore.js";
 import { withStock } from "./stock.js";
 import { listReports } from "./reportStore.js";
 import { listMeetings, listTranscripts } from "./callStore.js";
@@ -229,6 +230,98 @@ export function describeTasks(tasks = [], { funcs = [], nameOf = (id) => String(
   return out.join("\n");
 }
 
+/* ─────── материалы: сами вещи ───────
+
+   Помощник должен уметь ответить «сколько ресурса есть» и «покажи вот эту
+   единицу»: для этого мало чисел — нужны сами вещи с номерами, содержимым
+   и тем, откуда они взялись. Единица рождается сдачей задачи или кладётся
+   руками в «Материалы» (`web/src/lib/units.js`), и здесь они описаны одним
+   списком, как их и видит человек.
+
+   Доступ: список ресурсов приходит из среза (`viewFor`) — участник видит
+   единицы только тех ресурсов, которые трогают его задачи. */
+export function describeMaterials(model = {}, traits = []) {
+  const out = ["## Материалы: единицы ресурсов"];
+  const ids = new Set(traits.map((t) => t.id));
+  const mats = (model.materials || []).filter((m) => m && ids.has(m.trait));
+  const subs = [];
+  (model.tasks || []).forEach((t) => {
+    if (t.canceled === true) return;
+    const list = t.submissions || [];
+    const sb = list.length ? list[list.length - 1] : null;
+    if (!sb) return;
+    Object.entries(sb.gives || {}).forEach(([trait, v]) => {
+      if (!ids.has(trait) || !(num(v) > 0)) return;
+      subs.push({ trait, qty: num(v), at: sb.at, task: t.title, accepted: t.status === "done",
+        file: (sb.files || {})[trait] || sb.file || null, text: sb.text || "" });
+    });
+  });
+  if (!mats.length && !subs.length) {
+    out.push("Единиц ресурсов пока нет.");
+    return out.join("\n");
+  }
+  traits.forEach((t) => {
+    const mine = [
+      ...mats.filter((m) => m.trait === t.id).map((m) => ({ kind: m.kind, qty: m.qty || 1,
+        at: m.at, from: "материалы", text: m.text || "", code: m.code || "", file: m.file })),
+      ...subs.filter((x) => x.trait === t.id).map((x) => ({ kind: x.file ? "файл" : "текст",
+        qty: x.qty, at: x.at, from: `задача «${x.task}»`, text: x.text, code: "",
+        file: x.file, accepted: x.accepted })),
+    ].sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
+    if (!mine.length) return;
+    const have = mine.reduce((a, x) => a + num(x.qty), 0);
+    out.push(`\n«${str(t.l) || "без названия"}»: единиц ${mine.length}, всего ${have}${t.unit ? ` ${t.unit}` : ""}`);
+    mine.slice(0, 50).forEach((x, i) => {
+      const what = x.code ? `код ${x.code}`
+        : x.file?.name ? `файл «${x.file.name}»`
+          : x.text ? `«${str(x.text).slice(0, 200)}»` : "содержимого нет";
+      out.push(`  №${i + 1}${num(x.qty) > 1 ? ` ×${num(x.qty)}` : ""}: ${what}`
+        + `; ${x.from}${x.at ? `, ${when(x.at)}` : ""}`
+        + (x.accepted === false ? "; сдача не принята" : ""));
+    });
+    if (mine.length > 50) out.push(`  …и ещё ${mine.length - 50}`);
+  });
+  return out.join("\n");
+}
+
+/* ─────── что и когда напомнит бот ───────
+
+   «Какие задачи когда будут отправлены» — вопрос про расписание, а не про
+   модель: напоминания живут в файле расписания этого человека
+   (`scheduleStore`). Здесь названы и будущие («пора начинать» по времени
+   задачи), и висящие — те, что повторяются, пока на них не ответили. */
+export function describeSchedule(schedule = null) {
+  const out = ["## Напоминания (что и когда пришлёт бот)"];
+  const tasks = schedule?.tasks || [];
+  if (!tasks.length) {
+    out.push("Расписание пустое: боту нечего напоминать.");
+    return out.join("\n");
+  }
+  tasks.forEach((t) => {
+    if (t.status === "done" || t.canceled === true) return;
+    if (t.kind === "setup") {
+      out.push(`- «${str(t.title)}» — напоминание ПОСТАНОВЩИКУ: задача ждёт постановки,`
+        + ` повторяется каждую минуту, пока не нажмут «Готово» или «Отложить»`
+        + (t.end ? `; срок задачи ${when(t.end)}` : ""));
+      return;
+    }
+    const warn = num(t.warn);
+    out.push(`- «${str(t.title)}» — исполнителю${t.start ? `, начало ${when(t.start)}` : ", время начала не назначено"}`
+      + (warn > 0 && t.start ? `; предупреждение за ${warn} мин` : "")
+      + (t.deferredUntil ? `; отложено до ${when(t.deferredUntil)}` : ""));
+  });
+  const hanging = Object.values(schedule?.reminders || {});
+  if (hanging.length) {
+    out.push(`\nСейчас висят и повторяются: ${hanging.length}`);
+    hanging.forEach((r) => {
+      out.push(`  - ${r.kind === "setup" ? "о постановке" : "о работе"}, задача ${r.taskId}`
+        + (r.deferredUntil ? `; молчит до ${when(r.deferredUntil)}` : "; повторяется каждую минуту"));
+    });
+  }
+  if (out.length === 1) out.push("Ближайших напоминаний нет.");
+  return out.join("\n");
+}
+
 /* ─────── файлы, встречи, память ─────── */
 
 const kb = (n) => (n >= 1024 * 1024 ? `${Math.round(n / 1024 / 1024)} МБ` : `${Math.max(1, Math.round((n || 0) / 1024))} КБ`);
@@ -347,9 +440,11 @@ export async function contextFor(userId, { isMember } = {}) {
   const me = await identify(id, {}, { claim: false });
   if (!me.known) throw new Error("Вас ещё не звали в модель");
 
-  const [model, org, files, meetings, memory, transcripts, chats] = await Promise.all([
+  const [model, org, files, meetings, memory, transcripts, chats, schedule] = await Promise.all([
     readModel(), readOrg(), listReports(id), listMeetings(id), listMemory(id),
     listTranscripts(id), chatsFor(id, isMember ? { isMember } : {}),
+    // Расписание — своё у каждого: по нему помощник отвечает «когда что придёт».
+    readSchedule(id).catch(() => null),
   ]);
   const view = viewFor(model, me);
   const nameOf = namesOf(org);
@@ -359,6 +454,9 @@ export async function contextFor(userId, { isMember } = {}) {
     `Сегодня ${new Date().toISOString().slice(0, 10)}.`,
   ];
   if (me.isOwner) parts.push(describeModel(model));
+  /* Сами вещи: сколько ресурса есть и что это за единицы. Участнику — по
+     ресурсам его задач (срез `viewFor`), владельцу — по всем. */
+  parts.push(describeMaterials(model, view.traits || model.traits || []));
   // Владельцу — все задачи, как на его доске; остальным — только те, где
   // они постановщик, исполнитель или проверяющий (viewFor).
   parts.push(describeTasks(view.mine || [], { funcs: view.funcs || [], nameOf, me: id }));
@@ -369,6 +467,7 @@ export async function contextFor(userId, { isMember } = {}) {
   // метки, — по виду файла, как на вкладке звонков).
   parts.push(describeRecordings(await listReports(id, { kind: "call" }), transcripts));
   parts.push(describeMemory(memory));
+  parts.push(describeSchedule(schedule));
   // Чаты — последними: у них свой предел (20 000 знаков), и при общем
   // обрезании контекста первыми режутся они, а не задачи человека.
   parts.push(describeChats(chats));

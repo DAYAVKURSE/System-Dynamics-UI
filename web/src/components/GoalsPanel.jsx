@@ -224,8 +224,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           </Row>)}
       </div>
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-        Срок — про выход на темп, а не про первый результат: «через месяц»
-        значит, что через месяц темп уже держится.
+        Срок — про выход на темп, а не про первый результат.
       </div>
 
       {/* ─── ВРЕМЯ НА ДОСТИЖЕНИЕ ───
@@ -437,9 +436,7 @@ function Verdict({ plan, unit, traits }) {
           <span style={{ color: WARN }}>уйдёт ещё {nm(Math.round(c.real * 10) / 10)}</span>
         </div>))}
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-        Слева — то, что вы назвали ценой, справа — то, что выходит по
-        модели. Расхождение здесь и есть самое полезное: значит либо цена
-        занижена, либо модель собрана не так, как вы думали.
+        Слева — названная цена, справа — та, что выходит по модели.
       </div>
     </>)}
   </div>);
@@ -481,7 +478,7 @@ function Apply({ goal, plan, ready, fresh, condition, onPredict, onApply }) {
             ? "Это условие, а не цель-число: «<» и «!» проверяются по остатку, план по ним не считается."
             : !ready
               ? "Сначала выберите ресурс, условие и срок."
-              : "Посчитает, что для этой цели придётся сделать, в каком порядке и во что это обойдётся. Ничего не меняет."}
+              : "Посчитает, что придётся сделать и во что обойдётся. Ничего не меняет."}
         </div>
       </>) : (<>
         <button style={{ ...btn(true, OK), width: "100%", padding: "9px 10px",
@@ -597,8 +594,7 @@ function Effect({ plan, traits }) {
         {col("убавится", down, WARN, "−")}
       </div>
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-        За один круг работы по этой цели. Чистое изменение: если функция
-        ресурс и берёт, и выдаёт, здесь стоит разница.
+        За один круг работы: чистое изменение ресурса.
       </div>
     </div>);
 }
@@ -700,9 +696,7 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
         <button style={btn(false)} onClick={add} disabled={!traits.length}>+ цель</button>
       </div>
       <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>
-        Цель — это не число у ресурса, а намерение: сколько, чего, к какому
-        сроку, каким темпом и какой ценой. Модель отвечает на неё тем, что
-        из неё следует: сколько работы, успеет ли и во что обойдётся.
+        Цель — условие на ресурс со сроком, темпом и ценой. Модель отвечает, сколько это работы и успеет ли.
       </div>
       {!goals.length && (
         <div style={{ fontSize: 11.5, color: C.muted }}>

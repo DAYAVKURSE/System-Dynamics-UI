@@ -316,7 +316,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
   const name = (id) => (nameOf ? nameOf(id) : id);
   return (
     <Section title="воркеры актива"
-      hint="Кто вообще работает в этом активе. Постановщика, исполнителя и проверяющего выбирают у КАЖДОЙ ФУНКЦИИ отдельно — из отмеченных здесь."
+      hint="Кто работает в активе. Роли выбираются у функции — должностями."
       empty={people.length ? null : "Людей ещё нет — заведите их во вкладке «Люди и роли»."}>
       {people.length > 0 && (<>
         {/* ─── воркеры ───
@@ -443,8 +443,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                 Добавить</button>
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-              Должность — кем человек числится. Что ему показывать, решает
-              РОЛЬ: она у каждого своя и выбирается в «Людях и ролях».
+              Должность — кем человек числится; по ней и назначают работу.
             </div>
             {posMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{posMsg}</div>}
           </div>)}
@@ -621,8 +620,7 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
       {/* Пояснение про расход — ОДИН раз на секцию, а не у каждого входа. */}
       {!out && list.length > 0 && (
         <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-          «Расходует» — взятое исчезает у всех. Снятая метка значит, что ресурс
-          остаётся и достаётся другим функциям, но эта по нему уже отработала.
+          «Расходует» — взятое исчезает. Без метки ресурс остаётся другим, но эта функция по нему отработала.
         </div>)}
       </div>
     </div>);
@@ -967,7 +965,7 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
   };
   return (
     <Section title="факторы актива"
-      hint="Фактор — то, что меняет ресурсы без человека: сезон, износ, курс, реклама, которая крутится сама. Задач по нему не заводится и спрашивать за него не с кого."
+      hint="Фактор — вероятность: сезон, износ, курс. Он задаёт конверсию функции."
       empty={mine.length ? null : "Факторов пока нет."}>
       {mine.map((x) => {
         const chance = x.chance == null ? 100 : x.chance;
@@ -1030,8 +1028,7 @@ export function Kinds({ kinds, onUp, onAdd, onDel, msg }) {
       </button>
       {open && (<>
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-          Каждый ресурс относится к одной классификации: она задаёт значок и
-          цвет. Удаление переводит её ресурсы в первую оставшуюся.
+          Классификация задаёт значок и цвет. Удаление переводит её ресурсы в первую оставшуюся.
         </div>
         <div style={{ marginTop: 8 }}>
           {kinds.map((k) => (
@@ -1144,9 +1141,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
               })}
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-              Ресурс сам себя не меняет: его берут и выдают функции. Цель по
-              нему ставится в «Прогнозе»: у неё есть темп, срок и цена, и
-              одним числом здесь она не выражается.
+              Ресурс меняют функции. Цель по нему ставится в «Прогнозе».
             </div>
           </Card>);
       })}

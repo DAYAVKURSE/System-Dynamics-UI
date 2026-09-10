@@ -108,7 +108,7 @@ describe("новое в форме функции", () => {
     expect(screen.getByLabelText(`расходует ${name}`))
       .toHaveAttribute("aria-pressed", "false");
     // Пояснение — одно на секцию, а не под каждым входом.
-    expect(screen.getByText(/взятое исчезает у всех/i)).toBeInTheDocument();
+    expect(screen.getByText(/взятое исчезает/i)).toBeInTheDocument();
     expect(dump().funcs.pop().takes[0].spend).toBe(false);
   });
 

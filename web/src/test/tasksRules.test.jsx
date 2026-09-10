@@ -414,7 +414,7 @@ describe("очередь постановки", () => {
 
   it("ничего не ждёт — сказано, откуда задачи вообще берутся", () => {
     render(<Review tasks={[]} />);
-    expect(screen.getByText(/Задачи появляются здесь, когда цель применена/))
+    expect(screen.getByText(/задачи приходят из применённых целей/))
       .toBeInTheDocument();
   });
 
@@ -563,7 +563,7 @@ describe("поля задачи в порядке постановки", () => {
     render(<Board tasks={[]} />);
     expect(screen.queryByRole("button", { name: "+ выполнение" })).toBeNull();
     // Вводная карточка на месте: она и объясняет, откуда задачи берутся.
-    expect(screen.getByText(/Задачи заводятся из применённых целей/)).toBeInTheDocument();
+    expect(screen.getByText(/Задачи приходят из применённых целей/)).toBeInTheDocument();
   });
 });
 
