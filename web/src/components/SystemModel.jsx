@@ -972,8 +972,7 @@ export default function SystemModel(){
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
       fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif"}}>
       <div className="flex items-start justify-between gap-3" style={{marginBottom:10}}>
-        <div><div style={S.lbl}>жизнеспособность · v9</div>
-          <div style={{fontSize:19,fontWeight:700}}>Активы: воркеры, функции, ресурсы</div></div>
+        <div><div style={{fontSize:19,fontWeight:700}}>Активы: воркеры, функции, ресурсы</div></div>
         <div className="flex items-center gap-2"
           style={{flexWrap:"wrap",justifyContent:"flex-end"}}>
           <button style={{...btn(false),opacity:hist.canUndo?1:0.45}}
