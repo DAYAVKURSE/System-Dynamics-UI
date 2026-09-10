@@ -62,12 +62,12 @@ const num = (v) => Number(v) || 0;
    одной единице незачем: у неё либо есть содержимое, либо есть код.
 
    Хранится записью `{id, trait, kind, file|text|code, at, by}` — ОДНА
-   запись на ОДНУ единицу. «Количество 10» в окне загрузки — десять
-   единиц, и десять записей: у каждой свой номер, а у кода — свой код.
-   Пять договоров одним файлом — это пять договоров, и на каждый можно
-   сослаться отдельно; одна запись «×5» этого не даёт. Поле `qty` у
-   записи читается (так завели образец и старые записи), но форма его
-   больше не пишет. */
+   запись на ОДНУ единицу, и у каждой СВОЁ содержимое. «Количество 10»
+   в окне загрузки — десять единиц, и десять полей: десять файлов,
+   десять текстов или десять кодов. Один файл на десятерых — это одна
+   вещь с десятью номерами, а не десять вещей; так владелец и сказал.
+   Поле `qty` у записи читается (так завели образец и старые записи),
+   но форма его больше не пишет. */
 
 export const MATERIAL_KINDS = [
   { id: "file", name: "файл" },
@@ -97,19 +97,19 @@ export function newCode(taken = new Set()) {
 export const materialKind = (m) => (["file", "text", "code"].includes(m?.kind) ? m.kind : "text");
 
 /**
- * Записи материалов для одной загрузки: по записи на каждую единицу.
+ * Записи материалов для одной загрузки: по записи на каждую единицу, и у
+ * каждой своё содержимое — `files[i]`, `texts[i]` или `codes[i]`.
  *
- * Файл или текст у всех N одинаковый — вещь одна и та же, — а номера
- * разные; у кода к тому же свой код в каждой записи.
+ * Количество — это длина списка содержимого; `qty` принимается только
+ * ради кодов, которые здесь же и рождаются, если их не дали.
  */
-export function newMaterials({ trait, qty = 1, kind = "text", file = null, text = "",
+export function newMaterials({ trait, qty = 1, kind = "text", files = [], texts = [],
   by = null, at = new Date().toISOString(), existing = [], codes = [] } = {}) {
-  const n = Math.max(1, Math.floor(num(qty)) || 1);
   const k = materialKind({ kind });
+  const n = k === "file" ? files.length : k === "text" ? texts.length
+    : Math.max(1, Math.floor(num(qty)) || 1);
   const stamp = Date.now().toString(36);
-  const base = { trait, kind: k, at, by, qty: 1, file: null, text: "", code: "",
-    ...(k === "file" ? { file: file || null } : {}),
-    ...(k === "text" ? { text: String(text || "") } : {}) };
+  const base = { trait, kind: k, at, by, qty: 1, file: null, text: "", code: "" };
   if (k === "code") {
     const taken = new Set(existing.map((m) => m.code).filter(Boolean));
     /* Коды, которые человек уже видел в окне (`codes`), и ложатся в
@@ -121,7 +121,8 @@ export function newMaterials({ trait, qty = 1, kind = "text", file = null, text 
       return { ...base, id: `m${stamp}${i.toString(36)}`, code };
     });
   }
-  return Array.from({ length: n }, (_, i) => ({ ...base, id: `m${stamp}${i.toString(36)}` }));
+  return Array.from({ length: n }, (_, i) => ({ ...base, id: `m${stamp}${i.toString(36)}`,
+    ...(k === "file" ? { file: files[i] || null } : { text: String(texts[i] || "") }) }));
 }
 
 /** Чужая запись — к нынешнему виду, без переноса чисел. */

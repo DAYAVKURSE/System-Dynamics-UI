@@ -682,17 +682,20 @@ function UnitRow({ u, unit, spent, nameOf, traitName, unitNo }) {
     </div>);
 }
 
-/** Окно «загрузить единицу ресурса»: количество, вид, одно поле под вид. */
+/** Окно «загрузить единицу ресурса»: количество, вид, и по полю на каждую единицу. */
 function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose }) {
   const [qty, setQty] = useState(1);
   const [kind, setKind] = useState("file");
-  const [file, setFile] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [text, setText] = useState("");
+  /* На каждую единицу — своё содержимое: «Количество 10» — десять
+     файлов, десять текстов или десять кодов, по полю на каждый. Списки
+     держатся по индексу: убавили количество — хвост отрезан, прибавили —
+     дописаны пустые поля, набранное на месте. */
+  const [files, setFiles] = useState([]);
+  const [busy, setBusy] = useState({});
+  const [errs, setErrs] = useState({});
+  const [texts, setTexts] = useState([]);
   /* Коды рождаются здесь, в окне, и показываются до загрузки: то, что
-     человек видит, то и сохранится. Количество выросло — кодов стало
-     больше, прежние остались на месте. */
+     человек видит, то и сохранится. */
   const taken = useMemo(() => new Set(existing.map((m) => m.code).filter(Boolean)), [existing]);
   const [codes, setCodes] = useState(() => [newCode(taken)]);
   const n = Math.max(1, Math.floor(Number(qty)) || 1);
@@ -710,25 +713,39 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
     const used = new Set(taken);
     setCodes(Array.from({ length: n }, () => { const c = newCode(used); used.add(c); return c; }));
   };
-  const pick = async (f) => {
-    setErr("");
+  const at = (list, i) => list[i];
+  const put = (set, i, v) => set((p) => { const q = [...p]; q[i] = v; return q; });
+  const pick = async (i, f) => {
+    setErrs((p) => ({ ...p, [i]: "" }));
     if (!f) return;
-    setBusy(true);
-    try { setFile(await putReportFile(f)); } catch (e) { setErr(e.message || "не удалось сохранить файл"); }
-    setBusy(false);
+    setBusy((p) => ({ ...p, [i]: true }));
+    try { put(setFiles, i, await putReportFile(f)); }
+    catch (e) { setErrs((p) => ({ ...p, [i]: e.message || "не удалось сохранить файл" })); }
+    setBusy((p) => ({ ...p, [i]: false }));
   };
-  const ready = kind === "file" ? !!file && !busy
-    : kind === "text" ? !!text.trim() : codes.length === n;
+  const idx = Array.from({ length: n }, (_, i) => i);
+  const filled = kind === "file" ? idx.filter((i) => at(files, i)).length
+    : kind === "text" ? idx.filter((i) => String(at(texts, i) || "").trim()).length
+      : codes.length;
+  const ready = filled === n && !Object.values(busy).some(Boolean);
   const submit = () => {
     if (!ready) return;
-    onAdd(newMaterials({ trait, qty: n, kind, file, text, by: meId, existing, codes }));
+    onAdd(newMaterials({ trait, qty: n, kind, by: meId, existing, codes,
+      files: idx.map((i) => at(files, i)), texts: idx.map((i) => String(at(texts, i) || "")) }));
     onClose();
   };
   const field = { ...S.inp, width: "100%", marginTop: 4, fontSize: 12 };
+  /* Список полей прокручивается сам, внутри окна: тысяча единиц — тысяча
+     полей, и кнопка «Загрузить» обязана оставаться под рукой, а не в
+     конце километровой ленты. */
+  const listBox = { maxHeight: 220, overflowY: "auto", marginTop: 4, paddingRight: 4,
+    border: `1px solid ${C.line}`, borderRadius: 6, padding: "2px 6px 6px" };
+  const rowLbl = { fontSize: 10.5, color: ACC, fontWeight: 700, marginTop: 6 };
   return (
     <Modal title={`Добавить: ${traitName}`} onClose={onClose}>
       <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>
         Единица ресурса — что-то одно: файл, текст или поле с уникальным кодом.
+        У каждой единицы своё.
       </div>
       <div style={{ ...S.lbl, marginTop: 8 }}>количество</div>
       <input type="number" min="1" step="1" value={qty} aria-label="количество"
@@ -746,32 +763,40 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
       </div>
       {kind === "file" && (
         <div style={{ marginTop: 8 }}>
-          <div style={S.lbl}>файл</div>
-          <input type="file" aria-label="файл единицы" disabled={busy}
-            onChange={(e) => pick(e.target.files?.[0])} style={{ marginTop: 4, fontSize: 11.5 }} />
-          {busy && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>сохраняем…</div>}
-          {file && !busy && (
-            <div style={{ fontSize: 11, color: OK, marginTop: 3 }}>📎 {file.name}</div>)}
-          {err && <div style={{ fontSize: 11, color: BAD, marginTop: 3 }}>{err}</div>}
-          {n > 1 && (
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>
-              один и тот же файл у всех {nm(n)} единиц — у каждой свой номер</div>)}
+          <div style={S.lbl}>файлы — {n > 1 ? `свой у каждой из ${nm(n)} единиц` : "один"}
+            {n > 1 ? ` · приложено ${filled} из ${nm(n)}` : ""}</div>
+          <div role="list" aria-label="файлы единиц" style={listBox}>
+            {idx.map((i) => (
+              <div key={i} role="listitem">
+                {n > 1 && <div style={rowLbl}>единица {i + 1}</div>}
+                <input type="file" aria-label={`файл единицы ${i + 1}`} disabled={!!busy[i]}
+                  onChange={(e) => pick(i, e.target.files?.[0])}
+                  style={{ marginTop: 4, fontSize: 11.5, maxWidth: "100%" }} />
+                {busy[i] && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>сохраняем…</div>}
+                {at(files, i) && !busy[i] && (
+                  <div style={{ fontSize: 11, color: OK, marginTop: 3 }}>📎 {at(files, i).name}</div>)}
+                {errs[i] && <div style={{ fontSize: 11, color: BAD, marginTop: 3 }}>{errs[i]}</div>}
+              </div>))}
+          </div>
         </div>)}
       {kind === "text" && (
         <div style={{ marginTop: 8 }}>
-          <div style={S.lbl}>текст</div>
-          <textarea value={text} aria-label="текст единицы" rows={4}
-            onChange={(e) => setText(e.target.value)} style={{ ...field, resize: "vertical" }} />
+          <div style={S.lbl}>тексты — {n > 1 ? `свой у каждой из ${nm(n)} единиц` : "один"}
+            {n > 1 ? ` · заполнено ${filled} из ${nm(n)}` : ""}</div>
+          <div role="list" aria-label="тексты единиц" style={listBox}>
+            {idx.map((i) => (
+              <div key={i} role="listitem">
+                {n > 1 && <div style={rowLbl}>единица {i + 1}</div>}
+                <textarea value={at(texts, i) || ""} aria-label={`текст единицы ${i + 1}`}
+                  rows={n > 1 ? 2 : 4} onChange={(e) => put(setTexts, i, e.target.value)}
+                  style={{ ...field, resize: "vertical" }} />
+              </div>))}
+          </div>
         </div>)}
       {kind === "code" && (
         <div style={{ marginTop: 8 }}>
           <div style={S.lbl}>уникальный код — {n > 1 ? "свой у каждой единицы" : "создан программой"}</div>
-          {/* Список кодов прокручивается сам, внутри окна: тысяча кодов —
-              тысяча полей, и кнопка «Загрузить» обязана оставаться под
-              рукой, а не в конце километровой ленты. */}
-          <div role="list" aria-label="уникальные коды"
-            style={{ maxHeight: 180, overflowY: "auto", marginTop: 4, paddingRight: 4,
-              border: `1px solid ${C.line}`, borderRadius: 6, padding: "2px 6px 6px" }}>
+          <div role="list" aria-label="уникальные коды" style={{ ...listBox, maxHeight: 180 }}>
             {codes.map((c, i) => (
               <input key={i} readOnly value={c} aria-label={`уникальный код ${i + 1}`}
                 style={{ ...field, fontFamily: "ui-monospace, monospace", letterSpacing: 1 }} />))}

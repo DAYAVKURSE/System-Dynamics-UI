@@ -11,17 +11,19 @@ import { MATERIAL_KINDS, newCode, newMaterials, normalizeMaterials, spentIds, st
 const FILE = { name: "договор.pdf", type: "application/pdf", size: 10, url: "/api/reports/x/1" };
 
 describe("запись материалов", () => {
-  it("«количество N» — N записей любого вида: у каждой свой номер, у кода — свой код", () => {
-    /* Пять договоров одним файлом — пять договоров, и на каждый ссылаются
-       отдельно. Прежде файл и текст ложились одной записью «×N» — владелец
-       сказал, что это неправильно. */
-    const file = newMaterials({ trait: "t1", qty: 3, kind: "file", file: FILE });
+  it("на каждую единицу — своё: свой файл, свой текст, свой код", () => {
+    /* «Количество 3» — три вещи, и у каждой своё содержимое; один файл на
+       троих — одна вещь с тремя номерами, так владелец и сказал. */
+    const F2 = { ...FILE, name: "акт.pdf" };
+    const file = newMaterials({ trait: "t1", kind: "file", files: [FILE, F2, FILE] });
     expect(file).toHaveLength(3);
-    file.forEach((m) => expect(m).toMatchObject({ trait: "t1", kind: "file", qty: 1, file: FILE, text: "", code: "" }));
+    expect(file.map((m) => m.file.name)).toEqual(["договор.pdf", "акт.pdf", "договор.pdf"]);
+    file.forEach((m) => expect(m).toMatchObject({ trait: "t1", kind: "file", qty: 1, text: "", code: "" }));
     expect(new Set(file.map((m) => m.id)).size).toBe(3);
-    const text = newMaterials({ trait: "t1", qty: 2, kind: "text", text: "шаблон" });
+    const text = newMaterials({ trait: "t1", kind: "text", texts: ["первый", "второй"] });
     expect(text).toHaveLength(2);
-    text.forEach((m) => expect(m).toMatchObject({ kind: "text", qty: 1, text: "шаблон", file: null }));
+    expect(text.map((m) => m.text)).toEqual(["первый", "второй"]);
+    text.forEach((m) => expect(m).toMatchObject({ kind: "text", qty: 1, file: null }));
     const codes = newMaterials({ trait: "t1", qty: 3, kind: "code" });
     expect(codes).toHaveLength(3);
     expect(new Set(codes.map((m) => m.code)).size).toBe(3);
@@ -30,9 +32,9 @@ describe("запись материалов", () => {
   });
 
   it("единица — что-то одно: у файла нет текста, у кода — ни того, ни другого", () => {
-    const [m] = newMaterials({ trait: "t1", kind: "file", file: FILE, text: "лишнее" });
+    const [m] = newMaterials({ trait: "t1", kind: "file", files: [FILE], texts: ["лишнее"] });
     expect(m.text).toBe("");
-    const [c] = newMaterials({ trait: "t1", kind: "code", file: FILE, text: "лишнее" });
+    const [c] = newMaterials({ trait: "t1", kind: "code", files: [FILE], texts: ["лишнее"] });
     expect(c.file).toBeNull();
     expect(c.text).toBe("");
     expect(c.code).toMatch(/^[A-Z2-9]{8}$/);

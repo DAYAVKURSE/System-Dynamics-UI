@@ -76,27 +76,34 @@ describe("форма «Материалы»", () => {
     expect(within(d).getAllByRole("radio").map((r) => r.getAttribute("aria-label")))
       .toEqual(["файл", "текст", "уникальное поле"]);
     // Единица — что-то одно: под выбранным видом ровно одно поле.
-    expect(within(d).getByLabelText("файл единицы")).toBeInTheDocument();
+    expect(within(d).getByLabelText("файл единицы 1")).toBeInTheDocument();
     fireEvent.click(within(d).getByLabelText("текст"));
-    expect(within(d).queryByLabelText("файл единицы")).toBeNull();
+    expect(within(d).queryByLabelText(/файл единицы/)).toBeNull();
     expect(within(d).queryByLabelText(/уникальный код/)).toBeNull();
     // Без текста грузить нечего.
     expect(within(d).getByRole("button", { name: "Загрузить" })).toBeDisabled();
-    fireEvent.change(within(d).getByLabelText("текст единицы"), { target: { value: "заявка от Иванова" } });
+    // «Количество 2» — два поля: у каждой единицы свой текст.
     fireEvent.change(within(d).getByLabelText("количество"), { target: { value: "2" } });
+    expect(within(d).getByRole("list", { name: "тексты единиц" }).querySelectorAll("textarea")).toHaveLength(2);
+    fireEvent.change(within(d).getByLabelText("текст единицы 1"), { target: { value: "заявка от Иванова" } });
+    // Одной заполненной мало — нужна каждая.
+    expect(within(d).getByRole("button", { name: "Загрузить" })).toBeDisabled();
+    expect(within(d).getByText(/заполнено 1 из 2/)).toBeInTheDocument();
+    fireEvent.change(within(d).getByLabelText("текст единицы 2"), { target: { value: "заявка от Петрова" } });
     fireEvent.click(within(d).getByRole("button", { name: "Загрузить" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
     const card = materialsCard();
-    // Две единицы — две строки с номерами, у обеих тот же текст.
+    // Две единицы — две строки с номерами, у каждой свой текст.
     expect(within(card).getByText("№1")).toBeInTheDocument();
     expect(within(card).getByText("№2")).toBeInTheDocument();
-    expect(within(card).getAllByText("заявка от Иванова")).toHaveLength(2);
+    expect(within(card).getByText("заявка от Иванова")).toBeInTheDocument();
+    expect(within(card).getByText("заявка от Петрова")).toBeInTheDocument();
     expect(within(card).getAllByText(/добавлен на вкладке «Материалы»/)).toHaveLength(2);
     expect(within(card).getByRole("button", { name: "ресурс заявки" }).textContent).toMatch(/есть 2 шт\./);
     const ms = dump().materials.filter((x) => x.trait === "req");
-    expect(ms).toHaveLength(2);
-    ms.forEach((m) => expect(m).toMatchObject({ kind: "text", qty: 1, text: "заявка от Иванова", file: null, code: "" }));
+    expect(ms.map((m) => m.text)).toEqual(["заявка от Иванова", "заявка от Петрова"]);
+    ms.forEach((m) => expect(m).toMatchObject({ kind: "text", qty: 1, file: null, code: "" }));
 
     // У ресурса «есть сейчас» — это число, и руками оно не вводится.
     tab("Схема");
@@ -150,17 +157,26 @@ describe("форма «Материалы»", () => {
     pickTrait("заявки");
     openUpload();
     const d = dialog();
-    const input = within(d).getByLabelText("файл единицы");
-    const f = new File(["x"], "договор.pdf", { type: "application/pdf" });
-    Object.defineProperty(input, "files", { value: [f], configurable: true });
-    fireEvent.change(input);
-    await waitFor(() => expect(within(d).getByText(/договор\.pdf/)).toBeInTheDocument());
+    // «Количество 2» — два поля файла, и у каждой единицы свой.
+    fireEvent.change(within(d).getByLabelText("количество"), { target: { value: "2" } });
+    const attach = async (i, name) => {
+      const input = within(d).getByLabelText(`файл единицы ${i}`);
+      const f = new File(["x"], name, { type: "application/pdf" });
+      Object.defineProperty(input, "files", { value: [f], configurable: true });
+      fireEvent.change(input);
+      await waitFor(() => expect(within(d).getByText(new RegExp(name.replace(".", "\\.")))).toBeInTheDocument());
+    };
+    await attach(1, "договор.pdf");
+    expect(within(d).getByRole("button", { name: "Загрузить" })).toBeDisabled();
+    await attach(2, "акт.pdf");
     fireEvent.click(within(d).getByRole("button", { name: "Загрузить" }));
 
-    const link = within(materialsCard()).getByRole("link", { name: "скачать шт. №1" });
+    const card = materialsCard();
+    const link = within(card).getByRole("link", { name: "скачать шт. №1" });
     expect(link.getAttribute("href")).toMatch(/^data:/);
     expect(link.getAttribute("download")).toBe("договор.pdf");
-    expect(dump().materials.filter((x) => x.trait === "req").map((x) => x.file.name)).toEqual(["договор.pdf"]);
+    expect(within(card).getByRole("link", { name: "скачать шт. №2" }).getAttribute("download")).toBe("акт.pdf");
+    expect(dump().materials.filter((x) => x.trait === "req").map((x) => x.file.name)).toEqual(["договор.pdf", "акт.pdf"]);
   });
 
   it("единица из задачи рассказывает: какая функция, что написали при сдаче, что отдано взамен", () => {
