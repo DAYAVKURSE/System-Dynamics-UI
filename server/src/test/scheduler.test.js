@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  dueNotifications, occurrencesNear, wallToUtc, formatMessage, formatWarn, runTick,
-  FIRE_WINDOW_MS,
-} from "../lib/scheduler.js";
+import { FIRE_WINDOW_MS, dueNotifications, formatMessage, formatWarn, keyboardFor, occurrencesNear, reminderAlive, repeatDue, runTick, wallToUtc } from "../lib/scheduler.js";
 
 /* Время в задачах «настенное» (как ввёл пользователь), поэтому все проверки
    идут через явный tzOffset — тот же, что даёт getTimezoneOffset() в браузере.
@@ -438,5 +435,115 @@ describe("проход планировщика", () => {
 
     expect(await runTick({ store, send, now })).toBe(0);
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+/* ─────── НАПОМИНАНИЕ ЖИВЁТ, ПОКА НА НЕГО НЕ ОТВЕТИЛИ ───────
+
+   Владелец: «если пользователь не нажал „Отложить“, то это же сообщение
+   должно ему приходить каждую минуту, пока не нажмёт что-то. Если нажал
+   отложить, новое напоминание должно прийти через то время, которое указал
+   пользователь». И отдельно: постановщику — напоминание о постановке с
+   кнопками «Готово» и «Отложить». */
+describe("повтор и напоминание о постановке", () => {
+  const SETUP = { id: "s1", kind: "setup", title: "Поставить макет", status: "wait",
+    setter: "200", end: "2030-01-01T10:00" };
+  const sched = (over = {}) => ({ chatId: 42, tzOffset: 0, tasks: [SETUP], ...over });
+
+  it("постановщику — «нужно поставить» с «Готово» и «Отложить», и сразу", () => {
+    const due = dueNotifications(sched(), Date.parse("2026-01-01T09:00:00Z"), {});
+    expect(due).toHaveLength(1);
+    expect(due[0]).toMatchObject({ kind: "setup", taskId: "s1", setter: "200" });
+    const text = formatMessage(due[0], "200");
+    expect(text).toMatch(/^Нужно поставить задачу: Поставить макет/);
+    expect(text).toMatch(/Срок: 2030-01-01 10:00/);
+    expect(text).toMatch(/повторю это сообщение через минуту/);
+    expect(keyboardFor(due[0], "200").inline_keyboard[0].map((b) => b.text))
+      .toEqual(["🔴 Отложить", "✅ Готово"]);
+    // Не постановщику кнопок нет: «Готово» у него отказывало бы всегда.
+    expect(keyboardFor(due[0], "300")).toBeNull();
+  });
+
+  it("поставленная задача больше не напоминает", () => {
+    const set = sched({ tasks: [{ ...SETUP, status: "backlog" }] });
+    expect(dueNotifications(set, Date.now(), {})).toEqual([]);
+    // И отменённая тоже: работы, которой решили не делать, не ставят.
+    const off = sched({ tasks: [{ ...SETUP, canceled: true }] });
+    expect(dueNotifications(off, Date.now(), {})).toEqual([]);
+  });
+
+  it("висящее напоминание повторяется раз в минуту, пока не ответили", () => {
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const rem = { kind: "setup", taskId: "s1", lastSentAt: now, deferredUntil: null,
+      text: "Нужно поставить задачу: Поставить макет" };
+    const s = sched({ reminders: { "setup:s1": rem } });
+    // Минута ещё не прошла — молчим.
+    expect(repeatDue(s, now + 59_000)).toEqual([]);
+    expect(repeatDue(s, now + 60_000).map((r) => r.id)).toEqual(["setup:s1"]);
+    // Ответили — гасить нечего.
+    expect(repeatDue(sched({ reminders: {} }), now + 600_000)).toEqual([]);
+  });
+
+  it("отложенное молчит до названного момента, потом снова каждую минуту", () => {
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const until = new Date(now + 30 * 60_000).toISOString();
+    const s = sched({ reminders: { "setup:s1": { kind: "setup", taskId: "s1",
+      lastSentAt: now, deferredUntil: until, text: "…" } } });
+    expect(repeatDue(s, now + 10 * 60_000)).toEqual([]);
+    expect(repeatDue(s, now + 31 * 60_000).map((r) => r.id)).toEqual(["setup:s1"]);
+  });
+
+  it("напоминание в силе, пока задача в том же состоянии", () => {
+    const tasks = [{ id: "s1", status: "wait" }, { id: "w1", status: "backlog" },
+      { id: "w2", status: "progress" }, { id: "w3", status: "done" }];
+    const alive = (kind, taskId) => reminderAlive({ kind, taskId }, tasks);
+    expect(alive("setup", "s1")).toBe(true);
+    expect(reminderAlive({ kind: "setup", taskId: "w1" }, tasks)).toBe(false);
+    expect(alive("task", "w1")).toBe(true);
+    expect(alive("task", "w2")).toBe(false);      // взяли — начинать нечего
+    expect(alive("task", "w3")).toBe(false);      // сдана
+    expect(alive("task", "нет")).toBe(false);
+    expect(reminderAlive({ kind: "task", taskId: "s1" },
+      [{ id: "s1", status: "backlog", canceled: true }])).toBe(false);
+  });
+
+  it("тик шлёт повтор тем же текстом и отмечает время", async () => {
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const rem = { kind: "setup", taskId: "s1", lastSentAt: now - 120_000,
+      deferredUntil: null, text: "Нужно поставить задачу: Поставить макет" };
+    const touched = [];
+    const opened = [];
+    const sent = [];
+    const store = {
+      all: async () => [{ userId: "200", schedule: sched({ reminders: { "setup:s1": rem },
+        sent: { "s1:setup": now - 120_000 } }) }],
+      markSent: async () => {},
+      openReminder: async (u, r) => { opened.push([u, r.kind, r.taskId]); },
+      touchReminder: async (u, id, at) => { touched.push([u, id, at]); },
+      failReminder: async () => ({ dropped: false }),
+    };
+    const n = await runTick({ store, send: async (chatId, text, keyboard) =>
+      sent.push({ chatId, text, keyboard }), now });
+    expect(n).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toBe(rem.text);          // слово в слово, а не заново
+    expect(sent[0].keyboard.inline_keyboard[0].map((b) => b.text))
+      .toEqual(["🔴 Отложить", "✅ Готово"]);
+    expect(touched).toEqual([["200", "setup:s1", now]]);
+    expect(opened).toEqual([]);                   // первого раза не было — только повтор
+  });
+
+  it("первая отправка заводит висящее напоминание — с этого и начинается повтор", async () => {
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const opened = [];
+    const store = {
+      all: async () => [{ userId: "200", schedule: sched() }],
+      markSent: async () => {},
+      openReminder: async (u, r, at) => { opened.push([u, r.kind, r.taskId, at]); },
+      touchReminder: async () => {},
+      failReminder: async () => ({ dropped: false }),
+    };
+    await runTick({ store, send: async () => {}, now });
+    expect(opened).toEqual([["200", "setup", "s1", now]]);
   });
 });

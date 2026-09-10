@@ -418,11 +418,10 @@ describe("что воркер может выполнять", () => {
   const FUNCS = [
     { id: "f1", e: "a", name: "Верстать", owners: ["2"], takes: [], gives: [] },
     { id: "f2", e: "a", name: "Проверять", owners: [], takes: [], gives: [] },
-    { id: "fx", e: "a", name: "Сезон", kind: "factor", owners: [], takes: [], gives: [] },
     { id: "f9", e: "b", name: "Чужая", owners: [], takes: [], gives: [] },
   ];
 
-  it("у воркера — кнопки функций своего актива с отметкой; фактор и чужие не предлагаются", () => {
+  it("у воркера — кнопки функций своего актива с отметкой; чужие не предлагаются", () => {
     const calls = [];
     render(<Workers workers={{ crew: ["2", "3"] }} people={PEOPLE} funcs={FUNCS}
       entityId="a" nameOf={(id) => PEOPLE.find((p) => p.id === id)?.name || id}
@@ -433,7 +432,6 @@ describe("что воркер может выполнять", () => {
       .toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "может выполнять «Верстать»: Пётр" }))
       .toHaveAttribute("aria-pressed", "false");
-    expect(screen.queryByRole("button", { name: /может выполнять «Сезон»/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /может выполнять «Чужая»/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "может выполнять «Проверять»: Пётр" }));
     expect(calls).toEqual([["3", "f2"]]);

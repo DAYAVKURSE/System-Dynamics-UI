@@ -72,6 +72,8 @@ describe("форма «Материалы»", () => {
     openUpload();
     const d = dialog();
     expect(d).toHaveAccessibleName("Добавить: заявки");
+    // Окно живёт прямо в body: внутри прокрученной формы fixed уезжал за экран.
+    expect(d.parentElement.parentElement).toBe(document.body);
     expect(within(d).getByLabelText("количество")).toBeInTheDocument();
     expect(within(d).getAllByRole("radio").map((r) => r.getAttribute("aria-label")))
       .toEqual(["файл", "текст", "уникальное поле"]);

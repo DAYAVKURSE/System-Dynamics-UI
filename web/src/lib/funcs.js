@@ -130,29 +130,21 @@ export const portSpends = (p = {}) => p.spend !== false;
  */
 export const newGive = (trait = "", lo = 1, hi = 1) => newPort(trait, lo, hi);
 
-/**
- * Чем функция выполняется: людьми или само собой.
- *
- * «Задача» — работу делают люди: у неё есть постановщик, исполнитель и
- * проверяющий, и из неё берутся задачи на доске. «Фактор» — то, что
- * происходит без человека: сезон, износ, реклама, которая крутится сама.
- * Ресурсы фактор меняет так же, как задача, но спрашивать с него некого —
- * и назначать на него людей значило бы поставить кого-то отвечать за
- * погоду.
- */
-export const FUNC_KINDS = [
-  { id: "task", name: "Задача" },
-  { id: "factor", name: "Фактор" },
-];
-export const funcKind = (f) => (f?.kind === "factor" ? "factor" : "task");
-export const isFactor = (f) => funcKind(f) === "factor";
+/* ─── «вид» функции ───
 
-/** Новая функция внутри актива. Пока не сказано иное — это работа людей. */
+   Прежде функция была либо задачей (её делают люди), либо фактором
+   (случается сам, без людей). Владелец это снял: у любой функции есть
+   постановщик, исполнитель и проверяющий, а факторы — не другой вид, а
+   КОНВЕРСИЯ: сколько входа уходит на одну единицу выхода. Функция без
+   факторов конвертирует 1:1; с факторами на 10% — берёт вдесятеро больше.
+   Старая запись с `kind: "factor"` читается как обычная функция со своими
+   факторами: поле `kind` при чтении отбрасывается. */
+
+/** Новая функция внутри актива: работа людей, конверсия 100% (см. факторы). */
 export const newFunc = (e, name = "новая функция") => ({
   id: nextId("f"),
   e,
   name,
-  kind: "task",
   factors: [],
   // Описание — необязательное: чем функция занята, своими словами. Оно
   // едет в каждую её задачу, чтобы исполнителю не приходилось спрашивать,
@@ -316,7 +308,6 @@ export const factorsOf = (f = {}) => (Array.isArray(f.factors)
  * прямой суммы не бывает, два фактора по 60% дают 84%, а не 120%.
  */
 export const chanceOf = (f = {}, factors = []) => {
-  if (!isFactor(f)) return CHANCE_MAX;
   const ids = factorsOf(f);
   if (!ids.length) return CHANCE_MAX;
   const miss = ids.reduce((p, id) => {
@@ -325,6 +316,22 @@ export const chanceOf = (f = {}, factors = []) => {
   }, CHANCE_MAX);
   return CHANCE_MAX - miss;
 };
+
+/**
+ * Конверсия функции — доля от 0 до 1: без факторов 1, с факторами —
+ * их шанс. Столько выхода даёт одна порция входа; обратное число — во
+ * сколько раз больше входа нужно на одно выполнение (`takeQty`).
+ */
+export const conversionOf = (f = {}, factors = []) => chanceOf(f, factors) / CHANCE_MAX;
+
+/**
+ * Сколько входа нужно на одно выполнение с учётом конверсии: порция /
+ * конверсия. Конверсия ноль — входа не хватит никогда (Infinity): фактор,
+ * который не случается, ждать бессмысленно, и это сказано числом, а не
+ * тихим нулём.
+ */
+export const takeQty = (qty, conv = 1) => (num(conv) > 0 ? num(qty) / num(conv)
+  : (num(qty) > 0 ? Infinity : 0));
 
 /** По-человечески: «сразу» или «через 2 нед», вилкой — «через 1–2 нед». */
 export const everyText = (f) => {
@@ -371,13 +378,12 @@ export const normalizeFunc = (f = {}) => {
   const unit = (u) => (DUR_UNITS[u] ? u : DUR_DEFAULT);
   // Прежнее поле одного фактора не остаётся рядом со списком: два места
   // для одного и того же разошлись бы на первой же правке.
-  const { factor, ...rest } = f;
+  const { factor, kind, ...rest } = f;   // eslint-disable-line no-unused-vars
   return {
     ...rest,
     e: f.e ?? null,
     name: f.name ?? "",
     about: f.about == null ? "" : String(f.about),
-    kind: funcKind(f),
     factors: factorsOf(f),
     takes: Array.isArray(f.takes) ? f.takes.map((p) => port(p, true)) : [],
     gives: Array.isArray(f.gives) ? f.gives.map((p) => port(p)) : [],
@@ -609,8 +615,13 @@ export const byCrew = (workers, people = []) => {
  * расходуя. Обработанное лежит на месте и достаётся другим функциям, но
  * этой второй раз не даётся: работа по нему уже сделана.
  */
-export function shortage(f, traits = [], done = {}) {
+export function shortage(f, traits = [], done = {}, factors = []) {
   if (!f) return [];
+  /* Конверсия: с факторами на 10% входа нужно вдесятеро больше — задача
+     уходит на постановку, когда набралось столько. Владелец: «единиц
+     забираемого ресурса должно стать 10, прежде чем задача уйдёт». */
+  const conv = conversionOf(f, factors);
+  const req = (p) => takeQty(num(p.hi || p.lo), conv);
   const left = (id) => num(done?.[id]);
   const have = (id) => {
     const all = num(traits.find((t) => t.id === id)?.have);
@@ -621,18 +632,18 @@ export function shortage(f, traits = [], done = {}) {
   const name = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
   return groupsOf(f.takes || [])
     .map((g) => {
-      const ok = g.some((p) => free(p) >= num(p.hi || p.lo));
+      const ok = g.some((p) => free(p) >= req(p));
       if (ok) return null;
       // Показываем тот вариант, которого не хватает меньше всего: до него
       // ближе всего, и именно он подскажет, чего добирать.
       const best = g.reduce((a, p) => {
-        const gap = num(p.hi || p.lo) - free(p);
+        const gap = req(p) - free(p);
         return a && a.gap <= gap ? a : { p, gap };
       }, null);
       return best && {
         trait: best.p.trait,
         name: name(best.p.trait),
-        need: num(best.p.hi || best.p.lo),
+        need: req(best.p),
         have: free(best.p),
         // Обработанное этой функцией: не «нет ресурса», а «нет НОВОГО».
         done: portSpends(best.p) ? 0 : Math.min(left(best.p.trait), have(best.p.trait)),
@@ -733,7 +744,8 @@ export const WHY_FUNC = "Функция обменивает одни ресур
   + "\n· сколько берёт и выдаёт — диапазон «от и до»;"
   + "\n· за какое время выполняется;"
   + "\n· ресурсы: хотя бы один свой — из одних чужих функция не часть актива;"
-  + "\n· кто выполняет: люди — задача, само собой — фактор.";
+  + "\n· кто выполняет: постановщик, исполнитель, проверяющий;"
+  + "\n· факторы — по желанию: это конверсия, во сколько раз больше входа нужно.";
 
 export const WHY_TRAIT = "Ресурс — это то, что есть. Сам он не изменяется: его"
   + " берут и выдают функции. Чтобы ресурс был задействован в активе, хотя бы"
@@ -814,17 +826,14 @@ export function funcGaps(f, { traits = [], factors = [] } = {}) {
   const out = [];
   if (!f.takes?.length) out.push("не сказано, что берёт");
   if (!f.gives?.length) out.push("не сказано, что выдаёт");
-  /* Фактор без названного фактора — обрыв: сказано «происходит само», но
-     не сказано, от чего. Названы должны быть все, и все они должны
-     существовать. Список факторов дают не всегда: там, где его нет,
-     ссылку не проверяем. */
-  if (isFactor(f) && factors.length > 0) {
-    const ids = factorsOf(f);
-    const found = ids.map((id) => factors.find((x) => x.id === id));
-    if (!ids.length || found.some((x) => !x)) out.push("не выбран фактор");
-    /* Фактор — свой у актива: сезон одного актива не двигает ресурсы
-       другого. Чужой в списке — не «наружу», а ошибка ссылки; выбрать его
-       форма не даёт, а в старой записи он мог остаться. */
+  /* Факторы — по желанию, но названные должны существовать и быть своими:
+     сезон одного актива не двигает ресурсы другого. Чужой или удалённый в
+     списке — ошибка ссылки; выбрать такой форма не даёт, а в старой
+     записи он мог остаться. Список факторов дают не всегда: там, где его
+     нет, ссылку не проверяем. */
+  if (factors.length > 0) {
+    const found = factorsOf(f).map((id) => factors.find((x) => x.id === id));
+    if (found.some((x) => !x)) out.push("выбран удалённый фактор");
     else if (found.some((x) => x.e !== f.e)) out.push("выбран фактор другого актива");
   }
   const ports = [...(f.takes || []), ...(f.gives || [])];

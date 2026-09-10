@@ -186,7 +186,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
-  published, onComment, onDropComment, onSetup }) {
+  published, onComment, onDropComment, onSetup, factors = [] }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
@@ -243,7 +243,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
             «какую задачу мы сейчас ставим» тем, что человек должен
             вспомнить сам, — а он только что на неё нажал. */}
         {toSet.map((t) => {
-          const why = whyNotSet(t, funcs, traits, tasks);
+          const why = whyNotSet(t, funcs, traits, tasks, factors);
           const on = setupId === t.id;
           return (
             <div key={t.id}>
@@ -259,7 +259,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                 <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
               </div>
               {on && setup && (
-                <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits}
+                <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits} factors={factors}
                   entities={entities} people={people}
                   /* Людей назначает тот, кто ставит: постановщик этой
                      задачи — или владелец, у которого модель целиком.

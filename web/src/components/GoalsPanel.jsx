@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField } from "./ui.jsx";
 import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, budgetHours, copyGoal, newGoal,
-  checkGoal, goalText, ifDone, planGoal, rateOf } from "../lib/goals.js";
+  checkGoal, exprText, goalState, goalText, ifDone, planGoal, plannable, rateOf }
+  from "../lib/goals.js";
+import ExprField from "./ExprField.jsx";
 import { DUR_UNITS } from "../lib/funcs.js";
 import { newTask, nowLocal, runTitle } from "./TasksBoard.jsx";
 
@@ -79,9 +81,22 @@ const Row = ({ label, children, wide }) => (
 function Gauge({ goal, traits, traitName }) {
   const t = traits.find((x) => x.id === goal.trait);
   const have = Number(t?.have) || 0;
-  const want = Number(goal.qty) || 0;
+  /* «Сколько» — условие: число для мерки берётся из него, со ссылками на
+     другие ресурсы. У «<» и «!» числа-цели нет — есть выполнено или нет. */
+  const st = goalState(goal, { traits });
+  const want = Number(st.target) || 0;
   const rate = rateOf(goal.rate);
   const part = want > 0 ? Math.min(1, have / want) : 0;
+  if (st.error || st.target == null) {
+    return (
+      <div className="flex items-center gap-2" style={{ fontSize: 11.5, marginTop: 6 }}>
+        <span style={{ flex: 1, minWidth: 0, color: C.muted }}>
+          {traitName(goal.trait)}{t?.unit ? `, ${t.unit}` : ""} · сейчас {nm(have)}</span>
+        <span style={{ color: st.error ? BAD : st.met ? OK : WARN }}>
+          {st.error ? st.error
+            : `условие ${exprText(goal.expr, traitName)} · ${st.met ? "выполнено" : "не выполнено"}`}</span>
+      </div>);
+  }
   return (
     <div style={{ marginTop: 6 }}>
       <div className="flex items-center gap-2" style={{ fontSize: 11.5 }}>
@@ -108,19 +123,22 @@ const hoursText = (h) => `${nm(Math.round(h * 10) / 10)} ч`;
 /* Отпечаток цели: по нему видно, изменилась ли она с тех пор, как её
    считали. Сравниваем именно поля намерения, а не всю запись: отметка о
    применении и порядок в списке к расчёту отношения не имеют. */
-const stamp = (g) => JSON.stringify([g.trait, g.qty, g.rate, g.dueKind, g.dueIn,
+const stamp = (g) => JSON.stringify([g.trait, g.expr, g.rate, g.dueKind, g.dueIn,
   g.dueUnit, g.dueOn, g.days, g.hours, g.hoursPer,
   (g.costs || []).map((c) => [c.trait, c.qty])]);
 
 function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onToggle }) {
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "ресурс не выбран";
   const ready = checkGoal(goal, traits);
+  /* План считается только у цели-числа («=», «>»): «<» и «!» — условие,
+     которое проверяется, а не достигается работой. */
+  const canPlan = ready && plannable(goal, model);
   /* На чём построен показанный прогноз. Пусто — не считали; не совпадает с
      нынешним отпечатком — считали, но с тех пор цель поправили. */
   const [shown, setShown] = useState(null);
   const [done, setDone] = useState([]);
   const fresh = shown != null && shown === stamp(goal);
-  const plan = ready && fresh ? planGoal(model, goal, { runsOf }) : null;
+  const plan = canPlan && fresh ? planGoal(model, goal, { runsOf }) : null;
   const up = (patch) => { setShown(null); onSet(goal.id, patch); };
   /* Ограничен ли бюджет времени — это и есть «часов больше нуля». Второй
      записи о том же в цели нет: она рано или поздно разошлась бы с числом.
@@ -141,7 +159,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           aria-label={`${open ? "свернуть" : "развернуть"} цель`}
           onClick={onToggle}>{open ? "▾" : "▸"}</button>
         <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, minWidth: 0 }}>
-          {ready ? goalText(goal, traitName) : "цель не задана: выберите ресурс и количество"}
+          {ready ? goalText(goal, traitName) : "цель не задана: выберите ресурс и условие"}
           {goal.appliedAt && (
             <span style={{ color: OK, fontWeight: 400, fontSize: 11 }}> · применена</span>)}
         </span>
@@ -167,9 +185,9 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
             {traits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
           </select>
         </Row>
-        <Row label="сколько">
-          <NumField value={goal.qty} aria-label="сколько ресурса"
-            onCommit={(v) => up({ qty: v ?? 0 })} />
+        <Row label="сколько — условие: > < = ! и @ресурс" wide>
+          <ExprField value={goal.expr} traits={traits} aria-label="сколько ресурса"
+            onCommit={(v) => up({ expr: v })} />
         </Row>
         <Row label="как часто">
           <select style={sel} value={goal.rate} aria-label="темп цели"
@@ -316,7 +334,8 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
       {plan && (
         <Actions plan={plan} model={model} goal={goal} traitName={traitName}
           done={done} onDone={setDone} />)}
-      <Apply goal={goal} plan={plan} ready={ready} fresh={fresh}
+      <Apply goal={goal} plan={plan} ready={canPlan} fresh={fresh}
+        condition={ready && !canPlan}
         onPredict={() => { setShown(stamp(goal)); setDone([]); }}
         onApply={() => onApply(goal, plan)} />
       </>)}
@@ -445,7 +464,7 @@ function Verdict({ plan, unit, traits }) {
  * говорит. Как только цель поправили, прогноз устарел, и кнопка снова
  * зовёт считать: применять числа, которых человек не видел, нельзя.
  */
-function Apply({ goal, plan, ready, fresh, onPredict, onApply }) {
+function Apply({ goal, plan, ready, fresh, condition, onPredict, onApply }) {
   const n = (plan?.schedule || []).length;
   const can = plan && plan.ok && n > 0;
   return (
@@ -458,9 +477,11 @@ function Apply({ goal, plan, ready, fresh, onPredict, onApply }) {
             посчитайте заново» здесь нет: кнопка и так зовёт считать, и
             повторять это словами значит объяснять очевидное. */}
         <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-          {!ready
-            ? "Сначала выберите ресурс, количество и срок."
-            : "Посчитает, что для этой цели придётся сделать, в каком порядке и во что это обойдётся. Ничего не меняет."}
+          {condition
+            ? "Это условие, а не цель-число: «<» и «!» проверяются по остатку, план по ним не считается."
+            : !ready
+              ? "Сначала выберите ресурс, условие и срок."
+              : "Посчитает, что для этой цели придётся сделать, в каком порядке и во что это обойдётся. Ничего не меняет."}
         </div>
       </>) : (<>
         <button style={{ ...btn(true, OK), width: "100%", padding: "9px 10px",
@@ -516,7 +537,6 @@ function Actions({ plan, model, goal, traitName, done, onDone }) {
           <span style={{ color: ACC, minWidth: 16 }}>{st.no}.</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             {st.name || "без названия"}
-            {st.factor && <span style={{ color: C.muted }}> · фактор</span>}
           </span>
           <span style={{ color: WARN, whiteSpace: "nowrap" }}>
             ×{nm(Math.round(st.runs * 10) / 10)}</span>

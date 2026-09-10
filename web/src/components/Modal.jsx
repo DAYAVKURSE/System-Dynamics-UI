@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { C, BAD, S, btn } from "./ui.jsx";
 
 /* ════════════════════════════════════════════════════════════════
@@ -14,6 +15,12 @@ import { C, BAD, S, btn } from "./ui.jsx";
    не бродила по схеме за спиной у окна, и возвращать его туда, откуда
    взяли. Без последнего человек, закрывший окно, теряет место в
    интерфейсе и ищет его заново.
+
+   Рисуется ПОРТАЛОМ в `body`, а не там, где вызвано: `position: fixed`
+   внутри прокрученного или трансформированного предка считается от него,
+   и на телефоне окно уезжало за край экрана. У `body` предков нет.
+   Высота — от видимой области (`dvh`), не от `vh`: в WebView Telegram
+   `vh` считает и полосы, которых на экране нет.
    ════════════════════════════════════════════════════════════════ */
 
 export default function Modal({ title, children, onClose }) {
@@ -33,14 +40,16 @@ export default function Modal({ title, children, onClose }) {
     };
   }, [onClose]);
 
-  return (
+  const node = (
     <div role="presentation" onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "#0009", zIndex: 50,
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#0009",
+        zIndex: 50, display: "flex", alignItems: "flex-start", justifyContent: "center",
+        padding: 12, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
       <div role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}
         onClick={(e) => e.stopPropagation()}
         style={{ ...S.card, maxWidth: 460, width: "100%", outline: "none",
-          maxHeight: "80vh", overflow: "auto" }}>
+          margin: "max(12px, 4dvh) 0", maxHeight: "calc(100dvh - 24px)", overflow: "auto",
+          boxSizing: "border-box" }}>
         <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{title}</span>
           <button aria-label="закрыть" style={{ ...btn(false), padding: "2px 8px" }}
@@ -53,6 +62,7 @@ export default function Modal({ title, children, onClose }) {
           whiteSpace: "pre-line" }}>{children}</div>
       </div>
     </div>);
+  return typeof document === "undefined" ? node : createPortal(node, document.body);
 }
 
 /**

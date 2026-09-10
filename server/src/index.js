@@ -7,9 +7,10 @@ import { answerCallback, answerInline, editMessage, getFile, getMe, getUpdates, 
   from "./lib/telegram.js";
 import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
+import { deferMinOf } from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
 import { setSetting } from "./lib/envStore.js";
-import { deferTask, submitTask, takeTask, taskFor, withModel, writeModel }
+import { deferTask, setupStateFor, submitTask, takeTask, taskFor, withModel, writeModel }
   from "./lib/workspaceStore.js";
 import { saveReport } from "./lib/reportStore.js";
 import { publishStep } from "./lib/ratings.js";
@@ -156,7 +157,18 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
                 },
                 submit: submitTask,
                 taskFor,
+                // «Готово» под напоминанием о постановке: спрашиваем склад,
+                // а не верим нажатию.
+                setupState: setupStateFor,
               },
+              /* Висящие напоминания: нажатие гасит повтор, «Отложить»
+                 переносит его на срок из анкеты человека. */
+              reminders: {
+                ack: (u, kind, id) => store.ackReminder(u, `${kind}:${id}`).catch(() => false),
+                defer: (u, kind, id, until) =>
+                  store.deferReminder(u, `${kind}:${id}`, until).catch(() => false),
+              },
+              deferMin: (u) => deferMinOf(u).catch(() => null),
               /* Сданная в чате вещь ложится туда же, куда файлы из приложения:
                  хранилище одно, и в отчёте она найдётся по тому же адресу. */
               files: { save: (userId, f) => saveReport(userId, f) },

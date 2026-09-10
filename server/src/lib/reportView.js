@@ -130,7 +130,7 @@ function estimate(model, chain, side, qty) {
        цепочки без единого слова о причине. */
     if (!(n > 0)) {
       steps.push({ func: f.id, name: str(f.name), runs: 0,
-        factor: f.kind === "factor", par: 1, startHours: 0, calendarHours: 0,
+        par: 1, startHours: 0, calendarHours: 0,
         workHours: 0,
         short: takes.filter((p) => inChain.has(p.trait)
           && per(p, "takes") > (flow[p.trait] || 0))
@@ -171,11 +171,11 @@ function estimate(model, chain, side, qty) {
       own[g.trait] = (own[g.trait] || 0) + all;
       ready[g.trait] = Math.max(ready[g.trait] ?? 0, start + calendar);
     });
-    steps.push({ func: f.id, name: str(f.name), runs: n, factor: f.kind === "factor",
+    steps.push({ func: f.id, name: str(f.name), runs: n,
       par, short: [], startHours: start, calendarHours: calendar, own,
       // Одно выполнение занимает 1/par времени воркера: он ведёт столько
       // таких дел разом. Правило то же, что в приложении.
-      workHours: f.kind === "factor" ? 0 : (one * n) / par });
+      workHours: (one * n) / par });
   });
   return { steps, delta,
     workHours: steps.reduce((a, x) => a + x.workHours, 0),

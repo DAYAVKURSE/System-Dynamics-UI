@@ -30,7 +30,7 @@
    где план разошёлся с делом; одно число вместо двух скрыло бы ровно это.
    ════════════════════════════════════════════════════════════════ */
 
-import { factorChance, factorsOf, hoursOf, isFactor, parOf, portSpends } from "./funcs.js";
+import { conversionOf, factorChance, factorsOf, hoursOf, parOf, portSpends } from "./funcs.js";
 import { portQty, stepHours } from "./plan.js";
 
 const num = (v) => Number(v) || 0;
@@ -139,13 +139,16 @@ export function estimate(model = {}, chain = {},
 
   order.forEach((f) => {
     const rs = runs(f);
+    /* Конверсия: с факторами на одно выполнение входа нужно больше
+       (`portQty` с `conv`). Без факторов — единица, и ничего не меняется. */
+    const conv = conversionOf(f, model.factors || []);
     const takes = (f.takes || []).filter((p) => p.trait);
     /* Сколько раз функция сработает: столько, на сколько хватает самого
        дефицитного её входа ИЗ ЦЕПОЧКИ. Вход со стороны не ограничивает —
        он приходит не отсюда. */
     let n = Infinity;
     takes.forEach((p) => {
-      const per = portQty(p, { kind: "takes", side, runs: rs });
+      const per = portQty(p, { kind: "takes", side, runs: rs, conv });
       if (!(per > 0)) return;
       if (!inChain.has(p.trait)) return;
       n = Math.min(n, (flow[p.trait] || 0) / per);
@@ -166,13 +169,12 @@ export function estimate(model = {}, chain = {},
     if (!(n > 0)) {
       const short = takes
         .filter((p) => inChain.has(p.trait)
-          && portQty(p, { kind: "takes", side, runs: rs }) > (flow[p.trait] || 0))
+          && portQty(p, { kind: "takes", side, runs: rs, conv }) > (flow[p.trait] || 0))
         .map((p) => p.trait);
       steps.push({
         func: f.id,
         name: f.name || "без названия",
         e: f.e,
-        factor: isFactor(f),
         runs: 0,
         par: parOf(f),
         startHours: takes.reduce((m, p) => (inChain.has(p.trait)
@@ -202,7 +204,7 @@ export function estimate(model = {}, chain = {},
 
     const usedIn = [];
     takes.forEach((p) => {
-      const per1 = portQty(p, { kind: "takes", side, runs: rs });
+      const per1 = portQty(p, { kind: "takes", side, runs: rs, conv });
       const all = per1 * n;
       usedIn.push({ trait: p.trait, qty: all, spend: portSpends(p),
         outside: !inChain.has(p.trait) });
@@ -230,19 +232,15 @@ export function estimate(model = {}, chain = {},
       func: f.id,
       name: f.name || "без названия",
       e: f.e,
-      factor: isFactor(f),
       runs: n,
       par: parOf(f),
       short: [],
       startHours: start,
       calendarHours: calendar,
-      // Часы фактора не человеко-часы: он происходит сам, и ничьё время
-      // не тратит. Ждать его при этом всё равно приходится.
       /* Одно выполнение занимает 1/par времени воркера: он ведёт `par`
          таких дел разом. Считать их полными значило бы обвинить в
          восьмикратной перегрузке того, для кого настройку и завели. */
-      workHours: isFactor(f) ? 0
-        : (hoursOf(f, side === "hi" ? "lo" : "hi") * n) / parOf(f),
+      workHours: (hoursOf(f, side === "hi" ? "lo" : "hi") * n) / parOf(f),
       takes: usedIn,
       gives: madeOut,
     });
@@ -287,7 +285,7 @@ export function factorsIn(model = {}, chain = {}) {
   const inChain = new Set(chain.traits || []);
   const list = model.factors || [];
   return (model.funcs || [])
-    .filter((f) => isFactor(f))
+    .filter((f) => factorsOf(f).length)
     .map((f) => {
       const touches = [
         ...(f.takes || []).map((p) => p.trait),

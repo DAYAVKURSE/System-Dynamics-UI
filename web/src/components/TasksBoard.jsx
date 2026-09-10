@@ -285,10 +285,10 @@ export const selfReview=(t)=>same(t?.assignee,t?.reviewer);
  * У задачи с автоматической постановкой это бэклог: возвращать её в
  * «ожидает постановки» бессмысленно — она тут же поставится снова.
  */
-export function floorStatus(task,{funcs=[],traits=[],tasks=[]}={}){
+export function floorStatus(task,{funcs=[],traits=[],tasks=[],factors=[]}={}){
   if(!selfSet(task)||!isSet(task)) return "wait";
   const f=funcs.find(x=>x.id===task.funcId);
-  return f&&shortage(f,traits,heldBy(tasks,f)).length?"wait":"backlog";
+  return f&&shortage(f,traits,heldBy(tasks,f),factors).length?"wait":"backlog";
 }
 
 /** Просрочена ли задача: срок прошёл, а работа ещё не сдана. */
@@ -320,7 +320,7 @@ export const called=(task,now=Date.now())=>{
   return Number.isFinite(at)&&at<=now;
 };
 
-export function autoStatus(task,{funcs=[],traits=[],tasks=[],now=Date.now()}={}){
+export function autoStatus(task,{funcs=[],traits=[],tasks=[],factors=[],now=Date.now()}={}){
   if(!task) return null;
   /* Отменённую время больше не трогает: срок ей не срок, и краснеть
      «Дедлайном» ей не за что — работы нет. */
@@ -329,7 +329,7 @@ export function autoStatus(task,{funcs=[],traits=[],tasks=[],now=Date.now()}={})
   if(task.status==="review"&&selfReview(task)) return "done";
   const work=BACKLOG_STATES.includes(task.status)||task.status==="progress"
     ||task.status==="deadline";
-  if(task.status==="wait"&&floorStatus(task,{funcs,traits,tasks})==="wait") return "wait";
+  if(task.status==="wait"&&floorStatus(task,{funcs,traits,tasks,factors})==="wait") return "wait";
   if(task.status!=="wait"&&!work) return task.status;
   /* Взятая в работу задача остаётся работой, невзятая лежит в бэклоге — и
      та, и другая уходит в «Дедлайн», как только срок прошёл. Задача,
@@ -449,18 +449,18 @@ export const funcLabel=(f,entities=[])=>{
    людей, срока или содержимого, и это чинит постановщик. Вторая — ресурсы:
    их количество меняется само по себе, поэтому задачу можно описать
    заранее, а поставить — только когда ресурсов хватает. */
-export const lackOf=(task,funcs=[],traits=[],tasks=[])=>{
+export const lackOf=(task,funcs=[],traits=[],tasks=[],factors=[])=>{
   const f=funcs.find(x=>x.id===task?.funcId);
   /* Своё «уже обработано» у каждой функции: вход, который не расходуется,
      остаётся на полке и достаётся другим — но этой второй раз не даётся,
      работа по нему уже сделана. */
-  return f?shortage(f,traits,heldBy(tasks,f)):[];
+  return f?shortage(f,traits,heldBy(tasks,f),factors):[];
 };
 
 /** Почему задачу нельзя поставить — словами, а не пустой кнопкой. */
-export function whyNotSet(task,funcs=[],traits=[],tasks=[]){
+export function whyNotSet(task,funcs=[],traits=[],tasks=[],factors=[]){
   if(!isSet(task)) return `Не хватает: ${taskGaps(task).join(", ")}`;
-  const miss=lackOf(task,funcs,traits,tasks);
+  const miss=lackOf(task,funcs,traits,tasks,factors);
   if(!miss.length) return "";
   return "Не хватает ресурсов: "
     +miss.map(x=>(x.spend
@@ -470,7 +470,8 @@ export function whyNotSet(task,funcs=[],traits=[],tasks=[]){
 }
 
 /** Можно ли задачу поставить прямо сейчас. */
-export const canSet=(task,funcs,traits,tasks)=>!whyNotSet(task,funcs,traits,tasks);
+export const canSet=(task,funcs,traits,tasks,factors)=>
+  !whyNotSet(task,funcs,traits,tasks,factors);
 
 /* ─────── карточка функции задачи ───────
    Одинаково нужна и постановщику, и исполнителю: что за функция, что она
@@ -546,7 +547,7 @@ function FuncCard({func,entities,traitName}){
    говорила бы «уйдёт в бэклог исполнителю», а в модели задача так и
    ждала бы постановки. Отказ сервера — словами под кнопкой. Владельцу
    `onSetup` не нужен: его правки уезжают в составе модели. */
-export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
+export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=[],
   setTasks,onClose,people=[],canAssign=true,nameOf,
   published,meId,onSetup}){
   const up=(f,v)=>upMany({[f]:v});
@@ -615,7 +616,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],
     return byCrew(asset||{},people.filter(p=>crew.has(String(p.id))));
   };
   const gaps=taskGaps(task);
-  const why=whyNotSet(task,funcs,traits,tasks);
+  const why=whyNotSet(task,funcs,traits,tasks,factors);
 
   return (
     <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
@@ -1312,7 +1313,7 @@ function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop,readOnly=false}){
    Слева — функции модели: под каждой заводятся её выполнения. Справа —
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
-export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],tasks,setTasks,
+export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],factors=[],tasks,setTasks,
   openId,setOpenId,nameOf,onTake,meId,canAssign=true,onComment,onDropComment,onSubmit}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
@@ -1464,7 +1465,11 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                           aria-label={`вернуть задачу ${t.title}`}
                           onClick={e=>{e.stopPropagation();undrop(t);}}>
                           Вернуть</button>)}
-                      {canAssign&&!isCanceled(t)&&dropId!==t.id&&(
+                      {/* Отменяют работу, которой ещё нет: сданную проверяют,
+                          принятую — сделали. У задач на проверке и готовых
+                          кнопки нет. */}
+                      {canAssign&&!isCanceled(t)&&dropId!==t.id
+                        &&t.status!=="review"&&t.status!=="done"&&(
                         <button style={{...btn(false),padding:"3px 8px",fontSize:11,
                           color:BAD,borderColor:"#5A2436",whiteSpace:"nowrap"}}
                           aria-label={`отменить задачу ${t.title}`}

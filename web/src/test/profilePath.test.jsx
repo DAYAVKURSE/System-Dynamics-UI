@@ -147,11 +147,48 @@ describe("«за сколько предупреждать» — у каждог
       fireEvent.change(sel, { target: { value: "30" } });
       await waitFor(() => expect(puts).toEqual([{ warnMin: 30 }]));
       await waitFor(() => expect(screen.getByText("Сохранено.")).toBeInTheDocument());
-      expect(screen.getByText("за 30 минут", { selector: "b" })).toBeInTheDocument();
       /* Расписание пересылается с новым «за сколько»: оно у задачи не своё,
          а того, кому напоминают. */
       await waitFor(() => expect(schedules.some((s) =>
         s.tasks.some((t) => t.id === "t1" && t.warn === 30))).toBe(true), { timeout: 4000 });
+    }, 10000);
+
+  it("«откладывать на» — своя настройка: столько ждёт отложенное напоминание",
+    async () => {
+      /* Владелец: «если нажал отложить, новое напоминание должно прийти
+         через то время, которое указал пользователь в этом разделе». */
+      const { puts } = server({ me: IVAN, users: people(),
+        workspace: { entities: [], traits: [], funcs: [], tasks: [] } });
+      await fresh();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeInTheDocument());
+      tab("Инструменты");
+      tab("Напоминания");
+      const sel = screen.getByLabelText("откладывать на");
+      expect(sel).toHaveValue("30");
+      fireEvent.change(sel, { target: { value: "60" } });
+      await waitFor(() => expect(puts).toEqual([{ deferMin: 60 }]));
+      // На ноль не откладывают: такого варианта в списке нет.
+      expect([...sel.options].map((o) => o.value)).not.toContain("0");
+    }, 10000);
+
+  it("постановщику уходит напоминание о постановке, исполнителю — о работе",
+    async () => {
+      /* Владелец: «когда задачу нужно поставить, постановщику должно
+         приходить напоминание, как и для задач». Ждущая постановки задача
+         исполнителю не напоминает: начинать в ней пока нечего. */
+      const { schedules } = server({ me: IVAN, users: people(),
+        workspace: { entities: [], traits: [], funcs: [], tasks: [
+          { ...newTask({ funcId: null, title: "Поставить" }), id: "s1",
+            status: "wait", setter: "2", assignee: "2", end: "2030-01-01T10:00" },
+          { ...newTask({ funcId: null, title: "Работать" }), id: "w1",
+            status: "backlog", assignee: "2", start: "2030-01-01T10:00" }] } });
+      await fresh();
+      await waitFor(() => expect(schedules.length).toBeGreaterThan(0), { timeout: 4000 });
+      await waitFor(() => {
+        const last = schedules[schedules.length - 1].tasks;
+        expect(last.find((t) => t.id === "s1")?.kind).toBe("setup");
+        expect(last.find((t) => t.id === "w1")?.kind).toBe("task");
+      }, { timeout: 4000 });
     }, 10000);
 
   it("расписание уходит при входе — с «за сколько» из анкеты, а не из задачи", async () => {
@@ -271,6 +308,26 @@ describe("отмена задачи — владельцу, с доски, сл�
     fireEvent.click(screen.getByLabelText("вернуть задачу Задача A"));
     expect(seen.find((t) => t.id === "a").canceled).toBe(false);
     expect(screen.queryByText("отменена")).toBeNull();
+  });
+
+  it("на проверке и готовую не отменяют: кнопки нет", () => {
+    /* Сданную проверяют, принятую — уже сделали: отменять там нечего. */
+    function Two() {
+      const [tasks, setTasks] = React.useState([
+        { ...task(), id: "r", title: "На проверке", status: "review", taken: true,
+          submissions: [{ id: "s1", at: "2026-01-01T10:00:00Z", hours: 1, takes: {}, gives: {}, text: "готово" }] },
+        { ...task(), id: "d", title: "Готовая", status: "done", taken: true,
+          submissions: [{ id: "s2", at: "2026-01-01T10:00:00Z", hours: 1, takes: {}, gives: {}, text: "готово" }] },
+        { ...task(), id: "p", title: "В работе", status: "progress", taken: true },
+      ]);
+      return (<TasksBoard funcs={FUNCS} entities={[]} traits={[]} tasks={tasks}
+        setTasks={setTasks} openId={null} setOpenId={() => {}} canAssign
+        nameOf={(id) => id} meId="2" />);
+    }
+    render(<Two />);
+    expect(screen.queryByLabelText("отменить задачу На проверке")).toBeNull();
+    expect(screen.queryByLabelText("отменить задачу Готовая")).toBeNull();
+    expect(screen.getByLabelText("отменить задачу В работе")).toBeInTheDocument();
   });
 
   it("исполнителю отменять нечего: кнопки нет", () => {

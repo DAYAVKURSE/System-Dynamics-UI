@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   DEFERRABLE, durationText, isTaskAction, missingGives, onTaskButton, onTaskMessage,
-  reloadSteps, requiredGives, resetSteps, stepsFile, taskKeyboard,
+  reloadSteps, requiredGives, resetSteps, setupKeyboard, stepsFile, taskKeyboard,
 } from "../lib/botTasks.js";
 import { BACKLOG, taskFor, writeModel } from "../lib/workspaceStore.js";
 
@@ -34,19 +34,28 @@ beforeAll(async () => {
 });
 afterAll(async () => { await fs.rm(tmpSteps, { recursive: true, force: true }); });
 
-let sent, answered, edited, shown, calls, saved, work, deps;
+let sent, answered, edited, shown, calls, saved, work, deps, acked, deferred;
 beforeEach(() => {
   resetSteps();
   sent = []; answered = []; edited = []; shown = []; calls = []; saved = [];
+  acked = []; deferred = [];
   work = {
     take: async (u, id) => { calls.push(["take", String(u), id]); return { task: { ...TASK, id, status: "progress" } }; },
     defer: async (u, id, o) => { calls.push(["defer", String(u), id, o]); return { task: { ...TASK, id, status: "deferred" } }; },
     submit: async (u, id, s) => { calls.push(["submit", String(u), id, s]); return { task: { ...TASK, id, status: "review" } }; },
     taskFor: async (u, id) => (String(u) === TASK.assignee && id === TASK.id
       ? { task: TASK, func: FUNC, traits: TRAITS } : { error: id === TASK.id ? "not yours" : "not found" }),
+    setupState: async () => ({ set: false, title: TASK.title, why: "Не хватает: исполнитель" }),
   };
   deps = {
     work,
+    // На сколько откладывать — настройка человека; висящие напоминания —
+    // отдельное хранилище, здесь заглушкой.
+    deferMin: async () => 30,
+    reminders: {
+      ack: async (u, kind, id) => { acked.push([String(u), kind, id]); return true; },
+      defer: async (u, kind, id, until) => { deferred.push([String(u), kind, id, until]); return true; },
+    },
     files: { save: async (u, f) => { saved.push([String(u), f.name, f.type, f.bytes.length]);
       return { id: "r1", name: f.name, type: f.type, size: f.bytes.length, url: `/api/reports/s/${f.name}`, scope: "s" }; } },
     tg: { getFile: async (fileId) => ({ bytes: Buffer.from(`байты ${fileId}`), name: "file_1.pdf", type: "application/pdf" }) },
@@ -84,7 +93,7 @@ describe("клавиатура уведомления", () => {
 
   it("узнаёт свои кнопки и не трогает чужие", () => {
     expect(isTaskAction("task:start:tk1")).toBe(true);
-    expect(isTaskAction("task:h:5")).toBe(true);
+    expect(isTaskAction("task:sdone:tk1")).toBe(true);
     expect(isTaskAction("r:executor")).toBe(false);
     expect(isTaskAction(undefined)).toBe(false);
   });
@@ -105,77 +114,36 @@ describe("обязательные выходы", () => {
   });
 });
 
-describe("«Отложить»: на сколько", () => {
-  it("часы 0–23 рядами по шесть, минуты 0–59 рядами по десять, и «Назад»", async () => {
-    const r = await press("task:defer:tk1");
-    expect(r).toMatchObject({ task: "tk1", stage: "hour" });
-    // Само уведомление правится, а не присылается новое.
-    expect(edited).toHaveLength(1);
-    expect(last().text).toMatch(/на сколько часов/);
-    const hours = lastKeys();
-    expect(hours.slice(0, 4).map((row) => row.length)).toEqual([6, 6, 6, 6]);
-    expect(hours.flat().slice(0, 24)).toEqual(Array.from({ length: 24 }, (_, i) => String(i)));
-    expect(hours[4]).toEqual(["Назад"]);
-
-    await press("task:h:2");
-    const minutes = lastKeys();
-    expect(minutes.slice(0, 6).map((row) => row.length)).toEqual([10, 10, 10, 10, 10, 10]);
-    expect(minutes.flat().slice(0, 60)).toEqual(Array.from({ length: 60 }, (_, i) => String(i)));
-    expect(minutes[6]).toEqual(["Назад"]);
-    // Ничего ещё не отложено: сначала подтверждение.
-    expect(calls).toEqual([]);
-  });
-
-  it("часы → минуты → подтверждение → deferredUntil через work.defer", async () => {
+describe("«Отложить» — сразу, на срок из анкеты", () => {
+  /* Владелец: «если нажал отложить, новое напоминание должно прийти через
+     то время, которое указал пользователь в этом разделе». Три экрана
+     (часы → минуты → подтверждение) ради числа, которое у человека уже
+     записано, — лишний путь; их больше нет. */
+  it("одно нажатие: откладывает на deferMin и говорит, на сколько", async () => {
     const before = Date.now();
-    await press("task:defer:tk1");
-    await press("task:h:2");
-    const r = await press("task:m:30");
-    expect(r).toMatchObject({ stage: "confirm" });
-    expect(last().text).toMatch(/на 2 часа 30 минут\?/);
-    expect(lastKeys()).toEqual([["Назад", "Отложить на 2 часа 30 минут"]]);
-
-    const done = await press("task:dok");
-    expect(done).toMatchObject({ task: "tk1", action: "defer" });
+    deps.deferMin = async () => 45;
+    const r = await press("task:defer:tk1");
+    expect(r).toMatchObject({ task: "tk1", action: "defer" });
     expect(calls).toHaveLength(1);
     const [, who, id, opts] = calls[0];
     expect([who, id]).toEqual(["200", "tk1"]);
-    // «До» — через 2 ч 30 мин от нажатия, UTC-меткой.
     const until = Date.parse(opts.until);
-    expect(until - before).toBeGreaterThanOrEqual(150 * 60000 - 50);
-    expect(until - Date.now()).toBeLessThanOrEqual(150 * 60000);
-    // Сказано словами, что произошло, и кнопок больше нет.
-    expect(last().text).toMatch(/Отложил: «Макет для Ромашки» на 2 часа 30 минут/);
+    expect(until - before).toBeGreaterThanOrEqual(45 * 60000 - 50);
+    expect(until - Date.now()).toBeLessThanOrEqual(45 * 60000);
+    expect(last().text).toMatch(/Отложил: «Макет для Ромашки» на 45 минут/);
     expect(last().text).toMatch(/срок при этом не сдвинулся/);
-    expect(last().text).toMatch(/напомню снова/);
     expect(last().keyboard).toBeNull();
+    // Повтор гаснет: человек ответил.
+    expect(acked).toEqual([["200", "task", "tk1"]]);
   });
 
-  it("на ноль не откладывают — и это сказано, а не проглочено", async () => {
+  it("настройки нет — полчаса: молчать вечно хуже, чем напомнить", async () => {
+    deps.deferMin = async () => null;
     await press("task:defer:tk1");
-    await press("task:h:0");
-    const r = await press("task:m:0");
-    expect(r).toMatchObject({ stage: "minute", error: "zero" });
-    expect(lastAnswer()).toMatch(/На ноль не откладывают/);
-    expect(calls).toEqual([]);
+    expect(last().text).toMatch(/на 30 минут/);
   });
 
-  it("«Назад» ведёт по шагам, а из первого — к уведомлению с двумя кнопками", async () => {
-    await press("task:defer:tk1");
-    await press("task:h:1");
-    await press("task:m:15");
-    expect((await press("task:back")).stage).toBe("minute");
-    expect(lastKeys()[6]).toEqual(["Назад"]);
-    expect((await press("task:back")).stage).toBe("hour");
-    expect((await press("task:back")).stage).toBe("notified");
-    expect(last().text).toBe(NOTICE);
-    expect(lastKeys()).toEqual([["🔴 Отложить", "🟢 Начать"]]);
-    // Шаг закрыт: следующая кнопка без начала — «не помню».
-    expect((await press("task:h:3")).stale).toBe(true);
-    expect(lastAnswer()).toMatch(/Не помню/);
-  });
-
-  it("чужому — отказ словами, ещё до вопросов про часы", async () => {
+  it("чужому — отказ словами", async () => {
     const r = await press("task:defer:tk1", stranger);
     expect(r).toEqual({ error: "not yours" });
     expect(lastAnswer()).toBe("Эта задача не ваша");
@@ -183,34 +151,71 @@ describe("«Отложить»: на сколько", () => {
     expect(calls).toEqual([]);
   });
 
-  /* Взял задачу на доске, а старое уведомление с кнопками осталось в чате:
-     отказ нужен сразу, а не после часов → минут → подтверждения. */
-  it("уже взятую или сданную не откладывают — отказ сразу, без вопросов про часы", async () => {
+  it("уже взятую или сданную не откладывают — отказ сразу", async () => {
     for (const status of ["progress", "review", "done"]) {
       work.taskFor = async () => ({ task: { ...TASK, status }, func: FUNC, traits: TRAITS });
       const r = await press("task:defer:tk1");
       expect(r).toEqual({ error: "not in backlog" });
       expect(lastAnswer()).toBe("Задача уже в работе или сдана");
-      expect(sent[sent.length - 1].text).toMatch(/уже в работе или сдана: ничего не поменял/);
-      expect(edited).toEqual([]);   // экран «на сколько часов» не показан
+      expect(calls).toEqual([]);
     }
-    expect(calls).toEqual([]);
     // Просроченная и уже отложенная — лежат, их откладывать можно.
     for (const status of ["deadline", "deferred"]) {
       work.taskFor = async () => ({ task: { ...TASK, status }, func: FUNC, traits: TRAITS });
-      expect((await press("task:defer:tk1")).stage).toBe("hour");
+      expect(await press("task:defer:tk1")).toMatchObject({ action: "defer" });
     }
   });
+});
 
-  it("список «откуда можно» тот же, что у склада работы", () => {
-    expect(DEFERRABLE).toEqual([...BACKLOG, "deadline"]);
+describe("напоминание о постановке: «Готово» проверяет, а не верит", () => {
+  /* Владелец: «когда пользователь нажимает „Готово“, система должна
+     проверять, действительно ли он поставил эту задачу». */
+  it("не поставлена — сказано, чего не хватает, и напоминание остаётся", async () => {
+    work.setupState = async () => ({ set: false, title: "Макет для Ромашки",
+      why: "Не хватает: исполнитель, срок" });
+    const r = await press("task:sdone:tk1");
+    expect(r).toMatchObject({ task: "tk1", action: "setup-not-yet" });
+    expect(lastAnswer()).toBe("Ещё не поставлена");
+    expect(sent[sent.length - 1].text).toMatch(/Ещё не поставлена: «Макет для Ромашки»/);
+    expect(sent[sent.length - 1].text).toMatch(/Не хватает: исполнитель, срок/);
+    // Повтор не гаснет: задача так и ждёт постановки.
+    expect(acked).toEqual([]);
   });
 
-  it("длительность склоняется", () => {
-    expect(durationText(1, 0)).toBe("1 час");
-    expect(durationText(0, 45)).toBe("45 минут");
-    expect(durationText(3, 1)).toBe("3 часа 1 минуту");
-    expect(durationText(22, 22)).toBe("22 часа 22 минуты");
+  it("поставлена — повтор гаснет, и это сказано словами", async () => {
+    work.setupState = async () => ({ set: true, title: "Макет для Ромашки", why: "" });
+    const r = await press("task:sdone:tk1");
+    expect(r).toMatchObject({ task: "tk1", action: "setup-done" });
+    expect(lastAnswer()).toBe("Поставлена");
+    expect(last().text).toMatch(/Поставлена: «Макет для Ромашки». Больше не напоминаю/);
+    expect(acked).toEqual([["200", "setup", "tk1"]]);
+  });
+
+  it("не постановщику — отказ словами", async () => {
+    work.setupState = async () => ({ error: "not yours" });
+    expect(await press("task:sdone:tk1")).toEqual({ error: "not yours" });
+    expect(lastAnswer()).toBe("Эта задача не ваша");
+  });
+
+  it("«Отложить» переносит напоминание, а не задачу", async () => {
+    deps.deferMin = async () => 20;
+    const before = Date.now();
+    const r = await press("task:sdefer:tk1");
+    expect(r).toMatchObject({ task: "tk1", action: "setup-defer" });
+    expect(deferred).toHaveLength(1);
+    const [who, kind, id, until] = deferred[0];
+    expect([who, kind, id]).toEqual(["200", "setup", "tk1"]);
+    expect(Date.parse(until) - before).toBeGreaterThanOrEqual(20 * 60000 - 50);
+    // Складу работы никто не звонил: задача так и ждёт постановки.
+    expect(calls).toEqual([]);
+    expect(last().text).toMatch(/Напомню про постановку через 20 минут/);
+    expect(last().text).toMatch(/состояние не изменилось/);
+  });
+
+  it("клавиатура постановки: «Отложить» слева, «Готово» справа", () => {
+    const k = setupKeyboard("tk1").inline_keyboard;
+    expect(k[0].map((b) => b.text)).toEqual(["🔴 Отложить", "✅ Готово"]);
+    expect(k[0].map((b) => b.callback_data)).toEqual(["task:sdefer:tk1", "task:sdone:tk1"]);
   });
 });
 
@@ -479,21 +484,19 @@ describe("адресат ответа — личный чат нажавшего
   const group = { id: -100123, type: "supergroup", title: "Команда" };
 
   it("кнопка на сообщении в группе: экран уходит в личку новым сообщением, группа не получает ничего", async () => {
-    const r = await onTaskButton({ id: "cb", from: worker, data: "task:defer:tk1",
+    const r = await onTaskButton({ id: "cb", from: worker, data: "task:report:tk1",
       message: { message_id: 55, chat: group, text: NOTICE } }, worker, deps);
-    expect(r).toMatchObject({ task: "tk1", stage: "hour" });
+    expect(r).toMatchObject({ task: "tk1", stage: "report" });
     expect(edited).toEqual([]);
     expect(sent).toHaveLength(1);
     expect(sent[0].chatId).toBe(worker.id);
-    expect(sent[0].text).toMatch(/на сколько часов/);
     // И дальнейшие шаги — туда же.
-    await press("task:h:2");
-    await say("15");
+    await press("task:give:tk1:0");
     shown.forEach((m) => expect(m.chatId).toBe(worker.id));
   });
 
   it("кнопка на своём сообщении в личке правится на месте, как прежде", async () => {
-    await press("task:defer:tk1");
+    await press("task:report:tk1");
     expect(sent).toEqual([]);
     expect(edited[0]).toMatchObject({ chatId: worker.id, messageId: 55 });
   });
@@ -532,13 +535,14 @@ describe("шаг сдачи на диске", () => {
   });
 
   it("закрытый шаг уходит и с диска: перезапуск не воскрешает сданное", async () => {
-    await press("task:defer:tk1");
-    await press("task:h:1");
-    await press("task:m:0");
-    await press("task:dok");
+    await press("task:report:tk1");
+    await press("task:give:tk1:0");
+    await sendDoc(doc);
+    expect((await onDisk())["200"]).toBeTruthy();
+    await press("task:start:tk1");          // «Начать» закрывает шаг сдачи
     expect(await onDisk()).toEqual({});
     reloadSteps();
-    expect((await press("task:h:3")).stale).toBe(true);
+    expect((await press("task:send:tk1")).stale).toBe(true);
   });
 
   it("порченый файл — шагов нет, и это не падение", async () => {
@@ -547,11 +551,11 @@ describe("шаг сдачи на диске", () => {
     expect(await say("привет")).toBeNull();
     await fs.writeFile(stepsFile(), JSON.stringify({ 200: "не шаг", 300: { stage: 5 } }), "utf8");
     reloadSteps();
-    expect((await press("task:h:3")).stale).toBe(true);
+    expect((await press("task:send:tk1")).stale).toBe(true);
   });
 
   it("временного файла после записи не остаётся", async () => {
-    await press("task:defer:tk1");
+    await press("task:report:tk1");
     const names = await fs.readdir(tmpSteps);
     expect(names).toEqual(["bot-steps.json"]);
   });

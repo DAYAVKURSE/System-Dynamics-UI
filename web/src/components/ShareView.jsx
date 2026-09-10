@@ -208,7 +208,7 @@ function Block({ block, depth = 0 }) {
           <div key={`${s2.name}-${i}`} id={s2.anchor || undefined}
             style={{ borderTop: i ? `1px solid ${C.line}` : "none", padding: "5px 0" }}>
             <div style={{ fontSize: 12, fontWeight: 600 }}>
-              {i + 1}. {s2.name}{s2.factor ? " · фактор, без людей" : ""}</div>
+              {i + 1}. {s2.name}</div>
             {/* Шаг, который не выполнится, остаётся в снимке — но со словами
                 вместо чисел: обещать заказчику работу, которая не начнётся,
                 нельзя, а молчать о ней ещё хуже. */}
@@ -235,7 +235,7 @@ function Block({ block, depth = 0 }) {
           { label: "Фактически ушло часов", color: act.done ? OK : C.muted,
             value: act.done ? `${nm(act.hours)} ч` : "факта пока нет" },
         ]} />
-        {plan.steps.filter((s2) => !(s2.short || []).length && !s2.factor).map((s2, i) => (
+        {plan.steps.filter((s2) => !(s2.short || []).length).map((s2, i) => (
           <div key={`${s2.name}-h${i}`} className="flex flex-wrap gap-2"
             style={{ alignItems: "baseline", fontSize: 10.5, lineHeight: 1.6,
               borderTop: `1px solid ${C.line}`, padding: "3px 0" }}>
@@ -259,7 +259,7 @@ function Block({ block, depth = 0 }) {
           <div style={{ ...S.lbl, margin: "8px 0 2px" }}>как эти вещи появились</div>
           {block.before.map((t, k) => (<Task key={`${t.title}-b${k}`} t={t} />))}
         </>)}
-        {plan.steps.filter((s2) => !s2.factor && (s2.tasks || []).length).map((s2, i) => (
+        {plan.steps.filter((s2) => (s2.tasks || []).length).map((s2, i) => (
           <div key={`${s2.name}-t${i}`} style={{ marginTop: 8 }}>
             <div style={S.lbl}>функция «{s2.name}»</div>
             {s2.tasks.map((t, k) => (<Task key={`${t.title}-${k}`} t={t} />))}

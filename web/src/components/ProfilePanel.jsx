@@ -215,6 +215,17 @@ export const warnMinOf = (v) => {
    предупредить. */
 export const WARN_CHOICES = WARNS.filter((w) => w.v != null);
 
+/* На сколько откладывает кнопка «Отложить» под напоминанием. Ноля тут нет:
+   отложить на ноль значит не отложить, а кнопка обещает «напомню снова».
+   Разбор повторяет серверный (`deferOf` в orgStore.js). */
+export const DEFER_DEFAULT = 30;
+export const deferMinOf = (v) => {
+  const n = Number(v);
+  if (v == null || v === "" || !Number.isFinite(n)) return DEFER_DEFAULT;
+  return Math.min(1440, Math.max(1, Math.round(n)));
+};
+export const DEFER_CHOICES = WARNS.filter((w) => w.v != null && w.v > 0);
+
 /** Заполнена ли анкета. */
 export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "").trim());
 
@@ -401,14 +412,15 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
    ════════════════════════════════════════════════════════════════ */
 export function RemindersCard({ me, onSaved }) {
   const current = warnMinOf(me?.profile?.warnMin);
+  const later = deferMinOf(me?.profile?.deferMin);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const known = Boolean(me?.known && !me?.solo);
-  const pick = async (v) => {
+  const pick = async (patch) => {
     setBusy(true); setMsg("");
     try {
-      const saved = await putProfile({ warnMin: v });
-      onSaved?.(saved?.profile || { ...(me?.profile || {}), warnMin: v });
+      const saved = await putProfile(patch);
+      onSaved?.(saved?.profile || { ...(me?.profile || {}), ...patch });
       setMsg("Сохранено.");
     } catch (e) { setMsg(e.message || "не удалось сохранить"); }
     setBusy(false);
@@ -418,17 +430,27 @@ export function RemindersCard({ me, onSaved }) {
     <div style={{ ...S.card, marginBottom: 10 }}>
       <div style={S.lbl}>напоминания</div>
       <div style={{ fontSize: 11.5, color: C.muted, margin: "6px 0 8px", lineHeight: 1.6 }}>
-        Бот напоминает о задаче дважды: заранее и в момент начала. За сколько
-        предупреждать заранее — решаете вы, а не постановщик: напоминание
-        приходит вам. Сейчас: <b style={{ color: C.text }}>{label}</b>.
+        Бот напоминает о задаче заранее и в момент начала, а постановщику — о
+        задаче, которую пора поставить. Напоминание повторяется каждую минуту,
+        пока вы не нажмёте кнопку под ним; «Отложить» переносит его на
+        выбранный здесь срок.
       </div>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <span style={{ fontSize: 11.5, color: C.muted }}>предупреждать</span>
         <select style={{ ...S.inp, flex: "0 1 200px" }} value={String(current)}
           aria-label="предупреждать за" disabled={busy || !known}
-          onChange={(e) => pick(warnMinOf(e.target.value))}>
+          onChange={(e) => pick({ warnMin: warnMinOf(e.target.value) })}>
           {WARN_CHOICES.map((w) => (
             <option key={w.v} value={String(w.v)}>{w.name}</option>))}
+        </select>
+      </div>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
+        <span style={{ fontSize: 11.5, color: C.muted }}>откладывать на</span>
+        <select style={{ ...S.inp, flex: "0 1 200px" }} value={String(later)}
+          aria-label="откладывать на" disabled={busy || !known}
+          onChange={(e) => pick({ deferMin: deferMinOf(e.target.value) })}>
+          {DEFER_CHOICES.map((w) => (
+            <option key={w.v} value={String(w.v)}>{w.name.replace(/^за /, "")}</option>))}
         </select>
         {msg && (
           <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>{msg}</span>)}

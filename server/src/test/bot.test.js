@@ -345,12 +345,11 @@ describe("кнопки задачи под уведомлением", () => {
     expect(lastText()).toMatch(/Взял в работу: «Сбор заявок»/);
   });
 
-  it("«Отложить» сначала спрашивает, на сколько: часы, потом минуты", async () => {
+  it("«Отложить» откладывает сразу — на срок из анкеты, без вопросов", async () => {
     const r = await press(worker, "task:defer:tk1");
-    expect(r).toMatchObject({ task: "tk1", stage: "hour" });
-    // Задача ещё не тронута: «на сколько» человек пока не сказал.
-    expect(calls).toEqual([]);
-    expect(lastKeys()).toContain("23");
+    expect(r).toMatchObject({ task: "tk1", action: "defer" });
+    expect(calls.map((c) => c[0])).toContain("defer");
+    expect(lastText()).toMatch(/Отложил/);
   });
 
   it("отказ называется словами, а не молча гасит часики", async () => {

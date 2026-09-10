@@ -68,23 +68,48 @@ export function heldBy(tasks = [], f) {
   return out;
 }
 
+/* Конверсия функции по её факторам — повтор `chanceOf`/`conversionOf` из
+   `web/src/lib/funcs.js`: хватает любого фактора, поэтому считается через
+   обратное («не удался ни один»). Без факторов — единица. */
+const CHANCE_MAX = 100;
+const factorsOf = (f = {}) => (Array.isArray(f.factors) ? f.factors.filter(Boolean)
+  : (f.factor ? [f.factor] : []));
+export function conversionOf(f = {}, factors = []) {
+  const ids = factorsOf(f);
+  if (!ids.length) return 1;
+  const miss = ids.reduce((p, id) => {
+    const x = factors.find((y) => y.id === id);
+    const c = x && x.chance != null ? Math.min(CHANCE_MAX, Math.max(0, num(x.chance)))
+      : CHANCE_MAX;
+    return p * (CHANCE_MAX - c) / CHANCE_MAX;
+  }, CHANCE_MAX);
+  return (CHANCE_MAX - miss) / CHANCE_MAX;
+}
+
 /** Нехватки по верхней границе вилки: по одной на требование, которое нечем закрыть. */
-export function shortage(f, traits = [], done = {}) {
+export function shortage(f, traits = [], done = {}, factors = []) {
   if (!f) return [];
+  /* С конверсией: при 10% входа нужно вдесятеро больше — задача уходит на
+     постановку, когда набралось столько. То же правило, что в приложении. */
+  const conv = conversionOf(f, factors);
+  const req = (p) => {
+    const q = num(p.hi || p.lo);
+    return conv > 0 ? q / conv : (q > 0 ? Infinity : 0);
+  };
   const have = (id) => num(traits.find((t) => t.id === id)?.have);
   const free = (p) => (portSpends(p) ? have(p.trait)
     : Math.max(0, have(p.trait) - num(done[p.trait])));
   const name = (id) => traits.find((t) => t.id === id)?.l || "(ресурс удалён)";
   return groupsOf(f.takes || []).map((g) => {
-    if (g.some((p) => free(p) >= num(p.hi || p.lo))) return null;
+    if (g.some((p) => free(p) >= req(p))) return null;
     // Тот вариант, которого не хватает меньше всего: он и подскажет, чего добирать.
     const best = g.reduce((a, p) => {
-      const gap = num(p.hi || p.lo) - free(p);
+      const gap = req(p) - free(p);
       return a && a.gap <= gap ? a : { p, gap };
     }, null);
     return best && {
       trait: best.p.trait, name: name(best.p.trait),
-      need: num(best.p.hi || best.p.lo), have: free(best.p),
+      need: req(best.p), have: free(best.p),
       done: portSpends(best.p) ? 0 : Math.min(num(done[best.p.trait]), have(best.p.trait)),
       spend: portSpends(best.p),
     };
@@ -105,7 +130,7 @@ export function whyNotSet(task = {}, model = {}) {
   const f = (model.funcs || []).find((x) => x.id === task.funcId);
   /* «Есть» — по материалам и сдачам, а не по числу в ресурсе: то же, что
      видит постановщик в форме (`withStock` на клиенте). */
-  const miss = shortage(f, withStock(model), heldBy(model.tasks || [], f));
+  const miss = shortage(f, withStock(model), heldBy(model.tasks || [], f), model.factors || []);
   if (!miss.length) return "";
   return "Не хватает ресурсов: " + miss.map((x) => (x.spend
     ? `${x.name} — есть ${nm(x.have)}, нужно ${nm(x.need)}`

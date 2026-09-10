@@ -169,7 +169,8 @@ export const PROFILE_FIELDS = ["about"];
    записанный за человека, — это догадка под его именем. Правила разбора
    те же, что на клиенте (`scheduleOfPerson` в `web/src/lib/workers.js`):
    день это 0–6, часы — «ЧЧ:ММ» или пусто, статус — один из четырёх.
-   Рядом — `warnMin`, за сколько минут его предупреждать о задаче: это
+   Рядом — `warnMin`, за сколько минут его предупреждать о задаче, и
+   `deferMin`, на сколько кнопка «Отложить» откладывает напоминание: это
    тоже про него самого, и отдаётся вместе с графиком — и в «кто я», и в
    списке людей. */
 export const WORK_STATUSES = ["ready", "break", "off", "busy"];
@@ -184,6 +185,7 @@ const scheduleOf = (user = {}) => ({
   to: hhmm(user.to),
   status: WORK_STATUSES.includes(user.status) ? user.status : "ready",
   warnMin: warnOf(user.warnMin),
+  deferMin: deferOf(user.deferMin),
 });
 
 /* ─────── за сколько предупреждать ───────
@@ -203,6 +205,28 @@ const warnOf = (v) => {
   if (v == null || v === "" || !Number.isFinite(n)) return WARN_DEFAULT;
   return Math.min(WARN_MAX, Math.max(0, Math.round(n)));
 };
+
+/* ─────── на сколько откладывать ───────
+
+   «Отложить» под напоминанием больше не спрашивает «на сколько»: срок —
+   настройка человека, та же карточка «Напоминания». Одно нажатие вместо
+   трёх экранов, и число одно на оба вида напоминаний — о задаче и о
+   постановке. Нижняя граница — минута, не ноль: отложить на ноль значит
+   не отложить, а напоминание при этом обещало бы «напомню снова». */
+export const DEFER_DEFAULT = 30;
+export const DEFER_MAX = 1440;
+const deferOf = (v) => {
+  const n = Number(v);
+  if (v == null || v === "" || !Number.isFinite(n)) return DEFER_DEFAULT;
+  return Math.min(DEFER_MAX, Math.max(1, Math.round(n)));
+};
+
+/** На сколько минут этому человеку откладывать напоминание — боту. */
+export async function deferMinOf(userId) {
+  const org = await readOrg();
+  const user = org.users.find((u) => u.id === String(userId));
+  return deferOf(user?.deferMin);
+}
 /* Что было написано в прежних четырёх полях, не пропадает: пока анкета
    пуста, она читается как их склейка — а первое же сохранение переносит
    текст в неё насовсем. Молча выбросить чужие слова было бы хуже всего. */
@@ -234,6 +258,7 @@ export async function setProfile(userId, patch = {}) {
     user.status = WORK_STATUSES.includes(patch.status) ? patch.status : "ready";
   }
   if (patch.warnMin != null) user.warnMin = warnOf(patch.warnMin);
+  if (patch.deferMin != null) user.deferMin = deferOf(patch.deferMin);
   await writeOrg(org);
   return profileOf(user);
 }

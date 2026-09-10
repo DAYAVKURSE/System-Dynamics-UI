@@ -26,7 +26,7 @@ import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 import Modal from "./Modal.jsx";
-import ProfilePanel, { RemindersCard, warnMinOf } from "./ProfilePanel.jsx";
+import ProfilePanel, { RemindersCard, deferMinOf, warnMinOf } from "./ProfilePanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { countKind, dropKind } from "../lib/traits.js";
@@ -629,12 +629,24 @@ export default function SystemModel(){
      теперь в расписание каждой задачи подставляется своё у того, кто его
      шлёт, — расписание у каждого своё, и бот пишет ему же. */
   const warn=warnMinOf(me.profile?.warnMin);
+  const defer=deferMinOf(me.profile?.deferMin);
   /* В расписание — только то, что поручено ЭТОМУ человеку: уведомление о
      заказе приходит исполнителю, а не всем, кто задачу видит. Владельцу,
      постановщику и проверяющему чужая работа не напоминает о себе. */
-  const scheduled=useMemo(()=>tasks
-    .filter(t=>t.assignee!=null&&t.assignee!==""&&String(t.assignee)===String(me.id))
-    .map(t=>({...t,start:t.start||null,repeat:"once",end:null,warn})),[tasks,warn,me.id]);
+  /* Два вида напоминаний. `task` — исполнителю: «пора начинать»; ждущая
+     постановки сюда не идёт, начинать в ней пока нечего. `setup` —
+     ПОСТАНОВЩИКУ: «нужно поставить задачу», и ждать нечего — она уже висит.
+     Оба повторяются раз в минуту, пока человек не ответит кнопкой. */
+  const scheduled=useMemo(()=>{
+    const mine=(v)=>v!=null&&v!==""&&String(v)===String(me.id);
+    const work=tasks
+      .filter(t=>mine(t.assignee)&&t.status!=="wait"&&t.canceled!==true)
+      .map(t=>({...t,kind:"task",start:t.start||null,repeat:"once",end:null,warn,defer}));
+    const setup=tasks
+      .filter(t=>mine(t.setter)&&t.status==="wait"&&t.canceled!==true)
+      .map(t=>({...t,kind:"setup",start:null,repeat:"once",end:t.end||"",warn,defer}));
+    return [...work,...setup];
+  },[tasks,warn,defer,me.id]);
   /* Пересылается и при входе, не только при правке: записи, сделанные до
      v1.1, не несут исполнителя, и кнопки под напоминанием появятся у них
      только после того, как доска пришлёт расписание заново. Ждём, пока
@@ -899,7 +911,7 @@ export default function SystemModel(){
     const id=setInterval(()=>setTick(v=>v+1),60000);
     return ()=>clearInterval(id);
   },[]);
-  useEffect(()=>{ setTasks(p=>autoFlow(p,{funcs,traits:traitsLive})); },[tasks,funcs,traitsLive,tick]);
+  useEffect(()=>{ setTasks(p=>autoFlow(p,{funcs,traits:traitsLive,factors})); },[tasks,funcs,traitsLive,factors,tick]);
 
 
   /* ─── РАСЧЁТ ───
@@ -928,13 +940,8 @@ export default function SystemModel(){
     });
     return [...by.values()].sort((a,b)=>a.startHours-b.startHours||b.runs-a.runs);
   },[traitsLive,funcs,goals,runsOf]);
-  /* Семя жребия. Факторы случаются не наверняка, и один и тот же набор
-     чисел может развиться по-разному; семя выбирает, КАКОЙ именно вариант
-     сейчас на экране. Оно живёт в состоянии, а не в модели: это не свойство
-     системы, а то, на какой её вариант мы сейчас смотрим. */
-  const [seed,setSeed]=useState(1);
-  const fc=useMemo(()=>forecast({traits:traitsLive,funcs,factors},{span,runsOf,plan:runsPlan,seed}),
-    [traitsLive,funcs,factors,span,runsOf,runsPlan,seed]);
+  const fc=useMemo(()=>forecast({traits:traitsLive,funcs,factors},{span,runsOf,plan:runsPlan}),
+    [traitsLive,funcs,factors,span,runsOf,runsPlan]);
   const moves=useMemo(()=>transfers({funcs,traits:traitsLive},{runsOf,plan:runsPlan}),
     [funcs,traitsLive,runsOf,runsPlan]);
   const workload=useMemo(()=>load({funcs},{runsOf,plan:runsPlan}),
@@ -1069,6 +1076,7 @@ export default function SystemModel(){
       {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && me.tabs.includes("tasks") && (
         <TasksBoard funcs={funcs} entities={entities} traits={traitsLive} materials={materials}
+          factors={factors}
           tasks={myTasks} setTasks={setTasks}
           openId={openTask} setOpenId={setOpenTask}
           people={people} canAssign={me.isOwner} nameOf={personName}
@@ -1083,6 +1091,7 @@ export default function SystemModel(){
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (
         <ReviewBoard tasks={tasks} traits={traitsLive} entities={entities} funcs={funcs}
+          factors={factors}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}
@@ -1202,19 +1211,7 @@ export default function SystemModel(){
             {" "}её границы, <span style={{color:OK}}>зелёным</span> — факт по
             принятым выполнениям. Пересчитывается сам при каждой правке.
           </div>
-          {/* Факторы случаются не наверняка: один и тот же набор чисел может
-              развиться по-разному. Кнопка показывает следующий вариант —
-              иначе вероятность было бы видно только в среднем, а посмотреть
-              на разброс, ради которого её и заводят, негде. */}
-          {funcs.some(f=>f.kind==="factor")&&(
-            <div className="flex items-center gap-2" style={{marginTop:8}}>
-              <button style={btn(false)} onClick={()=>setSeed(v=>v+1)}>
-                ↻ другой вариант</button>
-              <span style={{fontSize:10.5,color:C.muted,lineHeight:1.5}}>
-                вариант №{seed}: факторы случаются не наверняка, и при тех же
-                числах будущее может сложиться иначе
-              </span>
-            </div>)}
+
           {!funcs.length
             ? <div style={{fontSize:11.5,color:WARN,marginTop:8,lineHeight:1.6}}>
                 Функций нет — считать нечего. Ресурсы останутся на своих

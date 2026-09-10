@@ -43,6 +43,43 @@
    ════════════════════════════════════════════════════════════════ */
 import { DUR_UNITS, WEEK } from "./funcs.js";
 import { MONTH_H, effect, scheduleOf, solveRange } from "./plan.js";
+import { OPS, fromQty, goalOf, parseExpr, toShown } from "./expr.js";
+
+/* ─── количество — выражением ───
+
+   «Сколько» у цели — не число, а условие: «>10», «=@Заявки*2»,
+   «<@Договоры». Первым — знак (>, <, =, !), дальше числа, действия и
+   ссылки на количество других ресурсов (`lib/expr.js`). Прежнее число
+   читается как «ровно столько» (`fromQty`). В записи ссылки — по
+   идентификатору, на экране — по имени. */
+
+/** Остатки ресурсов моделью: чем считать ссылки в выражении. */
+const stockOf = (model = {}) => Object.fromEntries((model.traits || [])
+  .map((t) => [t.id, num(t.have)]));
+
+/** Что цель значит сейчас: знак, число, цель для плана, выполнена ли. */
+export function goalState(goal = {}, model = {}) {
+  const stock = stockOf(model);
+  /* Число в записи (старая цель, не прошедшая normalizeGoal) — «ровно
+     столько», и оно старше выражения: в нормализованной записи числа нет,
+     а где оно есть — его и назвали. */
+  const legacy = goal.qty != null && goal.qty !== "" && Number.isFinite(Number(goal.qty));
+  const expr = legacy ? fromQty(goal.qty) : (typeof goal.expr === "string" ? goal.expr : "");
+  return goalOf(expr, stock, goal.trait in stock ? stock[goal.trait] : null);
+}
+
+/** Сколько ресурса нужно расчёту: цель-число у «=» и «>»; у «<» и «!» — нет. */
+export const goalQty = (goal, model) => num(goalState(goal, model).target);
+
+/** Условие словами: «> 10», «= @Заявки*2»; «ровно число» — просто число, как и говорят. */
+export function exprText(expr = "", traitName) {
+  const t = String(expr ?? "").trim();
+  if (!t) return "";
+  const op = OPS.includes(t[0]) ? t[0] : "=";
+  const rest = OPS.includes(t[0]) ? t.slice(1).trim() : t;
+  if (op === "=" && /^\d+([.,]\d+)?$/.test(rest)) return rest;
+  return `${op} ${toShown(rest, (id) => (traitName ? traitName(id) : id))}`;
+}
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -72,9 +109,9 @@ export const DUE_ON = "on";
 
 /** Новая цель — пустая, но не сломанная: без ресурса и без количества. */
 export const newGoal = (trait = "") => ({
+  expr: "=1",   // «ровно один» — условие, а не число: см. lib/expr.js
   id: uid("g"),
   trait,
-  qty: 1,
   rate: "week",
   dueKind: DUE_IN,
   dueIn: 1,
@@ -111,7 +148,12 @@ export const normalizeGoal = (g = {}) => ({
   ...g,
   id: g.id ?? uid("g"),
   trait: g.trait ?? "",
-  qty: num(g.qty),
+  /* Выражение; число старой записи — «ровно столько», и оно старше
+     выражения (где число есть, его и назвали). Само число дальше не
+     хранится: две записи одного и того же разошлись бы. */
+  expr: g.qty != null && g.qty !== "" && Number.isFinite(Number(g.qty)) ? fromQty(g.qty)
+    : (typeof g.expr === "string" ? g.expr : ""),
+  qty: undefined,
   rate: rateOf(g.rate).id,
   dueKind: g.dueKind === DUE_ON ? DUE_ON : DUE_IN,
   dueIn: num(g.dueIn),
@@ -134,10 +176,10 @@ export const normalizeGoals = (list) => (Array.isArray(list) ? list.map(normaliz
  * нужно, а не «столько каждый месяц». Приводить её к месяцу значило бы
  * выдумать повторение, которого человек не просил.
  */
-export function perMonth(goal) {
+export function perMonth(goal, qty = 0) {
   const r = rateOf(goal.rate);
   if (!r.hours) return null;
-  return num(goal.qty) * (MONTH_H / r.hours);
+  return num(qty) * (MONTH_H / r.hours);
 }
 
 /** Сколько часов остаётся до срока. `null` — срок не задан. */
@@ -185,7 +227,7 @@ export function budgetHours(goal) {
 /** Цель словами: «1 клиент в неделю · через 1 мес · 1 ч в день». */
 export function goalText(goal, traitName) {
   const r = rateOf(goal.rate);
-  const parts = [`${goal.qty} ${traitName ? traitName(goal.trait) : ""}`.trim()
+  const parts = [`${exprText(goal.expr, traitName)} ${traitName ? traitName(goal.trait) : ""}`.trim()
     + (r.hours ? ` ${r.name}` : "")];
   if (goal.dueKind === DUE_ON && goal.dueOn) {
     parts.push(`к ${new Date(goal.dueOn).toLocaleDateString("ru-RU")}`);
@@ -197,12 +239,17 @@ export function goalText(goal, traitName) {
   return parts.join(" · ");
 }
 
-/** Годна ли запись цели: без ресурса и без количества считать нечего. */
+/** Годна ли запись цели: без ресурса, без условия и без срока считать нечего. */
 export function checkGoal(goal, traits = []) {
   if (!goal?.trait || !traits.some((t) => t.id === goal.trait)) return false;
-  if (!(num(goal.qty) > 0)) return false;
+  const p = parseExpr(goal.expr);
+  if (p.error || !p.ast) return false;
   return dueHours(goal) != null;
 }
+
+/** Есть ли у цели число для плана: «<» и «!» — только условие, план по ним не считается. */
+export const plannable = (goal, model) => goalState(goal, model).target != null
+  && goalQty(goal, model) > 0;
 
 const scale = (plan, k) => ({
   ...plan,
@@ -220,7 +267,7 @@ export function planGoal(model, goal, { runsOf, now = Date.now() } = {}) {
   const r = rateOf(goal.rate);
   const traits = model.traits || [];
   const target = traits.find((t) => t.id === goal.trait) || null;
-  const qty = num(goal.qty);
+  const qty = goalQty(goal, model);
   /* Запас самой цели идёт в дело только у разовой цели: у неё цель это
      уровень, до которого надо дорасти. Темп — поток, и склад его не
      заменяет: «один клиент в неделю» надо выдавать каждую неделю, сколько
@@ -249,7 +296,7 @@ export function planGoal(model, goal, { runsOf, now = Date.now() } = {}) {
     trait: target,
     qty,
     rate: r,
-    perMonth: perMonth(goal),
+    perMonth: perMonth(goal, qty),
     lo: scale(sure, k),
     hi: scale(best, k),
     ok,
@@ -315,7 +362,7 @@ export function goalRuns(model, goals = [], { runsOf, side = "hi" } = {}) {
   (goals || []).forEach((g) => {
     if (!g?.appliedAt) return;
     const r = rateOf(g.rate);
-    const qty = num(g.qty);
+    const qty = goalQty(g, model);
     if (!(qty > 0) || !g.trait) return;
     const { lo, hi } = solveRange(model,
       { trait: g.trait, want: qty, runsOf, useStock: !r.hours });
@@ -361,7 +408,7 @@ export function actionsOf(plan) {
 export function ifDone(model, goal, plan, chosen = []) {
   const set = new Set(chosen);
   const funcs = model.funcs || [];
-  const qty = num(goal?.qty);
+  const qty = goalQty(goal || {}, model);
   let add = 0;
   (plan?.steps || []).forEach((st) => {
     if (!set.has(st.func)) return;

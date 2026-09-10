@@ -1,16 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, TxtField } from "./ui.jsx";
-import { DUR_UNITS, FUNC_KINDS, WORKER_KINDS, byCrew, checkFunc, checkTrait, countWorkers,
+import { DUR_UNITS, WORKER_KINDS, byCrew, checkFunc, checkTrait, countWorkers,
   editFunc, funcState,
   crewOf,
   chanceOf, everyOf, everyRange, factorChance, factorsOf, groupsOf, sameEvery, sameHours,
-  funcKind, isFactor, newFactor, fromHours,
+  newFactor, fromHours,
   hoursOf, newFunc, newGive, newPort, okRange, portSpends, rangeText, runHours,
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
 import { scheduleOfPerson, statusOf, visibleStats } from "../lib/workers.js";
-import { unitLabel, unitsOf } from "../lib/units.js";
 import { hasKind, kindIdsOf, toggleKind } from "../lib/traits.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -262,7 +261,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
      функции, только глазами человека: «что он умеет», а не «кто это
      делает». Задачу по функции назначают только тому, у кого она
      отмечена. Фактор — не работа людей, и у него исполнителей нет. */
-  const own = funcs.filter((f) => f.e === entityId && !isFactor(f));
+  const own = funcs.filter((f) => f.e === entityId);
   const can = (pid, f) => (f.owners || []).some((x) => String(x) === String(pid));
   /* Должности заводятся ЗДЕСЬ, рядом с людьми: кем человек числится,
      решают там же, где решают, кто где работает. Роль в организации —
@@ -695,11 +694,10 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 }).join(", ")
                 : "ничего не выдаёт"}
               {" · "}<Timing func={f} runs={runs} />
-              {isFactor(f) && (
+              {!!factorsOf(f).length && (
                 <span style={{ color: ACC }}>
-                  {" · фактор"}{factorsOf(f).length
-                    ? `: ${factorsOf(f).map(factorName).join(", затем ")}`
-                    : " не выбран"}</span>)}
+                  {` · факторы: ${factorsOf(f).map(factorName).join(", ")} — конверсия ${
+                    Math.round(chanceOf(f, factors) * 100) / 100}%`}</span>)}
             </>}>
             {/* Описание — чем функция занята, своими словами. Необязательное:
                 функция может быть понятна и по названию. Зато написанное
@@ -727,6 +725,43 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               onSet={(pid, patch) => upPort(f.id, "gives", pid, patch)}
               onDel={(pid) => up(f.id, (x) => ({
                 ...x, gives: x.gives.filter((p) => p.id !== pid) }))} />
+
+            {/* Факторы стоят сразу за ресурсами, потому что говорят о них:
+                при конверсии 10% входа нужно вдесятеро больше, чем
+                сказано в «берёт». Их бывает несколько — хватает любого. */}
+            <div style={{ ...S.lbl, marginTop: 10 }}>факторы — необязательно</div>
+            {factorsOf(f).map((id, i) => (
+              <div key={`${id}-${i}`} className="flex items-center gap-2"
+                style={{ background: C.panel2, border: `1px solid ${C.line}`,
+                  borderRadius: 6, padding: "5px 7px", marginTop: 4 }}>
+                <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
+                  {factorName(id)}
+                  <span style={{ color: C.muted }}>
+                    {" · "}{factorChance(factors.find((x) => x.id === id))}%</span>
+                </span>
+                <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px",
+                  color: BAD }} aria-label={`убрать фактор ${factorName(id)}`}
+                  onClick={() => up(f.id, (x) => ({ ...x,
+                    factors: factorsOf(x).filter((_, j) => j !== i) }))}>×</button>
+              </div>))}
+            {ownFactors.length > 0 && (
+              <select value="" aria-label="фактор функции"
+                onChange={(e) => { if (e.target.value) {
+                  up(f.id, (x) => ({ ...x, factors: [...factorsOf(x), e.target.value] }));
+                } }}
+                style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12 }}>
+                <option value="">{factorsOf(f).length ? "+ ещё фактор…" : "+ фактор…"}</option>
+                {ownFactors.filter((x) => !factorsOf(f).includes(x.id))
+                  .map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
+              </select>)}
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+              {!factorsOf(f).length
+                ? (ownFactors.length
+                  ? "Без факторов функция срабатывает всегда: сколько взяла, столько и выдала."
+                  : "Факторов в активе нет — заведите их во вкладке «Факторы».")
+                : `Конверсия ${Math.round(chanceOf(f, factors) * 100) / 100}%: входа нужно в ${
+                  nm(Math.round(10000 / Math.max(chanceOf(f, factors), 0.01)) / 100)} раза больше, чем сказано в «берёт».`}
+            </div>
 
             {/* Время — такая же вилка, как количества: работа редко занимает
                 ровно столько, сколько задумано. Когда занимает — галочка
@@ -837,76 +872,15 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   : "по одному, друг за другом"}</span>
             </div>
 
-            {/* Чем функция выполняется — людьми или сама собой. Вопрос
-                стоит ПЕРЕД ролями, потому что от ответа зависит, есть ли
-                они вообще: у фактора исполнителя нет, и показывать пустые
-                списки значило бы спрашивать, кто отвечает за погоду. */}
-            <div style={{ ...S.lbl, marginTop: 10 }}>чем выполняется</div>
-            <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
-              {FUNC_KINDS.map((k) => (
-                <label key={k.id} className="flex items-center gap-2"
-                  style={{ ...btn(funcKind(f) === k.id), padding: "5px 10px",
-                    cursor: "pointer" }}>
-                  <input type="radio" name={`kind-${f.id}`} value={k.id}
-                    aria-label={k.name} checked={funcKind(f) === k.id}
-                    onChange={() => up(f.id, (x) => ({ ...x, kind: k.id }))}
-                    style={{ accentColor: ACC }} />
-                  {k.name}
-                </label>))}
-            </div>
-
-            {isFactor(f) ? (<>
-              {/* Факторов может быть несколько, и в одной попытке они идут
-                  ПО ПОРЯДКУ: сперва должен случиться первый, потом второй.
-                  Поэтому список, а не одно поле, и между строками стоит
-                  «затем» — порядок здесь значит ровно то, что написано. */}
-              <div style={{ ...S.lbl, marginTop: 8 }}>от каких факторов</div>
-              {factorsOf(f).map((id, i) => (
-                <div key={`${id}-${i}`}>
-                  {i > 0 && (
-                    <div style={{ ...S.lbl, color: ACC, textAlign: "center",
-                      margin: "3px 0" }}>затем</div>)}
-                  <div className="flex items-center gap-2"
-                    style={{ background: C.panel2, border: `1px solid ${C.line}`,
-                      borderRadius: 6, padding: "5px 7px", marginTop: 4 }}>
-                    <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
-                      {factorName(id)}
-                      <span style={{ color: C.muted }}>
-                        {" · "}{factorChance(factors.find((x) => x.id === id))}%</span>
-                    </span>
-                    <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px",
-                      color: BAD }} aria-label={`убрать фактор ${factorName(id)}`}
-                      onClick={() => up(f.id, (x) => ({ ...x,
-                        factors: factorsOf(x).filter((_, j) => j !== i) }))}>×</button>
-                  </div>
-                </div>))}
-              {ownFactors.length > 0 && (
-                <select value="" aria-label="фактор функции"
-                  onChange={(e) => { if (e.target.value) {
-                    up(f.id, (x) => ({ ...x, factors: [...factorsOf(x), e.target.value] }));
-                  } }}
-                  style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12 }}>
-                  <option value="">{factorsOf(f).length ? "+ затем фактор…" : "+ фактор…"}</option>
-                  {ownFactors.filter((x) => !factorsOf(f).includes(x.id))
-                    .map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
-                </select>)}
-              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-                {!ownFactors.length
-                  ? "Факторов в активе ещё нет — заведите их во вкладке «Факторы»."
-                  : !factorsOf(f).length
-                    ? "Пока не сказано, от чего это происходит: выберите хотя бы один фактор."
-                    : `Фактор происходит без человека: задач по нему не заводится и спрашивать за него не с кого. Вероятности заданы самим факторам, во вкладке «Факторы»; за одну попытку должны случиться все по порядку — вместе это ${Math.round(chanceOf(f, factors) * 100) / 100}%.`}
-              </div>
-            </>) : (<>
-              {/* Роли — У ФУНКЦИИ, и это единственное место, где их
-                  назначают: работу ставят, выполняют и принимают в ней, а
-                  не «в активе вообще». */}
-              {WORKER_KINDS.map((k) => (
-                <People key={k.id} title={k.many} ids={f[k.id] || []} people={pool()}
-                  nameOf={nameOf}
-                  empty={"в активе ещё нет воркеров — отметьте их в «воркерах актива»"}
-                  onToggle={(pid) => togglePerson(f.id, k.id, pid)} />))}
-            </>)}
+            {/* Роли — У ФУНКЦИИ, и это единственное место, где их назначают:
+                работу ставят, выполняют и принимают в ней. Они есть у ЛЮБОЙ
+                функции: деления на «задачу» и «фактор» больше нет — факторы
+                это конверсия, а не другой вид работы. */}
+            {WORKER_KINDS.map((k) => (
+              <People key={k.id} title={k.many} ids={f[k.id] || []} people={pool()}
+                nameOf={nameOf}
+                empty={"в активе ещё нет воркеров — отметьте их в «воркерах актива»"}
+                onToggle={(pid) => togglePerson(f.id, k.id, pid)} />))}
 
             {/* ─── «Принять» ───
 
@@ -939,7 +913,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
 export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
   const mine = factors.filter((x) => x.e === entityId);
   const [draft, setDraft] = useState("");
-  const used = (id) => funcs.filter((f) => isFactor(f) && factorsOf(f).includes(id)).length;
+  const used = (id) => funcs.filter((f) => factorsOf(f).includes(id)).length;
   const add = () => {
     setFactors((p) => [...p, newFactor(entityId, draft.trim() || "новый фактор")]);
     setDraft("");
@@ -1057,10 +1031,9 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
   kinds, kindOf, open, setOpen,
   onWhy, onDelete, onUpKind, onAddKind, onDelKind, kindMsg }) {
   const mine = traits.filter((t) => t.e === entityId);
-  /* Единицы с номерами: из сдач и из материалов (вкладка «Отчёты»). Сколько
-     ресурса есть — это они и есть: `have` здесь уже посчитан по ним
-     (`withStock`), и руками его не вводят. */
-  const units = unitsOf({ tasks, funcs, materials });
+  /* Сколько ресурса есть — единицы в материалах и принятых сдачах:
+     `have` здесь уже посчитан по ним (`withStock`), руками не вводят;
+     сами единицы — в «Материалах» на вкладке «Отчёты». */
   const [draft, setDraft] = useState("");
   const up = (id, patch) => setTraits((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   const add = (kindId) => {
@@ -1132,37 +1105,6 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                     {x.sign} {x.name}</button>);
               })}
             </div>
-            {/* ─── единицы с номерами ───
-                Количество говорит, сколько всего, и молчит о том, ЧТО
-                именно. Работают же не с количеством: вот это техническое
-                задание от того заказчика, вот дизайн к нему. Единица
-                рождается сдачей задачи или кладётся в «Материалы» на
-                вкладке отчётов — там же её и скачивают. */}
-            <div style={{ ...S.lbl, marginTop: 8 }}>единицы с номерами</div>
-            {(() => {
-              const own = units.filter((u) => u.trait === t.id);
-              if (!own.length) {
-                return (
-                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4,
-                    lineHeight: 1.5 }}>
-                    Пока ни одной: единица появляется, когда сдают задачу или
-                    загружают её в «Материалы» на вкладке «Отчёты».
-                  </div>);
-              }
-              return [...own].reverse().slice(0, 8).map((u) => (
-                <div key={u.id} className="flex flex-wrap gap-2"
-                  style={{ alignItems: "center", fontSize: 11, marginTop: 4 }}>
-                  <span style={{ color: ACC, fontWeight: 700 }}>№{u.no}</span>
-                  <span style={{ flex: "1 1 110px", minWidth: 0 }}>
-                    {unitLabel(u)}</span>
-                  <span style={{ color: u.accepted ? OK : WARN, fontSize: 10 }}>
-                    {u.accepted ? "принято" : "не принято"}</span>
-                </div>));
-            })()}
-            {units.filter((u) => u.trait === t.id).length > 8 && (
-              <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>
-                показаны последние 8 — все видно в «Материалах» на вкладке «Отчёты».</div>)}
-
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
               Ресурс сам себя не меняет: его берут и выдают функции. Цель по
               нему ставится в «Прогнозе»: у неё есть темп, срок и цена, и
@@ -1209,8 +1151,9 @@ export default function AssetPanel(props) {
   const TABS = [
     ["workers", "Воркеры", workers],
     ["funcs", "Функции", mineFuncs],
-    ["traits", "Ресурсы", mineTraits],
+    // Факторы — сразу за функциями: их выбирают в функции, и рядом искать ближе.
     ["factors", "Факторы", mineFactors],
+    ["traits", "Ресурсы", mineTraits],
   ];
   return (
     <div>

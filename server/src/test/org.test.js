@@ -314,7 +314,7 @@ describe("анкета", () => {
        рабочий график и статус: они отвечают не «кто это», а «работает ли
        он сейчас», и спрашивают их раньше. */
     expect(me.profile).toEqual({ about: "", days: [], from: "", to: "",
-      status: "ready", warnMin: 10 });
+      status: "ready", warnMin: 10, deferMin: 30 });
   });
 
   it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
@@ -365,7 +365,7 @@ describe("анкета", () => {
       const saved = await setProfile("100", { days: [1, 3], from: "09:00", to: "18:00",
         status: "break", about: "аналитик" });
       expect(saved).toEqual({ about: "аналитик", days: [1, 3], from: "09:00",
-        to: "18:00", status: "break", warnMin: 10 });
+        to: "18:00", status: "break", warnMin: 10, deferMin: 30 });
       // И «кто я» после этого говорит то же самое.
       expect((await identify("100", {})).profile).toEqual(saved);
     });

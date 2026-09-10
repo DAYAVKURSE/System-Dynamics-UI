@@ -260,7 +260,7 @@ function Timeline({ steps = [], before = [] }) {
     /* Шаг, который не выполнится, полосы не получает: нарисовать ему срок
        значило бы пообещать работу, которая не начнётся. */
     const stuck = !!s.short?.length;
-    rows.push({ key: s.func, name: s.name, factor: s.factor, kind: "step",
+    rows.push({ key: s.func, name: s.name, kind: "step",
       stuck,
       from: stuck ? null : s.startHours,
       to: stuck ? null : s.startHours + Math.max(s.calendarHours, 0.01),
@@ -331,7 +331,6 @@ function Timeline({ steps = [], before = [] }) {
             paddingLeft: r.kind === "step" ? 0 : 12, lineHeight: 1.4 }}>
             {r.kind === "task" ? "↳ " : ""}{r.name}
             {r.before && <span style={{ color: C.muted }}> · до цепочки</span>}
-            {r.factor && <span style={{ color: ACC }}> · фактор</span>}
             {r.note ? <span style={{ color: C.muted }}> · {r.note}</span> : ""}
             {/* Даты стоят и словами: на узкой полосе их не прочесть, а
                 спрашивают в первую очередь именно «с какого по какое». */}
@@ -356,9 +355,7 @@ function Timeline({ steps = [], before = [] }) {
                   style={{ position: "absolute", left: `${at(r.from)}%`,
                     width: `${Math.max(at(r.to) - at(r.from), 1)}%`, minWidth: 3,
                     top: 0, bottom: 0, borderRadius: 3,
-                    background: r.kind === "step"
-                      ? (r.factor ? ACC : WARN)
-                      : (r.done ? OK : NEU) }} />)}
+                    background: r.kind === "step" ? WARN : (r.done ? OK : NEU) }} />)}
           </div>)}
           {r.kind === "task" && (r.from == null || r.to == null) && (
             <div style={{ fontSize: 10, color: C.muted, paddingLeft: 12 }}>
@@ -518,7 +515,6 @@ function FuncRows({ steps = [], factors = [], nodeId, traitName }) {
           <span style={{ fontSize: 10.5, color: C.muted, minWidth: 18 }}>{i + 1}.</span>
           <span style={{ fontSize: 12, flex: "1 1 120px", fontWeight: 600 }}>
             {s.name}
-            {s.factor && <span style={{ color: ACC, fontSize: 10.5 }}> · фактор, без людей</span>}
           </span>
           <AnchorLink href={stepLink(nodeId, s.func)} label={s.name} />
         </div>
@@ -572,9 +568,8 @@ function Schedule({ steps = [], before = [], plan, actual }) {
               <span style={{ color: C.muted }}>
                 начнётся {s.startHours > 0 ? `через ${timeText(s.startHours)}` : "сразу"}</span>
               <span style={{ color: C.muted }}>займёт {timeText(s.calendarHours)}</span>
-              {!s.factor && (
-                <span style={{ color: WARN }}>работы {hoursRange(s.workLo, s.workHi)}</span>)}
-              {!s.factor && !!s.doneCount && (
+              <span style={{ color: WARN }}>работы {hoursRange(s.workLo, s.workHi)}</span>
+              {!!s.doneCount && (
                 <span style={{ color: OK }}>
                   по факту {nm(Math.round((s.factHours || 0) * 10) / 10)} ч</span>)}
             </div>))}
@@ -610,13 +605,10 @@ function TaskList({ steps = [], before = [], actual, personName, traitName }) {
       {any && steps.map((s) => (
         <div key={s.func} style={{ marginTop: 8 }}>
           <div style={S.lbl}>функция «{s.name}»</div>
-          {s.factor
-            ? (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-                Фактор — задач не бывает: случается сам, спрашивать не с кого.</div>)
-            : s.tasks.length
-              ? s.tasks.map((t) => row(t, perRun(s)))
-              : (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-                  Задач по этой функции ещё не заведено.</div>)}
+          {s.tasks.length
+            ? s.tasks.map((t) => row(t, perRun(s)))
+            : (<div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+                Задач по этой функции ещё не заведено.</div>)}
         </div>))}
     </div>);
 }
@@ -1010,9 +1002,12 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   const picked = Array.isArray(node.units) ? node.units.filter(Boolean) : [];
   // Все единицы модели: по ним видно, над чем работала каждая задача.
   const full = chainOf(model, { from: node.trait });
+  /* Звено — только РЕСУРС: прослеживают «до готового сайта», а «до вёрстки»
+     — не звено, а действие по дороге к нему; так сказал владелец. Старая
+     запись с функцией в `upto` читается как была (chainOf её понимает),
+     но выбрать функцию заново нельзя. */
   const uptoTraits = traits.filter((t) => t.id !== node.trait
     && (full.traits || []).includes(t.id));
-  const uptoFuncs = full.steps || [];
 
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
@@ -1135,15 +1130,12 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             onChange={(e) => up({ upto: e.target.value })}>
             <option value="">
               {node.trait ? "до конца цепочки" : "— сначала выберите ресурс —"}</option>
-            {!!uptoTraits.length && (
-              <optgroup label="до ресурса">
-                {uptoTraits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
-              </optgroup>)}
-            {!!uptoFuncs.length && (
-              <optgroup label="до функции">
-                {uptoFuncs.map((f) => (
-                  <option key={f.id} value={f.id}>{funcLabel(f, entities)}</option>))}
-              </optgroup>)}
+            {uptoTraits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
+            {/* Старая запись со звеном-функцией: показываем, что стоит, —
+                молча заменить на «до конца» значило бы переписать выбор. */}
+            {!!node.upto && !uptoTraits.some((t) => t.id === node.upto)
+              && funcs.some((f) => f.id === node.upto) && (
+              <option value={node.upto}>{funcName(node.upto)} (функция — прежняя запись)</option>)}
           </select>
         </div>
 

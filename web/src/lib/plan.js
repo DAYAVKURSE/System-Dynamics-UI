@@ -45,8 +45,8 @@
    производительности; домножать на количество людей значило бы додумать
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
-import { CHANCE_MAX, DUR_UNITS, factorChance, factorsOf, everyOf, groupsOf, hoursOf, isFactor,
-  parOf, portSpends, runHours, runQty } from "./funcs.js";
+import { DUR_UNITS, conversionOf, everyOf, groupsOf, hoursOf, parOf, portSpends,
+  runHours, runQty, takeQty } from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
 export const MONTH_H = DUR_UNITS["мес"];
@@ -130,70 +130,27 @@ export function workHours(f, n, { runs = [] } = {}) {
  * верхней — наоборот. Факт, когда он есть, вытесняет вилку с обеих сторон:
  * измеренное не нуждается в границах.
  */
-export function portQty(p, { kind, side, runs = [] }) {
+export function portQty(p, { kind, side, runs = [], conv = 1 }) {
   const fact = runQty(runs, kind, p.trait);
   if (side === "fact" || fact != null) return fact ?? (num(p.lo) + num(p.hi)) / 2;
   const lo = num(p.lo);
   const hi = num(p.hi);
   const worst = kind === "takes" ? hi : lo;
   const best = kind === "takes" ? lo : hi;
-  return side === "lo" ? worst : best;
+  const base = side === "lo" ? worst : best;
+  /* Конверсия функции (факторы): входа на одно выполнение нужно в
+     1/конверсия раз больше. Измеренного (`fact`) это не касается — факт
+     уже включает всё, что случилось. */
+  return kind === "takes" ? takeQty(base, conv) : base;
 }
 
-/* ─────── жребий: удалась попытка или нет ───────
+/* ─────── конверсия вместо жребия ───────
 
-   Фактор случается сам, и «сам» не значит «наверняка»: у него есть
-   вероятность, и каждая попытка — отдельный жребий. Поэтому один и тот же
-   набор чисел может развиться по-разному, и посмотреть на эти варианты —
-   ровно то, ради чего вероятность и заводят.
-
-   Жребий не настоящий, а посеянный: от одного и того же семени выходит
-   один и тот же ряд. Без этого прогноз менялся бы при каждой перерисовке —
-   подвинул мышь, и другое будущее; сравнить два варианта стало бы
-   невозможно, потому что не осталось бы ни одного, который стоит на месте.
-   Меняя семя, человек смотрит следующий вариант. */
-const hash = (s) => {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-};
-
-/** Число в [0;1) по семени и месту: одно и то же место даёт одно и то же. */
-export const draw = (seed, key) => {
-  let x = hash(`${seed}|${key}`) || 1;
-  x ^= x << 13; x >>>= 0;
-  x ^= x >> 17;
-  x ^= x << 5; x >>>= 0;
-  return x / 4294967296;
-};
-
-/**
- * Удалась ли одна попытка фактора.
- *
- * Факторов у функции бывает несколько, и это просто СПИСОК: за попытку
- * функция пробует применить первый; вышло — попытка удалась и до второго
- * дело не доходит. Не вышло — пробует второй, потом третий, и так до конца
- * списка. Не удался ни один — не случилось ничего.
- *
- * Не «должны случиться все»: запасной вариант обязан помогать, а не мешать.
- * От «всех сразу» цепочка выходила бы тем реже, чем больше у неё запасных
- * путей, — то есть каждый добавленный фактор ухудшал бы дело.
- *
- * Жребий на каждый фактор — свой и посеянный, как и прежде: от одного
- * семени выходит один и тот же ряд, и обе стороны ленты говорят об одном
- * и том же варианте будущего.
- */
-export function factorHit(f, factors = [], seed = 1, key = "") {
-  const ids = factorsOf(f);
-  if (!ids.length) return draw(seed, key) < 1;
-  return ids.some((id, i) => {
-    const x = factors.find((y) => y.id === id);
-    return draw(seed, `${key}@${i}:${id}`) < factorChance(x) / CHANCE_MAX;
-  });
-}
+   Прежде функция-«фактор» разыгрывала каждую попытку жребием, и один и тот
+   же набор чисел развивался по-разному от семени к семени. Владелец это
+   снял: факторы — конверсия, доля выхода на порцию входа. Она входит в
+   `portQty` для входов (`conv`), и прогноз считается одним числом, без
+   вариантов. */
 
 /**
  * Какой из вариантов группы «или» пойдёт в дело.
@@ -248,14 +205,12 @@ export const hasFact = (runs = []) => runs.some((r) => Number(r?.hours) > 0);
  * кончится. Плана нет вовсе — считаем по потолку: так прогноз отвечает на
  * вопрос «на что модель вообще способна».
  */
-export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 } = {}) {
+export function runSide(model, { span = 24, side = "hi", runsOf, plan } = {}) {
   const { traits = [], funcs = [], factors = [] } = model;
   const runs = (f) => (runsOf ? runsOf(f.id) : []);
-  /* Недобранные попытки копятся: фактор с попыткой раз в полгода делает
-     одну попытку раз в шесть месяцев, а не шестую часть попытки каждый
-     месяц. Половины жребия не бывает. */
-  const credit = {};
-  const tries = {};
+  /* Конверсия функции: с факторами входа на одно выполнение нужно больше
+     (`portQty`). Считается один раз на функцию — она не меняется по ходу. */
+  const conv = (f) => conversionOf(f, factors);
   const perMonth = plan?.perMonth || {};
   const left = { ...(plan?.once || {}) };
   const level = {};
@@ -276,20 +231,6 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
     const wave = funcs.map((f) => {
       // Потолок — сколько попыток вообще помещается в месяц.
       const cap = cycles(f, runs(f), side);
-      /* Фактор случается сам: его не просят и не назначают, он идёт своим
-         чередом — столько попыток, сколько помещается, и из них удаются те,
-         на которые хватило вероятности. Задача — наоборот: её делают, и
-         делают ровно столько, сколько просят применённые цели. */
-      if (isFactor(f)) {
-        credit[f.id] = (credit[f.id] || 0) + cap;
-        let hit = 0;
-        while (credit[f.id] >= 1) {
-          credit[f.id] -= 1;
-          tries[f.id] = (tries[f.id] || 0) + 1;
-          if (factorHit(f, factors, seed, `${f.id}#${tries[f.id]}`)) hit += 1;
-        }
-        return { f, n: hit, k: 1, takes: [] };
-      }
       const want = perMonth[f.id] || 0;
       const budget = left[f.id] || 0;
       const n = plan ? Math.min(cap, want + budget) : cap;
@@ -314,7 +255,7 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
     const demand = {};
     wave.forEach(({ f, n, takes }) => takes.filter(portSpends).forEach((p) => {
       demand[p.trait] = (demand[p.trait] || 0)
-        + portQty(p, { kind: "takes", side, runs: runs(f) }) * n;
+        + portQty(p, { kind: "takes", side, runs: runs(f), conv: conv(f) }) * n;
     }));
     const share = {};
     Object.keys(demand).forEach((id) => {
@@ -324,7 +265,7 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
     // Своя доля у входа, который не расходует: сколько его выполнений
     // вообще обеспечено новым, ещё не обработанным.
     const mine = (f, p, n) => {
-      const need = portQty(p, { kind: "takes", side, runs: runs(f) }) * n;
+      const need = portQty(p, { kind: "takes", side, runs: runs(f), conv: conv(f) }) * n;
       if (!(need > 0)) return 1;
       return Math.min(1, fresh(f, p) / need);
     };
@@ -333,31 +274,13 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
     wave.forEach((w) => {
       w.k = w.takes.reduce((k, p) => Math.min(k,
         portSpends(p) ? (share[p.trait] ?? 1) : mine(w.f, p, w.n)), 1);
-      /* Фактор ЖДЁТ. Он заранее знает, сколько ему нужно на одно
-         срабатывание, и берёт только тогда, когда это количество появилось:
-         на неполную порцию он не срабатывает, а ресурс копится до следующей
-         попытки. Задача так не может — работу делят и делают частями, — а
-         фактор либо случился целиком, либо не случился вовсе.
 
-         Считаем по тому, что фактору и правда достанется: доля `share`
-         учитывает, что за тот же ресурс борются другие. */
-      if (isFactor(w.f) && w.n > 0) {
-        const whole = w.takes.reduce((least, p) => {
-          const need = portQty(p, { kind: "takes", side, runs: runs(w.f) });
-          if (!(need > 0)) return least;
-          const got = portSpends(p)
-            ? (level[p.trait] ?? 0) * (share[p.trait] ?? 1)
-            : fresh(w.f, p);
-          return Math.min(least, Math.floor(got / need));
-        }, Infinity);
-        w.k = whole === Infinity ? 1 : Math.max(0, Math.min(w.k, whole / w.n));
-      }
     });
 
     wave.forEach(({ f, n, k, takes }) => {
       takes.forEach((p) => {
         if (level[p.trait] == null) return;
-        const q = portQty(p, { kind: "takes", side, runs: runs(f) }) * n * k;
+        const q = portQty(p, { kind: "takes", side, runs: runs(f), conv: conv(f) }) * n * k;
         // Расходует — взятое исчезает у всех. Не расходует — остаётся на
         // месте, но этой функцией уже обработано.
         if (portSpends(p)) level[p.trait] -= q;
@@ -393,12 +316,12 @@ export function runSide(model, { span = 24, side = "hi", runsOf, plan, seed = 1 
  * выполнялась. Без выполнений её нет вовсе — иначе план показался бы
  * измерением.
  */
-export function forecast(model, { span = 24, runsOf, plan, seed = 1 } = {}) {
+export function forecast(model, { span = 24, runsOf, plan } = {}) {
   const anyFact = (model.funcs || []).some((f) => hasFact(runsOf ? runsOf(f.id) : []));
   return {
-    lo: runSide(model, { span, side: "lo", runsOf, plan, seed }),
-    hi: runSide(model, { span, side: "hi", runsOf, plan, seed }),
-    fact: anyFact ? runSide(model, { span, side: "fact", runsOf, plan, seed }) : null,
+    lo: runSide(model, { span, side: "lo", runsOf, plan }),
+    hi: runSide(model, { span, side: "hi", runsOf, plan }),
+    fact: anyFact ? runSide(model, { span, side: "fact", runsOf, plan }) : null,
     span,
   };
 }
@@ -485,11 +408,9 @@ export function load(model, { runsOf, plan } = {}) {
     const n = plan
       ? Math.min(cap, (plan.perMonth?.[f.id] || 0) + (plan.once?.[f.id] || 0)) : cap;
     const spent = workHours(f, n, { runs: rs });
-    // У фактора исполнителей нет; если они там остались от прежней правки,
-    // считать их нагрузку всё равно нельзя — фактор происходит сам.
     /* Ноль выполнений — это «не назначено», а не «назначено ноль»: строка
        «0 ч» на человеке говорила бы, что работа есть, просто пустая. */
-    if (isFactor(f) || !f.owners.length || !(hours > 0) || !(n > 0)) return;
+    if (!f.owners.length || !(hours > 0) || !(n > 0)) return;
     const each = spent / f.owners.length;
     f.owners.forEach((p) => { by[p] = (by[p] || 0) + each; });
   });
@@ -650,11 +571,8 @@ export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
     // Сторона та же, что у всего плана: осторожная оценка считает по долгой
     // работе и редкой попытке, щедрая — по быстрой и частой.
     const step = stepHours(f, runsFor(f), side);
-    /* Часы фактора — не человеко-часы: фактор происходит сам, и в бюджет
-       человека его время не идёт. Календарный срок при этом остаётся —
-       ждать его всё равно приходится. */
-    const own = isFactor(f) ? 0 : workHours(f, n, { runs: runsFor(f) });
-    return { func: id, name: f.name, e: f.e, runs: n, factor: isFactor(f),
+    const own = workHours(f, n, { runs: runsFor(f) });
+    return { func: id, name: f.name, e: f.e, runs: n,
       // Сколько выполнений идут разом: по этому же числу расписание
       // расставляет задачи волнами, а не очередью.
       par: parOf(f),
@@ -752,8 +670,7 @@ export function effect(model, steps = [], { side = "hi", runsOf } = {}) {
  */
 export function scheduleOf(steps = [], { from = Date.now() } = {}) {
   const rows = [];
-  // Фактор происходит без человека — задачи по нему не заводятся.
-  steps.filter((st) => !st.factor).forEach((st) => {
+  steps.forEach((st) => {
     /* Волнами, а не очередью: при четырёх одновременных выполнениях первые
        четыре начинаются разом, пятое — после них. Длительность одного
        считается из числа ВОЛН, а не из числа выполнений, иначе восемь дел

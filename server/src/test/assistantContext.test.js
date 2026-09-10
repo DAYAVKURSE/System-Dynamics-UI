@@ -50,7 +50,10 @@ const MODEL = {
     { id: "f2", e: "e2", name: "Сезон", kind: "factor", takes: [], gives: [], dur: 1, durUnit: "мес" },
   ],
   goals: [{ id: "g1", trait: "t2", qty: 5, rate: "week", dueKind: "in", dueIn: 1, dueUnit: "мес",
-    hours: 2, hoursUnit: "ч", hoursPer: "day", appliedAt: null }],
+    hours: 2, hoursUnit: "ч", hoursPer: "day", appliedAt: null },
+    /* Цель выражением: знак и ссылка на другой ресурс — помощнику словами. */
+    { id: "g2", trait: "t2", expr: ">@{t1}*2", rate: "once", dueKind: "in", dueIn: 2, dueUnit: "мес",
+      hours: 0, appliedAt: null }],
   reports: [{ id: "rp1", parent: null, name: "Проект А", trait: "t2", units: [] },
     { id: "rs1", parent: "rp1", name: "Раздел 1", trait: "t1", units: ["u1", "u2"] }],
   tasks: [
@@ -152,8 +155,11 @@ describe("владелец", () => {
     expect(ctx).toContain("договоры (документы) — есть 0 шт");
     expect(ctx).toContain("«Обработать заявку»: берёт заявки 1–2 шт; даёт договоры 0–1 шт → в актив «Юристы»");
     expect(ctx).toContain("время одного выполнения 1–2 ч; повтор раз в 1 дн");
-    expect(ctx).toContain("«Сезон» (фактор");
+    // Вида у функции больше нет: факторы — это конверсия, и названы так.
+    expect(ctx).not.toContain("(фактор: происходит само");
+    expect(ctx).toContain("«Сезон»");
     expect(ctx).toContain("договоры: 5 в неделю, через 1 мес; готовы тратить 2 ч в день; ещё не применена");
+    expect(ctx).toContain("договоры: > @заявки*2 разово, через 2 мес");
     expect(ctx).toContain("Проект А › Раздел 1: ресурс «заявки», единицы: u1, u2");
     expect(ctx).toContain("Прогноз и план по целям здесь не посчитаны");
   });

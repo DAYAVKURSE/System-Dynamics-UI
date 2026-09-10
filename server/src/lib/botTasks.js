@@ -62,14 +62,16 @@ export const missingGives = (f, files = {}) =>
 const P = "task:";
 export const TASK_START = `${P}start:`;
 export const TASK_DEFER = `${P}defer:`;
+/* Напоминание о постановке: «Готово» и «Отложить». Свои префиксы, а не
+   общие с работой: у постановки другая проверка и другой склад — путать
+   их значило бы отвечать «не ваша задача» тому, чья она и есть. */
+export const SETUP_DONE = `${P}sdone:`;
+export const SETUP_DEFER = `${P}sdefer:`;
 const REPORT = `${P}report:`;
 const GIVE = `${P}give:`;
 const SEND = `${P}send:`;
-const HOUR = `${P}h:`;
-const MINUTE = `${P}m:`;
 const MARK = `${P}mark:`;
 const VIS = `${P}vis:`;
-const DEFER_OK = `${P}dok`;
 const BACK = `${P}back`;
 const SKIP = `${P}skip`;
 
@@ -96,6 +98,16 @@ export const taskKeyboard = (taskId) => ({
   ]],
 });
 
+/* Клавиатура напоминания о постановке. «Готово» — не отметка «я нажал», а
+   ПРОВЕРКА: система смотрит, поставлена ли задача на самом деле, и говорит,
+   чего не хватает, если нет. */
+export const setupKeyboard = (taskId) => ({
+  inline_keyboard: [[
+    { text: "🔴 Отложить", callback_data: SETUP_DEFER + taskId },
+    { text: "✅ Готово", callback_data: SETUP_DONE + taskId },
+  ]],
+});
+
 const btn = (text, data) => ({ text, callback_data: data });
 const backRow = () => [btn("Назад", BACK)];
 const rows = (count, per, data) => {
@@ -106,10 +118,6 @@ const rows = (count, per, data) => {
   }
   return out;
 };
-// Часы 0–23 рядами по шесть, минуты 0–59 рядами по десять: шесть рядов
-// минут — много, но одним экраном, и палец не промахивается.
-const hoursKeyboard = () => ({ inline_keyboard: [...rows(24, 6, HOUR), backRow()] });
-const minutesKeyboard = () => ({ inline_keyboard: [...rows(60, 10, MINUTE), backRow()] });
 const reportButton = (taskId) => ({ inline_keyboard: [[btn("Сдать отчёт", REPORT + taskId)]] });
 
 const plural = (n, one, few, many) => {
@@ -124,6 +132,23 @@ export const durationText = (h, m) => {
   if (m) parts.push(`${m} ${plural(m, "минуту", "минуты", "минут")}`);
   return parts.join(" ") || "ноль минут";
 };
+
+/* На сколько откладывать — настройка того, кто нажал («Напоминания» в
+   инструментах). Не сказано — полчаса: молчать вечно хуже, чем напомнить. */
+const DEFER_FALLBACK = 30;
+async function minutesOf(deps, userId) {
+  const v = await deps.deferMin?.(userId);
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 1 ? Math.round(n) : DEFER_FALLBACK;
+}
+export const minutesText = (mins) => {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return durationText(h, m);
+};
+/** Нажали — повтор гаснет. Нет хранилища напоминаний — и гасить нечего. */
+const ackReminder = (deps, userId, kind, taskId) =>
+  Promise.resolve(deps.reminders?.ack?.(userId, kind, taskId)).catch(() => {});
 
 /* ─────── шаг человека ─────── */
 
@@ -248,20 +273,6 @@ const targetOf = (from, cb) => {
 
 /* ─────── экраны ─────── */
 
-function deferHoursText(step) {
-  return `Отложить ${q(step.title)}: на сколько часов? «0» — меньше часа.`;
-}
-function deferMinutesText(step) {
-  return `Отложить ${q(step.title)} на ${step.hour} ч и сколько минут?`;
-}
-function deferConfirm(step) {
-  const dur = durationText(step.hour, step.minute);
-  return {
-    text: `Отложить ${q(step.title)} на ${dur}? Останется в бэклоге как отложенная,`
-      + " срок при этом не сдвинется. Когда время выйдет, напомню снова.",
-    keyboard: { inline_keyboard: [[btn("Назад", BACK), btn(`Отложить на ${dur}`, DEFER_OK)]] },
-  };
-}
 const WORK_HINT = "Когда сделаете, нажмите «Сдать отчёт».";
 const takenText = (title) => `Взял в работу: ${q(title)}. Она в колонке «В работе». ${WORK_HINT}`;
 const inWorkText = (title) => `${q(title)} в работе — колонка «В работе». ${WORK_HINT}`;
@@ -434,12 +445,11 @@ async function handleButton(cb, from, deps) {
     return { task: id, action: "take" };
   }
 
+  /* «Отложить» больше не спрашивает «на сколько»: срок — настройка
+     человека («Напоминания» в инструментах, `deferMin`). Три экрана ради
+     числа, которое у него и так записано, — лишний путь. */
   if (data.startsWith(TASK_DEFER)) {
     const id = data.slice(TASK_DEFER.length);
-    // Своя ли задача и лежит ли ещё — проверяется до вопросов про часы:
-    // спрашивать «на сколько», чтобы потом отказать, значило бы зря гонять
-    // человека. Взятая на доске задача со старым уведомлением в чате —
-    // обычное дело, и отказ ей нужен сразу, теми же словами, что даст склад.
     const got = await work.taskFor(userId, id);
     const error = got?.error || (DEFERRABLE.includes(got.task?.status) ? null : "not in backlog");
     if (error) {
@@ -447,12 +457,59 @@ async function handleButton(cb, from, deps) {
       await deps.send(from.id, `${whyNot(error)}: ничего не поменял.`);
       return { error };
     }
-    const next = { taskId: id, title: titleOf(got.task), stage: "hour", hour: 0, minute: 0,
-      chatId: target.chatId, origText: cb.message?.text || "", files: {} };
-    steps.set(userId, next);
-    await answer(cb.id, "");
-    await show(deps, target, deferHoursText(next), hoursKeyboard());
-    return { task: id, stage: "hour" };
+    const mins = await minutesOf(deps, userId);
+    const until = new Date(Date.now() + mins * 60000).toISOString();
+    const r = await work.defer(userId, id, { until });
+    if (r?.error) {
+      await answer(cb.id, whyNot(r.error));
+      await show(deps, target, `${whyNot(r.error)}: ничего не поменял.`);
+      return { error: r.error };
+    }
+    steps.delete(userId);
+    await ackReminder(deps, userId, "task", id);
+    await answer(cb.id, "Отложил");
+    await show(deps, target, `Отложил: ${q(titleOf(got.task))} на ${minutesText(mins)}.`
+      + " Осталась в бэклоге как отложенная — срок при этом не сдвинулся."
+      + " Когда время выйдет, напомню снова.");
+    return { task: id, action: "defer", until };
+  }
+
+  /* ─── напоминание о постановке ───
+
+     «Готово» — не отметка, а проверка: система смотрит, поставлена ли
+     задача. Не поставлена — говорит, чего не хватает, и напоминание
+     остаётся (повторится через минуту). */
+  if (data.startsWith(SETUP_DONE)) {
+    const id = data.slice(SETUP_DONE.length);
+    const r = await work.setupState(userId, id);
+    if (r?.error) {
+      await answer(cb.id, whyNot(r.error));
+      await deps.send(from.id, `${whyNot(r.error)}: ничего не поменял.`);
+      return { error: r.error };
+    }
+    if (!r.set) {
+      await answer(cb.id, "Ещё не поставлена");
+      await deps.send(from.id, `Ещё не поставлена: ${q(r.title)}. ${r.why}`
+        + " Поставьте её во вкладке «Проверка» — и нажмите «Готово» снова.");
+      return { task: id, action: "setup-not-yet", why: r.why };
+    }
+    await ackReminder(deps, userId, "setup", id);
+    await answer(cb.id, "Поставлена");
+    await show(deps, target, `Поставлена: ${q(r.title)}. Больше не напоминаю.`);
+    return { task: id, action: "setup-done" };
+  }
+
+  if (data.startsWith(SETUP_DEFER)) {
+    const id = data.slice(SETUP_DEFER.length);
+    const mins = await minutesOf(deps, userId);
+    const until = new Date(Date.now() + mins * 60000).toISOString();
+    /* Откладывается НАПОМИНАНИЕ, а не задача: задача так и ждёт постановки,
+       и двигать её состояние тем, что человек занят, было бы неправдой. */
+    const ok = await deps.reminders?.defer?.(userId, "setup", id, until);
+    await answer(cb.id, ok === false ? "Нечего откладывать" : "Отложил");
+    await show(deps, target, `Напомню про постановку через ${minutesText(mins)}.`
+      + " Задача так и ждёт постановки — её состояние не изменилось.");
+    return { task: id, action: "setup-defer", until };
   }
 
   if (data.startsWith(REPORT)) {
@@ -470,47 +527,6 @@ async function handleButton(cb, from, deps) {
   if (!step) {
     await answer(cb.id, "Не помню, с чего начали — нажмите кнопку под уведомлением заново");
     return { stale: true };
-  }
-
-  if (data.startsWith(HOUR) && step.stage === "hour") {
-    step.hour = Math.min(23, Math.max(0, Number(data.slice(HOUR.length)) || 0));
-    step.stage = "minute";
-    await answer(cb.id, "");
-    await show(deps, target, deferMinutesText(step), minutesKeyboard());
-    return { task: step.taskId, stage: "minute" };
-  }
-
-  if (data.startsWith(MINUTE) && step.stage === "minute") {
-    step.minute = Math.min(59, Math.max(0, Number(data.slice(MINUTE.length)) || 0));
-    if (!step.hour && !step.minute) {
-      // На ноль не откладывают: это то же «отложить», что и без времени,
-      // а обещать «напомню снова» прямо сейчас — обман.
-      await answer(cb.id, "На ноль не откладывают — выберите хотя бы минуту");
-      return { task: step.taskId, stage: "minute", error: "zero" };
-    }
-    step.stage = "confirm";
-    await answer(cb.id, "");
-    const s = deferConfirm(step);
-    await show(deps, target, s.text, s.keyboard);
-    return { task: step.taskId, stage: "confirm" };
-  }
-
-  if (data === DEFER_OK && step.stage === "confirm") {
-    const ms = (step.hour * 60 + step.minute) * 60 * 1000;
-    const until = new Date(Date.now() + ms).toISOString();
-    const r = await work.defer(userId, step.taskId, { until });
-    if (r?.error) {
-      steps.delete(userId);
-      await answer(cb.id, whyNot(r.error));
-      await show(deps, target, `${whyNot(r.error)}: ничего не поменял.`);
-      return { error: r.error };
-    }
-    steps.delete(userId);
-    const dur = durationText(step.hour, step.minute);
-    await answer(cb.id, "Отложил");
-    await show(deps, target, `Отложил: ${q(step.title)} на ${dur}. Осталась в бэклоге как`
-      + " отложенная — срок при этом не сдвинулся. Когда время выйдет, напомню снова.");
-    return { task: step.taskId, action: "defer", until };
   }
 
   if (data.startsWith(GIVE) && step.stage === "report") {
@@ -585,18 +601,6 @@ async function handleButton(cb, from, deps) {
    отложить — к уведомлению с двумя кнопками, сдать — к «Сдать отчёт». */
 async function goBack(deps, target, step) {
   switch (step.stage) {
-    case "hour":
-      steps.delete(target.userId);
-      await show(deps, target, step.origText || `Начинается: ${step.title}`, taskKeyboard(step.taskId));
-      return { task: step.taskId, stage: "notified" };
-    case "minute":
-      step.stage = "hour";
-      await show(deps, target, deferHoursText(step), hoursKeyboard());
-      return { task: step.taskId, stage: "hour" };
-    case "confirm":
-      step.stage = "minute";
-      await show(deps, target, deferMinutesText(step), minutesKeyboard());
-      return { task: step.taskId, stage: "minute" };
     case "report":
       // Приложенное остаётся в шаге: вернуться и продолжить можно.
       step.stage = "idle";

@@ -310,6 +310,18 @@ describe("карта в форме", () => {
     expect(screen.queryByLabelText("функция результата")).toBeNull();
   });
 
+  it("звено — только ресурс: функция звеном не бывает", () => {
+    /* Владелец: цепочка прослеживается до ресурса или до конца — «до
+       вёрстки» не звено, а действие по дороге к нему. */
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    const sel = screen.getByLabelText("до какого звена: Макеты");
+    expect(sel.querySelector("optgroup")).toBeNull();
+    const names = [...sel.options].map((o) => o.textContent);
+    expect(names).not.toContain("Собрать макет");
+    expect(names[0]).toBe("до конца цепочки");
+  });
+
   it("в звенья попадает только то, до чего цепочка доходит", () => {
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));

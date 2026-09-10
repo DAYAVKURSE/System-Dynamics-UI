@@ -355,7 +355,7 @@ const timelineHtml = (steps = [], before = []) => {
     // Шаг, который не выполнится, полосы не получает: обещать срок работе,
     // которая не начнётся, нельзя.
     const stuck = (s.short || []).length > 0;
-    rows.push({ name: s.name, kind: "step", factor: s.factor, stuck,
+    rows.push({ name: s.name, kind: "step", stuck,
       from: stuck ? null : num(s.startHours),
       to: stuck ? null : num(s.startHours) + Math.max(num(s.calendarHours), 0.01) });
     (s.tasks || []).forEach((t) => {
@@ -404,7 +404,7 @@ const timelineHtml = (steps = [], before = []) => {
         : ` · ${esc(day(r.from))} — ${esc(day(r.to))}`;
       const label = `<div class="${r.kind === "task" ? "sub m" : "m"}">${
         r.kind === "task" ? "↳ " : ""}${esc(r.name)}${
-        r.factor ? " · фактор" : ""}${when}</div>`;
+        ""}${when}</div>`;
       if (r.from == null || r.to == null) {
         return `${label}<div class="${r.kind === "task" ? "sub" : ""} m">${r.stuck
           ? "на шкале его нет: он не начнётся"
@@ -516,7 +516,7 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
     У каждой — что берёт, что даёт и сколько раз выполнится.</p>
   ${d.steps.length ? d.steps.map((s2, i2) => `
     <h${Math.min(6, h + 2)} id="${esc(stepAnchor(node.id, s2.func))}">${
-      i2 + 1}. ${esc(s2.name)}${s2.factor ? " · фактор, без людей" : ""}</h${Math.min(6, h + 2)}>
+      i2 + 1}. ${esc(s2.name)}</h${Math.min(6, h + 2)}>
     ${(s2.short || []).length
       ? `<p class="w">не выполнится: не хватает ${esc((s2.short || [])
         .map((x) => `${tnRaw(x.trait, traitName)}${x.spentBy
@@ -550,8 +550,8 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
     ${d.steps.filter((s2) => !(s2.short || []).length).map((s2) => `<tr><td>${esc(s2.name)}</td>
       <td>${num(s2.startHours) > 0 ? `через ${esc(timeText(s2.startHours))}` : "сразу"}</td>
       <td>${esc(timeText(s2.calendarHours))}</td>
-      <td>${s2.factor ? "—" : esc(hoursRange(s2.workLo, s2.workHi))}</td>
-      <td>${s2.factor || !s2.doneCount ? "—" : nm(Math.round(num(s2.factHours) * 10) / 10)}</td></tr>`).join("")}
+      <td>${esc(hoursRange(s2.workLo, s2.workHi))}</td>
+      <td>${!s2.doneCount ? "—" : nm(Math.round(num(s2.factHours) * 10) / 10)}</td></tr>`).join("")}
   </table>` : ""}
 
   <h${h + 1}>4. Задачи — что уже сделано</h${h + 1}>
@@ -569,7 +569,7 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
       <td>${esc(fmtDT(t.end))}</td><td>${esc(t.status)}</td>
       <td>${esc(linkText(t, traitName))}</td></tr>`).join("")}
   </table>` : ""}
-  ${d.steps.filter((s2) => !s2.factor && s2.tasks.length).map((s2) => `
+  ${d.steps.filter((s2) => s2.tasks.length).map((s2) => `
     <p class="m">функция «${esc(s2.name)}»:</p><table>
       <tr><th>задача</th><th>исполнитель</th><th>срок</th><th>состояние</th>
         <th>по плану, ч</th><th>по факту, ч</th><th>взяла → вышло</th></tr>

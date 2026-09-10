@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { chanceOf, hoursOf, hoursRange, normalizeFunc, newFunc, parOf, sameHours, checkFunc }
-  from "../lib/funcs.js";
-import { cycles, forecast, load, runSide, scheduleOf, stepHours } from "../lib/plan.js";
+import { chanceOf, conversionOf, hoursOf, hoursRange, normalizeFunc, newFunc, parOf, sameHours,
+  shortage, takeQty, checkFunc } from "../lib/funcs.js";
+import { cycles, forecast, load, runSide, scheduleOf, solve, stepHours } from "../lib/plan.js";
 import { goalRuns, newGoal, normalizeGoal } from "../lib/goals.js";
 
 /* Время выполнения — вилка, а «как часто может повторяться» — потолок, а не
@@ -225,93 +225,77 @@ describe("прогноз целиком", () => {
   });
 });
 
-describe("фактор случается сам", () => {
-  const FX = (over) => normalizeFunc({ id: "x1", e: "A", kind: "factor", factor: "g1",
+describe("факторы — это конверсия", () => {
+  /* Владелец: «функции без фактора имеют 100% конверсии, функции с
+     факторами — процент по их факторам». Функция берёт свою порцию не
+     единожды, а столько раз, сколько нужно на одну удачу: при 10% — вдесятеро
+     больше входа. Жребия больше нет: одно число, а не «как выпадет». */
+  const FX = (over) => normalizeFunc({ id: "x1", e: "A", factors: ["g1"],
     dur: 1, durHi: 1, durUnit: "мес",
-    takes: [{ trait: "in", lo: 4, hi: 4 }], gives: [{ trait: "out", lo: 1, hi: 1 }],
+    takes: [{ trait: "in", lo: 1, hi: 1 }], gives: [{ trait: "out", lo: 1, hi: 1 }],
     ...over });
   const model = (over, chance = 100) => ({
     traits: [{ id: "in", e: "A", have: 100 }, { id: "out", e: "A", have: 0 }],
     factors: [{ id: "g1", e: "A", name: "сезон", chance }],
     funcs: [FX(over)],
   });
+  const run = (m, over = {}) => runSide(m,
+    { span: 1, side: "hi", plan: { perMonth: { x1: 1 }, once: {} }, ...over });
 
-  it("идёт своим чередом, даже когда ни одна цель не применена", () => {
-    // Задачи ждут, что их поставят; фактор не спрашивает никого.
-    const out = runSide(model({}), { span: 2, side: "hi", plan: { perMonth: {}, once: {} } });
-    expect(out.out[2]).toBeCloseTo(2);
+  it("без факторов — 100%: сколько взяла, столько и выдала", () => {
+    expect(conversionOf(normalizeFunc({ id: "f" }), [])).toBe(1);
+    const m = model({ factors: [] });
+    const out = run(m);
+    expect(out.out[1]).toBeCloseTo(1);
+    expect(out.in[1]).toBeCloseTo(99);          // взяла ровно одну порцию
   });
 
-  it("каждая попытка — свой жребий: за длинный срок выходит около доли", () => {
-    /* Не «ровно половина», а как выпадет: ради этого вероятность и
-       заводят — посмотреть, как одни и те же числа могут развиться
-       по-разному. */
-    // Ресурса вдоволь — иначе не жребий решает, сколько выйдет, а склад.
-    const rich = () => { const m = model({}, 50); m.traits[0].have = 1e6; return m; };
-    const run = (seed) => runSide(rich(),
-      { span: 60, side: "hi", plan: { perMonth: {}, once: {} }, seed }).out[60];
-    const a = run(1);
-    expect(a).toBeGreaterThan(15);
-    expect(a).toBeLessThan(45);
-    // Другое семя — другой вариант развития.
-    const seeds = [1, 2, 3, 4, 5].map(run);
-    expect(new Set(seeds).size).toBeGreaterThan(1);
+  it("фактор 10% — на одно выполнение уходит вдесятеро больше входа", () => {
+    const m = model({}, 10);
+    expect(conversionOf(m.funcs[0], m.factors)).toBeCloseTo(0.1);
+    expect(takeQty(1, 0.1)).toBeCloseTo(10);
+    const out = run(m);
+    expect(out.out[1]).toBeCloseTo(1);
+    expect(out.in[1]).toBeCloseTo(90);          // 10 входа на одну единицу выхода
   });
 
-  it("одно и то же семя даёт один и тот же прогноз", () => {
-    // Иначе подвинул мышь — и другое будущее: сравнить два варианта стало
-    // бы не с чем.
-    const run = () => runSide(model({}, 50),
-      { span: 24, side: "hi", plan: { perMonth: {}, once: {} }, seed: 7 }).out[24];
-    expect(run()).toBe(run());
+  it("конверсия ноль — не выйдет никогда, и это число, а не тихий ноль", () => {
+    expect(takeQty(1, 0)).toBe(Infinity);
+    const out = run(model({}, 0));
+    expect(out.out[1]).toBe(0);
   });
 
-  it("сто процентов — удаётся каждая попытка, ноль — ни одна", () => {
-    const all = runSide(model({}, 100),
-      { span: 2, side: "hi", plan: { perMonth: {}, once: {} }, seed: 1 });
-    expect(all.out[2]).toBeCloseTo(2);
-    const never = runSide(model({}, 0),
-      { span: 2, side: "hi", plan: { perMonth: {}, once: {} }, seed: 1 });
-    expect(never.out[2]).toBe(0);
+  it("вероятность — свойство фактора, а не функции; несколько складываются как «или»", () => {
+    const two = [{ id: "g1", e: "A", name: "реклама", chance: 50 },
+      { id: "g2", e: "A", name: "сезон", chance: 40 }];
+    expect(chanceOf(FX({}), two)).toBe(50);
+    expect(chanceOf(FX({ factors: ["g1", "g2"] }), two)).toBeCloseTo(70, 6);
+    // Фактор без записи — сто процентов, а не ноль: неизвестное не значит «никогда».
+    expect(chanceOf(FX({ factors: ["нет-такого"] }), two)).toBe(100);
   });
 
-  it("вероятность — свойство фактора, а не функции", () => {
-    /* Сезон бывает удачным с одной и той же вероятностью, сколько бы
-       функций от него ни зависело. */
-    const factors = [{ id: "g1", e: "A", name: "сезон", chance: 40 }];
-    expect(chanceOf(FX({}), factors)).toBe(40);
-    // У задачи её не спрашивают вовсе.
-    expect(chanceOf(normalizeFunc({ kind: "task" }), factors)).toBe(100);
-    // Фактор без записи — сто процентов, а не ноль: неизвестное не значит
-    // «никогда».
-    expect(chanceOf(FX({ factor: "нет-такого" }), factors)).toBe(100);
+  it("прогноз не гадает: одна и та же модель даёт одно и то же число", () => {
+    const once = run(model({}, 50)).out[1];
+    expect(run(model({}, 50)).out[1]).toBe(once);
   });
 
-  it("ждёт полную порцию: на неполную не срабатывает, ресурс копится", () => {
-    /* Фактор заранее знает, сколько ему нужно на одно срабатывание. Задача
-       работу делит и делает частями, а фактор либо случился целиком, либо
-       не случился вовсе. */
-    const m = model({});
-    m.traits[0].have = 3;                      // нужно 4 — не хватает
-    const out = runSide(m, { span: 2, side: "hi", plan: { perMonth: {}, once: {} } });
-    expect(out.out[2]).toBe(0);
-    expect(out.in[2]).toBe(3);                 // и ничего не тронул
+  it("функция с факторами — такая же работа: её делают и по ней заводятся задачи", () => {
+    const m = model({}, 50);
+    const p = solve(m, { trait: "out", want: 2 });
+    expect(p.workHours).toBeGreaterThan(0);
+    expect(scheduleOf(p.steps).length).toBeGreaterThan(0);
   });
 
-  it("а задача на неполную порцию срабатывает частично — работу делят", () => {
-    const m = model({ kind: "task", factor: "" });
-    m.traits[0].have = 3;
-    const out = runSide(m, { span: 1, side: "hi", plan: { perMonth: { x1: 1 }, once: {} } });
-    expect(out.out[1]).toBeGreaterThan(0);
-    expect(out.out[1]).toBeLessThan(1);
-  });
-
-  it("не чаще, чем позволяет срок попытки", () => {
-    const rare = model({ dur: 1, durHi: 1, durUnit: "дн",
-      every: 2, everyHi: 2, everyUnit: "мес" }, 100);
-    rare.traits[0].have = 1000;
-    const out = runSide(rare, { span: 4, side: "hi", plan: { perMonth: {}, once: {} }, seed: 1 });
-    // Раз в два месяца — за четыре месяца примерно два срабатывания.
-    expect(out.out[4]).toBeCloseTo(2, 1);
+  it("порог постановки: задача ждёт, пока входа не станет столько, сколько нужно на выполнение", () => {
+    /* Владелец: «если фактор 10%, значит единиц забираемого ресурса должно
+       стать 10, прежде чем задача уйдёт на постановку». */
+    const f = FX({}, {});
+    const factors = [{ id: "g1", e: "A", name: "сезон", chance: 10 }];
+    const traits = (have) => [{ id: "in", e: "A", l: "вход", have }];
+    expect(shortage(f, traits(9), {}, factors)).toHaveLength(1);
+    expect(shortage(f, traits(9), {}, factors)[0]).toMatchObject({ need: 10, have: 9 });
+    expect(shortage(f, traits(10), {}, factors)).toEqual([]);
+    // Без факторов хватает одной единицы.
+    expect(shortage(FX({ factors: [] }), traits(1), {}, factors)).toEqual([]);
   });
 });

@@ -11,7 +11,7 @@
    нужно прибавить к местному времени, чтобы получить UTC.
    ════════════════════════════════════════════════════════════════ */
 
-import { DEFERRABLE, taskKeyboard } from "./botTasks.js";
+import { DEFERRABLE, setupKeyboard, taskKeyboard } from "./botTasks.js";
 
 // Окно, внутри которого просроченное напоминание всё ещё отправляется.
 // Нужно, чтобы перезапуск сервера или подвисший тик не съедали уведомление
@@ -88,6 +88,44 @@ function plannedOccurrences(task, nowMs, tzOffset = 0) {
   return out;
 }
 
+/* ─────── о чём напоминаем ───────
+
+   Два вида. `task` — исполнителю: «пора начинать», по времени начала и с
+   предупреждением заранее. `setup` — ПОСТАНОВЩИКУ: «нужно поставить
+   задачу», и ждать тут нечего — задача уже висит непоставленной, поэтому
+   напоминание уходит с первого же тика, как она появилась в расписании.
+
+   Дальше оба повторяются раз в минуту, пока человек не нажмёт кнопку
+   (`repeatDue`): владелец просил, чтобы напоминание не терялось между
+   делами. Нажал «Отложить» — молчим до названного момента. */
+export const SETUP_KEY = "setup";
+
+/** Ещё в силе ли висящее напоминание — по нынешнему состоянию задач. */
+export function reminderAlive(rem, tasks = []) {
+  if (!rem || !rem.taskId) return false;
+  const task = (Array.isArray(tasks) ? tasks : []).find((t) => String(t.id) === String(rem.taskId));
+  if (!task || task.canceled === true) return false;
+  /* О постановке напоминаем, пока задача ждёт постановки; о работе — пока
+     она лежит (взятую и сданную начинать нечего). Нажатие на доске до бота
+     не доходит — оно и гасит повтор здесь, когда доска пришлёт расписание. */
+  return rem.kind === "setup" ? task.status === "wait"
+    : task.status !== "done" && DEFERRABLE.includes(task.status);
+}
+
+/** Повторы, которым пора уйти снова: минута с прошлого раза и не отложено. */
+export const REPEAT_MS = 60 * 1000;
+export function repeatDue(schedule, nowMs) {
+  const { tasks = [], reminders = {} } = schedule || {};
+  return Object.entries(reminders)
+    .filter(([, rem]) => reminderAlive(rem, tasks))
+    .filter(([, rem]) => {
+      const until = rem.deferredUntil ? Date.parse(rem.deferredUntil) : NaN;
+      if (Number.isFinite(until) && nowMs < until) return false;
+      return nowMs - (Number(rem.lastSentAt) || 0) >= REPEAT_MS;
+    })
+    .map(([id, rem]) => ({ id, ...rem }));
+}
+
 /* Что пора отправить прямо сейчас. Возвращает список без побочных эффектов;
    отправку и отметку «уже отправлено» делает вызывающий код. */
 export function dueNotifications(schedule, nowMs, sent = {}) {
@@ -97,6 +135,20 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
   for (const task of Array.isArray(tasks) ? tasks : []) {
     // Завершённые не напоминают о себе.
     if (task.status === "done") continue;
+    /* Напоминание о постановке: срока у него нет — задача ждёт прямо
+       сейчас. Уходит один раз, дальше повторяется (`repeatDue`). */
+    if (task.kind === "setup") {
+      if (task.status !== "wait" || task.canceled === true) continue;
+      const key = `${task.id}:${SETUP_KEY}`;
+      if (!sent[key]) {
+        out.push({ key, kind: "setup", at: nowMs, occurrence: SETUP_KEY,
+          taskId: task.id, title: task.title || "Задача", body: task.body || "",
+          warn: null, deferred: false,
+          setter: task.setter == null || task.setter === "" ? null : String(task.setter),
+          end: task.end || "", startWall: "" });
+      }
+      continue;
+    }
     /* Отменённые — тем более: напомнить о работе, которую решили не делать,
        значит позвать человека к делу, которого нет. */
     if (task.canceled === true) continue;
@@ -205,12 +257,30 @@ export function formatWarn(minutes) {
    пока приложение не перешлёт расписание заново. */
 export const forAssignee = (n, userId) => (n.kind === "start" || n.kind === "warn")
   && (n.assignee === undefined || (n.assignee != null && String(n.assignee) === String(userId)));
-export const keyboardFor = (n, userId) => (forAssignee(n, userId) ? taskKeyboard(n.taskId) : null);
+/* Напоминание о постановке — только тому, кто ставит: «Готово» проверяет,
+   что задача и правда поставлена, и у остальных оно отказывало бы всегда. */
+export const forSetter = (n, userId) => n.kind === "setup"
+  && n.setter != null && String(n.setter) === String(userId);
+export const keyboardFor = (n, userId) => (n.kind === "setup"
+  ? (forSetter(n, userId) ? setupKeyboard(n.taskId) : null)
+  : (forAssignee(n, userId) ? taskKeyboard(n.taskId) : null));
 
 // Обычное текстовое сообщение — без разметки, чтобы произвольное название
 // задачи не могло сломать парсер Telegram и не требовало экранирования.
 // Абзац про кнопки — только там, где есть сами кнопки (см. keyboardFor).
 export function formatMessage(n, userId = null) {
+  if (n.kind === "setup") {
+    const lines = [`Нужно поставить задачу: ${n.title}`];
+    if (n.end) lines.push(`Срок: ${String(n.end).replace("T", " ")}`);
+    if (n.body) lines.push("", n.body);
+    if (forSetter(n, userId)) {
+      lines.push("", "«✅ Готово» — проверю, что задача и правда поставлена:"
+        + " названы исполнитель, проверяющий и срок, и ресурсов хватает."
+        + " «🔴 Отложить» — напомню позже, через то время, что стоит у вас в"
+        + " «Напоминаниях». Пока не нажмёте, повторю это сообщение через минуту.");
+    }
+    return lines.join("\n");
+  }
   const time = n.startWall ? n.startWall.replace("T", " ") : "";
   const head = n.kind === "warn"
     ? `Через ${formatWarn(n.warn)}: ${n.title}`
@@ -228,7 +298,8 @@ export function formatMessage(n, userId = null) {
       + " отложенная, срок не сдвинется, а когда время выйдет, напомню снова."
       + " «🟢 Начать» — задача уйдёт в работу"
       + (n.kind === "warn" ? " прямо сейчас, не дожидаясь начала," : "")
-      + ", и под этим сообщением появится «Сдать отчёт».");
+      + ", и под этим сообщением появится «Сдать отчёт»."
+      + " Пока не нажмёте, повторю это сообщение через минуту.");
   }
   return lines.join("\n");
 }
@@ -244,18 +315,42 @@ export async function runTick({ store, send, now = Date.now(), log = () => {} })
     if (!chatId) continue;
 
     const due = dueNotifications(schedule, now, schedule.sent || {});
-    if (!due.length) continue;
-
     for (const n of due) {
+      const text = formatMessage(n, userId);
+      const keyboard = keyboardFor(n, userId);
       try {
-        await send(chatId, formatMessage(n, userId), keyboardFor(n, userId));
+        await send(chatId, text, keyboard);
         await store.markSent(userId, n.key, now);
+        /* Отправленное с кнопками становится «висящим»: пока человек не
+           нажал, оно повторяется раз в минуту. Без кнопок повторять нечего
+           — ответить на него всё равно нечем. */
+        if (keyboard && store.openReminder) {
+          await store.openReminder(userId,
+            { kind: n.kind === "setup" ? "setup" : "task", taskId: n.taskId,
+              occurrence: n.occurrence, text }, now);
+        }
         sentCount++;
       } catch (e) {
         // Одна неудачная отправка не должна ронять весь проход: например,
         // пользователь не начал диалог с ботом. Отметку не ставим — попробуем
         // ещё раз на следующем тике, пока не вышли из окна.
         log(`не удалось отправить напоминание пользователю ${userId}: ${e.message}`);
+      }
+    }
+
+    /* Повторы. Шлём ТО ЖЕ сообщение, слово в слово: человек уже читал его,
+       и переписанное заставило бы читать заново. */
+    for (const rem of (store.touchReminder ? repeatDue(schedule, now) : [])) {
+      const keyboard = rem.kind === "setup"
+        ? setupKeyboard(rem.taskId) : taskKeyboard(rem.taskId);
+      try {
+        await send(chatId, rem.text, keyboard);
+        await store.touchReminder(userId, rem.id, now);
+        sentCount++;
+      } catch (e) {
+        const r = await store.failReminder?.(userId, rem.id).catch(() => ({}));
+        log(`повтор напоминания ${rem.id} не ушёл пользователю ${userId}: ${e.message}`
+          + (r?.dropped ? " — снял напоминание" : ""));
       }
     }
   }

@@ -298,6 +298,25 @@ export async function taskFor(userId, taskId) {
   return { task, func, traits };
 }
 
+/**
+ * Поставлена ли задача — глазами того, кто её ставит.
+ *
+ * Кнопка «Готово» под напоминанием о постановке не верит нажатию: она
+ * спрашивает склад. Поставлена — это `status !== "wait"` И нет причин
+ * отказать (`whyNotSet`: три роли, срок, ресурсы). Не поставлена — причина
+ * возвращается словами, теми же, что видит постановщик в форме.
+ */
+export async function setupStateFor(userId, taskId) {
+  const model = await readModel();
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  if (String(task.setter || "") !== String(userId)) return { error: "not yours" };
+  const title = String(task.title || "Задача");
+  if (task.canceled === true) return { set: true, title, why: "" };
+  const why = whyNotSet(task, model);
+  return { set: task.status !== "wait" && !why, title, why };
+}
+
 /* Ссылка на файл: имя, тип, размер и адрес — то, что отдаёт
    `reportStore.saveReport`. Лишнего не храним, а без адреса это не файл. */
 const fileRef = (f) => (f && typeof f === "object" && f.url

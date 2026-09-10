@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DUE_ON, budgetHours, checkGoal, dueHours, goalText, newGoal, normalizeGoal,
+import { DUE_ON, budgetHours, checkGoal, dueHours, goalQty, goalState, goalText, newGoal,
+  normalizeGoal, plannable,
   perMonth, planGoal, workDays } from "../lib/goals.js";
 import { MONTH_H } from "../lib/plan.js";
 import { normalizeFunc } from "../lib/funcs.js";
@@ -9,7 +10,10 @@ import { normalizeFunc } from "../lib/funcs.js";
    какой ценой. Здесь проверяется, что все три отвечены — и что ответ
    считается из модели, а не хранится рядом с ней. */
 
-const G = (over = {}) => normalizeGoal({ ...newGoal("t2"), ...over });
+/* Количество в образцах — числом, как его и произносят: «пять». В записи
+   это условие «=5» (lib/expr.js), и образец переводит одно в другое. */
+const G = ({ qty, ...over } = {}) => normalizeGoal({ ...newGoal("t2"), ...over,
+  ...(qty != null ? { expr: `=${qty}` } : {}) });
 
 /* Один клиент делается из двух «спросов» и занимает 20 часов. Спрос никуда
    не запасён — его производит «реклама», почти мгновенно и за деньги.
@@ -27,13 +31,17 @@ const model = {
 describe("цель — это не число", () => {
   it("новая цель уже осмысленна: ресурс, количество, темп и срок", () => {
     const g = newGoal("t2");
-    expect(g).toMatchObject({ trait: "t2", qty: 1, rate: "week", dueIn: 1, dueUnit: "мес" });
+    expect(g).toMatchObject({ trait: "t2", expr: "=1", rate: "week", dueIn: 1, dueUnit: "мес" });
   });
 
   it("без ресурса или без количества считать нечего", () => {
     expect(checkGoal(G(), model.traits)).toBe(true);
     expect(checkGoal(G({ trait: "" }), model.traits)).toBe(false);
-    expect(checkGoal(G({ qty: 0 }), model.traits)).toBe(false);
+    expect(checkGoal(G({ expr: "" }), model.traits)).toBe(false);
+    expect(checkGoal(G({ expr: "=2+" }), model.traits)).toBe(false);
+    // Прежнее число читается как «ровно столько».
+    expect(normalizeGoal({ qty: 7 }).expr).toBe("=7");
+    expect(normalizeGoal({ qty: 7 }).qty).toBeUndefined();
     // Срок обязателен: цель без срока — это пожелание.
     expect(checkGoal(G({ dueIn: 0 }), model.traits)).toBe(false);
   });
@@ -43,19 +51,21 @@ describe("цель — это не число", () => {
       hoursPer: "day", days: [1, 2, 3, 4, 5] });
     expect(goalText(g, () => "клиент"))
       .toBe("1 клиент в неделю · через 1 мес · 1 ч в день (5 дн/нед)");
+    expect(goalText(G({ expr: ">@{t1}*2" }), (id) => ({ t1: "спрос", t2: "клиент" })[id]))
+      .toMatch(/^> @спрос\*2 клиент/);
   });
 });
 
 describe("темп", () => {
   it("«один в неделю» — это столько-то в месяц", () => {
-    expect(perMonth(G({ qty: 1, rate: "week" }))).toBeCloseTo(MONTH_H / 168);
-    expect(perMonth(G({ qty: 2, rate: "month" }))).toBeCloseTo(2);
+    expect(perMonth(G({ rate: "week" }), 1)).toBeCloseTo(MONTH_H / 168);
+    expect(perMonth(G({ rate: "month" }), 2)).toBeCloseTo(2);
   });
 
   it("разовая цель месячного темпа не задаёт", () => {
     // «Получить одного» и «получать по одному каждый месяц» — разные вещи,
     // и приводить первое ко второму значило бы выдумать повторение.
-    expect(perMonth(G({ rate: "once" }))).toBeNull();
+    expect(perMonth(G({ rate: "once" }), 1)).toBeNull();
   });
 });
 
@@ -126,6 +136,30 @@ describe("бюджет времени", () => {
     expect(tight.fits).toBe(false);
     expect(roomy.fits).toBe(true);
     expect(roomy.budget).toBeCloseTo(tight.budget * 168);
+  });
+});
+
+describe("количество — выражением", () => {
+  it("«=» и «>» дают число для плана, «<» и «!» — только условие", () => {
+    expect(plannable(G({ expr: "=5" }), model)).toBe(true);
+    expect(plannable(G({ expr: ">5" }), model)).toBe(true);
+    expect(plannable(G({ expr: "<5" }), model)).toBe(false);
+    expect(plannable(G({ expr: "!5" }), model)).toBe(false);
+    expect(plannable(G({ expr: "=0" }), model)).toBe(false);
+  });
+
+  it("ссылка на другой ресурс считается по его остатку", () => {
+    const m = { ...model, traits: model.traits.map((t) => (t.id === "t1" ? { ...t, have: 4 } : t)) };
+    // t2 нужно вдвое больше, чем есть t1: 8.
+    expect(goalQty(G({ expr: "=@{t1}*2" }), m)).toBe(8);
+    expect(goalState(G({ expr: "=@{t1}*2" }), m)).toMatchObject({ target: 8, met: false });
+    // План на 8 — работы больше, чем на 1.
+    expect(planGoal(m, G({ expr: "=@{t1}*2", rate: "once" }), {}).work.hi)
+      .toBeGreaterThan(planGoal(m, G({ expr: "=1", rate: "once" }), {}).work.hi);
+    // Удалённый ресурс — ошибка, а не ноль.
+    expect(goalState(G({ expr: "=@{нет}" }), m).error).toMatch(/удалён/);
+    expect(checkGoal(G({ expr: "=@{нет}" }), m.traits)).toBe(true);   // запись цела
+    expect(plannable(G({ expr: "=@{нет}" }), m)).toBe(false);          // а плана нет
   });
 });
 

@@ -115,7 +115,14 @@ export function describeModel(model = {}) {
     if (!fns.length) { out.push("  функции: не заведены"); return; }
     out.push("  функции:");
     fns.forEach((f) => {
-      const kind = f.kind === "factor" ? " (фактор: происходит само, без людей)" : "";
+      /* Вида у функции больше нет: любая — работа людей. Факторы — это
+         конверсия: сколько входа уходит на порцию выхода. */
+      const fx = (Array.isArray(f.factors) ? f.factors : (f.factor ? [f.factor] : []))
+        .map((id) => (model.factors || []).find((x) => x.id === id))
+        .filter(Boolean);
+      const kind = fx.length
+        ? ` (факторы: ${fx.map((x) => `${x.name} ${x.chance == null ? 100 : x.chance}%`)
+          .join(", ")} — столько выходит от взятого)` : "";
       const takes = (f.takes || []).length ? `берёт ${f.takes.map(port).join(", ")}` : "ничего не берёт";
       const gives = (f.gives || []).length
         ? `даёт ${f.gives.map((p) => {
@@ -141,7 +148,16 @@ export function describeModel(model = {}) {
     const budget = num(g.hours)
       ? `; готовы тратить ${g.hours} ${g.hoursUnit || "ч"} ${PER_WORDS[g.hoursPer] || ""}`.trimEnd()
       : "; бюджет времени не задан";
-    out.push(`- ${traitName(g.trait)}: ${num(g.qty) ?? "сколько — не названо"} ${RATE_WORDS[g.rate] || ""}, ${due}${budget}; ${g.appliedAt ? `применена ${when(g.appliedAt)}` : "ещё не применена (черновик)"}`);
+    /* «Сколько» — выражение: знак и числа со ссылками на другие ресурсы
+       (`web/src/lib/expr.js`); старая запись несёт число. Помощнику — как
+       человеку: «> 10», «= @Заявки*2». */
+    const expr = typeof g.expr === "string" ? g.expr : (g.qty != null ? `=${num(g.qty)}` : "");
+    const op = /^[<>=!]/.test(expr) ? expr[0] : "=";
+    const rest = expr.replace(/^[<>=!]/, "").trim();
+    const shown = !expr ? "сколько — не названо"
+      : op === "=" && /^\d+([.,]\d+)?$/.test(rest) ? rest
+        : `${op} ${rest.replace(/@\{([^}]+)\}/g, (_, id) => `@${traitName(id)}`)}`;
+    out.push(`- ${traitName(g.trait)}: ${shown} ${RATE_WORDS[g.rate] || ""}, ${due}${budget}; ${g.appliedAt ? `применена ${when(g.appliedAt)}` : "ещё не применена (черновик)"}`);
   });
 
   const reports = model.reports || [];
