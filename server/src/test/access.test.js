@@ -755,6 +755,18 @@ describe("постановка через сервер", () => {
     expect(bad.body.why).toMatch(/не дата/);
   });
 
+  it("исполнитель — только тот, у кого функция отмечена «может выполнять»", async () => {
+    /* 300 — воркер актива и проверяющий, но функцию выполнять не может:
+       у неё исполнитель только 200. Та же проверка, что в форме. */
+    await saveSetupModel();
+    await inviteAll();
+    const res = await setup("w1", 500, { assignee: "300" });
+    expect(res.status).toBe(400);
+    expect(res.body.why).toMatch(/не может выполнять эту функцию/);
+    const ok = await setup("w1", 500, { assignee: "200" });
+    expect(ok.status).toBe(200);
+  });
+
   it("поставленную отсюда не переписать: постановка закрыта", async () => {
     await saveSetupModel({ tasks: SETUP_MODEL.tasks.map((t) => ({ ...t, status: "backlog",
       assignee: "200", reviewer: "300" })) });

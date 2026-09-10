@@ -254,8 +254,16 @@ function WorkerLine({ pid, name, stat, person, positionName }) {
 }
 
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
+  entityId, onToggleFunc,
   positionOf, onToggleCrew, onOrder, onOpenPerson, published, me,
   positions = [], onAddPosition, onDropPosition, onSetPosition }) {
+  /* Какие функции воркер МОЖЕТ выполнять — отмечается здесь, у воркера.
+     Это те же исполнители функции (`funcs[].owners`), что и у самой
+     функции, только глазами человека: «что он умеет», а не «кто это
+     делает». Задачу по функции назначают только тому, у кого она
+     отмечена. Фактор — не работа людей, и у него исполнителей нет. */
+  const own = funcs.filter((f) => f.e === entityId && !isFactor(f));
+  const can = (pid, f) => (f.owners || []).some((x) => String(x) === String(pid));
   /* Должности заводятся ЗДЕСЬ, рядом с людьми: кем человек числится,
      решают там же, где решают, кто где работает. Роль в организации —
      ДРУГОЕ: она отвечает на «что человеку показывать» (вкладки) и живёт в
@@ -341,12 +349,28 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                       disabled={i >= crew.length - 1}
                       onClick={() => onOrder && onOrder(pid, 1)}>↓</button>
                   </>)}
+                  {on && (
+                    <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
+                      alignItems: "center", paddingLeft: 22 }}>
+                      <span style={{ fontSize: 10.5, color: C.muted }}>может выполнять:</span>
+                      {!own.length && (
+                        <span style={{ fontSize: 10.5, color: C.muted }}>
+                          функций у актива ещё нет</span>)}
+                      {own.map((f) => (
+                        <button key={f.id} aria-pressed={can(pid, f)}
+                          aria-label={`может выполнять «${f.name || "без названия"}»: ${name(pid)}`}
+                          style={{ ...btn(can(pid, f), OK), fontSize: 11, padding: "2px 7px" }}
+                          onClick={() => onToggleFunc && onToggleFunc(pid, f.id)}>
+                          {can(pid, f) ? "✓ " : ""}{f.name || "без названия"}</button>))}
+                    </div>)}
                 </div>);
             })}
           <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
             Здесь все, кого вообще добавили на эту схему. Отмеченные — воркеры
             этого актива: из них и только из них выбираются постановщик,
-            исполнитель и проверяющий У КАЖДОЙ ФУНКЦИИ.
+            исполнитель и проверяющий У КАЖДОЙ ФУНКЦИИ. У воркера отмечают,
+            какие функции он может выполнять: задачу по функции назначат
+            только тому, у кого она отмечена.
             {crew.length > 1
               ? " Порядок задаёте вы: кого поставили выше, того и предлагают первым."
               : ""}
@@ -1200,6 +1224,12 @@ export default function AssetPanel(props) {
       {tab === "workers" && (
         <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
           tasks={props.tasks} funcs={props.funcs} positionOf={props.positionOf}
+          entityId={props.entityId}
+          onToggleFunc={(pid, fid) => props.setFuncs((p) => p.map((f) => (f.id === fid
+            ? editFunc(f, (x) => ({ ...x, owners: (x.owners || []).some((z) => String(z) === String(pid))
+              ? (x.owners || []).filter((z) => String(z) !== String(pid))
+              : [...(x.owners || []), pid] }))
+            : f)))}
           onToggleCrew={props.onToggleCrew} onOrder={props.onOrderWorker}
           onOpenPerson={props.onOpenPerson}
           published={props.published} me={props.me}

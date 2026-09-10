@@ -120,6 +120,17 @@ export function whyNotSet(task = {}, model = {}) {
  * чужой человек в его работе означал бы, что список воркеров ни на что
  * не влияет. Назначенные на саму функцию — тоже её актива.
  */
+/**
+ * Кто может ВЫПОЛНЯТЬ задачу: те, у кого её функция отмечена «может
+ * выполнять» (`funcs[].owners`). Строго они — так просил владелец: задача
+ * назначается только выбранным воркерам, без запасного «все воркеры».
+ */
+export function funcExecutors(model = {}, task = {}) {
+  const f = (model.funcs || []).find((x) => x.id === task.funcId) || null;
+  return new Set((Array.isArray(f?.owners) ? f.owners : [])
+    .filter((id) => id != null && id !== "").map(String));
+}
+
 export function assetWorkers(model = {}, task = {}) {
   const f = (model.funcs || []).find((x) => x.id === task.funcId) || null;
   const asset = f ? (model.entities || []).find((e) => e.id === f.e) || null : null;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { assetWorkers, heldBy, shortage, taskGaps, whyNotSet } from "../lib/taskRules.js";
+import { assetWorkers, funcExecutors, heldBy, shortage, taskGaps, whyNotSet }
+  from "../lib/taskRules.js";
 
 /* Правило «можно ли поставить задачу» повторено с фронтенда
    (`whyNotSet` в TasksBoard.jsx, `shortage` в lib/funcs.js): сервер отдаётся
@@ -80,6 +81,13 @@ describe("кого можно назначить", () => {
     const w = assetWorkers(model, { funcId: "f1" });
     expect([...w].sort()).toEqual(["1", "2", "3", "7"]);
     expect(w.has("9")).toBe(false);
+  });
+
+  it("выполнять может только тот, у кого функция отмечена «может выполнять»", () => {
+    const model = { funcs: [{ ...FUNC, owners: ["2", 7, ""] }] };
+    expect([...funcExecutors(model, { funcId: "f1" })].sort()).toEqual(["2", "7"]);
+    expect(funcExecutors({ funcs: [{ ...FUNC, owners: [] }] }, { funcId: "f1" }).size).toBe(0);
+    expect(funcExecutors(model, { funcId: "нет" }).size).toBe(0);
   });
 
   it("задача без функции — назначать не из кого", () => {

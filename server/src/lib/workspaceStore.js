@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { assetWorkers, whyNotSet } from "./taskRules.js";
+import { assetWorkers, funcExecutors, whyNotSet } from "./taskRules.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОБЩАЯ МОДЕЛЬ
@@ -497,11 +497,18 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false } = {})
     }
     if ("endBy" in f && (f.endBy === "auto" || f.endBy === "hand")) patch.endBy = f.endBy;
     const workers = assetWorkers(model, task);
+    const doers = funcExecutors(model, task);
     for (const [k, word] of [["assignee", "Исполнитель"], ["reviewer", "Проверяющий"]]) {
       if (!(k in f)) continue;
       const id = f[k] == null || f[k] === "" ? null : String(f[k]);
       if (id != null && !workers.has(id)) {
         return { error: "not a worker", why: `${word} не из воркеров актива этой функции.` };
+      }
+      /* Исполнитель — только тот, у кого функция отмечена «может
+         выполнять»: то же правило, что в форме постановки. */
+      if (k === "assignee" && id != null && !doers.has(id)) {
+        return { error: "not an executor",
+          why: "Исполнитель не может выполнять эту функцию: отметьте её у воркера в карточке актива." };
       }
       patch[k] = id;
     }
