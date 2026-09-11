@@ -197,7 +197,10 @@ describe("что требуют цели", () => {
     traits: [{ id: "in", e: "A", have: 1000 }, { id: "out", e: "A", have: 0 }],
     funcs: [F({})],
   };
-  const G = (over) => normalizeGoal({ ...newGoal("out"), ...over });
+  /* Количество в образцах — числом: в записи это условие «=3», а условий
+     у цели список (`exprs`). Кладём число туда, куда оно и ложится. */
+  const G = ({ qty, ...over } = {}) => normalizeGoal({ ...newGoal("out"), ...over,
+    ...(qty != null ? { exprs: [`=${qty}`] } : {}) });
 
   it("неприменённая цель не двигает ничего: это прикидка", () => {
     const g = G({ qty: 1, rate: "month", appliedAt: null });

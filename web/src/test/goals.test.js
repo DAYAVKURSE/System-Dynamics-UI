@@ -11,9 +11,14 @@ import { normalizeFunc } from "../lib/funcs.js";
    считается из модели, а не хранится рядом с ней. */
 
 /* Количество в образцах — числом, как его и произносят: «пять». В записи
-   это условие «=5» (lib/expr.js), и образец переводит одно в другое. */
-const G = ({ qty, ...over } = {}) => normalizeGoal({ ...newGoal("t2"), ...over,
-  ...(qty != null ? { expr: `=${qty}` } : {}) });
+   это условие «=5» (lib/expr.js), и образец переводит одно в другое.
+   Условий у цели список: одиночный `expr` образца — список из одного. */
+const G = ({ qty, expr, ...over } = {}) => {
+  const base = newGoal("t2");
+  const exprs = over.exprs
+    ?? (expr != null ? [expr] : qty != null ? [`=${qty}`] : base.exprs);
+  return normalizeGoal({ ...base, ...over, exprs });
+};
 
 /* Один клиент делается из двух «спросов» и занимает 20 часов. Спрос никуда
    не запасён — его производит «реклама», почти мгновенно и за деньги.
@@ -31,7 +36,8 @@ const model = {
 describe("цель — это не число", () => {
   it("новая цель уже осмысленна: ресурс, количество, темп и срок", () => {
     const g = newGoal("t2");
-    expect(g).toMatchObject({ trait: "t2", expr: "=1", rate: "week", dueIn: 1, dueUnit: "мес" });
+    expect(g).toMatchObject({ trait: "t2", exprs: ["=1"], rate: "week", dueIn: 1,
+      dueUnit: "мес" });
   });
 
   it("без ресурса или без количества считать нечего", () => {
@@ -40,8 +46,11 @@ describe("цель — это не число", () => {
     expect(checkGoal(G({ expr: "" }), model.traits)).toBe(false);
     expect(checkGoal(G({ expr: "=2+" }), model.traits)).toBe(false);
     // Прежнее число читается как «ровно столько».
-    expect(normalizeGoal({ qty: 7 }).expr).toBe("=7");
+    expect(normalizeGoal({ qty: 7 }).exprs).toEqual(["=7"]);
     expect(normalizeGoal({ qty: 7 }).qty).toBeUndefined();
+    // И одиночная строка прежней записи — список из одного.
+    expect(normalizeGoal({ expr: ">3" }).exprs).toEqual([">3"]);
+    expect(normalizeGoal({ expr: ">3" }).expr).toBeUndefined();
     // Срок обязателен: цель без срока — это пожелание.
     expect(checkGoal(G({ dueIn: 0 }), model.traits)).toBe(false);
   });
@@ -146,6 +155,67 @@ describe("количество — выражением", () => {
     expect(plannable(G({ expr: "<5" }), model)).toBe(false);
     expect(plannable(G({ expr: "!5" }), model)).toBe(false);
     expect(plannable(G({ expr: "=0" }), model)).toBe(false);
+  });
+
+  it("четыре действия считаются как в Excel — со скобками и приоритетом", () => {
+    /* «+ − * /» в условии — не украшение: без них нельзя сказать «на
+       десять больше, чем спроса» или «половина заявок». */
+    const m = { ...model, traits: model.traits.map((t) => (t.id === "t1"
+      ? { ...t, have: 4 } : t)) };
+    expect(goalQty(G({ expr: "=@{t1}+10" }), m)).toBe(14);
+    expect(goalQty(G({ expr: "=@{t1}-1" }), m)).toBe(3);
+    expect(goalQty(G({ expr: "=@{t1}/2" }), m)).toBe(2);
+    // Умножение раньше сложения, скобки — раньше всего.
+    expect(goalQty(G({ expr: "=2+@{t1}*3" }), m)).toBe(14);
+    expect(goalQty(G({ expr: "=(2+@{t1})*3" }), m)).toBe(18);
+  });
+
+  it("условий несколько — это диапазон, и держаться должны все", () => {
+    /* Одним условием говорится только «не меньше» ИЛИ «не больше».
+       Диапазон — два условия сразу, между ними «И». */
+    const m = { ...model, traits: model.traits.map((t) => (t.id === "t2"
+      ? { ...t, have: 30 } : t)) };
+    const g = G({ exprs: [">10", "<50"] });
+    const st = goalState(g, m);
+    expect(st).toMatchObject({ target: 10, cap: 50, met: true, conflict: "" });
+    // План считает по нижней границе: по верхней он бы и не начинался.
+    expect(goalQty(g, m)).toBe(10);
+    expect(plannable(g, m)).toBe(true);
+    // Вышли за верхнюю границу — цель не выполнена, хотя нижняя взята.
+    const over = { ...m, traits: m.traits.map((t) => (t.id === "t2"
+      ? { ...t, have: 80 } : t)) };
+    expect(goalState(g, over).met).toBe(false);
+    // Словами — через «и», как их и произносят.
+    expect(goalText(g, () => "клиент")).toMatch(/^> 10 и < 50 клиент/);
+  });
+
+  it("нижних границ несколько — берётся самая высокая", () => {
+    // Меньшая выполнится сама; планировать по ней значило бы встать раньше.
+    expect(goalQty(G({ exprs: [">3", ">12"] }), model)).toBe(12);
+    // А верхних — самая низкая: запрет строже запрета.
+    expect(goalState(G({ exprs: ["<50", "<20"] }), model).cap).toBe(20);
+  });
+
+  it("спорящие условия не планируются, и об этом сказано словами", () => {
+    /* «> 10» и «< 5»: числа, при котором выполнятся оба, нет. Молча
+       считать по одному из них значило бы считать другую цель. */
+    const g = G({ exprs: [">10", "<5"] });
+    expect(goalState(g, model).conflict).toMatch(/спорят/);
+    expect(plannable(g, model)).toBe(false);
+  });
+
+  it("границы могут зависеть от других ресурсов — это и есть «от чего»", () => {
+    const m = { ...model, traits: model.traits.map((t) => (t.id === "t1"
+      ? { ...t, have: 40 } : t)) };
+    // «Не меньше половины спроса и не больше самого спроса».
+    const st = goalState(G({ exprs: [">@{t1}/2", "<@{t1}"] }), m);
+    expect(st).toMatchObject({ target: 20, cap: 40 });
+  });
+
+  it("пустое условие ничего не требует и ничего не запрещает", () => {
+    // Добавили строку и не набрали — это ещё не условие.
+    expect(goalQty(G({ exprs: [">10", ""] }), model)).toBe(10);
+    expect(checkGoal(G({ exprs: ["", ""] }), model.traits)).toBe(false);
   });
 
   it("ссылка на другой ресурс считается по его остатку", () => {

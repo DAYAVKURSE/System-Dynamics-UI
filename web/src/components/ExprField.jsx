@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, ACC, BAD, S } from "./ui.jsx";
+import { C, ACC, BAD, S, btn } from "./ui.jsx";
 import { parseExpr, toShown, toStored } from "../lib/expr.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -14,7 +14,19 @@ import { parseExpr, toShown, toStored } from "../lib/expr.js";
    Enter выбирают, Escape закрывает. Ошибка разбора стоит под полем
    словами, и в запись уходит как есть: чинить за человека нечего, а
    молча выбросить набранное — хуже ошибки.
+
+   ─── знаки кнопками ───
+
+   Под полем, пока оно в фокусе, стоит ряд знаков: сравнение (> < = !),
+   четыре действия (+ − * /), скобки и «@». Набрать «*» на телефонной
+   клавиатуре — это два переключения раскладки, и из-за них половина
+   выражений не пишется вовсе. Знаки вставляются в место курсора, а фокус
+   из поля не уходит: ряд — часть набора, а не уход из него.
    ════════════════════════════════════════════════════════════════ */
+
+/* Что можно нажать. Сравнение стоит первым и отделено: оно открывает
+   выражение, остальное — внутри него. */
+const KEYS = [">", "<", "=", "!", "+", "-", "*", "/", "(", ")", "@"];
 
 export default function ExprField({ value = "", traits = [], onCommit, style, ...rest }) {
   const nameOf = (id) => traits.find((t) => t.id === id)?.l || "";
@@ -52,6 +64,22 @@ export default function ExprField({ value = "", traits = [], onCommit, style, ..
     // Фокус остаётся в поле: выбор из списка — часть набора, не его конец.
     setTimeout(() => inp.current?.focus(), 0);
   };
+  /* Вставка знака в место курсора. Не в конец: человек правит середину
+     выражения так же часто, как дописывает хвост. Для «@» сразу
+     открывается список ресурсов — иначе кнопка ставила бы знак, после
+     которого ничего не происходит. */
+  const put = (k) => {
+    const el = inp.current;
+    const at = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? at;
+    const next = `${text.slice(0, at)}${k}${text.slice(end)}`;
+    setText(next);
+    if (k === "@") { setPick({ at, query: "" }); setCursor(0); } else setPick(null);
+    setTimeout(() => {
+      el?.focus();
+      el?.setSelectionRange(at + 1, at + 1);
+    }, 0);
+  };
   const onKey = (e) => {
     if (pick && items.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => (c + 1) % items.length); return; }
@@ -66,10 +94,22 @@ export default function ExprField({ value = "", traits = [], onCommit, style, ..
     <div style={{ position: "relative", ...style }}>
       <input ref={inp} value={text} {...rest}
         style={{ ...S.inp, width: "100%", fontFamily: "ui-monospace, Menlo, monospace" }}
-        placeholder="> 10  или  = @ресурс*2"
+        placeholder="> 10   или   > @ресурс*0,5"
         onFocus={() => setFocus(true)}
         onBlur={() => { setFocus(false); setPick(null); commit(); }}
         onChange={onChange} onKeyDown={onKey} />
+      {/* Ряд знаков — только у поля в фокусе: иначе у пяти условий было бы
+          пять одинаковых рядов, и форма превратилась бы в клавиатуру.
+          `onMouseDown` с `preventDefault` держит фокус: без него поле
+          теряло бы его на нажатии, ряд исчезал бы, и клик не доходил. */}
+      {focus && (
+        <div className="flex flex-wrap gap-2" style={{ marginTop: 3 }}>
+          {KEYS.map((k) => (
+            <button key={k} aria-label={`знак ${k}`} type="button"
+              onMouseDown={(e) => { e.preventDefault(); put(k); }}
+              style={{ ...btn(false), fontFamily: "ui-monospace, Menlo, monospace",
+                fontSize: 12, padding: "2px 8px", minWidth: 26 }}>{k}</button>))}
+        </div>)}
       {pick && !!items.length && (
         <div role="listbox" aria-label="ресурсы для выражения"
           style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20,

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField } from "./ui.jsx";
 import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, budgetHours, copyGoal, newGoal,
-  checkGoal, exprText, goalState, goalText, ifDone, planGoal, plannable, rateOf }
+  checkGoal, exprText, exprsOf, goalState, goalText, ifDone, planGoal, plannable, rateOf }
   from "../lib/goals.js";
 import ExprField from "./ExprField.jsx";
 import { DUR_UNITS } from "../lib/funcs.js";
@@ -63,6 +63,66 @@ const Fig = ({ label, value, color, hint }) => (
   </div>
 );
 
+/* ════════════════════════════════════════════════════════════════
+   УСЛОВИЯ ЦЕЛИ · их может быть несколько
+
+   Одним условием можно сказать только «не меньше» ИЛИ «не больше».
+   Диапазон — это два условия сразу: «> 10» и «< 50». Поэтому здесь
+   список, а между условиями «И»: цель достигнута, когда держатся все.
+
+   «От чего зависит» — это ссылка внутри условия: «> @Заявки*0,5» значит
+   «не меньше половины заявок». Ссылка живёт по идентификатору, а
+   показывается именем, поэтому переименование ресурса её не рвёт.
+
+   План считает по нижней границе — самому большому из «=» и «>»: по
+   меньшему он остановился бы раньше, чем цель достигнута. Верхняя
+   граница план не двигает, а проверяется: произвести «меньше» нельзя.
+   ════════════════════════════════════════════════════════════════ */
+function Conds({ goal, traits, traitName, st, up }) {
+  /* Для правки список берётся КАК ЗАПИСАН, вместе с пустыми строками:
+     пустая строка — это только что добавленное условие, которое человек
+     ещё не набрал. Считается при этом только заполненное (`exprsOf`) —
+     пустое условие ничего не требует и ничего не запрещает. */
+  const raw = Array.isArray(goal.exprs) ? goal.exprs : exprsOf(goal);
+  const shown = raw.length ? raw : [""];
+  const set = (i, v) => up({ exprs: shown.map((e, k) => (k === i ? v : e)) });
+  const add = () => up({ exprs: [...shown, ""] });
+  const drop = (i) => up({ exprs: shown.filter((_, k) => k !== i) });
+  return (
+    <div style={{ flex: "1 1 100%", minWidth: 0 }}>
+      <div style={S.lbl}>сколько — условия (между ними «и»)</div>
+      {shown.map((e, i) => {
+        const mine = st.list.find((x) => x.expr === e);
+        return (
+          <div key={i} className="flex items-start gap-2" style={{ marginTop: 4 }}>
+            {i > 0 && (
+              <span style={{ fontSize: 11, color: C.muted, padding: "7px 0" }}>и</span>)}
+            <ExprField value={e} traits={traits} style={{ flex: 1, minWidth: 0 }}
+              aria-label={i ? `условие ${i + 1}` : "сколько ресурса"}
+              onCommit={(v) => set(i, v)} />
+            {shown.length > 1 && (
+              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
+                fontSize: 11, padding: "5px 8px" }}
+                aria-label={`убрать условие ${i + 1}`}
+                onClick={() => drop(i)}>✕</button>)}
+            {mine && mine.met != null && !mine.error && (
+              <span style={{ fontSize: 11, padding: "7px 0",
+                color: mine.met ? OK : WARN }}>{mine.met ? "✓" : "✗"}</span>)}
+          </div>);
+      })}
+      <div className="flex flex-wrap gap-2" style={{ marginTop: 4, alignItems: "center" }}>
+        <button style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }}
+          onClick={add}>+ условие</button>
+        <span style={{ fontSize: 10.5, color: C.muted }}>
+          {st.target != null && st.cap != null
+            ? `диапазон: от ${nm(st.target)} до ${nm(st.cap)}`
+            : "второе условие задаёт диапазон: «> 10» и «< 50»"}</span>
+      </div>
+      {st.conflict && (
+        <div style={{ fontSize: 10.5, color: BAD, marginTop: 3 }}>{st.conflict}</div>)}
+    </div>);
+}
+
 const Row = ({ label, children, wide }) => (
   <div style={{ flex: wide ? "1 1 100%" : "1 1 130px", minWidth: 0 }}>
     <div style={S.lbl}>{label}</div>
@@ -92,9 +152,10 @@ function Gauge({ goal, traits, traitName }) {
       <div className="flex items-center gap-2" style={{ fontSize: 11.5, marginTop: 6 }}>
         <span style={{ flex: 1, minWidth: 0, color: C.muted }}>
           {traitName(goal.trait)}{t?.unit ? `, ${t.unit}` : ""} · сейчас {nm(have)}</span>
-        <span style={{ color: st.error ? BAD : st.met ? OK : WARN }}>
-          {st.error ? st.error
-            : `условие ${exprText(goal.expr, traitName)} · ${st.met ? "выполнено" : "не выполнено"}`}</span>
+        <span style={{ color: st.error || st.conflict ? BAD : st.met ? OK : WARN }}>
+          {st.error || st.conflict
+            || `${exprsOf(goal).map((e) => exprText(e, traitName)).join(" и ")}`
+              + ` · ${st.met ? "выполнено" : "не выполнено"}`}</span>
       </div>);
   }
   return (
@@ -123,7 +184,7 @@ const hoursText = (h) => `${nm(Math.round(h * 10) / 10)} ч`;
 /* Отпечаток цели: по нему видно, изменилась ли она с тех пор, как её
    считали. Сравниваем именно поля намерения, а не всю запись: отметка о
    применении и порядок в списке к расчёту отношения не имеют. */
-const stamp = (g) => JSON.stringify([g.trait, g.expr, g.rate, g.dueKind, g.dueIn,
+const stamp = (g) => JSON.stringify([g.trait, g.expr, g.exprs, g.rate, g.dueKind, g.dueIn,
   g.dueUnit, g.dueOn, g.days, g.hours, g.hoursPer,
   (g.costs || []).map((c) => [c.trait, c.qty])]);
 
@@ -185,10 +246,8 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
             {traits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
           </select>
         </Row>
-        <Row label="сколько — условие: > < = ! и @ресурс" wide>
-          <ExprField value={goal.expr} traits={traits} aria-label="сколько ресурса"
-            onCommit={(v) => up({ expr: v })} />
-        </Row>
+        <Conds goal={goal} traits={traits} traitName={traitName}
+          st={goalState(goal, { traits })} up={up} />
         <Row label="как часто">
           <select style={sel} value={goal.rate} aria-label="темп цели"
             onChange={(e) => up({ rate: e.target.value })}>

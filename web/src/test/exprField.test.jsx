@@ -59,3 +59,43 @@ describe("поле выражения", () => {
     expect(screen.queryByText(/ожидалось/)).toBeNull();
   });
 });
+
+/* ─── знаки кнопками ───
+
+   Набрать «*» или «>» на телефонной клавиатуре — это два переключения
+   раскладки. Ряд знаков под полем снимает их: знак встаёт в место
+   курсора, а фокус из поля не уходит — иначе ряд исчезал бы от
+   собственного нажатия, и клик не доходил бы вовсе. */
+describe("ряд знаков", () => {
+  const keysOf = () => [...document.querySelectorAll("[aria-label^='знак ']")]
+    .map((b) => b.getAttribute("aria-label").replace("знак ", ""));
+
+  it("появляется у поля в фокусе и содержит сравнение и четыре действия", () => {
+    render(<Host />);
+    const el = screen.getByLabelText("сколько ресурса");
+    expect(keysOf()).toEqual([]);
+    fireEvent.focus(el);
+    expect(keysOf()).toEqual([">", "<", "=", "!", "+", "-", "*", "/", "(", ")", "@"]);
+  });
+
+  it("знак встаёт в место курсора, а не в конец", () => {
+    const got = [];
+    render(<Host value=">10" onCommit={(x) => got.push(x)} />);
+    const el = screen.getByLabelText("сколько ресурса");
+    fireEvent.focus(el);
+    el.setSelectionRange(3, 3);
+    fireEvent.mouseDown(screen.getByLabelText("знак *"));
+    expect(el.value).toBe(">10*");
+    el.setSelectionRange(1, 1);
+    fireEvent.mouseDown(screen.getByLabelText("знак ("));
+    expect(el.value).toBe(">(10*");
+  });
+
+  it("«@» открывает список ресурсов, а не просто ставит знак", () => {
+    render(<Host />);
+    const el = screen.getByLabelText("сколько ресурса");
+    fireEvent.focus(el);
+    fireEvent.mouseDown(screen.getByLabelText("знак @"));
+    expect(screen.getByRole("listbox", { name: "ресурсы для выражения" })).toBeTruthy();
+  });
+});

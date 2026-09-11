@@ -57,15 +57,66 @@ import { OPS, fromQty, goalOf, parseExpr, toShown } from "./expr.js";
 const stockOf = (model = {}) => Object.fromEntries((model.traits || [])
   .map((t) => [t.id, num(t.have)]));
 
-/** Что цель значит сейчас: знак, число, цель для плана, выполнена ли. */
+/* ─── условий может быть несколько ───
+
+   Одно условие отвечает только на «не меньше чего» ИЛИ «не больше чего».
+   Диапазон — это два условия сразу: «> 10» и «< 50», и оба должны
+   держаться. Поэтому у цели список условий, а не одна строка; между ними
+   «И» — цель достигнута, когда выполнены все.
+
+   Каждое условие — обычное выражение (`lib/expr.js`): знак, числа, четыре
+   действия и ссылки на другие ресурсы. «От чего это зависит» и есть
+   ссылка: «> @Заявки*0,5» значит «не меньше половины заявок».
+
+   Старая запись с одним `expr` (и совсем старая с числом `qty`) читается
+   как список из одного: ничего не теряется. */
+
+/** Условия цели списком — из любой записи, старой или новой. */
+export function exprsOf(goal = {}) {
+  if (Array.isArray(goal.exprs)) {
+    return goal.exprs.map((e) => String(e ?? "")).filter((e) => e.trim());
+  }
+  const legacy = goal.qty != null && goal.qty !== "" && Number.isFinite(Number(goal.qty));
+  if (legacy) return [fromQty(goal.qty)];
+  const one = typeof goal.expr === "string" ? goal.expr.trim() : "";
+  return one ? [one] : [];
+}
+
+/**
+ * Что цель значит сейчас: цель для плана, потолок, выполнена ли.
+ *
+ * `target` — нижняя граница, от которой считает план: самое большое из
+ * того, что требуют условия «=» и «>». Меньшее из них выполнится само,
+ * когда выполнится большее, — планировать по нему значило бы остановиться
+ * раньше, чем цель достигнута.
+ *
+ * `cap` — верхняя граница: самое маленькое из «<». Плану она не задача, а
+ * ограничение: произвести «меньше» нельзя, это проверяется.
+ *
+ * `conflict` — условия спорят друг с другом («> 10» и «< 5»): числа, при
+ * котором выполнятся оба, не существует, и молчать об этом нельзя —
+ * человек ждал бы плана, которого не будет.
+ *
+ * Поля `op`/`value` остались от одного условия и говорят про ПЕРВОЕ: их
+ * читают места, которым нужна одна мерка (полоса, подпись).
+ */
 export function goalState(goal = {}, model = {}) {
   const stock = stockOf(model);
-  /* Число в записи (старая цель, не прошедшая normalizeGoal) — «ровно
-     столько», и оно старше выражения: в нормализованной записи числа нет,
-     а где оно есть — его и назвали. */
-  const legacy = goal.qty != null && goal.qty !== "" && Number.isFinite(Number(goal.qty));
-  const expr = legacy ? fromQty(goal.qty) : (typeof goal.expr === "string" ? goal.expr : "");
-  return goalOf(expr, stock, goal.trait in stock ? stock[goal.trait] : null);
+  const have = goal.trait in stock ? stock[goal.trait] : null;
+  const list = exprsOf(goal).map((expr) => ({ expr, ...goalOf(expr, stock, have) }));
+  if (!list.length) return { op: "=", value: null, error: "", target: null, cap: null,
+    met: null, conflict: "", list: [] };
+
+  const first = list[0];
+  const error = list.find((x) => x.error)?.error || "";
+  const lows = list.filter((x) => x.target != null).map((x) => x.target);
+  const caps = list.filter((x) => x.op === "<" && x.value != null).map((x) => x.value);
+  const target = lows.length ? Math.max(...lows) : null;
+  const cap = caps.length ? Math.min(...caps) : null;
+  const met = list.some((x) => x.met == null) ? null : list.every((x) => x.met);
+  const conflict = target != null && cap != null && cap <= target
+    ? `условия спорят: нужно и не меньше ${target}, и меньше ${cap}` : "";
+  return { op: first.op, value: first.value, error, target, cap, met, conflict, list };
 }
 
 /** Сколько ресурса нужно расчёту: цель-число у «=» и «>»; у «<» и «!» — нет. */
@@ -109,7 +160,9 @@ export const DUE_ON = "on";
 
 /** Новая цель — пустая, но не сломанная: без ресурса и без количества. */
 export const newGoal = (trait = "") => ({
-  expr: "=1",   // «ровно один» — условие, а не число: см. lib/expr.js
+  // Условия списком: их может быть несколько, между ними «И». Новое —
+  // одно, «ровно один»: условие, а не число (см. lib/expr.js).
+  exprs: ["=1"],
   id: uid("g"),
   trait,
   rate: "week",
@@ -148,11 +201,12 @@ export const normalizeGoal = (g = {}) => ({
   ...g,
   id: g.id ?? uid("g"),
   trait: g.trait ?? "",
-  /* Выражение; число старой записи — «ровно столько», и оно старше
-     выражения (где число есть, его и назвали). Само число дальше не
-     хранится: две записи одного и того же разошлись бы. */
-  expr: g.qty != null && g.qty !== "" && Number.isFinite(Number(g.qty)) ? fromQty(g.qty)
-    : (typeof g.expr === "string" ? g.expr : ""),
+  /* Условия списком. Одна старая строка `expr` — список из одного; число
+     старой записи — «ровно столько», и оно старше выражения (где число
+     есть, его и назвали). Ни число, ни одиночная строка дальше не
+     хранятся: две записи одного и того же разошлись бы. */
+  exprs: exprsOf(g),
+  expr: undefined,
   qty: undefined,
   rate: rateOf(g.rate).id,
   dueKind: g.dueKind === DUE_ON ? DUE_ON : DUE_IN,
@@ -227,7 +281,9 @@ export function budgetHours(goal) {
 /** Цель словами: «1 клиент в неделю · через 1 мес · 1 ч в день». */
 export function goalText(goal, traitName) {
   const r = rateOf(goal.rate);
-  const parts = [`${exprText(goal.expr, traitName)} ${traitName ? traitName(goal.trait) : ""}`.trim()
+  // Условий может быть несколько, и между ними «и»: «> 10 и < 50 заявок».
+  const cond = exprsOf(goal).map((e) => exprText(e, traitName)).filter(Boolean).join(" и ");
+  const parts = [`${cond} ${traitName ? traitName(goal.trait) : ""}`.trim()
     + (r.hours ? ` ${r.name}` : "")];
   if (goal.dueKind === DUE_ON && goal.dueOn) {
     parts.push(`к ${new Date(goal.dueOn).toLocaleDateString("ru-RU")}`);
@@ -242,14 +298,21 @@ export function goalText(goal, traitName) {
 /** Годна ли запись цели: без ресурса, без условия и без срока считать нечего. */
 export function checkGoal(goal, traits = []) {
   if (!goal?.trait || !traits.some((t) => t.id === goal.trait)) return false;
-  const p = parseExpr(goal.expr);
-  if (p.error || !p.ast) return false;
+  const list = exprsOf(goal);
+  if (!list.length) return false;
+  // Одно сломанное условие ломает всю цель: считать по половине условий
+  // значило бы считать не ту цель, которую поставили.
+  if (list.some((e) => { const p = parseExpr(e); return p.error || !p.ast; })) return false;
   return dueHours(goal) != null;
 }
 
 /** Есть ли у цели число для плана: «<» и «!» — только условие, план по ним не считается. */
-export const plannable = (goal, model) => goalState(goal, model).target != null
-  && goalQty(goal, model) > 0;
+export const plannable = (goal, model) => {
+  const st = goalState(goal, model);
+  // Спорящие условия не планируются: числа, при котором выполнятся оба,
+  // не существует, и план по одному из них был бы планом другой цели.
+  return !st.conflict && st.target != null && num(st.target) > 0;
+};
 
 const scale = (plan, k) => ({
   ...plan,

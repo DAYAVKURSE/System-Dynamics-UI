@@ -149,15 +149,20 @@ export function describeModel(model = {}) {
     const budget = num(g.hours)
       ? `; готовы тратить ${g.hours} ${g.hoursUnit || "ч"} ${PER_WORDS[g.hoursPer] || ""}`.trimEnd()
       : "; бюджет времени не задан";
-    /* «Сколько» — выражение: знак и числа со ссылками на другие ресурсы
-       (`web/src/lib/expr.js`); старая запись несёт число. Помощнику — как
-       человеку: «> 10», «= @Заявки*2». */
-    const expr = typeof g.expr === "string" ? g.expr : (g.qty != null ? `=${num(g.qty)}` : "");
-    const op = /^[<>=!]/.test(expr) ? expr[0] : "=";
-    const rest = expr.replace(/^[<>=!]/, "").trim();
-    const shown = !expr ? "сколько — не названо"
-      : op === "=" && /^\d+([.,]\d+)?$/.test(rest) ? rest
+    /* «Сколько» — УСЛОВИЯ: знак и числа со ссылками на другие ресурсы
+       (`web/src/lib/expr.js`). Их может быть несколько — между ними «и»:
+       «> 10 и < 50» это диапазон. Старая запись несёт одну строку или
+       число; читается как список из одного. Помощнику — как человеку. */
+    const exprs = Array.isArray(g.exprs) ? g.exprs.map(str).filter((e) => e.trim())
+      : (typeof g.expr === "string" && g.expr.trim() ? [g.expr]
+        : (g.qty != null ? [`=${num(g.qty)}`] : []));
+    const one = (expr) => {
+      const op = /^[<>=!]/.test(expr) ? expr[0] : "=";
+      const rest = expr.replace(/^[<>=!]/, "").trim();
+      return op === "=" && /^\d+([.,]\d+)?$/.test(rest) ? rest
         : `${op} ${rest.replace(/@\{([^}]+)\}/g, (_, id) => `@${traitName(id)}`)}`;
+    };
+    const shown = exprs.length ? exprs.map(one).join(" и ") : "сколько — не названо";
     out.push(`- ${traitName(g.trait)}: ${shown} ${RATE_WORDS[g.rate] || ""}, ${due}${budget}; ${g.appliedAt ? `применена ${when(g.appliedAt)}` : "ещё не применена (черновик)"}`);
   });
 

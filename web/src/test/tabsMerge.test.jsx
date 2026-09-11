@@ -290,6 +290,37 @@ describe("применение цели", () => {
     expect(screen.getByRole("button", { name: "Спрогнозировать" })).toBeTruthy();
   });
 
+  it("условие добавляется вторым — это и есть диапазон", () => {
+    /* Одним условием говорится «не меньше» ИЛИ «не больше». Диапазон —
+       два условия сразу, и держаться должны оба. */
+    openGoal();
+    const first = screen.getByLabelText("сколько ресурса");
+    fireEvent.change(first, { target: { value: ">10" } });
+    fireEvent.blur(first);
+    fireEvent.click(screen.getByRole("button", { name: "+ условие" }));
+    const second = screen.getByLabelText("условие 2");
+    fireEvent.change(second, { target: { value: "<50" } });
+    fireEvent.blur(second);
+    expect(screen.getByText("диапазон: от 10 до 50")).toBeInTheDocument();
+    // И убирается тем же списком.
+    fireEvent.click(screen.getByRole("button", { name: "убрать условие 2" }));
+    expect(screen.queryByLabelText("условие 2")).toBeNull();
+    // Выгрузка — последней: она уводит со вкладки прогноза.
+    expect(dump().goals[0].exprs).toEqual([">10"]);
+  });
+
+  it("спорящие условия названы спорящими, а не посчитаны молча", () => {
+    openGoal();
+    const first = screen.getByLabelText("сколько ресурса");
+    fireEvent.change(first, { target: { value: ">10" } });
+    fireEvent.blur(first);
+    fireEvent.click(screen.getByRole("button", { name: "+ условие" }));
+    const second = screen.getByLabelText("условие 2");
+    fireEvent.change(second, { target: { value: "<5" } });
+    fireEvent.blur(second);
+    expect(screen.getAllByText(/условия спорят/).length).toBeGreaterThan(0);
+  });
+
   it("«Применить цель» заводит задачи и отмечает цель применённой", () => {
     const before = dump().tasks.length;
     openGoal();
