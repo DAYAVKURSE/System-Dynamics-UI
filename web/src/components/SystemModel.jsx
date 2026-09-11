@@ -9,6 +9,7 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
+import LooseCrew from "./LooseCrew.jsx";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, checkAsset, countWorkers, crewOf,
@@ -280,7 +281,10 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
           const ts=traits.filter(t=>t.e===e.id);
           const fs=funcs.filter(f=>f.e===e.id);
           const ok=assetOk(e.id);
-          return (<g key={e.id} onPointerDown={ev=>down(ev,e)}
+          /* `data-entity` — метка для подложки «участники без актива»:
+             человека отпускают НА БЛОК, и спросить надо именно тот, что
+             под пальцем (`elementFromPoint`), а не ближайший. */
+          return (<g key={e.id} data-entity={e.id} onPointerDown={ev=>down(ev,e)}
             style={{cursor:onMoveEntity?"grab":"pointer",touchAction:"none"}}>
             <rect x={e.x} y={e.y} width={NW} height={NH} rx="12" fill={C.panel}
               stroke={sel===e.id?ACC:C.line} strokeWidth={sel===e.id?2.6:1.6}/>
@@ -1143,6 +1147,13 @@ export default function SystemModel(){
             На блоке — сколько ресурса будет к этому месяцу, вилкой. Пунктир — передачи между активами.
           </div>
         </div>
+
+        {/* Подложка с теми, кто ещё не попал ни в один актив. Стоит НАД
+            схемой: человека с неё перетаскивают на блок, и тащить снизу
+            вверх через всю страницу было бы дорогой в один конец. */}
+        <LooseCrew people={people} entities={entities} funcs={funcs} roleName={roleName}
+          onAdd={(pid,eid)=>setEntities(p=>p.map(x=>(x.id===eid
+            ? {...x,crew:[...crewOf(x),pid]} : x)))}/>
 
         <SchemeSVG entities={entities} traits={traits} funcs={funcs} moves={moves}
           zoom={zoom} sel={sel} valuesFor={valuesFor}
