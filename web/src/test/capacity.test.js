@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { chanceOf, conversionOf, hoursOf, hoursRange, normalizeFunc, newFunc, parOf, sameHours,
+import { chanceOf, conversionOf, hoursOf, hoursRange, normalizeFunc, newFunc, parAssetOf,
+  parOf, parWorkerOf, sameHours,
   shortage, takeQty, checkFunc } from "../lib/funcs.js";
 import { cycles, forecast, load, runSide, scheduleOf, solve, stepHours } from "../lib/plan.js";
 import { goalRuns, newGoal, normalizeGoal } from "../lib/goals.js";
@@ -76,6 +77,27 @@ describe("одновременные выполнения", () => {
     expect(parOf({ par: 0 })).toBe(1);
     expect(parOf({ par: -3 })).toBe(1);
     expect(parOf({ par: 2.7 })).toBe(2);
+  });
+
+  it("пределов два: на воркера и на актив — в счёт идёт меньший", () => {
+    /* «На воркера» — сколько дел держит один человек; «на актив» —
+       сколько их идёт в активе вообще. Людей мы не считаем (инвариант 6),
+       поэтому умножать первое на их число нельзя; а потолок актива обязан
+       работать — сказано «больше трёх разом не идёт», значит не идёт. */
+    expect(parWorkerOf({ par: 8, parAll: 3 })).toBe(8);
+    expect(parAssetOf({ par: 8, parAll: 3 })).toBe(3);
+    expect(parOf({ par: 8, parAll: 3 })).toBe(3);
+    expect(parOf({ par: 2, parAll: 9 })).toBe(2);
+  });
+
+  it("пустой предел актива — «не ограничено», а не «одно»", () => {
+    /* Иначе всякая прежняя схема с восемью одновременными делами
+       схлопнулась бы в очередь при первом же чтении. */
+    expect(parAssetOf({})).toBe(0);
+    expect(parAssetOf({ parAll: -5 })).toBe(0);
+    expect(parOf({ par: 8 })).toBe(8);
+    expect(normalizeFunc({ id: "f", par: 8 }).parAll).toBe(0);
+    expect(normalizeFunc({ id: "f" }).parAll).toBe(0);
   });
 
   it("сколько дел ведут разом — столько и помещается в месяц", () => {

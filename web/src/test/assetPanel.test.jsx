@@ -122,25 +122,43 @@ describe("новое в форме функции", () => {
     expect(dump().funcs.pop().about).toBe("разбираем заявку и пишем ТЗ");
   });
 
-  it("сколько таких дел ведут одновременно — спрашивается у функции", () => {
+  it("сколько дел держит ОДИН ВОРКЕР — спрашивается у функции", () => {
     /* Настройка про долгие работы: юрист ведёт восемь дел месяцами разом.
        Выстроить их друг за другом значило бы обещать восемь месяцев там,
        где выйдет один. */
     addFunc();
-    const box = screen.getByLabelText("одновременных выполнений");
+    const box = screen.getByLabelText("одновременных выполнений на воркера");
     // По умолчанию одно: обещать иное без слов человека нельзя.
     expect(box).toHaveValue(1);
     expect(screen.getByText(/по одному, друг за другом/)).toBeInTheDocument();
     fireEvent.change(box, { target: { value: "8" } });
-    expect(screen.getByText(/столько ведётся разом/)).toBeInTheDocument();
+    expect(screen.getByText(/столько одному под силу разом/)).toBeInTheDocument();
     // Выгрузка проверяется последней: она уводит на другую вкладку.
     expect(dump().funcs.pop().par).toBe(8);
   });
 
-  it("меньше одного одновременного выполнения не бывает", () => {
+  it("предел АКТИВА — второе поле, и пусто в нём значит «предела нет»", () => {
+    /* Станок один, кабинет один, лицензий три: сколько бы людей ни было,
+       разом идёт столько. Молчание — не запрет, поэтому по умолчанию
+       предела нет, и прежние схемы ничего не теряют. */
+    addFunc();
+    const all = screen.getByLabelText("одновременных выполнений на актив");
+    expect(all).toHaveValue(0);
+    expect(screen.getByText(/предела нет/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("одновременных выполнений на воркера"),
+      { target: { value: "8" } });
+    fireEvent.change(all, { target: { value: "3" } });
+    expect(screen.getByText(/больше 3 в активе разом не идёт/)).toBeInTheDocument();
+    // В календарь помещается меньшее из двух: потолок актива обязан работать.
+    expect(screen.getByText(/в календарь помещается 3 разом/)).toBeInTheDocument();
+    const f = dump().funcs.pop();
+    expect([f.par, f.parAll]).toEqual([8, 3]);
+  });
+
+  it("меньше одного одновременного выполнения на воркера не бывает", () => {
     // Ноль означал бы, что работа не делается вовсе, — поле не про это.
     addFunc();
-    const box = screen.getByLabelText("одновременных выполнений");
+    const box = screen.getByLabelText("одновременных выполнений на воркера");
     fireEvent.change(box, { target: { value: "0" } });
     expect(dump().funcs.pop().par).toBe(1);
   });

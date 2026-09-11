@@ -6,7 +6,8 @@ import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWo
   crewOf,
   chanceOf, everyOf, everyRange, factorChance, factorsOf, groupsOf, sameEvery, sameHours,
   newFactor, fromHours,
-  hoursOf, newFunc, newGive, newPort, okRange, portSpends, rangeText, runHours,
+  hoursOf, newFunc, newGive, newPort, okRange, parAssetOf, parOf, parWorkerOf,
+  portSpends, rangeText, runHours,
   runQty } from "../lib/funcs.js";
 import { Mark } from "./Modal.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
@@ -881,29 +882,49 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 точное время
               </label>)}
 
-            {/* Сколько таких дел ведут ОДНОВРЕМЕННО.
+            {/* Сколько таких дел идёт ОДНОВРЕМЕННО — два разных предела.
 
-                Настройка про долгие работы: юрист ведёт восемь дел
-                месяцами разом, и выстраивать их друг за другом значило бы
-                обещать восемь месяцев там, где выйдет один. Работа от
-                этого быстрее не делается — час работы остаётся часом;
-                меняется только то, сколько дел помещается в календарь.
+                НА ВОРКЕРА: сколько их держит один человек. Настройка про
+                долгие работы — юрист ведёт восемь дел месяцами разом, и
+                выстраивать их друг за другом значило бы обещать восемь
+                месяцев там, где выйдет один.
 
-                Это НЕ множитель от числа людей: сказано «сколько их может
-                вести один и тот же воркер», и столько и берётся. Двое
+                НА АКТИВ: сколько их идёт в активе вообще. Станок один,
+                кабинет один, лицензий три — сколько бы людей ни было,
+                разом идёт столько. Пусто значит «предела нет».
+
+                Работа от одновременности быстрее не делается — час работы
+                остаётся часом; меняется только то, сколько дел помещается
+                в календарь. И это не множитель от числа людей: двое
                 исполнителей по-прежнему не делают работу вдвое быстрее —
-                см. инвариант 6. */}
-            <div className="flex items-center gap-2" style={{ marginTop: 6, flexWrap: "wrap" }}>
-              <span style={S.lbl}>одновременных выполнений</span>
-              <Num value={f.par ?? 1} label="одновременных выполнений"
+                см. инвариант 6. Поэтому в счёт идёт меньший из двух
+                пределов. */}
+            <div className="flex items-center gap-2" style={{ marginTop: 8, flexWrap: "wrap" }}>
+              <span style={S.lbl}>одновременных выполнений на воркера</span>
+              <Num value={f.par ?? 1} label="одновременных выполнений на воркера"
                 onChange={(v) => up(f.id, (x) => ({ ...x,
                   par: Math.max(1, Math.floor(Number(v) || 1)) }))} />
-              <span style={{ flex: 1 }} />
-              <span style={{ fontSize: 10.5, color: C.muted }}>
-                {(f.par ?? 1) > 1
-                  ? `столько ведётся разом — ${nm(f.par)} выполнений займут время одного`
-                  : "по одному, друг за другом"}</span>
             </div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+              {parWorkerOf(f) > 1
+                ? "столько одному под силу разом"
+                : "по одному, друг за другом"}</div>
+
+            <div className="flex items-center gap-2" style={{ marginTop: 6, flexWrap: "wrap" }}>
+              <span style={S.lbl}>одновременных выполнений на актив</span>
+              <Num value={f.parAll ?? 0} label="одновременных выполнений на актив"
+                onChange={(v) => up(f.id, (x) => ({ ...x,
+                  parAll: Math.max(0, Math.floor(Number(v) || 0)) }))} />
+            </div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+              {parAssetOf(f)
+                ? `больше ${nm(parAssetOf(f))} в активе разом не идёт`
+                : "предела нет"}</div>
+
+            {/* Итог двух пределов: сколько дел ложится в календарь разом. */}
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+              {`в календарь помещается ${nm(parOf(f))} разом: столько дел `
+                + "займут время одного"}</div>
 
             {/* Роли — У ФУНКЦИИ, и назначается ДОЛЖНОСТЬ, а не человек:
                 «ставит юрист, делает дизайнер, принимает редактор». Взять
