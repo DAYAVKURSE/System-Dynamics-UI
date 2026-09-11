@@ -55,7 +55,7 @@ describe("человек открывается окном, а не уходом
       if (u.includes("/api/org/me")) {
         return { ok: true, json: async () => ({ id: "1", isOwner: true, known: true,
           role: null, profile: { about: "" },
-          tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] }) };
+          tabs: ["tasks", "review", "scheme", "reports", "tools"] }) };
       }
       if (u.includes("/api/org")) {
         return { ok: true, json: async () => ({ ownerId: "1", roles: [],
@@ -89,7 +89,7 @@ describe("человек открывается окном, а не уходом
 describe("вкладки по роли", () => {
   it("владельцу видны все четыре, а «Прогноз» и «Деятельность» — под схемой", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
+      tabs: ["tasks", "review", "scheme", "reports", "tools"] });
     const { container } = await fresh();
     await waitFor(() => expect(tabNames(container)).toHaveLength(4));
     expect(tabNames(container)).toEqual(["Задачи", "Проверка", "Схема", "Инструменты"]);
@@ -172,7 +172,7 @@ describe("общая модель ходит через сервер", () => {
   it("владелец выкладывает модель на сервер — иначе её никто не увидит", async () => {
     vi.useFakeTimers();
     spyServer({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
+      tabs: ["tasks", "review", "scheme", "reports", "tools"] });
     await fresh();
     await vi.advanceTimersByTimeAsync(2500);
     vi.useRealTimers();
@@ -231,7 +231,7 @@ describe("кому какие задачи видны", () => {
 
   it("владелец видит и свои, и чужие", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
+      tabs: ["tasks", "review", "scheme", "reports", "tools"] });
     const { container } = await fresh();
     await waitFor(() => expect(tabNames(container)).toHaveLength(4));
     load(container, model(TASKS));

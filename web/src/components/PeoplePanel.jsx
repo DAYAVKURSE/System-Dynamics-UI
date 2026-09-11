@@ -16,9 +16,12 @@ import {
    отказ.
    ════════════════════════════════════════════════════════════════ */
 
+/* Имена вкладок — те же слова, что на самих кнопках приложения: роль
+   открывает «Отчёты», и в списке она должна называться «Отчёты», а не
+   «reports». Список один со `SystemModel.TAB_LIST`. */
 const TAB_NAMES = {
-  tasks: "Задачи", review: "Проверка", timeline: "Timeline",
-  scheme: "Схема", sim: "Прогноз", tools: "Инструменты",
+  tasks: "Задачи", review: "Проверка", scheme: "Схема",
+  reports: "Отчёты", tools: "Инструменты",
 };
 
 export default function PeoplePanel({ onPeople }) {

@@ -1046,7 +1046,7 @@ export default function SystemModel(){
             кнопками, которые ничего не сохранят, значило бы обещать
             работу, которой не будет. Наружу отчёт уходит ссылкой. */}
         {TAB_LIST.filter(([k])=>k===SELF_TAB[0]
-          ||(k==="reports"?(me.isOwner||me.solo):me.tabs.includes(k)))
+          ||me.isOwner||me.solo||me.tabs.includes(k))
           .map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
@@ -1166,15 +1166,18 @@ export default function SystemModel(){
         <div className="flex gap-2" style={{margin:"10px 0",overflowX:"auto"}}>
           <button style={btn(under==="edit")} onClick={()=>setUnder("edit")}>
             Управление</button>
-          {me.tabs.includes("sim")&&(
-            <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
-              Прогноз</button>)}
-          {me.tabs.includes("timeline")&&(
-            <button style={btn(under==="time")} onClick={()=>setUnder("time")}>
-              Деятельность</button>)}
+          {/* Отдельного доступа у них нет: «Прогноз» и «Деятельность» —
+              разделы СХЕМЫ, и открывает их та же вкладка. Прежде они
+              спрашивали свои `sim` и `timeline`, которых в списке вкладок
+              больше нет, — и роль, открывшая схему, получала её без
+              половины разделов. */}
+          <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
+            Прогноз</button>
+          <button style={btn(under==="time")} onClick={()=>setUnder("time")}>
+            Деятельность</button>
         </div>
 
-        {under==="time" && me.tabs.includes("timeline") && (
+        {under==="time" && (
           <Timeline tasks={myTasks} funcs={funcs} traits={traitsLive} entities={entities}
             nameOf={personName} meId={me.id}/>)}
 
@@ -1217,7 +1220,7 @@ export default function SystemModel(){
           </div>)}
 
         {/* ═══ ПРОГНОЗ — вторая подвкладка ═══ */}
-        {under==="sim" && me.tabs.includes("sim") && (<div>
+        {under==="sim" && (<div>
         <div style={{...S.card,marginBottom:10}}>
           <div style={S.lbl}>прогноз по функциям</div>
           <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>

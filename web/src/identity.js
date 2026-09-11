@@ -12,7 +12,10 @@ import { getInitData } from "./telegram.js";
    от единственного её хозяина было бы странно.
    ════════════════════════════════════════════════════════════════ */
 
-export const ALL_TABS = ["tasks", "review", "timeline", "scheme", "sim", "tools"];
+/* Вкладки роли — ровно те, что есть в приложении (`TAB_LIST` в
+   `SystemModel.jsx`), и то же самое перечислено на сервере (`TABS` в
+   `orgStore.js`). «Анкета» сюда не входит: она открыта всем вошедшим. */
+export const ALL_TABS = ["tasks", "review", "scheme", "reports", "tools"];
 
 export const SOLO = {
   id: "local", isOwner: true, known: true, name: "", role: null,

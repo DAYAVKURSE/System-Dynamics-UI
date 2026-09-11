@@ -69,7 +69,7 @@ const EMPTY = { about: "", days: [], from: "", to: "", status: "ready", warnMin:
 const IVAN = { id: "2", name: "Иван", isOwner: false, known: true, role: null,
   tabs: ["tasks", "tools"], profile: { ...EMPTY } };
 const OWNER = { id: "1", name: "Владелец", isOwner: true, known: true, role: null,
-  tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"], profile: { ...EMPTY } };
+  tabs: ["tasks", "review", "scheme", "reports", "tools"], profile: { ...EMPTY } };
 const people = () => [{ id: "1", name: "Владелец", ...EMPTY }, { id: "2", name: "Иван", ...EMPTY }];
 
 beforeEach(() => { localStorage.clear(); resetIdentity(); resetReportsAvailable(); });

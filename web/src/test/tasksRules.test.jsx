@@ -595,7 +595,7 @@ describe("«Инструменты» и роли", () => {
 
   it("«Звонки» и «Выгрузка» — внутри «Инструментов», не в главном ряду", async () => {
     server({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] },
+      tabs: ["tasks", "review", "scheme", "reports", "tools"] },
     { ownerId: "1", roles: [{ id: "executor", name: "исполнитель", tabs: ["tasks"], builtin: true }],
       users: [{ id: "1", name: "Владелец" }] });
     await fresh();
@@ -613,7 +613,7 @@ describe("«Инструменты» и роли", () => {
       { id: "custom", name: "Дизайнер", tabs: ["tasks"], builtin: false }],
     users: [{ id: "1", name: "Владелец" }] };
     server({ id: "1", isOwner: true, known: true, role: null,
-      tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] }, org);
+      tabs: ["tasks", "review", "scheme", "reports", "tools"] }, org);
     await fresh();
     await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));

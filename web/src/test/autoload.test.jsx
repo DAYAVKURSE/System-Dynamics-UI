@@ -32,7 +32,7 @@ const server = ({ meDelay = 0, listDelay = 30 } = {}) => {
     }
     if (u.includes("/api/org/me")) {
       return wait(meDelay, json({ id: "1", isOwner: true, known: true, role: null,
-        tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] }));
+        tabs: ["tasks", "review", "scheme", "reports", "tools"] }));
     }
     if (u.endsWith("/api/scenarios")) {
       return wait(listDelay, json([{ id: "s1", name: "Моя схема",
@@ -97,7 +97,7 @@ describe("рабочая модель владельца", () => {
       }
       if (u.includes("/api/org/me")) {
         return json({ id: "1", isOwner: true, known: true, role: null,
-          tabs: ["tasks", "review", "timeline", "scheme", "sim", "tools"] });
+          tabs: ["tasks", "review", "scheme", "reports", "tools"] });
       }
       if (u.endsWith("/api/scenarios")) return json(scenarios);
       if (u.includes("/api/workspace")) {

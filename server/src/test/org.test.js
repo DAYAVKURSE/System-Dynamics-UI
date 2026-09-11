@@ -86,9 +86,19 @@ describe("роли", () => {
 
   it("набор вкладок роли правится, и несуществующие вкладки отсекаются", async () => {
     const role = await addRole({ name: "Аналитик" });
-    await setRoleTabs(role.id, ["tasks", "sim", "выдумка"]);
+    await setRoleTabs(role.id, ["tasks", "reports", "выдумка"]);
     await addUser({ id: "300", name: "Аня", roleId: role.id, addedBy: "100" });
-    expect((await identify("300", {})).tabs).toEqual(["tasks", "sim"]);
+    expect((await identify("300", {})).tabs).toEqual(["tasks", "reports"]);
+  });
+
+  it("прежние имена вкладок читаются как нынешние, а не теряются", async () => {
+    /* «Таймлайн» и «Прогноз» стали разделами «Схемы», «выгрузка» и
+       «звонки» — разделами «Инструментов». Роль, заведённая вчера, не
+       должна проснуться без вкладки. */
+    const role = await addRole({ name: "Плановик" });
+    await setRoleTabs(role.id, ["timeline", "sim", "json", "calls"]);
+    await addUser({ id: "301", name: "Пётр", roleId: role.id, addedBy: "100" });
+    expect((await identify("301", {})).tabs).toEqual(["scheme", "tools"]);
   });
 
   it("удалить можно любую роль, кроме последней — иначе приглашать станет некем", async () => {
