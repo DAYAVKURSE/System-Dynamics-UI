@@ -174,6 +174,10 @@ export const newFunc = (e, name = "новая функция") => ({
      восемью одновременными делами схлопнулась бы в очередь. */
   par: 1,
   parAll: 0,
+  /* Потолок актива можно не называть числом, а привязать к людям: «разом
+     идёт столько, сколько в активе воркеров». Тогда число не приходится
+     править каждый раз, когда в актив кого-то добавили. */
+  parCrew: false,
   setters: [],
   owners: [],
   reviewers: [],
@@ -211,6 +215,29 @@ export const parAssetOf = (f = {}) => {
   const n = Math.floor(num(f.parAll));
   return n > 0 ? n : 0;
 };
+
+/** Сколько у актива воркеров — столько же, сколько показывает его карточка. */
+export const crewCount = (entities = [], e) => crewOf(workersOf(entities, e)).length;
+
+/**
+ * Потолок актива, привязанный к людям, — числом.
+ *
+ * Считается один раз, на входе в расчёт (`withCrewPar`), а не в каждом
+ * месте, где спрашивают `parOf`: иначе число воркеров пришлось бы тащить
+ * через `cycles`, `runsHours` и `workHours` — все они знают только саму
+ * функцию, и знать больше им незачем.
+ *
+ * Воркеров нет — считаем как одного: ноль означал бы «предела нет» (так
+ * читается пустое поле), а «работы не будет вовсе» — это про другое, и
+ * про это говорит сама функция, которую некому поручить.
+ */
+export function withCrewPar(model = {}) {
+  const funcs = model.funcs || [];
+  if (!funcs.some((f) => f && f.parCrew)) return model;
+  const entities = model.entities || [];
+  return { ...model, funcs: funcs.map((f) => (f && f.parCrew
+    ? { ...f, parAll: Math.max(1, crewCount(entities, f.e)) } : f)) };
+}
 
 /**
  * Сколько выполнений помещается в календарь разом — с обоими потолками.
@@ -435,6 +462,7 @@ export const normalizeFunc = (f = {}) => {
        актива ноль законен и значит «не ограничено». */
     par: parWorkerOf(f),
     parAll: parAssetOf(f),
+    parCrew: f.parCrew === true,
     ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id,
       [...new Set(Array.isArray(f[k.id]) ? f[k.id] : [])]])),
     // Прежние модели пометки не знали: молчание читается как «не принята».

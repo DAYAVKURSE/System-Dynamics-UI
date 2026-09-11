@@ -10,15 +10,16 @@ import { snapshotOf } from "../lib/reportView.js";
    пустой предел актива — «не ограничено», иначе прежние схемы схлопнулись
    бы в очередь. */
 
-const model = (over = {}) => ({
-  entities: [{ id: "e1", name: "Студия" }],
+const model = (over = {}, crew = []) => ({
+  entities: [{ id: "e1", name: "Студия", crew }],
   traits: [{ id: "t1", e: "e1", l: "заявка" }, { id: "t2", e: "e1", l: "макет" }],
   funcs: [{ id: "f1", e: "e1", name: "Собрать макет", dur: 1, durHi: 1, durUnit: "дн",
     takes: [{ id: "p1", trait: "t1", lo: 1, hi: 1 }],
     gives: [{ id: "p2", trait: "t2", lo: 1, hi: 1 }], ...over }],
   tasks: [], materials: [], reports: [{ id: "rs1", name: "Макеты", trait: "t1", qty: 4 }],
 });
-const calendar = (over) => snapshotOf(model(over), "rs1").block.plan.calendarHours[1];
+const calendar = (over, crew) =>
+  snapshotOf(model(over, crew), "rs1").block.plan.calendarHours[1];
 
 describe("два предела одновременности в снимке отчёта", () => {
   it("без настроек четыре выполнения идут очередью — четыре дня", () => {
@@ -39,5 +40,19 @@ describe("два предела одновременности в снимке �
 
   it("предел актива шире, чем под силу одному, — берётся меньший", () => {
     expect(calendar({ par: 2, parAll: 9 })).toBe(2 * 24);
+  });
+
+  it("«= количеству воркеров»: предел считается по составу актива", () => {
+    /* Число не вводят руками — его уже сказал состав актива. Двое
+       воркеров при четырёх делах под силу одному: разом идут двое. */
+    expect(calendar({ par: 4, parCrew: true }, ["200", "300"])).toBe(2 * 24);
+    expect(calendar({ par: 4, parCrew: true }, ["200", "300", "400", "500"])).toBe(24);
+    // Введённое прежде число при этом не спрашивают: людей назвали позже.
+    expect(calendar({ par: 4, parAll: 1, parCrew: true }, ["200", "300"])).toBe(2 * 24);
+  });
+
+  it("воркеров нет — считаем как одного, а не «без предела»", () => {
+    // Ноль читался бы как «предела нет»: это про другое.
+    expect(calendar({ par: 4, parCrew: true }, [])).toBe(4 * 24);
   });
 });

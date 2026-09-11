@@ -46,6 +46,7 @@
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
 import { DUR_UNITS, conversionOf, everyOf, groupsOf, hoursOf, parOf, portSpends,
+  withCrewPar,
   runHours, runQty, takeQty } from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
@@ -205,7 +206,10 @@ export const hasFact = (runs = []) => runs.some((r) => Number(r?.hours) > 0);
  * кончится. Плана нет вовсе — считаем по потолку: так прогноз отвечает на
  * вопрос «на что модель вообще способна».
  */
-export function runSide(model, { span = 24, side = "hi", runsOf, plan } = {}) {
+export function runSide(model0, { span = 24, side = "hi", runsOf, plan } = {}) {
+  /* Потолок «= числу воркеров» превращается в число здесь, на входе:
+     дальше `parOf` спрашивают из мест, которые знают только саму функцию. */
+  const model = withCrewPar(model0);
   const { traits = [], funcs = [], factors = [] } = model;
   const runs = (f) => (runsOf ? runsOf(f.id) : []);
   /* Конверсия функции: с факторами входа на одно выполнение нужно больше
@@ -396,7 +400,8 @@ export function transfers(model, { runsOf, plan } = {}) {
  * выполнений. Это не измерение занятости, а следствие модели, — но оно
  * показывает, на кого свалено больше, чем на других.
  */
-export function load(model, { runsOf, plan } = {}) {
+export function load(model0, { runsOf, plan } = {}) {
+  const model = withCrewPar(model0);
   const by = {};
   (model.funcs || []).forEach((f) => {
     const rs = runsOf ? runsOf(f.id) : [];
@@ -460,8 +465,9 @@ const givesOf = (f, trait, side, runs) => f.gives
  * @param side  "lo" — осторожно (выдают по минимуму, берут по максимуму),
  *              "hi" — щедро. Разница между ними и есть честная вилка плана.
  */
-export function solve(model, { trait, want, side = "hi", runsOf, passes = 200,
+export function solve(model0, { trait, want, side = "hi", runsOf, passes = 200,
   useStock = true } = {}) {
+  const model = withCrewPar(model0);
   const { traits = [], funcs = [] } = model;
   const runsFor = (f) => (runsOf ? runsOf(f.id) : []);
   const target = traits.find((t) => t.id === trait);
@@ -641,8 +647,8 @@ export function solveRange(model, { trait, want, runsOf, useStock = true } = {})
  * функция и производит, и потребляет, показывать двумя строками значило бы
  * пугать числами, которые друг друга гасят.
  */
-export function effect(model, steps = [], { side = "hi", runsOf } = {}) {
-  const funcs = model.funcs || [];
+export function effect(model0, steps = [], { side = "hi", runsOf } = {}) {
+  const funcs = withCrewPar(model0).funcs || [];
   const by = {};
   const add = (id, v) => { by[id] = (by[id] || 0) + v; };
   steps.forEach((st) => {

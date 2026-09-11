@@ -668,6 +668,10 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
      Само принятие идёт мимо — иначе оно снимало бы себя же. */
   const up = (id, make) => setFuncs((p) => p.map((f) => (f.id === id
     ? editFunc(f, make) : f)));
+  /* Функция глазами расчёта: потолок «= числу воркеров» — уже числом.
+     Ровно то же делает `withCrewPar` на входе в прогноз; здесь оно нужно,
+     чтобы подпись под полями говорила то же, что посчитает план. */
+  const live = (f) => (f.parCrew ? { ...f, parAll: Math.max(1, crew.length) } : f);
   const accept = (id) => setFuncs((p) => p.map((f) => (f.id === id
     ? { ...f, accepted: true } : f)));
   const upPort = (id, kind, pid, patch) => up(id, (f) => ({
@@ -912,18 +916,32 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
 
             <div className="flex items-center gap-2" style={{ marginTop: 6, flexWrap: "wrap" }}>
               <span style={S.lbl}>одновременных выполнений на актив</span>
-              <Num value={f.parAll ?? 0} label="одновременных выполнений на актив"
-                onChange={(v) => up(f.id, (x) => ({ ...x,
-                  parAll: Math.max(0, Math.floor(Number(v) || 0)) }))} />
+              {/* Привязали к людям — число не вводят: оно уже сказано
+                  составом актива, и второе место, где то же самое пишут
+                  руками, разошлось бы с ним в первый же день. */}
+              {!f.parCrew && (
+                <Num value={f.parAll ?? 0} label="одновременных выполнений на актив"
+                  onChange={(v) => up(f.id, (x) => ({ ...x,
+                    parAll: Math.max(0, Math.floor(Number(v) || 0)) }))} />)}
+              <label className="flex items-center gap-2"
+                style={{ fontSize: 11, color: C.muted, cursor: "pointer" }}>
+                <input type="checkbox" checked={f.parCrew === true}
+                  aria-label="одновременных выполнений на актив = количеству воркеров"
+                  onChange={(e) => up(f.id, (x) => ({ ...x, parCrew: e.target.checked }))}
+                  style={{ accentColor: ACC }} />
+                = количеству воркеров
+              </label>
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
-              {parAssetOf(f)
-                ? `больше ${nm(parAssetOf(f))} в активе разом не идёт`
-                : "предела нет"}</div>
+              {f.parCrew
+                ? `воркеров в активе: ${nm(crew.length)} — столько и идёт разом`
+                : parAssetOf(f)
+                  ? `больше ${nm(parAssetOf(f))} в активе разом не идёт`
+                  : "предела нет"}</div>
 
             {/* Итог двух пределов: сколько дел ложится в календарь разом. */}
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
-              {`в календарь помещается ${nm(parOf(f))} разом: столько дел `
+              {`в календарь помещается ${nm(parOf(live(f)))} разом: столько дел `
                 + "займут время одного"}</div>
 
             {/* Роли — У ФУНКЦИИ, и назначается ДОЛЖНОСТЬ, а не человек:

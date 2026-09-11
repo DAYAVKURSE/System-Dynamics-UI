@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chanceOf, conversionOf, hoursOf, hoursRange, normalizeFunc, newFunc, parAssetOf,
-  parOf, parWorkerOf, sameHours,
+  parOf, parWorkerOf, sameHours, withCrewPar,
   shortage, takeQty, checkFunc } from "../lib/funcs.js";
 import { cycles, forecast, load, runSide, scheduleOf, solve, stepHours } from "../lib/plan.js";
 import { goalRuns, newGoal, normalizeGoal } from "../lib/goals.js";
@@ -88,6 +88,38 @@ describe("одновременные выполнения", () => {
     expect(parAssetOf({ par: 8, parAll: 3 })).toBe(3);
     expect(parOf({ par: 8, parAll: 3 })).toBe(3);
     expect(parOf({ par: 2, parAll: 9 })).toBe(2);
+  });
+
+  it("«= количеству воркеров»: предел берётся из состава актива", () => {
+    /* Число не вводят руками — его уже сказал состав актива. Считается
+       один раз, на входе в расчёт (`withCrewPar`): дальше `parOf`
+       спрашивают из мест, которые знают только саму функцию. */
+    const m = { entities: [{ id: "A", crew: ["p1", "p2"] }],
+      funcs: [F({ par: 8, parCrew: true })] };
+    expect(parOf(withCrewPar(m).funcs[0])).toBe(2);
+    // Людей прибавилось — предел вырос, и править ничего не пришлось.
+    const four = { ...m, entities: [{ id: "A", crew: ["p1", "p2", "p3", "p4"] }] };
+    expect(parOf(withCrewPar(four).funcs[0])).toBe(4);
+    // Прежнее число не спрашивают вовсе: людей назвали позже.
+    const both = { ...m, funcs: [F({ par: 8, parAll: 1, parCrew: true })] };
+    expect(parOf(withCrewPar(both).funcs[0])).toBe(2);
+    // Воркеров нет — считаем как одного: ноль читался бы как «без предела».
+    const none = { ...m, entities: [{ id: "A", crew: [] }] };
+    expect(parOf(withCrewPar(none).funcs[0])).toBe(1);
+    // Не привязано к людям — модель не трогаем вовсе.
+    const plain = { ...m, funcs: [F({ par: 8 })] };
+    expect(withCrewPar(plain)).toBe(plain);
+  });
+
+  it("привязка к людям доходит до срока: четверо успевают за месяц, двое — за два", () => {
+    const make = (crew) => ({ entities: [{ id: "A", crew }],
+      traits: [{ id: "in", e: "A", have: 1000 }, { id: "out", e: "A", have: 0 }],
+      funcs: [F({ dur: 1, durHi: 1, durUnit: "мес", par: 8, parCrew: true })] });
+    const four = solve(make(["p1", "p2", "p3", "p4"]),
+      { trait: "out", want: 4, useStock: false });
+    const two = solve(make(["p1", "p2"]), { trait: "out", want: 4, useStock: false });
+    expect(four.criticalHours).toBeCloseTo(730);
+    expect(two.criticalHours).toBeCloseTo(2 * 730);
   });
 
   it("пустой предел актива — «не ограничено», а не «одно»", () => {

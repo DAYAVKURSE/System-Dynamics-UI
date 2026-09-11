@@ -83,6 +83,20 @@ const traitLabel = (model, id) =>
   (model.traits || []).find((t) => t.id === id)?.l || "";
 
 /** Предварительная оценка одной стороны вилки: шаги, время, изменения. */
+/* Сколько у актива воркеров — тем же правилом, что и в приложении
+   (`crewOf` в `web/src/lib/funcs.js`): членство и три роли, без повторов.
+   Прежние модели держали людей в списках ролей — они тоже считаются. */
+function crewSize(model = {}, e) {
+  const ent = (model.entities || []).find((x) => x.id === e) || {};
+  const out = new Set();
+  ["crew", "setters", "owners", "reviewers"].forEach((k) => {
+    (Array.isArray(ent[k]) ? ent[k] : []).forEach((x) => {
+      if (x != null && x !== "") out.add(String(x));
+    });
+  });
+  return out.size;
+}
+
 function estimate(model, chain, side, qty) {
   const inChain = new Set(chain.traits);
   const flow = {};
@@ -154,7 +168,11 @@ function estimate(model, chain, side, qty) {
        меньший: людей мы не считаем (инвариант 6), а потолок актива обязан
        работать. */
     const one0 = Math.max(1, Math.floor(num(f.par)) || 1);
-    const all0 = Math.max(0, Math.floor(num(f.parAll)) || 0);
+    /* Потолок актива бывает привязан к людям: «разом идёт столько,
+       сколько воркеров». Воркеров нет — считаем как одного: ноль читался
+       бы как «предела нет», а это про другое. */
+    const all0 = f.parCrew ? Math.max(1, crewSize(model, f.e))
+      : Math.max(0, Math.floor(num(f.parAll)) || 0);
     const par = all0 > 0 ? Math.min(one0, all0) : one0;
     const calendar = one * Math.ceil(n / par);
     /* Насколько двигает ресурсы САМ шаг. Раздел отчёта — это выполняемая

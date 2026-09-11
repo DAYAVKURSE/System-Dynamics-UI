@@ -30,7 +30,8 @@
    где план разошёлся с делом; одно число вместо двух скрыло бы ровно это.
    ════════════════════════════════════════════════════════════════ */
 
-import { conversionOf, factorChance, factorsOf, hoursOf, parOf, portSpends } from "./funcs.js";
+import { conversionOf, factorChance, factorsOf, hoursOf, parOf, portSpends, withCrewPar }
+  from "./funcs.js";
 import { portQty, stepHours } from "./plan.js";
 
 const num = (v) => Number(v) || 0;
@@ -46,8 +47,10 @@ const num = (v) => Number(v) || 0;
  * @param upto  звено, на котором останавливаемся: ресурс или функция.
  *              Пусто — до конца, докуда дотянется.
  */
-export function chainOf(model = {}, { from, upto = "" } = {}) {
-  const funcs = model.funcs || [];
+export function chainOf(model0 = {}, { from, upto = "" } = {}) {
+  /* Потолок «= числу воркеров» превращается в число здесь: дальше по
+     цепочке ходят уже сами функции, а числа воркеров у них нет. */
+  const funcs = withCrewPar(model0).funcs || [];
   const out = { from: from || "", upto: upto || "", traits: [], steps: [], ok: false };
   if (!from || !funcs.length) return out;
 
