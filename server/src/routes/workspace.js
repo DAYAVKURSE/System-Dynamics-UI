@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify, listOrg } from "../lib/orgStore.js";
-import { addComment, deferTask, dropComment, peopleOf, readModel, reviewTask,
-  setupTask, submitTask, takeTask, taskViewFor, viewFor, withModel, writeModel }
-  from "../lib/workspaceStore.js";
+import { addComment, deferTask, dropComment, dutyFor, peopleOf, readModel,
+  refuseFunc, reviewTask, setupTask, submitTask, takeTask, taskViewFor, viewFor,
+  withModel, writeModel } from "../lib/workspaceStore.js";
 import { publishStep, viewRatingsFor } from "../lib/ratings.js";
 
 const router = Router();
@@ -94,6 +94,32 @@ router.post("/tasks/:id/setup", async (req, res, next) => {
     if (r.error === "not yours") return res.status(403).json({ error: r.error });
     if (r.error) return res.status(400).json({ error: r.error, why: r.why || "" });
     res.json(seen(req, r.task));
+  } catch (e) { next(e); }
+});
+
+/* Поручения человека — тем же срезом, что и модель: где он воркер и его
+   выбрали по должности. Собирает сервер, потому что позванный модель
+   не видит, а список должен быть по всем активам сразу. */
+router.get("/duty", async (req, res, next) => {
+  try {
+    if (!req.me.known) return res.status(403).json({ error: "not invited" });
+    res.json({ duty: dutyFor(await readModel(), req.telegramUserId, req.me.position || "") });
+  } catch (e) { next(e); }
+});
+
+/* Отказ от функции. Выбрать себе работу человек не может — только снять
+   с себя ту, в которой его выбрали, и вернуть назад тем же нажатием.
+   В теле `off: true|false`. */
+router.post("/funcs/:id/duty", async (req, res, next) => {
+  try {
+    if (!req.me.known) return res.status(403).json({ error: "not invited" });
+    const r = await refuseFunc(req.telegramUserId, req.params.id,
+      req.body?.off === true, { position: req.me.position || "" });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not yours")
+      return res.status(403).json({ error: "Эта функция вам не поручена." });
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.json(r);
   } catch (e) { next(e); }
 });
 

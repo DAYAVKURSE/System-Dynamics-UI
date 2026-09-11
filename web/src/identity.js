@@ -148,6 +148,15 @@ export const commentTaskRemote = (id, { text, to = null, hidden = false }) =>
 export const dropCommentRemote = (taskId, commentId) =>
   json(`/api/workspace/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`,
     { method: "DELETE" });
+/* Поручения — то, в чём человека выбрали, по всем активам сразу.
+   Отдельным запросом, потому что модель позванный не видит: список
+   собирает сервер по своим правилам, а не интерфейс по срезу. */
+export const getDuty = () => json("/api/workspace/duty").then((r) => r.duty || []);
+/* Отказ от поручения и возврат назад тем же нажатием. Выбрать себе
+   функцию нельзя — только снять с себя ту, в которой уже выбрали. */
+export const refuseFuncRemote = (id, off) =>
+  json(`/api/workspace/funcs/${encodeURIComponent(id)}/duty`,
+    { method: "POST", body: JSON.stringify({ off }) });
 /* Рейтинги глазами спрашивающего: про себя — только адресованные слова,
    про остальных — средние и публичные слова, нигде — автор. Сервер при
    каждом чтении пробует опубликовать то, что стало анонимным. */

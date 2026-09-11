@@ -589,6 +589,34 @@ export const byPost = (f, role, positionOf, id) => {
     : (Array.isArray(f?.[role]) ? f[role] : []).map(String).includes(String(id));
 };
 
+/**
+ * Что человеку поручено — по всем активам сразу.
+ *
+ * Список того, где он выбран: актив, функция, в каких ролях и не отказался
+ * ли он от неё. Собирается по должности (`byPost`), а не по имени в
+ * функции: назначает должность, человек только отказывается.
+ *
+ * Нужен в анкете: настройки актива человек не видит, а знать, что на нём
+ * висит, должен — и отказаться тоже.
+ */
+export function dutyOf({ funcs = [], entities = [] } = {}, personId,
+  { positionOf = () => "" } = {}) {
+  const id = String(personId ?? "");
+  if (!id) return [];
+  const crewOfAsset = (e) => new Set(crewOf(workersOf(entities, e)).map(String));
+  const inCrew = {};
+  return funcs.map((f) => {
+    if (!(f.e in inCrew)) inCrew[f.e] = crewOfAsset(f.e);
+    if (!inCrew[f.e].has(id)) return null;
+    const roles = WORKER_KINDS.filter((k) => byPost(f, k.id, positionOf, id)).map((k) => k.id);
+    if (!roles.length) return null;
+    const e = entities.find((x) => x.id === f.e) || null;
+    return { func: f.id, name: f.name || "без названия", asset: f.e,
+      assetName: e?.name || "актив удалён", roles,
+      off: exceptOf(f).includes(id) };
+  }).filter(Boolean);
+}
+
 export const WORKER_KINDS = [
   { id: "setters", one: "постановщик", many: "постановщики", task: "постановщик" },
   { id: "owners", one: "исполнитель", many: "исполнители", task: "исполнитель" },

@@ -133,6 +133,9 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
     id, isOwner,
     known: isOwner || !!user,
     name: user?.name || profile.name || "",
+    // Должность — рядом с «кто я»: роли функций записаны должностями, и
+    // без неё нельзя сказать, что человеку поручено.
+    position: user?.position || "",
     // Своя анкета приходит вместе с «кто я»: она нужна на первой же
     // вкладке, и отдельный запрос за ней был бы вторым кругом за тем же.
     profile: profileOf(user || {}),

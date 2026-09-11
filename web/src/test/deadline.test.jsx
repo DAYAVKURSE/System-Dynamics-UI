@@ -270,7 +270,10 @@ describe("список воркеров: кого ставить", () => {
     const props = { workers: W, people: PEOPLE, nameOf: (id) =>
       PEOPLE.find((p) => p.id === id)?.name || id, tasks: TASKS, funcs: FUNCS,
     published: PUBLISHED,
-    positionOf: (id) => (id === "2" ? "Дизайнер" : "Аналитик"),
+    /* Имя должности — в строке человека (`positionName`), идентификатор —
+       для ролей функции (`positionOf`). Это разные вопросы. */
+    positionOf: (id) => (id === "2" ? "p-des" : "p-an"),
+    positionName: (id) => (id === "2" ? "Дизайнер" : "Аналитик"),
     onOrder: () => {}, onOpenPerson: () => {}, ...over };
     return render(<Workers {...props} />);
   };
@@ -318,7 +321,7 @@ describe("список воркеров: кого ставить", () => {
 
   it("чего нет — сказано словом, а не нулём", () => {
     // Ноль читается как «оценили на ноль», а человека ещё не оценивали.
-    mount({ tasks: [], positionOf: () => "" });
+    mount({ tasks: [], positionOf: () => "", positionName: () => "" });
     const row = within(crewCard()).getByText("Иван").closest("button");
     expect(row.textContent).toMatch(/без должности/);
     expect(row.textContent).toMatch(/без оценок/);

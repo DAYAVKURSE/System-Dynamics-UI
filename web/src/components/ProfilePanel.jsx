@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField } from "./ui.jsx";
 import PersonStats from "./PersonStats.jsx";
-import { putProfile } from "../identity.js";
-import { WEEK } from "../lib/funcs.js";
+import { getDuty, putProfile, refuseFuncRemote } from "../identity.js";
+import { WEEK, WORKER_KINDS, dutyOf } from "../lib/funcs.js";
 import { WARNS } from "./TasksBoard.jsx";
 import { WORK_STATUSES, hasSchedule, scheduleOfPerson, scheduleText, statusOf }
   from "../lib/workers.js";
@@ -231,8 +231,75 @@ export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "
 /* `published` — реестр опубликованных оценок из модели; `ratings` — ответ
    сервера про рейтинги, если его спросили. Оба нужны только рейтингу
    ниже: анкета про них не знает. */
-export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = [],
-  traitName, onSaved, published, ratings }) {
+/* ════════════════════════════════════════════════════════════════
+   ВЫПОЛНЯЕМЫЕ ЗАДАЧИ · что человеку поручено
+
+   То же, что в воркерах актива, но собранное по ВСЕМ активам сразу:
+   настройки актива человек не видит, а знать, что на нём висит, должен.
+
+   Выбрать себе работу здесь нельзя. Поручает должность — её назначают у
+   функции, и работу берёт любой воркер с такой должностью. Человек может
+   только отказаться от того, в чём его уже выбрали, и вернуть отказ
+   назад тем же нажатием: отказ не окончателен.
+   ════════════════════════════════════════════════════════════════ */
+
+const ROLE_NAME = Object.fromEntries(WORKER_KINDS.map((k) => [k.id, k.one]));
+/* Один и тот же пустой список на все вызовы: `= []` в подписи создаёт
+   новый массив на каждый отрисованный кадр, а от него считается список
+   поручений — и пересчёт звал бы сам себя без конца. */
+const NONE = [];
+
+function Duty({ mine, list, busy, msg, onRefuse }) {
+  // По активам: человек думает «что у меня в этом активе», а не списком
+  // функций вперемешку.
+  const byAsset = [];
+  list.forEach((d) => {
+    let g = byAsset.find((x) => x.id === d.asset);
+    if (!g) { g = { id: d.asset, name: d.assetName, items: [] }; byAsset.push(g); }
+    g.items.push(d);
+  });
+  return (
+    <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={S.lbl}>{mine ? "мои выполняемые задачи" : "выполняемые задачи"}</div>
+      <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, margin: "6px 0 8px" }}>
+        {mine
+          ? "Здесь то, в чём вас выбрали. Выбрать себе работу нельзя — только отказаться."
+          : "То, в чём человека выбрали на схемах."}
+      </div>
+
+      {!byAsset.length && (
+        <div style={{ fontSize: 12, color: C.muted }}>
+          {mine ? "Вам пока ничего не поручено." : "Ему пока ничего не поручено."}</div>)}
+
+      {byAsset.map((g) => (
+        <div key={g.id} style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>{g.name}</div>
+          {g.items.map((d) => (
+            <div key={d.func} className="flex flex-wrap gap-2"
+              style={{ alignItems: "center", padding: "3px 0" }}>
+              <span style={{ fontSize: 12, fontWeight: 600,
+                textDecoration: d.off ? "line-through" : "none",
+                color: d.off ? C.muted : C.text }}>{d.name}</span>
+              <span style={{ fontSize: 10.5, color: C.muted }}>
+                {d.roles.map((r) => ROLE_NAME[r] || r).join(", ")}</span>
+              <span style={{ flex: 1 }} />
+              {d.off && <span style={{ fontSize: 10.5, color: BAD }}>отказ</span>}
+              {mine && (
+                <button disabled={busy}
+                  aria-label={`${d.off ? "вернуть" : "отказаться"}: ${d.name}`}
+                  style={{ ...btn(d.off, d.off ? null : BAD), fontSize: 11,
+                    padding: "2px 8px" }}
+                  onClick={() => onRefuse(d.func, !d.off)}>
+                  {d.off ? "Вернуть" : "Отказаться"}</button>)}
+            </div>))}
+        </div>))}
+
+      {msg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{msg}</div>}
+    </div>);
+}
+
+export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = NONE,
+  entities = NONE, positionOf, traitName, onSaved, published, ratings, onRefuseFunc }) {
   // Чья анкета открыта. По умолчанию — своя: с себя человек и начинает.
   const id = personId == null ? me?.id : personId;
   const mine = String(id) === String(me?.id);
@@ -329,6 +396,48 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
     if (pending.current) { const p = pending.current; pending.current = null; pushSchedule(p); }
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ─── поручения ───
+
+     Владелец видит модель целиком и считает список сам; позванному модель
+     не видна — за него считает сервер тем же правилом. Отказ уходит туда
+     же, откуда пришёл список: у владельца — правкой модели, у остальных —
+     отдельным запросом. */
+  const localDuty = useMemo(
+    () => dutyOf({ funcs, entities }, id, { positionOf: positionOf || (() => "") }),
+    [funcs, entities, id, positionOf]);
+  const [duty, setDuty] = useState(localDuty);
+  const [dutyMsg, setDutyMsg] = useState("");
+  const [dutyBusy, setDutyBusy] = useState(false);
+  /* Нажатые отказы переживают приход списка: ответ сервера мог уйти
+     раньше нажатия и вернуться позже — тогда список «откатил» бы то, что
+     человек только что нажал. */
+  const dutyTouched = useRef(new Map());
+  const keep = (list) => list.map((d) => (dutyTouched.current.has(d.func)
+    ? { ...d, off: dutyTouched.current.get(d.func) } : d));
+  useEffect(() => { setDuty(keep(localDuty)); }, [localDuty]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { dutyTouched.current = new Map(); }, [id]);
+  useEffect(() => {
+    if (!mine || onRefuseFunc) return undefined;
+    let on = true;
+    getDuty().then((d) => { if (on) setDuty(keep(d)); }).catch(() => {});
+    return () => { on = false; };
+  }, [mine, id, onRefuseFunc]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refuse = async (funcId, off) => {
+    setDutyMsg("");
+    dutyTouched.current.set(funcId, off);
+    setDuty((p) => p.map((d) => (d.func === funcId ? { ...d, off } : d)));
+    if (onRefuseFunc) { onRefuseFunc(funcId, off); return; }
+    setDutyBusy(true);
+    try { await refuseFuncRemote(funcId, off); }
+    catch (e) {
+      dutyTouched.current.set(funcId, !off);
+      setDuty((p) => p.map((d) => (d.func === funcId ? { ...d, off: !off } : d)));
+      setDutyMsg(e.message || "не удалось отправить отказ");
+    }
+    setDutyBusy(false);
+  };
+
   const save = async () => {
     setBusy(true); setMsg("");
     try {
@@ -386,6 +495,10 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
                 {msg}</span>)}
           </div>)}
       </div>
+
+      {/* Выполняемые задачи — ПЕРЕД работами: сначала то, что на человеке
+          висит сейчас, потом то, как он работал раньше. */}
+      <Duty mine={mine} list={duty} busy={dutyBusy} msg={dutyMsg} onRefuse={refuse} />
 
       {/* Рейтинг — вторая половина ответа на тот же вопрос: не «кто это», а
           «как он работал». Поэтому здесь же, а не в отдельном окне.

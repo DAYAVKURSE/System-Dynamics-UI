@@ -284,7 +284,8 @@ function WorkerLine({ pid, name, stat, person, positionName }) {
 
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
   entityId, onToggleFunc,
-  positionOf = () => "", onToggleCrew, onOrder, onOpenPerson, published, me,
+  positionOf = () => "", positionName = () => "", onToggleCrew, onOrder, onOpenPerson,
+  published, me,
   positions = [], onAddPosition, onDropPosition, onSetPosition }) {
   /* ИСКЛЮЧЕНИЯ. Что человек делает, решает его ДОЛЖНОСТЬ: функция называет
      должность, и всякий воркер актива с ней эту работу берёт. Здесь —
@@ -336,6 +337,44 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
             Порядок здесь задаёт человек, и именно в этом порядке воркеры
             показываются потом в формах выбора: у выбирающего бывают
             причины, которых в цифрах нет. */}
+        {/* ─── должности ───
+            Список должностей создаётся здесь: у воркера должность видна в
+            строке, и заводить её в другой вкладке значило бы ходить туда
+            за каждым новым человеком. Роли (вкладки) — не здесь: это
+            другой вопрос и другой список. */}
+        {onAddPosition && (
+          <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
+            borderRadius: 8, padding: 8, marginBottom: 8 }}>
+            <div style={{ ...S.lbl, marginBottom: 4 }}>должности</div>
+            {!positions.length && (
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
+                Должностей ещё нет — добавьте первую.</div>)}
+            <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
+              {positions.map((p) => (
+                <span key={p.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999,
+                  background: C.panel, border: `1px solid ${C.line}` }}>
+                  {p.name}
+                  {onDropPosition && (
+                    <button style={{ background: "none", border: "none", cursor: "pointer",
+                      color: C.muted, marginLeft: 4, padding: 0 }}
+                      aria-label={`убрать должность: ${p.name}`}
+                      onClick={() => act(() => onDropPosition(p.id))}>×</button>)}
+                </span>))}
+            </div>
+            <div className="flex gap-2">
+              <input style={{ ...S.inp, flex: 1 }} value={newPosition} aria-label="новая должность"
+                placeholder="название должности"
+                onChange={(e) => setNewPosition(e.target.value)} />
+              <button style={btn(false)} disabled={!newPosition.trim()}
+                onClick={() => act(async () => {
+                  await onAddPosition(newPosition.trim()); setNewPosition(""); })}>
+                Добавить</button>
+            </div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+              Должность — кем человек числится; по ней и назначают работу.
+            </div>
+            {posMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{posMsg}</div>}
+          </div>)}
         <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
           borderRadius: 8, padding: 8 }}>
           <div style={{ ...S.lbl, marginBottom: 4 }}>воркеры</div>
@@ -361,7 +400,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                     title="график, статус, анкета и рейтинг — окном, не уходя со схемы">
                     <WorkerLine pid={pid} name={name(pid)} stat={stat(pid)}
                       person={personOf(pid)}
-                      positionName={positionOf && positionOf(pid)} />
+                      positionName={positionName(pid)} />
                   </button>
                   {onSetPosition && positions.length > 0 && (
                     <select style={{ ...S.inp, width: "auto", fontSize: 11, padding: "2px 4px" }}
@@ -409,44 +448,6 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
           </div>
         </div>
 
-        {/* ─── должности ───
-            Список должностей создаётся здесь: у воркера должность видна в
-            строке, и заводить её в другой вкладке значило бы ходить туда
-            за каждым новым человеком. Роли (вкладки) — не здесь: это
-            другой вопрос и другой список. */}
-        {onAddPosition && (
-          <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 8, marginTop: 8 }}>
-            <div style={{ ...S.lbl, marginBottom: 4 }}>должности</div>
-            {!positions.length && (
-              <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
-                Должностей ещё нет — добавьте первую.</div>)}
-            <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
-              {positions.map((p) => (
-                <span key={p.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999,
-                  background: C.panel, border: `1px solid ${C.line}` }}>
-                  {p.name}
-                  {onDropPosition && (
-                    <button style={{ background: "none", border: "none", cursor: "pointer",
-                      color: C.muted, marginLeft: 4, padding: 0 }}
-                      aria-label={`убрать должность: ${p.name}`}
-                      onClick={() => act(() => onDropPosition(p.id))}>×</button>)}
-                </span>))}
-            </div>
-            <div className="flex gap-2">
-              <input style={{ ...S.inp, flex: 1 }} value={newPosition} aria-label="новая должность"
-                placeholder="название должности"
-                onChange={(e) => setNewPosition(e.target.value)} />
-              <button style={btn(false)} disabled={!newPosition.trim()}
-                onClick={() => act(async () => {
-                  await onAddPosition(newPosition.trim()); setNewPosition(""); })}>
-                Добавить</button>
-            </div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-              Должность — кем человек числится; по ней и назначают работу.
-            </div>
-            {posMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{posMsg}</div>}
-          </div>)}
       </>)}
     </Section>);
 }
@@ -1199,8 +1200,8 @@ export default function AssetPanel(props) {
 
       {tab === "workers" && (
         <Workers workers={props.workers} people={props.people} nameOf={props.nameOf}
-          tasks={props.tasks} funcs={props.funcs} positionOf={props.positionOf}
-          entityId={props.entityId} positionOf={props.positionOf}
+          tasks={props.tasks} funcs={props.funcs} entityId={props.entityId}
+          positionOf={props.positionOf} positionName={props.positionName}
           onToggleFunc={(pid, fid) => props.setFuncs((p) => p.map((f) => (f.id === fid
             ? editFunc(f, (x) => toggleExcept(x, pid)) : f)))}
           onToggleCrew={props.onToggleCrew} onOrder={props.onOrderWorker}

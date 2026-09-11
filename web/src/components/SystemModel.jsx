@@ -12,7 +12,8 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, checkAsset, countWorkers, crewOf,
   normalizeAssets,
-  editFunc, normalizeFactors, normalizeFuncs, pruneWorkers, workersOf } from "../lib/funcs.js";
+  editFunc, exceptOf, normalizeFactors, normalizeFuncs, pruneWorkers, workersOf }
+  from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
@@ -867,6 +868,27 @@ export default function SystemModel(){
     const u=people.find(p=>String(p.id)===String(id));
     return positions.find(x=>x.id===u?.position)?.name||"";
   },[people,positions]);
+  /* А это — сам ИДЕНТИФИКАТОР должности: по нему сверяются роли функции
+     (`byPost`, `eligible`). Прежде туда уходило имя, и совпасть с
+     идентификатором оно не могло никогда — форма честно писала, что с
+     такой должностью никого нет, хотя люди были. */
+  const positionIdOf=useCallback((id)=>{
+    const u=people.find(p=>String(p.id)===String(id));
+    return u?.position||"";
+  },[people]);
+  /* Отказ от поручения в своей анкете. У владельца модель под рукой —
+     он пишет её сам, тем же исключением, что стоит в карточке воркера;
+     позванный отправляет отказ на сервер (ProfilePanel сделает это сам,
+     если обработчика нет). */
+  const refuseFuncHere=useCallback((funcId,off)=>{
+    setFuncs(list=>list.map(f=>{
+      if(f.id!==funcId) return f;
+      const was=exceptOf(f).map(String);
+      const mineId=String(me.id);
+      const next=off?[...new Set([...was,mineId])]:was.filter(x=>x!==mineId);
+      return editFunc(f,x=>({...x,except:next}));
+    }));
+  },[setFuncs,me.id]);
   const personName=useCallback((id)=>{
     if(id==null||id==="") return "не назначен";
     return people.find(p=>String(p.id)===String(id))?.name||String(id);
@@ -1054,6 +1076,8 @@ export default function SystemModel(){
       {tab==="me" && (
         <ProfilePanel me={me} personId={person} people={people}
           tasks={tasks} funcs={funcs} published={published} ratings={ratings}
+          entities={entities} positionOf={positionIdOf}
+          onRefuseFunc={me.isOwner?refuseFuncHere:undefined}
           traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
           onSaved={p=>{
             setMe(m=>({...m,profile:p}));
@@ -1171,7 +1195,7 @@ export default function SystemModel(){
 
             <AssetPanel entityId={selE.id}
               me={me} published={published}
-              workers={workers} positionOf={positionName}
+              workers={workers} positionOf={positionIdOf} positionName={positionName}
               funcs={funcs} setFuncs={setFuncs}
               traits={traitsLive} setTraits={setTraits} materials={materials}
               entities={entities} kinds={kinds} kindOf={kindOf}
@@ -1418,6 +1442,8 @@ export default function SystemModel(){
         <Modal onClose={()=>setCard(null)} title={personName(card)}>
           <ProfilePanel me={me} personId={card} people={people}
             tasks={tasks} funcs={funcs} published={published} ratings={ratings}
+            entities={entities} positionOf={positionIdOf}
+            onRefuseFunc={me.isOwner&&String(card)===String(me.id)?refuseFuncHere:undefined}
             traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
             onSaved={p=>{
               setMe(m=>({...m,profile:p}));

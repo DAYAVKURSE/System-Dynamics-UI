@@ -14,12 +14,17 @@ const PEOPLE = [
   { id: "3", name: "Пётр", roleId: "reviewer" },
 ];
 const POSITIONS = [{ id: "p1", name: "дизайнер" }, { id: "p2", name: "аналитик" }];
-const positionOf = (id) => POSITIONS
-  .find((p) => p.id === PEOPLE.find((x) => x.id === id)?.position)?.name || "";
+/* Две разные вещи, и путать их нельзя: `positionOf` отдаёт ИДЕНТИФИКАТОР
+   должности — по нему сверяются роли функции; `positionName` — ИМЯ, оно
+   стоит в строке человека. Прежде сюда уходило имя, и совпасть с
+   идентификатором оно не могло никогда. */
+const positionOf = (id) => PEOPLE.find((x) => x.id === id)?.position || "";
+const positionName = (id) => POSITIONS.find((p) => p.id === positionOf(id))?.name || "";
 
 const mount = (over = {}) => render(<Workers workers={{ crew: ["2", "3"] }} people={PEOPLE}
   nameOf={(id) => PEOPLE.find((p) => p.id === id)?.name || id} tasks={[]} funcs={[]}
-  positionOf={positionOf} onOrder={() => {}} onOpenPerson={() => {}}
+  positionOf={positionOf} positionName={positionName}
+  onOrder={() => {}} onOpenPerson={() => {}}
   positions={POSITIONS} {...over} />);
 
 describe("должности в блоке воркеров", () => {
