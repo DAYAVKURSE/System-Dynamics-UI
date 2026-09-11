@@ -9,6 +9,7 @@ import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWo
   hoursOf, newFunc, newGive, newPort, okRange, parAssetOf, parOf, parWorkerOf,
   portSpends, rangeText, runHours,
   runQty } from "../lib/funcs.js";
+import { MATERIAL_KINDS, traitKind } from "../lib/units.js";
 import { Mark } from "./Modal.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
 import { scheduleOfPerson, statusOf, visibleStats } from "../lib/workers.js";
@@ -1165,6 +1166,33 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                 <TxtField value={t.unit || ""} onCommit={(v) => up(t.id, { unit: v })} />
               </div>
             </div>
+            {/* ─── чем подтверждается единица ───
+                Вопрос не к загрузке, а к ресурсу: чем подтверждается
+                договор, решают один раз — когда заводят «договоры», а не
+                каждый раз, когда очередной договор кладут. Отсюда правило
+                и берут обе двери: «Материалы» и сдача задачи.
+                Загружают только файл или текст; уникальный код создаёт
+                программа, а прикладывают к нему подтверждение — один файл
+                на всю загрузку. */}
+            <div style={{ ...S.lbl, marginTop: 8 }}>чем подтверждается единица</div>
+            <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+              {MATERIAL_KINDS.map((k) => {
+                const on = traitKind(t) === k.id;
+                return (
+                  <button key={k.id} aria-pressed={on}
+                    aria-label={`${k.name}: ${t.l || "без названия"}`}
+                    style={{ ...btn(on, on ? ACC : null), fontSize: 11, padding: "3px 7px" }}
+                    onClick={() => up(t.id, { kind: k.id })}>{k.name}</button>);
+              })}
+            </div>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+              {traitKind(t) === "code"
+                ? "Код создаёт программа. При загрузке прикладывают подтверждение — один файл на все единицы."
+                : traitKind(t) === "text"
+                  ? "Каждую единицу вводят текстом — свой у каждой."
+                  : "Каждую единицу прикладывают файлом — свой у каждой."}
+            </div>
+
             {/* Классификаций может быть несколько: кнопки не переключают
                 одну на другую, а ставят и снимают каждую сама по себе. */}
             <div style={{ ...S.lbl, marginTop: 8 }}>чем считаем — можно несколько</div>

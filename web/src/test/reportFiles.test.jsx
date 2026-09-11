@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 /* Вещь, вышедшая из работы, уезжает на диск сервера, а в сценарий попадает
    ссылка. Без сервера — обратно в data:-URL внутри сценария. Файла
    «отчёт вообще» у сдачи больше нет: отчёт — словами, файлы — по ресурсам
-   (`submissions[].files[trait]`). */
+   (`submissions[].units[trait][i].file`). */
 
 const file = (name = "снимок.png", type = "image/png", size = 12) => {
   const f = new File([new Uint8Array(size)], name, { type });
@@ -119,8 +119,8 @@ describe("файл отчёта — на диске, ссылка в сцена�
     writeReport();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     const sub = dump().tasks[0].submissions[0];
-    expect(sub.files.t2.url).toMatch(/^\/api\/reports\//);
-    expect(sub.files.t2.data).toBeUndefined();     // никакого data:-URL в сценарии
+    expect(sub.units.t2[0].file.url).toMatch(/^\/api\/reports\//);
+    expect(sub.units.t2[0].file.data).toBeUndefined();     // никакого data:-URL в сценарии
     expect(sub.text).toBe("собрал заявки");
     expect(sub.file).toBeNull();                   // файла «отчёт вообще» нет
   });
@@ -135,7 +135,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
       await waitFor(() => expect(screen.getAllByText(/📎/).length).toBeGreaterThan(0));
       writeReport();
       fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
-      const saved = dump().tasks[0].submissions[0].files.t2;
+      const saved = dump().tasks[0].submissions[0].units.t2[0].file;
       expect(saved.data).toMatch(/^data:/);
       expect(saved.url).toBeUndefined();
     });

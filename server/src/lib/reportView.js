@@ -232,8 +232,17 @@ function unitRows(model = {}) {
     const took = [...new Set(Object.values(sb.took || {}).flat().filter(Boolean))]
       .map(String);
     Object.entries(sb.gives || {}).forEach(([trait, v]) => {
-      if (num(v) > 0) {
-        rows.push({ id: `${sb.id}~${trait}`, trait, at: str(sb.at), task: t.id, took });
+      if (!(num(v) > 0)) return;
+      /* Сколько единиц сдали — столько и вещей: у каждой своё содержимое
+         (`sb.units[trait]`). Правило то же, что в приложении. У прежних
+         сдач списка нет — там одна строка на всё количество, и первая
+         единица нового списка носит её прежний идентификатор: на него
+         ссылаются разделы отчётов. */
+      const list = Array.isArray((sb.units || {})[trait]) ? sb.units[trait] : null;
+      const n = list && list.length ? list.length : 1;
+      for (let i = 0; i < n; i += 1) {
+        rows.push({ id: i ? `${sb.id}~${trait}~${i}` : `${sb.id}~${trait}`,
+          trait, at: str(sb.at), task: t.id, took });
       }
     });
   });

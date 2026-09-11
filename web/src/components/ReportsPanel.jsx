@@ -11,7 +11,7 @@ import {
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
   from "../lib/reportDoc.js";
 import { chainOf } from "../lib/chain.js";
-import { MATERIAL_KINDS, newCode, newMaterials, spentIds, unitsOf, unitsOfTrait }
+import { MATERIAL_KINDS, newCode, newMaterials, spentIds, traitKind, unitsOf, unitsOfTrait }
   from "../lib/units.js";
 import Modal from "./Modal.jsx";
 
@@ -703,10 +703,10 @@ function UnitRow({ u, unit, spent, nameOf, traitName, unitNo }) {
     </div>);
 }
 
-/** Окно «загрузить единицу ресурса»: количество, вид, и по полю на каждую единицу. */
-function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose }) {
+/** Окно «загрузить единицу ресурса»: количество и по полю на каждую единицу. */
+function UploadMaterial({ trait, traitName, kind = "file", existing = [], meId,
+  onAdd, onClose }) {
   const [qty, setQty] = useState(1);
-  const [kind, setKind] = useState("file");
   /* На каждую единицу — своё содержимое: «Количество 10» — десять
      файлов, десять текстов или десять кодов, по полю на каждый. Списки
      держатся по индексу: убавили количество — хвост отрезан, прибавили —
@@ -715,6 +715,12 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
   const [busy, setBusy] = useState({});
   const [errs, setErrs] = useState({});
   const [texts, setTexts] = useState([]);
+  /* Подтверждение — один файл на всю загрузку и сразу на все её единицы:
+     у кода показать нечего, кроме бумаги о выдаче, и подтверждают ею
+     партию, а не каждый ключ отдельно. */
+  const [proof, setProof] = useState(null);
+  const [proofBusy, setProofBusy] = useState(false);
+  const [proofErr, setProofErr] = useState("");
   /* Коды рождаются здесь, в окне, и показываются до загрузки: то, что
      человек видит, то и сохранится. */
   const taken = useMemo(() => new Set(existing.map((m) => m.code).filter(Boolean)), [existing]);
@@ -747,11 +753,19 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
   const idx = Array.from({ length: n }, (_, i) => i);
   const filled = kind === "file" ? idx.filter((i) => at(files, i)).length
     : kind === "text" ? idx.filter((i) => String(at(texts, i) || "").trim()).length
-      : codes.length;
-  const ready = filled === n && !Object.values(busy).some(Boolean);
+      : (proof ? n : 0);
+  const ready = filled === n && !Object.values(busy).some(Boolean) && !proofBusy;
+  const pickProof = async (f) => {
+    setProofErr("");
+    if (!f) return;
+    setProofBusy(true);
+    try { setProof(await putReportFile(f)); }
+    catch (e) { setProofErr(e.message || "не удалось сохранить файл"); }
+    setProofBusy(false);
+  };
   const submit = () => {
     if (!ready) return;
-    onAdd(newMaterials({ trait, qty: n, kind, by: meId, existing, codes,
+    onAdd(newMaterials({ trait, qty: n, kind, by: meId, existing, codes, proof,
       files: idx.map((i) => at(files, i)), texts: idx.map((i) => String(at(texts, i) || "")) }));
     onClose();
   };
@@ -764,24 +778,22 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
   const rowLbl = { fontSize: 10.5, color: ACC, fontWeight: 700, marginTop: 6 };
   return (
     <Modal title={`Добавить: ${traitName}`} onClose={onClose}>
+      {/* Вид выбирать здесь нечего: чем подтверждается единица, решено у
+          самого ресурса — на вкладке «Схема». Вопрос «файл или текст» на
+          каждой загрузке был вопросом не на том месте: сегодня договор
+          кладут файлом, завтра текстом, и ресурс перестаёт быть одной
+          вещью. Правило одно на все двери: и здесь, и при сдаче задачи. */}
       <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>
-        Единица ресурса — что-то одно: файл, текст или поле с уникальным кодом.
-        У каждой единицы своё.
+        {kind === "code"
+          ? "Единицы этого ресурса — уникальные коды: их создаёт программа. Приложите подтверждение — один файл на всю загрузку."
+          : kind === "text"
+            ? "Единицы этого ресурса — тексты: у каждой свой."
+            : "Единицы этого ресурса — файлы: у каждой свой."}
+        {" Вид задан у ресурса, на вкладке «Схема»."}
       </div>
       <div style={{ ...S.lbl, marginTop: 8 }}>количество</div>
       <input type="number" min="1" step="1" value={qty} aria-label="количество"
         onChange={(e) => setQty(e.target.value)} style={{ ...field, width: 120 }} />
-      <div style={{ ...S.lbl, marginTop: 8 }}>прилагаемые материалы</div>
-      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="прилагаемые материалы"
-        style={{ marginTop: 4 }}>
-        {MATERIAL_KINDS.map((k) => (
-          <label key={k.id} style={{ ...btn(kind === k.id), fontSize: 11.5, cursor: "pointer",
-            display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <input type="radio" name="material-kind" value={k.id} checked={kind === k.id}
-              onChange={() => setKind(k.id)} aria-label={k.name} />
-            {k.name}
-          </label>))}
-      </div>
       {kind === "file" && (
         <div style={{ marginTop: 8 }}>
           <div style={S.lbl}>файлы — {n > 1 ? `свой у каждой из ${nm(n)} единиц` : "один"}
@@ -824,6 +836,21 @@ function UploadMaterial({ trait, traitName, existing = [], meId, onAdd, onClose 
           </div>
           <button style={{ ...btn(false), fontSize: 11, marginTop: 6 }} onClick={regen}>
             {n > 1 ? "другие коды" : "другой код"}</button>
+          <div style={{ ...S.lbl, marginTop: 10 }}>подтверждение — один файл на все единицы</div>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
+            <label style={{ ...btn(false), fontSize: 11.5, cursor: proofBusy ? "default" : "pointer",
+              opacity: proofBusy ? 0.6 : 1, borderColor: proof ? undefined : "#5A2436" }}>
+              {proofBusy ? "Загружаю…" : proof ? "Заменить подтверждение" : "Загрузить подтверждение"}
+              <input type="file" style={{ display: "none" }} disabled={proofBusy}
+                aria-label="подтверждение выдачи"
+                onChange={(e) => pickProof(e.target.files?.[0])} />
+            </label>
+            {proof && <span style={{ fontSize: 11, color: OK }}>📎 {proof.name}</span>}
+            {proofErr && <span style={{ fontSize: 11, color: BAD }}>{proofErr}</span>}
+          </div>
+          {!proof && (
+            <div style={{ fontSize: 10.5, color: WARN, marginTop: 3 }}>
+              без него загрузить нельзя: код показать нечем, кроме бумаги о выдаче</div>)}
         </div>)}
       <div className="flex gap-2" style={{ marginTop: 12, justifyContent: "flex-end" }}>
         <button style={btn(false)} onClick={onClose}>Отмена</button>
@@ -931,6 +958,7 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
       })}
       {adding && cur && (
         <UploadMaterial trait={cur.id} traitName={cur.l || "ресурс"} existing={materials}
+          kind={traitKind(cur)}
           meId={meId} onClose={() => setAdding(false)}
           onAdd={(rows) => { setMaterials?.((p) => [...(p || []), ...rows]); setShown(true); }} />)}
     </div>);

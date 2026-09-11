@@ -3,7 +3,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui
 import { DUR_UNITS, WORKER_KINDS, byCrew, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
-import { heldBy, unitsOf, unitLabel } from "../lib/units.js";
+import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel } from "../lib/units.js";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -134,6 +134,17 @@ const fmtDT=(v)=>{
     {day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
 };
 const uid=(p)=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const num=(v)=>Number(v)||0;
+/* «4 единиц» читается как оговорка. Слово по числу: 1 — единица, 2–4 —
+   единицы, дальше — единиц; 11–14 — исключение, как и в русском счёте. */
+const unitWord=(n)=>{
+  const d=Math.abs(Math.floor(n))%100;
+  const one=d%10;
+  if(d>=11&&d<=14) return "единиц";
+  if(one===1) return "единица";
+  if(one>=2&&one<=4) return "единицы";
+  return "единиц";
+};
 
 // Предел зависит от того, есть ли куда класть файл: на диск сервера влезает
 // 20 МБ, внутрь сценария — 2 МБ. Оба живут в storage.js; здесь оставлен
@@ -372,7 +383,7 @@ export function autoFlow(tasks=[],opts={}){
  * потому что у функции их несколько и порядок портов не обязан совпадать.
  */
 export const newSubmission=({hours=0,takes={},gives={},took={},files={},
-  text="",file=null,setterRating=null})=>
+  units={},proof=null,text="",file=null,setterRating=null})=>
   ({id:uid("sb"),at:new Date().toISOString(),hours:Number(hours)||0,
     takes:{...takes},gives:{...gives},
     /* Оценка постановки — часть сдачи: исполнитель говорит, как ему
@@ -396,6 +407,18 @@ export const newSubmission=({hours=0,takes={},gives={},took={},files={},
        столько, и без этого работа не сделана. */
     files:Object.fromEntries(Object.entries(files||{})
       .filter(([k,v])=>k&&v)),
+    /* По записи на КАЖДУЮ сданную единицу, с её содержимым: файл, текст
+       или уникальный код. Одна запись на десять штук говорила «десять
+       есть» и молчала о том, какие они. Чем подтверждается единица,
+       решает ресурс, а не сдача (`traitKind` в lib/units.js). */
+    units:Object.fromEntries(Object.entries(units||{})
+      .map(([k,v])=>[String(k),(Array.isArray(v)?v:[]).map(u=>({
+        kind:["file","text","code"].includes(u?.kind)?u.kind:"file",
+        file:u?.file||null,text:String(u?.text||""),code:String(u?.code||"")}))])
+      .filter(([,v])=>v.length)),
+    /* Подтверждение выдачи — один файл на всю сдачу и сразу на все её
+       единицы-коды: подтверждают партию, а не каждый ключ отдельно. */
+    proof:proof||null,
     /* КАКИЕ именно единицы взяли — карта «ресурс → номера». Количества
        говорят, что израсходована одна заявка, и молчат о том, чья; а
        спрашивают потом именно об этом: «покажи весь отчёт вот по этому
@@ -834,12 +857,19 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
   const [hours,setHours]=useState(0);
   const [qty,setQty]=useState({takes:{},gives:{}});
   const [took,setTook]=useState({});
-  /* Вещи, которые вышли из работы: по одной на каждый выданный ресурс.
-     Это сами результаты, на которые потом ссылаются разделы отчёта и по
-     которым их скачивают. */
-  const [giveFiles,setGiveFiles]=useState({});
+  /* Вещи, которые вышли из работы: по одной на КАЖДУЮ сданную единицу.
+     Сдал десять договоров — десять файлов: одна вещь на десять штук
+     говорила «десять есть» и молчала о том, какие они. Держатся списком
+     по индексу: `giveUnits[ресурс][i]`. */
+  const [giveUnits,setGiveUnits]=useState({});
   const [giveBusy,setGiveBusy]=useState("");
   const [giveErr,setGiveErr]=useState({});
+  /* Подтверждение — один файл на всю сдачу, для ресурсов с уникальным
+     кодом: сам код создаёт программа, а показать нужно бумагу о выдаче.
+     Оно ложится сразу всем таким единицам этой сдачи. */
+  const [proof,setProof]=useState(null);
+  const [proofBusy,setProofBusy]=useState(false);
+  const [proofErr,setProofErr]=useState("");
   /* Человек уже написал отчёт и приложил обязательное, но хочет вернуться
      к вещам — заменить или приложить необязательную. Кнопки загрузки тогда
      показываются снова на месте оценки. */
@@ -857,8 +887,9 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
   const tasksAll=tasks.length?tasks:[task];
 
   const reset=()=>{
-    setHanding(false); setDraftText(""); setTook({}); setGiveFiles({});
+    setHanding(false); setDraftText(""); setTook({}); setGiveUnits({});
     setGiveErr({}); setGiveBusy(""); setRating(NO_RATING); setMoreThings(false);
+    setProof(null); setProofErr(""); setProofBusy(false);
   };
   const startHanding=()=>{
     if(!func) return;
@@ -866,10 +897,14 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     // переписать одно число проще, чем набирать все с нуля.
     const mid=(p)=>Math.round(((Number(p.lo)||0)+(Number(p.hi)||0))/2*100)/100;
     setHours(hoursOf(func));
+    /* Выдано — штуками: единица ресурса это вещь, а половины вещи не
+       сдают. Взято оставляем как есть — там бывает и расход по чуть-чуть. */
     setQty({takes:Object.fromEntries(func.takes.map(p=>[p.trait,mid(p)])),
-      gives:Object.fromEntries(func.gives.map(p=>[p.trait,mid(p)]))});
+      gives:Object.fromEntries(func.gives.map(p=>[p.trait,
+        Math.max(num(p.lo)>0?1:0,Math.round(mid(p)))]))});
     setTook({});
-    setGiveFiles({}); setGiveErr({}); setGiveBusy("");
+    setGiveUnits({}); setGiveErr({}); setGiveBusy("");
+    setProof(null); setProofErr(""); setProofBusy(false);
     setRating(NO_RATING); setMoreThings(false);
     setHanding(true);
   };
@@ -879,28 +914,86 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 
   /* Приложить вышедшую вещь. Ресурс назван явно: одна сдача выдаёт и макет,
      и смету, и класть их в одно поле значило бы потерять, что где. */
-  const pickGiveFile=async(trait,f)=>{
-    setGiveErr(p=>({...p,[trait]:""}));
+  /* ─── сколько единиц сдают и чем они подтверждаются ───
+
+     Число единиц берётся из самой сдачи: сколько человек сказал, что
+     выдал, столько вещей и прикладывает. Вид — у РЕСУРСА (файл, текст
+     или уникальный код), а не у загрузки: чем подтверждается договор,
+     решено один раз, когда завели «договоры». */
+  const slots=(trait)=>Math.max(0,Math.floor(num(qty.gives[trait])));
+  const kindOf=(trait)=>kindOfTrait(traits,trait);
+  const unitsFor=(trait)=>giveUnits[trait]||[];
+  const putUnit=(trait,i,patch)=>setGiveUnits(p=>{
+    const was=[...(p[trait]||[])];
+    was[i]={...(was[i]||{}),...patch};
+    return {...p,[trait]:was};
+  });
+  /* Коды создаёт программа, и создаёт ЗДЕСЬ: человек видит их до сдачи —
+     показать один код, а записать другой было бы обманом. Занятые уже
+     единицами этого ресурса не повторяются. */
+  const takenCodes=()=>new Set(unitsOf({tasks:tasksAll,funcs,materials})
+    .map(u=>u.code).filter(Boolean));
+  useEffect(()=>{
+    if(!handing||!func) return;
+    func.gives.forEach(p=>{
+      if(kindOf(p.trait)!=="code") return;
+      const n=slots(p.trait);
+      const have=unitsFor(p.trait);
+      if(have.filter(u=>u&&u.code).length===n&&have.length===n) return;
+      const taken=takenCodes();
+      have.forEach(u=>{ if(u&&u.code) taken.add(u.code); });
+      const next=Array.from({length:n},(_,i)=>{
+        if(have[i]&&have[i].code) return have[i];
+        const code=newCode(taken); taken.add(code);
+        return {kind:"code",code};
+      });
+      setGiveUnits(q=>({...q,[p.trait]:next}));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[handing,JSON.stringify(qty.gives),func?.id]);
+
+  const pickGiveFile=async(trait,i,f)=>{
+    setGiveErr(p=>({...p,[`${trait}~${i}`]:""}));
     if(!f) return;
-    setGiveBusy(trait);
+    setGiveBusy(`${trait}~${i}`);
     try{
       const saved=await putReportFile(f);
-      setGiveFiles(p=>({...p,[trait]:saved}));
+      putUnit(trait,i,{kind:"file",file:saved});
       // Вернулись «к вещам», приложили — и обратно к оценке.
       setMoreThings(false);
     }catch(e){
-      setGiveErr(p=>({...p,[trait]:e.message||"не удалось сохранить файл"}));
+      setGiveErr(p=>({...p,[`${trait}~${i}`]:e.message||"не удалось сохранить файл"}));
     }
     setGiveBusy("");
   };
-  const dropGiveFile=(trait)=>setGiveFiles(p=>{const q={...p};delete q[trait];return q;});
+  const dropGiveFile=(trait,i)=>putUnit(trait,i,{kind:"file",file:null});
+  const pickProof=async(f)=>{
+    setProofErr("");
+    if(!f) return;
+    setProofBusy(true);
+    try{ setProof(await putReportFile(f)); setMoreThings(false); }
+    catch(e){ setProofErr(e.message||"не удалось сохранить файл"); }
+    setProofBusy(false);
+  };
 
-  /* Чего не хватает, чтобы работа считалась сделанной: обязательный выход
-     без приложенной вещи и отчёт без слов. Пока чего-то нет, «Сдать» не
-     показывается — и сказано, что именно нужно, а не просто «нельзя». */
-  const missing=func?missingGives(func,giveFiles):[];
+  /* Сколько единиц уже заполнено. У кода заполнять нечего — его создала
+     программа; вместо него ждут подтверждение, одно на всю сдачу. */
+  const filledOf=(trait)=>{
+    const k=kindOf(trait);
+    const n=slots(trait);
+    if(k==="code") return proof?n:0;
+    return unitsFor(trait).slice(0,n)
+      .filter(u=>(k==="file"?u&&u.file:u&&String(u.text||"").trim())).length;
+  };
+  const needsProof=!!func&&func.gives.some(p=>kindOf(p.trait)==="code"&&slots(p.trait)>0);
+
+  /* Чего не хватает, чтобы работа считалась сделанной: обязательный выход,
+     у которого приложены не все единицы, и отчёт без слов. Пока чего-то
+     нет, «Сдать» не показывается — и сказано, что именно нужно. */
+  const filledAll=func?Object.fromEntries(func.gives.map(p=>[p.trait,filledOf(p.trait)])):{};
+  const missing=func?missingGives(func,filledAll,qty.gives):[];
   const written=!!String(draftText||"").trim();
-  const ready=written&&!missing.length;
+  const ready=written&&!missing.length&&(!needsProof||!!proof);
   const showThings=!ready||moreThings;
   const submit=()=>{
     /* Сдал — не значит принято. Задача уходит на проверку: «Готово» ставит
@@ -912,8 +1005,20 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     /* Без обязательных вещей и без слов сдачи не бывает: работа, от которой
        ждали макет, без макета не сделана, сколько бы часов на неё ни ушло. */
     if(!ready) return;
+    /* По записи на каждую сданную единицу — с её содержимым. Ровно
+       столько, сколько сказано в «выдано»: лишние поля не сдаются, и
+       недостающих не бывает — без них «Сдать» не появляется. */
+    const units=Object.fromEntries(func.gives.map(p=>{
+      const n=slots(p.trait);
+      const k=kindOf(p.trait);
+      const list=unitsFor(p.trait);
+      return [p.trait,Array.from({length:n},(_,i)=>(k==="file"
+        ?{kind:"file",file:list[i]?.file||null}
+        :k==="text"?{kind:"text",text:String(list[i]?.text||"")}
+        :{kind:"code",code:String(list[i]?.code||"")}))];
+    }).filter(([,v])=>v.length));
     const submission=newSubmission({hours,takes:qty.takes,gives:qty.gives,
-      took,files:giveFiles,text:draftText,file:null,
+      took,units,proof,text:draftText,file:null,
       setterRating:ratesSetter?rating:null});
     upMany({submissions:[...subs,submission],
       status:selfReview(task)?"done":"review"});
@@ -941,8 +1046,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
           <span style={{fontSize:11.5,flex:"1 1 130px"}}>{traitName(port.trait)}</span>
           <span style={{fontSize:10.5,color:WARN}}>план {rangeText(port)}</span>
+          {/* Выдано — штуками: единица ресурса это вещь, и по каждой
+              сданной штуке дальше спрашивается своё содержимое. */}
           <NumField value={qty[kind][port.trait]??0} style={{flex:"0 1 90px"}}
-            onCommit={v=>setQty(p=>({...p,[kind]:{...p[kind],[port.trait]:Number(v)||0}}))}/>
+            aria-label={`${kind==="takes"?"взято":"выдано"}: ${traitName(port.trait)}`}
+            onCommit={v=>setQty(p=>({...p,[kind]:{...p[kind],[port.trait]:
+              kind==="gives"?Math.max(0,Math.floor(Number(v)||0)):(Number(v)||0)}}))}/>
         </div>
         {!!own.length&&(
           <div className="flex flex-wrap gap-2" style={{marginTop:4}}>
@@ -961,36 +1070,114 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       </div>);
   };
 
-  /* Вещь по одному выходу функции: кнопка «Загрузить <ресурс>», приложенное
-     — ссылкой с «убрать». Обязателен ли выход, решает одно место на всё
-     приложение (`requiredGives`): второе такое же правило разошлось бы с
-     первым, и кнопка запрещала бы одно, а подпись обещала другое. */
+  /* ─── вещи по одному выходу функции ───
+
+     Сколько единиц сдают — столько и полей: сдал десять договоров —
+     десять файлов, по одному на договор. Одно поле на десять штук
+     говорило «десять есть» и молчало о том, какие они.
+
+     Чем единица подтверждается, решает РЕСУРС (`kindOfTrait`): файл,
+     текст или уникальный код. Код не загружают — его создаёт программа;
+     вместо него на всю сдачу прикладывают одно подтверждение.
+
+     Обязателен ли выход, решает одно место на всё приложение
+     (`requiredGives`): второе такое же правило разошлось бы с первым. */
+  const listBox={maxHeight:200,overflowY:"auto",marginTop:4,paddingRight:4,
+    border:`1px solid ${C.line}`,borderRadius:6,padding:"2px 6px 6px"};
   const ThingRow=({port})=>{
     const name=traitName(port.trait);
     const must=requiredGives(func).some(x=>x.trait===port.trait);
-    const got=giveFiles[port.trait];
-    const busy=giveBusy===port.trait;
+    const n=slots(port.trait);
+    const k=kindOf(port.trait);
+    const list=unitsFor(port.trait);
+    const done=filledOf(port.trait);
+    const idx=Array.from({length:n},(_,i)=>i);
     return (
-      <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:5}}>
-        <label style={{...btn(false),fontSize:11,padding:"4px 8px",
-          cursor:busy?"default":"pointer",opacity:busy?0.6:1,
-          borderColor:must&&!got?"#5A2436":undefined}}>
-          {busy?"Загружаю…":got?`Заменить ${name}`:`Загрузить ${name}`}
-          <input type="file" style={{display:"none"}} disabled={busy}
-            aria-label={`результат: ${name}`}
-            onChange={e=>pickGiveFile(port.trait,e.target.files?.[0])}/>
-        </label>
-        {got&&(<span style={{fontSize:10.5,color:ACC}}>
-          📎 {got.name} · {Math.round((got.size||0)/1024)} КБ</span>)}
-        {got&&(<button style={{...btn(false),fontSize:10.5,padding:"2px 6px",color:BAD}}
-          aria-label={`убрать ${name}`} onClick={()=>dropGiveFile(port.trait)}>×</button>)}
-        {!got&&(<span style={{fontSize:10,color:must?WARN:C.muted}}>
-          {must?"обязательно: без него работа не сдаётся"
-            :"можно не прикладывать: минимум по этому ресурсу — 0"}</span>)}
-        {giveErr[port.trait]&&(
-          <span style={{fontSize:10.5,color:BAD}}>{giveErr[port.trait]}</span>)}
+      <div style={{marginBottom:8}}>
+        <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+          <span style={{fontSize:11.5,fontWeight:600}}>{name}</span>
+          <span style={{fontSize:10.5,color:C.muted}}>
+            {n?`${nm(n)} ${unitWord(n)} · ${k==="code"?"уникальный код"
+              :k==="text"?"текст":"файл"}`:"ничего не выдано"}</span>
+          <span style={{flex:1}}/>
+          {!!n&&(<span style={{fontSize:10.5,color:done===n?OK:must?WARN:C.muted}}>
+            {k==="code"?(proof?"подтверждение есть":"нужно подтверждение")
+              :n>1?`готово ${done} из ${nm(n)}`
+                :done?"приложено"
+                  :must?"обязательно: без него работа не сдаётся"
+                    :"можно не прикладывать: минимум по этому ресурсу — 0"}</span>)}
+        </div>
+        {!n&&(<div style={{fontSize:10,color:C.muted,marginTop:2}}>
+          поставьте число выше — по единице на каждую сданную вещь</div>)}
+        {!!n&&k==="code"&&(
+          <div role="list" aria-label={`коды: ${name}`} style={{...listBox,maxHeight:140}}>
+            {idx.map(i=>(
+              <input key={i} readOnly value={list[i]?.code||""}
+                aria-label={`уникальный код ${i+1}: ${name}`}
+                style={{...S.inp,width:"100%",marginTop:4,fontSize:11.5,
+                  fontFamily:"ui-monospace, monospace",letterSpacing:1}}/>))}
+          </div>)}
+        {!!n&&k==="code"&&(
+          <div style={{fontSize:10,color:C.muted,marginTop:3}}>
+            коды создаёт программа — набранный руками не уникален ничем
+          </div>)}
+        {!!n&&k==="file"&&(
+          <div role="list" aria-label={`файлы: ${name}`} style={listBox}>
+            {idx.map(i=>{
+              const got=list[i]?.file;
+              const busy=giveBusy===`${port.trait}~${i}`;
+              const err=giveErr[`${port.trait}~${i}`];
+              return (
+                <div key={i} role="listitem" className="flex flex-wrap gap-2"
+                  style={{alignItems:"center",marginTop:4}}>
+                  <label style={{...btn(false),fontSize:11,padding:"3px 8px",
+                    cursor:busy?"default":"pointer",opacity:busy?0.6:1,
+                    borderColor:must&&!got?"#5A2436":undefined}}>
+                    {busy?"Загружаю…":n>1?(got?`Заменить №${i+1}`:`Загрузить №${i+1}`):(got?`Заменить ${name}`:`Загрузить ${name}`)}
+                    <input type="file" style={{display:"none"}} disabled={busy}
+                      aria-label={n>1?`результат ${i+1}: ${name}`:`результат: ${name}`}
+                      onChange={e=>pickGiveFile(port.trait,i,e.target.files?.[0])}/>
+                  </label>
+                  {got&&(<span style={{fontSize:10.5,color:ACC}}>
+                    📎 {got.name} · {Math.round((got.size||0)/1024)} КБ</span>)}
+                  {got&&(<button style={{...btn(false),fontSize:10.5,padding:"2px 6px",color:BAD}}
+                    aria-label={n>1?`убрать результат ${i+1}: ${name}`:`убрать ${name}`}
+                    onClick={()=>dropGiveFile(port.trait,i)}>×</button>)}
+                  {err&&(<span style={{fontSize:10.5,color:BAD}}>{err}</span>)}
+                </div>);
+            })}
+          </div>)}
+        {!!n&&k==="text"&&(
+          <div role="list" aria-label={`тексты: ${name}`} style={listBox}>
+            {idx.map(i=>(
+              <textarea key={i} rows={n>1?2:4} value={list[i]?.text||""}
+                aria-label={n>1?`результат ${i+1}: ${name}`:`результат: ${name}`}
+                onChange={e=>putUnit(port.trait,i,{kind:"text",text:e.target.value})}
+                style={{...S.inp,width:"100%",marginTop:4,fontSize:12,resize:"vertical"}}/>))}
+          </div>)}
+        {n>1&&!must&&(<div style={{fontSize:10,color:C.muted,marginTop:3}}>
+          можно не прикладывать: минимум по этому ресурсу — 0</div>)}
       </div>);
   };
+
+  /* Подтверждение — одно на всю сдачу и сразу на все её единицы-коды:
+     подтверждают не каждый ключ отдельно, а то, что партию выдали. */
+  const ProofRow=()=>(
+    <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:8}}>
+      <label style={{...btn(false),fontSize:11,padding:"4px 8px",
+        cursor:proofBusy?"default":"pointer",opacity:proofBusy?0.6:1,
+        borderColor:proof?undefined:"#5A2436"}}>
+        {proofBusy?"Загружаю…":proof?"Заменить подтверждение":"Загрузить подтверждение"}
+        <input type="file" style={{display:"none"}} disabled={proofBusy}
+          aria-label="подтверждение выдачи"
+          onChange={e=>pickProof(e.target.files?.[0])}/>
+      </label>
+      {proof&&(<span style={{fontSize:10.5,color:ACC}}>
+        📎 {proof.name} · {Math.round((proof.size||0)/1024)} КБ</span>)}
+      {!proof&&(<span style={{fontSize:10,color:WARN}}>
+        один файл на все выданные коды — без него работа не сдаётся</span>)}
+      {proofErr&&(<span style={{fontSize:10.5,color:BAD}}>{proofErr}</span>)}
+    </div>);
 
   return (
     <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
@@ -1119,6 +1306,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                       </div>
                       <div style={{margin:"5px 0 8px"}}>
                         {func.gives.map(p=>(<ThingRow key={p.id} port={p}/>))}
+                        {needsProof&&<ProofRow/>}
                       </div></>}
                     {!func.gives.length&&(
                       <div style={{fontSize:10.5,color:C.muted,marginBottom:8}}>
@@ -1130,6 +1318,9 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                           Задача не выполнена, пока не приложено:{" "}
                           {missing.map(p=>traitName(p.trait)).join(", ")}. Это
                           результат работы, а не отчёт о ней.</div>)}
+                        {needsProof&&!proof&&(<div>
+                          Приложите подтверждение — один файл на все выданные
+                          коды.</div>)}
                         {!written&&(<div>
                           Напишите отчёт словами — без него сдачи нет.</div>)}
                       </div>)}
@@ -1146,9 +1337,13 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                     <div className="flex flex-wrap gap-2" style={{alignItems:"center",
                       marginBottom:8}}>
                       <span style={{fontSize:10.5,color:C.muted}}>
-                        {Object.keys(giveFiles).length
-                          ?`приложено: ${Object.entries(giveFiles)
-                            .map(([id,f])=>`${traitName(id)} — ${f.name}`).join(", ")}`
+                        {func.gives.some(p=>slots(p.trait)>0)
+                          ?`приложено: ${func.gives.filter(p=>slots(p.trait)>0)
+                            .map(p=>{
+                              const one=slots(p.trait)===1&&unitsFor(p.trait)[0]?.file?.name;
+                              return `${traitName(p.trait)} — ${one
+                                ||`${nm(filledOf(p.trait))} из ${nm(slots(p.trait))}`}`;
+                            }).join(", ")}`
                           :"вещей не приложено — функция этого не требует"}</span>
                       {!!func.gives.length&&(
                         <button style={{...btn(false),fontSize:10.5,padding:"2px 7px"}}

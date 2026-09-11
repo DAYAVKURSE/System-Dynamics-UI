@@ -7,9 +7,10 @@ import SystemModel from "../components/SystemModel.jsx";
    Все активы разом: актив раскрывается в ресурсы, ресурс — в «сколько
    есть» и кнопки, «Посмотреть» — в сами единицы с историей каждой: откуда
    и когда, что написали при сдаче, что отдано взамен и какая функция
-   руководила; из материалов — так и сказано. Загрузка — окном:
-   количество, вид (файл / текст / уникальное поле) и ровно одно поле
-   под вид. Отсюда же считается, сколько ресурса есть. */
+   руководила; из материалов — так и сказано. Загрузка — окном: количество
+   и по полю на каждую единицу. ЧЕМ подтверждается единица, окно не
+   спрашивает: это свойство РЕСУРСА, и задаётся оно на вкладке «Схема» —
+   один раз, когда ресурс заводят. Отсюда же считается, сколько его есть. */
 
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
@@ -28,6 +29,16 @@ const dump = () => {
   fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);
 };
+/* Вид единицы — у ресурса, на вкладке «Схема»: окно загрузки его больше
+   не спрашивает. `i` — который по счёту ресурс актива. */
+const setKind = (i, kindName) => {
+  tab("Схема");
+  fireEvent.click(screen.getByRole("button", { name: /^Ресурсы/ }));
+  fireEvent.click(screen.getAllByRole("button", { name: "развернуть ресурса" })[i]);
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${kindName}: `) }));
+  fireEvent.click(screen.getByRole("button", { name: "свернуть ресурса" }));
+};
+
 const loadJson = (m) => {
   tab("Инструменты");
   if (!container.querySelector("textarea")) tab("Выгрузка");
@@ -63,7 +74,8 @@ describe("форма «Материалы»", () => {
     expect(within(card).getByRole("link", { name: "скачать обращ. №1" })).toBeInTheDocument();
   });
 
-  it("текст: окно с количеством и видом, загрузка → строки, «есть» выросло, записи в модели", () => {
+  it("текст: вид взят у ресурса, загрузка → строки, «есть» выросло, записи в модели", () => {
+    setKind(1, "текст");
     reports();
     openAsset("Пользователи");
     pickTrait("заявки");
@@ -75,11 +87,11 @@ describe("форма «Материалы»", () => {
     // Окно живёт прямо в body: внутри прокрученной формы fixed уезжал за экран.
     expect(d.parentElement.parentElement).toBe(document.body);
     expect(within(d).getByLabelText("количество")).toBeInTheDocument();
-    expect(within(d).getAllByRole("radio").map((r) => r.getAttribute("aria-label")))
-      .toEqual(["файл", "текст", "уникальное поле"]);
-    // Единица — что-то одно: под выбранным видом ровно одно поле.
-    expect(within(d).getByLabelText("файл единицы 1")).toBeInTheDocument();
-    fireEvent.click(within(d).getByLabelText("текст"));
+    // Вида окно не спрашивает: он у ресурса, и спрашивать дважды — значит
+    // разрешить сегодня класть договор файлом, завтра текстом.
+    expect(within(d).queryAllByRole("radio")).toHaveLength(0);
+    expect(within(d).getByText(/Вид задан у ресурса/)).toBeInTheDocument();
+    // Единица — что-то одно: под видом ресурса ровно одно поле.
     expect(within(d).queryByLabelText(/файл единицы/)).toBeNull();
     expect(within(d).queryByLabelText(/уникальный код/)).toBeNull();
     // Без текста грузить нечего.
@@ -114,34 +126,48 @@ describe("форма «Материалы»", () => {
     expect(screen.getByLabelText("есть сейчас").textContent).toMatch(/^2 шт\./);
   });
 
-  it("уникальное поле: код виден до загрузки, у каждой единицы свой, и он же сохраняется", () => {
+  it("уникальный код: создаётся программой, а вместо него грузят подтверждение", async () => {
+    setKind(1, "уникальный код");
     reports();
     openAsset("Пользователи");
     pickTrait("заявки");
     openUpload();
     const d = dialog();
-    fireEvent.click(within(d).getByLabelText("уникальное поле"));
     fireEvent.change(within(d).getByLabelText("количество"), { target: { value: "2" } });
     const codes = [within(d).getByLabelText("уникальный код 1").value,
       within(d).getByLabelText("уникальный код 2").value];
     expect(codes[0]).toMatch(/^[A-Z2-9]{8}$/);
     expect(codes[0]).not.toBe(codes[1]);
+    /* Код показать нечем — значит грузят бумагу о выдаче. Она одна на всю
+       загрузку и ложится сразу всем её единицам. */
+    expect(within(d).getByRole("button", { name: "Загрузить" })).toBeDisabled();
+    const input = within(d).getByLabelText("подтверждение выдачи");
+    const f = new File(["x"], "акт-выдачи.pdf", { type: "application/pdf" });
+    Object.defineProperty(input, "files", { value: [f], configurable: true });
+    fireEvent.change(input);
+    await waitFor(() =>
+      expect(within(d).getByRole("button", { name: "Загрузить" })).not.toBeDisabled());
     fireEvent.click(within(d).getByRole("button", { name: "Загрузить" }));
 
+    // Загрузили — единицы уже видно: «Посмотреть» второй раз не нажимают.
     const card = materialsCard();
     expect(within(card).getByText(codes[0])).toBeInTheDocument();
     expect(within(card).getByText(codes[1])).toBeInTheDocument();
     expect(within(card).getByText("№2")).toBeInTheDocument();
-    expect(dump().materials.filter((x) => x.trait === "req").map((x) => x.code)).toEqual(codes);
+    // Выгрузка — последней: она уводит со вкладки.
+    const rows = dump().materials.filter((x) => x.trait === "req");
+    expect(rows.map((x) => x.code)).toEqual(codes);
+    // Подтверждение — одно, и лежит у каждой единицы.
+    expect(rows.map((x) => x.file?.name)).toEqual(["акт-выдачи.pdf", "акт-выдачи.pdf"]);
   });
 
-  it("тысяча кодов не уводит кнопку «Загрузить» вниз: список прокручивается сам", () => {
+  it("тысяча кодов не уводит кнопку «Загрузить» вниз: список прокручивается сам", async () => {
+    setKind(1, "уникальный код");
     reports();
     openAsset("Пользователи");
     pickTrait("заявки");
     openUpload();
     const d = dialog();
-    fireEvent.click(within(d).getByLabelText("уникальное поле"));
     fireEvent.change(within(d).getByLabelText("количество"), { target: { value: "1000" } });
     const list = within(d).getByRole("list", { name: "уникальные коды" });
     expect(list.querySelectorAll("input")).toHaveLength(1000);
@@ -149,8 +175,17 @@ describe("форма «Материалы»", () => {
     expect(list.style.maxHeight).toBe("180px");
     // Кнопки — вне прокручиваемого списка.
     expect(list.contains(within(d).getByRole("button", { name: "Загрузить" }))).toBe(false);
+    // Подтверждение — одно на тысячу единиц, а не тысяча бумаг.
+    const input = within(d).getByLabelText("подтверждение выдачи");
+    Object.defineProperty(input, "files",
+      { value: [new File(["x"], "акт.pdf", { type: "application/pdf" })], configurable: true });
+    fireEvent.change(input);
+    await waitFor(() =>
+      expect(within(d).getByRole("button", { name: "Загрузить" })).not.toBeDisabled());
     fireEvent.click(within(d).getByRole("button", { name: "Загрузить" }));
-    expect(dump().materials.filter((x) => x.trait === "req")).toHaveLength(1000);
+    const rows = dump().materials.filter((x) => x.trait === "req");
+    expect(rows).toHaveLength(1000);
+    expect(new Set(rows.map((r) => r.file?.name))).toEqual(new Set(["акт.pdf"]));
   });
 
   it("файл: без сервера ложится внутрь сценария, и скачать его можно из списка", async () => {

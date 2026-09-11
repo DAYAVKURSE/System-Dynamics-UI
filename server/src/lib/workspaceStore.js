@@ -389,6 +389,27 @@ export async function setupStateFor(userId, taskId) {
   return { set: task.status !== "wait" && !why, title, why };
 }
 
+/* Единицы сдачи: по записи на вещь. Вид — файл, текст или уникальный код;
+   чем подтверждается единица, решает РЕСУРС (`traitKind` в
+   `web/src/lib/units.js`), а сдача только приносит содержимое. */
+const unitsIn = (v) => Object.fromEntries(
+  Object.entries(v && typeof v === "object" ? v : {})
+    .map(([k, list]) => [String(k), (Array.isArray(list) ? list : []).map((u) => ({
+      kind: ["file", "text", "code"].includes(u?.kind) ? u.kind : "file",
+      file: fileRef(u?.file),
+      text: String(u?.text || ""),
+      code: String(u?.code || ""),
+    }))])
+    .filter(([, list]) => list.length));
+
+/* Заполнена ли каждая единица. У файла — файл, у текста — слова, у кода
+   — сам код и подтверждение выдачи, одно на всю сдачу: код показать
+   нечем, кроме бумаги о том, что его выдали. */
+const unitsFilled = (list = [], proof = null) => list.length > 0 && list.every((u) => (
+  u.kind === "file" ? !!u.file
+    : u.kind === "text" ? !!u.text.trim()
+      : !!u.code && !!proof));
+
 /* Ссылка на файл: имя, тип, размер и адрес — то, что отдаёт
    `reportStore.saveReport`. Лишнего не храним, а без адреса это не файл. */
 const fileRef = (f) => (f && typeof f === "object" && f.url
@@ -436,7 +457,19 @@ export const submitTask = (userId, taskId, submission) => withModel(async (model
       .map(([k, v]) => [String(k), fileRef(v)])
       .filter(([, v]) => v));
   const func = (model.funcs || []).find((f) => f.id === task.funcId) || null;
-  const missing = requiredGives(func).filter((trait) => !files[trait]);
+  /* ЕДИНИЦЫ: по записи на каждую сданную вещь, со своим содержимым —
+     файл, текст или уникальный код. Сколько единиц сдают, столько и
+     прикладывают: одна запись на десять штук говорила «десять есть» и
+     молчала о том, какие они.
+
+     Прежняя сдача (и бот) присылает один файл на ресурс — она читается
+     по-старому: `files`. Требование тогда прежнее — по файлу на каждый
+     обязательный выход. */
+  const units = unitsIn(submission?.units);
+  const proof = fileRef(submission?.proof);
+  const missing = requiredGives(func).filter((trait) => (units[trait]
+    ? !unitsFilled(units[trait], proof)
+    : !files[trait]));
   if (missing.length) return { error: "missing files", missing };
   // Сдача — это фактическое выполнение функции: сколько часов ушло и
   // сколько каждого ресурса взяли и выдали. Из принятых сдач считается
@@ -461,6 +494,8 @@ export const submitTask = (userId, taskId, submission) => withModel(async (model
     gives: qty(submission?.gives),
     took,
     files,
+    units,
+    proof,
     text: String(submission?.text || ""),
     file: submission?.file || null,
     setterRating: setterRatingOf(submission?.setterRating, {

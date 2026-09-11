@@ -142,7 +142,7 @@ describe("оценка постановки при сдаче", () => {
     expect(got[0].setterRating).toEqual({ mark: 4, comment: "срок был тесный", hidden: false });
     // Сама сдача при этом на месте — оценка её не подменяет; отчёт — словами,
     // файла «вообще» нет.
-    expect(got[0].files.t2).toBeTruthy();
+    expect(got[0].units.t2[0].file).toBeTruthy();
     expect(got[0].text).toBe("сделал");
     expect(got[0].file).toBeNull();
   });

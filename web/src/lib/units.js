@@ -72,8 +72,31 @@ const num = (v) => Number(v) || 0;
 export const MATERIAL_KINDS = [
   { id: "file", name: "файл" },
   { id: "text", name: "текст" },
-  { id: "code", name: "уникальное поле" },
+  { id: "code", name: "уникальный код" },
 ];
+
+/* ─────── чем единица подтверждается, решает РЕСУРС ───────
+
+   Прежде вид выбирали при каждой загрузке — радиокнопкой в окне
+   материалов. Это был вопрос не на том месте: чем подтверждается договор,
+   решается один раз, когда заводят «договоры», а не каждый раз, когда
+   очередной договор кладут. И правило это одно на все двери: кладут
+   единицу в «Материалах» или сдают её задачей — спрашивается одно и то же.
+
+   Загружают только ФАЙЛ или ТЕКСТ. Уникальный код не загружают: его
+   создаёт программа — код, набранный руками, не уникален ничем, кроме
+   обещания. Вместо него прикладывают ПОДТВЕРЖДЕНИЕ — один файл на всю
+   загрузку, сразу на все её единицы: подтверждают не каждый ключ
+   отдельно, а то, что эту партию выдали.
+
+   Не названо у ресурса — файл: так работала сдача задачи с самого начала,
+   и молчание прежних схем должно значить то, что в них и было. */
+export const traitKind = (t) => (["file", "text", "code"].includes(t?.kind)
+  ? t.kind : "file");
+
+/** Вид единиц ресурса по его идентификатору — одно правило на все формы. */
+export const kindOfTrait = (traits = [], id) =>
+  traitKind((traits || []).find((t) => t.id === id));
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // без 0/O, 1/I — их путают
 
@@ -104,7 +127,8 @@ export const materialKind = (m) => (["file", "text", "code"].includes(m?.kind) ?
  * ради кодов, которые здесь же и рождаются, если их не дали.
  */
 export function newMaterials({ trait, qty = 1, kind = "text", files = [], texts = [],
-  by = null, at = new Date().toISOString(), existing = [], codes = [] } = {}) {
+  by = null, at = new Date().toISOString(), existing = [], codes = [],
+  proof = null } = {}) {
   const k = materialKind({ kind });
   const n = k === "file" ? files.length : k === "text" ? texts.length
     : Math.max(1, Math.floor(num(qty)) || 1);
@@ -118,7 +142,9 @@ export function newMaterials({ trait, qty = 1, kind = "text", files = [], texts 
     return Array.from({ length: n }, (_, i) => {
       const code = codes[i] && !taken.has(codes[i]) ? codes[i] : newCode(taken);
       taken.add(code);
-      return { ...base, id: `m${stamp}${i.toString(36)}`, code };
+      /* Подтверждение — ОДИН файл на всю загрузку, и он ложится каждой
+         единице: подтверждают партию, а не каждый ключ отдельно. */
+      return { ...base, id: `m${stamp}${i.toString(36)}`, code, file: proof || null };
     });
   }
   return Array.from({ length: n }, (_, i) => ({ ...base, id: `m${stamp}${i.toString(36)}`,
@@ -165,7 +191,9 @@ export function unitsOf({ tasks = [], funcs = [], materials = [] } = {}) {
       task: null, title: "", func: null, funcName: "", sub: null,
       at: m.at || null, by: m.by ?? null,
       text: m.kind === "text" ? (m.text || "") : "",
-      file: m.kind === "file" ? (m.file || null) : null,
+      /* Файл берётся как есть: у единицы-файла это она сама, у
+         единицы-кода — подтверждение, приложенное ко всей партии. */
+      file: m.file || null,
       code: m.kind === "code" ? (m.code || "") : "",
       kind: m.kind, from: "material", accepted: true,
     });
@@ -181,10 +209,25 @@ export function unitsOf({ tasks = [], funcs = [], materials = [] } = {}) {
     Object.entries(sb.gives || {}).forEach(([trait, v]) => {
       const qty = num(v);
       if (!(qty > 0)) return;
-      rows.push({
-        id: `${sb.id}~${trait}`,
+      /* Сколько единиц сдали — столько и вещей. Исполнитель прикладывает
+         содержимое НА КАЖДУЮ (`sb.units[trait]`): сдал десять договоров —
+         десять файлов, а не один на всех. Одна строка на десять штук
+         говорила «десять есть» и молчала о том, какие они.
+
+         У прежних сдач списка нет — там так и остаётся одна строка на всё
+         количество: делить её на десять пустых значило бы завести девять
+         вещей, которых никто не прикладывал. Первая единица нового списка
+         носит ПРЕЖНИЙ идентификатор — на него ссылаются разделы отчётов и
+         записи «взял», и менять его задним числом нельзя. */
+      const list = Array.isArray((sb.units || {})[trait]) ? (sb.units || {})[trait] : null;
+      const parts = list && list.length
+        ? list.map((u, i) => ({ id: i ? `${sb.id}~${trait}~${i}` : `${sb.id}~${trait}`,
+          qty: 1, unit: u || {} }))
+        : [{ id: `${sb.id}~${trait}`, qty, unit: null }];
+      parts.forEach((part) => rows.push({
+        id: part.id,
         trait,
-        qty,
+        qty: part.qty,
         // Из каких единиц это сделано — как сказал исполнитель при сдаче.
         took: [...new Set(Object.values(sb.took || {}).flat().filter(Boolean))],
         /* Что отдано взамен — по ресурсам и сколько: из этого читается,
@@ -197,18 +240,23 @@ export function unitsOf({ tasks = [], funcs = [], materials = [] } = {}) {
         sub: sb.id,
         at: sb.at || null,
         by: t.assignee ?? null,
-        text: sb.text || "",
-        /* Файл ИМЕННО ЭТОЙ вещи. Прежде у всех единиц одной сдачи был один
-           и тот же файл отчёта: сдача, выдавшая и макет, и смету, отдавала
+        /* Содержимое ИМЕННО ЭТОЙ вещи. Прежде у всех единиц одной сдачи
+           был один файл отчёта: сдача, выдавшая и макет, и смету, отдавала
            обеим один документ, и скачать сам макет было неоткуда. Теперь
-           исполнитель прикладывает каждую выданную вещь отдельно
-           (`gives` → `files`), а старый общий файл остаётся запасным: у
-           сдач, сделанных до этого, других файлов нет. */
-        file: (sb.files || {})[trait] || sb.file || null,
-        code: "", kind: (sb.files || {})[trait] || sb.file ? "file" : "text",
+           исполнитель прикладывает каждую вещь отдельно, а прежние сдачи
+           читаются по-старому — общим файлом ресурса. Подтверждение
+           (`sb.proof`) достаётся единицам-кодам: сам код показать нельзя,
+           а бумагу о выдаче — можно. */
+        file: part.unit
+          ? (part.unit.file || (part.unit.code ? sb.proof || null : null))
+          : ((sb.files || {})[trait] || sb.file || null),
+        text: part.unit ? String(part.unit.text || "") : (sb.text || ""),
+        code: part.unit ? String(part.unit.code || "") : "",
+        kind: part.unit ? materialKind(part.unit)
+          : ((sb.files || {})[trait] || sb.file ? "file" : "text"),
         from: "task",
         accepted: t.status === "done",
-      });
+      }));
     });
   });
   rows.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
@@ -223,8 +271,9 @@ export function unitsOf({ tasks = [], funcs = [], materials = [] } = {}) {
  * одна и та же вещь в разных местах не звалась по-разному.
  */
 export function unitLabel(u = {}) {
+  // Код — самое короткое имя вещи и самое точное: его и называют вслух.
+  if (u.code) return u.code;
   if (u.from === "material") {
-    if (u.code) return u.code;
     if (u.file?.name) return u.file.name;
     const t = String(u.text || "").trim();
     return t ? (t.length > 40 ? `${t.slice(0, 39)}…` : t) : "материал";

@@ -347,6 +347,49 @@ describe("сдача и приём через сервер", () => {
     expect(got.body.tasks[0].submissions).toHaveLength(0);
   });
 
+  it("сколько единиц сдают — столько и прикладывают", async () => {
+    /* Одна запись на десять штук говорила «десять есть» и молчала о том,
+       какие они. Сдал десять договоров — десять файлов. */
+    await withFunc();
+    await invite(200, "executor", "Иван");
+    const half = await request(app).post("/api/workspace/tasks/tk1/submit")
+      .set(as(200)).send({ hours: 2, text: "сделал", gives: { t2: 3 },
+        units: { t2: [{ kind: "file", file: FILE }, { kind: "file", file: null },
+          { kind: "file", file: FILE }] } });
+    expect(half.status).toBe(400);
+    expect(half.body).toEqual({ error: "missing files", missing: ["t2"] });
+
+    const all = await request(app).post("/api/workspace/tasks/tk1/submit")
+      .set(as(200)).send({ hours: 2, text: "сделал", gives: { t2: 3 },
+        units: { t2: [1, 2, 3].map(() => ({ kind: "file", file: FILE })) } });
+    expect(all.status).toBe(200);
+    const got = await request(app).get("/api/workspace").set(as(100));
+    const sb = got.body.tasks[0].submissions[0];
+    expect(sb.units.t2).toHaveLength(3);
+    sb.units.t2.forEach((u) => expect(u.file.url).toBe(FILE.url));
+  });
+
+  it("уникальные коды принимаются с подтверждением — одним на всю сдачу", async () => {
+    /* Код создаёт программа, и показать его нечем, кроме бумаги о выдаче:
+       без подтверждения сдачи нет, а с ним — одно на все единицы. */
+    await withFunc();
+    await invite(200, "executor", "Иван");
+    const bare = await request(app).post("/api/workspace/tasks/tk1/submit")
+      .set(as(200)).send({ hours: 1, text: "выдал", gives: { t2: 2 },
+        units: { t2: [{ kind: "code", code: "AAAA1111" }, { kind: "code", code: "BBBB2222" }] } });
+    expect(bare.status).toBe(400);
+    expect(bare.body.missing).toEqual(["t2"]);
+
+    const ok = await request(app).post("/api/workspace/tasks/tk1/submit")
+      .set(as(200)).send({ hours: 1, text: "выдал", gives: { t2: 2 }, proof: FILE,
+        units: { t2: [{ kind: "code", code: "AAAA1111" }, { kind: "code", code: "BBBB2222" }] } });
+    expect(ok.status).toBe(200);
+    const got = await request(app).get("/api/workspace").set(as(100));
+    const sb = got.body.tasks[0].submissions[0];
+    expect(sb.units.t2.map((u) => u.code)).toEqual(["AAAA1111", "BBBB2222"]);
+    expect(sb.proof.url).toBe(FILE.url);
+  });
+
   it("с файлами сдаётся, и оценка постановки хранится вместе со сдачей", async () => {
     await withFunc();
     await invite(200, "executor", "Иван");
