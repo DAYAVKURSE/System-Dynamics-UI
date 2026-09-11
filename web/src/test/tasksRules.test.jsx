@@ -271,13 +271,13 @@ describe("назначения берутся из воркеров актива
     expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр"]);
   });
 
-  it("исполнитель — по ДОЛЖНОСТИ роли, кроме исключённых; некого — так и сказано", () => {
-    /* Владелец: роль — это должность, а взять работу может любой воркер с
-       ней, если ему её не закрыли исключением. */
+  it("исполнитель — по РОЛИ, кроме исключённых; некого — так и сказано", () => {
+    /* У функции названа роль, а взять работу может любой воркер с ней,
+       если ему её не закрыли исключением. */
     const entities = [{ id: "usr", name: "Пользователи", crew: ["2", "4"] }];
-    const people = [{ id: "2", name: "Иван", position: "designer" },
-      { id: "4", name: "Ольга", position: "designer" },
-      { id: "3", name: "Пётр", position: "editor" }];
+    const people = [{ id: "2", name: "Иван", roles: ["designer"] },
+      { id: "4", name: "Ольга", roles: ["designer", "editor"] },
+      { id: "3", name: "Пётр", roles: ["editor"] }];
     const byPost = [{ ...FUNCS[0], setters: [], owners: [], reviewers: [],
       posts: { owners: ["designer"], reviewers: ["editor"] }, except: ["4"] }];
     const names = (label) => [...screen.getByLabelText(label).options]
@@ -290,7 +290,7 @@ describe("назначения берутся из воркеров актива
     expect(names("проверяющий")).toEqual(["— не назначен —"]);   // редактора в активе нет
     unmount();
 
-    // Должность роли не выбрана и людей прежде не записывали — назначать некого.
+    // Роль у функции не выбрана и людей прежде не записывали — назначать некого.
     const empty = [{ ...FUNCS[0], setters: [], owners: [], reviewers: [], posts: {} }];
     render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })} tasks={[]}
       funcs={empty} traits={TRAITS} entities={entities} people={people}

@@ -58,8 +58,12 @@ describe("человек открывается окном, а не уходом
           tabs: ["tasks", "review", "scheme", "reports", "tools"] }) };
       }
       if (u.includes("/api/org")) {
-        return { ok: true, json: async () => ({ ownerId: "1", roles: [],
-          users: [{ id: "1", name: "Владелец" }, { id: "2", name: "Иван" }] }) };
+        /* У Ивана есть РОЛЬ: в списке воркеров стоят те, кому вообще
+           можно поручить работу, — её назначают ролью. */
+        return { ok: true, json: async () => ({ ownerId: "1",
+          roles: [{ id: "executor", name: "исполнитель", tabs: ["tasks"] }],
+          users: [{ id: "1", name: "Владелец", roles: ["executor"] },
+            { id: "2", name: "Иван", roles: ["executor"] }] }) };
       }
       return { ok: true, status: 200, json: async () => ({}) };
     });
@@ -116,19 +120,21 @@ describe("вкладки по роли", () => {
     await waitFor(() => expect(tabNames(container)).toEqual(["Проверка"]));
   });
 
-  it("незваному объясняют, что делать, а не показывают пустое приложение", async () => {
+  it("незваного ведут регистрироваться, а не просят ждать", async () => {
+    /* Участником становятся сами — подписав договор роли. «Ждите, пока
+       позовут» было ответом «нет» на вопрос «как мне сюда попасть». */
     server({ id: "9", isOwner: false, known: false, role: null, tabs: [] });
     const { container } = await fresh();
-    await waitFor(() => expect(screen.getByText(/Вас ещё не позвали/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Вступить в модель/)).toBeTruthy());
     expect(tabNames(container)).toEqual([]);
-    expect(screen.getByText(/перешлёт боту ваше сообщение/)).toBeTruthy();
+    expect(screen.getByText(/подписав договор роли/)).toBeTruthy();
   });
 
   it("роль удалили — человек это видит, а не гадает", async () => {
     server({ id: "4", isOwner: false, known: true, role: null, tabs: [] });
     await fresh();
     await waitFor(() =>
-      expect(screen.getByText(/Ваша роль ничего не открывает/)).toBeTruthy());
+      expect(screen.getByText(/Ваши роли ничего не открывают/)).toBeTruthy());
   });
 
   it("без сервера приложение остаётся одиночным и полным", async () => {

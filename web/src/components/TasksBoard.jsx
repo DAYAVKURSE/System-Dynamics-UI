@@ -570,8 +570,8 @@ function FuncCard({func,entities,traitName}){
    ждала бы постановки. Отказ сервера — словами под кнопкой. Владельцу
    `onSetup` не нужен: его правки уезжают в составе модели. */
 export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=[],
-  setTasks,onClose,people=[],canAssign=true,nameOf,positionOf=(id)=>
-    (people.find(p=>String(p.id)===String(id))?.position||""),
+  setTasks,onClose,people=[],canAssign=true,nameOf,rolesOf=(id)=>
+    (people.find(p=>String(p.id)===String(id))?.roles||[]),
   published,meId,onSetup}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
@@ -630,7 +630,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
      у роли не названа — читается старый список людей; нет и его — никого, и
      это ответ, а не «значит, всех». */
   const pool=(k)=>{
-    const ok=new Set(eligible(func,k,{crew:crewOf(asset||{}),positionOf,people}).map(String));
+    const ok=new Set(eligible(func,k,{crew:crewOf(asset||{}),rolesOf,people}).map(String));
     return byCrew(asset||{},people.filter(p=>ok.has(String(p.id))));
   };
   const gaps=taskGaps(task);

@@ -3,9 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  addRole, addUser, identify, listOrg, removeRole, removeUser, setProfile,
-  setRoleTabs, setUserRole,
-  addPosition, removePosition, setUserPosition,
+  addRole, addUser, identify, listOrg, openRoles, registerUser, removeRole, removeUser,
+  setProfile, setRoleContract, setRoleTabs, setUserRole, setUserRoles,
 } from "../lib/orgStore.js";
 import {
   readModel, reviewTask, submitTask, tasksFor, viewFor, writeModel,
@@ -20,6 +19,13 @@ beforeAll(async () => {
   process.env.WORKSPACE_DIR = path.join(tmp, "ws");
 });
 afterAll(async () => { await fs.rm(tmp, { recursive: true, force: true }); });
+/* Прежняя запись org.json — как она лежала на диске до нынешнего вида:
+   проверяем, что её читают, а не теряют. */
+const writeRaw = async (org) => {
+  await fs.mkdir(process.env.ORG_DIR, { recursive: true });
+  await fs.writeFile(path.join(process.env.ORG_DIR, "org.json"),
+    JSON.stringify(org, null, 2), "utf8");
+};
 beforeEach(async () => {
   delete process.env.OWNER_TELEGRAM_ID;
   await fs.rm(process.env.ORG_DIR, { recursive: true, force: true });
@@ -447,49 +453,140 @@ describe("анкета", () => {
   });
 });
 
-/* ─────── должности ───────
-   Должность — не роль: роль даёт вкладки, должность говорит, кем человек
-   числится. Списки разные, и удаление одного не трогает другое. */
-describe("должности", () => {
-  it("заводятся, назначаются и снимаются", async () => {
-    const roles = (await listOrg()).roles;
-    await addUser({ id: "500", name: "Иван", roleId: roles[0].id, addedBy: "100" });
-    const pos = await addPosition({ name: "Дизайнер" });
-    expect(pos).toMatchObject({ name: "Дизайнер" });
-    // Роль от этого не меняется: это разные вопросы к одному человеку.
-    await setUserPosition("500", pos.id);
-    const org = await listOrg();
-    expect(org.positions.map((p) => p.name)).toEqual(["Дизайнер"]);
-    const ivan = org.users.find((u) => u.id === "500");
-    expect(ivan.position).toBe(pos.id);
-    expect(ivan.roleId).toBe(roles[0].id);
-    // Пусто — «без должности», а не ошибка.
-    await setUserPosition("500", "");
-    expect((await listOrg()).users.find((u) => u.id === "500").position).toBeNull();
+/* ─────── договор как акцепт ───────
+
+   Участником человек становится не потому, что его добавили, а потому,
+   что подписал договор. Шаблон лежит у роли, подписанный экземпляр
+   приносит сам человек — и по нему система выдаёт ему роль. */
+const DOC = { name: "договор.pdf", type: "application/pdf", size: 10,
+  url: "/api/reports/u/1" };
+const SIGNED = { name: "подписан.pdf", type: "application/pdf", size: 12,
+  url: "/api/reports/u/2" };
+
+describe("договор роли", () => {
+  it("подписанный договор выдаёт роль сам, без чужого нажатия", async () => {
+    await identify("100", { name: "Владелец" });
+    const role = await addRole({ name: "Курьер", tabs: ["tasks"] });
+    await setRoleContract(role.id, DOC);
+    // Что подписывать, видно всякому, кто открыл приложение.
+    const open = await openRoles();
+    expect(open.find((r) => r.id === role.id).contract.name).toBe("договор.pdf");
+
+    await registerUser("700", { name: "Новый" }, { roleId: role.id, file: SIGNED });
+    const me = await identify("700", { name: "Новый" });
+    expect(me.known).toBe(true);
+    expect(me.roles.map((r) => r.id)).toEqual([role.id]);
+    expect(me.tabs).toEqual(["tasks"]);
+    const user = (await listOrg()).users.find((u) => u.id === "700");
+    expect(user.contracts[role.id].name).toBe("подписан.pdf");
+    expect(user.contracts[role.id].at).toBeTruthy();
   });
 
-  it("одна и та же должность дважды не заводится, чужая не назначается", async () => {
-    await addPosition({ name: "Аналитик" });
-    await expect(addPosition({ name: "аналитик" })).rejects.toThrow(/already exists/);
-    await expect(addPosition({ name: "  " })).rejects.toThrow(/required/);
-    const roles = (await listOrg()).roles;
-    await addUser({ id: "501", name: "Пётр", roleId: roles[0].id, addedBy: "100" });
-    await expect(setUserPosition("501", "нет-такой")).rejects.toThrow(/unknown position/);
+  it("без подписанного экземпляра роль не выдаётся", async () => {
+    await identify("100", { name: "Владелец" });
+    const role = await addRole({ name: "Юрист", tabs: ["tasks"] });
+    await setRoleContract(role.id, DOC);
+    await expect(registerUser("701", {}, { roleId: role.id }))
+      .rejects.toThrow(/contract is required/);
+    expect((await identify("701", {})).known).toBe(false);
   });
 
-  it("удалённая должность оставляет человека без должности, а не без записи", async () => {
-    const roles = (await listOrg()).roles;
-    await addUser({ id: "502", name: "Ольга", roleId: roles[0].id, addedBy: "100" });
-    const pos = await addPosition({ name: "Бухгалтер" });
-    await setUserPosition("502", pos.id);
-    expect(await removePosition(pos.id)).toBe(true);
+  it("роль без договора подписывать нечем — она выдаётся сразу", async () => {
+    await identify("100", { name: "Владелец" });
+    const role = await addRole({ name: "Гость", tabs: ["tasks"] });
+    await registerUser("702", { name: "Гость" }, { roleId: role.id });
+    expect((await identify("702", {})).roles.map((r) => r.id)).toEqual([role.id]);
+  });
+
+  it("вторая роль добавляется к первой, а не заменяет её", async () => {
+    await identify("100", { name: "Владелец" });
+    const a = await addRole({ name: "Первая", tabs: ["tasks"] });
+    const b = await addRole({ name: "Вторая", tabs: ["review"] });
+    await setRoleContract(a.id, DOC);
+    await setRoleContract(b.id, DOC);
+    await registerUser("703", { name: "Оба" }, { roleId: a.id, file: SIGNED });
+    await registerUser("703", { name: "Оба" }, { roleId: b.id, file: SIGNED });
+    const me = await identify("703", {});
+    expect(me.roles.map((r) => r.id)).toEqual([a.id, b.id]);
+    expect(me.tabs).toEqual(["tasks", "review"]);
+  });
+
+  it("приглашение владельца ждёт договора, а не выдаёт роль молча", async () => {
+    /* «Акцептом добавления участника является договор»: позвали — значит
+       приготовили роль, а получит он её, когда подпишет. */
+    await identify("100", { name: "Владелец" });
+    const role = await addRole({ name: "Подрядчик", tabs: ["tasks"] });
+    await setRoleContract(role.id, DOC);
+    await addUser({ id: "704", name: "Ждущий", roleId: role.id, addedBy: "100" });
+    const waiting = await identify("704", {});
+    expect(waiting.roles).toEqual([]);
+    expect(waiting.pending).toBe(role.id);
+    expect(waiting.tabs).toEqual([]);
+    // Подписал — роль есть, и ждать больше нечего.
+    await registerUser("704", {}, { roleId: role.id, file: SIGNED });
+    const done = await identify("704", {});
+    expect(done.roles.map((r) => r.id)).toEqual([role.id]);
+    expect(done.pending).toBe("");
+  });
+
+  it("роль без договора приглашением выдаётся сразу — подписывать нечего", async () => {
+    await identify("100", { name: "Владелец" });
+    await addUser({ id: "705", name: "Простой", roleId: "executor", addedBy: "100" });
+    expect((await identify("705", {})).roles.map((r) => r.id)).toEqual(["executor"]);
+  });
+});
+
+/* ─────── роли человека ───────
+   Должностей больше нет: роль и есть ответ на «кто он здесь». Ролей у
+   человека бывает несколько — тогда вкладки складываются. */
+describe("роли человека", () => {
+  it("их несколько, и вкладки складываются", async () => {
+    await identify("100", { name: "Владелец" });
+    const design = await addRole({ name: "Дизайнер", tabs: [] });
+    await addUser({ id: "500", name: "Иван", roleId: "executor", addedBy: "100" });
+    await setUserRoles("500", ["executor", design.id]);
     const org = await listOrg();
-    expect(org.positions).toEqual([]);
-    const olga = org.users.find((u) => u.id === "502");
-    expect(olga).toBeTruthy();
-    expect(olga.position).toBeNull();
-    // Роль на месте: удаляли должность, а не право видеть вкладки.
-    expect(olga.roleId).toBe(roles[0].id);
-    expect(await removePosition("нет-такой")).toBe(false);
+    expect(org.users.find((u) => u.id === "500").roles).toEqual(["executor", design.id]);
+    // «Дизайнер» вкладок не даёт, «исполнитель» даёт «Задачи» — вместе это «Задачи».
+    expect((await identify("500", {})).tabs).toEqual(["tasks"]);
+    await setRoleTabs(design.id, ["reports"]);
+    expect((await identify("500", {})).tabs).toEqual(["tasks", "reports"]);
+    expect((await identify("500", {})).roles.map((r) => r.id))
+      .toEqual(["executor", design.id]);
+  });
+
+  it("чужая роль не назначается, а пустой список — это «без ролей»", async () => {
+    await identify("100", { name: "Владелец" });
+    await addUser({ id: "501", name: "Пётр", roleId: "executor", addedBy: "100" });
+    await expect(setUserRoles("501", ["нет-такой"])).rejects.toThrow(/unknown role/);
+    await setUserRoles("501", []);
+    expect((await identify("501", {})).tabs).toEqual([]);
+  });
+
+  it("удалённая роль уходит у всех, а остальные остаются", async () => {
+    await identify("100", { name: "Владелец" });
+    const design = await addRole({ name: "Бухгалтер", tabs: [] });
+    await addUser({ id: "502", name: "Ольга", roleId: "executor", addedBy: "100" });
+    await setUserRoles("502", ["executor", design.id]);
+    expect(await removeRole(design.id)).toBe(true);
+    const olga = (await listOrg()).users.find((u) => u.id === "502");
+    expect(olga.roles).toEqual(["executor"]);
+  });
+
+  it("прежние записи читаются как роли: одиночная роль и должность", async () => {
+    /* В org.json лежали `roleId` (что показывать) и `position` (кем
+       числится). Это один вопрос, и теперь он один: обе записи читаются
+       как роли, и человек не теряет ни доступа, ни своего дела. */
+    await writeRaw({
+      ownerId: "100",
+      roles: [{ id: "executor", name: "исполнитель", tabs: ["tasks"] }],
+      positions: [{ id: "дизайнер", name: "Дизайнер" }],
+      users: [{ id: "600", name: "Старый", roleId: "executor", position: "дизайнер" }],
+    });
+    const org = await listOrg();
+    expect(org.roles.map((r) => r.id)).toEqual(["executor", "дизайнер"]);
+    expect(org.roles.find((r) => r.id === "дизайнер").tabs).toEqual([]);
+    expect(org.users[0].roles).toEqual(["executor", "дизайнер"]);
+    expect((await identify("600", {})).tabs).toEqual(["tasks"]);
   });
 });

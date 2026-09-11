@@ -270,10 +270,10 @@ describe("список воркеров: кого ставить", () => {
     const props = { workers: W, people: PEOPLE, nameOf: (id) =>
       PEOPLE.find((p) => p.id === id)?.name || id, tasks: TASKS, funcs: FUNCS,
     published: PUBLISHED,
-    /* Имя должности — в строке человека (`positionName`), идентификатор —
-       для ролей функции (`positionOf`). Это разные вопросы. */
-    positionOf: (id) => (id === "2" ? "p-des" : "p-an"),
-    positionName: (id) => (id === "2" ? "Дизайнер" : "Аналитик"),
+    /* Имя роли — в строке человека (`roleName`), идентификатор — для
+       ролей функции (`rolesOf`). Это разные вопросы. */
+    rolesOf: (id) => (id === "2" ? ["p-des"] : ["p-an"]),
+    roleName: (id) => ({ "p-des": "Дизайнер", "p-an": "Аналитик" })[id] || "",
     onOrder: () => {}, onOpenPerson: () => {}, ...over };
     return render(<Workers {...props} />);
   };
@@ -281,7 +281,7 @@ describe("список воркеров: кого ставить", () => {
   const namesIn = (el) => [...el.querySelectorAll("button")]
     .map((b) => b.textContent).filter((t) => /Иван|Пётр/.test(t));
 
-  it("в строке пять вещей и в этом порядке: должность, имя, сроки, рейтинг, работы",
+  it("в строке пять вещей и в этом порядке: роли, имя, сроки, рейтинг, работы",
     () => {
       /* Свалить это в одну серую строку через точки значило бы заставить
          искать нужное число глазами. */
@@ -321,9 +321,9 @@ describe("список воркеров: кого ставить", () => {
 
   it("чего нет — сказано словом, а не нулём", () => {
     // Ноль читается как «оценили на ноль», а человека ещё не оценивали.
-    mount({ tasks: [], positionOf: () => "", positionName: () => "" });
+    mount({ tasks: [], rolesOf: () => [], roleName: () => "" });
     const row = within(crewCard()).getByText("Иван").closest("button");
-    expect(row.textContent).toMatch(/без должности/);
+    expect(row.textContent).toMatch(/без роли/);
     expect(row.textContent).toMatch(/без оценок/);
     expect(row.textContent).toMatch(/сроков нет/);
   });

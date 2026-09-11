@@ -312,9 +312,10 @@ const postsOfFunc = (f, role) => {
 const ROLE_WORDS = { setters: "ставит", owners: "выполняет", reviewers: "проверяет" };
 
 /** По должности ли человек попал в эту роль (или записан в ней по старой модели). */
-function inRole(f, role, userId, position) {
+function inRole(f, role, userId, roles = []) {
   const posts = postsOfFunc(f, role);
-  if (posts.length) return posts.includes(String(position || ""));
+  // Ролей у человека несколько — хватает одной названной у функции.
+  if (posts.length) return roles.some((r) => posts.includes(String(r)));
   return (Array.isArray(f[role]) ? f[role] : []).map(String).includes(String(userId));
 }
 
@@ -324,7 +325,7 @@ function inRole(f, role, userId, position) {
  * Позванный не видит модель, поэтому список собирает сервер. Отказ (`off`)
  * — его собственный, и он же виден владельцу в карточке актива.
  */
-export function dutyFor(model = {}, userId, position = "") {
+export function dutyFor(model = {}, userId, roles = []) {
   const id = String(userId);
   const crewOf = (e) => {
     const ent = (model.entities || []).find((x) => x.id === e) || {};
@@ -340,12 +341,12 @@ export function dutyFor(model = {}, userId, position = "") {
   return (model.funcs || []).map((f) => {
     if (!(f.e in seen)) seen[f.e] = crewOf(f.e);
     if (!seen[f.e].has(id)) return null;
-    const roles = ["setters", "owners", "reviewers"].filter((r) => inRole(f, r, id, position));
-    if (!roles.length) return null;
+    const mine = ["setters", "owners", "reviewers"].filter((r) => inRole(f, r, id, roles));
+    if (!mine.length) return null;
     const ent = (model.entities || []).find((x) => x.id === f.e) || null;
     return { func: f.id, name: String(f.name || "без названия"),
       asset: f.e, assetName: String(ent?.name || "актив удалён"),
-      roles, words: roles.map((r) => ROLE_WORDS[r]),
+      roles: mine, words: mine.map((r) => ROLE_WORDS[r]),
       off: (Array.isArray(f.except) ? f.except : []).map(String).includes(id) };
   }).filter(Boolean);
 }
@@ -357,11 +358,11 @@ export function dutyFor(model = {}, userId, position = "") {
  * запись превратилась бы в список посторонних людей. Берут назад тем же
  * нажатием — отказ не окончателен.
  */
-export const refuseFunc = (userId, funcId, off, { position = "" } = {}) =>
+export const refuseFunc = (userId, funcId, off, { roles = [] } = {}) =>
   withModel(async (model) => {
     const f = (model.funcs || []).find((x) => x.id === funcId);
     if (!f) return { error: "not found" };
-    const mine = dutyFor(model, userId, position).find((d) => d.func === funcId);
+    const mine = dutyFor(model, userId, roles).find((d) => d.func === funcId);
     if (!mine) return { error: "not yours" };
     const id = String(userId);
     const list = (Array.isArray(f.except) ? f.except : []).map(String);
@@ -601,7 +602,7 @@ const parseWhen = (v) => {
   const s = String(v);
   return Number.isFinite(Date.parse(s)) ? s : undefined;
 };
-export const setupTask = (userId, taskId, fields = {}, { isOwner = false, positionOf = null } = {}) =>
+export const setupTask = (userId, taskId, fields = {}, { isOwner = false, rolesOf = null } = {}) =>
   withModel(async (model) => {
     const task = (model.tasks || []).find((t) => t.id === taskId);
     if (!task) return { error: "not found" };
@@ -623,7 +624,7 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false, positi
     }
     if ("endBy" in f && (f.endBy === "auto" || f.endBy === "hand")) patch.endBy = f.endBy;
     const workers = assetWorkers(model, task);
-    const doers = funcExecutors(model, task, positionOf);
+    const doers = funcExecutors(model, task, rolesOf);
     for (const [k, word] of [["assignee", "Исполнитель"], ["reviewer", "Проверяющий"]]) {
       if (!(k in f)) continue;
       const id = f[k] == null || f[k] === "" ? null : String(f[k]);

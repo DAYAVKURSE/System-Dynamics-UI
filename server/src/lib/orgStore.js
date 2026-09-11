@@ -55,7 +55,39 @@ export const BUILTIN_ROLES = [
    один и тот же дизайнер может быть и исполнителем, и проверяющим.
    Должности заводит владелец в блоке воркеров; встроенных нет — какие
    должности бывают, знает он, а не мы. */
-const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, positions: [], users: [] };
+const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [] };
+
+/* ─────── договор — акцепт участия ───────
+
+   Человек становится участником не потому, что его добавили, а потому,
+   что он подписал договор. Поэтому договор — у РОЛИ: у каждой свой, и
+   ролей у человека может быть несколько. Шаблон («что подписать»)
+   владелец кладёт к роли; подписанный экземпляр приносит сам человек,
+   когда регистрируется, и по нему система сама выдаёт ему эту роль.
+
+   Роль без шаблона договора выдаётся без акцепта — подписывать нечего.
+   Это не исключение из правила, а его край: правило говорит «договор
+   есть — значит подписан», а не «договор есть всегда».
+
+   ДОЛЖНОСТЕЙ больше нет. Прежде их было два списка: роли (что человеку
+   показывать) и должности (кем он числится) — и у человека было по одной
+   из каждого. На деле это один вопрос: кто он здесь. Должности прежних
+   записей читаются как роли без вкладок, и никто ничего не теряет. */
+const fileRef = (f) => (f && typeof f === "object" && f.url
+  ? { name: String(f.name || "файл"), type: String(f.type || ""),
+    size: Number(f.size) || 0, url: String(f.url) }
+  : null);
+
+const roleIds = (v) => [...new Set((Array.isArray(v) ? v : [])
+  .map((x) => String(x ?? "")).filter(Boolean))];
+
+/* Роли человека из любой записи: нынешний список, прежняя одиночная роль
+   и прежняя должность — всё это его роли. */
+const userRoles = (u = {}) => roleIds([
+  ...(Array.isArray(u.roles) ? u.roles : []),
+  ...(u.roleId ? [u.roleId] : []),
+  ...(u.position ? [u.position] : []),
+]);
 
 function baseDir() {
   return process.env.ORG_DIR
@@ -69,19 +101,30 @@ export async function readOrg() {
     const parsed = JSON.parse(await fs.readFile(file(), "utf8"));
     const roles = Array.isArray(parsed.roles) && parsed.roles.length
       ? parsed.roles : BUILTIN_ROLES;
+    /* Прежние ДОЛЖНОСТИ становятся ролями без вкладок: это тот же вопрос
+       «кто он здесь», и двух списков для него не нужно. Вкладок им не
+       дописываем — доступ человека собран из его прежней роли. */
+    const old = Array.isArray(parsed.positions) ? parsed.positions : [];
+    const all = [
+      ...roles.map((r) => ({ ...r, tabs: normTabs(r.tabs), contract: fileRef(r.contract) })),
+      ...old.filter((p) => p && p.id && !roles.some((r) => r.id === String(p.id)))
+        .map((p) => ({ id: String(p.id), name: String(p.name || p.id),
+          tabs: [], contract: null, builtin: false })),
+    ];
     return {
       ownerId: parsed.ownerId != null ? String(parsed.ownerId) : null,
       // Роли — как записаны: встроенные тоже можно удалить, и воскрешать их
       // при каждом чтении нельзя. Пустой список — единственный случай, когда
       // подставляются встроенные: иначе позвать в модель станет некого.
-      roles: roles.map((r) => ({ ...r, tabs: normTabs(r.tabs) })),
-      positions: Array.isArray(parsed.positions)
-        ? parsed.positions.filter((p) => p && p.id).map((p) => ({ id: String(p.id), name: String(p.name || p.id) }))
-        : [],
-      users: Array.isArray(parsed.users) ? parsed.users : [],
+      roles: all,
+      users: (Array.isArray(parsed.users) ? parsed.users : []).map((u) => {
+        const { roleId, position, ...rest } = u;
+        return { ...rest, roles: userRoles(u),
+          contracts: u.contracts && typeof u.contracts === "object" ? u.contracts : {} };
+      }),
     };
   } catch {
-    return { ...EMPTY, roles: [...BUILTIN_ROLES], positions: [], users: [] };
+    return { ...EMPTY, roles: [...BUILTIN_ROLES], users: [] };
   }
 }
 
@@ -134,21 +177,32 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
   }
   if (changed) await writeOrg(org);
 
-  const role = user && user.roleId ? org.roles.find((r) => r.id === user.roleId) : null;
+  /* Ролей у человека может быть несколько: он и дизайнер, и проверяющий.
+     Вкладки — ОБЪЕДИНЕНИЕ их вкладок: роль ничего не отнимает, она
+     только открывает. */
+  const mine = userRoles(user || {})
+    .map((rid) => org.roles.find((r) => r.id === rid)).filter(Boolean);
+  const role = mine[0] || null;
   return {
     id, isOwner,
     known: isOwner || !!user,
     name: user?.name || profile.name || "",
-    // Должность — рядом с «кто я»: роли функций записаны должностями, и
-    // без неё нельзя сказать, что человеку поручено.
-    position: user?.position || "",
+    // Роли — рядом с «кто я»: ими записаны роли функций, и без них нельзя
+    // сказать, что человеку поручено.
+    roles: mine.map((r) => ({ id: r.id, name: r.name })),
+    position: mine[0]?.id || "",
+    /* Чего человек ещё не подписал: роль, которую ему приготовили, ждёт
+       договора. Пока не подписал — роли у него нет, и приложение ведёт
+       его на регистрацию, а не показывает пустые вкладки. */
+    pending: user?.pending ? String(user.pending) : "",
     // Своя анкета приходит вместе с «кто я»: она нужна на первой же
     // вкладке, и отдельный запрос за ней был бы вторым кругом за тем же.
     profile: profileOf(user || {}),
     role: role || null,
-    // Владельцу доступно всё; остальным — то, что даёт роль. Не найдена
-    // роль (её удалили) — не показываем ничего, кроме объяснения.
-    tabs: isOwner ? [...TABS] : (role ? normTabs(role.tabs) : []),
+    // Владельцу доступно всё; остальным — то, что дают ЕГО РОЛИ вместе.
+    // Ни одной роли (её удалили или договор не подписан) — не показываем
+    // ничего, кроме объяснения.
+    tabs: isOwner ? [...TABS] : normTabs(mine.flatMap((r) => r.tabs || [])),
   };
 }
 
@@ -281,63 +335,110 @@ export async function listOrg() {
   return {
     ownerId: org.ownerId,
     roles: org.roles,
-    positions: org.positions,
     users: org.users.map((u) => ({ ...u, ...profileOf(u) })),
   };
 }
 
-/* ─────── должности ───────
-   Заводятся и раздаются там же, где видно человека, — в блоке воркеров.
-   Имя должности свободное: список профессий за владельца никто не знает. */
+/* ─────── роли человека ───────
 
-export async function addPosition({ name }) {
-  const clean = String(name || "").trim();
-  if (!clean) throw new Error("name is required");
-  const org = await readOrg();
-  if (org.positions.some((p) => p.name.toLowerCase() === clean.toLowerCase())) {
-    throw new Error("position already exists");
-  }
-  let id = slug(clean, "position"); let n = 2;
-  while (org.positions.some((p) => p.id === id)) id = `${slug(clean, "position")}-${n++}`;
-  const position = { id, name: clean };
-  org.positions.push(position);
-  await writeOrg(org);
-  return position;
-}
+   Должностей больше нет: роль и есть ответ на «кто он здесь». Ролей у
+   человека бывает несколько — он и дизайнер, и проверяющий, — и тогда
+   вкладки складываются, а работу ему можно поручить по любой из них.
 
-export async function removePosition(id) {
-  const org = await readOrg();
-  if (!org.positions.some((p) => p.id === id)) return false;
-  org.positions = org.positions.filter((p) => p.id !== id);
-  /* Человек с удалённой должностью не исчезает — он остаётся без
-     должности, и это видно в строке. Молча дать ему другую нельзя. */
-  org.users = org.users.map((u) => (u.position === id ? { ...u, position: null } : u));
-  await writeOrg(org);
-  return true;
-}
+   Раздаёт роли владелец (здесь) и сам человек, подписав договор
+   (`registerUser`). Третьего пути нет. */
 
-export async function setUserPosition(id, positionId) {
+export async function setUserRoles(id, roles) {
   const org = await readOrg();
   const user = org.users.find((u) => u.id === String(id));
   if (!user) return null;
-  // Пусто — снять должность: «без должности» это ответ, а не ошибка.
-  if (positionId != null && positionId !== ""
-    && !org.positions.some((p) => p.id === positionId)) {
-    throw new Error("unknown position");
-  }
-  user.position = positionId || null;
+  const want = roleIds(roles);
+  const unknown = want.find((r) => !org.roles.some((x) => x.id === r));
+  if (unknown) throw new Error("unknown role");
+  user.roles = want;
   await writeOrg(org);
   return user;
 }
 
+/** Шаблон договора роли: что человек подписывает, вступая в неё. */
+export async function setRoleContract(id, file) {
+  const org = await readOrg();
+  const role = org.roles.find((r) => r.id === id);
+  if (!role) return null;
+  role.contract = fileRef(file);
+  await writeOrg(org);
+  return role;
+}
+
+/**
+ * Роли, в которые можно зарегистрироваться, — всем, кто открыл приложение.
+ *
+ * Отдаётся без имён людей и без чужих договоров: только чем эта роль
+ * называется и что по ней подписывать. Незваный человек не должен видеть
+ * список организации, чтобы в неё вступить.
+ */
+export async function openRoles() {
+  const org = await readOrg();
+  return org.roles.map((r) => ({ id: r.id, name: r.name,
+    tabs: normTabs(r.tabs), contract: fileRef(r.contract) }));
+}
+
+/**
+ * Регистрация: человек подписал договор роли — и роль у него есть.
+ *
+ * Акцепт здесь — сам подписанный экземпляр: без него роль не выдаётся, и
+ * решать «пускать ли» отдельным нажатием владельцу не нужно. Роль, у
+ * которой шаблона договора нет, подписывать нечем — она выдаётся сразу.
+ *
+ * Повторная регистрация в ту же роль заменяет подписанный экземпляр:
+ * договор перезаключают, а не заводят вторую запись о том же.
+ */
+export async function registerUser(userId, profile = {}, { roleId, file } = {}) {
+  const org = await readOrg();
+  const id = String(userId);
+  const role = org.roles.find((r) => r.id === roleId);
+  if (!role) throw new Error("unknown role");
+  const signed = fileRef(file);
+  if (role.contract && !signed) throw new Error("contract is required");
+
+  let user = org.users.find((u) => u.id === id);
+  if (!user) {
+    user = { id, name: profile.name || id, username: profile.username || "",
+      roles: [], contracts: {}, addedAt: new Date().toISOString(), addedBy: null };
+    org.users.push(user);
+  }
+  if (profile.name && user.name !== profile.name) user.name = profile.name;
+  user.roles = roleIds([...(user.roles || []), role.id]);
+  user.contracts = { ...(user.contracts || {}),
+    [role.id]: { ...(signed || {}), at: new Date().toISOString() } };
+  // Приготовленная роль дождалась договора — ждать больше нечего.
+  if (String(user.pending || "") === role.id) delete user.pending;
+  await writeOrg(org);
+  return user;
+}
+
+/**
+ * Позвать человека: владелец называет роль, человек подписывает договор.
+ *
+ * Роль сразу НЕ выдаётся, если у неё есть договор: акцептом участия
+ * служит подпись, а не чужое решение. Приготовленная роль лежит в
+ * `pending`, и приложение при первом входе ведёт человека подписывать её.
+ * Договора у роли нет — подписывать нечего, и роль выдаётся сразу.
+ */
 export async function addUser({ id, name, username, roleId, addedBy }) {
   if (!id) throw new Error("id is required");
   const org = await readOrg();
-  if (!org.roles.some((r) => r.id === roleId)) throw new Error("unknown role");
+  const role = org.roles.find((r) => r.id === roleId);
+  if (!role) throw new Error("unknown role");
   const uid = String(id);
   const idx = org.users.findIndex((u) => u.id === uid);
+  const was = idx >= 0 ? org.users[idx] : null;
+  const signed = !role.contract || !!(was?.contracts || {})[role.id];
   const entry = {
-    id: uid, name: name || uid, username: username || "", roleId,
+    id: uid, name: name || uid, username: username || "",
+    roles: signed ? roleIds([...(was?.roles || []), role.id]) : roleIds(was?.roles),
+    ...(signed ? {} : { pending: role.id }),
+    contracts: (was?.contracts) || {},
     addedAt: new Date().toISOString(), addedBy: addedBy ? String(addedBy) : null,
   };
   if (idx >= 0) org.users[idx] = { ...org.users[idx], ...entry };
@@ -359,12 +460,13 @@ export async function removeUser(id) {
   return true;
 }
 
+/** Одна роль вместо всех — прежний способ, оставлен для бота и ссылок. */
 export async function setUserRole(id, roleId) {
   const org = await readOrg();
   const user = org.users.find((u) => u.id === String(id));
   if (!user) return null;
   if (!org.roles.some((r) => r.id === roleId)) throw new Error("unknown role");
-  user.roleId = roleId;
+  user.roles = [roleId];
   await writeOrg(org);
   return user;
 }
@@ -372,7 +474,7 @@ export async function setUserRole(id, roleId) {
 const slug = (name, fallback = "role") => String(name).toLowerCase()
   .replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 40) || fallback;
 
-export async function addRole({ name, tabs }) {
+export async function addRole({ name, tabs, contract }) {
   const clean = String(name || "").trim();
   if (!clean) throw new Error("name is required");
   const org = await readOrg();
@@ -384,7 +486,8 @@ export async function addRole({ name, tabs }) {
   // Новая роль по умолчанию — исполнитель: из бота роль заводится одним
   // именем, а видеть чужие проверки без явного решения она не должна.
   const list = normTabs(tabs);
-  const role = { id, name: clean, tabs: list.length ? list : ["tasks"], builtin: false };
+  const role = { id, name: clean, tabs: list.length ? list : ["tasks"],
+    contract: fileRef(contract), builtin: false };
   org.roles.push(role);
   await writeOrg(org);
   return role;
@@ -406,9 +509,10 @@ export async function removeRole(id) {
   // единой роли позвать в модель станет некого.
   if (!role || org.roles.length <= 1) return false;
   org.roles = org.roles.filter((r) => r.id !== id);
-  // Люди с удалённой ролью не исчезают — они остаются без роли, и это
-  // видно в списке. Молча раздавать им другую роль нельзя.
-  org.users = org.users.map((u) => (u.roleId === id ? { ...u, roleId: null } : u));
+  // Люди с удалённой ролью не исчезают — они теряют её одну, а остальные
+  // остаются. Молча раздавать им другую роль нельзя.
+  org.users = org.users.map((u) => ({ ...u,
+    roles: (u.roles || []).filter((r) => r !== id) }));
   await writeOrg(org);
   return true;
 }

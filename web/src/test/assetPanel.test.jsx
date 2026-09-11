@@ -428,38 +428,38 @@ describe("воркеры принадлежат активу", () => {
     expect(screen.getByText(/Людей ещё нет/)).toBeInTheDocument();
   });
 
-  it("роли выставляются У ФУНКЦИИ, и назначается ДОЛЖНОСТЬ, а не человек", () => {
+  it("роли выставляются У ФУНКЦИИ, и назначается РОЛЬ, а не человек", () => {
     /* Владелец: «постановщикам, исполнителям и проверяющим должен
-       выбираться не конкретный человек, а должность, которая есть в этом
+       выбираться не конкретный человек, а роль, которая есть в этом
        активе». Человек в функции больше не записан. */
     addFunc();
     ["постановщики", "исполнители", "проверяющие"].forEach((many) => {
-      expect(screen.getByText(`${many} — должности`)).toBeInTheDocument();
+      expect(screen.getByText(`${many} — роли`)).toBeInTheDocument();
     });
-    // Должностей в схеме ещё нет — так и сказано, у всех трёх ролей.
-    expect(screen.getAllByText(/должностей ещё нет/).length).toBeGreaterThanOrEqual(3);
+    // Ролей в схеме ещё нет — так и сказано, у всех трёх мест.
+    expect(screen.getAllByText(/ролей ещё нет/).length).toBeGreaterThanOrEqual(3);
   });
 });
 
 describe("исключения у воркера", () => {
-  /* Владелец: «воркеры, имеющие эту должность, могут быть назначены на
-     задачи этой функции, если у самого воркера не отмечено, что он не может
-     взять эту задачу». Поэтому в строке воркера — не «что он умеет», а
-     ИСКЛЮЧЕНИЯ: функции, к которым он и так допущен должностью. */
-  const PEOPLE = [{ id: "2", name: "Иван", position: "designer" },
-    { id: "3", name: "Пётр", position: "editor" }];
+  /* Владелец: «воркеры, имеющие эту роль, могут быть назначены на задачи
+     этой функции, если у самого воркера не отмечено, что он не может взять
+     эту задачу». Поэтому в строке воркера — не «что он умеет», а
+     ИСКЛЮЧЕНИЯ: функции, к которым он и так допущен ролью. */
+  const PEOPLE = [{ id: "2", name: "Иван", roles: ["designer"] },
+    { id: "3", name: "Пётр", roles: ["editor"] }];
   const POSITIONS = [{ id: "designer", name: "Дизайнер" }, { id: "editor", name: "Редактор" }];
   const FUNCS = [
     { id: "f1", e: "a", name: "Верстать", posts: { owners: ["designer"] }, except: [], takes: [], gives: [] },
     { id: "f2", e: "a", name: "Принимать", posts: { reviewers: ["editor"] }, except: [], takes: [], gives: [] },
     { id: "f9", e: "b", name: "Чужая", posts: { owners: ["designer"] }, except: [], takes: [], gives: [] },
   ];
-  const positionOf = (id) => PEOPLE.find((p) => String(p.id) === String(id))?.position || "";
+  const rolesOf = (id) => PEOPLE.find((p) => String(p.id) === String(id))?.roles || [];
   const show = (over = {}) => render(<Workers workers={{ crew: ["2", "3"] }} people={PEOPLE}
-    funcs={FUNCS} entityId="a" positions={POSITIONS} positionOf={positionOf}
+    funcs={FUNCS} entityId="a" positions={POSITIONS} rolesOf={rolesOf}
     nameOf={(id) => PEOPLE.find((p) => p.id === id)?.name || id} onToggleFunc={() => {}} {...over} />);
 
-  it("в строке — только то, к чему допускает должность; чужой актив не предлагается", () => {
+  it("в строке — только то, к чему допускает роль; чужой актив не предлагается", () => {
     show();
     expect(screen.getByRole("button", { name: "исключение «Верстать»: Иван" }))
       .toHaveAttribute("aria-pressed", "false");
@@ -482,9 +482,9 @@ describe("исключения у воркера", () => {
       .toHaveAttribute("aria-pressed", "true");
   });
 
-  it("должность никому ничего не поручила — так и сказано", () => {
+  it("роль никому ничего не поручила — так и сказано", () => {
     show({ funcs: [{ id: "f1", e: "a", name: "Верстать", posts: {}, except: [], takes: [], gives: [] }] });
-    expect(screen.getAllByText(/по должности ему пока ничего не поручено/).length)
+    expect(screen.getAllByText(/по его ролям ему пока ничего не поручено/).length)
       .toBeGreaterThan(0);
   });
 });

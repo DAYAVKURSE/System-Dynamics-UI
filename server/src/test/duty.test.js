@@ -8,7 +8,7 @@ import path from "node:path";
 /* ПОРУЧЕНИЯ ЧЕЛОВЕКА.
 
    Роли функции записаны ДОЛЖНОСТЯМИ: работу берёт любой воркер актива с
-   такой должностью. Настройки актива позванный не видит — значит список
+   такой ролью. Настройки актива позванный не видит — значит список
    того, что на нём висит, собирает сервер, по всем активам сразу.
 
    Выбрать себе работу нельзя. Можно только отказаться от того, в чём уже
@@ -64,17 +64,17 @@ beforeEach(async () => {
       .send({ id: String(id), name, roleId: "executor" });
   }
   for (const name of ["дизайнер", "бухгалтер"]) {
-    await request(app).post("/api/org/positions").set(as(100)).send({ name });
+    await request(app).post("/api/org/roles").set(as(100)).send({ name, tabs: [] });
   }
-  await request(app).put("/api/org/users/200/position").set(as(100))
-    .send({ position: "дизайнер" });
-  await request(app).put("/api/org/users/300/position").set(as(100))
-    .send({ position: "бухгалтер" });
+  await request(app).put("/api/org/users/200/roles").set(as(100))
+    .send({ roles: ["executor", "дизайнер"] });
+  await request(app).put("/api/org/users/300/roles").set(as(100))
+    .send({ roles: ["executor", "бухгалтер"] });
   await request(app).put("/api/workspace").set(as(100)).send({ model: MODEL });
 });
 
 describe("список поручений", () => {
-  it("собирает все активы, где человек воркер и его выбрали должностью", async () => {
+  it("собирает все активы, где человек воркер и его выбрали ролью", async () => {
     const res = await request(app).get("/api/workspace/duty").set(as(200));
     expect(res.status).toBe(200);
     expect(res.body.duty.map((d) => d.func)).toEqual(["f1"]);
@@ -82,11 +82,11 @@ describe("список поручений", () => {
       name: "Звонок лиду", roles: ["owners"], off: false });
   });
 
-  it("другая должность — другой список, и роль названа словом", async () => {
+  it("другая роль — другой список, и что он там делает, названо словом", async () => {
     const res = await request(app).get("/api/workspace/duty").set(as(300));
     expect(res.body.duty.map((d) => d.func)).toEqual(["f2"]);
     expect(res.body.duty[0].words).toEqual(["проверяет"]);
-    // Воркер «Склада», но должность там чужая — «Приёмки» в списке нет.
+    // Воркер «Склада», но роль там чужая — «Приёмки» в списке нет.
     expect(res.body.duty.some((d) => d.func === "f3")).toBe(false);
   });
 

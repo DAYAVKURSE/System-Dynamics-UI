@@ -19,6 +19,10 @@ router.use(async (req, res, next) => {
    Один хелпер на все нажатия, чтобы ни одно не осталось без среза. */
 const seen = (req, task) => (req.me.isOwner ? task : taskViewFor(task, req.telegramUserId));
 
+/* Роли спрашивающего — идентификаторами: ими записаны роли функций, и по
+   ним считается, что человеку поручено. Их может быть несколько. */
+const myRoles = (me) => (me?.roles || []).map((r) => r.id);
+
 // Срез модели под спрашивающего. Фильтрует сервер: спрятать чужие задачи
 // в интерфейсе значит не спрятать их вовсе.
 router.get("/", async (req, res, next) => {
@@ -87,9 +91,9 @@ router.post("/tasks/:id/setup", async (req, res, next) => {
     /* Должности живут в org.json, а не в модели: правило «исполнитель по
        должности» без них не проверить, поэтому карта приходит сюда. */
     const org = await listOrg();
-    const posts = new Map((org.users || []).map((u) => [String(u.id), u.position || ""]));
+    const posts = new Map((org.users || []).map((u) => [String(u.id), u.roles || []]));
     const r = await setupTask(req.telegramUserId, req.params.id, req.body || {},
-      { isOwner: req.me.isOwner, positionOf: (id) => posts.get(String(id)) || "" });
+      { isOwner: req.me.isOwner, rolesOf: (id) => posts.get(String(id)) || [] });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not yours") return res.status(403).json({ error: r.error });
     if (r.error) return res.status(400).json({ error: r.error, why: r.why || "" });
@@ -103,7 +107,7 @@ router.post("/tasks/:id/setup", async (req, res, next) => {
 router.get("/duty", async (req, res, next) => {
   try {
     if (!req.me.known) return res.status(403).json({ error: "not invited" });
-    res.json({ duty: dutyFor(await readModel(), req.telegramUserId, req.me.position || "") });
+    res.json({ duty: dutyFor(await readModel(), req.telegramUserId, myRoles(req.me)) });
   } catch (e) { next(e); }
 });
 
@@ -114,7 +118,7 @@ router.post("/funcs/:id/duty", async (req, res, next) => {
   try {
     if (!req.me.known) return res.status(403).json({ error: "not invited" });
     const r = await refuseFunc(req.telegramUserId, req.params.id,
-      req.body?.off === true, { position: req.me.position || "" });
+      req.body?.off === true, { roles: myRoles(req.me) });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not yours")
       return res.status(403).json({ error: "Эта функция вам не поручена." });

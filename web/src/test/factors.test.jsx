@@ -130,7 +130,7 @@ describe("в интерфейсе", () => {
     expect(screen.queryByRole("radio", { name: "Фактор" })).toBeNull();
     expect(screen.queryByRole("radio", { name: "Задача" })).toBeNull();
     ["постановщики", "исполнители", "проверяющие"].forEach((many) => {
-      expect(screen.getByText(`${many} — должности`)).toBeInTheDocument();
+      expect(screen.getByText(`${many} — роли`)).toBeInTheDocument();
     });
   });
 

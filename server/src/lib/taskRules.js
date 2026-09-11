@@ -151,23 +151,26 @@ export function whyNotSet(task = {}, model = {}) {
  * `eligible` из `web/src/lib/funcs.js` — правило одно, а код у сервера свой
  * (он отдаётся отдельным пакетом).
  *
- * `positionOf` — должность человека из org.json: в модели её нет, поэтому
+ * `rolesOf` — РОЛИ человека из org.json: в модели их нет, поэтому
  * приходит снаружи. Не дали — считаем по старому списку людей у функции,
  * чтобы схемы, собранные до должностей, ставились как прежде.
  */
-export function funcExecutors(model = {}, task = {}, positionOf = null) {
+export function funcExecutors(model = {}, task = {}, rolesOf = null) {
   const f = (model.funcs || []).find((x) => x.id === task.funcId) || null;
   if (!f) return new Set();
   const posts = Array.isArray(f.posts?.owners) ? f.posts.owners.map(String) : [];
   const except = new Set((Array.isArray(f.except) ? f.except : []).map(String));
   const legacy = (Array.isArray(f.owners) ? f.owners : [])
     .filter((id) => id != null && id !== "").map(String);
-  if (!posts.length || !positionOf) {
+  if (!posts.length || !rolesOf) {
     return new Set(legacy.filter((id) => !except.has(id)));
   }
   const crew = [...assetWorkers(model, task)];
   return new Set(crew
-    .filter((id) => posts.includes(String(positionOf(id) || "")))
+    /* Ролей у человека бывает несколько: подходит, если ХОТЬ ОДНА из них
+       названа у функции. Требовать совпадения всех значило бы не пускать
+       дизайнера, который заодно и проверяющий. */
+    .filter((id) => (rolesOf(id) || []).some((r) => posts.includes(String(r))))
     .filter((id) => !except.has(id)));
 }
 

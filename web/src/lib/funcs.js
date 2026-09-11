@@ -636,11 +636,15 @@ export const toggleExcept = (f = {}, personId) => {
 };
 
 /**
- * Кого можно назначить на роль функции: воркеры актива с нужной должностью,
- * кроме исключённых. Должность роли не названа — читается старый список
+ * Кого можно назначить на роль функции: воркеры актива с нужной РОЛЬЮ,
+ * кроме исключённых. Роль у функции не названа — читается старый список
  * людей; нет и его — никого (это ответ, а не «значит, всех»).
+ *
+ * `rolesOf(id)` отдаёт СПИСОК ролей человека: он бывает и дизайнером, и
+ * проверяющим, и хватает одной названной у функции. Требовать совпадения
+ * всех значило бы не пускать того, кто умеет больше.
  */
-export function eligible(f, role, { crew = [], positionOf = () => "", people = [] } = {}) {
+export function eligible(f, role, { crew = [], rolesOf = () => [], people = [] } = {}) {
   if (!f) return [];
   const ids = crew.length ? crew.map(String)
     : people.map((p) => String(p.id ?? p));
@@ -648,15 +652,16 @@ export function eligible(f, role, { crew = [], positionOf = () => "", people = [
   const legacy = (Array.isArray(f[role]) ? f[role] : []).map(String);
   const banned = new Set(exceptOf(f));
   const base = posts.length
-    ? ids.filter((id) => posts.includes(String(positionOf(id) || "")))
+    ? ids.filter((id) => (rolesOf(id) || []).some((r) => posts.includes(String(r))))
     : ids.filter((id) => legacy.includes(id));
   return base.filter((id) => !banned.has(id));
 }
 
-/** Доступна ли функция человеку по должности (до исключений). */
-export const byPost = (f, role, positionOf, id) => {
+/** Доступна ли функция человеку по его ролям (до исключений). */
+export const byPost = (f, role, rolesOf, id) => {
   const posts = postsOf(f, role);
-  return posts.length ? posts.includes(String(positionOf(id) || ""))
+  return posts.length
+    ? (rolesOf(id) || []).some((r) => posts.includes(String(r)))
     : (Array.isArray(f?.[role]) ? f[role] : []).map(String).includes(String(id));
 };
 
@@ -664,14 +669,14 @@ export const byPost = (f, role, positionOf, id) => {
  * Что человеку поручено — по всем активам сразу.
  *
  * Список того, где он выбран: актив, функция, в каких ролях и не отказался
- * ли он от неё. Собирается по должности (`byPost`), а не по имени в
- * функции: назначает должность, человек только отказывается.
+ * ли он от неё. Собирается по РОЛИ (`byPost`), а не по имени в функции:
+ * назначает роль, человек только отказывается.
  *
  * Нужен в анкете: настройки актива человек не видит, а знать, что на нём
  * висит, должен — и отказаться тоже.
  */
 export function dutyOf({ funcs = [], entities = [] } = {}, personId,
-  { positionOf = () => "" } = {}) {
+  { rolesOf = () => [] } = {}) {
   const id = String(personId ?? "");
   if (!id) return [];
   const crewOfAsset = (e) => new Set(crewOf(workersOf(entities, e)).map(String));
@@ -679,7 +684,7 @@ export function dutyOf({ funcs = [], entities = [] } = {}, personId,
   return funcs.map((f) => {
     if (!(f.e in inCrew)) inCrew[f.e] = crewOfAsset(f.e);
     if (!inCrew[f.e].has(id)) return null;
-    const roles = WORKER_KINDS.filter((k) => byPost(f, k.id, positionOf, id)).map((k) => k.id);
+    const roles = WORKER_KINDS.filter((k) => byPost(f, k.id, rolesOf, id)).map((k) => k.id);
     if (!roles.length) return null;
     const e = entities.find((x) => x.id === f.e) || null;
     return { func: f.id, name: f.name || "без названия", asset: f.e,

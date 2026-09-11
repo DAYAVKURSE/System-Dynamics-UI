@@ -3,11 +3,12 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
-  addPosition, removePosition, setUserPosition,
+  addRole, removeRole, setUserRoles,
   takeTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote, getRatings,
   setupTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
+import RegisterPanel from "./RegisterPanel.jsx";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, checkAsset, countWorkers, crewOf,
@@ -427,19 +428,18 @@ export default function SystemModel(){
   const [openCards,setOpenCards]=useState(()=>new Set());
   const [openCall,setOpenCall]=useState(()=>callFromLocation());
   const [people,setPeople]=useState([]);
-  /* Должности (роли организации) — чтобы в списке воркеров было видно, кем
-     человек вообще числится. Приходят тем же запросом, что и люди: два
-     запроса за одним ответом расходились бы. */
+  /* РОЛИ — один список на всё приложение: они открывают вкладки, по ним
+     заключают договоры («Люди и роли»), ими же названы роли у функций и
+     отмечены воркеры. Прежде рядом жил второй список — «должности», — и
+     это был тот же вопрос «кто он здесь», заданный дважды.
+
+     Приходят тем же запросом, что и люди: два запроса за одним ответом
+     расходились бы. Перечитываются после каждой правки из блока воркеров:
+     список ведёт сервер, и показывать своё предположение о нём незачем. */
   const [roles,setRoles]=useState([]);
-  /* Должности — свой список, не роли: роль даёт вкладки, должность
-     говорит, кем человек числится. Люди и должности перечитываются после
-     каждой правки из блока воркеров: список ведёт сервер, и показывать
-     своё предположение о нём незачем. */
-  const [positions,setPositions]=useState([]);
   const refreshOrg=useCallback(()=>listOrg().then(o=>{
     if(o?.users) setPeople(o.users);
     if(o?.roles) setRoles(o.roles);
-    if(o?.positions) setPositions(o.positions);
   }).catch(()=>{}),[]);
   useEffect(()=>{ let live=true;
     whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
@@ -454,7 +454,6 @@ export default function SystemModel(){
     listOrg().then(o=>{ if(!live||!o) return;
       if(o.users) setPeople(o.users);
       if(o.roles) setRoles(o.roles);
-      if(o.positions) setPositions(o.positions);
     }).catch(()=>{});
     return ()=>{ live=false; };
   },[me.known,me.solo]);
@@ -860,22 +859,16 @@ export default function SystemModel(){
   // Кому какие задачи видны. Владельцу — все; остальным — только его.
   const myTasks=useMemo(()=>(me.isOwner?tasks:tasks.filter(t=>
     String(t.assignee||"")===String(me.id))),[tasks,me.isOwner,me.id]);
-  /* В строке воркера — ДОЛЖНОСТЬ (кем человек числится), а не роль (что
-     ему показывать): роль отвечает на вопрос интерфейса, должность — на
-     вопрос того, кто выбирает, кому поручить работу. Не задана — так и
-     сказано словом, пустое место читалось бы как «ещё грузится». */
-  const positionName=useCallback((id)=>{
+  /* Роли человека — ИДЕНТИФИКАТОРАМИ: по ним сверяются роли функции
+     (`byPost`, `eligible`) и собираются поручения. Их несколько: он и
+     дизайнер, и проверяющий. */
+  const rolesOf=useCallback((id)=>{
     const u=people.find(p=>String(p.id)===String(id));
-    return positions.find(x=>x.id===u?.position)?.name||"";
-  },[people,positions]);
-  /* А это — сам ИДЕНТИФИКАТОР должности: по нему сверяются роли функции
-     (`byPost`, `eligible`). Прежде туда уходило имя, и совпасть с
-     идентификатором оно не могло никогда — форма честно писала, что с
-     такой должностью никого нет, хотя люди были. */
-  const positionIdOf=useCallback((id)=>{
-    const u=people.find(p=>String(p.id)===String(id));
-    return u?.position||"";
+    return (u?.roles||[]).map(String);
   },[people]);
+  /* А это — ИМЯ роли, для строки человека: в ней стоят слова, а не коды.
+     Не названа — пусто, и рядом об этом сказано словом. */
+  const roleName=useCallback((id)=>roles.find(r=>r.id===String(id))?.name||"",[roles]);
   /* Отказ от поручения в своей анкете. У владельца модель под рукой —
      он пишет её сам, тем же исключением, что стоит в карточке воркера;
      позванный отправляет отказ на сервер (ProfilePanel сделает это сам,
@@ -1051,22 +1044,21 @@ export default function SystemModel(){
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 
+      {/* Незваный — не «ждите, пока позовут», а РЕГИСТРАЦИЯ: участником
+          становятся, подписав договор роли, и делает это сам человек.
+          Позванному (`pending`) там же остаётся подписать приготовленную
+          роль. */}
       {!me.known && !me.solo && (
-        <div style={{...S.card,marginBottom:10}}>
-          <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Вас ещё не позвали</div>
-          <div style={{fontSize:11.5,color:C.muted,lineHeight:1.6}}>
-            Модель принадлежит владельцу, и доступ выдаёт он. Попросите его
-            добавить вас: пусть перешлёт боту ваше сообщение. Если у вас
-            закрыт перенос сообщений, отправьте боту «/id» и передайте номер
-            владельцу.
-          </div>
-        </div>)}
+        <RegisterPanel me={me} onDone={m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); }}/>)}
 
-      {me.known && !me.tabs.length && (
+      {me.known && !me.solo && !!me.pending && (
+        <RegisterPanel me={me} onDone={m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); }}/>)}
+
+      {me.known && !me.pending && !me.tabs.length && (
         <div style={{...S.card,marginBottom:10,fontSize:11.5,color:C.muted,
           lineHeight:1.6}}>
-          Ваша роль ничего не открывает — возможно, её удалили. Попросите
-          владельца назначить роль заново.
+          Ваши роли ничего не открывают — возможно, их удалили. Подпишите
+          договор другой роли или попросите владельца назначить роль заново.
         </div>)}
 
       {/* ═══ АНКЕТА · страница человека ═══
@@ -1076,7 +1068,7 @@ export default function SystemModel(){
       {tab==="me" && (
         <ProfilePanel me={me} personId={person} people={people}
           tasks={tasks} funcs={funcs} published={published} ratings={ratings}
-          entities={entities} positionOf={positionIdOf}
+          entities={entities} rolesOf={rolesOf}
           onRefuseFunc={me.isOwner?refuseFuncHere:undefined}
           traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
           onSaved={p=>{
@@ -1198,7 +1190,7 @@ export default function SystemModel(){
 
             <AssetPanel entityId={selE.id}
               me={me} published={published}
-              workers={workers} positionOf={positionIdOf} positionName={positionName}
+              workers={workers} rolesOf={rolesOf} roleName={roleName}
               funcs={funcs} setFuncs={setFuncs}
               traits={traitsLive} setTraits={setTraits} materials={materials}
               entities={entities} kinds={kinds} kindOf={kindOf}
@@ -1206,11 +1198,11 @@ export default function SystemModel(){
               people={people} nameOf={personName} runsOf={runsOf}
               tasks={tasks} onOrderWorker={orderWorker} onToggleCrew={toggleCrew}
               onOpenPerson={id=>setCard(id)}
-              positions={positions}
-              onAddPosition={me.isOwner&&!me.solo?(n)=>addPosition(n).then(refreshOrg):undefined}
-              onDropPosition={me.isOwner&&!me.solo?(id)=>removePosition(id).then(refreshOrg):undefined}
-              onSetPosition={me.isOwner&&!me.solo
-                ?(pid,posId)=>setUserPosition(pid,posId).then(refreshOrg):undefined}
+              positions={roles}
+              onAddPosition={me.isOwner&&!me.solo?(n)=>addRole(n,[]).then(refreshOrg):undefined}
+              onDropPosition={me.isOwner&&!me.solo?(id)=>removeRole(id).then(refreshOrg):undefined}
+              onSetRoles={me.isOwner&&!me.solo
+                ?(pid,list)=>setUserRoles(pid,list).then(refreshOrg):undefined}
               focus={focus}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}
@@ -1445,7 +1437,7 @@ export default function SystemModel(){
         <Modal onClose={()=>setCard(null)} title={personName(card)}>
           <ProfilePanel me={me} personId={card} people={people}
             tasks={tasks} funcs={funcs} published={published} ratings={ratings}
-            entities={entities} positionOf={positionIdOf}
+            entities={entities} rolesOf={rolesOf}
             onRefuseFunc={me.isOwner&&String(card)===String(me.id)?refuseFuncHere:undefined}
             traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
             onSaved={p=>{

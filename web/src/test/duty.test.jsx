@@ -23,13 +23,13 @@ const FUNCS = [
 ];
 const ME = { id: "2", name: "Иван", isOwner: false, known: true, tabs: ["tasks"],
   profile: { about: "" } };
-const POS = (id) => (String(id) === "2" ? "p-sales" : "p-buh");
+const POS = (id) => (String(id) === "2" ? ["p-sales"] : ["p-buh"]);
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("что человеку поручено", () => {
-  it("собирается по всем активам, где он воркер и его выбрали должностью", () => {
-    const duty = dutyOf({ funcs: FUNCS, entities: ENTITIES }, "2", { positionOf: POS });
+  it("собирается по всем активам, где он воркер и его выбрали ролью", () => {
+    const duty = dutyOf({ funcs: FUNCS, entities: ENTITIES }, "2", { rolesOf: POS });
     expect(duty.map((d) => d.func)).toEqual(["f1", "f3"]);
     expect(duty[0]).toMatchObject({ asset: "e1", assetName: "Продажи",
       roles: ["owners"], off: false });
@@ -40,7 +40,7 @@ describe("что человеку поручено", () => {
   });
 
   it("чужая роль в списке не появляется", () => {
-    const duty = dutyOf({ funcs: FUNCS, entities: ENTITIES }, "3", { positionOf: POS });
+    const duty = dutyOf({ funcs: FUNCS, entities: ENTITIES }, "3", { rolesOf: POS });
     expect(duty.map((d) => d.func)).toEqual(["f2"]);
     expect(duty[0].roles).toEqual(["reviewers"]);
   });
@@ -49,7 +49,7 @@ describe("что человеку поручено", () => {
 describe("раздел в анкете", () => {
   const view = (props = {}) => render(
     <ProfilePanel me={ME} people={[{ id: "2", name: "Иван" }]} tasks={[]}
-      funcs={FUNCS} entities={ENTITIES} positionOf={POS} {...props} />);
+      funcs={FUNCS} entities={ENTITIES} rolesOf={POS} {...props} />);
 
   it("стоит перед работами и показывает актив, функцию и роль", () => {
     const { container } = view();
@@ -97,7 +97,7 @@ describe("раздел в анкете", () => {
 
   it("в чужой анкете отказаться нельзя — только прочитать", () => {
     render(<ProfilePanel me={ME} personId="3" people={[{ id: "3", name: "Пётр" }]}
-      tasks={[]} funcs={FUNCS} entities={ENTITIES} positionOf={POS} />);
+      tasks={[]} funcs={FUNCS} entities={ENTITIES} rolesOf={POS} />);
     expect(screen.getByText("выполняемые задачи")).toBeTruthy();
     expect(screen.getByText("Проверка счёта")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /отказаться/ })).toBeNull();
@@ -111,7 +111,7 @@ describe("раздел в анкете", () => {
     }));
     const seen = [];
     render(<ProfilePanel me={{ ...ME, isOwner: true }} people={[{ id: "2", name: "Иван" }]}
-      tasks={[]} funcs={FUNCS} entities={ENTITIES} positionOf={POS}
+      tasks={[]} funcs={FUNCS} entities={ENTITIES} rolesOf={POS}
       onRefuseFunc={(id, off) => seen.push([id, off])} />);
     fireEvent.click(screen.getByRole("button", { name: "отказаться: Звонок лиду" }));
     expect(seen).toEqual([["f1", true]]);

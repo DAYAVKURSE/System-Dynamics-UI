@@ -829,39 +829,81 @@ describe("постановка через сервер", () => {
 
 /* Должности правит только владелец: кем человек числится — вопрос того,
    кто собирает организацию, а не самого человека. */
-describe("должности через сервер", () => {
-  it("владелец заводит и назначает, позванный — нет", async () => {
+describe("роли человека через сервер", () => {
+  it("владелец раздаёт роли списком, позванный — нет", async () => {
     await invite(200, "executor", "Иван");
-    const made = await request(app).post("/api/org/positions").set(as(100))
-      .send({ name: "Дизайнер" });
+    const made = await request(app).post("/api/org/roles").set(as(100))
+      .send({ name: "Дизайнер", tabs: [] });
     expect(made.status).toBe(201);
-    const set = await request(app).put("/api/org/users/200/position").set(as(100))
-      .send({ position: made.body.id });
+    const set = await request(app).put("/api/org/users/200/roles").set(as(100))
+      .send({ roles: ["executor", made.body.id] });
     expect(set.status).toBe(200);
     const org = await request(app).get("/api/org").set(as(100));
-    expect(org.body.positions.map((p) => p.name)).toEqual(["Дизайнер"]);
-    expect(org.body.users.find((u) => u.id === "200").position).toBe(made.body.id);
+    expect(org.body.users.find((u) => u.id === "200").roles)
+      .toEqual(["executor", made.body.id]);
 
     // Позванному этот путь закрыт целиком — как и остальной список людей.
-    expect((await request(app).post("/api/org/positions").set(as(200))
-      .send({ name: "Свой" })).status).toBe(403);
-    expect((await request(app).put("/api/org/users/200/position").set(as(200))
-      .send({ position: "" })).status).toBe(403);
+    expect((await request(app).post("/api/org/roles").set(as(200))
+      .send({ name: "Своя" })).status).toBe(403);
+    expect((await request(app).put("/api/org/users/200/roles").set(as(200))
+      .send({ roles: [] })).status).toBe(403);
   });
 
   it("отказы называются словами", async () => {
     await invite(200, "executor", "Иван");
-    const made = await request(app).post("/api/org/positions").set(as(100))
-      .send({ name: "Аналитик" });
-    expect((await request(app).post("/api/org/positions").set(as(100))
-      .send({ name: "аналитик" })).status).toBe(400);
-    expect((await request(app).put("/api/org/users/200/position").set(as(100))
-      .send({ position: "нет-такой" })).status).toBe(400);
-    expect((await request(app).put("/api/org/users/999/position").set(as(100))
-      .send({ position: made.body.id })).status).toBe(404);
-    expect((await request(app).delete("/api/org/positions/нет-такой").set(as(100))).status)
-      .toBe(404);
-    expect((await request(app).delete(`/api/org/positions/${made.body.id}`).set(as(100))).status)
-      .toBe(204);
+    expect((await request(app).put("/api/org/users/200/roles").set(as(100))
+      .send({ roles: ["нет-такой"] })).status).toBe(400);
+    expect((await request(app).put("/api/org/users/999/roles").set(as(100))
+      .send({ roles: [] })).status).toBe(404);
+  });
+});
+
+/* ─────── договор как акцепт участия ─────── */
+describe("регистрация по договору", () => {
+  const CONTRACT = { name: "договор.pdf", type: "application/pdf", size: 9,
+    url: "/api/reports/o/1" };
+  // Небольшой PDF-заголовок: важно, что это байты, а не строка.
+  const SIGNED = Buffer.from("%PDF-1.4 подписано", "utf8").toString("base64");
+
+  it("список ролей с договорами открыт всякому вошедшему", async () => {
+    await request(app).put("/api/org/roles/executor/contract").set(as(100))
+      .send({ contract: CONTRACT });
+    const res = await request(app).get("/api/org/roles").set(as(777));
+    expect(res.status).toBe(200);
+    expect(res.body.roles.find((r) => r.id === "executor").contract.name)
+      .toBe("договор.pdf");
+    // Но список организации ему по-прежнему закрыт: в неё вступают, а не заглядывают.
+    expect((await request(app).get("/api/org").set(as(777))).status).toBe(403);
+  });
+
+  it("подписанный договор сам выдаёт роль и открывает вкладки", async () => {
+    await request(app).put("/api/org/roles/executor/contract").set(as(100))
+      .send({ contract: CONTRACT });
+    const res = await request(app).post("/api/org/register").set(as(777, "Новый"))
+      .send({ roleId: "executor",
+        file: { name: "подписан.pdf", type: "application/pdf", data: SIGNED } });
+    expect(res.status).toBe(200);
+    expect(res.body.me.known).toBe(true);
+    expect(res.body.me.tabs).toEqual(["tasks"]);
+    // Теперь он в списке владельца — с приложенным договором.
+    const org = await request(app).get("/api/org").set(as(100));
+    const user = org.body.users.find((u) => u.id === "777");
+    expect(user.roles).toEqual(["executor"]);
+    expect(user.contracts.executor.name).toBe("подписан.pdf");
+  });
+
+  it("без договора роль не выдаётся, и сказано почему", async () => {
+    await request(app).put("/api/org/roles/executor/contract").set(as(100))
+      .send({ contract: CONTRACT });
+    const res = await request(app).post("/api/org/register").set(as(778))
+      .send({ roleId: "executor" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Договор не приложен/);
+    expect((await request(app).get("/api/org/me").set(as(778))).body.known).toBe(false);
+  });
+
+  it("несуществующая роль — 404, а не молчаливое вступление", async () => {
+    expect((await request(app).post("/api/org/register").set(as(779))
+      .send({ roleId: "нет-такой" })).status).toBe(404);
   });
 });

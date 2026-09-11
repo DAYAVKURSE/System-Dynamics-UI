@@ -299,7 +299,7 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
 }
 
 export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = NONE,
-  entities = NONE, positionOf, traitName, onSaved, published, ratings, onRefuseFunc }) {
+  entities = NONE, rolesOf, traitName, onSaved, published, ratings, onRefuseFunc }) {
   // Чья анкета открыта. По умолчанию — своя: с себя человек и начинает.
   const id = personId == null ? me?.id : personId;
   const mine = String(id) === String(me?.id);
@@ -403,8 +403,8 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
      же, откуда пришёл список: у владельца — правкой модели, у остальных —
      отдельным запросом. */
   const localDuty = useMemo(
-    () => dutyOf({ funcs, entities }, id, { positionOf: positionOf || (() => "") }),
-    [funcs, entities, id, positionOf]);
+    () => dutyOf({ funcs, entities }, id, { rolesOf: rolesOf || (() => []) }),
+    [funcs, entities, id, rolesOf]);
   const [duty, setDuty] = useState(localDuty);
   const [dutyMsg, setDutyMsg] = useState("");
   const [dutyBusy, setDutyBusy] = useState(false);

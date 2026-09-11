@@ -75,7 +75,7 @@ describe("приглашение пересылкой", () => {
 
     const users = (await org.listOrg()).users;
     const ivan = users.find((u) => u.id === "200");
-    expect(ivan.roleId).toBe("reviewer");
+    expect(ivan.roles).toEqual(["reviewer"]);
     expect(ivan.name).toBe("Иван");
     expect(ivan.addedBy).toBe("100");
     expect((await org.identify("200", {})).tabs).toEqual(["review"]);
@@ -91,7 +91,7 @@ describe("приглашение пересылкой", () => {
     const { roles, users } = await org.listOrg();
     const role = roles.find((r) => r.name === "Дизайнер");
     expect(role).toBeTruthy();
-    expect(users.find((u) => u.id === "200").roleId).toBe(role.id);
+    expect(users.find((u) => u.id === "200").roles).toEqual([role.id]);
     expect(lastText()).toMatch(/Готово/);
   });
 

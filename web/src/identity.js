@@ -92,17 +92,40 @@ export const setRoleTabs = (id, tabs) =>
     { method: "PUT", body: JSON.stringify({ tabs }) });
 export const removeRole = (id) =>
   json(`/api/org/roles/${encodeURIComponent(id)}`, { method: "DELETE" });
-/* Должность — не роль: роль даёт вкладки (её выбирают при приглашении),
-   должность говорит, кем человек числится. Списки разные и правятся в
-   разных местах: роли — в «Людях и ролях», должности — у воркеров. */
-export const listPositions = () => json("/api/org").then((o) => o.positions || []);
-export const addPosition = (name) =>
-  json("/api/org/positions", { method: "POST", body: JSON.stringify({ name }) });
-export const removePosition = (id) =>
-  json(`/api/org/positions/${encodeURIComponent(id)}`, { method: "DELETE" });
-export const setUserPosition = (id, position) =>
-  json(`/api/org/users/${encodeURIComponent(id)}/position`,
-    { method: "PUT", body: JSON.stringify({ position }) });
+/* Ролей у человека НЕСКОЛЬКО: он и дизайнер, и проверяющий. Список один
+   на всё приложение — те же роли открывают вкладки, по ним заключают
+   договоры и назначают работу у функции. Должностей больше нет: это был
+   тот же вопрос «кто он здесь», заданный вторым списком. */
+export const setUserRoles = (id, roles) =>
+  json(`/api/org/users/${encodeURIComponent(id)}/roles`,
+    { method: "PUT", body: JSON.stringify({ roles }) });
+/* Договор роли — шаблон: что человек подписывает, вступая в неё. Пусто —
+   снять договор: тогда роль выдаётся без акцепта. */
+export const setRoleContract = (id, contract) =>
+  json(`/api/org/roles/${encodeURIComponent(id)}/contract`,
+    { method: "PUT", body: JSON.stringify({ contract }) });
+
+/* ─────── регистрация: договор и есть акцепт ───────
+
+   Роли с договорами открыты всякому, кто вошёл: в организацию вступают, а
+   не заглядывают, поэтому здесь только названия и сами договоры — без
+   списка людей. Подписанный экземпляр уезжает строкой base64 вместе с
+   выбранной ролью: общее хранилище файлов заперто для участников, и
+   открывать его ради регистрации значило бы раздать диск всем подряд. */
+export const openRoles = () => json("/api/org/roles").then((o) => o.roles || []);
+export async function registerRemote(roleId, file) {
+  const body = { roleId };
+  if (file) {
+    const data = await new Promise((ok, no) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result || ""));
+      r.onerror = () => no(new Error("не удалось прочитать файл"));
+      r.readAsDataURL(file);
+    });
+    body.file = { name: file.name, type: file.type || "application/octet-stream", data };
+  }
+  return json("/api/org/register", { method: "POST", body: JSON.stringify(body) });
+}
 export const setUserRole = (id, roleId) =>
   json(`/api/org/users/${encodeURIComponent(id)}/role`,
     { method: "PUT", body: JSON.stringify({ roleId }) });
