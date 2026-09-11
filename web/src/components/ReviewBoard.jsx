@@ -32,6 +32,20 @@ import { reportSrc } from "../storage.js";
    Оценку постановки из сдачи проверяющему НЕ показывают: она про
    постановщика и доходит до него по тем же правилам публикации, а не
    через третьего.
+
+   ─── готовые живут здесь ───
+
+   С доски задач колонка «Готово» убрана: доска отвечает на вопрос «что
+   мне делать», и сделанное отвечало на другой. Принял работу этот
+   человек — ему и видеть результат, поэтому готовые стоят здесь,
+   отдельным разделом.
+
+   ─── удалить можно только то, что ещё не начали ───
+
+   Задачу, которую никто не взял, удаляют насовсем: терять нечего — ни
+   сдач, ни оценок, ни часов по ней нет. А у начатой всё это есть, и
+   стереть её значило бы сделать вид, что работы не было. Поэтому у
+   взятой в работу, сданной и принятой кнопки удаления нет вовсе.
    ════════════════════════════════════════════════════════════════ */
 
 const fmtDT = (v) => {
@@ -43,6 +57,42 @@ const fmtDT = (v) => {
 };
 
 const lastOf = lastSubmission;
+
+/**
+ * Удалить задачу — только пока её не начали.
+ *
+ * У неначатой терять нечего: ни сдач, ни оценок, ни часов по ней нет. У
+ * начатой всё это есть, и стереть её значило бы сделать вид, что работы
+ * не было, — поэтому кнопки там нет вовсе, а не «есть, но откажет».
+ *
+ * Подтверждение короткое и на месте: удаление необратимо, но и
+ * рассказывать о нём нечего — задача пустая.
+ */
+export const canKill = (t) => !!t && t.taken !== true
+  && ["wait", "backlog", "deferred"].includes(t.status)
+  && !(t.submissions || []).length;
+
+function Delete({ t, can, killId, setKillId, onKill }) {
+  if (!can || !canKill(t)) return null;
+  if (killId === t.id) {
+    return (
+      <span className="flex gap-2" style={{ alignItems: "center" }}
+        onClick={(e) => e.stopPropagation()}>
+        <span style={{ fontSize: 10.5, color: BAD }}>удалить насовсем?</span>
+        <button style={{ ...btn(true, BAD), padding: "2px 8px", fontSize: 10.5 }}
+          aria-label={`да, удалить ${t.title}`}
+          onClick={(e) => { e.stopPropagation(); onKill(t); }}>Да</button>
+        <button style={{ ...btn(false), padding: "2px 8px", fontSize: 10.5 }}
+          aria-label={`оставить ${t.title}`}
+          onClick={(e) => { e.stopPropagation(); setKillId(null); }}>Оставить</button>
+      </span>);
+  }
+  return (
+    <button style={{ ...btn(false), padding: "2px 8px", fontSize: 10.5, color: BAD,
+      borderColor: "#5A2436" }}
+      aria-label={`удалить задачу ${t.title}`}
+      onClick={(e) => { e.stopPropagation(); setKillId(t.id); }}>Удалить</button>);
+}
 
 /* Карточка вынесена из компонента намеренно: объявленная внутри рендера,
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
@@ -186,7 +236,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
-  published, onComment, onDropComment, onSetup, factors = [] }) {
+  published, onComment, onDropComment, onSetup, onDelete, factors = [] }) {
   const [openId, setOpenId] = useState(null);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
@@ -194,12 +244,24 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
   // приём — это ответ о работе, и прятать его — решение, а не привычка.
   const [hidden, setHidden] = useState(false);
   const [setupId, setSetupId] = useState(null);
+  /* Какую задачу спросили удалить. Удаляет тот же, кто ставит: владелец
+     или постановщик — решать, нужна ли работа, его дело. */
+  const [killId, setKillId] = useState(null);
+  const canDelete = canAssign;
+  const kill = (t) => {
+    setKillId(null);
+    if (onDelete) onDelete(t);
+    else setTasks?.((p) => p.filter((x) => x.id !== t.id));
+  };
 
   // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
   const mine = useMemo(() => tasks.filter((t) =>
     isOwner || String(t.reviewer || "") === String(meId)), [tasks, meId, isOwner]);
   const waiting = mine.filter((t) => t.status === "review");
-  const rest = mine.filter((t) => t.status !== "review" && t.status !== "wait");
+  /* Готовые — своим разделом: с доски задач их убрали, и смотрят их
+     здесь, у того, кто их принимал. */
+  const done = mine.filter((t) => t.status === "done");
+  const rest = mine.filter((t) => !["review", "wait", "done"].includes(t.status));
 
   /* ─── очередь постановки ───
      Постановка и приём — работа одного и того же человека: не того, кто
@@ -254,6 +316,8 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                 <span style={{ fontSize: 10.5, color: C.muted }}>
                   {funcLabel(funcs.find((f) => f.id === t.funcId), entities)}</span>
                 {why && <span style={{ fontSize: 10.5, color: WARN }}>{why}</span>}
+                <Delete t={t} can={canDelete} killId={killId} setKillId={setKillId}
+                  onKill={kill} />
                 <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
               </div>
               {on && setup && (
@@ -284,7 +348,35 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
       {!!rest.length && (
         <>
           <div style={{ ...S.lbl, margin: "12px 0 6px" }}>остальные задачи под вашей проверкой</div>
-          {rest.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
+          {rest.map((t) => (
+            <div key={t.id}>
+              <Card t={t} dim openId={openId} setOpenId={setOpenId}
+                note={note} setNote={setNote} mark={mark} setMark={setMark}
+                hidden={hidden} setHidden={setHidden} meId={meId}
+                funcs={funcs} traits={traits} entities={entities}
+                nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />
+              {/* Удалить можно только то, что ещё не начали: у начатой есть
+                  сдачи, часы и оценки, и стирать их нельзя. */}
+              {canKill(t) && (
+                <div className="flex gap-2" style={{ alignItems: "center",
+                  margin: "-4px 0 8px" }}>
+                  <span style={{ flex: 1 }} />
+                  <Delete t={t} can={canDelete} killId={killId} setKillId={setKillId}
+                    onKill={kill} />
+                </div>)}
+            </div>))}
+        </>)}
+
+      {/* ─── готовые ───
+          С доски задач их убрали: доска отвечает на «что мне делать».
+          Принял работу этот человек — ему и видеть результат. */}
+      {!!done.length && (
+        <>
+          <div className="flex items-center gap-2" style={{ margin: "12px 0 6px" }}>
+            <span style={S.lbl}>готовые</span>
+            <span style={{ fontSize: 10.5, color: OK }}>{done.length}</span>
+          </div>
+          {done.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
             note={note} setNote={setNote} mark={mark} setMark={setMark}
             hidden={hidden} setHidden={setHidden} meId={meId}
             funcs={funcs} traits={traits} entities={entities}

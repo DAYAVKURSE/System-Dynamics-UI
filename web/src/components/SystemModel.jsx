@@ -4,7 +4,8 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   forgetScenario } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addRole, removeRole, setUserRoles,
-  takeTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote, getRatings,
+  takeTaskRemote, dropTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote,
+  getRatings,
   setupTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
@@ -1100,6 +1101,7 @@ export default function SystemModel(){
           openId={openTask} setOpenId={setOpenTask}
           people={people} canAssign={me.isOwner} nameOf={personName}
           onTake={t=>{ takeTaskRemote(t.id).catch(()=>{}); }}
+          onDrop={t=>{ dropTaskRemote(t.id).catch(()=>{}); }}
           meId={me.id}
           /* У владельца сдача и комментарий уезжают в составе модели через
              putWorkspace; POST'ить их ещё раз значило бы записать дважды. */

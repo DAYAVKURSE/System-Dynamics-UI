@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify, listOrg } from "../lib/orgStore.js";
-import { addComment, deferTask, dropComment, dutyFor, peopleOf, readModel,
+import { addComment, deferTask, dropComment, dropTask, dutyFor, peopleOf, readModel,
   refuseFunc, reviewTask, setupTask, submitTask, takeTask, taskViewFor, viewFor,
   withModel, writeModel } from "../lib/workspaceStore.js";
 import { publishStep, viewRatingsFor } from "../lib/ratings.js";
@@ -135,6 +135,18 @@ router.post("/tasks/:id/take", async (req, res, next) => {
     const r = await takeTask(req.telegramUserId, req.params.id);
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
+    if (r.error) return res.status(403).json({ error: r.error });
+    res.json(seen(req, r.task));
+  } catch (e) { next(e); }
+});
+
+/* Бросить работу — то же право, что и взять: решает тот, кто её делает.
+   Задача возвращается в бэклог, её возьмут снова. */
+router.post("/tasks/:id/drop", async (req, res, next) => {
+  try {
+    const r = await dropTask(req.telegramUserId, req.params.id);
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not in progress") return res.status(400).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
     res.json(seen(req, r.task));
   } catch (e) { next(e); }

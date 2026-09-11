@@ -390,6 +390,24 @@ describe("сдача и приём через сервер", () => {
     expect(sb.proof.url).toBe(FILE.url);
   });
 
+  it("бросить работу может её исполнитель, и задача уходит в бэклог", async () => {
+    /* Отказ от работы — своя операция, как и «взять»: модель целиком
+       пишет владелец, а бросает работу тот, кто её делает. */
+    await withFunc();
+    await invite(200, "executor", "Иван");
+    await request(app).post("/api/workspace/tasks/tk1/take").set(as(200));
+    const res = await request(app).post("/api/workspace/tasks/tk1/drop").set(as(200));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: "backlog", taken: false });
+    // Лежащую в бэклоге бросать не за что — её никто не делает.
+    expect((await request(app).post("/api/workspace/tasks/tk1/drop").set(as(200))).status)
+      .toBe(400);
+    // И чужую работу не бросают.
+    await request(app).post("/api/workspace/tasks/tk1/take").set(as(200));
+    expect((await request(app).post("/api/workspace/tasks/tk1/drop").set(as(100))).status)
+      .toBe(403);
+  });
+
   it("с файлами сдаётся, и оценка постановки хранится вместе со сдачей", async () => {
     await withFunc();
     await invite(200, "executor", "Иван");

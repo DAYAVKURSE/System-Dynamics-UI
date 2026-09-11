@@ -109,7 +109,7 @@ describe("постановка задачи и доска исполнителя
        Показывать её колонкой здесь значило бы предлагать исполнителю
        поставить задачу самому себе. */
     expect(BOARD.map((s) => s.id))
-      .toEqual(["backlog", "deadline", "progress", "review", "done"]);
+      .toEqual(["backlog", "deadline", "progress", "review"]);
     render(<Board tasks={[newTask({ funcId: "f1", title: "Задача A" })]} />);
     expect(screen.queryByText("Задача A")).toBeNull();
     expect(screen.queryByText("Ожидает постановки")).toBeNull();
@@ -120,9 +120,11 @@ describe("постановка задачи и доска исполнителя
        пришло, «отложено» — уже позвали, а работа не началась. */
     expect(STATUSES.map((s) => s.id))
       .toEqual(["wait", "backlog", "deferred", "deadline", "progress", "review", "done"]);
-    // Колонка при этом одна: отложенное не уносят на отдельную полку.
+    /* Колонка при этом одна: отложенное не уносят на отдельную полку.
+       Готовых на доске нет вовсе: доска отвечает на «что мне делать», а
+       сделанное живёт там, где его принимали, — на «Проверке». */
     expect(BOARD.map((c) => c.name))
-      .toEqual(["Бэклог", "Дедлайн", "В работе", "Проверка", "Готово"]);
+      .toEqual(["Бэклог", "Дедлайн", "В работе", "Проверка"]);
     expect(BOARD[0].states).toEqual(["backlog", "deferred"]);
   });
 

@@ -161,7 +161,9 @@ describe("на доске", () => {
     // Их две: одна в форме сдачи, другая на карточке в колонке.
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     closeEditor();
-    expect(within(column("Готово")).getByText("Задача A")).toBeInTheDocument();
+    /* Колонки «Готово» на доске нет: доска отвечает на «что мне делать»,
+       а принятое живёт на «Проверке». Задача просто уходит с доски. */
+    expect(screen.queryByText("Задача A")).toBeNull();
   });
 
   it("а когда проверяет другой — на проверку, как и было", async () => {

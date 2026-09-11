@@ -265,80 +265,72 @@ describe("постановщик приходит из ролей функции
   });
 });
 
-describe("отмена задачи — владельцу, с доски, словами", () => {
+/* «ОТМЕНИТЬ» НА ДОСКЕ — ЭТО ОТМЕНА РАБОТЫ.
+
+   Отменяют то, что делают: задача в работе, человек её бросает — она
+   возвращается в бэклог, к тем, кого ещё не начали. Лежащую в бэклоге
+   отменять не за что: её никто не делает. Сданную проверяют, принятую
+   сделали. Совсем удаляют задачу не здесь — на «Проверке», и только пока
+   её не начали. */
+describe("отмена работы — с доски, в бэклог", () => {
   const FUNCS = [{ id: "f1", e: "usr", name: "Сбор заявок", takes: [], gives: [],
     setters: ["1"], owners: ["2"], reviewers: ["3"] }];
   const task = () => ({ ...newTask({ funcId: "f1", title: "Задача A" }), id: "a",
     status: "backlog", setter: "1", assignee: "2", reviewer: "3", end: "2030-01-01T10:00" });
-  function Board({ canAssign, onTasks }) {
-    const [tasks, setTasks] = React.useState([task(), { ...task(), id: "b", title: "Задача B" }]);
+  function Board({ canAssign, onTasks, tasks: t0, onDrop }) {
+    const [tasks, setTasks] = React.useState(t0
+      || [task(), { ...task(), id: "b", title: "Задача B" }]);
     const [openId, setOpenId] = React.useState(null);
     React.useEffect(() => { onTasks?.(tasks); }, [tasks, onTasks]);
     return (<TasksBoard funcs={FUNCS} entities={[]} traits={[]} tasks={tasks}
       setTasks={setTasks} openId={openId} setOpenId={setOpenId} canAssign={canAssign}
-      nameOf={(id) => id} meId="2" />);
+      onDrop={onDrop} nameOf={(id) => id} meId="2" />);
   }
+  const inWork = () => [{ ...task(), status: "progress", taken: true }];
 
-  it("работу отменяют, а не стирают: задача остаётся с пометкой", () => {
-    /* Удаление уносило вместе с задачей её сдачи, оценки и то, что по ней
-       успели сделать. Это было, и делать вид, что не было, нельзя. */
+  it("взятую в работу возвращают в бэклог — задача остаётся, взятие снимается", () => {
     let seen = [];
-    render(<Board canAssign onTasks={(t) => { seen = t; }} />);
-    fireEvent.click(screen.getByLabelText("отменить задачу Задача A"));
-    expect(screen.getByText(/Отменить задачу «Задача A»\?/)).toBeInTheDocument();
+    const dropped = [];
+    render(<Board canAssign tasks={inWork()} onTasks={(t) => { seen = t; }}
+      onDrop={(t) => dropped.push(t.id)} />);
+    fireEvent.click(screen.getByLabelText("отменить работу Задача A"));
+    expect(screen.getByText(/Отменить работу по задаче «Задача A»\?/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Оставить" }));
-    expect(seen.every((t) => !t.canceled)).toBe(true);
+    expect(seen[0].status).toBe("progress");
 
-    fireEvent.click(screen.getByLabelText("отменить задачу Задача A"));
-    fireEvent.click(screen.getByRole("button", { name: "Да, отменить" }));
-    // Из списка не пропала — помечена.
-    expect(seen.map((t) => t.id)).toEqual(["a", "b"]);
-    expect(seen.find((t) => t.id === "a").canceled).toBe(true);
+    fireEvent.click(screen.getByLabelText("отменить работу Задача A"));
+    fireEvent.click(screen.getByRole("button", { name: "Да, вернуть в бэклог" }));
+    expect(seen.map((t) => t.id)).toEqual(["a"]);
+    expect(seen[0]).toMatchObject({ status: "backlog", taken: false });
+    // Отказ уезжает на сервер: модель целиком пишет владелец.
+    expect(dropped).toEqual(["a"]);
     expect(screen.getByText("Задача A")).toBeInTheDocument();
-    expect(screen.getByText("отменена")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Взять в работу" })).toBeInTheDocument();
   });
 
-  it("отменённую можно вернуть — и работать по ней снова", () => {
-    let seen = [];
-    render(<Board canAssign onTasks={(t) => { seen = t; }} />);
-    fireEvent.click(screen.getByLabelText("отменить задачу Задача A"));
-    fireEvent.click(screen.getByRole("button", { name: "Да, отменить" }));
-    // У отменённой кнопок работы нет.
-    expect(screen.queryByLabelText("отменить задачу Задача A")).toBeNull();
-    fireEvent.click(screen.getByLabelText("вернуть задачу Задача A"));
-    expect(seen.find((t) => t.id === "a").canceled).toBe(false);
-    expect(screen.queryByText("отменена")).toBeNull();
+  it("у лежащей в бэклоге кнопки нет: её никто не делает", () => {
+    render(<Board canAssign />);
+    expect(screen.queryByLabelText(/отменить работу/)).toBeNull();
   });
 
   it("на проверке и готовую не отменяют: кнопки нет", () => {
     /* Сданную проверяют, принятую — уже сделали: отменять там нечего. */
-    function Two() {
-      const [tasks, setTasks] = React.useState([
-        { ...task(), id: "r", title: "На проверке", status: "review", taken: true,
-          submissions: [{ id: "s1", at: "2026-01-01T10:00:00Z", hours: 1, takes: {}, gives: {}, text: "готово" }] },
-        { ...task(), id: "d", title: "Готовая", status: "done", taken: true,
-          submissions: [{ id: "s2", at: "2026-01-01T10:00:00Z", hours: 1, takes: {}, gives: {}, text: "готово" }] },
-        { ...task(), id: "p", title: "В работе", status: "progress", taken: true },
-      ]);
-      return (<TasksBoard funcs={FUNCS} entities={[]} traits={[]} tasks={tasks}
-        setTasks={setTasks} openId={null} setOpenId={() => {}} canAssign
-        nameOf={(id) => id} meId="2" />);
-    }
-    render(<Two />);
-    expect(screen.queryByLabelText("отменить задачу На проверке")).toBeNull();
-    expect(screen.queryByLabelText("отменить задачу Готовая")).toBeNull();
-    expect(screen.getByLabelText("отменить задачу В работе")).toBeInTheDocument();
+    render(<Board canAssign tasks={[
+      { ...task(), id: "r", title: "На проверке", status: "review", taken: true },
+      { ...task(), id: "p", title: "В работе", status: "progress", taken: true },
+    ]} />);
+    expect(screen.queryByLabelText("отменить работу На проверке")).toBeNull();
+    expect(screen.getByLabelText("отменить работу В работе")).toBeInTheDocument();
   });
 
-  it("исполнителю отменять нечего: кнопки нет", () => {
-    render(<Board canAssign={false} />);
-    expect(screen.queryByLabelText(/отменить задачу/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
+  it("исполнителю кнопка нужна: бросает работу тот, кто её делает", () => {
+    render(<Board canAssign={false} tasks={inWork()} />);
+    expect(screen.getByLabelText("отменить работу Задача A")).toBeInTheDocument();
   });
 
   it("нажатие «Отменить» не открывает карточку задачи", () => {
-    render(<Board canAssign />);
-    fireEvent.click(screen.getByLabelText("отменить задачу Задача A"));
+    render(<Board canAssign tasks={inWork()} />);
+    fireEvent.click(screen.getByLabelText("отменить работу Задача A"));
     // Открытая карточка показала бы форму сдачи с заголовком задачи в поле.
     expect(within(document.body).queryByRole("button", { name: "СДАТЬ" })).toBeNull();
   });

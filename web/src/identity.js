@@ -139,6 +139,11 @@ export const putWorkspace = (model) =>
   json("/api/workspace", { method: "PUT", body: JSON.stringify({ model }) });
 export const takeTaskRemote = (id) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/take`, { method: "POST" });
+/* Бросить работу — своя операция по той же причине, что и «взять»: модель
+   целиком пишет владелец, а отказаться от работы должен тот, кто её
+   делает. Задача возвращается в бэклог. */
+export const dropTaskRemote = (id) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(id)}/drop`, { method: "POST" });
 /* Постановка — своя операция постановщика, как «взять» у исполнителя:
    модель целиком пишет владелец, а ставить задачу должен тот, кого
    назначили постановщиком на схеме. В `fields` — что изменилось в форме

@@ -219,6 +219,32 @@ export function viewFor(model, { id, isOwner }) {
    разойтись с интерфейсом (`BACKLOG_STATES` в `TasksBoard.jsx`). */
 export const BACKLOG = ["backlog", "deferred"];
 
+/**
+ * Бросить работу: задача возвращается в бэклог.
+ *
+ * Своя операция на сервере по той же причине, что и «взять»: модель
+ * целиком пишет владелец, а отказаться от работы должен тот, кто её
+ * делает, — иначе нажатие жило бы только в его окне.
+ *
+ * Бросают ТО, ЧТО ДЕЛАЮТ: лежащую в бэклоге бросать не за что, сданную
+ * проверяют, принятую сделали. Взятие снимается вместе со статусом —
+ * иначе задача висела бы «в работе» у того, кто от неё отказался.
+ */
+export const dropTask = (userId, taskId) => withModel(async (model) => {
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  if (String(task.assignee || "") !== String(userId)) return { error: "not yours" };
+  if (task.status !== "progress" && task.status !== "deadline") {
+    return { error: "not in progress" };
+  }
+  task.taken = false;
+  task.status = "backlog";
+  task.deferredAt = null;
+  task.deferredUntil = null;
+  await writeModel(model);
+  return { task };
+});
+
 export const takeTask = (userId, taskId, { now = Date.now() } = {}) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };

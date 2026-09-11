@@ -93,12 +93,19 @@ export const columnName=(id)=>
    значило бы завести полку «потом», а его никто не откладывал навсегда. */
 export const BACKLOG_STATES=["backlog","deferred"];
 
-/* Колонки доски — всё, кроме ожидания постановки: непоставленная задача
-   ещё ничья, и лежать ей на доске незачем. Бэклог собирает оба своих
-   состояния в одну колонку, а карточка называет своё словом. */
+/* Колонки доски — всё, кроме ожидания постановки И КРОМЕ ГОТОВЫХ.
+
+   Непоставленная задача ещё ничья, и лежать ей на доске незачем. А
+   готовая — уже не работа: доска отвечает на вопрос «что мне делать», и
+   колонка со сделанным отвечала на другой — «что уже сделано». Сделанное
+   живёт там, где его принимали, — на «Проверке»: принял человек, ему и
+   видеть результат.
+
+   Бэклог собирает оба своих состояния в одну колонку, а карточка
+   называет своё словом. */
 export const BOARD=[
   {id:"backlog",name:"Бэклог",color:NEU,states:BACKLOG_STATES},
-  ...STATUSES.filter(s=>!["wait",...BACKLOG_STATES].includes(s.id))
+  ...STATUSES.filter(s=>!["wait","done",...BACKLOG_STATES].includes(s.id))
     .map(s=>({...s,states:[s.id]})),
 ];
 
@@ -1502,7 +1509,7 @@ function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop,readOnly=false}){
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],factors=[],tasks,setTasks,
-  openId,setOpenId,nameOf,onTake,meId,canAssign=true,onComment,onDropComment,onSubmit}){
+  openId,setOpenId,nameOf,onTake,onDrop,meId,canAssign=true,onComment,onDropComment,onSubmit}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
   /* Двигать задачи по доске нельзя, и стрелок здесь нет. У исполнителя два
@@ -1534,17 +1541,27 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
      Работу ОТМЕНЯЮТ, а не стирают. Удаление уносило вместе с задачей её
      сдачи, оценки и то, что по ней уже сделали, — а это было, и делать вид,
      что не было, нельзя. Отменённая остаётся в списке с пометкой: видно,
-     что решение принято, и видно, кто над ней успел поработать.
+     что решение принято, и видно, кто над ней успел поработать. Передумали
+     — «Вернуть» ставит всё назад.
 
-     Считать её работой при этом нигде не будут: ни в факте расчёта, ни в
-     нагрузке, ни в напоминаниях. Передумали — «Вернуть» ставит всё назад,
-     и потому подтверждение тут короче, чем было у удаления: терять нечего.
+     ─── «Отменить» на доске — это отмена РАБОТЫ, а не задачи ───
 
-     Из формы постановки эта кнопка убрана: постановщик описывает работу, а
-     решать, нужна ли она, — не его дело. */
+     Отменяют то, что делают: задача в работе, и человек её бросает — она
+     возвращается в бэклог, к тем, кого ещё не начали. Лежащую в бэклоге
+     отменять не за что: её никто не делает, и «отменить» там значило бы
+     «удалить», а удаляют не здесь (на «Проверке», и только пока задача не
+     в работе). Сданную и принятую тоже не отменяют: первую проверяют,
+     вторую уже сделали. */
   const [dropId,setDropId]=useState(null);
+  /* Назад в бэклог: работы больше нет, но задача осталась — её возьмёт
+     кто-то другой или тот же, но позже. Взятие снимается, иначе она
+     висела бы «в работе» у того, кто от неё отказался. */
   const drop=(t)=>{
-    setTasks(p=>p.map(x=>(x.id===t.id?{...x,canceled:true,taken:false}:x)));
+    setTasks(p=>p.map(x=>(x.id===t.id?{...x,status:"backlog",taken:false,
+      deferredAt:null,deferredUntil:null}:x)));
+    /* Отказ должен пережить закрытие окна — как и взятие: модель целиком
+       пишет владелец, у исполнителя для этого своя операция на сервере. */
+    onDrop?.(t);
     setDropId(null);
   };
   const undrop=(t)=>setTasks(p=>p.map(x=>(x.id===t.id?{...x,canceled:false}:x)));
@@ -1650,33 +1667,30 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                           aria-label={`вернуть задачу ${t.title}`}
                           onClick={e=>{e.stopPropagation();undrop(t);}}>
                           Вернуть</button>)}
-                      {/* Отменяют работу, которой ещё нет: сданную проверяют,
-                          принятую — сделали. У задач на проверке и готовых
-                          кнопки нет. */}
-                      {canAssign&&!isCanceled(t)&&dropId!==t.id
-                        &&t.status!=="review"&&t.status!=="done"&&(
+                      {/* Отменяют РАБОТУ: то, что человек сейчас делает.
+                          Лежащую в бэклоге отменять не за что — её никто
+                          не делает; сданную проверяют, принятую сделали. */}
+                      {!isCanceled(t)&&dropId!==t.id&&isTaken(t)
+                        &&(t.status==="progress"||t.status==="deadline")&&(
                         <button style={{...btn(false),padding:"3px 8px",fontSize:11,
                           color:BAD,borderColor:"#5A2436",whiteSpace:"nowrap"}}
-                          aria-label={`отменить задачу ${t.title}`}
+                          aria-label={`отменить работу ${t.title}`}
                           onClick={e=>{e.stopPropagation();setDropId(t.id);}}>
                           Отменить</button>)}
                     </div>
-                    {canAssign&&dropId===t.id&&(
+                    {dropId===t.id&&(
                       <div onClick={e=>e.stopPropagation()}
                         style={{marginTop:6,padding:7,borderRadius:6,
                           border:`1px solid ${BAD}`,background:C.panel}}>
                         <div style={{fontSize:11,lineHeight:1.5,marginBottom:6}}>
-                          Отменить задачу «{t.title}»? Она останется в списке с
-                          пометкой, но работой считаться перестанет: уйдёт из
-                          напоминаний, из нагрузки
-                          {(t.submissions||[]).length
-                            ?" и из факта расчёта — сдачи и оценки при этом сохранятся"
-                            :""}. Передумаете — «Вернуть» поставит всё назад.
+                          Отменить работу по задаче «{t.title}»? Она вернётся в
+                          бэклог — её сможет взять кто-то другой или вы сами,
+                          но позже. Сама задача никуда не денется.
                         </div>
                         <div className="flex gap-2">
                           <button style={{...btn(true,BAD),padding:"3px 9px",fontSize:11}}
                             onClick={e=>{e.stopPropagation();drop(t);}}>
-                            Да, отменить</button>
+                            Да, вернуть в бэклог</button>
                           <button style={{...btn(false),padding:"3px 9px",fontSize:11}}
                             onClick={e=>{e.stopPropagation();setDropId(null);}}>
                             Оставить</button>
