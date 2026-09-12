@@ -242,10 +242,28 @@ const hhmm = (v) => (HHMM.test(String(v || "")) ? String(v) : "");
 const weekDays = (v) => (Array.isArray(v)
   ? [...new Set(v.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
   : []);
+/* Часы отдельного дня (`perDay`): исключения из общих «с — до», «в субботу
+   с 10 до 14». Запись — целиком, без единого часа её нет, у выходного —
+   тоже: день выключили, и его часы ушли с ним. Прежние записи без
+   `perDay` читаются как прежде — исключений у них нет. */
+const perDayOf = (v, days = null) => {
+  const out = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  Object.entries(v).forEach(([k, h]) => {
+    const d = Number(k);
+    if (!Number.isInteger(d) || d < 0 || d > 6) return;
+    if (days && !days.includes(d)) return;
+    const from = hhmm(h?.from);
+    const to = hhmm(h?.to);
+    if (from || to) out[d] = { from, to };
+  });
+  return out;
+};
 const scheduleOf = (user = {}) => ({
   days: weekDays(user.days),
   from: hhmm(user.from),
   to: hhmm(user.to),
+  perDay: perDayOf(user.perDay, weekDays(user.days)),
   status: WORK_STATUSES.includes(user.status) ? user.status : "ready",
   warnMin: warnOf(user.warnMin),
   deferMin: deferOf(user.deferMin),
@@ -317,6 +335,8 @@ export async function setProfile(userId, patch = {}) {
   if (patch.days != null) user.days = weekDays(patch.days);
   if (patch.from != null) user.from = hhmm(patch.from);
   if (patch.to != null) user.to = hhmm(patch.to);
+  // Часы дня разбираются так же строго и только для рабочих дней.
+  if (patch.perDay != null) user.perDay = perDayOf(patch.perDay, weekDays(user.days));
   if (patch.status != null) {
     user.status = WORK_STATUSES.includes(patch.status) ? patch.status : "ready";
   }

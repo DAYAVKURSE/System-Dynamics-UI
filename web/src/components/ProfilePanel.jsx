@@ -4,7 +4,7 @@ import PersonStats from "./PersonStats.jsx";
 import { getDuty, putProfile, refuseFuncRemote } from "../identity.js";
 import { WEEK, WORKER_KINDS, dutyOf } from "../lib/funcs.js";
 import { WARNS } from "./TasksBoard.jsx";
-import { WORK_STATUSES, hasSchedule, scheduleOfPerson, scheduleText, statusOf }
+import { WORK_STATUSES, dayHours, hasSchedule, scheduleOfPerson, scheduleText, statusOf }
   from "../lib/workers.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -60,6 +60,42 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
     const was = scheduleOfPerson(p).days;
     return { ...p, days: on ? was.filter((x) => x !== d) : [...was, d] };
   });
+
+  /* ─── часы отдельного дня ───
+
+     Общие «с — до» действуют на все рабочие дни. Двойное нажатие по дню
+     открывает правку ЕГО часов: день жёлтый, а поля «с»/«до» пишут в его
+     запись, а не в общие. Пока правка открыта, одиночное нажатие по
+     другому рабочему дню добавляет его в набор — часы пишутся всем дням
+     набора сразу. Набор здесь, а не в записи: это состояние экрана, и на
+     сервер ему ехать незачем. Выходной в наборе не держится: править у
+     него нечего. Браузер перед двойным нажатием шлёт два одиночных, и
+     набор от них переключается туда-обратно — поэтому двойное смотрит на
+     то, что получилось, и решает по нему. */
+  const [editing, setEditing] = useState([]);
+  const set = editing.filter((d) => sc.days.includes(d));
+  const tap = (d) => {
+    if (set.length && sc.days.includes(d)) {
+      setEditing(set.includes(d) ? set.filter((x) => x !== d) : [...set, d]);
+      return;
+    }
+    flip(d);
+  };
+  const dbl = (d) => {
+    if (!sc.days.includes(d)) return;
+    setEditing(set.includes(d) ? [] : [...set, d]);
+  };
+  // В правке поля показывают часы первого дня набора — того, с которого начали.
+  const shown = set.length ? dayHours(sc, set[0]) : { from: sc.from, to: sc.to };
+  const setHours = (key, value) => setDraft((p) => {
+    if (!set.length) return { ...p, [key]: value };
+    const cur = scheduleOfPerson(p);
+    const perDay = { ...cur.perDay };
+    set.forEach((d) => { perDay[d] = { ...dayHours(cur, d), [key]: value }; });
+    return { ...p, perDay };
+  });
+  const names = (list) => WEEK.filter((w) => list.includes(w.id))
+    .map((w) => w.short).join(", ");
   return (
     <div style={{ ...S.card, marginBottom: 10 }}>
       <div style={S.lbl}>{mine ? "мой рабочий график" : "рабочий график"}</div>
@@ -93,34 +129,52 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
         <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
           {WEEK.map((d) => {
             const on = sc.days.includes(d.id);
+            const edit = set.includes(d.id);
             return (
+              /* touchAction: двойной тап на телефоне иначе приближает
+                 страницу, а не открывает правку часов. */
               <button key={d.id} aria-label={`рабочий день ${d.short}`}
-                style={{ ...btn(on), fontSize: 11, padding: "4px 8px" }}
-                onClick={() => flip(d.id)}>{d.short}</button>);
+                style={{ ...btn(on, edit ? WARN : null), fontSize: 11,
+                  padding: "4px 8px", touchAction: "manipulation" }}
+                onClick={() => tap(d.id)}
+                onDoubleClick={() => dbl(d.id)}>{d.short}</button>);
           })}
         </div>
       ) : (
         <div style={{ fontSize: 12, marginTop: 4,
           color: sc.days.length ? C.text : C.muted }}>
           {sc.days.length
-            ? scheduleText({ ...sc, from: "", to: "" }, WEEK)
+            ? scheduleText({ ...sc, from: "", to: "", perDay: {} }, WEEK)
             : "дни не названы"}</div>)}
 
       {/* ─── часы ─── */}
       <div style={{ ...S.lbl, marginTop: 10 }}>время работы</div>
-      {mine ? (
+      {mine ? (<>
+        {set.length > 0 && (
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
+            fontSize: 11, color: WARN, marginTop: 4, lineHeight: 1.5 }}>
+            <span>Часы правятся только для: {names(set)}</span>
+            <button aria-label="готово: часы дня"
+              style={{ ...btn(true, WARN), fontSize: 11, padding: "3px 8px" }}
+              onClick={() => setEditing([])}>готово</button>
+          </div>)}
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
           marginTop: 4 }}>
           <span style={{ fontSize: 11.5, color: C.muted }}>с</span>
-          <input type="time" aria-label="работаю с" value={sc.from}
+          <input type="time" aria-label="работаю с" value={shown.from}
             style={{ ...S.inp, flex: "0 1 120px", fontSize: 12 }}
-            onChange={(e) => setDraft((p) => ({ ...p, from: e.target.value }))} />
+            onChange={(e) => setHours("from", e.target.value)} />
           <span style={{ fontSize: 11.5, color: C.muted }}>до</span>
-          <input type="time" aria-label="работаю до" value={sc.to}
+          <input type="time" aria-label="работаю до" value={shown.to}
             style={{ ...S.inp, flex: "0 1 120px", fontSize: 12 }}
-            onChange={(e) => setDraft((p) => ({ ...p, to: e.target.value }))} />
+            onChange={(e) => setHours("to", e.target.value)} />
         </div>
-      ) : (
+        {set.length === 0 && Object.keys(sc.perDay).length > 0 && (
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+            Свои часы у: {names(Object.keys(sc.perDay).map(Number))}. Двойное нажатие
+            по дню — правка его часов.
+          </div>)}
+      </>) : (
         <div style={{ fontSize: 12, marginTop: 4,
           color: sc.from || sc.to ? C.text : C.muted }}>
           {sc.from || sc.to

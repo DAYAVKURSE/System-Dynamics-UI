@@ -123,7 +123,7 @@ describe("график переживает переход между вклад
       fireEvent.click(screen.getByLabelText("рабочий день сб"));
       tab("Задачи");   // раньше, чем истекла задержка
       await waitFor(() => expect(puts).toHaveLength(1));
-      expect(puts[0]).toEqual({ days: [6], from: "", to: "", status: "off" });
+      expect(puts[0]).toEqual({ days: [6], from: "", to: "", perDay: {}, status: "off" });
       tab("Анкета");
       await waitFor(() => expect(screen.getByText(/Работает: сб/)).toBeInTheDocument());
       expect(screen.getAllByText("сегодня не работаю").length).toBeGreaterThan(0);

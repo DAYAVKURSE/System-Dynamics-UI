@@ -87,7 +87,7 @@ describe("анкета", () => {
       // Пять нажатий подряд — один запрос, и в нём всё сразу.
       expect(saved).toHaveLength(1);
       expect(saved[0]).toEqual({ days: [1, 2], from: "09:00", to: "18:00",
-        status: "break" });
+        perDay: {}, status: "break" });
       // Текст анкеты этим запросом не трогается: его человек шлёт сам.
       expect(saved[0]).not.toHaveProperty("about");
     });
