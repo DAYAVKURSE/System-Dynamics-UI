@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -55,7 +56,7 @@ export const BUILTIN_ROLES = [
    один и тот же дизайнер может быть и исполнителем, и проверяющим.
    Должности заводит владелец в блоке воркеров; встроенных нет — какие
    должности бывают, знает он, а не мы. */
-const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [] };
+const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [], forms: [] };
 
 /* ─────── договор — акцепт участия ───────
 
@@ -106,10 +107,11 @@ export async function readOrg() {
        дописываем — доступ человека собран из его прежней роли. */
     const old = Array.isArray(parsed.positions) ? parsed.positions : [];
     const all = [
-      ...roles.map((r) => ({ ...r, tabs: normTabs(r.tabs), contract: fileRef(r.contract) })),
+      ...roles.map((r) => ({ ...r, tabs: normTabs(r.tabs), contract: fileRef(r.contract),
+        form: formLink(r.form) })),
       ...old.filter((p) => p && p.id && !roles.some((r) => r.id === String(p.id)))
         .map((p) => ({ id: String(p.id), name: String(p.name || p.id),
-          tabs: [], contract: null, builtin: false })),
+          tabs: [], contract: null, form: null, builtin: false })),
     ];
     return {
       ownerId: parsed.ownerId != null ? String(parsed.ownerId) : null,
@@ -120,11 +122,14 @@ export async function readOrg() {
       users: (Array.isArray(parsed.users) ? parsed.users : []).map((u) => {
         const { roleId, position, ...rest } = u;
         return { ...rest, roles: userRoles(u),
-          contracts: u.contracts && typeof u.contracts === "object" ? u.contracts : {} };
+          contracts: u.contracts && typeof u.contracts === "object" ? u.contracts : {},
+          answers: answersOf(u) };
       }),
+      // Записи без анкет — это «анкет нет», а не поломка: список пустой.
+      forms: (Array.isArray(parsed.forms) ? parsed.forms : []).map(formOf).filter(Boolean),
     };
   } catch {
-    return { ...EMPTY, roles: [...BUILTIN_ROLES], users: [] };
+    return { ...EMPTY, roles: [...BUILTIN_ROLES], users: [], forms: [] };
   }
 }
 
@@ -198,6 +203,9 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
     // Своя анкета приходит вместе с «кто я»: она нужна на первой же
     // вкладке, и отдельный запрос за ней был бы вторым кругом за тем же.
     profile: profileOf(user || {}),
+    // И вопросы к ней — по ролям человека: без них ответы в анкете были
+    // бы текстом под номерами, которые ничего не значат.
+    forms: formsFor(org, user || {}),
     role: role || null,
     // Владельцу доступно всё; остальным — то, что дают ЕГО РОЛИ вместе.
     // Ни одной роли (её удалили или договор не подписан) — не показываем
@@ -316,7 +324,7 @@ const LIMIT = 2000;
 const profileOf = (user = {}) => {
   const about = String(user.about || "");
   const old = LEGACY_FIELDS.map((k) => String(user[k] || "").trim()).filter(Boolean);
-  return { about: about || old.join("\n"), ...scheduleOf(user) };
+  return { about: about || old.join("\n"), ...scheduleOf(user), answers: answersOf(user) };
 };
 
 /** Свою анкету человек пишет сам. Чужую — никто. */
@@ -342,8 +350,110 @@ export async function setProfile(userId, patch = {}) {
   }
   if (patch.warnMin != null) user.warnMin = warnOf(patch.warnMin);
   if (patch.deferMin != null) user.deferMin = deferOf(patch.deferMin);
+  /* Ответы на вопросы анкет — поверх прежних, а не вместо: форма шлёт те
+     вопросы, что видит сейчас, и ответ на вопрос другой роли, не попавший
+     в этот запрос, пропадать не должен. */
+  if (patch.answers && typeof patch.answers === "object") {
+    user.answers = { ...answersOf(user), ...answersOf({ answers: patch.answers }) };
+  }
   await writeOrg(org);
   return profileOf(user);
+}
+
+/* ─────── анкеты как словари ───────
+
+   Анкета — не одно большое поле с подсказкой «пиши по шаблону», а СЛОВАРЬ
+   вопросов: человеку показывают каждый вопрос отдельно, и он отвечает на
+   него, а не пересказывает шаблон по памяти. Анкет несколько, и назначают
+   их РОЛЯМ: дизайнера спрашивают про стек, курьера — про район, а не
+   всех обо всём.
+
+   Ответы лежат у человека по идентификатору вопроса, а не по его тексту:
+   владелец поправил формулировку — ответ остался при вопросе. Поэтому
+   идентификатор вопросу выдаётся один раз, при добавлении, и не
+   пересоздаётся при правке текста; удалённый вопрос свой идентификатор
+   уносит, и новый с тем же текстом ответа не наследует.
+
+   Старые записи: анкет нет — список пустой, ответов нет — пусто, и поле
+   `about` читается как прежде. */
+const QID = /^[a-z0-9_-]{1,64}$/i;
+const answersOf = (user = {}) => {
+  const raw = user.answers && typeof user.answers === "object" ? user.answers : {};
+  return Object.fromEntries(Object.entries(raw)
+    .filter(([k, v]) => QID.test(k) && v != null)
+    .map(([k, v]) => [k, String(v).slice(0, LIMIT)]));
+};
+const formLink = (v) => (v == null || v === "" ? null : String(v));
+const questionOf = (q) => {
+  const text = String((q && typeof q === "object" ? q.text : q) ?? "").trim().slice(0, LIMIT);
+  if (!text) return null;
+  const id = q && typeof q === "object" && QID.test(String(q.id || "")) ? String(q.id) : null;
+  return { id, text };
+};
+const formOf = (f) => (f && typeof f === "object" && f.id
+  ? { id: String(f.id), name: String(f.name || f.id),
+    questions: (Array.isArray(f.questions) ? f.questions : []).map(questionOf)
+      .filter((q) => q && q.id) }
+  : null);
+const newQid = () => `q${crypto.randomBytes(4).toString("hex")}`;
+
+/** Анкеты человека — по его ролям, каждая один раз, с вопросами. */
+const formsFor = (org, user = {}) => {
+  const ids = [...new Set(userRoles(user)
+    .map((rid) => org.roles.find((r) => r.id === rid)?.form).filter(Boolean))];
+  return ids.map((id) => org.forms.find((f) => f.id === id)).filter(Boolean);
+};
+
+export async function addForm({ name }) {
+  const clean = String(name || "").trim();
+  if (!clean) throw new Error("name is required");
+  const org = await readOrg();
+  let id = slug(clean, "form"), n = 2;
+  while (org.forms.some((f) => f.id === id)) id = `${slug(clean, "form")}-${n++}`;
+  const form = { id, name: clean, questions: [] };
+  org.forms.push(form);
+  await writeOrg(org);
+  return form;
+}
+
+/**
+ * Название и вопросы анкеты. Вопрос — строка или `{id, text}`: с известным
+ * идентификатором он остаётся собой (и ответы при нём), без него — новый.
+ * Пустой текст — это не вопрос: такие отбрасываются.
+ */
+export async function setForm(id, { name, questions } = {}) {
+  const org = await readOrg();
+  const form = org.forms.find((f) => f.id === id);
+  if (!form) return null;
+  if (name != null && String(name).trim()) form.name = String(name).trim();
+  if (Array.isArray(questions)) {
+    form.questions = questions.map(questionOf).filter(Boolean).map((q) => ({
+      id: q.id && form.questions.some((x) => x.id === q.id) ? q.id : newQid(), text: q.text }));
+  }
+  await writeOrg(org);
+  return form;
+}
+
+/** Убрать анкету: роли, которые на неё ссылались, остаются без анкеты. */
+export async function removeForm(id) {
+  const org = await readOrg();
+  if (!org.forms.some((f) => f.id === id)) return false;
+  org.forms = org.forms.filter((f) => f.id !== id);
+  org.roles = org.roles.map((r) => (r.form === id ? { ...r, form: null } : r));
+  await writeOrg(org);
+  return true;
+}
+
+/** Какую анкету заполняют по этой роли; пусто — никакую. */
+export async function setRoleForm(roleId, formId) {
+  const org = await readOrg();
+  const role = org.roles.find((r) => r.id === roleId);
+  if (!role) return null;
+  const want = formLink(formId);
+  if (want && !org.forms.some((f) => f.id === want)) throw new Error("unknown form");
+  role.form = want;
+  await writeOrg(org);
+  return role;
 }
 
 export async function listOrg() {
@@ -355,7 +465,10 @@ export async function listOrg() {
   return {
     ownerId: org.ownerId,
     roles: org.roles,
-    users: org.users.map((u) => ({ ...u, ...profileOf(u) })),
+    // Вопросы анкет — рядом с ответами: чужая анкета читается вопросом и
+    // ответом, а не ответом под номером. Тот же вид, что в «кто я».
+    users: org.users.map((u) => ({ ...u, ...profileOf(u), forms: formsFor(org, u) })),
+    forms: org.forms,
   };
 }
 

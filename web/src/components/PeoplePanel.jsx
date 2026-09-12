@@ -5,6 +5,7 @@ import {
   setUserRoles,
 } from "../identity.js";
 import { putReportFile, reportSrc } from "../storage.js";
+import { FormsSection, RoleFormPick } from "./FormsPanel.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ЛЮДИ И РОЛИ · панель владельца
@@ -206,6 +207,9 @@ export default function PeoplePanel({ onPeople }) {
                 onClick={() => act(() => removeRole(r.id))}>Удалить роль</button>
             </div>
             <Contract role={r} busy={busy} onSet={(f) => act(() => setRoleContract(r.id, f))} />
+            {/* Анкета — тоже свойство роли: о чём спрашивать человека, решает
+                то, кем он здесь является. */}
+            <RoleFormPick role={r} forms={org.forms} busy={busy} act={act} />
             <div className="flex flex-wrap gap-2">
               {ALL_TABS.map((t) => {
                 const on = (r.tabs || []).includes(t);
@@ -228,6 +232,9 @@ export default function PeoplePanel({ onPeople }) {
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
         Новая роль открывает только «Задачи» — остальное добавьте кнопками выше.
       </div>
+
+      {/* Анкеты — под ролями: их назначают ролям, и искать их стоит рядом. */}
+      <FormsSection forms={org.forms} busy={busy} act={act} />
       {msg && <div style={{ fontSize: 11.5, color: WARN, marginTop: 6 }}>{msg}</div>}
     </div>);
 }

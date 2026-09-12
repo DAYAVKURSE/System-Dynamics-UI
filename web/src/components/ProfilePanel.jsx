@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField } from "./ui.jsx";
 import PersonStats from "./PersonStats.jsx";
 import { getDuty, putProfile, refuseFuncRemote } from "../identity.js";
+import { FormAnswers } from "./FormsPanel.jsx";
 import { WEEK, WORKER_KINDS, dutyOf } from "../lib/funcs.js";
 import { WARNS } from "./TasksBoard.jsx";
 import { WORK_STATUSES, dayHours, hasSchedule, scheduleOfPerson, scheduleText, statusOf }
@@ -238,15 +239,22 @@ export const PROFILE_FIELDS = [
     ].join("\n") },
 ];
 
+/* Ответы на вопросы анкет по ролям — по идентификатору вопроса. Лежат
+   рядом с полем `about`, а не вместо него: поле остаётся тем, кому анкет
+   по ролям не назначили. */
+const answersOf = (p) => (p?.answers && typeof p.answers === "object" ? { ...p.answers } : {});
+
 export const emptyProfile = () => ({
   ...Object.fromEntries(PROFILE_FIELDS.map((f) => [f.id, ""])),
   ...scheduleOfPerson({}),
+  answers: {},
 });
 
 /** Анкета из записи человека — в том виде, в каком её показывают. */
 export const profileOf = (person = {}) => ({
   ...Object.fromEntries(PROFILE_FIELDS.map((f) => [f.id, String(person?.[f.id] || "")])),
   ...scheduleOfPerson(person),
+  answers: answersOf(person),
 });
 
 /* ─────── за сколько предупреждать ───────
@@ -279,8 +287,9 @@ export const deferMinOf = (v) => {
 };
 export const DEFER_CHOICES = WARNS.filter((w) => w.v != null && w.v > 0);
 
-/** Заполнена ли анкета. */
-export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "").trim());
+/** Заполнена ли анкета — полем или хотя бы одним ответом на вопрос. */
+export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "").trim())
+  || Object.values(answersOf(p)).some((v) => String(v || "").trim());
 
 /* `published` — реестр опубликованных оценок из модели; `ratings` — ответ
    сервера про рейтинги, если его спросили. Оба нужны только рейтингу
@@ -359,6 +368,9 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
   const mine = String(id) === String(me?.id);
   const person = people.find((p) => String(p.id) === String(id)) || null;
   const name = person?.name || (mine ? me?.name : "") || String(id ?? "");
+  /* Анкеты по ролям: свои приходят с «кто я», чужие — со списком людей.
+     Есть хоть одна — показываются её вопросы, а не одно большое поле. */
+  const forms = (mine ? me?.forms : person?.forms) || [];
 
   /* ─── откуда берётся черновик ───
 
@@ -500,6 +512,9 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
       const saved = await putProfile({
         ...Object.fromEntries(PROFILE_FIELDS.map((f) => [f.id, draft[f.id] ?? ""])),
         ...scheduleOfPerson(draft),
+        // Ответы на вопросы — только когда вопросы есть: без анкет по ролям
+        // слать пустой словарь незачем.
+        ...(forms.length ? { answers: answersOf(draft) } : {}),
       });
       const got = saved?.profile || draft;
       touched.current = new Set();
@@ -527,7 +542,10 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
             : "Анкету пишет сам человек — здесь она только читается."}
         </div>
 
-        {PROFILE_FIELDS.map((fld) => (
+        {forms.length ? (
+          <FormAnswers forms={forms} answers={answersOf(draft)} mine={mine}
+            onChange={(a) => change((p) => ({ ...p, answers: a }))} />
+        ) : PROFILE_FIELDS.map((fld) => (
           <div key={fld.id} style={{ marginBottom: 8 }}>
             {mine ? (
               <TxtField area={fld.area} value={draft[fld.id] || ""} placeholder={fld.hint}
