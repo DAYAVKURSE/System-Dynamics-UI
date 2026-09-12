@@ -13,10 +13,13 @@ import RegisterPanel from "./RegisterPanel.jsx";
 import LooseCrew from "./LooseCrew.jsx";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
-import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, checkAsset, countWorkers, crewOf,
+import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
+  crewOf,
   normalizeAssets,
   editFunc, exceptOf, normalizeFactors, normalizeFuncs, pruneWorkers, workersOf }
   from "../lib/funcs.js";
+import ProcessPanel from "./ProcessPanel.jsx";
+import { normalizeProcs } from "../lib/process.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
@@ -363,6 +366,7 @@ export function docFrom(data,cur){
     factors:normalizeFactors(arr(d.factors,cur.factors)),
     reports:normalizeReports(arr(d.reports,cur.reports)),
     materials:normalizeMaterials(arr(d.materials,cur.materials)),
+    procs:normalizeProcs(arr(d.procs,cur.procs)),
   };
 }
 
@@ -387,6 +391,14 @@ export default function SystemModel(){
   /* Материалы — единицы ресурсов, заведённые руками (lib/units.js). Часть
      документа: из них и из принятых сдач считается, сколько ресурса есть. */
   const [materials,setMaterials]=useState(MATERIALS0);
+  /* Технологические процессы — что за чем следует, текстом (lib/process.js).
+     Часть документа: из них собираются функции, и без них самих функции
+     нельзя было бы ни пересобрать, ни снять. */
+  const [procs,setProcs]=useState([]);
+  /* Считать ли гипотетически принятые процессы. Состояние интерфейса, не
+     документа: галочка — вопрос «а что если», и в сохранённую модель ответ
+     на него не уезжает. */
+  const [hypoOn,setHypoOn]=useState(false);
   /* Пространство вкладки задач — часть документа наравне с отчётами:
      положение блоков, стрелки и заметки живут с моделью, а не в браузере.
      У позванного оно своё и уезжает на сервер отдельно (см. ниже). */
@@ -470,8 +482,9 @@ export default function SystemModel(){
   const kindOf=useMemo(()=>kindLookup(kinds),[kinds]);
 
   // ─── история правок: отмена и возврат ───
-  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports,materials}),
-    [entities,traits,kinds,tasks,funcs,goals,factors,reports,materials]);
+  const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports,materials,
+    procs}),
+    [entities,traits,kinds,tasks,funcs,goals,factors,reports,materials,procs]);
   /* Ресурсы с посчитанным «есть»: расчёт, доска задач и карточка ресурса
      смотрят на остаток по материалам, а не на записанное число. Правят
      при этом `traits` — по id, так что подмена здесь их не задевает. */
@@ -488,6 +501,7 @@ export default function SystemModel(){
     setFactors(normalizeFactors(d.factors));
     setReports(normalizeReports(d.reports));
     setMaterials(normalizeMaterials(d.materials));
+    setProcs(normalizeProcs(d.procs));
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -521,13 +535,19 @@ export default function SystemModel(){
     setEntities(p=>p.map(e=>e.id===id
       ?{...e,x:Math.max(0,Math.round(x)),y:Math.max(0,Math.round(y))}:e));
   };
-  const addEntity=()=>{
-    const id="en"+Date.now();
+  /* Запись нового актива — отдельно от нажатия «+ актив»: технологический
+     процесс заводит актив тем же способом, чтобы он встал рядом с
+     существующими, а не в угол. */
+  const freshEntity=(name="Новый актив")=>{
+    const id="en"+Date.now().toString(36)+entities.length.toString(36);
     const y=entities.length?Math.max(...entities.map(e=>e.y))+NH+40:24;
     const palette=["#7CE0FF","#C792EA","#FFD166","#3DDC97","#FF9E64","#FF5C7A","#8B9DFF"];
-    setEntities(p=>[...p,{id,name:"Новый актив",owners:[],reviewers:[],
-      color:palette[p.length%palette.length],x:24,y}]);
-    setSel(id);
+    return {id,name,owners:[],reviewers:[],color:palette[entities.length%palette.length],x:24,y};
+  };
+  const addEntity=()=>{
+    const e=freshEntity();
+    setEntities(p=>[...p,e]);
+    setSel(e.id);
   };
   const GAP_X=48, GAP_Y=56;
   const alignGrid=()=>{
@@ -621,6 +641,7 @@ export default function SystemModel(){
     factors:w?.factors||[],
     reports:w?.reports||[],
     materials:w?.materials||[],
+    procs:w?.procs||[],
   }),[]);
   /* Разобрались ли, что открывать. До этого момента на экране может стоять
      встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
@@ -944,14 +965,18 @@ export default function SystemModel(){
      прогноз: функция сама по себе не повторяется, «как часто может» — её
      потолок, а не расписание. Нет применённых целей — ничего и не
      происходит, и это честный ответ, а не пустой график. */
-  const runsPlan=useMemo(()=>goalRuns({traits:traitsLive,funcs},goals,{runsOf}),
-    [traitsLive,funcs,goals,runsOf]);
+  /* Функции глазами расчёта: без гипотетических процессов, пока галочка
+     «включить гипотезы» не стоит (`activeFuncs`). Модели ниже несут
+     `procs` и `hypoOn` — по ним расчёт (`liveModel`) сам отсеивает. */
+  const liveFuncs=useMemo(()=>activeFuncs({funcs,procs,hypoOn}),[funcs,procs,hypoOn]);
+  const runsPlan=useMemo(()=>goalRuns({traits:traitsLive,funcs,procs,hypoOn},goals,{runsOf}),
+    [traitsLive,funcs,procs,hypoOn,goals,runsOf]);
   /* Очередь действий по применённым целям — та же, что человек видел в
      форме цели, только собранная со всех целей сразу. */
   const appliedSteps=useMemo(()=>{
     const by=new Map();
     goals.filter(g=>g.appliedAt).forEach(g=>{
-      actionsOf(planGoal({traits:traitsLive,funcs},g,{runsOf})).forEach(st=>{
+      actionsOf(planGoal({traits:traitsLive,funcs,procs,hypoOn},g,{runsOf})).forEach(st=>{
         const was=by.get(st.func);
         by.set(st.func,was
           ?{...was,runs:was.runs+st.runs,startHours:Math.min(was.startHours,st.startHours)}
@@ -959,13 +984,16 @@ export default function SystemModel(){
       });
     });
     return [...by.values()].sort((a,b)=>a.startHours-b.startHours||b.runs-a.runs);
-  },[traitsLive,funcs,goals,runsOf]);
-  const fc=useMemo(()=>forecast({traits:traitsLive,funcs,factors},{span,runsOf,plan:runsPlan}),
-    [traitsLive,funcs,factors,span,runsOf,runsPlan]);
-  const moves=useMemo(()=>transfers({funcs,traits:traitsLive},{runsOf,plan:runsPlan}),
-    [funcs,traitsLive,runsOf,runsPlan]);
-  const workload=useMemo(()=>load({funcs},{runsOf,plan:runsPlan}),
-    [funcs,runsOf,runsPlan]);
+  },[traitsLive,funcs,procs,hypoOn,goals,runsOf]);
+  const fc=useMemo(()=>forecast({traits:traitsLive,funcs,factors,procs,hypoOn},
+    {span,runsOf,plan:runsPlan}),
+    [traitsLive,funcs,factors,procs,hypoOn,span,runsOf,runsPlan]);
+  const moves=useMemo(()=>transfers({funcs,traits:traitsLive,procs,hypoOn},{runsOf,plan:runsPlan}),
+    [funcs,traitsLive,procs,hypoOn,runsOf,runsPlan]);
+  const workload=useMemo(()=>load({funcs,procs,hypoOn},{runsOf,plan:runsPlan}),
+    [funcs,procs,hypoOn,runsOf,runsPlan]);
+  // Есть ли что включать: без гипотетических процессов галочка — мебель.
+  const anyHypo=procs.some(p=>p.status==="hypo");
   const valuesFor=useCallback((tid)=>{
     const at=Math.min(simMonth,span);
     return {lo:fc.lo[tid]?.[at]??0,hi:fc.hi[tid]?.[at]??0,
@@ -1088,7 +1116,7 @@ export default function SystemModel(){
           можно только с чужого разрешения. */}
       {tab==="reports" && (me.isOwner||me.solo) && (
         <ReportsPanel nodes={reports} setNodes={setReports}
-          model={{traits:traitsLive,funcs,tasks,factors,materials}} entities={entities}
+          model={{traits:traitsLive,funcs,tasks,factors,materials,procs,hypoOn}} entities={entities}
           nameOf={personName} materials={materials} setMaterials={setMaterials} meId={me.id}
           runsOf={runsOf}
           focus={reportFocus} onFocus={setReportFocus}/>)}
@@ -1189,13 +1217,27 @@ export default function SystemModel(){
         </div>
 
         {under==="proc" && (
-          <div style={{...S.card,marginTop:10,fontSize:11.5,color:C.muted,lineHeight:1.6}}>
-            Технологический процесс — что за чем следует: какой актив какой
-            ресурс берёт, в каком количестве и что отдаёт. Раздел собирается.
-          </div>)}
+          <ProcessPanel procs={procs} setProcs={setProcs}
+            entities={entities} setEntities={setEntities}
+            traits={traits} setTraits={setTraits}
+            funcs={funcs} setFuncs={setFuncs}
+            makeEntity={freshEntity}
+            /* Задачи по снятым функциям процесса — как при удалении актива:
+               выполнять больше нечего. */
+            onDropFuncs={ids=>setTasks(p=>p.filter(t=>!ids.includes(t.funcId)))}/>)}
+
+        {/* Галочка стоит НАД «Деятельностью» и «Прогнозом» и только когда
+            есть что включать: гипотетический процесс — вопрос «а что
+            если», и ответ на него смотрят в тех же двух разделах. */}
+        {(under==="time"||under==="sim") && anyHypo && (
+          <label className="flex items-center gap-2"
+            style={{fontSize:12,color:hypoOn?WARN:C.muted,margin:"0 0 8px",cursor:"pointer"}}>
+            <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
+            включить гипотезы
+          </label>)}
 
         {under==="time" && (
-          <Timeline tasks={myTasks} funcs={funcs} traits={traitsLive} entities={entities}
+          <Timeline tasks={myTasks} funcs={liveFuncs} traits={traitsLive} entities={entities}
             nameOf={personName} meId={me.id}/>)}
 
         {under==="edit" && selE && (
@@ -1291,7 +1333,7 @@ export default function SystemModel(){
         {/* Цели: сколько, чего, к какому сроку, каким темпом и какой ценой.
             Модель отвечает тем, что из цели следует, — см. GoalsPanel. */}
         <GoalsPanel goals={goals} setGoals={setGoals} traits={traitsLive}
-          model={{traits:traitsLive,funcs}} runsOf={runsOf}
+          model={{traits:traitsLive,funcs,procs,hypoOn}} runsOf={runsOf}
           /* Постановщика назначают на схеме, в ролях функции, — и задача
              рождается уже с ним: форма постановки его не выбирает. Без
              этого позванный постановщик не увидел бы задачу в «ждут

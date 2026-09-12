@@ -616,3 +616,76 @@ describe("модель переживает то, что должна", () => {
     expect(screen.getByDisplayValue("вёрстка")).toBeInTheDocument();
   });
 });
+
+describe("ресурс и фактор принимает человек — как функцию", () => {
+  /* Владелец: «когда неподтверждены функции, ресурсы или факторы, они все
+     в управлении должны помечаться красным, так же, как сейчас помечаются
+     функции, которые не готовы; у факторов должна быть кнопка «Принять»,
+     и у ресурсов». Пометка — слово о ТОМ, что человек видел: правка её
+     снимает. */
+  const addTrait = (name) => {
+    scheme();
+    assetTab("Ресурсы");
+    const box = screen.getByPlaceholderText("текст нового ресурса");
+    fireEvent.change(box, { target: { value: name } });
+    fireEvent.blur(box);
+    fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
+    return screen.getByDisplayValue(name).closest("div").parentElement;
+  };
+  const addFactor = (name) => {
+    scheme();
+    assetTab("Факторы");
+    const box = screen.getByPlaceholderText("название нового фактора");
+    fireEvent.change(box, { target: { value: name } });
+    fireEvent.blur(box);
+    fireEvent.click(screen.getByRole("button", { name: "+ фактор" }));
+    return screen.getByDisplayValue(name).closest("div").parentElement;
+  };
+
+  it("новый ресурс красный и подписан «не принят»; «Принять» делает его зелёным «ресурс»", () => {
+    const card = addTrait("коробки");
+    expect(within(card).getByText("не принят")).toBeInTheDocument();
+    // jsdom отдаёт цвет как rgb: #FF5C7A — это rgb(255, 92, 122).
+    expect(card.style.borderLeft).toContain("rgb(255, 92, 122)");
+    fireEvent.click(within(card).getByRole("button", { name: "принять ресурс коробки" }));
+    expect(within(card).getByText("ресурс")).toBeInTheDocument();
+    expect(within(card).queryByText("не принят")).toBeNull();
+    expect(dump().traits.find((t) => t.l === "коробки").accepted).toBe(true);
+  });
+
+  it("правка единицы снимает «принят», расфокус без правки — нет", () => {
+    const card = addTrait("коробки");
+    fireEvent.click(within(card).getByRole("button", { name: "принять ресурс коробки" }));
+    const unit = within(card).getByDisplayValue("ед.");
+    fireEvent.focus(unit);
+    fireEvent.blur(unit);
+    expect(within(card).getByText("ресурс")).toBeInTheDocument();
+    fireEvent.change(unit, { target: { value: "шт" } });
+    fireEvent.blur(unit);
+    expect(within(card).getByText("не принят")).toBeInTheDocument();
+    expect(dump().traits.find((t) => t.l === "коробки").accepted).toBe(false);
+  });
+
+  it("прежняя запись без пометки читается как «не принят» — ничего не теряя", () => {
+    const m = dump();
+    loadJson({ ...m, traits: m.traits.map((t) => ({ id: t.id, e: t.e, k: t.k, l: t.l, unit: t.unit })) });
+    scheme();
+    assetTab("Ресурсы");
+    expect(screen.getByDisplayValue("заявки")).toBeInTheDocument();
+    expect(screen.getAllByText("не принят").length).toBeGreaterThan(0);
+  });
+
+  it("фактор: красный «не принят», «Принять» — зелёный «фактор», правка вероятности снимает", () => {
+    const block = addFactor("сезон");
+    expect(within(block).getByText("не принят")).toBeInTheDocument();
+    fireEvent.click(within(block).getByRole("button", { name: "принять фактор сезон" }));
+    expect(within(block).getByText("фактор")).toBeInTheDocument();
+    expect(dump().factors.find((x) => x.name === "сезон").accepted).toBe(true);
+    // Выгрузка уводила с карточки: она открывается заново, на функциях.
+    assetTab("Факторы");
+    fireEvent.change(screen.getByLabelText("вероятность фактора сезон"), { target: { value: "50" } });
+    const again = screen.getByDisplayValue("сезон").closest("div").parentElement;
+    expect(within(again).getByText("не принят")).toBeInTheDocument();
+    expect(dump().factors.find((x) => x.name === "сезон").accepted).toBe(false);
+  });
+});

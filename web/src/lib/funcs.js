@@ -240,6 +240,45 @@ export function withCrewPar(model = {}) {
 }
 
 /**
+ * Функции, которые расчёт вправе считать.
+ *
+ * Функции технологического процесса (`proc`, см. lib/process.js) живут в
+ * `funcs` наравне с остальными — схема их рисует, карточка показывает, —
+ * но считаются по статусу процесса: «принято» — всегда, «принято
+ * гипотетически» — только с галочкой «включить гипотезы» (`model.hypoOn`).
+ * Функций «не принятого» процесса в списке нет вовсе — их убирают при
+ * снятии, — а неизвестный процесс читается как принятый: функция здесь
+ * есть, значит её кто-то применил.
+ *
+ * Список не меняется — возвращается тот же: расчёт узнаёт по этому, что
+ * подменять модель нечем.
+ */
+export function activeFuncs(model = {}) {
+  const funcs = model.funcs || [];
+  if (!funcs.some((f) => f && f.proc)) return funcs;
+  const status = new Map((model.procs || []).map((p) => [p.id, p.status]));
+  return funcs.filter((f) => {
+    if (!f || !f.proc) return true;
+    const s = status.get(f.proc);
+    if (s === "off") return false;
+    if (s === "hypo") return model.hypoOn === true;
+    return true;
+  });
+}
+
+/**
+ * Модель глазами расчёта: без функций невключённых гипотез и с потолком
+ * «= числу воркеров» числом. Одна дверь на все расчёты — `runSide`,
+ * `load`, `solve`, `effect`, `chainOf`: разойдись они, прогноз и цепочка
+ * считали бы разные схемы.
+ */
+export function liveModel(model0 = {}) {
+  const funcs = activeFuncs(model0);
+  const model = !model0.funcs || funcs === model0.funcs ? model0 : { ...model0, funcs };
+  return withCrewPar(model);
+}
+
+/**
  * Сколько выполнений помещается в календарь разом — с обоими потолками.
  *
  * Считаем по ОДНОМУ воркеру и прижимаем потолком актива: людей мы не
