@@ -4,6 +4,8 @@ import { DUR_UNITS, WORKER_KINDS, byCrew, crewOf, eligible, hoursOf, missingGive
   rangeText, requiredGives, shortage } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
 import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel } from "../lib/units.js";
+import { inputCount, inputUnits } from "../lib/taskUnits.js";
+import { UnitList } from "./UnitLinks.jsx";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -1214,6 +1216,23 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       <div style={S.lbl}>функция, которую выполняет задача</div>
       <FuncCard func={func} entities={entities} traitName={traitName}/>
 
+      {/* Сами вещи на входе — всегда, а не только при сдаче: работают с
+          определённой заявкой, а не с числом «заявок 4», и скачать её
+          нужно до того, как работа сделана. Израсходованных тут нет —
+          их больше нет ни у кого. */}
+      {!!func?.takes?.length&&(<>
+        <div style={S.lbl}>материалы на входе</div>
+        <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+          padding:9,margin:"6px 0 8px"}}>
+          {inputUnits({tasks:tasksAll,funcs,materials},func).map(g=>(
+            <div key={g.trait} style={{marginBottom:6}}>
+              <div style={{fontSize:11.5,fontWeight:600}}>{traitName(g.trait)}</div>
+              <UnitList units={g.units} traitName={traitName(g.trait)}
+                unitName={traits.find(t=>t.id===g.trait)?.unit||"ед."}
+                label={`материалы на входе: ${traitName(g.trait)}`}/>
+            </div>))}
+        </div></>)}
+
       <div style={S.lbl}>сдача — что вышло на самом деле</div>
       <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
         padding:9,margin:"6px 0 8px"}}>
@@ -1610,6 +1629,12 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                     <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
                       {funcLabel(f,entities)}
                     </div>
+                    {/* Только число: карточка узкая, сами вещи со ссылками —
+                        в открытой задаче. */}
+                    {!!f?.takes?.length&&(
+                      <div style={{fontSize:10.5,color:C.muted,marginTop:3}}>
+                        материалов на входе: {inputCount({tasks,funcs,materials},f)}
+                      </div>)}
                     {/* Пометка отмены — словом, а не одним приглушением:
                         бледная карточка читается как «неважная», а сказать
                         надо «решили не делать». */}

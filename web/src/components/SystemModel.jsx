@@ -1112,7 +1112,7 @@ export default function SystemModel(){
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (
         <ReviewBoard tasks={tasks} traits={traitsLive} entities={entities} funcs={funcs}
-          factors={factors}
+          factors={factors} materials={materials}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}
