@@ -281,3 +281,31 @@ describe("какая схема открывается", () => {
     await expect(s.touchScenario("нет-такого")).resolves.toBeUndefined();
   });
 });
+
+/* Предупреждение о пределе — до отказа, а не вместо него. Пределы у
+   хранилищ разные, и подпись считает по тому, которое действует. */
+describe("сколько сценариев ещё поместится", () => {
+  it("сервер: 200, предупреждение с двадцати оставшихся, отказ словами при нуле", async () => {
+    const s = await freshStorage();
+    expect(s.SCENARIO_LIMIT.server).toBe(200);
+    expect(s.savedRoom(12, "server")).toEqual({ text: "сценариев: 12 из 200", warn: false, left: 188 });
+    expect(s.savedRoom(180, "server")).toEqual(
+      { text: "сценариев: 180 из 200 — осталось 20, удали лишние", warn: true, left: 20 });
+    expect(s.savedRoom(200, "server").text)
+      .toBe("сценариев: 200 из 200 — места нет: удали лишние или перезапиши существующий");
+    expect(s.savedRoom(200, "server").warn).toBe(true);
+  });
+
+  it("облако Telegram: 30, предупреждение с трёх оставшихся", async () => {
+    const s = await freshStorage();
+    expect(s.savedRoom(26, "cloud")).toEqual({ text: "сценариев: 26 из 30", warn: false, left: 4 });
+    expect(s.savedRoom(27, "cloud").warn).toBe(true);
+    expect(s.savedRoom(27, "cloud").text).toMatch(/осталось 3/);
+  });
+
+  it("память браузера: предела в сценариях нет — только число", async () => {
+    const s = await freshStorage();
+    expect(s.savedRoom(7, "local")).toEqual({ text: "сценариев: 7", warn: false, left: null });
+    expect(s.savedRoom("мусор", "cloud").text).toBe("сценариев: 0 из 30");
+  });
+});
