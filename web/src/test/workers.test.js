@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { WORK_STATUSES, avg, byRating, commentsFor, hasSchedule, historyOf, inTime,
-  lastReview, lastSubmission, ratingId, scheduleOfPerson, scheduleText, shortStat,
-  statsOf, statusOf, visibleStats, workTime } from "../lib/workers.js";
+import { WORK_STATUSES, avg, byRating, commentsFor, dayHours, hasSchedule, historyOf,
+  inTime, lastReview, lastSubmission, perDayOf, ratingId, scheduleOfPerson, scheduleText,
+  shortStat, statsOf, statusOf, visibleStats, workTime } from "../lib/workers.js";
 import { WEEK } from "../lib/funcs.js";
 
 /* История воркера — то, чего нельзя увидеть в одной задаче: как человек
@@ -345,5 +345,45 @@ describe("рабочий график и статус", () => {
     // Названа одна граница — так и сказано, а не додумана вторая.
     expect(text({ days: [1], from: "10:00" })).toBe("пн · с 10:00");
     expect(text({ days: [1], to: "18:00" })).toBe("пн · до 18:00");
+  });
+
+  /* ─── часы отдельного дня ───
+
+     Общие «с — до» действуют на все рабочие дни, `perDay` — исключения:
+     «в субботу с 10 до 14». Запись без часов дня читается как прежде. */
+  it("часы дня разбираются строго и живут только у рабочего дня", () => {
+    expect(perDayOf({ 6: { from: "10:00", to: "14:00" }, 2: { from: "9:00", to: "25:00" },
+      9: { from: "10:00" }, вт: { from: "10:00" } }, [1, 2, 6]))
+      .toEqual({ 6: { from: "10:00", to: "14:00" } });
+    // Выключили день — его часы ушли вместе с ним.
+    expect(scheduleOfPerson({ days: [1], perDay: { 6: { from: "10:00", to: "14:00" } } })
+      .perDay).toEqual({});
+    // Прежняя запись: исключений нет, и всё остальное как было.
+    expect(scheduleOfPerson({ days: [1, 2], from: "09:00", to: "18:00" }))
+      .toEqual({ days: [1, 2], from: "09:00", to: "18:00", perDay: {}, status: "ready" });
+    expect(perDayOf("не объект")).toEqual({});
+    expect(perDayOf([{ from: "10:00" }])).toEqual({});
+  });
+
+  it("часы дня — свои, если названы, иначе общие", () => {
+    const sc = scheduleOfPerson({ days: [1, 6], from: "09:00", to: "18:00",
+      perDay: { 6: { from: "10:00", to: "" } } });
+    expect(dayHours(sc, 1)).toEqual({ from: "09:00", to: "18:00" });
+    // Запись дня — целиком: пустая граница в ней не подменяется общей.
+    expect(dayHours(sc, 6)).toEqual({ from: "10:00", to: "" });
+  });
+
+  it("исключения в тексте стоят своей группой через «;»", () => {
+    const text = (p) => scheduleText(scheduleOfPerson(p), WEEK);
+    expect(text({ days: [1, 2, 3, 4, 5, 6], from: "09:00", to: "18:00",
+      perDay: { 6: { from: "10:00", to: "14:00" } } }))
+      .toBe("пн–пт · 09:00–18:00; сб · 10:00–14:00");
+    // Дни с одинаковыми часами — вместе, даже если стоят не подряд.
+    expect(text({ days: [1, 2, 3, 4, 5], from: "09:00", to: "18:00",
+      perDay: { 3: { from: "10:00", to: "14:00" } } }))
+      .toBe("пн, вт, чт, пт · 09:00–18:00; ср · 10:00–14:00");
+    // Общих часов нет — у дней без своих часов их и не показывают.
+    expect(text({ days: [1, 2, 6], perDay: { 6: { from: "10:00", to: "14:00" } } }))
+      .toBe("пн, вт; сб · 10:00–14:00");
   });
 });

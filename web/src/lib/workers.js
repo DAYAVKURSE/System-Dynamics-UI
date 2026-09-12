@@ -110,45 +110,86 @@ export const workTime = (v) => (HHMM.test(String(v || "")) ? String(v) : "");
  * от бюджета цели, нет разумного значения по умолчанию. Молча дописать
  * человеку семидневку нельзя.
  */
-export const scheduleOfPerson = (p = {}) => ({
-  days: Array.isArray(p.days) ? [...new Set(p.days.map(Number)
-    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))] : [],
-  from: workTime(p.from),
-  to: workTime(p.to),
-  status: statusOf(p.status).id,
-});
+export const scheduleOfPerson = (p = {}) => {
+  const days = Array.isArray(p.days) ? [...new Set(p.days.map(Number)
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))] : [];
+  return {
+    days,
+    from: workTime(p.from),
+    to: workTime(p.to),
+    perDay: perDayOf(p.perDay, days),
+    status: statusOf(p.status).id,
+  };
+};
+
+/* ─────── часы отдельного дня ───────
+
+   Общие «с — до» действуют на все рабочие дни, а `perDay` — исключения:
+   «в субботу с 10 до 14». Запись дня — целиком, а не поправка к общим:
+   пустая граница в ней значит «не названа», а не «как у всех», иначе
+   «сб · до 14:00» читалось бы двумя способами. Записи без единого часа
+   нет — она ничем не отличалась бы от общих часов. Записи у выходного
+   тоже нет: день выключили — его часы ушли вместе с ним; прежние записи
+   без `perDay` читаются как прежде, у них исключений нет. */
+export function perDayOf(v, days = null) {
+  const out = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  Object.entries(v).forEach(([k, h]) => {
+    const d = Number(k);
+    if (!Number.isInteger(d) || d < 0 || d > 6) return;
+    if (days && !days.includes(d)) return;
+    const from = workTime(h?.from);
+    const to = workTime(h?.to);
+    if (from || to) out[d] = { from, to };
+  });
+  return out;
+}
+
+/** Часы конкретного дня: свои, если названы, иначе общие. */
+export const dayHours = (sc = {}, d) => (sc.perDay?.[d]
+  ? { from: workTime(sc.perDay[d].from), to: workTime(sc.perDay[d].to) }
+  : { from: workTime(sc.from), to: workTime(sc.to) });
 
 /** Задан ли график вообще: без дней и без часов говорить не о чем. */
 export const hasSchedule = (sc = {}) =>
   Boolean((sc.days || []).length || sc.from || sc.to);
 
 /**
- * График словами: «пн–пт · 09:00–18:00».
+ * График словами: «пн–пт · 09:00–18:00; сб · 10:00–14:00».
  *
  * Идущие подряд дни склеиваются в отрезок: «пн, вт, ср, чт, пт» человек
  * читает как перечисление и пересчитывает в уме, а «пн–пт» — сразу.
+ * Дни со своими часами стоят отдельной группой через «;»: у них другой
+ * ответ на «во сколько», и прятать его в общие часы значило бы врать.
  */
 export function scheduleText(sc = {}, week = []) {
   const order = week.map((w) => w.id);
   const on = order.filter((id) => (sc.days || []).includes(id));
-  const parts = [];
-  if (on.length) {
+  const hours = ({ from, to }) => (from && to ? `${from}–${to}`
+    : from ? `с ${from}` : to ? `до ${to}` : "");
+  if (!on.length) return hours(sc);
+  const short = (id) => week.find((w) => w.id === id)?.short || id;
+  const runsText = (list) => {
     const runs = [];
-    on.forEach((id) => {
+    list.forEach((id) => {
       const last = runs[runs.length - 1];
       const i = order.indexOf(id);
       if (last && order.indexOf(last[last.length - 1]) === i - 1) last.push(id);
       else runs.push([id]);
     });
-    const short = (id) => week.find((w) => w.id === id)?.short || id;
-    parts.push(runs.map((r) => (r.length > 2
+    return runs.map((r) => (r.length > 2
       ? `${short(r[0])}–${short(r[r.length - 1])}`
-      : r.map(short).join(", "))).join(", "));
-  }
-  if (sc.from && sc.to) parts.push(`${sc.from}–${sc.to}`);
-  else if (sc.from) parts.push(`с ${sc.from}`);
-  else if (sc.to) parts.push(`до ${sc.to}`);
-  return parts.join(" · ");
+      : r.map(short).join(", "))).join(", ");
+  };
+  // Группы — по одинаковым часам, в порядке первого дня недели.
+  const groups = [];
+  on.forEach((id) => {
+    const h = hours(dayHours(sc, id));
+    const g = groups.find((x) => x.h === h);
+    if (g) g.days.push(id); else groups.push({ h, days: [id] });
+  });
+  return groups.map((g) => [runsText(g.days), g.h].filter(Boolean).join(" · "))
+    .join("; ");
 }
 
 const num = (v) => Number(v) || 0;

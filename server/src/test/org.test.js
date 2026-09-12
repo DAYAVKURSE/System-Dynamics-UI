@@ -329,7 +329,7 @@ describe("анкета", () => {
     /* Поле анкеты одно: что о себе писать, решает человек. Рядом с ней —
        рабочий график и статус: они отвечают не «кто это», а «работает ли
        он сейчас», и спрашивают их раньше. */
-    expect(me.profile).toEqual({ about: "", days: [], from: "", to: "",
+    expect(me.profile).toEqual({ about: "", days: [], from: "", to: "", perDay: {},
       status: "ready", warnMin: 10, deferMin: 30 });
   });
 
@@ -381,10 +381,46 @@ describe("анкета", () => {
       const saved = await setProfile("100", { days: [1, 3], from: "09:00", to: "18:00",
         status: "break", about: "аналитик" });
       expect(saved).toEqual({ about: "аналитик", days: [1, 3], from: "09:00",
-        to: "18:00", status: "break", warnMin: 10, deferMin: 30 });
+        to: "18:00", perDay: {}, status: "break", warnMin: 10, deferMin: 30 });
       // И «кто я» после этого говорит то же самое.
       expect((await identify("100", {})).profile).toEqual(saved);
     });
+
+  /* ─── часы отдельного дня ───
+
+     «В субботу с 10 до 14» — исключение из общих часов, записанное самому
+     дню. Разбирается так же строго, как и общие часы, и живёт только у
+     рабочего дня: выключили день — ушли и его часы. */
+  it("часы дня сохраняются и разбираются, а не берутся как есть", async () => {
+    await identify("100", {});
+    const saved = await setProfile("100", {
+      days: [1, 2, 6], from: "09:00", to: "18:00",
+      perDay: { 6: { from: "10:00", to: "14:00" }, 2: { from: "9:00", to: "25:00" },
+        3: { from: "11:00", to: "12:00" }, 9: { from: "10:00" }, вт: { from: "10:00" } },
+    });
+    // Суббота — рабочая, часы верные: записаны. Вторник — оба часа выдуманы,
+    // записи нет. Среда — не рабочий день, и часов у неё быть не может.
+    expect(saved.perDay).toEqual({ 6: { from: "10:00", to: "14:00" } });
+    // И «кто я», и список людей отдают то же самое.
+    expect((await identify("100", {})).profile.perDay)
+      .toEqual({ 6: { from: "10:00", to: "14:00" } });
+    expect((await listOrg()).users.find((u) => u.id === "100").perDay)
+      .toEqual({ 6: { from: "10:00", to: "14:00" } });
+  });
+
+  it("день выключили — его часы ушли вместе с ним", async () => {
+    await identify("100", {});
+    await setProfile("100", { days: [1, 6], perDay: { 6: { from: "10:00", to: "14:00" } } });
+    const saved = await setProfile("100", { days: [1] });
+    expect(saved.perDay).toEqual({});
+  });
+
+  it("прежняя запись без часов дня читается как прежде", async () => {
+    await identify("100", {});
+    const saved = await setProfile("100", { days: [1, 2], from: "10:00", to: "19:00" });
+    expect(saved.perDay).toEqual({});
+    expect(saved).toMatchObject({ days: [1, 2], from: "10:00", to: "19:00" });
+  });
 
   /* ─── за сколько предупреждать ───
 
