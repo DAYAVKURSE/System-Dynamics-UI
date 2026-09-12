@@ -177,7 +177,7 @@ describe("анкета", () => {
       tasks={rated()} published={["a~work~3"]}
       funcs={[{ id: "f1", name: "Сбор заявок" }]} />);
     expect(screen.getByText("рейтинг и работы")).toBeInTheDocument();
-    expect(screen.getByText("5/5")).toBeInTheDocument();
+    expect(screen.getByText("5/10")).toBeInTheDocument();
   });
 
   it("свои оценки не показываются — вместо них сказано, почему", () => {
@@ -185,7 +185,7 @@ describe("анкета", () => {
       funcs={[{ id: "f1", name: "Сбор заявок" }]} />);
     expect(screen.getByText(/Свои оценки не показываются: рейтинг работает на того, кто поручает/))
       .toBeInTheDocument();
-    expect(screen.queryByText("5/5")).toBeNull();
+    expect(screen.queryByText("5/10")).toBeNull();
     expect(screen.queryByText(/средняя оценка/)).toBeNull();
     // Опубликованные слова про себя — видны, без имени: в списке
     // адресованных и у самой работы.

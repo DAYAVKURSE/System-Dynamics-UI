@@ -102,6 +102,9 @@ describe("удалить можно только то, что ещё не нач
     const killed = [];
     render(<Review tasks={[{ ...task({ id: "a", status: "wait" }), setter: null,
       assignee: null, reviewer: null }]} onDelete={(t) => killed.push(t.id)} />);
+    // Кнопка — внутри раскрытой формы, а не в строке списка.
+    expect(screen.queryByLabelText("удалить задачу Задача A")).toBeNull();
+    fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByLabelText("удалить задачу Задача A"));
     expect(screen.getByText("удалить насовсем?")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("да, удалить Задача A"));
@@ -111,9 +114,17 @@ describe("удалить можно только то, что ещё не нач
   it("без обработчика задача исчезает из списка сама", () => {
     render(<Review tasks={[{ ...task({ id: "a", status: "wait" }), setter: null,
       assignee: null, reviewer: null }]} />);
+    fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByLabelText("удалить задачу Задача A"));
     fireEvent.click(screen.getByLabelText("да, удалить Задача A"));
     expect(screen.queryByText("Задача A")).toBeNull();
+  });
+
+  it("у лежащей в бэклоге кнопка — внутри раскрытой карточки на «Проверке»", () => {
+    render(<Review tasks={[task({ id: "a", status: "backlog" })]} />);
+    expect(screen.queryByLabelText("удалить задачу Задача A")).toBeNull();
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByLabelText("удалить задачу Задача A")).toBeInTheDocument();
   });
 
   it("у взятой в работу кнопки удаления нет вовсе", () => {

@@ -98,7 +98,7 @@ function Delete({ t, can, killId, setKillId, onKill }) {
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
    на каждой букве. */
 function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden, setHidden,
-  funcs, traits, entities, nameOf, meId, onAccept, onReturn }) {
+  funcs, traits, entities, nameOf, meId, onAccept, onReturn, extra = null }) {
     const on = openId === t.id;
     const sub = lastOf(t);
     const f = funcs.find((x) => x.id === t.funcId) || null;
@@ -230,6 +230,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                       {c.hidden ? (String(c.to) === String(meId)
                         ? " · скрытый · только вам" : " · скрытый") : ""}</span></div>))}
               </div>)}
+            {extra}
           </div>)}
       </div>);
   }
@@ -316,8 +317,6 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                 <span style={{ fontSize: 10.5, color: C.muted }}>
                   {funcLabel(funcs.find((f) => f.id === t.funcId), entities)}</span>
                 {why && <span style={{ fontSize: 10.5, color: WARN }}>{why}</span>}
-                <Delete t={t} can={canDelete} killId={killId} setKillId={setKillId}
-                  onKill={kill} />
                 <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
               </div>
               {on && setup && (
@@ -332,6 +331,18 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                   nameOf={nameOf} setTasks={setTasks} onSetup={onSetup}
                   published={published} meId={meId}
                   onClose={() => setSetupId(null)} />)}
+              {/* «Удалить» — ВНУТРИ раскрытой формы, а не в строке списка:
+                  удаляют, глядя на задачу, а не пробегая по заголовкам. В
+                  строке кнопка стояла на пути к «развернуть» и удаляла то,
+                  что ещё не открыли. */}
+              {on && canKill(t) && (
+                <div className="flex gap-2" style={{ alignItems: "center",
+                  margin: "0 0 10px" }}>
+                  <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
+                    задача ещё не начата — её можно удалить насовсем</span>
+                  <Delete t={t} can={canDelete} killId={killId} setKillId={setKillId}
+                    onKill={kill} />
+                </div>)}
             </div>);
         })}
       </div>
@@ -349,22 +360,20 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         <>
           <div style={{ ...S.lbl, margin: "12px 0 6px" }}>остальные задачи под вашей проверкой</div>
           {rest.map((t) => (
-            <div key={t.id}>
-              <Card t={t} dim openId={openId} setOpenId={setOpenId}
-                note={note} setNote={setNote} mark={mark} setMark={setMark}
-                hidden={hidden} setHidden={setHidden} meId={meId}
-                funcs={funcs} traits={traits} entities={entities}
-                nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />
-              {/* Удалить можно только то, что ещё не начали: у начатой есть
-                  сдачи, часы и оценки, и стирать их нельзя. */}
-              {canKill(t) && (
-                <div className="flex gap-2" style={{ alignItems: "center",
-                  margin: "-4px 0 8px" }}>
-                  <span style={{ flex: 1 }} />
+            <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
+              note={note} setNote={setNote} mark={mark} setMark={setMark}
+              hidden={hidden} setHidden={setHidden} meId={meId}
+              funcs={funcs} traits={traits} entities={entities}
+              nameOf={nameOf} onAccept={onAccept} onReturn={onReturn}
+              /* Удалить можно только то, что ещё не начали, и кнопка стоит
+                 ВНУТРИ раскрытой карточки: удаляют, глядя на задачу. */
+              extra={canKill(t) ? (
+                <div className="flex gap-2" style={{ alignItems: "center", marginTop: 8 }}>
+                  <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
+                    задача ещё не начата — её можно удалить насовсем</span>
                   <Delete t={t} can={canDelete} killId={killId} setKillId={setKillId}
                     onKill={kill} />
-                </div>)}
-            </div>))}
+                </div>) : null} />))}
         </>)}
 
       {/* ─── готовые ───

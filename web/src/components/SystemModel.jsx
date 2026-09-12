@@ -1168,19 +1168,31 @@ export default function SystemModel(){
             способ показа, а не то, что показывают. Ползунок месяца — общий: он стоит над ними,
             потому что одинаково относится и к числам на блоках, и к хвостам
             графиков. */}
+        {/* Порядок — как идёт работа: сперва схему собирают («Управление»),
+            потом описывают, что за чем следует («Технологический процесс»),
+            потом смотрят, что по ней делали («Деятельность») и куда она
+            идёт («Прогноз»). */}
         <div className="flex gap-2" style={{margin:"10px 0",overflowX:"auto"}}>
           <button style={btn(under==="edit")} onClick={()=>setUnder("edit")}>
             Управление</button>
+          <button style={btn(under==="proc")} onClick={()=>setUnder("proc")}>
+            Технологический процесс</button>
           {/* Отдельного доступа у них нет: «Прогноз» и «Деятельность» —
               разделы СХЕМЫ, и открывает их та же вкладка. Прежде они
               спрашивали свои `sim` и `timeline`, которых в списке вкладок
               больше нет, — и роль, открывшая схему, получала её без
               половины разделов. */}
-          <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
-            Прогноз</button>
           <button style={btn(under==="time")} onClick={()=>setUnder("time")}>
             Деятельность</button>
+          <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
+            Прогноз</button>
         </div>
+
+        {under==="proc" && (
+          <div style={{...S.card,marginTop:10,fontSize:11.5,color:C.muted,lineHeight:1.6}}>
+            Технологический процесс — что за чем следует: какой актив какой
+            ресурс берёт, в каком количестве и что отдаёт. Раздел собирается.
+          </div>)}
 
         {under==="time" && (
           <Timeline tasks={myTasks} funcs={funcs} traits={traitsLive} entities={entities}

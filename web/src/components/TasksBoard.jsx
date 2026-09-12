@@ -816,7 +816,7 @@ export const newComment=({text,to=null,hidden=false},by)=>({
    файл «вообще» ложился бы мимо ресурса, к которому относится.
 
    Когда отчёт написан и обязательные вещи приложены, на месте кнопок
-   загрузки появляется оценка постановки (1–5, слова, один переключатель
+   загрузки появляется оценка постановки (1–10, слова, один переключатель
    «скрыто/публично» на отметку и слова) и «Сдать». Пока не готово, сказано
    словами, чего не хватает, — молчаливо неактивная кнопка хуже всего. */
 
@@ -1414,13 +1414,9 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     </div>);
 }
 
-/* Кому в задаче можно адресовать слова: три её роли, кроме себя. */
+/* Три роли задачи — словами: кто ставит, кто делает, кто принимает. */
 export const TASK_PEOPLE=[["setter","постановщик"],["assignee","исполнитель"],
   ["reviewer","проверяющий"]];
-const addressees=(task,meId)=>TASK_PEOPLE
-  .filter(([k])=>task[k]!=null&&task[k]!==""
-    &&(meId==null||String(task[k])!==String(meId)))
-  .map(([k,role])=>({id:String(task[k]),role}));
 
 /**
  * Видно ли комментарий этому человеку: скрытый — только автору и
@@ -1433,29 +1429,32 @@ export const canSeeComment=(c,meId)=>!c?.hidden
 
 /* ─────── комментарии в задаче ───────
 
-   Комментарий — с автором и адресатом: это разговор в задаче, а не
-   суждение о человеке. Скрытый видят только автор и адресат — можно
-   сказать лично, не вынося на всех; поэтому скрытому нужен адресат, а
-   «скрытый никому» не бывает. Публичный видят все, кто видит задачу.
+   Комментарий — это разговор в задаче, и видят его ВСЕ её участники,
+   всегда. Ни адресата, ни скрытости у него больше нет: сказать что-то
+   лично о человеке — это не комментарий, а ОТЗЫВ, и у отзыва своё место
+   и своя скрытость (оценка постановки у исполнителя при сдаче, решение
+   проверяющего на «Проверке»). Поле «кому» превращало разговор в
+   переписку через третьего, и половина сказанного терялась для тех, кому
+   задача тоже поручена.
+
+   Прежние скрытые комментарии остаются скрытыми: их писали как личные,
+   и рассекречивать их задним числом нельзя (`canSeeComment`).
 
    Убрать комментарий может владелец — любой, остальные — только свой:
    то же правило, что и на сервере (DELETE …/comments/:cid). Показывать
    ✕ шире значило бы обещать то, что после перезагрузки не сбудется. */
 function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop,readOnly=false}){
   const [text,setText]=useState("");
-  const [to,setTo]=useState("");
-  const [hidden,setHidden]=useState(false);
   const me=meId==null?null:String(meId);
   const who=(id)=>(id==null||id===""?"":(nameOf?nameOf(id):String(id)));
   const list=(task.comments||[]).filter(c=>canSeeComment(c,me));
-  const people=addressees(task,me);
-  const canAdd=!!text.trim()&&(!hidden||!!to);
+  const canAdd=!!text.trim();
   // Только чтение (форма постановки): ни формы, ни ✕ — писать здесь некому.
   const mayDrop=(c)=>!readOnly&&typeof onDrop==="function"
     &&(isOwner||(me!=null&&String(c.by)===me));
   const add=()=>{
     if(!canAdd) return;
-    onAdd({text:text.trim(),to:to||null,hidden});
+    onAdd({text:text.trim(),to:null,hidden:false});
     setText("");
   };
   /* Пометка — только у скрытых: адресату «только вам», автору — кому. */
@@ -1483,22 +1482,9 @@ function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop,readOnly=false}){
         </div>))}
       {!readOnly&&(<>
       <div className="flex gap-2" style={{marginTop:6}}>
-        <TxtField value={text} placeholder="написать комментарий" onCommit={setText}/>
-        <button style={btn(false)} disabled={!canAdd}
-          title={hidden&&!to?"Скрытому комментарию нужен адресат":""}
-          onClick={add}>Добавить</button>
-      </div>
-      <div className="flex flex-wrap gap-2" style={{marginTop:6,alignItems:"center"}}>
-        <select style={{...S.inp,flex:"0 1 200px",fontSize:11}} value={to}
-          aria-label="адресат комментария" onChange={e=>setTo(e.target.value)}>
-          <option value="">{hidden?"— кому? —":"— всем —"}</option>
-          {people.map(p=>(
-            <option key={p.id} value={p.id}>{p.role} · {who(p.id)}</option>))}
-        </select>
-        <button style={{...btn(hidden,hidden?WARN:null),fontSize:11}}
-          onClick={()=>setHidden(true)}>скрытый (видит только адресат)</button>
-        <button style={{...btn(!hidden,!hidden?ACC:null),fontSize:11}}
-          onClick={()=>setHidden(false)}>публичный (видят все участники)</button>
+        <TxtField value={text} placeholder="написать комментарий — видят все участники"
+          onCommit={setText}/>
+        <button style={btn(false)} disabled={!canAdd} onClick={add}>Добавить</button>
       </div>
       </>)}
     </div>);

@@ -52,9 +52,13 @@ export const ratingId = (taskId, kind, by) => `${taskId}~${kind}~${by}`;
 
 /* Оценка вне шкалы — не оценка; отсутствие оценки — тоже ответ (человек
    мог оставить одни слова). */
+/* Шкала десятибалльная — та же, что в приложении (`MARK_MAX` в
+   `web/src/lib/workers.js`): разойдись они, сервер отбрасывал бы оценки,
+   которые интерфейс дал поставить. */
+export const MARK_MAX = 10;
 const markOf = (v) => {
   const n = Number(v);
-  return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+  return Number.isFinite(n) && n >= 1 && n <= MARK_MAX ? n : null;
 };
 const str = (v) => (v == null ? null : String(v));
 

@@ -405,13 +405,13 @@ describe("карточка человека", () => {
 
   it("каждая оценка со своим комментарием — иначе непонятно, что исправлять", () => {
     show();
-    expect(screen.getByText("4/5")).toBeInTheDocument();
+    expect(screen.getByText("4/10")).toBeInTheDocument();
     expect(screen.getByText(/мало заявок/)).toBeInTheDocument();
   });
 
   it("неопубликованная оценка так и подписана — это не «без оценки»", () => {
     show({ published: [] });
-    expect(screen.queryByText("4/5")).toBeNull();
+    expect(screen.queryByText("4/10")).toBeNull();
     expect(screen.getByText("оценка ещё не опубликована")).toBeInTheDocument();
     expect(screen.getByText(/ждёт публикации/)).toBeInTheDocument();
     // И слова до публикации не читаются: они выдали бы автора.

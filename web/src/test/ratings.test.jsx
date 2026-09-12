@@ -205,30 +205,19 @@ describe("оценка постановки при сдаче", () => {
 });
 
 describe("комментарии в задаче", () => {
-  it("скрытому нужен адресат; уходит с автором, адресатом и признаком", () => {
+  it("комментарий — всем участникам: ни адресата, ни скрытости у него нет", () => {
+    /* Сказать что-то лично о человеке — это отзыв, а не комментарий: у
+       отзыва своя скрытость. Поле «кому» превращало разговор в переписку
+       через третьего. */
     const said = [];
     render(<Board tasks={[task()]} onComment={(t, c) => said.push(c)} />);
     fireEvent.click(screen.getByText("Задача A"));
-    commit(screen.getByPlaceholderText("написать комментарий"), "между нами");
-    fireEvent.click(screen.getByRole("button", { name: "скрытый (видит только адресат)" }));
-    // «Скрытый никому» не бывает: без адресата не добавляется.
-    expect(screen.getByRole("button", { name: "Добавить" })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("адресат комментария"), { target: { value: "1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
-    expect(said).toEqual([{ text: "между нами", to: "1", hidden: true }]);
-    expect(screen.getByText("между нами")).toBeInTheDocument();
-    // Автору сказано, кому это видно.
-    expect(screen.getByText(/скрытый · только Владелец/)).toBeInTheDocument();
-  });
-
-  it("публичный уходит всем и без пометки", () => {
-    const said = [];
-    render(<Board tasks={[task()]} onComment={(t, c) => said.push(c)} />);
-    fireEvent.click(screen.getByText("Задача A"));
-    commit(screen.getByPlaceholderText("написать комментарий"), "всем");
+    expect(screen.queryByLabelText("адресат комментария")).toBeNull();
+    expect(screen.queryByRole("button", { name: /скрытый/ })).toBeNull();
+    commit(screen.getByPlaceholderText(/написать комментарий/), "всем");
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
     expect(said).toEqual([{ text: "всем", to: null, hidden: false }]);
-    // Пометка «скрытый · …» бывает только у скрытых.
+    // Пометка «скрытый · …» бывает только у прежних скрытых.
     expect(screen.queryByText(/скрытый ·/)).toBeNull();
   });
 
@@ -237,6 +226,8 @@ describe("комментарии в задаче", () => {
     { id: "c2", text: "открыто", at: "2026-01-01T10:00:00Z", by: "3", to: null, hidden: false },
   ] });
 
+  /* Прежние скрытые комментарии остаются скрытыми: их писали как личные,
+     и рассекречивать их задним числом нельзя. */
   it("чужой скрытый не виден, публичный — виден", () => {
     render(<Board tasks={[talked()]} meId="2" />);
     fireEvent.click(screen.getByText("Задача A"));

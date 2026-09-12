@@ -312,7 +312,9 @@ describe("«Начать» и сдача в чате", () => {
       expect((await say("abc")).error).toBe("bad hours");
       expect((await say("2,5")).stage).toBe("text");
       expect((await say("Сделал два варианта")).stage).toBe("mark");
-      expect(lastKeys()).toEqual([["1", "2", "3", "4", "5"], ["Назад", "Пропустить"]]);
+      // Шкала десятибалльная, двумя рядами: в один ряд Telegram ужимает кнопки.
+      expect(lastKeys()).toEqual([["1", "2", "3", "4", "5"], ["6", "7", "8", "9", "10"],
+        ["Назад", "Пропустить"]]);
       expect((await press("task:mark:4")).stage).toBe("comment");
       expect((await say("Не хватало брифа")).stage).toBe("vis");
       expect(lastKeys()).toEqual([["Публично — после публикации видят все"],

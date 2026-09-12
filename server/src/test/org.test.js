@@ -282,8 +282,8 @@ describe("что можно изменить", () => {
     await seed();
     expect((await reviewTask("300", "tk1", { accept: true, comment: "ок" })).error)
       .toBe("mark required");
-    // И оценка вне шкалы — не оценка.
-    expect((await reviewTask("300", "tk1", { accept: true, comment: "ок", mark: 9 })).error)
+    // И оценка вне шкалы (она десятибалльная) — не оценка.
+    expect((await reviewTask("300", "tk1", { accept: true, comment: "ок", mark: 11 })).error)
       .toBe("mark required");
   });
 

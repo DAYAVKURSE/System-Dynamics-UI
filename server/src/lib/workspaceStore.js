@@ -463,7 +463,7 @@ const requiredGives = (func) => (func?.gives || [])
 const setterRatingOf = (r, { self }) => {
   if (self || !r || typeof r !== "object") return null;
   const n = Number(r.mark);
-  const mark = Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+  const mark = Number.isFinite(n) && n >= 1 && n <= 10 ? n : null;
   const comment = String(r.comment || "").trim();
   if (mark == null && !comment) return null;
   return { mark, comment, hidden: !!r.hidden };
@@ -552,7 +552,7 @@ export const reviewTask = (userId, taskId, { accept, comment, mark, hidden }) =>
   // Принять молча нельзя: оценка и слова — часть истории исполнителя, из
   // которой потом растёт его рейтинг. Оценка вне шкалы — не оценка.
   const value = Number(mark);
-  if (accept && !(value >= 1 && value <= 5)) return { error: "mark required" };
+  if (accept && !(value >= 1 && value <= 10)) return { error: "mark required" };
   task.status = accept ? "done" : "backlog";
   // Возвращённая задача снова лежит и ждёт: её берут в работу заново, как
   // и в интерфейсе, — иначе она вернулась бы уже взятой.

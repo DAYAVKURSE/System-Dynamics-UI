@@ -319,9 +319,12 @@ const textScreen = () => ({
 });
 const markScreen = () => ({
   text: "Оцените постановку задачи — насколько ясно было, что сделать?"
-    + " 1 — непонятно, 5 — всё ясно.",
+    + " 1 — непонятно, 10 — всё ясно.",
   keyboard: { inline_keyboard: [
+    /* Десятибалльная шкала — двумя рядами: в один ряд Telegram ужимает
+       кнопки до нечитаемых. */
     [1, 2, 3, 4, 5].map((n) => btn(String(n), MARK + n)),
+    [6, 7, 8, 9, 10].map((n) => btn(String(n), MARK + n)),
     [btn("Назад", BACK), btn("Пропустить", SKIP)],
   ] },
 });
@@ -574,8 +577,8 @@ async function handleButton(cb, from, deps) {
 
   if (data.startsWith(MARK) && step.stage === "mark") {
     const mark = Number(data.slice(MARK.length));
-    if (!(mark >= 1 && mark <= 5)) {
-      await answer(cb.id, "Оценка — от 1 до 5");
+    if (!(mark >= 1 && mark <= 10)) {
+      await answer(cb.id, "Оценка — от 1 до 10");
       return { error: "bad mark" };
     }
     step.mark = mark;
