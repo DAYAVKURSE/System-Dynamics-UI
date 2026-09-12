@@ -46,7 +46,7 @@
    за него, что двое делают вдвое быстрее.
    ════════════════════════════════════════════════════════════════ */
 import { DUR_UNITS, conversionOf, everyOf, groupsOf, hoursOf, parOf, portSpends,
-  withCrewPar,
+  liveModel,
   runHours, runQty, takeQty } from "./funcs.js";
 
 /** Часов в месяце — шаг модели. */
@@ -208,8 +208,9 @@ export const hasFact = (runs = []) => runs.some((r) => Number(r?.hours) > 0);
  */
 export function runSide(model0, { span = 24, side = "hi", runsOf, plan } = {}) {
   /* Потолок «= числу воркеров» превращается в число здесь, на входе:
-     дальше `parOf` спрашивают из мест, которые знают только саму функцию. */
-  const model = withCrewPar(model0);
+     дальше `parOf` спрашивают из мест, которые знают только саму функцию.
+     Здесь же отсеиваются функции невключённых гипотез (`liveModel`). */
+  const model = liveModel(model0);
   const { traits = [], funcs = [], factors = [] } = model;
   const runs = (f) => (runsOf ? runsOf(f.id) : []);
   /* Конверсия функции: с факторами входа на одно выполнение нужно больше
@@ -359,8 +360,10 @@ export function reach(fc, traitId, want) {
  * месяц уезжает из актива и сколько приезжает. Отдельного получателя у
  * выхода нет — его называет сам ресурс.
  */
-export function transfers(model, { runsOf, plan } = {}) {
-  const { funcs = [], traits = [] } = model;
+export function transfers(model0, { runsOf, plan } = {}) {
+  // Те же функции, что в прогнозе: стрелка невключённой гипотезы врала бы
+  // про передачу, которой график не показывает.
+  const { funcs = [], traits = [] } = liveModel(model0);
   const at = (id) => traits.find((t) => t.id === id);
   const out = [];
   funcs.forEach((f) => {
@@ -401,7 +404,7 @@ export function transfers(model, { runsOf, plan } = {}) {
  * показывает, на кого свалено больше, чем на других.
  */
 export function load(model0, { runsOf, plan } = {}) {
-  const model = withCrewPar(model0);
+  const model = liveModel(model0);
   const by = {};
   (model.funcs || []).forEach((f) => {
     const rs = runsOf ? runsOf(f.id) : [];
@@ -467,7 +470,7 @@ const givesOf = (f, trait, side, runs) => f.gives
  */
 export function solve(model0, { trait, want, side = "hi", runsOf, passes = 200,
   useStock = true } = {}) {
-  const model = withCrewPar(model0);
+  const model = liveModel(model0);
   const { traits = [], funcs = [] } = model;
   const runsFor = (f) => (runsOf ? runsOf(f.id) : []);
   const target = traits.find((t) => t.id === trait);
@@ -648,7 +651,7 @@ export function solveRange(model, { trait, want, runsOf, useStock = true } = {})
  * пугать числами, которые друг друга гасят.
  */
 export function effect(model0, steps = [], { side = "hi", runsOf } = {}) {
-  const funcs = withCrewPar(model0).funcs || [];
+  const funcs = liveModel(model0).funcs || [];
   const by = {};
   const add = (id, v) => { by[id] = (by[id] || 0) + v; };
   steps.forEach((st) => {

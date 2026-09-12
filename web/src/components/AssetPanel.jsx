@@ -761,6 +761,11 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               <span style={{ fontSize: 10.5, color: C.muted }}>
                 {st.kind === "gaps" ? `— ${st.gaps[0]}`
                   : st.kind === "draft" ? "— осталось нажать «Принять»" : ""}</span>
+              {/* Функцию процесса пересобирают из его текста: правка здесь
+                  доживёт до первой правки текста, и об этом сказано. */}
+              {f.proc && (
+                <span style={{ fontSize: 10.5, color: C.muted }}>
+                  · из технологического процесса</span>)}
             </span>}
             summary={<>
               {/* В свёрнутой строке «или» обязано быть видно: без него
@@ -1038,6 +1043,15 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
   const mine = factors.filter((x) => x.e === entityId);
   const [draft, setDraft] = useState("");
   const used = (id) => funcs.filter((f) => factorsOf(f).includes(id)).length;
+  /* Пометка «принят» слетает от правки имени или вероятности — и только от
+     правки: поле отдаёт значение по расфокусу, и клик мимо — не правка. */
+  const up = (id, patch) => setFactors((p) => p.map((x) => {
+    if (x.id !== id) return x;
+    const same = Object.keys(patch).every((k) => x[k] === patch[k]);
+    return same ? x : { ...x, ...patch, accepted: false };
+  }));
+  const accept = (id) => setFactors((p) => p.map((x) => (x.id === id
+    ? { ...x, accepted: true } : x)));
   const add = () => {
     setFactors((p) => [...p, newFactor(entityId, draft.trim() || "новый фактор")]);
     setDraft("");
@@ -1057,19 +1071,30 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
       empty={mine.length ? null : "Факторов пока нет."}>
       {mine.map((x) => {
         const chance = x.chance == null ? 100 : x.chance;
+        // Прежние записи пометки не знали: молчание — «не принят».
+        const taken = x.accepted === true;
         return (
           <div key={x.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 8, marginTop: 6 }}>
+            borderRadius: 8, padding: 8, marginTop: 6,
+            borderLeft: `2px solid ${taken ? OK : BAD}` }}>
             <div className="flex items-center gap-2">
               <TxtField value={x.name} aria-label="название фактора"
                 style={{ flex: "1 1 140px", padding: "5px 7px", fontSize: 12.5 }}
-                onCommit={(v) => setFactors((p) => p.map((y) => (y.id === x.id
-                  ? { ...y, name: v } : y)))} />
+                onCommit={(v) => up(x.id, { name: v })} />
               <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
                 {used(x.id) ? `функций: ${used(x.id)}` : "не используется"}</span>
               <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
                 fontSize: 11, padding: "2px 6px" }} aria-label={`удалить фактор ${x.name}`}
                 onClick={() => del(x.id)}>✕</button>
+            </div>
+            {/* Та же подпись, что у функции и ресурса: красная, пока человек
+                не принял. У фактора строения нет — красным он бывает только
+                от этого, и знака «?» здесь не надо. */}
+            <div role="status" className="flex items-center gap-2" style={{ marginTop: 2 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%",
+                background: taken ? OK : BAD }} />
+              <Mark text={taken ? "фактор" : "не принят"} label="фактор" ok
+                tone={taken ? undefined : BAD} onWhy={() => {}} />
             </div>
             {/* Вероятность — свойство самого фактора: сезон удачлив одинаково,
                 сколько бы функций от него ни зависело. Спрашивать её у каждой
@@ -1077,8 +1102,7 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
             <div className="flex items-center gap-2" style={{ marginTop: 6 }}>
               <span style={S.lbl}>случается с вероятностью</span>
               <Num value={chance} label={`вероятность фактора ${x.name}`}
-                onChange={(v) => setFactors((p) => p.map((y) => (y.id === x.id
-                  ? { ...y, chance: Math.max(0, Math.min(100, Number(v) || 0)) } : y)))} />
+                onChange={(v) => up(x.id, { chance: Math.max(0, Math.min(100, Number(v) || 0)) })} />
               <span style={{ fontSize: 12, color: C.muted }}>%</span>
               <span style={{ flex: 1 }} />
               <span style={{ fontSize: 10.5, color: C.muted, textAlign: "right" }}>
@@ -1086,6 +1110,15 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
                   : chance <= 0 ? "не случается вовсе"
                     : `в среднем каждая ${Math.round(100 / chance)}-я попытка`}</span>
             </div>
+            {/* «Принять» — как у функции: слово человека, снимается правкой. */}
+            <button onClick={() => !taken && accept(x.id)} aria-disabled={taken}
+              aria-label={`принять фактор ${x.name || "без названия"}`}
+              style={{ width: "100%", marginTop: 8, borderRadius: 7, padding: "7px",
+                fontSize: 12, cursor: taken ? "default" : "pointer",
+                background: taken ? "transparent" : "rgba(61,220,151,.13)",
+                border: `1px solid ${taken ? C.line : OK}`,
+                color: taken ? C.muted : OK }}>
+              {taken ? "Принят — любая правка снимет пометку" : "Принять"}</button>
           </div>);
       })}
       <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
@@ -1158,7 +1191,18 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
      `have` здесь уже посчитан по ним (`withStock`), руками не вводят;
      сами единицы — в «Материалах» на вкладке «Отчёты». */
   const [draft, setDraft] = useState("");
-  const up = (id, patch) => setTraits((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  /* Пометка «принят» — слово человека о ТОМ ресурсе, который он видел:
+     любая правка имени, единицы, вида или классификаций её снимает. Но
+     только правка: поле отдаёт значение по расфокусу, и клик мимо поля
+     оставляет пометку на месте — как у функции (`editFunc`). */
+  const up = (id, patch) => setTraits((p) => p.map((t) => {
+    if (t.id !== id) return t;
+    const next = { ...t, ...patch };
+    const same = Object.keys(patch).every((k) => JSON.stringify(t[k]) === JSON.stringify(next[k]));
+    return same ? t : { ...next, accepted: false };
+  }));
+  const accept = (id) => setTraits((p) => p.map((t) => (t.id === id
+    ? { ...t, accepted: true } : t)));
   const add = (kindId) => {
     if (!draft.trim()) return;
     /* Заводится с одной классификацией — той, кнопкой которой его завели.
@@ -1177,13 +1221,26 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
         const ks = kindIdsOf(t).map(kindOf);
         const made = funcs.filter((f) => f.gives.some((g) => g.trait === t.id)).length;
         const used = funcs.filter((f) => f.takes.some((p) => p.trait === t.id)).length;
+        /* Прежние записи пометки не знали: молчание читается как «не
+           принят» — так же, как у функции. */
+        const taken = t.accepted === true;
         return (
           <Card key={t.id} title={t.l} titleLabel="ресурса"
             onTitle={(v) => up(t.id, { l: v })}
             open={open === t.id} onToggle={() => setOpen(open === t.id ? null : t.id)}
             onDelete={() => { onDelete(t.id); setOpen(null); }}
-            mark={<Mark text="ресурс" ok={checkTrait(t.id, { traits, funcs }).ok}
-              onWhy={() => onWhy && onWhy(t.id)} />}
+            accent={taken ? OK : BAD}
+            /* Та же грамматика, что у функции: точка, слово, и красное —
+               пока человек не принял. «Не принят» — словом, а не только
+               цветом: красным ресурс бывает и от строения, и различает их
+               подпись. Знак «?» остаётся про строение. */
+            mark={<span role="status" className="flex items-center gap-2">
+              <span style={{ width: 7, height: 7, borderRadius: "50%",
+                background: taken ? OK : BAD }} />
+              <Mark text={taken ? "ресурс" : "не принят"} label="ресурс"
+                ok={checkTrait(t.id, { traits, funcs }).ok} tone={taken ? undefined : BAD}
+                onWhy={() => onWhy && onWhy(t.id)} />
+            </span>}
             summary={<>
               {/* Все классификации сразу: одна вещь бывает и ресурсом, и
                   затратой, и выбирать за человека, какую показать, не за
@@ -1250,14 +1307,24 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                   <button key={x.id} aria-pressed={on}
                     aria-label={`${x.name}: ${t.l || "без названия"}`}
                     style={{ ...btn(on, x.color), fontSize: 11, padding: "3px 7px" }}
-                    onClick={() => setTraits((p) => p.map((z) => (z.id === t.id
-                      ? toggleKind(z, x.id) : z)))}>
+                    onClick={() => { const z = toggleKind(t, x.id); up(t.id, { ks: z.ks, k: z.k }); }}>
                     {x.sign} {x.name}</button>);
               })}
             </div>
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
               Ресурс меняют функции. Цель по нему ставится в «Прогнозе».
             </div>
+            {/* «Принять» — как у функции: слово человека, что ресурс описан
+                верно. Кнопка нажимается всегда, а любая правка пометку
+                снимает — иначе зелёная точка стояла бы на изменённом. */}
+            <button onClick={() => !taken && accept(t.id)} aria-disabled={taken}
+              aria-label={`принять ресурс ${t.l || "без названия"}`}
+              style={{ width: "100%", marginTop: 10, borderRadius: 7, padding: "7px",
+                fontSize: 12, cursor: taken ? "default" : "pointer",
+                background: taken ? "transparent" : "rgba(61,220,151,.13)",
+                border: `1px solid ${taken ? C.line : OK}`,
+                color: taken ? C.muted : OK }}>
+              {taken ? "Принят — любая правка снимет пометку" : "Принять"}</button>
           </Card>);
       })}
       <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>

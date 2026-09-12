@@ -30,7 +30,7 @@
    где план разошёлся с делом; одно число вместо двух скрыло бы ровно это.
    ════════════════════════════════════════════════════════════════ */
 
-import { conversionOf, factorChance, factorsOf, hoursOf, parOf, portSpends, withCrewPar }
+import { conversionOf, factorChance, factorsOf, hoursOf, liveModel, parOf, portSpends }
   from "./funcs.js";
 import { portQty, stepHours } from "./plan.js";
 
@@ -49,8 +49,9 @@ const num = (v) => Number(v) || 0;
  */
 export function chainOf(model0 = {}, { from, upto = "" } = {}) {
   /* Потолок «= числу воркеров» превращается в число здесь: дальше по
-     цепочке ходят уже сами функции, а числа воркеров у них нет. */
-  const funcs = withCrewPar(model0).funcs || [];
+     цепочке ходят уже сами функции, а числа воркеров у них нет. Функции
+     невключённых гипотез в цепочку не идут (`liveModel`). */
+  const funcs = liveModel(model0).funcs || [];
   const out = { from: from || "", upto: upto || "", traits: [], steps: [], ok: false };
   if (!from || !funcs.length) return out;
 

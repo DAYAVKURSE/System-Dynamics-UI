@@ -139,6 +139,21 @@ export function describeModel(model = {}) {
     });
   });
 
+  /* Технологические процессы — текстом, как их написал владелец: строка
+     на шаг, и помощнику этот вид понятнее пересказа. Статус словами:
+     «не принято» не считается вовсе, «гипотетически» — по желанию. */
+  const procs = model.procs || [];
+  const PROC_WORDS = { off: "не принято — в расчёт не идёт",
+    hypo: "принято гипотетически — считается, только когда гипотезы включены",
+    on: "принято — считается всегда" };
+  out.push("\n## Технологические процессы");
+  if (!procs.length) out.push("Технологических процессов нет.");
+  procs.forEach((p) => {
+    const lines = str(p.text).split("\n").map((l) => l.trim()).filter(Boolean);
+    out.push(`- ${PROC_WORDS[p.status] || PROC_WORDS.off}${lines.length ? ":" : " (текст пуст)"}`);
+    lines.forEach((l) => out.push(`    ${l}`));
+  });
+
   const goals = model.goals || [];
   out.push("\n## Цели");
   if (!goals.length) out.push("Целей не поставлено.");
