@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
-import { DUR_UNITS, WORKER_KINDS, byCrew, crewOf, eligible, hoursOf, missingGives,
+import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
+import { pickByOrderOf, pickOrder } from "../lib/pickOrder.js";
 import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel } from "../lib/units.js";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
@@ -638,8 +639,37 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
      это ответ, а не «значит, всех». */
   const pool=(k)=>{
     const ok=new Set(eligible(func,k,{crew:crewOf(asset||{}),rolesOf,people}).map(String));
-    return byCrew(asset||{},people.filter(p=>ok.has(String(p.id))));
+    return pickOrder(asset,people.filter(p=>ok.has(String(p.id))));
   };
+  /* Порядок списка воркеров ВЛИЯЕТ на выбор (`pickByOrderOf`): пустое поле
+     исполнителя и проверяющего при открытии формы получает первого
+     подходящего — того, кто выше в списке актива. Только пустое и только у
+     задачи, которая ещё ждёт постановки: снять назначенного или переиграть
+     поставленную задачу форма не вправе. Через `commit`, а не `up`: у
+     позванного постановщика подстановка должна уехать на сервер так же,
+     как выбор рукой, иначе форма показывала бы имя, которого в модели нет.
+     Один раз на задачу (`picked`): очищенное рукой поле не заполняется
+     снова — пусто здесь тоже ответ. Пока подходящих нет (люди ещё не
+     пришли с сервера), попытка не считается. */
+  const picked=useRef(null);
+  const ROLES_PICK=WORKER_KINDS.filter(k=>k.id!=="setters");
+  const poolKey=ROLES_PICK.map(k=>pool(k.id).map(p=>p.id).join(",")).join("|");
+  useEffect(()=>{
+    if(picked.current===task.id) return;
+    if(!canAssign||task.status!=="wait"||!pickByOrderOf(asset)) return;
+    const patch={};
+    let any=false;
+    ROLES_PICK.forEach(k=>{
+      const first=pool(k.id)[0];
+      if(!first) return;
+      any=true;
+      const f=TASK_ROLE[k.id];
+      if(task[f]==null||task[f]==="") patch[f]=first.id;
+    });
+    if(!any) return;
+    picked.current=task.id;
+    if(Object.keys(patch).length) commit(patch);
+  },[task.id,poolKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   const gaps=taskGaps(task);
   const why=whyNotSet(task,funcs,traits,tasks,factors);
 
@@ -687,7 +717,9 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
       </div>
       <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
         {canAssign
-          ? "Предлагаются воркеры с должностью этой роли, кроме исключённых."
+          ? (pickByOrderOf(asset)
+            ? "Предлагаются воркеры с должностью этой роли, кроме исключённых; первым предложен тот, кто выше в списке воркеров."
+            : "Предлагаются воркеры с должностью этой роли, кроме исключённых, — по алфавиту.")
           : "Кого назначить, решает постановщик задачи или владелец."}
         {!pool("owners").length&&asset
           &&" Некого назначить: у функции не выбрана должность исполнителя или ни у кого из воркеров её нет."}

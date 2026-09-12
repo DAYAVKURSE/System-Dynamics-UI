@@ -704,6 +704,10 @@ export const normalizeAsset = (e = {}) => ({
   ...e,
   crew: ids(e.crew),
   ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id, ids(e[k.id])])),
+  // Порядок влияет на выбор, пока владелец не сказал «нет»: у старых записей
+  // поля нет, и читать это как «выключено» значило бы отнять поведение,
+  // которого он просил (см. lib/pickOrder.js).
+  pickByOrder: e.pickByOrder !== false,
 });
 
 export const normalizeAssets = (list) =>

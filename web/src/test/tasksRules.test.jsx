@@ -48,10 +48,16 @@ const writeReport = (text = "готово") => {
   fireEvent.blur(el);
 };
 
+/* Тот же актив, но порядок списка воркеров на выбор НЕ влияет: с ним
+   пустые роли заполнялись бы сами при открытии формы, а проверки про
+   «чего не хватает» — о незаполненной задаче (подстановка —
+   pickOrder.test.jsx). */
+const ALPHA = ENTITIES.map((e) => ({ ...e, pickByOrder: false }));
+
 /* Постановка — во вкладке «Проверка»: её делает не исполнитель. */
-function Setup({ task: t0, people = PEOPLE, canAssign = true }) {
+function Setup({ task: t0, people = PEOPLE, canAssign = true, entities = ALPHA }) {
   const [tasks, setTasks] = React.useState([t0]);
-  return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={FUNCS} entities={ENTITIES}
+  return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={FUNCS} entities={entities}
     traits={TRAITS} setTasks={setTasks} people={people} canAssign={canAssign}
     nameOf={(id) => id} />);
 }
@@ -310,7 +316,7 @@ describe("назначения берутся из воркеров актива
     const Host = () => {
       const [tasks, setTasks] = React.useState([newTask({ funcId: "f1", title: "Задача A" })]);
       return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={[{ ...f, setters: [] }]}
-        entities={ENTITIES} traits={TRAITS} setTasks={setTasks} people={PEOPLE} canAssign
+        entities={ALPHA} traits={TRAITS} setTasks={setTasks} people={PEOPLE} canAssign
         nameOf={(id) => id} />);
     };
     render(<Host />);
@@ -449,10 +455,16 @@ describe("очередь постановки", () => {
       });
       render(<Invited tasks={[{ ...mine, reviewer: "3" }]} onSetup={onSetup} />);
       fireEvent.click(screen.getByText("Задача из цели"));
+      // Первая правка — не рукой: пустого исполнителя подставил порядок
+      // списка воркеров, и на сервер она идёт тем же путём.
+      await waitFor(() => expect(sent).toEqual([{ assignee: "2" }]));
+      // Снятое рукой не подставляется снова: пусто — тоже ответ.
+      fireEvent.change(screen.getByLabelText("исполнитель"), { target: { value: "" } });
+      expect(sent[1]).toEqual({ assignee: null });
       fireEvent.change(screen.getByLabelText("исполнитель"), { target: { value: "2" } });
-      expect(sent).toEqual([{ assignee: "2" }]);
+      expect(sent[2]).toEqual({ assignee: "2" });
       fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
-      expect(sent[1]).toEqual({ status: "backlog" });
+      expect(sent[3]).toEqual({ status: "backlog" });
       // Ушла из очереди только после ответа сервера — он и есть правда.
       await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
     });
@@ -664,15 +676,18 @@ describe("«Инструменты» и роли", () => {
        и постановка идут в POST /tasks/:id/setup, а не в память окна. */
     const soon = new Date(Date.now() + 864e5).toISOString().slice(0, 16);
     const model = {
+      // Егор в списке воркеров выше Ивана: по порядку списка исполнителем
+      // сперва подставят его, а постановщик переиграет на Ивана рукой.
       entities: [{ id: "a", name: "Актив", color: "#fff", x: 0, y: 0,
-        crew: ["5", "2", "3"], owners: ["2"], reviewers: ["3"] }],
+        crew: ["5", "6", "2", "3"], owners: ["6", "2"], reviewers: ["3"] }],
       traits: [], kinds: [],
       funcs: [{ id: "fn1", e: "a", name: "Работа", dur: 1, durUnit: "ч",
-        takes: [], gives: [], setters: ["5"], owners: ["2"], reviewers: ["3"] }],
+        takes: [], gives: [], setters: ["5"], owners: ["6", "2"], reviewers: ["3"] }],
       tasks: [{ id: "w1", funcId: "fn1", title: "Поставить меня", status: "wait",
         setter: "5", assignee: null, reviewer: null, start: null, end: soon,
         endBy: "auto", submissions: [], reviews: [], comments: [] }],
-      people: [{ id: "5", name: "Ольга" }, { id: "2", name: "Иван" }, { id: "3", name: "Пётр" }],
+      people: [{ id: "5", name: "Ольга" }, { id: "6", name: "Егор" },
+        { id: "2", name: "Иван" }, { id: "3", name: "Пётр" }],
     };
     const posts = [];
     global.fetch = vi.fn(async (url, opts = {}) => {
@@ -701,9 +716,12 @@ describe("«Инструменты» и роли", () => {
     // Имена — из среза сервера: список организации позванному не отдаётся.
     await waitFor(() => expect([...screen.getByLabelText("исполнитель").options]
       .map((o) => o.textContent)).toContain("Иван · без оценок · 0 работ"));
+    // Пустые роли заполнил порядок списка воркеров — и эта подстановка ушла
+    // на сервер так же, как ручной выбор: иначе форма показывала бы имя,
+    // которого в модели нет.
+    await waitFor(() => expect(posts).toEqual([{ assignee: "6", reviewer: "3" }]));
     fireEvent.change(screen.getByLabelText("исполнитель"), { target: { value: "2" } });
-    fireEvent.change(screen.getByLabelText("проверяющий"), { target: { value: "3" } });
-    await waitFor(() => expect(posts).toEqual([{ assignee: "2" }, { reviewer: "3" }]));
+    await waitFor(() => expect(posts[1]).toEqual({ assignee: "2" }));
     fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
     await waitFor(() => expect(posts[2]).toEqual({ status: "backlog" }));
     await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
