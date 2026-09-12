@@ -287,6 +287,7 @@ function WorkerLine({ pid, name, stat, person, roleNames }) {
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
   entityId, onToggleFunc,
   rolesOf = () => [], roleName = () => "", onToggleCrew, onOrder, onOpenPerson,
+  pickByOrder = true, onPickByOrder,
   published, me,
   positions = [], onAddPosition, onDropPosition, onSetRoles }) {
   /* ИСКЛЮЧЕНИЯ. Что человек делает, решает его ДОЛЖНОСТЬ: функция называет
@@ -471,9 +472,29 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
             функции, и работу берёт любой воркер с этой ролью.
             Исключения закрывают одну функцию одному человеку.
             {crew.length > 1
-              ? " Порядок задаёте вы: кого поставили выше, того и предлагают первым."
+              ? (pickByOrder
+                ? " Порядок задаёте вы: кого поставили выше, того и предлагают первым."
+                : " Порядок задаёте вы, но на выбор он сейчас не влияет.")
               : ""}
           </div>
+          {/* Галочка — чтобы ВЫКЛЮЧИТЬ: порядок влияет на выбор по умолчанию,
+              этого владелец и хотел. Стоит под списком, а не в настройках
+              актива: решают про этот порядок, глядя на него. */}
+          {onPickByOrder && (
+            <label className="flex gap-2" style={{ alignItems: "center", marginTop: 8,
+              fontSize: 11.5, color: C.text, cursor: "pointer" }}>
+              <input type="checkbox" checked={pickByOrder}
+                aria-label="учитывать положение в списке при выборе воркера"
+                onChange={(e) => onPickByOrder(e.target.checked)}
+                style={{ accentColor: ACC }} />
+              учитывать положение в списке при выборе воркера
+            </label>)}
+          {onPickByOrder && (
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+              {pickByOrder
+                ? "При постановке первым предлагается и по умолчанию назначается тот, кто выше."
+                : "Воркеры предлагаются по алфавиту, и никто не назначается сам."}
+            </div>)}
         </div>
 
       </>)}
@@ -1298,6 +1319,7 @@ export default function AssetPanel(props) {
           onToggleFunc={(pid, fid) => props.setFuncs((p) => p.map((f) => (f.id === fid
             ? editFunc(f, (x) => toggleExcept(x, pid)) : f)))}
           onToggleCrew={props.onToggleCrew} onOrder={props.onOrderWorker}
+          pickByOrder={props.pickByOrder} onPickByOrder={props.onPickByOrder}
           onOpenPerson={props.onOpenPerson}
           published={props.published} me={props.me}
           positions={props.positions} onAddPosition={props.onAddPosition}

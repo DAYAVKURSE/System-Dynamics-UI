@@ -18,6 +18,7 @@ import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, checkAsset, countWorkers,
   editFunc, exceptOf, normalizeFactors, normalizeFuncs, pruneWorkers, workersOf }
   from "../lib/funcs.js";
 import { forecast, load, reach, transfers } from "../lib/plan.js";
+import { pickByOrderOf } from "../lib/pickOrder.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
@@ -609,6 +610,12 @@ export default function SystemModel(){
       [list[i],list[j]]=[list[j],list[i]];
       return {...e,crew:list};
     }));
+  };
+  /* Влияет ли этот порядок на выбор — тоже свойство актива: у одного актива
+     порядок значит «кто берёт первым», у другого — просто список. Пишется
+     явным булевым, отсутствие читается как «да» (`pickByOrderOf`). */
+  const setPickByOrder=(on)=>{
+    setEntities(p=>p.map(e=>(e.id===sel?{...e,pickByOrder:!!on}:e)));
   };
 
   /* ─── общая модель ───
@@ -1222,6 +1229,7 @@ export default function SystemModel(){
               factors={factors} setFactors={setFactors}
               people={people} nameOf={personName} runsOf={runsOf}
               tasks={tasks} onOrderWorker={orderWorker} onToggleCrew={toggleCrew}
+              pickByOrder={pickByOrderOf(selE)} onPickByOrder={setPickByOrder}
               onOpenPerson={id=>setCard(id)}
               positions={roles}
               onAddPosition={me.isOwner&&!me.solo?(n)=>addRole(n,[]).then(refreshOrg):undefined}

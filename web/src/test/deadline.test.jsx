@@ -35,10 +35,15 @@ function Board({ tasks: t0 }) {
 
 /* Постановка живёт во вкладке «Проверка»: её делает не исполнитель.
    Форма та же, поэтому здесь она поднимается отдельно. */
-function Setup({ task: t0, traits = TRAITS }) {
+/* Порядок списка воркеров здесь ВЫКЛЮЧЕН (`pickByOrder: false`): с ним
+   пустые роли заполнялись бы сами при открытии формы, а эти проверки —
+   про то, что говорят о незаполненной задаче (про подстановку —
+   pickOrder.test.jsx). */
+const ALPHA = ENTITIES.map((e) => ({ ...e, pickByOrder: false }));
+function Setup({ task: t0, traits = TRAITS, entities = ALPHA }) {
   const [tasks, setTasks] = React.useState([t0]);
   const t = tasks[0];
-  return (<TaskSetup task={t} tasks={tasks} funcs={FUNCS} entities={ENTITIES}
+  return (<TaskSetup task={t} tasks={tasks} funcs={FUNCS} entities={entities}
     traits={traits} setTasks={setTasks} people={PEOPLE} canAssign nameOf={(id) => id} />);
 }
 
