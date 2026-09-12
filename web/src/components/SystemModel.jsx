@@ -318,6 +318,11 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
     </div>);
 }
 
+/* « · 12.09.2026» к имени сохранённого сценария; без даты — ничего. */
+function savedOn(iso){
+  const d=new Date(iso||"");
+  return isNaN(d.getTime())?"":` · ${d.toLocaleDateString("ru-RU")}`;
+}
 function whenText(iso){
   const d=new Date(iso);
   if(isNaN(d.getTime())) return "прошлого сеанса";
@@ -1540,7 +1545,10 @@ export default function SystemModel(){
               <select style={{...S.inp,flex:"1 1 160px"}} value={savedSel}
                 onChange={e=>setSavedSel(e.target.value)}>
                 <option value="">— выбери сценарий —</option>
-                {savedList.map(s=>(<option key={s.id} value={s.id}>{s.name}</option>))}
+                {/* Дата рядом с именем: два «Моя схема» иначе не различить,
+                    а список и так стоит новыми вперёд. */}
+                {savedList.map(s=>(<option key={s.id} value={s.id}>
+                  {s.name}{savedOn(s.savedAt)}</option>))}
               </select>
               <button style={btn(false)} disabled={savedBusy} onClick={loadFromDisk}>
                 Загрузить</button>
