@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
-import { putReportFile, reportSrc } from "../storage.js";
+import { putReportFile, reportSrc, textHref } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { putShare } from "../identity.js";
 import {
@@ -638,9 +638,6 @@ function FactorRows({ factors = [] }) {
    видно сразу — переключатель, и под ним ровно одно поле. */
 
 const kindName = (id) => MATERIAL_KINDS.find((k) => k.id === id)?.name || id;
-
-/** Файл для скачивания текста или кода: вещь без файла всё равно скачивают. */
-const textHref = (text) => `data:text/plain;charset=utf-8,${encodeURIComponent(text || "")}`;
 
 function UnitRow({ u, unit, spent, nameOf, traitName, unitNo }) {
   const when = u.at ? fmtDT(u.at) : "";

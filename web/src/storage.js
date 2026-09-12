@@ -272,6 +272,11 @@ export async function putReportFile(file, { kind = "", meeting = "" } = {}) {
 /** Куда смотреть за содержимым файла — ссылка на диск или инлайн. */
 export const reportSrc = (f) => (f ? (f.url || f.data || "") : "");
 
+/* Файл для скачивания текста или кода: вещь без файла всё равно скачивают.
+   Правило одно на все места, где единицу дают скачать, — «Отчёты», форма
+   задачи, «Проверка»: у одной вещи одна ссылка. */
+export const textHref = (text) => `data:text/plain;charset=utf-8,${encodeURIComponent(text || "")}`;
+
 /* ─────── 1. сервер ─────── */
 
 const apiHeaders = () => ({

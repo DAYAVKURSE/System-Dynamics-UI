@@ -4,6 +4,9 @@ import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, whyNotSet 
   from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { reportSrc } from "../storage.js";
+import { unitsOf } from "../lib/units.js";
+import { givenUnits, tookUnits } from "../lib/taskUnits.js";
+import { UnitList } from "./UnitLinks.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ПРОВЕРКА
@@ -98,9 +101,10 @@ function Delete({ t, can, killId, setKillId, onKill }) {
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
    на каждой букве. */
 function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden, setHidden,
-  funcs, traits, entities, nameOf, meId, onAccept, onReturn, extra = null }) {
+  funcs, traits, entities, nameOf, meId, onAccept, onReturn, extra = null, units = [] }) {
     const on = openId === t.id;
     const sub = lastOf(t);
+    const unitName = (id) => traits.find((x) => x.id === id)?.unit || "ед.";
     const f = funcs.find((x) => x.id === t.funcId) || null;
     const traitName = (id) => traits.find((x) => x.id === id)?.l || "(ресурс удалён)";
     const qty = (map) => Object.entries(map || {})
@@ -157,6 +161,42 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                         style={{ fontSize: 10.5, color: ACC }}>
                         📎 {traitName(id)}: {f.name}</a>))}
                   </div>)}
+                {/* Материалы сдачи — вещами, а не числом: что взяли (по
+                    номерам, которые назвал исполнитель) и что выдали
+                    (каждая — со скачиванием). Строки выданного есть
+                    только у последней сдачи: результат — то, что сдали в
+                    последний раз. */}
+                {sb.id === sub?.id && (() => {
+                  const took = tookUnits(units, sb);
+                  const given = givenUnits(units, t, sb);
+                  const byTrait = (list) => [...new Set(list.map((u) => u.trait))]
+                    .map((id) => ({ trait: id, units: list.filter((u) => u.trait === id) }));
+                  const takesQty = Object.entries(sb.takes || {}).filter(([, v]) => Number(v) > 0);
+                  return (
+                    <div style={{ marginTop: 6 }}>
+                      <div style={S.lbl}>материалы</div>
+                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>взято</div>
+                      {took.length ? byTrait(took).map((g) => (
+                        <UnitList key={g.trait} units={g.units} traitName={traitName(g.trait)}
+                          unitName={unitName(g.trait)}
+                          label={`взято: ${traitName(g.trait)}`} />))
+                        : <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+                            {takesQty.length
+                              ? `какие именно — не названо, взято: ${qty(Object.fromEntries(takesQty))}`
+                              : "ничего не взято"}</div>}
+                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6 }}>выдано</div>
+                      {!given.length && (
+                        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+                          ничего не выдано</div>)}
+                      {byTrait(given).map((g) => (
+                        <div key={g.trait} style={{ marginTop: 2 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600 }}>{traitName(g.trait)}</div>
+                          <UnitList units={g.units} traitName={traitName(g.trait)}
+                            unitName={unitName(g.trait)}
+                            label={`выдано: ${traitName(g.trait)}`} />
+                        </div>))}
+                    </div>);
+                })()}
                 {sb.text && <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
                   {sb.text}</div>}
                 {sb.file && (/^image\//.test(sb.file.type || "")
@@ -237,8 +277,11 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
-  published, onComment, onDropComment, onSetup, onDelete, factors = [] }) {
+  published, onComment, onDropComment, onSetup, onDelete, factors = [], materials = [] }) {
   const [openId, setOpenId] = useState(null);
+  /* Единицы считаются один раз на всю вкладку: карточек много, а список
+     у них общий — по нему ищут и взятое, и выданное. */
+  const units = useMemo(() => unitsOf({ tasks, funcs, materials }), [tasks, funcs, materials]);
   const [note, setNote] = useState("");
   const [mark, setMark] = useState(0);
   // Скрыто ли решение — отметка и слова разом. Публично по умолчанию:
@@ -354,7 +397,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         note={note} setNote={setNote} mark={mark} setMark={setMark}
         hidden={hidden} setHidden={setHidden} meId={meId}
         funcs={funcs} traits={traits} entities={entities}
-        nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
+        nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units} />)}
 
       {!!rest.length && (
         <>
@@ -364,7 +407,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
               note={note} setNote={setNote} mark={mark} setMark={setMark}
               hidden={hidden} setHidden={setHidden} meId={meId}
               funcs={funcs} traits={traits} entities={entities}
-              nameOf={nameOf} onAccept={onAccept} onReturn={onReturn}
+              nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
               /* Удалить можно только то, что ещё не начали, и кнопка стоит
                  ВНУТРИ раскрытой карточки: удаляют, глядя на задачу. */
               extra={canKill(t) ? (
@@ -389,7 +432,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
             note={note} setNote={setNote} mark={mark} setMark={setMark}
             hidden={hidden} setHidden={setHidden} meId={meId}
             funcs={funcs} traits={traits} entities={entities}
-            nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} />)}
+            nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units} />)}
         </>)}
     </div>);
 }
