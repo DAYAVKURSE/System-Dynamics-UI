@@ -3,8 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  addRole, addUser, identify, listOrg, openRoles, registerUser, removeRole, removeUser,
-  setProfile, setRoleContract, setRoleTabs, setUserRole, setUserRoles,
+  addForm, addRole, addUser, identify, listOrg, openRoles, registerUser, removeForm,
+  removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
+  setUserRole, setUserRoles,
 } from "../lib/orgStore.js";
 import {
   readModel, reviewTask, submitTask, tasksFor, viewFor, writeModel,
@@ -330,7 +331,7 @@ describe("анкета", () => {
        рабочий график и статус: они отвечают не «кто это», а «работает ли
        он сейчас», и спрашивают их раньше. */
     expect(me.profile).toEqual({ about: "", days: [], from: "", to: "",
-      status: "ready", warnMin: 10, deferMin: 30 });
+      status: "ready", warnMin: 10, deferMin: 30, answers: {} });
   });
 
   it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
@@ -381,7 +382,7 @@ describe("анкета", () => {
       const saved = await setProfile("100", { days: [1, 3], from: "09:00", to: "18:00",
         status: "break", about: "аналитик" });
       expect(saved).toEqual({ about: "аналитик", days: [1, 3], from: "09:00",
-        to: "18:00", status: "break", warnMin: 10, deferMin: 30 });
+        to: "18:00", status: "break", warnMin: 10, deferMin: 30, answers: {} });
       // И «кто я» после этого говорит то же самое.
       expect((await identify("100", {})).profile).toEqual(saved);
     });
@@ -588,5 +589,129 @@ describe("роли человека", () => {
     expect(org.roles.find((r) => r.id === "дизайнер").tabs).toEqual([]);
     expect(org.users[0].roles).toEqual(["executor", "дизайнер"]);
     expect((await identify("600", {})).tabs).toEqual(["tasks"]);
+  });
+});
+
+/* ─────── АНКЕТЫ КАК СЛОВАРИ ───────
+
+   Анкета — словарь вопросов, и назначается она РОЛИ: дизайнера спрашивают
+   про стек, курьера — про район. Ответы лежат у человека по идентификатору
+   вопроса, а не по тексту: владелец поправил формулировку — ответ остался
+   при вопросе. Старые записи без анкет читаются как прежде. */
+describe("анкеты как словари", () => {
+  beforeEach(async () => { await identify("100", { name: "Владелец" }); });
+
+  it("анкета заводится пустой, и вопросы правятся списком строк", async () => {
+    const form = await addForm({ name: "Анкета дизайнера" });
+    expect(form.questions).toEqual([]);
+    const set = await setForm(form.id, { questions: ["Стек", "Уровень", "   "] });
+    // Пустой текст — это не вопрос.
+    expect(set.questions.map((q) => q.text)).toEqual(["Стек", "Уровень"]);
+    expect(set.questions.every((q) => /^q[0-9a-f]{8}$/.test(q.id))).toBe(true);
+    expect((await listOrg()).forms).toEqual([set]);
+  });
+
+  it("без названия анкета не заводится, а одинаковые названия получают разные id", async () => {
+    await expect(addForm({ name: "  " })).rejects.toThrow(/required/);
+    const a = await addForm({ name: "Общая" });
+    const b = await addForm({ name: "Общая" });
+    expect(a.id).not.toBe(b.id);
+  });
+
+  it("идентификатор вопроса переживает правку текста, а удалённый вопрос уносит свой", async () => {
+    const form = await addForm({ name: "Анкета" });
+    const v1 = await setForm(form.id, { questions: ["Стек", "Уровень"] });
+    const [stack, level] = v1.questions;
+    // Переформулировали первый, убрали второй, добавили третий.
+    const v2 = await setForm(form.id, { name: "Анкета разработчика",
+      questions: [{ id: stack.id, text: "Стек и инструменты" }, "Языки"] });
+    expect(v2.name).toBe("Анкета разработчика");
+    expect(v2.questions[0]).toEqual({ id: stack.id, text: "Стек и инструменты" });
+    expect(v2.questions[1].id).not.toBe(level.id);
+    // Чужой идентификатор в присланном вопросе не принимается: это новый вопрос.
+    const v3 = await setForm(form.id, { questions: [{ id: "qdeadbeef", text: "Новый" }] });
+    expect(v3.questions[0].id).not.toBe("qdeadbeef");
+    expect(await setForm("нет-такой", { questions: [] })).toBeNull();
+  });
+
+  it("роль получает анкету, и «кто я» отдаёт вопросы по всем ролям без повторов", async () => {
+    const dev = await addForm({ name: "Разработчик" });
+    await setForm(dev.id, { questions: ["Стек"] });
+    const common = await addForm({ name: "Общая" });
+    await setForm(common.id, { questions: ["Город"] });
+    await setRoleForm("executor", common.id);
+    await setRoleForm("reviewer", common.id);
+    const role = await addRole({ name: "Дизайнер" });
+    await setRoleForm(role.id, dev.id);
+    await addUser({ id: "200", name: "Иван", roleId: "executor", addedBy: "100" });
+    await setUserRoles("200", ["executor", "reviewer", role.id]);
+    const me = await identify("200", {});
+    // Две роли с одной анкетой — анкета одна; порядок — по ролям человека.
+    expect(me.forms.map((f) => f.name)).toEqual(["Общая", "Разработчик"]);
+    expect(me.forms[0].questions.map((q) => q.text)).toEqual(["Город"]);
+    // Роль без анкеты вопросов не добавляет; снятая анкета — тоже.
+    await setRoleForm(role.id, null);
+    expect((await identify("200", {})).forms.map((f) => f.name)).toEqual(["Общая"]);
+    expect((await listOrg()).roles.find((r) => r.id === role.id).form).toBeNull();
+  });
+
+  it("чужая анкета роли не назначается, а несуществующая роль — null", async () => {
+    await expect(setRoleForm("executor", "нет-такой")).rejects.toThrow(/unknown form/);
+    expect(await setRoleForm("нет-такой", null)).toBeNull();
+  });
+
+  it("ответы лежат по вопросу, ложатся поверх прежних и обрезаются до лимита", async () => {
+    const form = await addForm({ name: "Анкета" });
+    const { questions: [a, b] } = await setForm(form.id, { questions: ["Стек", "Уровень"] });
+    await setRoleForm("executor", form.id);
+    await addUser({ id: "200", name: "Иван", roleId: "executor", addedBy: "100" });
+    const saved = await setProfile("200",
+      { answers: { [a.id]: "React", [b.id]: "x".repeat(2500) } });
+    expect(saved.answers[a.id]).toBe("React");
+    expect(saved.answers[b.id]).toHaveLength(2000);
+    // Второй запрос с одним ответом не стирает другой.
+    const again = await setProfile("200", { answers: { [b.id]: "middle" } });
+    expect(again.answers).toEqual({ [a.id]: "React", [b.id]: "middle" });
+    expect((await identify("200", {})).profile.answers).toEqual(again.answers);
+    // И владелец видит ответы вместе с вопросами в списке людей.
+    const ivan = (await listOrg()).users.find((u) => u.id === "200");
+    expect(ivan.answers).toEqual(again.answers);
+    expect(ivan.forms.map((f) => f.id)).toEqual([form.id]);
+    // Поле «о себе» при этом живёт как прежде.
+    expect((await setProfile("200", { about: "верстаю" })).about).toBe("верстаю");
+  });
+
+  it("удалённая анкета снимается с ролей, а ответы человека остаются", async () => {
+    const form = await addForm({ name: "Анкета" });
+    const { questions: [q] } = await setForm(form.id, { questions: ["Стек"] });
+    await setRoleForm("executor", form.id);
+    await addUser({ id: "200", name: "Иван", roleId: "executor", addedBy: "100" });
+    await setProfile("200", { answers: { [q.id]: "React" } });
+    expect(await removeForm(form.id)).toBe(true);
+    expect(await removeForm(form.id)).toBe(false);
+    const org = await listOrg();
+    expect(org.forms).toEqual([]);
+    expect(org.roles.find((r) => r.id === "executor").form).toBeNull();
+    expect((await identify("200", {})).forms).toEqual([]);
+    expect(org.users.find((u) => u.id === "200").answers).toEqual({ [q.id]: "React" });
+  });
+
+  it("старые записи читаются: анкет нет — пусто, ответов нет — пусто, «о себе» на месте", async () => {
+    await writeRaw({
+      ownerId: "100",
+      roles: [{ id: "executor", name: "исполнитель", tabs: ["tasks"] }],
+      users: [{ id: "600", name: "Старый", roles: ["executor"], about: "делаю макеты" }],
+    });
+    const org = await listOrg();
+    expect(org.forms).toEqual([]);
+    expect(org.roles[0].form).toBeNull();
+    expect(org.users[0]).toMatchObject({ about: "делаю макеты", answers: {}, forms: [] });
+    const me = await identify("600", {});
+    expect(me.forms).toEqual([]);
+    expect(me.profile).toMatchObject({ about: "делаю макеты", answers: {} });
+    // Мусор в ответах старой записи не читается как ответы.
+    await writeRaw({ ownerId: "100", roles: [{ id: "executor", name: "и", tabs: [] }],
+      users: [{ id: "601", name: "С", roles: [], answers: "строка" }] });
+    expect((await identify("601", {})).profile.answers).toEqual({});
   });
 });

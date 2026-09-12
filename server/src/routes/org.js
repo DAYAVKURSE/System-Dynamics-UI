@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import {
-  addRole, addUser, identify, listOrg, openRoles, registerUser, removeRole, removeUser,
-  setProfile, setRoleContract, setRoleTabs, setUserRole, setUserRoles, TABS,
+  addForm, addRole, addUser, identify, listOrg, openRoles, registerUser, removeForm,
+  removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
+  setUserRole, setUserRoles, TABS,
 } from "../lib/orgStore.js";
 import { MAX_REPORT_BYTES, saveReport } from "../lib/reportStore.js";
 
@@ -174,6 +175,47 @@ router.delete("/roles/:id", async (req, res, next) => {
     if (!ok) return res.status(404).json({ error: "not found or built-in" });
     res.status(204).end();
   } catch (e) { next(e); }
+});
+
+/* ─────── анкеты как словари ───────
+
+   Анкета — список вопросов, и заводит его владелец: какие вопросы задавать
+   людям, знает он. Роли анкета назначается отдельным маршрутом, как
+   договор: это свойство роли, а не анкеты. Сами ответы человек пишет
+   через `/me/profile` — анкета лишь говорит, о чём его спросить. */
+router.post("/forms", async (req, res, next) => {
+  try { res.status(201).json(await addForm(req.body || {})); }
+  catch (e) {
+    if (/required/.test(e.message)) return res.status(400).json({ error: e.message });
+    next(e);
+  }
+});
+
+router.put("/forms/:id", async (req, res, next) => {
+  try {
+    const form = await setForm(req.params.id, req.body || {});
+    if (!form) return res.status(404).json({ error: "not found" });
+    res.json(form);
+  } catch (e) { next(e); }
+});
+
+router.delete("/forms/:id", async (req, res, next) => {
+  try {
+    const ok = await removeForm(req.params.id);
+    if (!ok) return res.status(404).json({ error: "not found" });
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
+router.put("/roles/:id/form", async (req, res, next) => {
+  try {
+    const role = await setRoleForm(req.params.id, req.body?.formId ?? null);
+    if (!role) return res.status(404).json({ error: "not found" });
+    res.json(role);
+  } catch (e) {
+    if (/unknown form/.test(e.message)) return res.status(400).json({ error: e.message });
+    next(e);
+  }
 });
 
 export default router;

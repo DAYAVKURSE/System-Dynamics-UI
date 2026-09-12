@@ -104,6 +104,19 @@ export const setUserRoles = (id, roles) =>
 export const setRoleContract = (id, contract) =>
   json(`/api/org/roles/${encodeURIComponent(id)}/contract`,
     { method: "PUT", body: JSON.stringify({ contract }) });
+/* Анкеты — словари вопросов; какую заполнять, говорит роль. Заводит и
+   правит их владелец, а ответы человек шлёт сам через `putProfile`
+   (`answers`): анкета лишь говорит, о чём его спросить. */
+export const addForm = (name) =>
+  json("/api/org/forms", { method: "POST", body: JSON.stringify({ name }) });
+export const setForm = (id, patch) =>
+  json(`/api/org/forms/${encodeURIComponent(id)}`,
+    { method: "PUT", body: JSON.stringify(patch) });
+export const removeForm = (id) =>
+  json(`/api/org/forms/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const setRoleForm = (id, formId) =>
+  json(`/api/org/roles/${encodeURIComponent(id)}/form`,
+    { method: "PUT", body: JSON.stringify({ formId }) });
 
 /* ─────── регистрация: договор и есть акцепт ───────
 

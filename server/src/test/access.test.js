@@ -692,7 +692,7 @@ describe("своя анкета", () => {
       .send({ days: [1, 2, 5], from: "10:00", to: "19:00", status: "off", warnMin: 30 });
     expect(res.status).toBe(200);
     expect(res.body.profile).toEqual({ about: "", days: [1, 2, 5], from: "10:00",
-      to: "19:00", status: "off", warnMin: 30, deferMin: 30 });
+      to: "19:00", status: "off", warnMin: 30, deferMin: 30, answers: {} });
     const me = await request(app).get("/api/org/me").set(as(200, "Иван"));
     expect(me.body.profile).toEqual(res.body.profile);
     // И владелец видит то же в списке людей — там выбирают, кому поручить.
@@ -923,5 +923,79 @@ describe("регистрация по договору", () => {
   it("несуществующая роль — 404, а не молчаливое вступление", async () => {
     expect((await request(app).post("/api/org/register").set(as(779))
       .send({ roleId: "нет-такой" })).status).toBe(404);
+  });
+});
+
+/* ─────── анкеты как словари через сервер ─────── */
+describe("анкеты через сервер", () => {
+  it("владелец заводит анкету, назначает роли, и человек отвечает на вопросы", async () => {
+    const made = await request(app).post("/api/org/forms").set(as(100))
+      .send({ name: "Анкета исполнителя" });
+    expect(made.status).toBe(201);
+    const set = await request(app).put(`/api/org/forms/${made.body.id}`).set(as(100))
+      .send({ questions: ["Стек", "Город"] });
+    expect(set.status).toBe(200);
+    const [stack, city] = set.body.questions;
+    const linked = await request(app).put("/api/org/roles/executor/form").set(as(100))
+      .send({ formId: made.body.id });
+    expect(linked.status).toBe(200);
+    expect(linked.body.form).toBe(made.body.id);
+
+    await invite(200, "executor", "Иван");
+    // Вопросы приезжают вместе с «кто я»: анкета показывает их сразу.
+    const me = await request(app).get("/api/org/me").set(as(200, "Иван"));
+    expect(me.body.forms).toHaveLength(1);
+    expect(me.body.forms[0].questions.map((q) => q.text)).toEqual(["Стек", "Город"]);
+    expect(me.body.profile.answers).toEqual({});
+
+    const saved = await request(app).put("/api/org/me/profile").set(as(200, "Иван"))
+      .send({ answers: { [stack.id]: "React", [city.id]: "Тула" } });
+    expect(saved.status).toBe(200);
+    expect(saved.body.profile.answers).toEqual({ [stack.id]: "React", [city.id]: "Тула" });
+    // Владелец читает ответы с вопросами — в списке людей, где выбирает исполнителя.
+    const org = await request(app).get("/api/org").set(as(100));
+    expect(org.body.forms.map((f) => f.id)).toEqual([made.body.id]);
+    const ivan = org.body.users.find((u) => u.id === "200");
+    expect(ivan.answers[stack.id]).toBe("React");
+    expect(ivan.forms[0].questions[0].text).toBe("Стек");
+  });
+
+  it("анкеты и их назначение — только владельцу", async () => {
+    await invite(200, "executor", "Иван");
+    const made = await request(app).post("/api/org/forms").set(as(100)).send({ name: "А" });
+    expect((await request(app).post("/api/org/forms").set(as(200))
+      .send({ name: "Своя" })).status).toBe(403);
+    expect((await request(app).put(`/api/org/forms/${made.body.id}`).set(as(200))
+      .send({ questions: ["?"] })).status).toBe(403);
+    expect((await request(app).delete(`/api/org/forms/${made.body.id}`).set(as(200)))
+      .status).toBe(403);
+    expect((await request(app).put("/api/org/roles/executor/form").set(as(200))
+      .send({ formId: made.body.id })).status).toBe(403);
+  });
+
+  it("отказы называются словами: без названия, чужая анкета, нет такой", async () => {
+    expect((await request(app).post("/api/org/forms").set(as(100))
+      .send({ name: "" })).status).toBe(400);
+    expect((await request(app).put("/api/org/roles/executor/form").set(as(100))
+      .send({ formId: "нет-такой" })).status).toBe(400);
+    expect((await request(app).put("/api/org/forms/нет-такой").set(as(100))
+      .send({ name: "x" })).status).toBe(404);
+    expect((await request(app).delete("/api/org/forms/нет-такой").set(as(100)))
+      .status).toBe(404);
+  });
+
+  it("удалённая анкета уходит с роли, и «кто я» больше не задаёт её вопросов", async () => {
+    const made = await request(app).post("/api/org/forms").set(as(100)).send({ name: "А" });
+    await request(app).put(`/api/org/forms/${made.body.id}`).set(as(100))
+      .send({ questions: ["Стек"] });
+    await request(app).put("/api/org/roles/executor/form").set(as(100))
+      .send({ formId: made.body.id });
+    await invite(200, "executor", "Иван");
+    expect((await request(app).delete(`/api/org/forms/${made.body.id}`).set(as(100)))
+      .status).toBe(204);
+    const me = await request(app).get("/api/org/me").set(as(200));
+    expect(me.body.forms).toEqual([]);
+    const org = await request(app).get("/api/org").set(as(100));
+    expect(org.body.roles.find((r) => r.id === "executor").form).toBeNull();
   });
 });
