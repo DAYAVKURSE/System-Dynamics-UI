@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
-  forgetScenario } from "../storage.js";
+  forgetScenario, savedRoom } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addRole, removeRole, setUserRoles,
   takeTaskRemote, dropTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote,
-  getRatings,
+  getRatings, resetIdentity,
   setupTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
@@ -63,6 +63,8 @@ import { normalizeMaterials, withStock } from "../lib/units.js";
    уточняют её средним арифметическим.
    ════════════════════════════════════════════════════════════════ */
 
+/* Как часто позванный переспрашивает свой срез, пока вкладка на виду. */
+const POLL_MS=30000;
 const KINDS0=[
   {id:"res",sign:"◆",name:"ресурс",color:"#7CE0FF",dir:"up"},
   {id:"growth",sign:"▲",name:"рост",color:"#3DDC97",dir:"up"},
@@ -438,6 +440,7 @@ export default function SystemModel(){
   const [savedMsg,setSavedMsg]=useState("");
   const [savedBusy,setSavedBusy]=useState(false);
   const [savedWhere,setSavedWhere]=useState("");
+  const [savedKind,setSavedKind]=useState("");
   const [openTask,setOpenTask]=useState(null);
   const [simMonth,setSimMonth]=useState(0);
   // Что открыто под схемой: правка модели или её будущее.
@@ -513,7 +516,11 @@ export default function SystemModel(){
   const savedDoc=useRef(doc);
   const docRef=useRef(doc); docRef.current=doc;
   const saveNameRef=useRef(saveName); saveNameRef.current=saveName;
+  const meRef=useRef(me); meRef.current=me;
   const writeDraft=useCallback(()=>{
+    /* Позванному черновик не полагается: его правда — на сервере, а
+       «восстановить» подставило бы вчерашний срез поверх сегодняшнего. */
+    if(!meRef.current.solo&&!meRef.current.isOwner){ clearDraft(); setDraftBlocked(false); return; }
     if(sameDoc(docRef.current,savedDoc.current)){ clearDraft(); setDraftBlocked(false); return; }
     setDraftBlocked(!saveDraft(docRef.current,{name:saveNameRef.current}));
   },[]);
@@ -692,6 +699,27 @@ export default function SystemModel(){
     return ()=>clearTimeout(id);
   },[scheduled,settled]);
 
+  /* Срез позванного применяется одинаково при входе и при каждом
+     переспросе: реестр опубликованного, документ, люди. Ключ — сам ответ:
+     тот же ответ ничего не перерисовывает. `savedDoc` — тоже он: правда
+     позванного лежит на сервере, и черновик «несохранённых правок» ему не
+     полагается (см. writeDraft). */
+  const lastWs=useRef("");
+  const applyWorkspace=useCallback((w)=>{
+    if(!w||typeof w!=="object") return;
+    const key=JSON.stringify(w);
+    if(key===lastWs.current) return;
+    lastWs.current=key;
+    setPublished(Array.isArray(w.published)?w.published:[]);
+    const loaded=fromWorkspace(w);
+    restoreDoc(loaded);
+    savedDoc.current=loaded;
+    /* Список людей организации — владельцу; позванному сервер кладёт в
+       срез имена тех, с кем он работает: воркеров его активов и
+       участников его задач. Без них постановщику было бы не из кого
+       выбирать исполнителя, а «поставил: 100» читалось бы номером. */
+    if(Array.isArray(w.people)) setPeople(w.people);
+  },[restoreDoc,fromWorkspace]);
   const pulled=useRef(false);
   useEffect(()=>{
     if(me.solo) return;
@@ -703,14 +731,30 @@ export default function SystemModel(){
       // мог начать править до того, как ответ пришёл. Ему она достаётся
       // иначе — автозагрузкой ниже, и только когда открывать больше нечего.
       if(me.isOwner) return;
-      restoreDoc(fromWorkspace(w));
-      /* Список людей организации — владельцу; позванному сервер кладёт в
-         срез имена тех, с кем он работает: воркеров его активов и
-         участников его задач. Без них постановщику было бы не из кого
-         выбирать исполнителя, а «поставил: 100» читалось бы номером. */
-      if(Array.isArray(w?.people)) setPeople(w.people);
+      applyWorkspace(w);
     }).catch(()=>{});
-  },[me.solo,me.isOwner,restoreDoc,fromWorkspace]);
+  },[me.solo,me.isOwner,applyWorkspace]);
+  /* Обновление без перезагрузки — позванному. Модель приезжала один раз:
+     задачу, поставленную после открытия, человек видел, лишь открыв
+     приложение заново. Теперь срез переспрашивается раз в полминуты, пока
+     вкладка на виду, сразу — когда она снова на виду, и после каждого
+     своего действия (взял, сдал, поставил, оценил): ответ сервера и есть
+     правда, и если он отказал, доска должна показать его, а не своё.
+     Владелец не переспрашивает: его модель живёт в его окне и уезжает на
+     сервер сама, и класть серверную поверх его правок нельзя. Событий от
+     сервера нет — опрос проще и переживает обрывы сети в WebView. */
+  const pullNow=useCallback(()=>{
+    if(me.solo||me.isOwner||!me.known) return;
+    if(typeof document!=="undefined"&&document.visibilityState==="hidden") return;
+    getWorkspace().then(applyWorkspace).catch(()=>{});
+  },[me.solo,me.isOwner,me.known,applyWorkspace]);
+  useEffect(()=>{
+    if(me.solo||me.isOwner||!me.known) return undefined;
+    const id=setInterval(pullNow,POLL_MS);
+    const onShow=()=>{ if(document.visibilityState==="visible") pullNow(); };
+    document.addEventListener("visibilitychange",onShow);
+    return ()=>{ clearInterval(id); document.removeEventListener("visibilitychange",onShow); };
+  },[me.solo,me.isOwner,me.known,pullNow]);
   /* Рейтинги — с сервера и его глазами: про себя человек видит только
      адресованные ему слова. Читаются при входе и при каждом заходе на
      анкету: каждое чтение — попытка опубликовать то, что стало анонимным. */
@@ -760,7 +804,7 @@ export default function SystemModel(){
   };
   useEffect(()=>{ if(tab!=="tools"||tool!=="export") return;
     refreshSavedList();
-    detectStorage().then(k=>setSavedWhere(STORAGE_LABEL[k]||"")).catch(()=>{});
+    detectStorage().then(k=>{ setSavedKind(k); setSavedWhere(STORAGE_LABEL[k]||""); }).catch(()=>{});
   },[tab,tool]);
   const saveToDisk=async()=>{
     setSavedBusy(true);
@@ -939,8 +983,8 @@ export default function SystemModel(){
           to:t.assignee==null?null:String(t.assignee),hidden:!!hidden}]
         :(t.comments||[]),
     }:t));
-    reviewTaskRemote(task.id,{accept,comment:note,mark:review.mark,hidden:!!hidden}).catch(()=>{});
-  },[setTasks,me.id]);
+    reviewTaskRemote(task.id,{accept,comment:note,mark:review.mark,hidden:!!hidden}).then(pullNow,()=>{});
+  },[setTasks,me.id,pullNow]);
   const toggleCard=useCallback((id)=>setOpenCards(p=>{
     const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n;
   }),[]);
@@ -1042,7 +1086,7 @@ export default function SystemModel(){
           <span style={{fontSize:11,color:C.muted}}>мес</span></div>
       </div>
 
-      {recovery && (
+      {recovery && (me.solo||me.isOwner) && (
         <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
           <div style={{fontSize:12.5,lineHeight:1.6,marginBottom:8}}>
             Остались правки от {whenText(recovery.savedAt)}
@@ -1135,29 +1179,30 @@ export default function SystemModel(){
           tasks={myTasks} setTasks={setTasks}
           openId={openTask} setOpenId={setOpenTask}
           people={people} canAssign={me.isOwner} nameOf={personName}
-          onTake={t=>{ takeTaskRemote(t.id).catch(()=>{}); }}
-          onDrop={t=>{ dropTaskRemote(t.id).catch(()=>{}); }}
+          onTake={t=>{ takeTaskRemote(t.id).then(pullNow,()=>{}); }}
+          onDrop={t=>{ dropTaskRemote(t.id).then(pullNow,()=>{}); }}
           meId={me.id}
           /* У владельца сдача и комментарий уезжают в составе модели через
              putWorkspace; POST'ить их ещё раз значило бы записать дважды. */
-          onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).catch(()=>{}); }}
-          onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).catch(()=>{}); }}
-          onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).catch(()=>{}); }}/>)}
+          onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).then(pullNow,()=>{}); }}
+          onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).then(pullNow,()=>{}); }}
+          onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).then(pullNow,()=>{}); }}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (
         <ReviewBoard tasks={tasks} traits={traitsLive} entities={entities} funcs={funcs}
-          factors={factors} materials={materials}
+          factors={factors} materials={materials} ratings={ratings}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}
-          onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).catch(()=>{}); }}
-          onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).catch(()=>{}); }}
+          onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).then(pullNow,()=>{}); }}
+          onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).then(pullNow,()=>{}); }}
           /* Постановка у владельца уезжает в составе модели через
              putWorkspace; у позванного постановщика модель не пишется —
              каждая правка формы и «Поставить» идут своей операцией, и
              форма ждёт ответа сервера, а не меняет статус у себя. */
-          onSetup={me.isOwner?undefined:(t,patch)=>setupTaskRemote(t.id,patch)}
+          onSetup={me.isOwner?undefined
+            :(t,patch)=>setupTaskRemote(t.id,patch).then(r=>{ pullNow(); return r; })}
           onAccept={(t,note,mark,hidden)=>decide(t,true,note,mark,hidden)}
           onReturn={(t,note,mark,hidden)=>decide(t,false,note,mark,hidden)}/>)}
 
@@ -1439,7 +1484,10 @@ export default function SystemModel(){
         </div>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="people" && (
-        <PeoplePanel me={me} onPeople={setPeople}/>)}
+        <PeoplePanel me={me} onPeople={setPeople}
+          /* Роли и анкеты меняют и «кто я»: анкету, назначенную своей
+             роли, владелец должен увидеть без перезагрузки. */
+          onChanged={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); }}/>)}
 
       {/* Помощник — всем, у кого есть «Инструменты»: не-владелец видит
           провайдера и «есть ли ключ» без самого ключа, плюс свою память. */}
@@ -1499,6 +1547,12 @@ export default function SystemModel(){
               <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
                 disabled={savedBusy} onClick={deleteFromDisk}>Удалить</button>
             </div>
+            {/* Предел — до отказа, а не вместо него: у диска сервера и облака
+                Telegram пределы разные, и подпись считает по тому, куда
+                пишется сейчас. */}
+            {savedKind && (()=>{ const room=savedRoom(savedList.length,savedKind);
+              return (<div style={{fontSize:10.5,color:room.warn?WARN:C.muted,marginBottom:8}}>
+                {room.text}</div>); })()}
             {savedMsg&&<div style={{fontSize:12,color:C.muted}}>{savedMsg}</div>}
           </div>
         </div>)}

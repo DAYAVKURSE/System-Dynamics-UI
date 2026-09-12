@@ -82,7 +82,7 @@ function Contract({ role, busy, onSet }) {
     </div>);
 }
 
-export default function PeoplePanel({ onPeople }) {
+export default function PeoplePanel({ onPeople, onChanged }) {
   const [org, setOrg] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -99,7 +99,7 @@ export default function PeoplePanel({ onPeople }) {
 
   const act = async (fn) => {
     setBusy(true); setMsg("");
-    try { await fn(); await load(); }
+    try { await fn(); await load(); onChanged?.(); }
     catch (e) { setMsg(e.message); }
     setBusy(false);
   };

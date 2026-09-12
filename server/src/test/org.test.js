@@ -193,6 +193,19 @@ describe("что видно в общей модели", () => {
     expect(viewFor(MODEL, { id: "555", isOwner: false }).tasks).toEqual([]);
   });
 
+  it("процесс приезжает вместе со своей функцией, чужой — нет", () => {
+    /* Без процесса функция гипотезы читалась бы у позванного как
+       принятая — «процесс неизвестен, значит принят» — и его прогноз
+       считал бы то, чего владелец ещё не решил. */
+    const fid = MODEL.tasks.find((t) => t.id === "tk1").funcId;
+    const m = { ...MODEL,
+      procs: [{ id: "pr1", text: "", status: "hypo" }, { id: "pr9", text: "", status: "on" }],
+      funcs: MODEL.funcs.map((f) => (f.id === fid ? { ...f, proc: "pr1" } : f)) };
+    expect(viewFor(m, { id: "200", isOwner: false }).procs.map((p) => p.id)).toEqual(["pr1"]);
+    expect(viewFor(MODEL, { id: "200", isOwner: false }).procs).toEqual([]);
+    expect(viewFor(m, { id: "100", isOwner: true }).procs).toHaveLength(2);
+  });
+
   it("вместе с задачей приезжает только то, на что она ссылается", () => {
     const v = viewFor(MODEL, { id: "200", isOwner: false });
     // Функция задачи, её ресурсы и активы — да; чужая функция, чужой актив

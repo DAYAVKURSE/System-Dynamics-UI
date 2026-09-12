@@ -582,7 +582,7 @@ function FuncCard({func,entities,traitName}){
 export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=[],
   setTasks,onClose,people=[],canAssign=true,nameOf,rolesOf=(id)=>
     (people.find(p=>String(p.id)===String(id))?.roles||[]),
-  published,meId,onSetup}){
+  published,meId,onSetup,ratings=null}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
@@ -642,6 +642,16 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
   const pool=(k)=>{
     const ok=new Set(eligible(func,k,{crew:crewOf(asset||{}),rolesOf,people}).map(String));
     return pickOrder(asset,people.filter(p=>ok.has(String(p.id))));
+  };
+  /* Рейтинг рядом с именем — глазами сервера, если он ответил (`GET
+     /ratings`): у позванного постановщика в модели только свои задачи, и
+     по ним человек, которого проверяли в чужих, выходил «без оценок».
+     Средняя и число оценок — оттуда; про себя сервер цифр не даёт, и здесь
+     их тоже нет; «в срок» и число работ — по тому, что видно. */
+  const statOf=(p)=>{
+    const s=visibleStats({tasks,funcs,published},p.id,meId);
+    const r=ratings?.others?.[String(p.id)];
+    return r&&!s.self?{...s,mark:r.mark??null,marks:r.count??0}:s;
   };
   /* Порядок списка воркеров ВЛИЯЕТ на выбор (`pickByOrderOf`): пустое поле
      исполнителя и проверяющего при открытии формы получает первого
@@ -712,7 +722,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
                   опубликованных оценок; про себя — «свой рейтинг скрыт». */}
               {pool(k.id).map(p=>(
                 <option key={p.id} value={p.id}>
-                  {p.name} · {shortStat(visibleStats({tasks,funcs,published},p.id,meId))}
+                  {p.name} · {shortStat(statOf(p))}
                 </option>))}
             </select>
           </div>))}

@@ -277,7 +277,8 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
-  published, onComment, onDropComment, onSetup, onDelete, factors = [], materials = [] }) {
+  published, onComment, onDropComment, onSetup, onDelete, factors = [], materials = [],
+  ratings = null }) {
   const [openId, setOpenId] = useState(null);
   /* Единицы считаются один раз на всю вкладку: карточек много, а список
      у них общий — по нему ищут и взятое, и выданное. */
@@ -364,6 +365,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
               </div>
               {on && setup && (
                 <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits} factors={factors}
+                  ratings={ratings}
                   entities={entities} people={people}
                   /* Людей назначает тот, кто ставит: постановщик этой
                      задачи — или владелец, у которого модель целиком.
