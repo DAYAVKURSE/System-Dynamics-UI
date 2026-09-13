@@ -79,7 +79,7 @@ describe("человек открывается окном, а не уходом
     fireEvent.click(screen.getByText("Иван"));
     const box = document.querySelector("[role=dialog]");
     expect(box).not.toBeNull();
-    expect(within(box).getByText("рейтинг и работы")).toBeInTheDocument();
+    expect(within(box).getByText("рейтинг и отзывы")).toBeInTheDocument();
     // Чужая анкета только читается: писать там нечего.
     expect(within(box).queryByRole("button", { name: "Сохранить анкету и график" })).toBeNull();
 
@@ -283,7 +283,7 @@ describe("кому какие задачи видны", () => {
     // исполнителя, а история из пустот не складывается.
     expect(screen.getByRole("button", { name: "Принять" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "оценка 5" }));
-    fireEvent.change(screen.getByLabelText("комментарий к оценке"),
+    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
       { target: { value: "сделано как надо" } });
     fireEvent.click(screen.getByRole("button", { name: "Принять" }));
     // Задача ушла из ожидающих проверки — решение принято.

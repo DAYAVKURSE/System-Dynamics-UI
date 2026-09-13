@@ -178,7 +178,7 @@ describe("анкета", () => {
     render(<ProfilePanel me={{ ...ME, id: "9" }} personId="2" people={PEOPLE}
       tasks={rated()} published={["a~work~3"]}
       funcs={[{ id: "f1", name: "Сбор заявок" }]} />);
-    expect(screen.getByText("рейтинг и работы")).toBeInTheDocument();
+    expect(screen.getByText("рейтинг и отзывы")).toBeInTheDocument();
     expect(screen.getByText("5/10")).toBeInTheDocument();
   });
 
@@ -227,7 +227,7 @@ describe("вкладка «Анкета»", () => {
     render(<SystemModel />);
     fireEvent.click(screen.getByRole("button", { name: "Анкета" }));
     // Своя страница: вместо рейтинга — адресованные слова.
-    expect(screen.getByText("комментарии и работы")).toBeInTheDocument();
+    expect(screen.getByText("рейтинг и отзывы")).toBeInTheDocument();
     expect(document.querySelector("[role=dialog]")).toBeNull();
   });
 });

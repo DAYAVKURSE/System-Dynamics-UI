@@ -234,7 +234,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                       {inTime(t, sub) ? "сдано в срок" : "сдано после срока"}</span>)}
                 </div>
                 <input value={note} placeholder="за что такая оценка — обязательно"
-                  aria-label="комментарий к оценке"
+                  aria-label="отзыв к оценке"
                   onChange={(e) => setNote(e.target.value)}
                   style={{ ...S.inp, marginBottom: 6 }} />
                 {/* Один переключатель на отметку и слова: скрытую отметку
@@ -260,7 +260,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
                   «Принять» переводит задачу в «Готово» — её числа идут в
                   расчёт как фактическое выполнение функции, а оценка и
-                  комментарий — в историю исполнителя. Без оценки и без слов
+                  отзыв — в историю исполнителя. Без оценки и без слов
                   принять нельзя: оценка без слов не говорит, что исправить, а
                   слова без оценки не складываются в историю. Оценка
                   публикуется без вашего имени и только когда её нельзя

@@ -22,7 +22,7 @@ import { MARK_MAX, commentsFor, kindName, visibleStats } from "../lib/workers.js
 
    Свои оценки и свой рейтинг не показываются: рейтинг существует, чтобы
    ЕМУ поручали работу, а не чтобы он смотрел на себя. Вместо цифр — слова,
-   которые ему адресованы: скрытые комментарии и опубликованные анонимные.
+   которые ему адресованы: скрытые отзывы и опубликованные анонимные.
    Правило живёт не здесь, а в `visibleStats()` — карточка только
    спрашивает.
 
@@ -108,11 +108,11 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
     {s.self ? (
       <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>
-          {SELF_HIDDEN}. Здесь — то, что вам написали: скрытые комментарии и
-          опубликованные, без имени.
+          {SELF_HIDDEN}. Здесь — отзывы о вас: скрытые и опубликованные,
+          без имени.
         </div>
-        <div style={{ ...S.lbl, marginBottom: 4 }}>комментарии вам</div>
-        <Words list={mine} empty="Адресованных вам комментариев пока нет." />
+        <div style={{ ...S.lbl, marginBottom: 4 }}>отзывы о вас</div>
+        <Words list={mine} empty="Отзывов о вас пока нет." />
       </div>
     ) : (<>
       <div className="flex flex-wrap gap-2" style={{ marginBottom: 10 }}>

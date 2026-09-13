@@ -237,7 +237,7 @@ export function describeTasks(tasks = [], { funcs = [], nameOf = (id) => String(
     });
     (t.reviews || []).forEach((r) => {
       // Решение видно всем, кто видит задачу; оценка — нет (C4). Скрытый
-      // комментарий — только адресату (исполнителю) и автору.
+      // отзыв — только адресату (исполнителю) и автору.
       const canRead = !r.hidden || String(r.by) === me || String(t.assignee || "") === me;
       out.push(`  решение проверяющего ${when(r.at)}: ${r.accept ? "принято" : "возвращено на доработку"}${canRead && str(r.comment) ? ` — «${str(r.comment).slice(0, 500)}»` : ""}`);
     });

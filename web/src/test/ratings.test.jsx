@@ -136,7 +136,7 @@ describe("оценка постановки при сдаче", () => {
     await openHanding();
     expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "оценка постановки 4" }));
-    commit(screen.getByLabelText("комментарий к постановке"), "срок был тесный");
+    commit(screen.getByLabelText("отзыв о постановке"), "срок был тесный");
     hand();
     expect(got).toHaveLength(1);
     expect(got[0].setterRating).toEqual({ mark: 4, comment: "срок был тесный", hidden: false });
@@ -169,7 +169,7 @@ describe("оценка постановки при сдаче", () => {
     expect(screen.getByText(/отметку видите только вы .* слова — вы и постановщик/))
       .toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
-    commit(screen.getByLabelText("комментарий к постановке"), "лично");
+    commit(screen.getByLabelText("отзыв о постановке"), "лично");
     hand();
     expect(got[0].setterRating).toEqual({ mark: 5, comment: "лично", hidden: true });
   });
@@ -180,7 +180,7 @@ describe("оценка постановки при сдаче", () => {
     await openHanding();
     fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
     fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
-    commit(screen.getByLabelText("комментарий к постановке"), "только слова");
+    commit(screen.getByLabelText("отзыв о постановке"), "только слова");
     hand();
     expect(got[0].setterRating).toEqual({ mark: null, comment: "только слова", hidden: false });
   });
@@ -263,7 +263,7 @@ describe("решение проверяющего", () => {
       onAccept={(t, note, mark, hidden) => got.push([note, mark, hidden])}
       onReturn={() => {}} />);
     fireEvent.click(screen.getByText("Задача A"));
-    fireEvent.change(screen.getByLabelText("комментарий к оценке"),
+    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
       { target: { value: "сделано" } });
     fireEvent.click(screen.getByRole("button", { name: "оценка 4" }));
     fireEvent.click(screen.getByRole("button", { name: "скрыто" }));
@@ -281,7 +281,7 @@ describe("решение проверяющего", () => {
       onReturn={() => {}} />);
     fireEvent.click(screen.getByText("Задача A"));
     expect(screen.getByRole("button", { name: "публично" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.change(screen.getByLabelText("комментарий к оценке"),
+    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
       { target: { value: "сделано" } });
     fireEvent.click(screen.getByRole("button", { name: "оценка 5" }));
     fireEvent.click(screen.getByRole("button", { name: "Принять" }));

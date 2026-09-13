@@ -615,10 +615,11 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           «как он работал». Поэтому здесь же, а не в отдельном окне.
 
           Про себя — без цифр: свои оценки человеку не показываются, только
-          адресованные ему слова. Кто смотрит, карточке говорит `viewerId`. */}
+          отзывы, адресованные ему (владелец: «Рейтинг и отзывы», и это
+          отзывы, а не комментарии). Кто смотрит, карточке говорит `viewerId`. */}
       <div style={{ ...S.card, marginBottom: 10 }}>
         <div style={{ ...S.lbl, marginBottom: 8 }}>
-          {mine ? "комментарии и работы" : "рейтинг и работы"}</div>
+          {"рейтинг и отзывы"}</div>
         <PersonStats tasks={tasks} funcs={funcs} personId={id} traitName={traitName}
           published={published} viewerId={me?.id} ratings={ratings} />
       </div>

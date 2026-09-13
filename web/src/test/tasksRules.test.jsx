@@ -498,7 +498,7 @@ describe("возврат с проверки", () => {
     const back = screen.getByRole("button", { name: "Вернуть в бэклог" });
     expect(back).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText("комментарий к оценке"),
+    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
       { target: { value: "переделать" } });
     expect(screen.getByRole("button", { name: "Вернуть в бэклог" })).not.toBeDisabled();
   });
@@ -514,7 +514,7 @@ describe("возврат с проверки", () => {
     const take = () => screen.getByRole("button", { name: "Принять" });
     expect(take()).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText("комментарий к оценке"),
+    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
       { target: { value: "сделано" } });
     expect(take()).toBeDisabled();
 

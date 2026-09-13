@@ -59,7 +59,7 @@ describe("раздел в анкете", () => {
     expect(screen.getAllByText(/исполнитель/).length).toBeGreaterThan(0);
     const text = container.textContent;
     expect(text.indexOf("мои выполняемые задачи"))
-      .toBeLessThan(text.indexOf("комментарии и работы"));
+      .toBeLessThan(text.indexOf("рейтинг и отзывы"));
   });
 
   it("выбрать себе работу нельзя — в разделе только отказ", () => {
