@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario, savedRoom } from "../storage.js";
@@ -180,20 +180,39 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,onZoom,sel,valuesFor,
      масштабировал страницу. Второй палец отменяет перетаскивание блока —
      двигать и масштабировать разом нельзя, и это к лучшему. */
   const pinch=useRef(null);
+  /* Якорь щипка: точка схемы под серединой между пальцами должна остаться
+     под ней и после смены масштаба (владелец, 2026-09-13: «увеличивается
+     не из той точки, откуда расходятся пальцы»). Масштаб меняется через
+     состояние, то есть после перерисовки, поэтому прокрутка выставляется
+     в useLayoutEffect, когда svg уже нового размера. */
+  const pinchAt=useRef(null);
   useEffect(()=>{
     const el=box.current; if(!el||!onZoom) return undefined;
     const dist=(t)=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+    const mid=(t)=>{
+      const r=el.getBoundingClientRect();
+      return [(t[0].clientX+t[1].clientX)/2-r.left,(t[0].clientY+t[1].clientY)/2-r.top];
+    };
     const start=(ev)=>{
       if(ev.touches.length!==2) return;
       drag.current=null; setDragPos(null);
-      pinch.current={d0:dist(ev.touches),z0:zoom};
+      const [mx,my]=mid(ev.touches);
+      // Координаты схемы (до масштаба) под серединой пальцев.
+      pinch.current={d0:dist(ev.touches),z0:zoom,
+        ax:(el.scrollLeft+mx)/zoom,ay:(el.scrollTop+my)/zoom};
       ev.preventDefault();
     };
     const move=(ev)=>{
       const pz=pinch.current; if(!pz||ev.touches.length!==2) return;
       ev.preventDefault();
-      const z=pz.z0*dist(ev.touches)/pz.d0;
-      onZoom(Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,Math.round(z*100)/100)));
+      const z=Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,
+        Math.round(pz.z0*dist(ev.touches)/pz.d0*100)/100));
+      const [mx,my]=mid(ev.touches);
+      pinchAt.current={z,ax:pz.ax,ay:pz.ay,mx,my};
+      onZoom(z);
+      // Масштаб мог не измениться (упёрся в предел) — тогда эффекта не будет,
+      // а середина пальцев могла сдвинуться: держим точку под ней и так.
+      if(z===zoom){ el.scrollLeft=pz.ax*z-mx; el.scrollTop=pz.ay*z-my; }
     };
     const end=(ev)=>{ if(ev.touches.length<2) pinch.current=null; };
     el.addEventListener("touchstart",start,{passive:false});
@@ -207,6 +226,13 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,onZoom,sel,valuesFor,
       el.removeEventListener("touchcancel",end);
     };
   },[zoom,onZoom]);
+  useLayoutEffect(()=>{
+    const a=pinchAt.current, el=box.current;
+    if(!a||!el||a.z!==zoom) return;
+    el.scrollLeft=a.ax*zoom-a.mx;
+    el.scrollTop=a.ay*zoom-a.my;
+    pinchAt.current=null;
+  },[zoom]);
   // Пока блок ведут, его положение живёт здесь, а не в модели: правка модели
   // на каждое движение пальца перерисовывала бы всё приложение целиком.
   const [dragPos,setDragPos]=useState(null);
@@ -1285,8 +1311,12 @@ export default function SystemModel(){
             подписи «масштаб», справа — «прогноз» с ползунком месяца.
             Прежде всё стояло одной строкой, и слово «месяц» в её конце
             читалось как ни к чему не относящееся. */}
-        <div className="flex gap-2 flex-wrap" style={{marginBottom:10,alignItems:"stretch"}}>
-          <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 220px"}}
+        {/* Одной строкой и одной высоты (владелец, 2026-09-13): без
+            переноса, обе тянутся по высоте строки; под прогнозом никаких
+            подписей. */}
+        <div className="flex gap-2" style={{marginBottom:10,alignItems:"stretch",flexWrap:"nowrap"}}>
+          <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 0",minWidth:0,
+            display:"flex",alignItems:"center"}}
             aria-label="масштаб">
             <div className="flex items-center gap-2 flex-wrap">
               <button style={btn(false)} aria-label="уменьшить"
@@ -1299,18 +1329,17 @@ export default function SystemModel(){
               <button style={btn(true)} onClick={addEntity}>+ актив</button>
             </div>
           </div>
-          <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 220px"}}
+          <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 0",minWidth:0,
+            display:"flex",flexDirection:"column",justifyContent:"center"}}
             aria-label="прогноз на схеме">
             <div style={S.lbl}>прогноз</div>
             <div className="flex items-center gap-2" style={{marginTop:2}}>
               <input type="range" min={0} max={span} value={simMonth}
                 aria-label="месяц на схеме"
+                title="На блоке — сколько ресурса будет к этому месяцу, вилкой"
                 onChange={e=>setSimMonth(Number(e.target.value))}
-                style={{flex:1,minWidth:90}}/>
+                style={{flex:1,minWidth:60}}/>
               <span style={{fontSize:11,color:ACC,minWidth:34}}>{simMonth} мес</span>
-            </div>
-            <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginTop:2}}>
-              На блоке — сколько ресурса будет к этому месяцу, вилкой. Пунктир — передачи.
             </div>
           </div>
         </div>

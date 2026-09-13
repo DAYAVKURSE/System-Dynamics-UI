@@ -37,6 +37,11 @@ describe("формы над схемой", () => {
     const sim = screen.getByLabelText("прогноз на схеме");
     expect(within(sim).getByText("прогноз")).toBeInTheDocument();
     expect(within(sim).getByLabelText("месяц на схеме")).toBeInTheDocument();
+    // Под прогнозом никаких подписей (владелец, 2026-09-13).
+    expect(within(sim).queryByText(/На блоке/)).toBeNull();
+    // Обе формы — в одной строке, без переноса.
+    expect(scale.parentElement).toBe(sim.parentElement);
+    expect(scale.parentElement.style.flexWrap).toBe("nowrap");
   });
 });
 
@@ -67,6 +72,21 @@ describe("полоски на блоках", () => {
 });
 
 describe("щипок", () => {
+  it("точка схемы под серединой пальцев остаётся под ней при смене масштаба", () => {
+    /* Владелец: «увеличивается не из той точки, откуда расходятся пальцы».
+       Масштаб 0,6 → под серединой (150; 100) лежит точка схемы (250; 167);
+       после щипка до 1,2 прокрутка должна стать 250·1,2 − 150 = 150. */
+    const box = container.querySelector("[data-scheme-box]");
+    let sl = 0, st = 0;
+    Object.defineProperty(box, "scrollLeft", { get: () => sl, set: (v) => { sl = v; }, configurable: true });
+    Object.defineProperty(box, "scrollTop", { get: () => st, set: (v) => { st = v; }, configurable: true });
+    touch(box, "touchstart", [[100, 100], [200, 100]]);
+    touch(box, "touchmove", [[50, 100], [250, 100]]);
+    expect(Math.round(sl)).toBe(150);
+    expect(Math.round(st)).toBe(Math.round((100 / 0.6) * 1.2 - 100));
+    touch(box, "touchend", []);
+  });
+
   it("двумя пальцами схема увеличивается и уменьшается в пределах масштаба", () => {
     const box = container.querySelector("[data-scheme-box]");
     const w0 = svgWidth();
