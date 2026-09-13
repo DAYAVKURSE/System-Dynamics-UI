@@ -154,6 +154,37 @@ export const dayHours = (sc = {}, d) => (sc.perDay?.[d]
 export const hasSchedule = (sc = {}) =>
   Boolean((sc.days || []).length || sc.from || sc.to);
 
+/* ─────── статус по графику ───────
+
+   Владелец (2026-09-13): «статус должен меняться, если сейчас по графику
+   рабочее время или нерабочее». Считается на показе, а не пишется: в
+   нерабочее время человек «сегодня не работает», что бы ни было нажато; в
+   рабочее — нажатое им («перерыв», «не готов брать»), а нажатое «сегодня
+   не работаю» читается как «на рабочем месте» — иначе вчерашнее «не
+   работаю» держалось бы и в понедельник утром. Без дней в графике
+   сказать нечего — остаётся нажатое. */
+const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/** Рабочее ли сейчас время по графику: true/false, null — график не задан. */
+export function inWorkTime(sc = {}, now = new Date()) {
+  const days = sc.days || [];
+  if (!days.length) return null;
+  const d = now.getDay();
+  if (!days.includes(d)) return false;
+  const h = dayHours(sc, d);
+  if (!h.from && !h.to) return true;
+  const t = hhmm(now);
+  const from = h.from || "00:00";
+  const to = h.to || "24:00";
+  // Смена через полночь («22:00–06:00»): внутри, если после начала или до конца.
+  return from <= to ? (t >= from && t < to) : (t >= from || t < to);
+}
+export function liveStatus(sc = {}, now = new Date()) {
+  const w = inWorkTime(sc, now);
+  if (w == null) return statusOf(sc.status).id;
+  if (!w) return "off";
+  return sc.status === "off" ? "ready" : statusOf(sc.status).id;
+}
+
 /**
  * График словами: «пн–пт · 09:00–18:00; сб · 10:00–14:00».
  *

@@ -71,8 +71,11 @@ describe("анкета", () => {
       }));
       render(<ProfilePanel me={ME} people={PEOPLE} tasks={[]} funcs={[]} />);
       expect(screen.getByText(/сохраняются сами, при каждом нажатии/)).toBeInTheDocument();
-      fireEvent.click(screen.getByLabelText("рабочий день пн"));
-      fireEvent.click(screen.getByLabelText("рабочий день вт"));
+      // Дни включают в правке: двойное нажатие — жёлтый, галочка «рабочие дни», «Принять».
+      fireEvent.dblClick(screen.getByLabelText("рабочий день пн"));
+      fireEvent.dblClick(screen.getByLabelText("рабочий день вт"));
+      fireEvent.click(screen.getByLabelText("рабочие дни"));
+      fireEvent.click(screen.getByLabelText("принять: часы дня"));
       fireEvent.change(screen.getByLabelText("работаю с"),
         { target: { value: "09:00" } });
       fireEvent.change(screen.getByLabelText("работаю до"),
@@ -111,7 +114,9 @@ describe("анкета", () => {
     const FORMS = [{ id: "f", name: "Анкета", questions: [{ id: "q1", text: "Стек" }] }];
     const { rerender } = render(
       <ProfilePanel me={{ ...ME, forms: FORMS }} people={[]} tasks={[]} funcs={[]} />);
-    fireEvent.click(screen.getByLabelText("рабочий день сб"));
+    fireEvent.dblClick(screen.getByLabelText("рабочий день сб"));
+    fireEvent.click(screen.getByLabelText("рабочие дни"));
+    fireEvent.click(screen.getByLabelText("принять: часы дня"));
     const about = screen.getByLabelText("Стек");
     fireEvent.change(about, { target: { value: "пишу" } });
     fireEvent.blur(about);

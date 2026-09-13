@@ -5,8 +5,8 @@ import { getDuty, putProfile, refuseFuncRemote } from "../identity.js";
 import { FormAnswers } from "./FormsPanel.jsx";
 import { WEEK, WORKER_KINDS, dutyOf } from "../lib/funcs.js";
 import { WARNS } from "./TasksBoard.jsx";
-import { WORK_STATUSES, dayHours, hasSchedule, scheduleOfPerson, scheduleText, statusOf }
-  from "../lib/workers.js";
+import { WORK_STATUSES, dayHours, hasSchedule, inWorkTime, liveStatus, scheduleOfPerson,
+  scheduleText, statusOf } from "../lib/workers.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЧЕЛОВЕК · анкета и рейтинг
@@ -55,39 +55,43 @@ export const statusColor = (id) => (
  */
 function Schedule({ mine, draft, setDraft, msg = "" }) {
   const sc = scheduleOfPerson(draft);
-  const st = statusOf(sc.status);
-  const flip = (d) => setDraft((p) => {
-    const on = (scheduleOfPerson(p).days || []).includes(d);
-    const was = scheduleOfPerson(p).days;
-    return { ...p, days: on ? was.filter((x) => x !== d) : [...was, d] };
-  });
+  /* Статус — по графику (lib/workers.js): в нерабочее время человек
+     «сегодня не работает», в рабочее — то, что нажал. Нажимает он
+     по-прежнему свой статус; график лишь говорит, когда тот действует. */
+  const work = inWorkTime(sc);
+  const live = liveStatus(sc);
+  const st = statusOf(live);
 
-  /* ─── часы отдельного дня ───
+  /* ─── дни: одиночное нажатие — посмотреть, двойное — править ───
 
-     Общие «с — до» действуют на все рабочие дни. Двойное нажатие по дню
-     открывает правку ЕГО часов: день жёлтый, а поля «с»/«до» пишут в его
-     запись, а не в общие. Пока правка открыта, одиночное нажатие по
-     другому рабочему дню добавляет его в набор — часы пишутся всем дням
-     набора сразу. Набор здесь, а не в записи: это состояние экрана, и на
-     сервер ему ехать незачем. Выходной в наборе не держится: править у
-     него нечего. Браузер перед двойным нажатием шлёт два одиночных, и
-     набор от них переключается туда-обратно — поэтому двойное смотрит на
-     то, что получилось, и решает по нему. */
+     Владелец (2026-09-13): «при двойном нажатии на день или несколько
+     дней они должны становиться жёлтыми, и время редактируется только под
+     них, не трогая остальные; под временем — кнопка «Принять», которая
+     завершает режим редактирования; при одинарном нажатии просто
+     показывается время работы для этого дня, но не редактируется».
+
+     Набор жёлтых (`editing`) и просматриваемый день (`viewed`) — состояние
+     экрана, на сервер им ехать незачем. Двойное нажатие берёт день в набор
+     или убирает из него — любой день, и выходной тоже: так его и делают
+     рабочим (галочка «рабочие дни» в правке). Одиночное — только показ:
+     поля с часами дня, без правки. Браузер перед двойным шлёт два
+     одиночных — показ от них включается и выключается, вреда нет. */
   const [editing, setEditing] = useState([]);
-  const set = editing.filter((d) => sc.days.includes(d));
-  const tap = (d) => {
-    if (set.length && sc.days.includes(d)) {
-      setEditing(set.includes(d) ? set.filter((x) => x !== d) : [...set, d]);
-      return;
-    }
-    flip(d);
-  };
-  const dbl = (d) => {
-    if (!sc.days.includes(d)) return;
-    setEditing(set.includes(d) ? [] : [...set, d]);
-  };
-  // В правке поля показывают часы первого дня набора — того, с которого начали.
-  const shown = set.length ? dayHours(sc, set[0]) : { from: sc.from, to: sc.to };
+  const [viewed, setViewed] = useState(null);
+  const set = editing;
+  const tap = (d) => setViewed((v) => (v === d ? null : d));
+  const dbl = (d) => { setViewed(null); setEditing(set.includes(d) ? set.filter((x) => x !== d) : [...set, d]); };
+  const names = (list) => WEEK.filter((w) => list.includes(w.id)).map((w) => w.short).join(", ");
+  const allOn = set.length > 0 && set.every((d) => sc.days.includes(d));
+  // Поля: в правке — часы первого дня набора; в показе — часы дня; иначе общие.
+  const shown = set.length ? dayHours(sc, set[0])
+    : viewed != null ? dayHours(sc, viewed) : { from: sc.from, to: sc.to };
+  const readOnly = !set.length && viewed != null;
+  const setDays = (on) => setDraft((p) => {
+    const was = scheduleOfPerson(p).days;
+    const days = on ? [...new Set([...was, ...set])] : was.filter((d) => !set.includes(d));
+    return { ...p, days };
+  });
   const setHours = (key, value) => setDraft((p) => {
     if (!set.length) return { ...p, [key]: value };
     const cur = scheduleOfPerson(p);
@@ -95,8 +99,8 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
     set.forEach((d) => { perDay[d] = { ...dayHours(cur, d), [key]: value }; });
     return { ...p, perDay };
   });
-  const names = (list) => WEEK.filter((w) => list.includes(w.id))
-    .map((w) => w.short).join(", ");
+  const accept = () => { setEditing([]); setViewed(null); };
+
   return (
     <div style={{ ...S.card, marginBottom: 10 }}>
       <div style={S.lbl}>{mine ? "мой рабочий график" : "рабочий график"}</div>
@@ -105,14 +109,17 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
         margin: "7px 0 3px" }}>
         <span style={{ width: 9, height: 9, borderRadius: 5,
-          background: statusColor(sc.status) }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600,
-          color: statusColor(sc.status) }}>{st.name}</span>
+          background: statusColor(live) }} />
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: statusColor(live) }}
+          aria-label="статус сейчас">{st.name}</span>
+        <span style={{ fontSize: 10.5, color: C.muted }}>
+          {work == null ? "· график не задан"
+            : work ? "· по графику сейчас рабочее время" : "· по графику сейчас нерабочее время"}</span>
       </div>
       {mine ? (<>
         <div className="flex flex-wrap gap-2" style={{ marginTop: 5 }}>
           {WORK_STATUSES.map((x) => (
-            <button key={x.id} aria-label={`статус: ${x.name}`}
+            <button key={x.id} aria-label={`статус: ${x.name}`} aria-pressed={sc.status === x.id}
               style={{ ...btn(sc.status === x.id,
                 sc.status === x.id ? statusColor(x.id) : null),
               fontSize: 11, padding: "4px 8px" }}
@@ -120,28 +127,36 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
               {x.name}</button>))}
         </div>
         <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-          Статус — про сейчас, график — про вообще.
+          Статус — про сейчас, график — про вообще. В нерабочее время по графику
+          вы «сегодня не работаете», что бы ни было нажато.
         </div>
       </>) : null}
 
       {/* ─── дни недели ─── */}
       <div style={{ ...S.lbl, marginTop: 10 }}>рабочие дни</div>
-      {mine ? (
+      {mine ? (<>
         <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
           {WEEK.map((d) => {
             const on = sc.days.includes(d.id);
             const edit = set.includes(d.id);
+            const view = !set.length && viewed === d.id;
             return (
               /* touchAction: двойной тап на телефоне иначе приближает
                  страницу, а не открывает правку часов. */
               <button key={d.id} aria-label={`рабочий день ${d.short}`}
+                aria-pressed={on}
                 style={{ ...btn(on, edit ? WARN : null), fontSize: 11,
-                  padding: "4px 8px", touchAction: "manipulation" }}
+                  padding: "4px 8px", touchAction: "manipulation",
+                  ...(edit ? { color: WARN, borderColor: WARN } : {}),
+                  ...(view ? { outline: `2px solid ${ACC}`, outlineOffset: 1 } : {}) }}
                 onClick={() => tap(d.id)}
                 onDoubleClick={() => dbl(d.id)}>{d.short}</button>);
           })}
         </div>
-      ) : (
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+          Одно нажатие — посмотреть часы дня, двойное — править день (жёлтый).
+        </div>
+      </>) : (
         <div style={{ fontSize: 12, marginTop: 4,
           color: sc.days.length ? C.text : C.muted }}>
           {sc.days.length
@@ -154,26 +169,44 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
         {set.length > 0 && (
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
             fontSize: 11, color: WARN, marginTop: 4, lineHeight: 1.5 }}>
-            <span>Часы правятся только для: {names(set)}</span>
-            <button aria-label="готово: часы дня"
-              style={{ ...btn(true, WARN), fontSize: 11, padding: "3px 8px" }}
-              onClick={() => setEditing([])}>готово</button>
+            <span>Правятся только: {names(set)}</span>
+            <label className="flex items-center gap-1" style={{ color: C.text, cursor: "pointer" }}>
+              <input type="checkbox" aria-label="рабочие дни" checked={allOn}
+                onChange={(e) => setDays(e.target.checked)} />
+              рабочие дни
+            </label>
+          </div>)}
+        {readOnly && (
+          <div style={{ fontSize: 11, color: ACC, marginTop: 4, lineHeight: 1.5 }}>
+            {sc.days.includes(viewed)
+              ? `Часы для: ${names([viewed])} — только просмотр; править — двойным нажатием`
+              : `${names([viewed])} — выходной`}
           </div>)}
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
           marginTop: 4 }}>
           <span style={{ fontSize: 11.5, color: C.muted }}>с</span>
           <input type="time" aria-label="работаю с" value={shown.from}
+            disabled={readOnly || (set.length > 0 && !allOn)}
             style={{ ...S.inp, flex: "0 1 120px", fontSize: 12 }}
             onChange={(e) => setHours("from", e.target.value)} />
           <span style={{ fontSize: 11.5, color: C.muted }}>до</span>
           <input type="time" aria-label="работаю до" value={shown.to}
+            disabled={readOnly || (set.length > 0 && !allOn)}
             style={{ ...S.inp, flex: "0 1 120px", fontSize: 12 }}
             onChange={(e) => setHours("to", e.target.value)} />
         </div>
+        {set.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <button aria-label="принять: часы дня"
+              style={{ ...btn(true, WARN), fontSize: 11, padding: "3px 10px" }}
+              onClick={accept}>Принять</button>
+            {!allOn && (
+              <span style={{ fontSize: 10.5, color: C.muted, marginLeft: 8 }}>
+                выходной — часов нет; отметьте «рабочие дни», чтобы задать</span>)}
+          </div>)}
         {set.length === 0 && Object.keys(sc.perDay).length > 0 && (
           <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-            Свои часы у: {names(Object.keys(sc.perDay).map(Number))}. Двойное нажатие
-            по дню — правка его часов.
+            Свои часы у: {names(Object.keys(sc.perDay).map(Number))}.
           </div>)}
       </>) : (
         <div style={{ fontSize: 12, marginTop: 4,
@@ -323,12 +356,16 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
         <div style={{ fontSize: 12, color: C.muted }}>
           {mine ? "Вам пока ничего не поручено." : "Ему пока ничего не поручено."}</div>)}
 
+      {/* Каждое поручение — своей рамкой (владелец, 2026-09-13): в списке
+          строк глазу не за что зацепиться, а рамка говорит «вот одно». */}
       {byAsset.map((g) => (
         <div key={g.id} style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>{g.name}</div>
           {g.items.map((d) => (
-            <div key={d.func} className="flex flex-wrap gap-2"
-              style={{ alignItems: "center", padding: "3px 0" }}>
+            <div key={d.func} className="flex flex-wrap gap-2" data-duty={d.func}
+              style={{ alignItems: "center", padding: "6px 8px", marginBottom: 6,
+                background: C.panel2, border: `1px solid ${d.off ? "#5A2436" : C.line}`,
+                borderRadius: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600,
                 textDecoration: d.off ? "line-through" : "none",
                 color: d.off ? C.muted : C.text }}>{d.name}</span>

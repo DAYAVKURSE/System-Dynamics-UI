@@ -13,7 +13,7 @@ import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWo
 import { MATERIAL_KINDS, traitKind } from "../lib/units.js";
 import { Mark } from "./Modal.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
-import { scheduleOfPerson, statusOf, visibleStats } from "../lib/workers.js";
+import { scheduleOfPerson, statusOf, visibleStats, liveStatus } from "../lib/workers.js";
 import { hasKind, kindIdsOf, toggleKind } from "../lib/traits.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -256,7 +256,9 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
  */
 function WorkerLine({ pid, name, stat, person, roleNames }) {
   const sc = scheduleOfPerson(person || {});
-  const st = statusOf(sc.status);
+  // По графику: в нерабочее время человек «не работает», что бы ни нажал.
+  const live = liveStatus(sc);
+  const st = statusOf(live);
   const chip = (text, color) => (
     <span style={{ fontSize: 10.5, color: color || C.muted,
       whiteSpace: "nowrap" }}>{text}</span>);
@@ -281,7 +283,7 @@ function WorkerLine({ pid, name, stat, person, roleNames }) {
       {chip(`${stat.done} сдано`)}
       {/* Статус стоит здесь же: он отвечает «можно ли поручить прямо
           сейчас», и узнавать это, открыв карточку, поздно. */}
-      {chip(`· ${st.name}`, statusColor(sc.status))}
+      {chip(`· ${st.name}`, statusColor(live))}
     </span>);
 }
 

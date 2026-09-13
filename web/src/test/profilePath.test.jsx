@@ -85,7 +85,9 @@ describe("график переживает переход между вклад
       await waitFor(() => expect(screen.getByRole("button", { name: "Задачи" })).toBeInTheDocument());
       tab("Анкета");
       await waitFor(() => expect(screen.getByLabelText("рабочий день пн")).toBeInTheDocument());
-      fireEvent.click(screen.getByLabelText("рабочий день пн"));
+      fireEvent.dblClick(screen.getByLabelText("рабочий день пн"));
+      fireEvent.click(screen.getByLabelText("рабочие дни"));
+      fireEvent.click(screen.getByLabelText("принять: часы дня"));
       fireEvent.change(screen.getByLabelText("работаю с"), { target: { value: "09:00" } });
       fireEvent.click(screen.getByLabelText("статус: короткий перерыв"));
       const about = screen.getByLabelText("Стек");
@@ -122,7 +124,9 @@ describe("график переживает переход между вклад
       tab("Анкета");
       await waitFor(() => expect(screen.getByLabelText("статус: сегодня не работаю")).toBeInTheDocument());
       fireEvent.click(screen.getByLabelText("статус: сегодня не работаю"));
-      fireEvent.click(screen.getByLabelText("рабочий день сб"));
+      fireEvent.dblClick(screen.getByLabelText("рабочий день сб"));
+      fireEvent.click(screen.getByLabelText("рабочие дни"));
+      fireEvent.click(screen.getByLabelText("принять: часы дня"));
       tab("Задачи");   // раньше, чем истекла задержка
       await waitFor(() => expect(puts).toHaveLength(1));
       expect(puts[0]).toEqual({ days: [6], from: "", to: "", perDay: {}, status: "off" });
