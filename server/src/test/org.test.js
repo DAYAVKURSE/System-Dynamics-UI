@@ -344,7 +344,7 @@ describe("анкета", () => {
        рабочий график и статус: они отвечают не «кто это», а «работает ли
        он сейчас», и спрашивают их раньше. */
     expect(me.profile).toEqual({ about: "", days: [], from: "", to: "", perDay: {},
-      status: "ready", warnMin: 10, deferMin: 30, answers: {} });
+      status: "ready", statusAt: null, warnMin: 10, deferMin: 30, answers: {} });
   });
 
   it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
@@ -395,9 +395,20 @@ describe("анкета", () => {
       const saved = await setProfile("100", { days: [1, 3], from: "09:00", to: "18:00",
         status: "break", about: "аналитик" });
       expect(saved).toEqual({ about: "аналитик", days: [1, 3], from: "09:00",
-        to: "18:00", perDay: {}, status: "break", warnMin: 10, deferMin: 30, answers: {} });
+        to: "18:00", perDay: {}, status: "break", statusAt: expect.any(String), warnMin: 10,
+        deferMin: 30, answers: {} });
       // И «кто я» после этого говорит то же самое.
       expect((await identify("100", {})).profile).toEqual(saved);
+      /* Момент выбора: из запроса, если прислан, иначе — момент смены;
+         повтор того же статуса без метки её не двигает. */
+      const t0 = saved.statusAt;
+      const same = await setProfile("100", { status: "break" });
+      expect(same.statusAt).toBe(t0);
+      const sent = await setProfile("100", { status: "break", statusAt: "2026-09-14T07:00:00.000Z" });
+      expect(sent.statusAt).toBe("2026-09-14T07:00:00.000Z");
+      const bad = await setProfile("100", { status: "ready", statusAt: "вчера" });
+      expect(bad.statusAt).not.toBe("2026-09-14T07:00:00.000Z");
+      expect(Date.parse(bad.statusAt)).toBeGreaterThan(Date.parse(t0) - 1);
     });
 
   /* ─── часы отдельного дня ───

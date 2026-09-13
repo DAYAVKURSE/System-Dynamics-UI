@@ -360,7 +360,8 @@ describe("рабочий график и статус", () => {
       .perDay).toEqual({});
     // Прежняя запись: исключений нет, и всё остальное как было.
     expect(scheduleOfPerson({ days: [1, 2], from: "09:00", to: "18:00" }))
-      .toEqual({ days: [1, 2], from: "09:00", to: "18:00", perDay: {}, status: "ready" });
+      .toEqual({ days: [1, 2], from: "09:00", to: "18:00", perDay: {}, status: "ready",
+        statusAt: null });
     expect(perDayOf("не объект")).toEqual({});
     expect(perDayOf([{ from: "10:00" }])).toEqual({});
   });

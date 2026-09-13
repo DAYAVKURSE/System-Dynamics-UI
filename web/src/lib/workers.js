@@ -119,6 +119,7 @@ export const scheduleOfPerson = (p = {}) => {
     to: workTime(p.to),
     perDay: perDayOf(p.perDay, days),
     status: statusOf(p.status).id,
+    statusAt: Number.isFinite(Date.parse(String(p.statusAt || ""))) ? String(p.statusAt) : null,
   };
 };
 
@@ -178,11 +179,52 @@ export function inWorkTime(sc = {}, now = new Date()) {
   // Смена через полночь («22:00–06:00»): внутри, если после начала или до конца.
   return from <= to ? (t >= from && t < to) : (t >= from || t < to);
 }
+/* Границы графика — моменты, когда рабочее время начинается и кончается:
+   по ним статус меняется сам. Последняя граница до `now` — точка отсчёта:
+   выбор, сделанный после неё, приоритетнее графика (владелец,
+   2026-09-13: «если пользователь выберет «сегодня не работаю», хотя сегодня
+   рабочий день, или наоборот, — статус должен измениться до следующего
+   автоматического изменения графиком»). */
+const atTime = (date, s, addDays = 0) => {
+  const [hh, mm] = s.split(":").map(Number);
+  const x = new Date(date);
+  x.setDate(x.getDate() + addDays);
+  x.setHours(hh, mm, 0, 0);
+  return x;
+};
+function boundariesOn(sc, date) {
+  const d = date.getDay();
+  if (!(sc.days || []).includes(d)) return [];
+  const h = dayHours(sc, d);
+  const from = h.from || "00:00";
+  const to = h.to || "24:00";
+  const start = atTime(date, from);
+  const end = to === "24:00" ? atTime(date, "00:00", 1)
+    : (to <= from ? atTime(date, to, 1) : atTime(date, to));
+  return [start, end];
+}
+export function lastBoundary(sc = {}, now = new Date()) {
+  if (!(sc.days || []).length) return null;
+  let best = null;
+  for (let k = 0; k <= 8; k += 1) {
+    const date = new Date(now);
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - k);
+    boundariesOn(sc, date).forEach((b) => {
+      if (b.getTime() <= now.getTime() && (!best || b > best)) best = b;
+    });
+  }
+  return best;
+}
 export function liveStatus(sc = {}, now = new Date()) {
   const w = inWorkTime(sc, now);
-  if (w == null) return statusOf(sc.status).id;
-  if (!w) return "off";
-  return sc.status === "off" ? "ready" : statusOf(sc.status).id;
+  const chosen = statusOf(sc.status).id;
+  if (w == null) return chosen;
+  // Выбор после последней смены по графику — приоритетнее графика.
+  const at = Date.parse(sc.statusAt || "");
+  const b = lastBoundary(sc, now);
+  if (Number.isFinite(at) && b && at >= b.getTime() && at <= now.getTime() + 60000) return chosen;
+  return w ? "ready" : "off";
 }
 
 /**

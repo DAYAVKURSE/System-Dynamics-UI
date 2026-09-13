@@ -79,8 +79,13 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
   const [editing, setEditing] = useState([]);
   const [viewed, setViewed] = useState(null);
   const set = editing;
-  const tap = (d) => setViewed((v) => (v === d ? null : d));
-  const dbl = (d) => { setViewed(null); setEditing(set.includes(d) ? set.filter((x) => x !== d) : [...set, d]); };
+  const toggle = (d) => { setViewed(null); setEditing(set.includes(d) ? set.filter((x) => x !== d) : [...set, d]); };
+  /* В правке одиночное нажатие берёт следующий день в набор (владелец:
+     «на следующий день не нужно нажимать два раза»); вне правки — показ. */
+  const tap = (d) => (set.length ? toggle(d) : setViewed((v) => (v === d ? null : d)));
+  // Перед двойным браузер шлёт два одиночных: в правке они взаимно
+  // отменяются, вне правки включают и выключают показ; двойное — берёт день.
+  const dbl = (d) => toggle(d);
   const names = (list) => WEEK.filter((w) => list.includes(w.id)).map((w) => w.short).join(", ");
   const allOn = set.length > 0 && set.every((d) => sc.days.includes(d));
   // Поля: в правке — часы первого дня набора; в показе — часы дня; иначе общие.
@@ -105,9 +110,13 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
     <div style={{ ...S.card, marginBottom: 10 }}>
       <div style={S.lbl}>{mine ? "мой рабочий график" : "рабочий график"}</div>
 
-      {/* ─── статус ─── */}
+      {/* ─── форма 1: статус ─── */}
+      <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
+        padding: 8, marginTop: 6 }} aria-label="статус">
+      <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase",
+        letterSpacing: 0.5 }}>статус</div>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
-        margin: "7px 0 3px" }}>
+        margin: "4px 0 3px" }}>
         <span style={{ width: 9, height: 9, borderRadius: 5,
           background: statusColor(live) }} />
         <span style={{ fontSize: 12.5, fontWeight: 600, color: statusColor(live) }}
@@ -123,17 +132,25 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
               style={{ ...btn(sc.status === x.id,
                 sc.status === x.id ? statusColor(x.id) : null),
               fontSize: 11, padding: "4px 8px" }}
-              onClick={() => setDraft((p) => ({ ...p, status: x.id }))}>
+              /* Метка момента: выбор приоритетнее графика до следующей
+                 смены по нему (lib/workers.js, liveStatus). */
+              onClick={() => setDraft((p) => ({ ...p, status: x.id,
+                statusAt: new Date().toISOString() }))}>
               {x.name}</button>))}
         </div>
         <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-          Статус — про сейчас, график — про вообще. В нерабочее время по графику
-          вы «сегодня не работаете», что бы ни было нажато.
+          Статус — про сейчас, график — про вообще. Ваш выбор действует до
+          следующей смены по графику: тогда статус снова станет «на рабочем
+          месте» или «сегодня не работаю».
         </div>
       </>) : null}
+      </div>
 
-      {/* ─── дни недели ─── */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>рабочие дни</div>
+      {/* ─── форма 2: рабочие дни и часы ─── */}
+      <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
+        padding: 8, marginTop: 8 }} aria-label="рабочие дни и часы">
+      <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase",
+        letterSpacing: 0.5 }}>рабочие дни</div>
       {mine ? (<>
         <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
           {WEEK.map((d) => {
@@ -154,7 +171,8 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
           })}
         </div>
         <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-          Одно нажатие — посмотреть часы дня, двойное — править день (жёлтый).
+          Одно нажатие — посмотреть часы дня, двойное — править (жёлтый); в правке
+          следующие дни берутся одним нажатием.
         </div>
       </>) : (
         <div style={{ fontSize: 12, marginTop: 4,
@@ -213,6 +231,8 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
           color: sc.from || sc.to ? C.text : C.muted }}>
           {sc.from || sc.to
             ? scheduleText({ ...sc, days: [] }, WEEK) : "часы не названы"}</div>)}
+
+      </div>
 
       {/* Пусто — это ответ «не названо», а не «все дни и круглые сутки»:
           дописать человеку семидневку за него нельзя. */}

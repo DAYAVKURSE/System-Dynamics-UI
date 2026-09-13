@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ProfilePanel from "../components/ProfilePanel.jsx";
 import { WARN } from "../components/ui.jsx";
-import { inWorkTime, liveStatus } from "../lib/workers.js";
+import { inWorkTime, lastBoundary, liveStatus } from "../lib/workers.js";
 
 /* ЧАСЫ ОТДЕЛЬНОГО ДНЯ И СТАТУС ПО ГРАФИКУ.
 
@@ -63,17 +63,17 @@ describe("часы отдельного дня", () => {
     expect(screen.getByLabelText("работаю с")).toHaveValue("09:00");
   });
 
-  it("двойное по второму дню добавляет его в набор, по жёлтому — убирает; часы — всем в наборе", async () => {
+  it("в правке следующий день берётся одним нажатием, повторное — убирает; часы — всем в наборе", async () => {
     const saved = mount();
     fireEvent.dblClick(day("сб"));
-    fireEvent.dblClick(day("пт"));
+    fireEvent.click(day("пт"));
     expect(day("пт")).toHaveStyle({ color: WARN });
     expect(screen.getByText("Правятся только: пт, сб")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("работаю до"), { target: { value: "15:00" } });
     await waitFor(() => expect(saved.length).toBeGreaterThan(0));
     expect(last(saved).perDay).toEqual({ 5: { from: "09:00", to: "15:00" },
       6: { from: "09:00", to: "15:00" } });
-    fireEvent.dblClick(day("пт"));
+    fireEvent.click(day("пт"));
     expect(day("пт")).not.toHaveStyle({ color: WARN });
     expect(screen.getByText("Правятся только: сб")).toBeInTheDocument();
     expect(screen.getByText(/Работает: пн–чт · 09:00–18:00; пт, сб · 09:00–15:00/))
@@ -154,25 +154,47 @@ describe("статус по графику", () => {
     expect(inWorkTime({ ...sc, days: [] }, mon10)).toBeNull();
   });
 
-  it("в нерабочее время — «сегодня не работаю»; в рабочее — нажатое, а нажатое «не работаю» читается как «на месте»", () => {
+  it("график решает, пока человек не выбрал сам; выбор после последней смены по графику — приоритетнее", () => {
+    // Без метки выбора — по графику: вечером «не работаю», днём «на месте».
     expect(liveStatus(sc, mon20)).toBe("off");
     expect(liveStatus({ ...sc, status: "busy" }, mon20)).toBe("off");
     expect(liveStatus(sc, mon10)).toBe("ready");
-    expect(liveStatus({ ...sc, status: "busy" }, mon10)).toBe("busy");
-    expect(liveStatus({ ...sc, status: "break" }, mon10)).toBe("break");
-    expect(liveStatus({ ...sc, status: "off" }, mon10)).toBe("ready");
+    expect(liveStatus({ ...sc, status: "busy" }, mon10)).toBe("ready");
     expect(liveStatus({ ...sc, days: [], status: "off" }, mon10)).toBe("off");
+    // Выбор после начала рабочего дня (09:00) действует днём…
+    const at = (h, m = 0) => new Date(2026, 8, 14, h, m).toISOString();
+    expect(liveStatus({ ...sc, status: "busy", statusAt: at(9, 30) }, mon10)).toBe("busy");
+    expect(liveStatus({ ...sc, status: "off", statusAt: at(9, 30) }, mon10)).toBe("off");
+    // …но не после конца рабочего дня (18:00): график сменил статус сам.
+    expect(liveStatus({ ...sc, status: "busy", statusAt: at(9, 30) }, mon20)).toBe("off");
+    // Выбор вечером, после конца дня, — приоритетнее «не работаю».
+    expect(liveStatus({ ...sc, status: "ready", statusAt: at(19) }, mon20)).toBe("ready");
+    // Выбор до начала дня — устарел с началом дня.
+    expect(liveStatus({ ...sc, status: "off", statusAt: at(8) }, mon10)).toBe("ready");
+    // Границы: последняя до 10:00 понедельника — 09:00 того же дня, до 20:00 — 18:00.
+    expect(lastBoundary(sc, mon10).getTime()).toBe(new Date(2026, 8, 14, 9).getTime());
+    expect(lastBoundary(sc, mon20).getTime()).toBe(new Date(2026, 8, 14, 18).getTime());
+    // В воскресенье — пятница 18:00; смена через полночь кончается назавтра.
+    expect(lastBoundary(sc, sun12).getTime()).toBe(new Date(2026, 8, 11, 18).getTime());
+    expect(lastBoundary({ ...sc, from: "22:00", to: "06:00" }, new Date(2026, 8, 15, 7)).getTime())
+      .toBe(new Date(2026, 8, 15, 6).getTime());
+    expect(lastBoundary({ ...sc, days: [] }, mon10)).toBeNull();
   });
 
-  it("на экране: вечером понедельника заголовок — «сегодня не работаю», хотя нажато «на рабочем месте»", () => {
+  it("на экране: вечером — «сегодня не работаю» по графику; нажатый сейчас статус — приоритетнее, с меткой момента", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(mon20);
-    mount({ ...ME, profile: { ...ME.profile, status: "ready" } });
+    const saved = mount({ ...ME, profile: { ...ME.profile, status: "ready" } });
     expect(screen.getByLabelText("статус сейчас")).toHaveTextContent("сегодня не работаю");
     expect(screen.getByText(/по графику сейчас нерабочее время/)).toBeInTheDocument();
     expect(screen.getByLabelText("статус: на рабочем месте")).toHaveAttribute("aria-pressed", "true");
-    vi.setSystemTime(mon10);
-    fireEvent.click(screen.getByLabelText("статус: короткий перерыв"));
-    expect(screen.getByLabelText("статус сейчас")).toHaveTextContent("короткий перерыв");
+    // Нажали «на рабочем месте» вечером — действует, пока график не сменит сам.
+    fireEvent.click(screen.getByLabelText("статус: на рабочем месте"));
+    expect(screen.getByLabelText("статус сейчас")).toHaveTextContent("на рабочем месте");
+    await waitFor(() => expect(saved.length).toBeGreaterThan(0));
+    expect(last(saved)).toMatchObject({ status: "ready", statusAt: mon20.toISOString() });
+    // Статус и дни — двумя формами внутри карточки.
+    expect(screen.getByLabelText("статус")).toBeInTheDocument();
+    expect(screen.getByLabelText("рабочие дни и часы")).toBeInTheDocument();
   });
 });

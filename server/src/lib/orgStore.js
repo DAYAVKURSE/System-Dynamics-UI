@@ -247,6 +247,11 @@ export const PROFILE_FIELDS = ["about"];
 export const WORK_STATUSES = ["ready", "break", "off", "busy"];
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const hhmm = (v) => (HHMM.test(String(v || "")) ? String(v) : "");
+/** Момент в ISO или null: чужую строку в запись не пускаем. */
+const isoOf = (v) => {
+  const t = Date.parse(String(v || ""));
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+};
 const weekDays = (v) => (Array.isArray(v)
   ? [...new Set(v.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
   : []);
@@ -273,6 +278,11 @@ const scheduleOf = (user = {}) => ({
   to: hhmm(user.to),
   perDay: perDayOf(user.perDay, weekDays(user.days)),
   status: WORK_STATUSES.includes(user.status) ? user.status : "ready",
+  /* Когда статус выбрали: выбор человека приоритетнее графика до следующей
+     смены по графику (2026-09-13), и без этой метки не сказать, что было
+     раньше — выбор или смена. Нет метки — статус «старый», и действует
+     график. */
+  statusAt: isoOf(user.statusAt),
   warnMin: warnOf(user.warnMin),
   deferMin: deferOf(user.deferMin),
 });
@@ -346,7 +356,12 @@ export async function setProfile(userId, patch = {}) {
   // Часы дня разбираются так же строго и только для рабочих дней.
   if (patch.perDay != null) user.perDay = perDayOf(patch.perDay, weekDays(user.days));
   if (patch.status != null) {
-    user.status = WORK_STATUSES.includes(patch.status) ? patch.status : "ready";
+    const next = WORK_STATUSES.includes(patch.status) ? patch.status : "ready";
+    // Метка выбора — из запроса (нажатие в приложении), иначе — момент
+    // смены статуса; повтор того же статуса без метки её не двигает.
+    if (isoOf(patch.statusAt)) user.statusAt = isoOf(patch.statusAt);
+    else if (next !== user.status || !user.statusAt) user.statusAt = new Date().toISOString();
+    user.status = next;
   }
   if (patch.warnMin != null) user.warnMin = warnOf(patch.warnMin);
   if (patch.deferMin != null) user.deferMin = deferOf(patch.deferMin);
