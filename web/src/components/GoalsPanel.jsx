@@ -123,8 +123,12 @@ function Conds({ goal, traits, traitName, st, up }) {
     </div>);
 }
 
-const Row = ({ label, children, wide }) => (
-  <div style={{ flex: wide ? "1 1 100%" : "1 1 130px", minWidth: 0 }}>
+/* `w` — узкое поле на заданную ширину: число и единица срока стоят в одну
+   строку с кнопками (владелец: «поля слишком длинные»), а не тянутся на
+   всю ширину. */
+const Row = ({ label, children, wide, w }) => (
+  <div style={{ flex: wide ? "1 1 100%" : w ? `1 1 ${w}px` : "1 1 130px",
+    minWidth: 0, maxWidth: w ? w * 1.6 : undefined }}>
     <div style={S.lbl}>{label}</div>
     {children}
   </div>
@@ -258,26 +262,30 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
 
       {/* ─── КОГДА ─── */}
       <div style={{ ...S.lbl, marginTop: 10 }}>к какому сроку</div>
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 4, alignItems: "flex-end" }}>
-        <div className="flex gap-2">
+      {/* Одной строкой: кнопки, и рядом либо «сколько» с единицей, либо дата
+          (владелец, 2026-09-13). Без переноса — иначе на телефоне поля
+          уезжали вниз и растягивались на всю ширину. */}
+      <div className="flex gap-2" style={{ marginTop: 4, alignItems: "flex-end",
+        flexWrap: "nowrap" }}>
+        <div className="flex gap-2" style={{ flex: "0 0 auto" }}>
           <button style={{ ...btn(goal.dueKind === DUE_IN), fontSize: 11, padding: "5px 9px" }}
             onClick={() => up({ dueKind: DUE_IN })}>через</button>
           <button style={{ ...btn(goal.dueKind === DUE_ON), fontSize: 11, padding: "5px 9px" }}
             onClick={() => up({ dueKind: DUE_ON })}>к дате</button>
         </div>
         {goal.dueKind === DUE_IN ? (<>
-          <Row label="сколько">
+          <Row label="сколько" w={64}>
             <NumField value={goal.dueIn} aria-label="через сколько"
               onCommit={(v) => up({ dueIn: v ?? 0 })} />
           </Row>
-          <Row label="единица">
+          <Row label="единица" w={72}>
             <select style={sel} value={goal.dueUnit} aria-label="единица срока"
               onChange={(e) => up({ dueUnit: e.target.value })}>
               {Object.keys(DUR_UNITS).map((u) => (<option key={u} value={u}>{u}</option>))}
             </select>
           </Row>
         </>) : (
-          <Row label="дата" wide>
+          <Row label="дата" w={150}>
             <input type="date" style={sel} value={goal.dueOn || ""} aria-label="дата цели"
               onChange={(e) => up({ dueOn: e.target.value })} />
           </Row>)}
@@ -294,7 +302,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           настоящее — и рядом стояли два ответа на один вопрос. Осталось
           только время: его человек и правда решает сам. Что цель съест по
           другим ресурсам, считается и показано ниже, в «цене по ресурсам». */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>время на достижение</div>
+      <div style={{ ...S.lbl, marginTop: 10 }}>в график работ</div>
       {/* ─── бюджет времени: сперва «ограничивать ли», потом «сколько» ───
 
           Ноль в поле времени означал «не ограничиваем», и это приходилось
@@ -309,20 +317,27 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           форма открыта, оно помнится и возвращается при включении. */}
       <label className="flex items-center gap-2"
         style={{ marginTop: 4, fontSize: 11.5, cursor: "pointer" }}>
-        <input type="checkbox" checked={capped} aria-label="ограничить время"
+        <input type="checkbox" checked={capped} aria-label="учитывать график"
           style={{ accentColor: ACC }}
           onChange={(e) => {
             if (e.target.checked) up({ hours: lastHours });
             else { setLastHours(num(goal.hours) || lastHours); up({ hours: 0 }); }
           }} />
-        <span>ограничить время</span>
+        <span>учитывать график</span>
         <span style={{ color: C.muted, fontSize: 10.5 }}>
           {capped ? "" : "— считаем без ограничения по времени"}</span>
       </label>
-      {capped && (<>
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 5 }}>
+      {/* Без галочки поля НЕ пропадают, а гаснут — как дни недели ниже
+          (владелец, 2026-09-13): видно, что здесь настраивается, и набранное
+          число остаётся на месте. Показывается запомненное `lastHours`:
+          в записи при снятой галочке стоит ноль, а ноль в поле читался бы
+          как «забыли заполнить». */}
+      <div style={{ ...S.lbl, marginTop: 8, opacity: capped ? 1 : 0.5 }}>рабочее время</div>
+      <div style={{ opacity: capped ? 1 : 0.5 }}>
+        <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
           <Row label="сколько">
-            <NumField value={goal.hours} aria-label="сколько времени"
+            <NumField value={capped ? goal.hours : lastHours} aria-label="сколько времени"
+              disabled={!capped}
               onCommit={(v) => up({ hours: v ?? 0 })} />
           </Row>
           {/* Единица У ЧИСЛА. Без неё «2 в день» не читается вовсе: два
@@ -330,7 +345,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
               Мера та же, что у сроков функций: день это 24 часа. */}
           <Row label="единица">
             <select style={sel} value={goal.hoursUnit || "ч"}
-              aria-label="единица времени"
+              aria-label="единица времени" disabled={!capped}
               onChange={(e) => up({ hoursUnit: e.target.value })}>
               {Object.keys(DUR_UNITS).map((u) => (
                 <option key={u} value={u}>{u}</option>))}
@@ -338,6 +353,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           </Row>
           <Row label="за период">
             <select style={sel} value={goal.hoursPer} aria-label="период времени"
+              disabled={!capped}
               onChange={(e) => up({ hoursPer: e.target.value })}>
               {RATES.filter((r) => r.hours).map((r) => (
                 <option key={r.id} value={r.id}>{r.name}</option>))}
@@ -347,15 +363,16 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
         {/* Сколько это выходит в месяц — тем самым числом, с которым прогноз
             и сравнивает работу. Иначе «2 дн в неделю» и «работы 130 ч в
             месяц» человеку приходится сводить в уме. */}
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4,
-          lineHeight: 1.5 }}>
-          {budgetHours(goal) == null
-            ? "Число нулевое — выходит, ограничения нет."
-            : `Это ${hoursText(budgetHours(goal))} в месяц — с этим числом и`
-              + " сравнивается посчитанная работа. Часами, потому что работа"
-              + " по модели считается в них же."}
-        </div>
-      </>)}
+        {capped && (
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4,
+            lineHeight: 1.5 }}>
+            {budgetHours(goal) == null
+              ? "Число нулевое — выходит, ограничения нет."
+              : `Это ${hoursText(budgetHours(goal))} в месяц — с этим числом и`
+                + " сравнивается посчитанная работа. Часами, потому что работа"
+                + " по модели считается в них же."}
+          </div>)}
+      </div>
 
       {/* ─── ДНИ НЕДЕЛИ ───
 
@@ -365,8 +382,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           назывались «по каким дням идёт работа» и читались как расписание
           задач, которым не являются, — а без заданного бюджета не делали
           ровно ничего. Поэтому без флажка они и не нажимаются. */}
-      <div style={{ ...S.lbl, marginTop: 8, opacity: capped ? 1 : 0.5 }}>
-        в какие дни недели это время тратится</div>
+      <div style={{ ...S.lbl, marginTop: 8, opacity: capped ? 1 : 0.5 }}>рабочие дни</div>
       <div className="flex flex-wrap gap-2" style={{ marginTop: 4,
         opacity: capped ? 1 : 0.5 }}>
         {WEEK.map((d) => {
@@ -381,7 +397,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
       </div>
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
         {!capped
-          ? "Время не ограничено — дни ничего не меняют и не выбираются."
+          ? "График не учитывается — время и дни в расчёт не идут."
           : goal.days?.length
             ? `${goal.days.length} дн в неделю — по ним и считается бюджет времени.`
             : "Ничего не выбрано — значит все семь дней."}

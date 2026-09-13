@@ -131,35 +131,39 @@ describe("цель", () => {
      это пять часов в неделю, а не семь. Без заданного бюджета они не делают
      ничего, и отдельным блоком «по каким дням идёт работа» читались как
      расписание задач, которым не являются. */
-  it("время ограничивается флажком, и без него дни не выбираются", () => {
+  it("график учитывается флажком, и без него время и дни гаснут, не пропадая", () => {
     tab("Схема"); tab("Прогноз");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     // В этой модели бюджет задан — флажок стоит, поле и дни на месте.
-    expect(screen.getByLabelText("ограничить время").checked).toBe(true);
+    expect(screen.getByLabelText("учитывать график").checked).toBe(true);
     expect(screen.getByLabelText("сколько времени")).toBeInTheDocument();
     expect(screen.getByLabelText("день пн")).not.toBeDisabled();
 
-    // Сняли — поле ушло, дни погасли и прямо сказано, почему.
-    fireEvent.click(screen.getByLabelText("ограничить время"));
-    expect(screen.getByLabelText("ограничить время").checked).toBe(false);
-    expect(screen.queryByLabelText("сколько времени")).toBeNull();
+    // Сняли — поле и дни погасли (не пропали) и прямо сказано, почему.
+    fireEvent.click(screen.getByLabelText("учитывать график"));
+    expect(screen.getByLabelText("учитывать график").checked).toBe(false);
+    expect(screen.getByLabelText("сколько времени")).toBeDisabled();
+    expect(screen.getByLabelText("единица времени")).toBeDisabled();
     expect(screen.getByLabelText("день пн")).toBeDisabled();
-    expect(screen.getByText(/Время не ограничено — дни ничего не меняют/))
+    expect(screen.getByText(/График не учитывается — время и дни в расчёт не идут/))
       .toBeInTheDocument();
 
     // Вернули — набранное число не потерялось, и дни снова нажимаются.
-    fireEvent.click(screen.getByLabelText("ограничить время"));
+    fireEvent.click(screen.getByLabelText("учитывать график"));
     expect(screen.getByLabelText("сколько времени")).toHaveValue("2");
+    expect(screen.getByLabelText("сколько времени")).not.toBeDisabled();
     expect(screen.getByLabelText("день пн")).not.toBeDisabled();
   });
 
-  it("раздел про время и называется временем, а затрат в нём нет", () => {
+  it("раздел «в график работ»: рабочее время и дни, а затрат в нём нет", () => {
     /* «Какой ценой» спрашивал две разные вещи сразу: сколько времени
        человек готов тратить и во сколько других ресурсов это обойдётся.
        Второе он называл наугад, а модель тут же считала настоящее. */
     tab("Схема"); tab("Прогноз");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
-    expect(screen.getByText("время на достижение")).toBeInTheDocument();
+    expect(screen.getByText("в график работ")).toBeInTheDocument();
+    expect(screen.getByText("рабочее время")).toBeInTheDocument();
+    expect(screen.queryByText("время на достижение")).toBeNull();
     expect(screen.queryByText("какой ценой")).toBeNull();
     expect(screen.queryByLabelText("добавить затрату ресурса")).toBeNull();
     expect(screen.queryByText(/затрата другого ресурса/)).toBeNull();
@@ -191,8 +195,8 @@ describe("цель", () => {
     tab("Схема"); tab("Прогноз");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     expect(screen.queryByText("по каким дням идёт работа")).toBeNull();
-    expect(screen.getByText("в какие дни недели это время тратится"))
-      .toBeInTheDocument();
+    expect(screen.getByText("рабочие дни")).toBeInTheDocument();
+    expect(screen.queryByText("в какие дни недели это время тратится")).toBeNull();
   });
 
   it("под кнопкой прогноза не объясняют очевидное", () => {
@@ -203,7 +207,7 @@ describe("цель", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     // Правка цели возвращает кнопку к «Спрогнозировать» — и молча.
-    fireEvent.click(screen.getByLabelText("ограничить время"));
+    fireEvent.click(screen.getByLabelText("учитывать график"));
     expect(screen.getByRole("button", { name: "Спрогнозировать" })).toBeTruthy();
     expect(screen.queryByText(/прежний прогноз уже не про неё/)).toBeNull();
   });
