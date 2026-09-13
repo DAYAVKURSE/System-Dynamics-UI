@@ -1,193 +1,225 @@
-import React, { useRef, useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, NumField } from "./ui.jsx";
+import React, { useEffect, useRef, useState } from "react";
+import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
-import { PROC_STATUS, canAcceptProc, dropHypo, exactOption, filterOptions, newPort, newProc,
-  newStep, orderOptions, procIssues, procLabel, procText, procUsesAsset, stateOf, syncProcFuncs }
-  from "../lib/process.js";
+import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, newProc,
+  procIssues, procLabel, procUsesAsset, replaceName, resolveProc, stateOf, suggestNames,
+  syncProcFuncs } from "../lib/process.js";
 
 /* ════════════════════════════════════════════════════════════════
-   ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС · раздел под схемой
+   ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС · раздел на «Управлении»
 
-   Владелец (2026-09-13): «в поле ввода должно вводиться так: актив,
-   должность воркера, из какого актива, что берёт, и/или что выдаёт, в
-   какой актив, что выдаёт, перевод строки; для каждого выбора — подсказка
-   слева и выпадающий список; никакого ручного ввода двоеточий и стрелок;
-   новое имя — кнопка OK под полем; новое в списках первым, от новых к
-   старым; список появляется до начала ввода; название процессу — по
-   нажатию справа от слова «процесс»».
+   Владелец: «я буквально должен вводить текст, а он должен выдавать
+   подсказки»; «как она была полем ввода, так должна и остаться;
+   подсказки должны быть видны только как всплывающее окно; имя сущности
+   человек должен иметь возможность ввести сам или выбрать из выпадающего
+   списка» (2026-09-13). Порядок слов в строке — его: актив, должность,
+   откуда берёт и что, куда отдаёт и что.
 
-   Отсюда строение: строка — шаг (`StepRow`), в ней выборы (`Combo`) в
-   том порядке, в каком владелец их назвал; входов и выходов сколько
-   угодно (`PortRow`, «+ берёт», «+ отдаёт»); «+ строка» — перевод строки.
-   Текстового поля нет: шаги — единственный источник (lib/process.js).
+   Поэтому здесь ТЕКСТ — строка на шаг — и всплывающее окно у поля
+   (`ProcText`): что ожидается на месте курсора и список имён; выбрать —
+   нажатием или Enter, ввести своё — просто набрать. Разбор (lib/process.js)
+   стоит под полем построчно: найденное — чипами (нажатие открывает
+   карточку сущности), ненайденное — пунктиром, и по нажатию на пунктир
+   человек решает, принять это как новую сущность или отклонить.
 
    Все правки идут через одну дверь (`commit`): процесс, его функции и
    заведённые им сущности меняются одним заходом — в историю правок ложится
    один шаг, и «отменить» возвращает всё разом, а не по частям.
    ════════════════════════════════════════════════════════════════ */
 
+const WORD = { asset: "актив", trait: "ресурс", role: "должность" };
 const STATUS_TONE = { off: null, hypo: WARN, on: OK };
 
-/* ─── один выбор: подсказка слева, поле, список под полем ───
-   Список открывается по фокусу — ДО набора; набранное его сужает. Имя,
-   которого в списке нет, — кнопка «OK» под списком: она заводит сущность
-   и ставит её сюда. `onMouseDown` с `preventDefault` на списке держит
-   фокус в поле: выбор — часть набора, а не его конец. */
-function Combo({ hint, word, label, value, state = "empty", options = [], onPick, onCreate,
-  onOpen, disabled = false, disabledWhy = "" }) {
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState(false);   // выбранное меняют по «▾»
-  const [text, setText] = useState("");
+/* ─── текст со всплывающими подсказками ───
+   Окно стоит под полем, пока поле в фокусе: заголовок — что ожидается,
+   ниже — имена. Стрелки и Enter выбирают, Escape закрывает, `onMouseDown`
+   с `preventDefault` держит фокус в поле — выбор из списка это часть
+   набора, не его конец. Набранное своё имя остаётся как есть. */
+function ProcText({ value = "", model, proc, onCommit, label }) {
+  const [text, setText] = useState(value);
+  const [focus, setFocus] = useState(false);
+  const [pick, setPick] = useState(null);   // { kind, start, query, assetName, at }
   const [cursor, setCursor] = useState(0);
-  const list = filterOptions(options, text);
-  const exact = exactOption(options, text);
-  const fresh = !!text.trim() && !exact;
-  const close = () => { setOpen(false); setEditing(false); setText(""); };
-  const pick = (o) => { onPick(o); close(); };
-  const create = () => {
-    if (!fresh || !onCreate) return;
-    onCreate(text.trim());
-    close();
+  const inp = useRef(null);
+  // Снаружи поменяли (загрузили модель, поставили замену) — а мы не в
+  // фокусе: показываем новое.
+  useEffect(() => { if (!focus) setText(value); }, [value, focus]);
+
+  const items = pick ? suggestNames(pick, model, proc) : [];
+  const place = (v, at) => {
+    const h = hintAt(v, at);
+    setPick({ ...h, at });
+    setCursor(0);
+  };
+  const onChange = (e) => {
+    const v = e.target.value;
+    setText(v);
+    place(v, e.target.selectionStart ?? v.length);
+  };
+  const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
+  /* Подсказка вставляет имя и то, что после него идёт всегда: запятую с
+     пробелом; у метки — пробел. Иначе выбор из списка заканчивался бы
+     ровно там, где человеку снова надо набирать. */
+  const choose = (it) => {
+    if (!pick) return;
+    const suffix = it.mark ? " " : ", ";
+    const next = `${text.slice(0, pick.start)}${it.name}${suffix}${text.slice(pick.at)}`;
+    const caret = pick.start + it.name.length + suffix.length;
+    setText(next);
+    setTimeout(() => {
+      inp.current?.focus();
+      inp.current?.setSelectionRange(caret, caret);
+      place(next, caret);
+    }, 0);
   };
   const onKey = (e) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault(); setCursor((c) => (list.length ? (c + 1) % list.length : 0));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault(); setCursor((c) => (list.length ? (c - 1 + list.length) % list.length : 0));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (exact) pick(exact);
-      else if (fresh) create();
-      else if (list.length) pick(list[cursor]);
-    } else if (e.key === "Escape") close();
+    if (!pick) return;
+    if (e.key === "Escape") { setPick(null); return; }
+    if (!items.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => (c + 1) % items.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => (c - 1 + items.length) % items.length); }
+    else if (e.key === "Tab") { e.preventDefault(); choose(items[cursor]); }
+    else if (e.key === "Enter" && pick.query && items[cursor]
+      && items[cursor].name.toLowerCase().startsWith(pick.query.toLowerCase())) {
+      // Enter выбирает только когда набранное — начало подсказки; иначе
+      // это перевод строки, следующий шаг.
+      e.preventDefault(); choose(items[cursor]);
+    }
   };
-  const bad = state === "deleted" || state === "unknown";
-  /* Выбранное — кнопкой с именем: нажатие ведёт к карточке сущности (как
-     выбор актива на схеме и нужной вкладки в нём), «▾» рядом — сменить
-     выбор. Пока не выбрано — сразу поле со списком. */
-  if (value && !editing) {
-    return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, verticalAlign: "middle" }}>
-        <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{hint}</span>
-        <button type="button" aria-label={`${label}: открыть`} disabled={!onOpen || bad}
-          title={onOpen && !bad ? "открыть карточку" : ""} onClick={onOpen}
-          style={{ ...btn(false), fontSize: 12, padding: "3px 8px", maxWidth: 200,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            cursor: onOpen && !bad ? "pointer" : "default",
-            ...(bad ? { color: BAD, borderColor: BAD } : {}) }}>
-          {value.name}</button>
-        <button type="button" aria-label={`${label}: изменить`} title="выбрать другое"
-          onClick={() => { setEditing(true); setOpen(true); setText(""); setCursor(0); }}
-          style={{ ...btn(false), fontSize: 10, padding: "3px 5px" }}>▾</button>
-        {state === "deleted" && (
-          <span style={{ fontSize: 10, color: BAD, whiteSpace: "nowrap" }}>удалён — выберите замену</span>)}
-        {state === "unknown" && (
-          <span style={{ fontSize: 10, color: BAD, whiteSpace: "nowrap" }}>не найден</span>)}
-      </span>);
-  }
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, verticalAlign: "middle" }}>
-      <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{hint}</span>
-      <span style={{ position: "relative", display: "inline-block" }}>
-        <input value={open ? text : ""} aria-label={label} autoFocus={editing}
-          disabled={disabled} title={disabled ? disabledWhy : ""}
-          placeholder={disabled ? disabledWhy : "выберите или введите"}
-          onFocus={() => { setOpen(true); setText(""); setCursor(0); }}
-          onBlur={close}
-          onChange={(e) => { setText(e.target.value); setCursor(0); }}
-          onKeyDown={onKey}
-          style={{ ...S.inp, width: 150, fontSize: 12, padding: "3px 6px",
-            ...(bad ? { borderColor: BAD, color: BAD } : {}) }} />
-        {open && (
-          <div role="listbox" aria-label={`${label}: список`}
-            onMouseDown={(e) => e.preventDefault()}
-            style={{ position: "absolute", left: 0, top: "100%", zIndex: 20, minWidth: "100%",
-              background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6,
-              maxHeight: 180, overflowY: "auto", marginTop: 2 }}>
-            {list.map((o, i) => (
-              <div key={o.id} role="option" aria-selected={i === cursor}
-                onClick={() => pick(o)}
-                style={{ padding: "5px 8px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap",
+    <div style={{ position: "relative" }}>
+      <textarea ref={inp} value={text} aria-label={label}
+        rows={Math.max(3, text.split("\n").length + 1)}
+        placeholder={`Актив, Должность, ${MARK_TAKE} Откуда, Что 2, ${MARK_GIVE} Куда, Что`}
+        style={{ ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12,
+          resize: "vertical", lineHeight: 1.5 }}
+        onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
+        onBlur={() => { setFocus(false); setPick(null); if (text !== value) onCommit(text); }}
+        onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
+      {pick && focus && (
+        <div role="dialog" aria-label="подсказка процесса"
+          onMouseDown={(e) => e.preventDefault()}
+          style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20,
+            background: C.panel, border: `1px solid ${ACC}66`, borderRadius: 6,
+            boxShadow: "0 6px 20px rgba(0,0,0,.35)", marginTop: 2 }}>
+          <div style={{ padding: "5px 8px", fontSize: 10.5, color: ACC,
+            borderBottom: `1px solid ${C.line}` }}>
+            ожидается: {HINT_WORD[pick.kind]}
+            {pick.kind === "trait" && pick.assetName ? ` из «${pick.assetName}»` : ""}
+            <span style={{ color: C.muted }}> · выберите или введите своё; Tab — подставить</span>
+          </div>
+          <div role="listbox" aria-label="подсказки процесса"
+            style={{ maxHeight: 160, overflowY: "auto" }}>
+            {items.map((it, i) => (
+              <div key={`${it.kind}:${it.name}`} role="option" aria-selected={i === cursor}
+                onMouseDown={(e) => { e.preventDefault(); choose(it); }}
+                style={{ padding: "5px 8px", fontSize: 12, cursor: "pointer",
                   background: i === cursor ? ACC + "22" : "transparent" }}>
-                {o.name}{o.fresh && <span style={{ fontSize: 10, color: WARN }}> · новое</span>}
+                <span style={{ color: C.muted }}>{it.kind} </span>{it.name}
+                {it.fresh && <span style={{ fontSize: 10, color: WARN }}> · новое</span>}
               </div>))}
-            {!list.length && !fresh && (
-              <div style={{ padding: "5px 8px", fontSize: 11, color: C.muted }}>пусто</div>)}
-            {fresh && (onCreate
-              ? <div style={{ padding: 6, borderTop: list.length ? `1px solid ${C.line}` : "none",
-                whiteSpace: "nowrap" }}>
-                <button type="button" style={{ ...btn(true, OK), fontSize: 11, padding: "2px 10px" }}
-                  aria-label={`OK: новый ${word} «${text.trim()}»`}
-                  onMouseDown={(e) => { e.preventDefault(); create(); }}>OK</button>
-                <span style={{ fontSize: 10.5, color: C.muted, marginLeft: 6 }}>
-                  завести {word} «{text.trim()}»</span>
-              </div>
-              : <div style={{ padding: "5px 8px", fontSize: 11, color: C.muted }}>
-                такого нет в списке</div>)}
-          </div>)}
-      </span>
-    </span>);
+            {!items.length && (
+              <div style={{ padding: "5px 8px", fontSize: 11, color: C.muted }}>
+                {pick.query ? `«${pick.query}» — новое имя: примите его под полем после набора` : "список пуст — введите своё имя"}
+              </div>)}
+          </div>
+        </div>)}
+    </div>);
 }
 
-/* ─── вход или выход шага: из какого / в какой актив, что, сколько ─── */
-function PortRow({ port, side, idx, assets, traitsOf, model, onChange, onRemove,
-  onCreateAsset, onCreateTrait, onOpenAsset, onOpenTrait }) {
-  const verb = side === "takes" ? "берёт" : "отдаёт";
-  const assetState = stateOf(port.asset, "asset", model);
-  const traitState = stateOf(port.trait, "trait", model);
+/* ─── одно имя из строки ───
+   Четыре состояния — четыре вида. Найденное — чип, нажатие открывает его
+   карточку. Неизвестное — пунктир: это ещё не ошибка, а вопрос, и нажатие
+   его задаёт. Отклонённое и удалённое — красные: первое ждёт правки
+   строки, второе — замены. */
+function Chip({ item, kind, state, qty, hypo, open, onOpen, onAccept, acceptWhy, onReject,
+  onRestore, options = [], onReplace, onGo }) {
+  const name = item?.name || "";
+  const tail = qty != null && qty !== 1 ? ` ${nm(qty)}` : "";
+  const base = { display: "inline-block", borderRadius: 6, padding: "1px 7px", fontSize: 12,
+    lineHeight: 1.6, verticalAlign: "middle" };
+  if (state === "ok") {
+    return (
+      <button type="button" onClick={onGo} disabled={!onGo}
+        aria-label={`${WORD[kind]} «${name}»: открыть`}
+        title={onGo ? "открыть карточку" : ""}
+        style={{ ...base, border: `1px solid ${C.line}`, background: C.panel, color: C.text,
+          cursor: onGo ? "pointer" : "default" }}>
+        {name}{tail}
+        {hypo && <span style={{ fontSize: 10, color: WARN }}> · гипотеза</span>}
+      </button>);
+  }
+  if (state === "deleted") {
+    return (
+      <span style={{ ...base, border: `1px solid ${BAD}`, color: BAD }}>
+        {name}{tail} — удалён — выберите замену
+        <select aria-label={`замена для «${name}»`} value=""
+          onChange={(e) => e.target.value && onReplace(e.target.value)}
+          style={{ ...S.inp, width: "auto", display: "inline-block", marginLeft: 6,
+            padding: "1px 4px", fontSize: 11 }}>
+          <option value="">— замена —</option>
+          {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+        </select>
+      </span>);
+  }
+  const rejected = state === "rejected";
   return (
-    <div className="flex flex-wrap items-center gap-2" style={{ marginLeft: 14, marginTop: 4 }}>
-      <Combo hint={side === "takes" ? "из актива" : "в актив"} word="актив"
-        label={`${verb} ${idx + 1}: актив`} value={port.asset} state={assetState}
-        options={assets} onPick={(o) => onChange({ ...port, asset: o, trait: null })}
-        onCreate={onCreateAsset ? (n) => onCreateAsset(n) : undefined}
-        onOpen={onOpenAsset && assetState === "ok" ? () => onOpenAsset(port.asset.id) : undefined} />
-      <Combo hint="ресурс" word="ресурс" label={`${verb} ${idx + 1}: ресурс`}
-        value={port.trait} state={traitState}
-        options={assetState === "ok" ? traitsOf(port.asset.id) : []}
-        disabled={assetState !== "ok"} disabledWhy="сначала актив"
-        onPick={(o) => onChange({ ...port, trait: o })}
-        onCreate={assetState === "ok" && onCreateTrait
-          ? (n) => onCreateTrait(port.asset.id, n) : undefined}
-        onOpen={onOpenTrait && traitState === "ok" ? () => onOpenTrait(port.trait.id) : undefined} />
-      <span style={{ fontSize: 10.5, color: C.muted }}>×</span>
-      <NumField value={port.qty} aria-label={`${verb} ${idx + 1}: сколько`}
-        style={{ width: 54, fontSize: 12, padding: "3px 6px" }}
-        onCommit={(v) => onChange({ ...port, qty: v > 0 ? v : 1 })} />
-      <button type="button" aria-label={`убрать: ${verb} ${idx + 1}`}
-        style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD, borderColor: "#5A2436" }}
-        onClick={onRemove}>✕</button>
-    </div>);
+    <span style={{ display: "inline" }}>
+      <button type="button" onClick={onOpen} aria-expanded={open}
+        aria-label={`${rejected ? "отклонённый" : "неизвестный"} ${WORD[kind]} «${name}»`}
+        style={{ ...base, cursor: "pointer",
+          border: rejected ? `1px solid ${BAD}` : `1px dashed ${ACC}`,
+          color: rejected ? BAD : ACC, background: "transparent" }}>
+        {name}{tail}{rejected ? " — отклонено" : ""}</button>
+      {open && (
+        <span style={{ marginLeft: 4, whiteSpace: "nowrap" }}>
+          <button type="button" aria-label={`принять ${WORD[kind]} «${name}»`}
+            disabled={!!acceptWhy} title={acceptWhy || ""}
+            style={{ ...btn(true, OK), fontSize: 11, padding: "2px 7px",
+              opacity: acceptWhy ? 0.5 : 1 }}
+            onClick={onAccept}>Принять</button>
+          {" "}
+          {rejected
+            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`}
+              style={{ ...btn(false), fontSize: 11, padding: "2px 7px" }}
+              onClick={onRestore}>Вернуть</button>
+            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`}
+              style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 7px" }}
+              onClick={onReject}>Отклонить</button>}
+        </span>)}
+    </span>);
 }
 
 export default function ProcessPanel({ procs = [], setProcs, entities = [], setEntities,
   traits = [], setTraits, funcs = [], setFuncs, onDropFuncs, makeEntity,
   positions = [], onAddPosition, selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
   shown: shownProp, onToggle }) {
+  // Какой пунктирный чип раскрыт: «процесс:строка:вид:имя».
+  const [openChip, setOpenChip] = useState(null);
   const [naming, setNaming] = useState(null);   // какой процесс сейчас называют
   /* Спойлер (2026-09-13): форма стоит первой на «Управлении», но до нажатия
      скрывает процессы — иначе она заслоняла бы карточку актива. Открыт ли
-     он, помнит `SystemModel` (переход на другую вкладку и обратно не
-     закрывает его); без такого пропа — своё состояние. */
+     он, помнит `SystemModel`; без такого пропа — своё состояние. */
   const [shownOwn, setShownOwn] = useState(false);
   const shown = shownProp ?? shownOwn;
   const toggle = () => (onToggle ? onToggle(!shown) : setShownOwn((v) => !v));
-  // Процессы, где занят выбранный на схеме актив, — подсвечены.
   const involved = procs.filter((p) => procUsesAsset(p, selected));
   const selName = entities.find((e) => e.id === selected)?.name || "";
   // Последние процессы — для правок, приходящих с сервера (новая должность).
   const procsRef = useRef(procs); procsRef.current = procs;
 
-  /* Одна дверь на все правки. Текст каждого процесса пересчитывается из
-     шагов; функции процессов пересобираются по нынешним шагам и статусам;
-     задачи по функциям, которых больше нет, снимаются. */
+  const model = { entities, traits, positions };
+  /* Одна дверь на все правки. `steps` пересчитываются каждый раз — они
+     память записи о найденных id, и устаревать им нельзя; функции
+     процессов пересобираются по нынешним текстам и статусам; задачи по
+     функциям, которых больше нет, снимаются. */
   const commit = ({ procs: next, entities: e2 = entities, traits: t2 = traits,
     funcs: f2 = funcs }) => {
     const m = { entities: e2, traits: t2, positions };
-    const withText = next.map((p) => ({ ...p, text: procText(p) }));
-    const synced = syncProcFuncs(f2, withText, m, normalizeFunc);
-    setProcs(withText);
+    const withSteps = next.map((p) => ({ ...p, steps: resolveProc(p, m).steps }));
+    const synced = syncProcFuncs(f2, withSteps, m, normalizeFunc);
+    setProcs(withSteps);
     if (e2 !== entities) setEntities(e2);
     if (t2 !== traits) setTraits(t2);
     setFuncs(synced);
@@ -197,22 +229,10 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   };
   const patchIn = (list, id, make) => list.map((p) => (p.id === id ? make(p) : p));
   const patch = (id, make) => patchIn(procs, id, make);
-  const withStep = (list, pid, sid, make) => patchIn(list, pid, (p) => ({ ...p,
-    steps: p.steps.map((s) => (s.id === sid ? make(s) : s)) }));
-  const withPort = (list, pid, sid, side, i, make) => withStep(list, pid, sid, (s) => ({ ...s,
-    [side]: s[side].map((x, j) => (j === i ? make(x) : x)) }));
 
   const add = () => commit({ procs: [...procs, newProc()] });
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
-  const addStep = (p) => commit({ procs: patch(p.id, (x) => ({ ...x, steps: [...x.steps, newStep()] })) });
-  const dropStep = (p, sid) => commit({ procs: patch(p.id, (x) => ({ ...x,
-    steps: x.steps.filter((s) => s.id !== sid) })) });
-  const setStep = (p, sid, make) => commit({ procs: withStep(procs, p.id, sid, make) });
-  const addPort = (p, sid, side) => setStep(p, sid, (s) => ({ ...s, [side]: [...s[side], newPort()] }));
-  const dropPort = (p, sid, side, i) => setStep(p, sid, (s) => ({ ...s,
-    [side]: s[side].filter((_, j) => j !== i) }));
-  const setPort = (p, sid, side, i, port) => commit({ procs: withPort(procs, p.id, sid, side, i, () => port) });
-
+  const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text })) });
   /* «Не принято» — функций от процесса нет, и его гипотезы уходят со
      схемы: без процесса они ничьи. Задачи по его функциям — тоже. */
   const setStatus = (p, status) => {
@@ -222,7 +242,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
         traits: d.traits, funcs: d.funcs });
       return;
     }
-    if (!canAcceptProc(p, { entities, traits, positions })) return;
+    if (!canAcceptProc(p, model)) return;
     commit({ procs: patch(p.id, (x) => ({ ...x, status })) });
   };
   const del = (p) => {
@@ -230,52 +250,66 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
     commit({ procs: procs.filter((x) => x.id !== p.id), entities: d.entities,
       traits: d.traits, funcs: d.funcs });
   };
-
-  /* «OK» — завести сущность и поставить её в выбор одним заходом. Актив —
-     рядом с существующими, ресурс — в названном активе, оба с пометкой
-     `hypo` (ресурс к тому же не принят — принимает его человек в
-     карточке). Должность — запись организации: уезжает на сервер, и
-     выбор ставится, когда сервер ответил; в списке потом стоит первой. */
-  const createAsset = (p, name, apply) => {
-    const e = { ...makeEntity(name), hypo: true };
-    const it = { id: e.id, name: e.name };
-    commit({ entities: [...entities, e],
-      procs: apply(patch(p.id, (x) => ({ ...x,
-        hypo: { ...x.hypo, entities: [...x.hypo.entities, e.id] } })), it) });
-  };
-  const createTrait = (p, assetId, name, apply) => {
+  /* Принять неизвестное — завести его: актив рядом с существующими,
+     ресурс — в названном активе пары, оба с пометкой `hypo` (ресурс к
+     тому же не принят — принимает его человек в карточке). Должность —
+     запись организации: уезжает на сервер, и разбор находит её, когда
+     список должностей перечитан. */
+  const acceptName = (p, kind, item, assetId) => {
+    setOpenChip(null);
+    if (kind === "asset") {
+      const e = { ...makeEntity(item.name), hypo: true };
+      commit({ entities: [...entities, e],
+        procs: patch(p.id, (x) => ({ ...x,
+          hypo: { ...x.hypo, entities: [...x.hypo.entities, e.id] } })) });
+      return;
+    }
+    if (kind === "role") {
+      if (!onAddPosition) return;
+      Promise.resolve(onAddPosition(item.name)).then((r) => {
+        if (!r || r.id == null) return;
+        commit({ procs: patchIn(procsRef.current, p.id, (x) => ({ ...x,
+          hypo: { ...x.hypo, roles: [...x.hypo.roles, r.id] } })) });
+      }).catch(() => {});
+      return;
+    }
     const t = { id: `t${Date.now().toString(36)}${traits.length.toString(36)}`, e: assetId,
-      ks: [], k: "", l: name, unit: "ед.", hypo: true, accepted: false };
-    const it = { id: t.id, name: t.l };
+      ks: [], k: "", l: item.name, unit: "ед.", hypo: true, accepted: false };
     commit({ traits: [...traits, t],
-      procs: apply(patch(p.id, (x) => ({ ...x,
-        hypo: { ...x.hypo, traits: [...x.hypo.traits, t.id] } })), it) });
+      procs: patch(p.id, (x) => ({ ...x,
+        hypo: { ...x.hypo, traits: [...x.hypo.traits, t.id] } })) });
   };
-  const createRole = (p, sid, name) => {
-    if (!onAddPosition) return;
-    Promise.resolve(onAddPosition(name)).then((r) => {
-      if (!r || r.id == null) return;
-      const it = { id: r.id, name: r.name || name };
-      const list = procsRef.current;
-      commit({ procs: withStep(patchIn(list, p.id, (x) => ({ ...x,
-        hypo: { ...x.hypo, roles: [...x.hypo.roles, r.id] } })), p.id, sid,
-      (s) => ({ ...s, role: it })) });
-    }).catch(() => {});
+  const rejectName = (p, name) => {
+    setOpenChip(null);
+    commit({ procs: patch(p.id, (x) => ({ ...x,
+      missing: { ...x.missing, rejected: [...x.missing.rejected, name] } })) });
+  };
+  const restoreName = (p, name) => {
+    setOpenChip(null);
+    commit({ procs: patch(p.id, (x) => ({ ...x,
+      missing: { ...x.missing,
+        rejected: x.missing.rejected.filter((r) => r.toLowerCase() !== name.toLowerCase()) } })) });
+  };
+  /* Замена удалённого — правка текста: имя в строке меняется на выбранное,
+     и дальше всё идёт своим чередом. Текст — единственный источник, и
+     подменять id мимо него значило бы завести второй. */
+  const replace = (p, kind, oldName, id) => {
+    const name = kind === "asset" ? entities.find((e) => e.id === id)?.name
+      : kind === "role" ? positions.find((r) => String(r.id) === String(id))?.name
+        : traits.find((t) => t.id === id)?.l;
+    if (!name) return;
+    setText(p, replaceName(p.text, kind, oldName, name));
   };
 
-  const model = { entities, traits, positions };
-  const optAssets = (p) => orderOptions(entities.map((e) => ({ id: e.id, name: e.name,
-    fresh: p.hypo.entities.includes(e.id) })), p.hypo.entities);
-  const optTraits = (p, assetId) => orderOptions(traits.filter((t) => t.e === assetId)
-    .map((t) => ({ id: t.id, name: t.l, fresh: p.hypo.traits.includes(t.id) })), p.hypo.traits);
-  const optRoles = (p) => orderOptions(positions.map((r) => ({ id: r.id, name: r.name,
-    fresh: p.hypo.roles.includes(r.id) })), p.hypo.roles);
+  const assetOptions = entities.map((e) => ({ id: e.id, name: e.name }));
+  const roleOptions = positions.map((r) => ({ id: r.id, name: r.name }));
+  const traitOptions = (assetId) => traits.filter((t) => !assetId || t.e === assetId)
+    .map((t) => ({ id: t.id, name: t.l }));
 
   return (
     <div style={{ ...S.card, marginTop: 10 }}>
       <button type="button" aria-expanded={shown} aria-label="технологические процессы"
-        onClick={toggle}
-        className="flex items-center gap-2"
+        onClick={toggle} className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", padding: 0,
           cursor: "pointer", color: C.text, textAlign: "left" }}>
         <span style={{ fontSize: 11, color: C.muted }}>{shown ? "▾" : "▸"}</span>
@@ -287,15 +321,15 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
       </button>
       {shown && (
       <Section title="" addLabel="+ процесс" onAdd={add}
-        hint="Строка — шаг: актив, должность, что берёт и откуда, что отдаёт и куда. Всё выбирается из списков; новое имя заводится кнопкой OK. Нажатие на выбранное открывает его карточку ниже."
+        hint={`Строка — шаг: «Актив, Должность, ${MARK_TAKE} Откуда, Что 2, ${MARK_GIVE} Куда, Что». Подсказки — окном у поля по мере набора; имя можно ввести своё. Нажатие на найденное открывает его карточку ниже.`}
         empty={procs.length ? null : "Процессов пока нет."}>
         {procs.map((p) => {
+          const { steps } = resolveProc(p, model);
           const issues = procIssues(p, model);
           const can = issues.length === 0;
           const label = procLabel(p);
-          const assets = optAssets(p);
-          const roles = optRoles(p);
           const lit = !!selected && procUsesAsset(p, selected);
+          const key = (s, kind, name) => `${p.id}:${s.line}:${kind}:${name}`;
           return (
             <div key={p.id} data-lit={lit || undefined}
               style={{ background: C.panel2, border: `1px solid ${lit ? ACC : C.line}`,
@@ -334,80 +368,67 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
               </div>
 
-              {p.steps.map((s, i) => {
-                const n = i + 1;
-                const assetState = stateOf(s.asset, "asset", model);
-                const roleState = stateOf(s.role, "role", model);
-                const portRows = (side) => s[side].map((port, j) => (
-                  <PortRow key={j} port={port} side={side} idx={j} assets={assets}
-                    traitsOf={(id) => optTraits(p, id)} model={model}
-                    onChange={(x) => setPort(p, s.id, side, j, x)}
-                    onRemove={() => dropPort(p, s.id, side, j)}
-                    onCreateAsset={(name) => createAsset(p, name, (list, it) =>
-                      withPort(list, p.id, s.id, side, j, (x) => ({ ...x, asset: it, trait: null })))}
-                    onCreateTrait={(assetId, name) => createTrait(p, assetId, name, (list, it) =>
-                      withPort(list, p.id, s.id, side, j, (x) => ({ ...x, trait: it })))}
-                    onOpenAsset={onOpenAsset} onOpenTrait={onOpenTrait} />));
+              <ProcText value={p.text} model={model} proc={p}
+                label="текст процесса" onCommit={(t) => setText(p, t)} />
+
+              {/* Разбор построчно — под полем, там же, где набирают. */}
+              {steps.map((s) => {
+                const chip = (it, kind, qty, assetId, assetOk = true) => {
+                  const st = stateOf(it, kind, model, p);
+                  const k = key(s, kind, it.name);
+                  const hypo = kind === "asset" ? p.hypo.entities.includes(it.id)
+                    : kind === "role" ? p.hypo.roles.includes(String(it.id))
+                      : p.hypo.traits.includes(it.id);
+                  const go = kind === "asset" ? (onOpenAsset ? () => onOpenAsset(it.id) : null)
+                    : kind === "trait" ? (onOpenTrait ? () => onOpenTrait(it.id) : null)
+                      : (onOpenWorkers && s.asset?.id ? () => onOpenWorkers(s.asset.id) : null);
+                  return (
+                    <Chip item={it} kind={kind} state={st} qty={qty} hypo={hypo}
+                      open={openChip === k}
+                      onOpen={() => setOpenChip(openChip === k ? null : k)}
+                      onGo={go}
+                      onAccept={() => acceptName(p, kind, it, assetId)}
+                      acceptWhy={kind === "trait" && !assetOk ? "сначала примите актив"
+                        : kind === "role" && !onAddPosition ? "должности заводит владелец на сервере" : ""}
+                      onReject={() => rejectName(p, it.name)}
+                      onRestore={() => restoreName(p, it.name)}
+                      options={kind === "asset" ? assetOptions : kind === "role" ? roleOptions
+                        : traitOptions(assetId)}
+                      onReplace={(id) => replace(p, kind, it.name, id)} />);
+                };
+                const pair = (x, j) => {
+                  const aOk = stateOf(x.asset, "asset", model, p) === "ok";
+                  return (
+                    <React.Fragment key={j}>{j ? ", " : ""}
+                      {chip(x.asset, "asset")}
+                      <span style={{ color: C.muted }}> → </span>
+                      {chip(x.trait, "trait", x.qty, x.asset?.id, aOk)}
+                    </React.Fragment>);
+                };
                 return (
-                  <div key={s.id} style={{ marginTop: 6, padding: "6px 8px", borderRadius: 6,
-                    border: `1px solid ${C.line}` }}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span style={{ fontSize: 10.5, color: C.muted }}>{n}.</span>
-                      <Combo hint="актив" word="актив" label={`строка ${n}: актив`}
-                        value={s.asset} state={assetState} options={assets}
-                        onPick={(o) => setStep(p, s.id, (x) => ({ ...x, asset: o }))}
-                        onCreate={(name) => createAsset(p, name, (list, it) =>
-                          withStep(list, p.id, s.id, (x) => ({ ...x, asset: it })))}
-                        onOpen={onOpenAsset && assetState === "ok"
-                          ? () => onOpenAsset(s.asset.id) : undefined} />
-                      <Combo hint="должность" word="должность" label={`строка ${n}: должность`}
-                        value={s.role} state={roleState} options={roles}
-                        disabled={!positions.length && !onAddPosition}
-                        disabledWhy="должностей нет"
-                        onPick={(o) => setStep(p, s.id, (x) => ({ ...x, role: o }))}
-                        onCreate={onAddPosition ? (name) => createRole(p, s.id, name) : undefined}
-                        onOpen={onOpenWorkers && assetState === "ok"
-                          ? () => onOpenWorkers(s.asset.id) : undefined} />
-                      <span style={{ flex: 1 }} />
-                      <button type="button" aria-label={`убрать строку ${n}`}
-                        style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD,
-                          borderColor: "#5A2436" }}
-                        onClick={() => dropStep(p, s.id)}>✕ строка</button>
-                    </div>
-                    <div style={{ marginTop: 4 }}>
-                      <span style={{ fontSize: 10.5, color: C.muted }}>берёт:</span>
-                      {!s.takes.length && (
-                        <span style={{ fontSize: 10.5, color: C.muted, marginLeft: 6 }}>ничего</span>)}
-                      {portRows("takes")}
-                      <button type="button" aria-label={`строка ${n}: + берёт`}
-                        style={{ ...btn(false), fontSize: 11, padding: "2px 8px", marginLeft: 14,
-                          marginTop: 4 }}
-                        onClick={() => addPort(p, s.id, "takes")}>+ берёт</button>
-                    </div>
-                    <div style={{ marginTop: 4 }}>
-                      <span style={{ fontSize: 10.5, color: C.muted }}>отдаёт:</span>
-                      {!s.gives.length && (
-                        <span style={{ fontSize: 10.5, color: C.muted, marginLeft: 6 }}>ничего</span>)}
-                      {portRows("gives")}
-                      <button type="button" aria-label={`строка ${n}: + отдаёт`}
-                        style={{ ...btn(false), fontSize: 11, padding: "2px 8px", marginLeft: 14,
-                          marginTop: 4 }}
-                        onClick={() => addPort(p, s.id, "gives")}>+ отдаёт</button>
-                    </div>
+                  <div key={s.line} style={{ marginTop: 6, fontSize: 12, lineHeight: 1.9 }}>
+                    <span style={{ color: C.muted, marginRight: 6 }}>{s.line}.</span>
+                    {s.error
+                      ? <span style={{ color: BAD }}>{s.text} — {s.error}</span>
+                      : <>
+                        {chip(s.asset, "asset")}
+                        {s.role && <> <span style={{ color: C.muted }}>·</span> {chip(s.role, "role")}</>}
+                        {!!s.takes.length && <span style={{ color: C.muted }}> берёт </span>}
+                        {s.takes.map(pair)}
+                        {!!s.gives.length && <span style={{ color: C.muted }}> отдаёт </span>}
+                        {s.gives.map(pair)}
+                      </>}
                   </div>);
               })}
-              <button type="button" aria-label={`процесс «${label}»: + строка`}
-                style={{ ...btn(false), fontSize: 11, padding: "3px 8px", marginTop: 6 }}
-                onClick={() => addStep(p)}>+ строка</button>
 
-              {!!issues.length && (
+              {!!issues.length && !!p.text.trim() && (
                 <div style={{ fontSize: 10.5, color: BAD, marginTop: 6, lineHeight: 1.5 }}>
                   {issues.map((w, i) => <div key={i}>{w}</div>)}
                 </div>)}
 
               {/* Три состояния, одно нажатие. Принять — гипотетически или
-                  насовсем — нельзя, пока строки не собраны: подсказка
-                  говорит, чего не хватает. */}
+                  насовсем — нельзя, пока в строках есть неизвестное,
+                  отклонённое или удалённое: подсказка говорит, что сперва. */}
               <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
                 {PROC_STATUS.map(([id, name]) => {
                   const on = p.status === id;
