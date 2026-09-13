@@ -32,29 +32,24 @@ describe("анкета", () => {
     expect(filled(profileOf({ about: "аналитик" }))).toBe(true);
   });
 
-  it("свою можно править, и она уходит на сервер", async () => {
-    const saved = [];
-    vi.stubGlobal("fetch", vi.fn(async (url, opts) => {
-      saved.push([url, JSON.parse(opts.body)]);
-      return { ok: true, status: 200, json: async () => ({ profile: JSON.parse(opts.body) }) };
-    }));
+  it("анкета не назначена — формы «моя анкета» нет: ни поля, ни кнопки", () => {
+    /* Владелец: «если пользователю не назначена анкета, значит у него на
+       вкладке «Анкета» не должно быть формы «Моя анкета»». Прежнее поле
+       «о себе» с экрана ушло; в данных оно остаётся. */
     render(<ProfilePanel me={ME} people={PEOPLE} tasks={[]} funcs={[]} />);
-    const about = screen.getByLabelText("анкета");
-    fireEvent.change(about, { target: { value: "делаю отчёты" } });
-    fireEvent.blur(about);
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить анкету" }));
-    await waitFor(() => expect(saved).toHaveLength(1));
-    expect(saved[0][0]).toBe("/api/org/me/profile");
-    expect(saved[0][1].about).toBe("делаю отчёты");
-    expect(screen.getByText("Сохранено.")).toBeInTheDocument();
-  });
-
-  it("чужая только читается: писать там нечего, а не «нет прав»", () => {
-    render(<ProfilePanel me={ME} personId="3" people={PEOPLE} tasks={[]} funcs={[]} />);
-    expect(screen.getByText("Пётр")).toBeInTheDocument();
-    expect(screen.getByText("делаю макеты")).toBeInTheDocument();
+    expect(screen.getByText("Иван")).toBeInTheDocument();
+    expect(screen.queryByText("моя анкета")).toBeNull();
     expect(screen.queryByLabelText("анкета")).toBeNull();
     expect(screen.queryByRole("button", { name: "Сохранить анкету" })).toBeNull();
+  });
+
+  it("чужая без анкеты — имя, график и работы; прежнего поля не видно", () => {
+    render(<ProfilePanel me={ME} personId="3" people={PEOPLE} tasks={[]} funcs={[]} />);
+    expect(screen.getByText("Пётр")).toBeInTheDocument();
+    expect(screen.queryByText("делаю макеты")).toBeNull();
+    expect(screen.queryByLabelText("анкета")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Сохранить анкету" })).toBeNull();
+    expect(screen.getByText("рабочий график")).toBeInTheDocument();
   });
 
   /* ─── РАБОЧИЙ ГРАФИК И СТАТУС ───
@@ -113,16 +108,18 @@ describe("анкета", () => {
       return { ok: true, status: 200,
         json: async () => ({ profile: { about: "", ...JSON.parse(opts.body) } }) };
     }));
+    const FORMS = [{ id: "f", name: "Анкета", questions: [{ id: "q1", text: "Стек" }] }];
     const { rerender } = render(
-      <ProfilePanel me={ME} people={[]} tasks={[]} funcs={[]} />);
+      <ProfilePanel me={{ ...ME, forms: FORMS }} people={[]} tasks={[]} funcs={[]} />);
     fireEvent.click(screen.getByLabelText("рабочий день сб"));
-    const about = screen.getByLabelText("анкета");
+    const about = screen.getByLabelText("Стек");
     fireEvent.change(about, { target: { value: "пишу" } });
     fireEvent.blur(about);
     // Приехал список людей и заново приехало «кто я» — с прежней анкетой.
-    rerender(<ProfilePanel me={{ ...ME, profile: { about: "старое", days: [] } }}
+    rerender(<ProfilePanel me={{ ...ME, forms: FORMS,
+      profile: { about: "", answers: { q1: "старое" }, days: [] } }}
       people={PEOPLE} tasks={[]} funcs={[]} />);
-    expect(screen.getByLabelText("анкета")).toHaveValue("пишу");
+    expect(screen.getByLabelText("Стек")).toHaveValue("пишу");
     expect(screen.getByText(/Работает: сб/)).toBeInTheDocument();
     await waitFor(() => expect(saved.some((b) => JSON.stringify(b.days) === "[6]")).toBe(true));
   });
@@ -216,7 +213,9 @@ describe("вкладка «Анкета»", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Анкета" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Анкета" }));
-    expect(screen.getByText("моя анкета")).toBeInTheDocument();
+    // Одиночному анкету никто не назначал — формы нет, график есть.
+    expect(screen.queryByText("моя анкета")).toBeNull();
+    expect(screen.getByText("мой рабочий график")).toBeInTheDocument();
   });
 
   it("своя анкета — вкладка, и открывается она сразу, а не окном", () => {

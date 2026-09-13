@@ -12,8 +12,9 @@ import ReviewBoard, { canKill } from "../components/ReviewBoard.jsx";
 
    «Отменить» на доске — про РАБОТУ: задача в работе, человек её бросает,
    и она возвращается в бэклог. Лежащую в бэклоге отменять не за что: её
-   никто не делает. Удаляют насовсем на «Проверке», и только пока задачу
-   не начали: у начатой есть сдачи, часы и оценки. */
+   никто не делает. Удаляют насовсем на «Проверке»: неначатую — тот, кто
+   ставит; ждущую проверки и готовую — только владелец, и подтверждение
+   говорит, что уйдут сдачи, оценки и выданные единицы. */
 
 const ENTITIES = [{ id: "usr", name: "Пользователи",
   setters: ["1"], owners: ["2"], reviewers: ["3"] }];
@@ -36,10 +37,10 @@ function Board({ tasks: t0, meId = "2" }) {
     tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
     nameOf={(id) => id} meId={meId} canAssign />);
 }
-function Review({ tasks: t0, onDelete }) {
+function Review({ tasks: t0, onDelete, isOwner = true }) {
   const [tasks, setTasks] = React.useState(t0);
   return (<ReviewBoard tasks={tasks} setTasks={setTasks} funcs={FUNCS} traits={TRAITS}
-    entities={ENTITIES} people={PEOPLE} meId="1" isOwner canAssign nameOf={(id) => id}
+    entities={ENTITIES} people={PEOPLE} meId="1" isOwner={isOwner} canAssign nameOf={(id) => id}
     onAccept={() => {}} onReturn={() => {}} onDelete={onDelete} />);
 }
 
@@ -86,7 +87,7 @@ describe("«Отменить» — это отмена работы", () => {
   });
 });
 
-describe("удалить можно только то, что ещё не начали", () => {
+describe("удалить можно только то, что ещё не начали; владелец — и сданное", () => {
   it("правило одно на всё приложение", () => {
     expect(canKill(task({ status: "wait" }))).toBe(true);
     expect(canKill(task({ status: "backlog" }))).toBe(true);
@@ -94,8 +95,41 @@ describe("удалить можно только то, что ещё не нач
     expect(canKill(task({ status: "progress", taken: true }))).toBe(false);
     expect(canKill(task({ status: "review" }))).toBe(false);
     expect(canKill(task({ status: "done" }))).toBe(false);
-    // Сдача есть — значит работа была, и стирать её нельзя.
+    // Сдача есть — значит работа была, и стирать её не постановщику.
     expect(canKill(task({ status: "backlog", submissions: [{ id: "s1" }] }))).toBe(false);
+    // Владелец: ждёт проверки и готовая — да; в работе — по-прежнему нет.
+    const owner = { isOwner: true };
+    expect(canKill(task({ status: "review", taken: true }), owner)).toBe(true);
+    expect(canKill(task({ status: "done", taken: true }), owner)).toBe(true);
+    expect(canKill(task({ status: "backlog", submissions: [{ id: "s1" }] }), owner)).toBe(true);
+    expect(canKill(task({ status: "progress", taken: true }), owner)).toBe(false);
+    expect(canKill(task({ status: "deadline", taken: true }), owner)).toBe(false);
+  });
+
+  it("владелец удаляет готовую с предупреждением о сдачах; не владелец — нет", () => {
+    const done = task({ id: "a", status: "done", taken: true,
+      submissions: [{ id: "s1", at: "2026-01-01T10:00:00Z", by: "2", text: "готово" }] });
+    const killed = [];
+    const { unmount } = render(<Review tasks={[done]} onDelete={(t) => killed.push(t.id)} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    fireEvent.click(screen.getByLabelText("удалить задачу Задача A"));
+    expect(screen.getByText(/удалить вместе со сдачами, оценками и выданными единицами\?/))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("да, удалить Задача A"));
+    expect(killed).toEqual(["a"]);
+    unmount();
+    // Не владелец — проверяющий этой задачи: ему её видно, но не удалить.
+    render(<Review tasks={[{ ...done, reviewer: "1" }]} isOwner={false} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.queryByLabelText("удалить задачу Задача A")).toBeNull();
+  });
+
+  it("владелец удаляет и ждущую проверки — кнопка внутри раскрытой карточки", () => {
+    render(<Review tasks={[task({ id: "a", status: "review", taken: true,
+      submissions: [{ id: "s1", at: "2026-01-01T10:00:00Z", by: "2", text: "готово" }] })]} />);
+    expect(screen.queryByLabelText("удалить задачу Задача A")).toBeNull();
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByLabelText("удалить задачу Задача A")).toBeInTheDocument();
   });
 
   it("непоставленная удаляется с подтверждением", () => {

@@ -34,7 +34,7 @@ import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 import Modal from "./Modal.jsx";
-import ProfilePanel, { RemindersCard, deferMinOf, warnMinOf } from "./ProfilePanel.jsx";
+import ProfilePanel, { RemindersCard, warnMinOf } from "./ProfilePanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { countKind, dropKind } from "../lib/traits.js";
@@ -674,7 +674,6 @@ export default function SystemModel(){
      теперь в расписание каждой задачи подставляется своё у того, кто его
      шлёт, — расписание у каждого своё, и бот пишет ему же. */
   const warn=warnMinOf(me.profile?.warnMin);
-  const defer=deferMinOf(me.profile?.deferMin);
   /* В расписание — только то, что поручено ЭТОМУ человеку: уведомление о
      заказе приходит исполнителю, а не всем, кто задачу видит. Владельцу,
      постановщику и проверяющему чужая работа не напоминает о себе. */
@@ -686,12 +685,12 @@ export default function SystemModel(){
     const mine=(v)=>v!=null&&v!==""&&String(v)===String(me.id);
     const work=tasks
       .filter(t=>mine(t.assignee)&&t.status!=="wait"&&t.canceled!==true)
-      .map(t=>({...t,kind:"task",start:t.start||null,repeat:"once",end:null,warn,defer}));
+      .map(t=>({...t,kind:"task",start:t.start||null,repeat:"once",end:null,warn}));
     const setup=tasks
       .filter(t=>mine(t.setter)&&t.status==="wait"&&t.canceled!==true)
-      .map(t=>({...t,kind:"setup",start:null,repeat:"once",end:t.end||"",warn,defer}));
+      .map(t=>({...t,kind:"setup",start:null,repeat:"once",end:t.end||"",warn}));
     return [...work,...setup];
-  },[tasks,warn,defer,me.id]);
+  },[tasks,warn,me.id]);
   /* Пересылается и при входе, не только при правке: записи, сделанные до
      v1.1, не несут исполнителя, и кнопки под напоминанием появятся у них
      только после того, как доска пришлёт расписание заново. Ждём, пока

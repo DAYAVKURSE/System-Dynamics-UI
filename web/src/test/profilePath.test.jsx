@@ -78,7 +78,9 @@ afterEach(() => { vi.restoreAllMocks(); delete global.fetch; resetIdentity(); })
 describe("график переживает переход между вкладками", () => {
   it("правка → сохранение → другая вкладка → обратно: значения на месте, и «Сохранено.» видно",
     async () => {
-      const { puts } = server({ me: IVAN, users: people() });
+      // Анкета есть только у того, чьей роли её назначили: вопрос «Стек».
+      const FORMS = [{ id: "f", name: "Анкета", questions: [{ id: "q1", text: "Стек" }] }];
+      const { puts } = server({ me: { ...IVAN, forms: FORMS }, users: people() });
       await fresh();
       await waitFor(() => expect(screen.getByRole("button", { name: "Задачи" })).toBeInTheDocument());
       tab("Анкета");
@@ -86,15 +88,15 @@ describe("график переживает переход между вклад
       fireEvent.click(screen.getByLabelText("рабочий день пн"));
       fireEvent.change(screen.getByLabelText("работаю с"), { target: { value: "09:00" } });
       fireEvent.click(screen.getByLabelText("статус: короткий перерыв"));
-      const about = screen.getByLabelText("анкета");
+      const about = screen.getByLabelText("Стек");
       fireEvent.change(about, { target: { value: "делаю отчёты" } });
       fireEvent.blur(about);
       fireEvent.click(screen.getByRole("button", { name: "Сохранить анкету" }));
-      await waitFor(() => expect(puts.some((b) => b.about === "делаю отчёты")).toBe(true));
+      await waitFor(() => expect(puts.some((b) => b.answers?.q1 === "делаю отчёты")).toBe(true));
       /* Прежде «Сохранено.» стиралось тем же эффектом, что пересобирал
          черновик из нового me.profile, — человек не видел, что дошло. */
       await waitFor(() => expect(screen.getByText("Сохранено.")).toBeInTheDocument());
-      expect(screen.getByLabelText("анкета")).toHaveValue("делаю отчёты");
+      expect(screen.getByLabelText("Стек")).toHaveValue("делаю отчёты");
 
       tab("Задачи");
       expect(screen.queryByLabelText("рабочий день пн")).toBeNull();
@@ -103,7 +105,7 @@ describe("график переживает переход между вклад
       expect(screen.getByLabelText("работаю с")).toHaveValue("09:00");
       expect(screen.getByText(/Работает: пн · с 09:00/)).toBeInTheDocument();
       expect(screen.getAllByText("короткий перерыв").length).toBeGreaterThan(0);
-      expect(screen.getByLabelText("анкета")).toHaveValue("делаю отчёты");
+      expect(screen.getByLabelText("Стек")).toHaveValue("делаю отчёты");
       // И в списке людей — то же, что на вкладке: одна правда на один вопрос.
       const last = puts[puts.length - 1];
       expect(last).toMatchObject({ days: [1], from: "09:00", status: "break" });
@@ -151,24 +153,6 @@ describe("«за сколько предупреждать» — у каждог
          а того, кому напоминают. */
       await waitFor(() => expect(schedules.some((s) =>
         s.tasks.some((t) => t.id === "t1" && t.warn === 30))).toBe(true), { timeout: 4000 });
-    }, 10000);
-
-  it("«откладывать на» — своя настройка: столько ждёт отложенное напоминание",
-    async () => {
-      /* Владелец: «если нажал отложить, новое напоминание должно прийти
-         через то время, которое указал пользователь в этом разделе». */
-      const { puts } = server({ me: IVAN, users: people(),
-        workspace: { entities: [], traits: [], funcs: [], tasks: [] } });
-      await fresh();
-      await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeInTheDocument());
-      tab("Инструменты");
-      tab("Напоминания");
-      const sel = screen.getByLabelText("откладывать на");
-      expect(sel).toHaveValue("30");
-      fireEvent.change(sel, { target: { value: "60" } });
-      await waitFor(() => expect(puts).toEqual([{ deferMin: 60 }]));
-      // На ноль не откладывают: такого варианта в списке нет.
-      expect([...sel.options].map((o) => o.value)).not.toContain("0");
     }, 10000);
 
   it("постановщику уходит напоминание о постановке, исполнителю — о работе",

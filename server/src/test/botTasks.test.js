@@ -49,9 +49,7 @@ beforeEach(() => {
   };
   deps = {
     work,
-    // На сколько откладывать — настройка человека; висящие напоминания —
-    // отдельное хранилище, здесь заглушкой.
-    deferMin: async () => 30,
+    // Висящие напоминания — отдельное хранилище, здесь заглушкой.
     reminders: {
       ack: async (u, kind, id) => { acked.push([String(u), kind, id]); return true; },
       defer: async (u, kind, id, until) => { deferred.push([String(u), kind, id, until]); return true; },
@@ -114,36 +112,56 @@ describe("обязательные выходы", () => {
   });
 });
 
-describe("«Отложить» — сразу, на срок из анкеты", () => {
-  /* Владелец: «если нажал отложить, новое напоминание должно прийти через
-     то время, которое указал пользователь в этом разделе». Три экрана
-     (часы → минуты → подтверждение) ради числа, которое у человека уже
-     записано, — лишний путь; их больше нет. */
-  it("одно нажатие: откладывает на deferMin и говорит, на сколько", async () => {
-    const before = Date.now();
-    deps.deferMin = async () => 45;
+describe("«Отложить» — один экран: на сколько", () => {
+  /* Владелец: «пользователь всегда выбирает, на сколько отложить, при
+     нажатии кнопки». Поля «Откладывать на» в анкете больше нет: занят
+     человек на четверть часа или до завтра — видно только ему и только в
+     эту минуту. Экран выбора один, подтверждения после него нет. */
+  it("нажатие спрашивает «на сколько» и показывает сроки, ничего не откладывая", async () => {
     const r = await press("task:defer:tk1");
+    expect(r).toEqual({ task: "tk1", action: "defer-ask" });
+    expect(last().text).toMatch(/На сколько отложить «Макет для Ромашки»\?/);
+    // Само уведомление осталось, абзац про кнопки ушёл.
+    expect(last().text).toMatch(/^Начинается: Макет для Ромашки/);
+    expect(last().text).not.toMatch(/🔴 Отложить/);
+    expect(lastKeys()).toEqual([["15 минут", "30 минут", "1 час"],
+      ["2 часа", "4 часа", "1 день"], ["Назад"]]);
+    expect(lastData()).toEqual(["task:deferfor:15:tk1", "task:deferfor:30:tk1",
+      "task:deferfor:60:tk1", "task:deferfor:120:tk1", "task:deferfor:240:tk1",
+      "task:deferfor:1440:tk1", "task:deferback:tk1"]);
+    // Склад работы не тронут: пока это только вопрос.
+    expect(calls).toEqual([]);
+  });
+
+  it("выбранный срок откладывает задачу и говорит, на сколько", async () => {
+    const before = Date.now();
+    await press("task:defer:tk1");
+    const r = await press("task:deferfor:60:tk1");
     expect(r).toMatchObject({ task: "tk1", action: "defer" });
     expect(calls).toHaveLength(1);
     const [, who, id, opts] = calls[0];
     expect([who, id]).toEqual(["200", "tk1"]);
     const until = Date.parse(opts.until);
-    expect(until - before).toBeGreaterThanOrEqual(45 * 60000 - 50);
-    expect(until - Date.now()).toBeLessThanOrEqual(45 * 60000);
-    expect(last().text).toMatch(/Отложил: «Макет для Ромашки» на 45 минут/);
+    expect(until - before).toBeGreaterThanOrEqual(60 * 60000 - 50);
+    expect(until - Date.now()).toBeLessThanOrEqual(60 * 60000);
+    expect(last().text).toMatch(/Отложил: «Макет для Ромашки» на 1 час/);
     expect(last().text).toMatch(/срок при этом не сдвинулся/);
     expect(last().keyboard).toBeNull();
     // Повтор гаснет: человек ответил.
     expect(acked).toEqual([["200", "task", "tk1"]]);
   });
 
-  it("настройки нет — полчаса: молчать вечно хуже, чем напомнить", async () => {
-    deps.deferMin = async () => null;
-    await press("task:defer:tk1");
-    expect(last().text).toMatch(/на 30 минут/);
+  /* Кнопка со сроком не из списка — из старого сообщения или подделанная.
+     Молча отложить «на сколько-нибудь» хуже, чем сказать «нет такого». */
+  it("срок не из списка — отказ, и ничего не поменялось", async () => {
+    const r = await press("task:deferfor:7:tk1");
+    expect(r).toEqual({ error: "bad defer" });
+    expect(lastAnswer()).toBe("Нет такого срока");
+    expect(calls).toEqual([]);
+    expect(acked).toEqual([]);
   });
 
-  it("чужому — отказ словами", async () => {
+  it("чужому — отказ словами на первом же нажатии", async () => {
     const r = await press("task:defer:tk1", stranger);
     expect(r).toEqual({ error: "not yours" });
     expect(lastAnswer()).toBe("Эта задача не ваша");
@@ -151,7 +169,7 @@ describe("«Отложить» — сразу, на срок из анкеты",
     expect(calls).toEqual([]);
   });
 
-  it("уже взятую или сданную не откладывают — отказ сразу", async () => {
+  it("уже взятую или сданную не откладывают — отказ до вопроса о сроке", async () => {
     for (const status of ["progress", "review", "done"]) {
       work.taskFor = async () => ({ task: { ...TASK, status }, func: FUNC, traits: TRAITS });
       const r = await press("task:defer:tk1");
@@ -162,8 +180,23 @@ describe("«Отложить» — сразу, на срок из анкеты",
     // Просроченная и уже отложенная — лежат, их откладывать можно.
     for (const status of ["deadline", "deferred"]) {
       work.taskFor = async () => ({ task: { ...TASK, status }, func: FUNC, traits: TRAITS });
-      expect(await press("task:defer:tk1")).toMatchObject({ action: "defer" });
+      expect(await press("task:defer:tk1")).toMatchObject({ action: "defer-ask" });
+      expect(lastKeys()[2]).toEqual(["Назад"]);
     }
+  });
+
+  it("«Назад» возвращает уведомление с двумя кнопками", async () => {
+    await press("task:defer:tk1");
+    // «Назад» нажимают на том сообщении, где стоял вопрос, — с ним и сверяем.
+    const r = await onTaskButton({ id: "cb", from: worker, data: "task:deferback:tk1",
+      message: { message_id: 55, chat: { id: worker.id }, text: last().text } }, worker, deps);
+    expect(r).toEqual({ task: "tk1", action: "defer-back" });
+    expect(lastKeys()).toEqual([["🔴 Отложить", "🟢 Начать"]]);
+    expect(lastData()).toEqual(["task:defer:tk1", "task:start:tk1"]);
+    // Абзац про кнопки вернулся вместе с ними — и ровно один раз.
+    expect(last().text).toMatch(/«🔴 Отложить» — спрошу, на сколько/);
+    expect(last().text).not.toMatch(/На сколько отложить/);
+    expect(calls).toEqual([]);
   });
 });
 
@@ -197,19 +230,38 @@ describe("напоминание о постановке: «Готово» пр�
     expect(lastAnswer()).toBe("Эта задача не ваша");
   });
 
-  it("«Отложить» переносит напоминание, а не задачу", async () => {
-    deps.deferMin = async () => 20;
+  it("«Отложить» спрашивает срок и переносит напоминание, а не задачу", async () => {
     const before = Date.now();
-    const r = await press("task:sdefer:tk1");
+    const ask = await press("task:sdefer:tk1");
+    expect(ask).toEqual({ task: "tk1", action: "setup-defer-ask" });
+    expect(last().text).toMatch(/На сколько отложить напоминание о постановке\?/);
+    expect(lastKeys()).toEqual([["15 минут", "30 минут", "1 час"],
+      ["2 часа", "4 часа", "1 день"], ["Назад"]]);
+    expect(lastData()[0]).toBe("task:sdeferfor:15:tk1");
+    expect(lastData()[6]).toBe("task:sdeferback:tk1");
+    // Пока это вопрос: ничего не перенесено.
+    expect(deferred).toEqual([]);
+
+    const r = await press("task:sdeferfor:30:tk1");
     expect(r).toMatchObject({ task: "tk1", action: "setup-defer" });
     expect(deferred).toHaveLength(1);
     const [who, kind, id, until] = deferred[0];
     expect([who, kind, id]).toEqual(["200", "setup", "tk1"]);
-    expect(Date.parse(until) - before).toBeGreaterThanOrEqual(20 * 60000 - 50);
+    expect(Date.parse(until) - before).toBeGreaterThanOrEqual(30 * 60000 - 50);
     // Складу работы никто не звонил: задача так и ждёт постановки.
     expect(calls).toEqual([]);
-    expect(last().text).toMatch(/Напомню про постановку через 20 минут/);
+    expect(last().text).toMatch(/Напомню про постановку через 30 минут/);
     expect(last().text).toMatch(/состояние не изменилось/);
+  });
+
+  it("«Назад» с выбора срока возвращает кнопки напоминания", async () => {
+    await press("task:sdefer:tk1");
+    const r = await press("task:sdeferback:tk1");
+    expect(r).toEqual({ task: "tk1", action: "setup-defer-back" });
+    expect(lastKeys()).toEqual([["🔴 Отложить", "✅ Готово"]]);
+    expect(lastData()).toEqual(["task:sdefer:tk1", "task:sdone:tk1"]);
+    expect(last().text).toMatch(/«✅ Готово» — проверю, поставлена ли/);
+    expect(deferred).toEqual([]);
   });
 
   it("клавиатура постановки: «Отложить» слева, «Готово» справа", () => {

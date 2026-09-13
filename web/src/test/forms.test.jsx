@@ -9,8 +9,9 @@ import ProfilePanel, { filled, profileOf } from "../components/ProfilePanel.jsx"
    «пиши по шаблону»: человеку показывают каждый вопрос отдельно, и он
    отвечает на него. Анкет несколько, и назначают их ролям — в «Людях и
    ролях», рядом с ролью. Ответы лежат по идентификатору вопроса и уезжают
-   той же кнопкой «Сохранить анкету». Кому анкет по ролям не назначили, тот
-   видит прежнее одно поле: старые записи ничего не теряют. */
+   той же кнопкой «Сохранить анкету». Кому анкет по ролям не назначили, у
+   того формы «моя анкета» нет вовсе: спрашивать нечего. Анкету можно
+   загрузить списком — «1. вопрос» на строку. */
 
 const FORMS = [
   { id: "dev", name: "Анкета разработчика",
@@ -81,6 +82,29 @@ describe("анкеты в «Людях и ролях»", () => {
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]).toMatchObject({ url: "/api/org/forms", method: "POST",
       body: { name: "Курьер" } });
+  });
+
+  it("«Загрузить анкету» принимает пронумерованный список и шлёт вопросы одной записью", async () => {
+    const calls = ownerServer();
+    render(<PeoplePanel />);
+    await screen.findByText("анкеты");
+    fireEvent.click(screen.getByRole("button", { name: "Загрузить анкету" }));
+    const load = screen.getByLabelText("загрузить анкету из списка");
+    expect(load).toBeDisabled();
+    const text = screen.getByLabelText("текст анкеты");
+    fireEvent.change(text, { target: { value: "Стек\nУровень" } });
+    expect(screen.getByText(/Нужен пронумерованный список/)).toBeInTheDocument();
+    fireEvent.change(text, { target: { value: "1. Стек\n2. Уровень\nподробно\n3) Город" } });
+    expect(screen.getByText("вопросов: 3")).toBeInTheDocument();
+    // Без названия не уезжает: анкете нужно имя, как и при «+ анкета».
+    expect(load).toBeDisabled();
+    const name = screen.getByPlaceholderText("название новой анкеты");
+    fireEvent.change(name, { target: { value: "Курьер" } });
+    fireEvent.blur(name);
+    fireEvent.click(load);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toMatchObject({ url: "/api/org/forms", method: "POST",
+      body: { name: "Курьер", questions: ["Стек", "Уровень подробно", "Город"] } });
   });
 
   it("вопросы правятся списком: текст с прежним id, «+ вопрос», «✕»", async () => {
@@ -184,20 +208,27 @@ describe("вопросы в анкете человека", () => {
     expect(screen.queryByRole("button", { name: "Сохранить анкету" })).toBeNull();
   });
 
-  it("анкет по ролям нет — прежнее одно поле, и оно уезжает без словаря ответов", async () => {
-    const saved = [];
-    vi.stubGlobal("fetch", vi.fn(async (url, opts) => {
-      saved.push(JSON.parse(opts.body));
-      return { ok: true, status: 200, json: async () => ({ profile: JSON.parse(opts.body) }) };
-    }));
+  it("анкет по ролям нет — формы «моя анкета» нет вовсе, только имя, график и работы", () => {
+    /* Владелец: «если пользователю не назначена анкета, значит у него на
+       вкладке «Анкета» не должно быть формы «Моя анкета»». */
     render(<ProfilePanel me={{ ...ME, forms: [] }} people={[]} tasks={[]} funcs={[]} />);
-    const about = screen.getByLabelText("анкета");
-    fireEvent.change(about, { target: { value: "делаю отчёты" } });
-    fireEvent.blur(about);
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить анкету" }));
-    await waitFor(() => expect(saved).toHaveLength(1));
-    expect(saved[0].about).toBe("делаю отчёты");
-    expect(saved[0]).not.toHaveProperty("answers");
+    expect(screen.getByText("Иван")).toBeInTheDocument();
+    expect(screen.queryByText("моя анкета")).toBeNull();
+    expect(screen.queryByLabelText("анкета")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Сохранить анкету" })).toBeNull();
+    expect(screen.getByText("мой рабочий график")).toBeInTheDocument();
+  });
+
+  it("анкета стоит первой и прокручивается отдельно от остальной страницы", () => {
+    render(<ProfilePanel me={ME} people={[]} tasks={[]} funcs={[]} />);
+    const form = screen.getByText("моя анкета");
+    const schedule = screen.getByText("мой рабочий график");
+    // eslint-disable-next-line no-bitwise
+    expect(form.compareDocumentPosition(schedule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const box = screen.getByLabelText("вопросы анкеты");
+    expect(box.style.overflowY).toBe("auto");
+    expect(box.style.maxHeight).toBe("55vh");
+    expect(within(box).getByLabelText("Стек")).toBeInTheDocument();
   });
 
   it("ответ на вопрос — тоже заполненная анкета", () => {

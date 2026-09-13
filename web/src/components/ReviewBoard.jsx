@@ -71,17 +71,27 @@ const lastOf = lastSubmission;
  * Подтверждение короткое и на месте: удаление необратимо, но и
  * рассказывать о нём нечего — задача пустая.
  */
-export const canKill = (t) => !!t && t.taken !== true
-  && ["wait", "backlog", "deferred"].includes(t.status)
-  && !(t.submissions || []).length;
+/* Владелец (2026-09-13) — ещё и то, что ждёт проверки, и готовое: модель
+   его, и решать, нужна ли в ней эта работа, — ему. Уходят сдачи, оценки и
+   выданные единицы; подтверждение так и говорит. В работе — не удаляет
+   никто: сперва «Отменить» на доске, и задача вернётся в бэклог. */
+const UNSTARTED = ["wait", "backlog", "deferred"];
+const STARTED_KILLABLE = ["review", "done"];
+export const canKill = (t, { isOwner = false } = {}) => !!t && (
+  (t.taken !== true && UNSTARTED.includes(t.status) && !(t.submissions || []).length)
+  || (isOwner && (UNSTARTED.includes(t.status) || STARTED_KILLABLE.includes(t.status))));
+export const killStarted = (t) => !!t
+  && (t.taken === true || !UNSTARTED.includes(t.status) || !!(t.submissions || []).length);
 
-function Delete({ t, can, killId, setKillId, onKill }) {
-  if (!can || !canKill(t)) return null;
+function Delete({ t, can, killId, setKillId, onKill, isOwner = false }) {
+  if (!can || !canKill(t, { isOwner })) return null;
   if (killId === t.id) {
     return (
       <span className="flex gap-2" style={{ alignItems: "center" }}
         onClick={(e) => e.stopPropagation()}>
-        <span style={{ fontSize: 10.5, color: BAD }}>удалить насовсем?</span>
+        <span style={{ fontSize: 10.5, color: BAD }}>
+          {killStarted(t) ? "удалить вместе со сдачами, оценками и выданными единицами?"
+            : "удалить насовсем?"}</span>
         <button style={{ ...btn(true, BAD), padding: "2px 8px", fontSize: 10.5 }}
           aria-label={`да, удалить ${t.title}`}
           onClick={(e) => { e.stopPropagation(); onKill(t); }}>Да</button>
@@ -298,6 +308,18 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
     if (onDelete) onDelete(t);
     else setTasks?.((p) => p.filter((x) => x.id !== t.id));
   };
+  /* Строка «удалить» внутри раскрытой карточки: удаляют, глядя на задачу.
+     Неначатую — тот, кто ставит; начатую (ждёт проверки, готова) — только
+     владелец, и подпись говорит, что уйдёт вместе с ней. */
+  const killRow = (t, style = { marginTop: 8 }) => (canKill(t, { isOwner }) ? (
+    <div className="flex gap-2" style={{ alignItems: "center", ...style }}>
+      <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
+        {killStarted(t)
+          ? "удалить насовсем может только владелец: уйдут сдачи, оценки и выданные единицы"
+          : "задача ещё не начата — её можно удалить насовсем"}</span>
+      <Delete t={t} can={killStarted(t) ? isOwner : canDelete} isOwner={isOwner}
+        killId={killId} setKillId={setKillId} onKill={kill} />
+    </div>) : null);
 
   // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
   const mine = useMemo(() => tasks.filter((t) =>
@@ -380,14 +402,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                   удаляют, глядя на задачу, а не пробегая по заголовкам. В
                   строке кнопка стояла на пути к «развернуть» и удаляла то,
                   что ещё не открыли. */}
-              {on && canKill(t) && (
-                <div className="flex gap-2" style={{ alignItems: "center",
-                  margin: "0 0 10px" }}>
-                  <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
-                    задача ещё не начата — её можно удалить насовсем</span>
-                  <Delete t={t} can={canDelete} killId={killId} setKillId={setKillId}
-                    onKill={kill} />
-                </div>)}
+              {on && killRow(t, { margin: "0 0 10px" })}
             </div>);
         })}
       </div>
@@ -399,7 +414,8 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         note={note} setNote={setNote} mark={mark} setMark={setMark}
         hidden={hidden} setHidden={setHidden} meId={meId}
         funcs={funcs} traits={traits} entities={entities}
-        nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units} />)}
+        nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
+        extra={killRow(t)} />)}
 
       {!!rest.length && (
         <>
@@ -410,15 +426,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
               hidden={hidden} setHidden={setHidden} meId={meId}
               funcs={funcs} traits={traits} entities={entities}
               nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-              /* Удалить можно только то, что ещё не начали, и кнопка стоит
-                 ВНУТРИ раскрытой карточки: удаляют, глядя на задачу. */
-              extra={canKill(t) ? (
-                <div className="flex gap-2" style={{ alignItems: "center", marginTop: 8 }}>
-                  <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
-                    задача ещё не начата — её можно удалить насовсем</span>
-                  <Delete t={t} can={canDelete} killId={killId} setKillId={setKillId}
-                    onKill={kill} />
-                </div>) : null} />))}
+              extra={killRow(t)} />))}
         </>)}
 
       {/* ─── готовые ───
@@ -434,7 +442,8 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
             note={note} setNote={setNote} mark={mark} setMark={setMark}
             hidden={hidden} setHidden={setHidden} meId={meId}
             funcs={funcs} traits={traits} entities={entities}
-            nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units} />)}
+            nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
+            extra={killRow(t)} />)}
         </>)}
     </div>);
 }

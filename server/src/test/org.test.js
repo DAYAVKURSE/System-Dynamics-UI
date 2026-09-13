@@ -662,6 +662,10 @@ describe("анкеты как словари", () => {
 
   it("без названия анкета не заводится, а одинаковые названия получают разные id", async () => {
     await expect(addForm({ name: "  " })).rejects.toThrow(/required/);
+    // Список вопросов принимается сразу, с новыми идентификаторами.
+    const loaded = await addForm({ name: "Курьер", questions: ["Район", "", { text: "Транспорт" }] });
+    expect(loaded.questions.map((q) => q.text)).toEqual(["Район", "Транспорт"]);
+    expect(new Set(loaded.questions.map((q) => q.id)).size).toBe(2);
     const a = await addForm({ name: "Общая" });
     const b = await addForm({ name: "Общая" });
     expect(a.id).not.toBe(b.id);

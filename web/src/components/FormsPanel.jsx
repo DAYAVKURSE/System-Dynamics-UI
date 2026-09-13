@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { C, BAD, S, btn, TxtField } from "./ui.jsx";
+import { C, BAD, WARN, S, btn, TxtField } from "./ui.jsx";
 import { addForm, removeForm, setForm, setRoleForm } from "../identity.js";
+import { parseNumbered } from "../lib/formText.js";
 
 /* ════════════════════════════════════════════════════════════════
    АНКЕТЫ КАК СЛОВАРИ
@@ -99,6 +100,16 @@ function FormCard({ form, busy, act }) {
 /** Раздел «анкеты» в «Людях и ролях»: список анкет и заведение новой. */
 export function FormsSection({ forms, busy, act }) {
   const [name, setName] = useState("");
+  /* «Загрузить анкету»: пронумерованный список вопросов — вставленный или
+     из текстового файла. Разбирается на лету (`parseNumbered`), число
+     вопросов видно до отправки; название — то же поле, что у «+ анкета». */
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const parsed = parseNumbered(text);
+  const fromFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (f) setText(await f.text());
+  };
   return (
     <div style={{ marginTop: 12 }}>
       <div style={S.lbl}>анкеты</div>
@@ -113,7 +124,35 @@ export function FormsSection({ forms, busy, act }) {
         <button style={btn(true)} disabled={busy || !name.trim()}
           onClick={() => act(async () => { await addForm(name.trim()); setName(""); })}>
           + анкета</button>
+        <button style={btn(open)} disabled={busy} onClick={() => setOpen((v) => !v)}>
+          Загрузить анкету</button>
       </div>
+      {open && (
+        <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
+          padding: 8, marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, marginBottom: 6 }}>
+            Пронумерованный список: каждая строка — «1. вопрос». Строка без
+            номера продолжает предыдущий вопрос. Название — в поле выше.
+          </div>
+          <textarea aria-label="текст анкеты" value={text}
+            placeholder={"1. Ваш стек\n2. Уровень"}
+            onChange={(e) => setText(e.target.value)}
+            style={{ ...S.inp, width: "100%", minHeight: 110, lineHeight: 1.5,
+              boxSizing: "border-box" }} />
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
+            <input type="file" accept=".txt,text/plain" aria-label="файл анкеты"
+              onChange={fromFile} style={{ fontSize: 11, flex: "1 1 160px" }} />
+            <span style={{ fontSize: 10.5, color: parsed.error ? WARN : C.muted }}>
+              {parsed.error || `вопросов: ${parsed.questions.length}`}</span>
+            <button style={btn(true)} aria-label="загрузить анкету из списка"
+              disabled={busy || !name.trim() || !parsed.questions.length}
+              title={name.trim() ? "" : "Назовите анкету в поле выше"}
+              onClick={() => act(async () => {
+                await addForm(name.trim(), parsed.questions);
+                setName(""); setText(""); setOpen(false);
+              })}>Загрузить</button>
+          </div>
+        </div>)}
     </div>);
 }
 

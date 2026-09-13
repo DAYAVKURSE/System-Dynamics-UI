@@ -345,8 +345,11 @@ describe("кнопки задачи под уведомлением", () => {
     expect(lastText()).toMatch(/Взял в работу: «Сбор заявок»/);
   });
 
-  it("«Отложить» откладывает сразу — на срок из анкеты, без вопросов", async () => {
-    const r = await press(worker, "task:defer:tk1");
+  it("«Отложить» спрашивает, на сколько, и откладывает на выбранное", async () => {
+    const ask = await press(worker, "task:defer:tk1");
+    expect(ask).toMatchObject({ task: "tk1", action: "defer-ask" });
+    expect(calls.map((c) => c[0])).not.toContain("defer");
+    const r = await press(worker, "task:deferfor:30:tk1");
     expect(r).toMatchObject({ task: "tk1", action: "defer" });
     expect(calls.map((c) => c[0])).toContain("defer");
     expect(lastText()).toMatch(/Отложил/);

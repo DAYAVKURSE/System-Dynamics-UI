@@ -15,14 +15,14 @@ import { WORK_STATUSES, dayHours, hasSchedule, scheduleOfPerson, scheduleText, s
    РЕЙТИНГ — то, как он работал: оценки, сроки, работы, из которых он
    сложился.
 
-   ─── почему поле одно ───
+   ─── вопросы задаёт роль ───
 
-   Прежде их было четыре: «чем занимается», «о себе», «что умеет», «как
-   связаться». Это была не анкета, а допрос по форме, которую никто не
-   заказывал: приложение решало за человека, что о себе рассказывать, и
-   заранее знало, что вопрос «как с тобой связаться» важнее всего
-   остального. Анкета — это анкета: одно поле, и что в нём написать,
-   решает тот, кто пишет.
+   Прежде поле было одно, «о себе»: что в нём написать, решал тот, кто
+   пишет. Теперь о чём спрашивать, решает анкета, назначенная роли
+   («Люди и роли»): вопросы — её, ответы — человека. Роли без анкеты
+   спрашивать нечего — и формы «моя анкета» у такого человека нет вовсе,
+   а не пустая. Прежнее поле `about` (PROFILE_FIELDS) остаётся в данных и
+   читается как «заполнена ли анкета», но на экране его больше нет.
 
    ─── кто пишет ───
 
@@ -49,9 +49,9 @@ export const statusColor = (id) => (
 /**
  * Рабочий график и статус — читаются кем угодно, пишутся только своим.
  *
- * Стоят ВЫШЕ анкеты: прежде чем спрашивать, что человек умеет, спрашивают,
- * работает ли он сейчас. Ставить задачу тому, у кого сегодня выходной, —
- * значит назначить срок, которого никто не обещал.
+ * Стоят сразу под анкетой (владелец: анкета — первой) и видны всем:
+ * ставить задачу тому, у кого сегодня выходной, — значит назначить срок,
+ * которого никто не обещал.
  */
 function Schedule({ mine, draft, setDraft, msg = "" }) {
   const sc = scheduleOfPerson(draft);
@@ -275,17 +275,6 @@ export const warnMinOf = (v) => {
    начинать» расписание шлёт всегда, выбирается только, за сколько до него
    предупредить. */
 export const WARN_CHOICES = WARNS.filter((w) => w.v != null);
-
-/* На сколько откладывает кнопка «Отложить» под напоминанием. Ноля тут нет:
-   отложить на ноль значит не отложить, а кнопка обещает «напомню снова».
-   Разбор повторяет серверный (`deferOf` в orgStore.js). */
-export const DEFER_DEFAULT = 30;
-export const deferMinOf = (v) => {
-  const n = Number(v);
-  if (v == null || v === "" || !Number.isFinite(n)) return DEFER_DEFAULT;
-  return Math.min(1440, Math.max(1, Math.round(n)));
-};
-export const DEFER_CHOICES = WARNS.filter((w) => w.v != null && w.v > 0);
 
 /** Заполнена ли анкета — полем или хотя бы одним ответом на вопрос. */
 export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "").trim())
@@ -527,46 +516,39 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
 
   return (
     <div>
-      {/* График и статус — ПЕРВЫМИ: прежде чем спрашивать, что человек
-          умеет, спрашивают, работает ли он сейчас. И видно это всем, кто
-          открыл воркера, а не только ему самому. */}
+      {/* Имя — шапкой страницы, а не внутри анкеты: анкеты может не быть. */}
+      <div style={{ fontSize: 15, fontWeight: 700, margin: "2px 0 8px" }}>{name || "—"}</div>
+
+      {/* Анкета — ПЕРВОЙ, и только когда есть что заполнять: вопросы
+          задаёт анкета, назначенная роли («Люди и роли»). Ролям без анкеты
+          спрашивать нечего — и формы нет вовсе, а не пустая. Своё колесо
+          прокрутки: анкета бывает на двадцать вопросов, и график с
+          задачами не должны уезжать за ней. */}
+      {!!forms.length && (
+        <div style={{ ...S.card, marginBottom: 10 }}>
+          <div style={S.lbl}>{mine ? "моя анкета" : "анкета"}</div>
+          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, margin: "6px 0 8px" }}>
+            {mine
+              ? "Пишете только вы и о себе. Видно тем, кто выбирает, кому поручить работу."
+              : "Анкету пишет сам человек — здесь она только читается."}
+          </div>
+          <div aria-label="вопросы анкеты"
+            style={{ maxHeight: "55vh", overflowY: "auto", paddingRight: 4, marginBottom: 8 }}>
+            <FormAnswers forms={forms} answers={answersOf(draft)} mine={mine}
+              onChange={(a) => change((p) => ({ ...p, answers: a }))} />
+          </div>
+          {mine && (
+            <div className="flex items-center gap-2">
+              <button style={btn(true, ACC)} disabled={busy} onClick={save}>
+                {busy ? "Сохраняю…" : "Сохранить анкету"}</button>
+              {msg && (
+                <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>
+                  {msg}</span>)}
+            </div>)}
+        </div>)}
+
+      {/* График и статус: видно всем, кто открыл воркера, а не только ему. */}
       <Schedule mine={mine} draft={draft} setDraft={change} msg={scMsg} />
-
-      <div style={{ ...S.card, marginBottom: 10 }}>
-        <div style={S.lbl}>{mine ? "моя анкета" : "анкета"}</div>
-        <div style={{ fontSize: 15, fontWeight: 700, margin: "6px 0 2px" }}>
-          {name || "—"}</div>
-        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>
-          {mine
-            ? "Пишете только вы и о себе. Видно тем, кто выбирает, кому поручить работу."
-            : "Анкету пишет сам человек — здесь она только читается."}
-        </div>
-
-        {forms.length ? (
-          <FormAnswers forms={forms} answers={answersOf(draft)} mine={mine}
-            onChange={(a) => change((p) => ({ ...p, answers: a }))} />
-        ) : PROFILE_FIELDS.map((fld) => (
-          <div key={fld.id} style={{ marginBottom: 8 }}>
-            {mine ? (
-              <TxtField area={fld.area} value={draft[fld.id] || ""} placeholder={fld.hint}
-                aria-label={fld.name}
-                style={fld.area ? { minHeight: 220, lineHeight: 1.5 } : undefined}
-                onCommit={(v) => change((p) => ({ ...p, [fld.id]: v }))} />
-            ) : (
-              <div style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap",
-                color: draft[fld.id] ? C.text : C.muted }}>
-                {draft[fld.id] || "не заполнено"}</div>)}
-          </div>))}
-
-        {mine && (
-          <div className="flex items-center gap-2">
-            <button style={btn(true, ACC)} disabled={busy} onClick={save}>
-              {busy ? "Сохраняю…" : "Сохранить анкету"}</button>
-            {msg && (
-              <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>
-                {msg}</span>)}
-          </div>)}
-      </div>
 
       {/* Выполняемые задачи — ПЕРЕД работами: сначала то, что на человеке
           висит сейчас, потом то, как он работал раньше. */}
@@ -596,7 +578,6 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
    ════════════════════════════════════════════════════════════════ */
 export function RemindersCard({ me, onSaved }) {
   const current = warnMinOf(me?.profile?.warnMin);
-  const later = deferMinOf(me?.profile?.deferMin);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const known = Boolean(me?.known && !me?.solo);
@@ -616,8 +597,7 @@ export function RemindersCard({ me, onSaved }) {
       <div style={{ fontSize: 11.5, color: C.muted, margin: "6px 0 8px", lineHeight: 1.6 }}>
         Бот напоминает о задаче заранее и в момент начала, а постановщику — о
         задаче, которую пора поставить. Напоминание повторяется каждую минуту,
-        пока вы не нажмёте кнопку под ним; «Отложить» переносит его на
-        выбранный здесь срок.
+        пока вы не нажмёте кнопку под ним; «Отложить» спрашивает, на сколько.
       </div>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <span style={{ fontSize: 11.5, color: C.muted }}>предупреждать</span>
@@ -626,15 +606,6 @@ export function RemindersCard({ me, onSaved }) {
           onChange={(e) => pick({ warnMin: warnMinOf(e.target.value) })}>
           {WARN_CHOICES.map((w) => (
             <option key={w.v} value={String(w.v)}>{w.name}</option>))}
-        </select>
-      </div>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
-        <span style={{ fontSize: 11.5, color: C.muted }}>откладывать на</span>
-        <select style={{ ...S.inp, flex: "0 1 200px" }} value={String(later)}
-          aria-label="откладывать на" disabled={busy || !known}
-          onChange={(e) => pick({ deferMin: deferMinOf(e.target.value) })}>
-          {DEFER_CHOICES.map((w) => (
-            <option key={w.v} value={String(w.v)}>{w.name.replace(/^за /, "")}</option>))}
         </select>
         {msg && (
           <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>{msg}</span>)}

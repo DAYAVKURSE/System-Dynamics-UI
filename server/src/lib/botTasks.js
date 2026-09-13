@@ -5,12 +5,15 @@
    решает он в этот момент ровно одно: начинает сейчас или нет. Отсюда две
    кнопки — «Отложить» и «Начать» — и два потока за ними:
 
-   · «Отложить» спрашивает, НА СКОЛЬКО: часы → минуты → подтверждение.
-     Задача остаётся в бэклоге отложенной, срок не двигается (его ставит
-     постановщик), а в названный момент планировщик присылает новое
-     уведомление о начале. Спрашивается длительность, а не час на часах:
-     «на два часа» одинаково понимается в любом часовом поясе, а «до 15:00»
-     потребовало бы знать пояс человека, которого бот не знает.
+   · «Отложить» спрашивает, НА СКОЛЬКО: один экран с готовыми сроками
+     (`DEFER_CHOICES`) и «Назад». Срок выбирается в момент нажатия, а не
+     берётся из анкеты: занят человек на десять минут или до завтра —
+     видно только ему и только сейчас. Задача остаётся в бэклоге
+     отложенной, срок не двигается (его ставит постановщик), а в названный
+     момент планировщик присылает новое уведомление о начале.
+     Спрашивается длительность, а не час на часах: «на два часа» одинаково
+     понимается в любом часовом поясе, а «до 15:00» потребовало бы знать
+     пояс человека, которого бот не знает.
 
    · «Начать» переводит задачу в работу, и то же сообщение превращается в
      «Сдать отчёт». Дальше вся сдача проходит в чате: по каждой вещи,
@@ -62,11 +65,18 @@ export const missingGives = (f, files = {}) =>
 const P = "task:";
 export const TASK_START = `${P}start:`;
 export const TASK_DEFER = `${P}defer:`;
+/* Выбранный срок и «Назад» с экрана выбора. Минуты стоят ПЕРЕД
+   идентификатором (`task:deferfor:60:tk1`): в идентификаторе двоеточия
+   не бывает, и разбор — по первому. */
+export const TASK_DEFER_FOR = `${P}deferfor:`;
+export const TASK_DEFER_BACK = `${P}deferback:`;
 /* Напоминание о постановке: «Готово» и «Отложить». Свои префиксы, а не
    общие с работой: у постановки другая проверка и другой склад — путать
    их значило бы отвечать «не ваша задача» тому, чья она и есть. */
 export const SETUP_DONE = `${P}sdone:`;
 export const SETUP_DEFER = `${P}sdefer:`;
+export const SETUP_DEFER_FOR = `${P}sdeferfor:`;
+export const SETUP_DEFER_BACK = `${P}sdeferback:`;
 const REPORT = `${P}report:`;
 const GIVE = `${P}give:`;
 const SEND = `${P}send:`;
@@ -133,19 +143,42 @@ export const durationText = (h, m) => {
   return parts.join(" ") || "ноль минут";
 };
 
-/* На сколько откладывать — настройка того, кто нажал («Напоминания» в
-   инструментах). Не сказано — полчаса: молчать вечно хуже, чем напомнить. */
-const DEFER_FALLBACK = 30;
-async function minutesOf(deps, userId) {
-  const v = await deps.deferMin?.(userId);
-  const n = Number(v);
-  return Number.isFinite(n) && n >= 1 ? Math.round(n) : DEFER_FALLBACK;
-}
 export const minutesText = (mins) => {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return durationText(h, m);
 };
+
+/* ─────── на сколько отложить ───────
+
+   Готовые сроки: от «через четверть часа» до «завтра». Свободный ввод
+   тут не нужен — человек откладывает на бегу, а число минут словами он
+   пишет дольше, чем нажимает. Список один на работу и на постановку:
+   откладывается в обоих случаях одно и то же — ближайшее напоминание. */
+export const DEFER_CHOICES = [15, 30, 60, 120, 240, 1440];
+// Сутки — «1 день», а не «24 часа»: так их и держат в голове.
+const choiceText = (mins) => (mins === 1440 ? "1 день" : minutesText(mins));
+
+/** Экран выбора: сроки по три в ряд (в один Telegram ужимает их до
+    нечитаемых) и «Назад» — к уведомлению, с которого пришли. */
+export const deferKeyboard = (forPrefix, taskId, backData) => {
+  const keyboard = [];
+  for (let i = 0; i < DEFER_CHOICES.length; i += 3) {
+    keyboard.push(DEFER_CHOICES.slice(i, i + 3)
+      .map((m) => btn(choiceText(m), `${forPrefix}${m}:${taskId}`)));
+  }
+  keyboard.push([btn("Назад", backData)]);
+  return { inline_keyboard: keyboard };
+};
+
+/** Минуты и задача из данных кнопки. Срок не из списка — не срок. */
+const choiceOf = (data, prefix) => {
+  const rest = data.slice(prefix.length);
+  const at = rest.indexOf(":");
+  const mins = Number(rest.slice(0, at));
+  return { mins: DEFER_CHOICES.includes(mins) ? mins : null, id: rest.slice(at + 1) };
+};
+
 /** Нажали — повтор гаснет. Нет хранилища напоминаний — и гасить нечего. */
 const ackReminder = (deps, userId, kind, taskId) =>
   Promise.resolve(deps.reminders?.ack?.(userId, kind, taskId)).catch(() => {});
@@ -278,9 +311,12 @@ const takenText = (title) => `Взял в работу: ${q(title)}. Она в �
 const inWorkText = (title) => `${q(title)} в работе — колонка «В работе». ${WORK_HINT}`;
 
 /* Само уведомление — название, время, описание — остаётся в сообщении и
-   после нажатия: по нему человек видит, что делать. Уходит только абзац
-   про кнопки, которых больше нет. */
-const withoutHint = (text) => String(text || "").split("\n\n«🔴 Отложить»")[0].trim();
+   после нажатия: по нему человек видит, что делать. Уходит только то, что
+   дописал сам бот: абзац про кнопки и вопрос «на сколько отложить». Иначе
+   «Отложить → Назад → Отложить» приписывало бы вопрос к вопросу. */
+const ADDED = ["\n\n«🔴 Отложить»", "\n\nНа сколько отложить"];
+const withoutHint = (text) =>
+  ADDED.reduce((s, mark) => s.split(mark)[0], String(text || "")).trim();
 const above = (text, next) => (withoutHint(text) ? `${withoutHint(text)}\n\n${next}` : next);
 
 /** Экран сдачи: обязательные вещи и что из них уже на месте. */
@@ -448,11 +484,20 @@ async function handleButton(cb, from, deps) {
     return { task: id, action: "take" };
   }
 
-  /* «Отложить» больше не спрашивает «на сколько»: срок — настройка
-     человека («Напоминания» в инструментах, `deferMin`). Три экрана ради
-     числа, которое у него и так записано, — лишний путь. */
-  if (data.startsWith(TASK_DEFER)) {
-    const id = data.slice(TASK_DEFER.length);
+  /* «Отложить» — вопрос «на сколько», а не откладывание: срок человек
+     выбирает каждый раз сам. Проверки (задача своя, ещё лежит) — до
+     вопроса: спрашивать про срок у того, кому откладывать нечего, значит
+     отказывать после выбора.
+
+     ВАЖЕН ПОРЯДОК: выбранный срок и «Назад» разбираются раньше самой
+     кнопки. Префиксы и так различаются двоеточием (`task:defer:` против
+     `task:deferfor:`), но порядок не даст им сойтись при правках. */
+  if (data.startsWith(TASK_DEFER_FOR)) {
+    const { mins, id } = choiceOf(data, TASK_DEFER_FOR);
+    if (!mins) {
+      await answer(cb.id, "Нет такого срока");
+      return { error: "bad defer" };
+    }
     const got = await work.taskFor(userId, id);
     const error = got?.error || (DEFERRABLE.includes(got.task?.status) ? null : "not in backlog");
     if (error) {
@@ -460,7 +505,6 @@ async function handleButton(cb, from, deps) {
       await deps.send(from.id, `${whyNot(error)}: ничего не поменял.`);
       return { error };
     }
-    const mins = await minutesOf(deps, userId);
     const until = new Date(Date.now() + mins * 60000).toISOString();
     const r = await work.defer(userId, id, { until });
     if (r?.error) {
@@ -471,10 +515,37 @@ async function handleButton(cb, from, deps) {
     steps.delete(userId);
     await ackReminder(deps, userId, "task", id);
     await answer(cb.id, "Отложил");
-    await show(deps, target, `Отложил: ${q(titleOf(got.task))} на ${minutesText(mins)}.`
+    await show(deps, target, `Отложил: ${q(titleOf(got.task))} на ${choiceText(mins)}.`
       + " Осталась в бэклоге как отложенная — срок при этом не сдвинулся."
       + " Когда время выйдет, напомню снова.");
     return { task: id, action: "defer", until };
+  }
+
+  /* «Назад» — то же уведомление и те же две кнопки. Абзац про них
+     возвращается вместе с ними: кнопка без слов о том, что она делает,
+     заставляла бы гадать. */
+  if (data.startsWith(TASK_DEFER_BACK)) {
+    const id = data.slice(TASK_DEFER_BACK.length);
+    await show(deps, target, `${withoutHint(cb.message?.text)}\n\n`
+      + "«🔴 Отложить» — спрошу, на сколько. «🟢 Начать» — задача уйдёт в работу.",
+    taskKeyboard(id));
+    await answer(cb.id, "");
+    return { task: id, action: "defer-back" };
+  }
+
+  if (data.startsWith(TASK_DEFER)) {
+    const id = data.slice(TASK_DEFER.length);
+    const got = await work.taskFor(userId, id);
+    const error = got?.error || (DEFERRABLE.includes(got.task?.status) ? null : "not in backlog");
+    if (error) {
+      await answer(cb.id, whyNot(error));
+      await deps.send(from.id, `${whyNot(error)}: ничего не поменял.`);
+      return { error };
+    }
+    await answer(cb.id, "");
+    await show(deps, target, above(cb.message?.text, `На сколько отложить ${q(titleOf(got.task))}?`),
+      deferKeyboard(TASK_DEFER_FOR, id, TASK_DEFER_BACK + id));
+    return { task: id, action: "defer-ask" };
   }
 
   /* ─── напоминание о постановке ───
@@ -502,17 +573,39 @@ async function handleButton(cb, from, deps) {
     return { task: id, action: "setup-done" };
   }
 
-  if (data.startsWith(SETUP_DEFER)) {
-    const id = data.slice(SETUP_DEFER.length);
-    const mins = await minutesOf(deps, userId);
+  /* Постановку откладывают тем же экраном выбора — порядок проверок тот
+     же: сперва выбранный срок и «Назад», потом сама кнопка. */
+  if (data.startsWith(SETUP_DEFER_FOR)) {
+    const { mins, id } = choiceOf(data, SETUP_DEFER_FOR);
+    if (!mins) {
+      await answer(cb.id, "Нет такого срока");
+      return { error: "bad defer" };
+    }
     const until = new Date(Date.now() + mins * 60000).toISOString();
     /* Откладывается НАПОМИНАНИЕ, а не задача: задача так и ждёт постановки,
        и двигать её состояние тем, что человек занят, было бы неправдой. */
     const ok = await deps.reminders?.defer?.(userId, "setup", id, until);
     await answer(cb.id, ok === false ? "Нечего откладывать" : "Отложил");
-    await show(deps, target, `Напомню про постановку через ${minutesText(mins)}.`
+    await show(deps, target, `Напомню про постановку через ${choiceText(mins)}.`
       + " Задача так и ждёт постановки — её состояние не изменилось.");
     return { task: id, action: "setup-defer", until };
+  }
+
+  if (data.startsWith(SETUP_DEFER_BACK)) {
+    const id = data.slice(SETUP_DEFER_BACK.length);
+    await show(deps, target, `${withoutHint(cb.message?.text)}\n\n`
+      + "«🔴 Отложить» — спрошу, на сколько. «✅ Готово» — проверю, поставлена ли.",
+    setupKeyboard(id));
+    await answer(cb.id, "");
+    return { task: id, action: "setup-defer-back" };
+  }
+
+  if (data.startsWith(SETUP_DEFER)) {
+    const id = data.slice(SETUP_DEFER.length);
+    await answer(cb.id, "");
+    await show(deps, target, above(cb.message?.text, "На сколько отложить напоминание о постановке?"),
+      deferKeyboard(SETUP_DEFER_FOR, id, SETUP_DEFER_BACK + id));
+    return { task: id, action: "setup-defer-ask" };
   }
 
   if (data.startsWith(REPORT)) {

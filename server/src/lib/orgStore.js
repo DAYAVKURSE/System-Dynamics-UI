@@ -404,13 +404,17 @@ const formsFor = (org, user = {}) => {
   return ids.map((id) => org.forms.find((f) => f.id === id)).filter(Boolean);
 };
 
-export async function addForm({ name }) {
+export async function addForm({ name, questions } = {}) {
   const clean = String(name || "").trim();
   if (!clean) throw new Error("name is required");
   const org = await readOrg();
   let id = slug(clean, "form"), n = 2;
   while (org.forms.some((f) => f.id === id)) id = `${slug(clean, "form")}-${n++}`;
-  const form = { id, name: clean, questions: [] };
+  /* Вопросы можно принести сразу — «Загрузить анкету» списком: одна
+     запись, а не «завести пустую и дописать». Идентификаторы новые. */
+  const form = { id, name: clean,
+    questions: (Array.isArray(questions) ? questions : []).map(questionOf).filter(Boolean)
+      .map((q) => ({ id: newQid(), text: q.text })) };
   org.forms.push(form);
   await writeOrg(org);
   return form;
