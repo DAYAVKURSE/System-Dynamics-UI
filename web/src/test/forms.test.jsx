@@ -43,7 +43,7 @@ const ownerServer = () => {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("анкеты в «Людях и ролях»", () => {
+describe("анкеты в «Ролях»", () => {
   it("у роли выбирается анкета, и выбор уезжает на сервер", async () => {
     const calls = ownerServer();
     render(<PeoplePanel />);
@@ -68,10 +68,13 @@ describe("анкеты в «Людях и ролях»", () => {
     const calls = ownerServer();
     const { container } = render(<PeoplePanel />);
     await screen.findByText("анкеты");
-    // Под ролями, а не над ними: анкету назначают роли и ищут рядом с ней.
-    const labels = [...container.querySelectorAll("div")].map((d) => d.textContent)
-      .filter((t) => t === "роли и что они открывают" || t === "анкеты");
-    expect(labels).toEqual(["роли и что они открывают", "анкеты"]);
+    // Три формы, каждая своей карточкой: участники, роли, анкеты — в этом порядке.
+    const [people, roles, forms] = ["участники", "роли", "анкеты"].map((l) => screen.getByLabelText(l));
+    // eslint-disable-next-line no-bitwise
+    expect(people.compareDocumentPosition(roles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // eslint-disable-next-line no-bitwise
+    expect(roles.compareDocumentPosition(forms) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container).toBeTruthy();
 
     const add = screen.getByRole("button", { name: "+ анкета" });
     expect(add).toBeDisabled();

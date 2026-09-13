@@ -8,7 +8,7 @@ import { putReportFile, reportSrc } from "../storage.js";
 import { FormsSection, RoleFormPick } from "./FormsPanel.jsx";
 
 /* ════════════════════════════════════════════════════════════════
-   ЛЮДИ И РОЛИ · панель владельца
+   РОЛИ · панель владельца: участники, роли, анкеты
 
    Звать людей — дело бота: там пересылаешь сообщение и выбираешь роль
    в два касания. Здесь то, что в переписку не помещается: кто уже есть,
@@ -107,99 +107,124 @@ export default function PeoplePanel({ onPeople, onChanged }) {
   if (!org) {
     return (
       <div style={{ ...S.card, marginBottom: 10 }}>
-        <div style={S.lbl}>люди и роли</div>
+        <div style={S.lbl}>роли</div>
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>
           {msg || "Загружаю…"}</div>
       </div>);
   }
 
   const roleName = (id) => org.roles.find((r) => r.id === id)?.name;
+  const people = org.users.filter((u) => !u.agent);
+  const agents = org.users.filter((u) => u.agent);
+  /* Три формы — три вопроса (2026-09-13): КТО участвует, какие есть РОЛИ
+     и что они открывают, о чём спрашивают АНКЕТЫ. Каждая — своей
+     карточкой с заголовком и подсказкой, чтобы глазом было видно, где
+     что правится. */
+  const card = { ...S.card, marginBottom: 10, borderColor: `${ACC}55` };
+  const title = (t, n) => (
+    <div className="flex items-center gap-2" style={{ marginBottom: 4 }}>
+      <span style={{ ...S.lbl, color: ACC }}>{t}</span>
+      {n != null && <span style={{ fontSize: 10.5, color: C.muted }}>{n}</span>}
+    </div>);
+
+  const userRow = (u) => {
+    const owner = u.id === org.ownerId;
+    return (
+      <div key={u.id} className="flex flex-wrap gap-2"
+        style={{ alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.line}` }}>
+        <span style={{ fontSize: 12.5, flex: "1 1 130px" }}>
+          {u.name}
+          {u.username ? <span style={{ color: C.muted }}> @{u.username}</span> : null}
+          {u.agent && (
+            <span style={{ fontSize: 10, color: WARN, border: `1px solid ${WARN}66`,
+              borderRadius: 3, padding: "1px 5px", marginLeft: 6 }}>агент</span>)}
+        </span>
+        {owner
+          ? <span style={{ fontSize: 10.5, color: ACC, border: `1px solid ${ACC}66`,
+              borderRadius: 3, padding: "1px 5px" }}>владелец</span>
+          : <>
+              {/* Ролей у человека несколько — отметки, а не выбор одной:
+                  выпадающий список молча снимал остальные. Рядом с ролью
+                  — подписанный ли договор: участие держится на нём, и
+                  «роль есть, договора нет» надо видеть, а не выяснять.
+                  Агенту договор не нужен — роль выдаётся сразу. */}
+              <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
+                alignItems: "center" }}>
+                {org.roles.map((r) => {
+                  const has = (u.roles || []).includes(r.id);
+                  const signed = (u.contracts || {})[r.id];
+                  return (
+                    <button key={r.id} aria-pressed={has} disabled={busy}
+                      aria-label={`роль «${r.name}»: ${u.name}`}
+                      style={{ ...btn(has, has ? OK : undefined), fontSize: 11,
+                        padding: "2px 7px" }}
+                      onClick={() => act(() => setUserRoles(u.id, has
+                        ? (u.roles || []).filter((x) => x !== r.id)
+                        : [...(u.roles || []), r.id]))}>
+                      {r.name}{has && signed ? " ✓" : ""}</button>);
+                })}
+                {!!u.pending && (
+                  <span style={{ fontSize: 10.5, color: WARN }}>
+                    ждёт договора: {roleName(u.pending) || u.pending}</span>)}
+                <span style={{ flex: 1 }} />
+                <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+                  disabled={busy} aria-label={`убрать: ${u.name}`}
+                  onClick={() => act(() => removeUser(u.id))}>✕</button>
+              </div>
+              {!!Object.keys(u.contracts || {}).length && (
+                <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
+                  alignItems: "center" }}>
+                  <span style={{ fontSize: 10, color: C.muted }}>договоры:</span>
+                  {Object.entries(u.contracts || {}).map(([rid, f]) => (
+                    <a key={rid} href={reportSrc(f)} target="_blank" rel="noreferrer"
+                      download={f?.name || "договор"}
+                      aria-label={`договор «${roleName(rid) || rid}»: ${u.name}`}
+                      style={{ fontSize: 10.5, color: ACC }}>
+                      {roleName(rid) || rid} — {f?.name || "файл"}</a>))}
+                </div>)}
+            </>}
+      </div>);
+  };
 
   return (
-    <div style={{ ...S.card, marginBottom: 10 }}>
-      <div style={S.lbl}>люди и роли</div>
-      <div style={{ fontSize: 11.5, color: C.muted, margin: "6px 0 10px", lineHeight: 1.6 }}>
+    <div>
+      <div style={{ fontSize: 11.5, color: C.muted, margin: "0 0 10px", lineHeight: 1.6 }}>
         Участником человек становится, подписав договор роли: он открывает
         приложение, выбирает роль, читает договор и присылает подписанный
-        экземпляр — роль выдаётся сама. Здесь настраивается, что роль
-        открывает и какой по ней договор.
+        экземпляр — роль выдаётся сама. Ниже три формы: кто участвует, какие
+        есть роли и что они открывают, о чём спрашивают анкеты.
       </div>
 
-      <div style={S.lbl}>кто есть</div>
-      <div style={{ margin: "6px 0 12px" }}>
-        {org.users.map((u) => {
-          const owner = u.id === org.ownerId;
-          return (
-            <div key={u.id} className="flex flex-wrap gap-2"
-              style={{ alignItems: "center", padding: "6px 0",
-                borderBottom: `1px solid ${C.line}` }}>
-              <span style={{ fontSize: 12.5, flex: "1 1 130px" }}>
-                {u.name}
-                {u.username ? <span style={{ color: C.muted }}> @{u.username}</span> : null}
-              </span>
-              {owner
-                ? <span style={{ fontSize: 10.5, color: ACC, border: `1px solid ${ACC}66`,
-                    borderRadius: 3, padding: "1px 5px" }}>владелец</span>
-                : <>
-                    {/* Ролей у человека несколько — отметки, а не выбор
-                        одной: выпадающий список молча снимал остальные.
-                        Рядом с ролью — подписанный ли договор: участие
-                        держится на нём, и «роль есть, договора нет» надо
-                        видеть, а не выяснять. */}
-                    <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
-                      alignItems: "center" }}>
-                      {org.roles.map((r) => {
-                        const has = (u.roles || []).includes(r.id);
-                        const signed = (u.contracts || {})[r.id];
-                        return (
-                          <button key={r.id} aria-pressed={has} disabled={busy}
-                            aria-label={`роль «${r.name}»: ${u.name}`}
-                            style={{ ...btn(has, has ? OK : undefined), fontSize: 11,
-                              padding: "2px 7px" }}
-                            onClick={() => act(() => setUserRoles(u.id, has
-                              ? (u.roles || []).filter((x) => x !== r.id)
-                              : [...(u.roles || []), r.id]))}>
-                            {r.name}{has && signed ? " ✓" : ""}</button>);
-                      })}
-                      {!!u.pending && (
-                        <span style={{ fontSize: 10.5, color: WARN }}>
-                          ждёт договора: {roleName(u.pending) || u.pending}</span>)}
-                      <span style={{ flex: 1 }} />
-                      <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
-                        disabled={busy} aria-label={`убрать: ${u.name}`}
-                        onClick={() => act(() => removeUser(u.id))}>✕</button>
-                    </div>
-                    {/* Подписанные договоры — ссылками: акцепт должен
-                        открываться, а не значиться. */}
-                    {!!Object.keys(u.contracts || {}).length && (
-                      <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
-                        alignItems: "center" }}>
-                        <span style={{ fontSize: 10, color: C.muted }}>договоры:</span>
-                        {Object.entries(u.contracts || {}).map(([rid, f]) => (
-                          <a key={rid} href={reportSrc(f)} target="_blank" rel="noreferrer"
-                            download={f?.name || "договор"}
-                            aria-label={`договор «${roleName(rid) || rid}»: ${u.name}`}
-                            style={{ fontSize: 10.5, color: ACC }}>
-                            {roleName(rid) || rid} — {f?.name || "файл"}</a>))}
-                      </div>)}
-                  </>}
-            </div>);})}
+      {/* ═══ 1. УЧАСТНИКИ ═══ */}
+      <div style={card} aria-label="участники">
+        {title("участники", org.users.length)}
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
+          Люди и агенты с их ролями. Роли ставятся и снимаются отметками; ✓ — договор подписан.
+        </div>
+        {people.map(userRow)}
+        {!!agents.length && (
+          <div style={{ ...S.lbl, marginTop: 8 }}>агенты</div>)}
+        {agents.map(userRow)}
         {org.users.length <= 1 && (
           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
             Кроме вас пока никого. Перешлите боту сообщение от человека —
-            он предложит выбрать роль.
+            он предложит выбрать роль. Агентов заводят во вкладке «Агенты».
           </div>)}
       </div>
 
-      <div style={S.lbl}>роли и что они открывают</div>
-      <div style={{ margin: "6px 0 10px" }}>
+      {/* ═══ 2. РОЛИ ═══ */}
+      <div style={card} aria-label="роли">
+        {title("роли и что они открывают", org.roles.length)}
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
+          У роли — договор, анкета и вкладки, которые она открывает.
+        </div>
         {org.roles.map((r) => (
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
             borderRadius: 8, padding: 8, marginBottom: 6 }}>
             <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
               <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{r.name}</span>
               <span style={{ fontSize: 10, color: C.muted }}>
-                людей: {org.users.filter((u) => (u.roles || []).includes(r.id)).length}</span>
+                участников: {org.users.filter((u) => (u.roles || []).includes(r.id)).length}</span>
               {r.builtin && <span style={{ fontSize: 9.5, color: C.muted }}>встроенная</span>}
               <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
                 disabled={busy || org.roles.length <= 1}
@@ -209,7 +234,8 @@ export default function PeoplePanel({ onPeople, onChanged }) {
             <Contract role={r} busy={busy} onSet={(f) => act(() => setRoleContract(r.id, f))} />
             {/* Анкета — тоже свойство роли: о чём спрашивать человека, решает
                 то, кем он здесь является. */}
-            <RoleFormPick role={r} forms={org.forms} busy={busy} act={act} />
+            <RoleFormPick role={r} forms={org.forms || []} busy={busy} act={act} />
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: 3 }}>открывает вкладки:</div>
             <div className="flex flex-wrap gap-2">
               {ALL_TABS.map((t) => {
                 const on = (r.tabs || []).includes(t);
@@ -220,21 +246,23 @@ export default function PeoplePanel({ onPeople, onChanged }) {
                     {TAB_NAMES[t] || t}</button>);})}
             </div>
           </div>))}
+        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
+          <TxtField value={newRole} placeholder="название новой роли"
+            style={{ flex: "2 1 170px" }} onCommit={setNewRole} />
+          <button style={btn(true)} disabled={busy || !newRole.trim()}
+            onClick={() => act(async () => { await addRole(newRole.trim()); setNewRole(""); })}>
+            + роль</button>
+        </div>
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+          Новая роль открывает только «Задачи» — остальное добавьте кнопками выше.
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-        <TxtField value={newRole} placeholder="название новой роли"
-          style={{ flex: "2 1 170px" }} onCommit={setNewRole} />
-        <button style={btn(true)} disabled={busy || !newRole.trim()}
-          onClick={() => act(async () => { await addRole(newRole.trim()); setNewRole(""); })}>
-          + роль</button>
+      {/* ═══ 3. АНКЕТЫ ═══ */}
+      <div style={card} aria-label="анкеты">
+        {title("анкеты", (org.forms || []).length)}
+        <FormsSection forms={org.forms || []} busy={busy} act={act} />
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-        Новая роль открывает только «Задачи» — остальное добавьте кнопками выше.
-      </div>
-
-      {/* Анкеты — под ролями: их назначают ролям, и искать их стоит рядом. */}
-      <FormsSection forms={org.forms} busy={busy} act={act} />
       {msg && <div style={{ fontSize: 11.5, color: WARN, marginTop: 6 }}>{msg}</div>}
     </div>);
 }

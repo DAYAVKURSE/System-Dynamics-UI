@@ -1,3 +1,4 @@
+import { FACTORS_ON } from "../lib/flags.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
@@ -675,7 +676,7 @@ describe("ресурс и фактор принимает человек — к�
     expect(screen.getAllByText("не принят").length).toBeGreaterThan(0);
   });
 
-  it("фактор: красный «не принят», «Принять» — зелёный «фактор», правка вероятности снимает", () => {
+  it.skipIf(!FACTORS_ON)("фактор: красный «не принят», «Принять» — зелёный «фактор», правка вероятности снимает", () => {
     const block = addFactor("сезон");
     expect(within(block).getByText("не принят")).toBeInTheDocument();
     fireEvent.click(within(block).getByRole("button", { name: "принять фактор сезон" }));

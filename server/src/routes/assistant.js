@@ -1,14 +1,16 @@
 import { Router } from "express";
 import express from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
-import { identify } from "../lib/orgStore.js";
+import { addAgentUser, agentUserId, identify, removeUser, renameAgentUser } from "../lib/orgStore.js";
 import {
-  TASKS, addProvider, isBadInput, kindsView, providerFor, removeProvider, setTasks, settingsView,
-  updateProvider,
+  TASKS, addAgent, addProvider, agentFor, isBadInput, kindsView, providerFor, removeAgent,
+  removeProvider, setTasks, settingsView, updateAgent, updateProvider,
 } from "../lib/assistantSettings.js";
 import { listModels } from "../lib/aiProviders.js";
 import { ask, find } from "../lib/assistantQueue.js";
-import { MAX_MEMORY_FILE_BYTES, addMemory, listMemory, removeMemory } from "../lib/memoryStore.js";
+import {
+  DEFAULT_AGENT, MAX_MEMORY_FILE_BYTES, addMemory, listMemory, removeMemory,
+} from "../lib/memoryStore.js";
 import { retranscribeFor } from "../lib/transcribe.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -94,21 +96,62 @@ router.get("/providers/:id/models", async (req, res, next) => {
   }
 });
 
+/* Выбрали модель расшифровки — записи без текста (модели не было, не
+   удалось, оборвалось) расшифровываются ей в фоне, ПОСЛЕ ответа: иначе
+   выбор модели ничего не менял бы для уже сохранённых записей, и они
+   оставались бы без текста навсегда. Итог — в контексте помощника. */
+const retranscribeLater = (userId) => {
+  retranscribeFor(userId)
+    .then((done) => { if (done.length) console.log(`[transcribe] повтор для ${userId}: ${done.map((d) => `${d.fileId} ${d.status}`).join(", ")}`); })
+    .catch((e) => console.error(`[transcribe] повтор для ${userId} не удался: ${e.message}`));
+};
+
 router.put("/tasks", (req, res, next) => {
   try {
     const body = req.body || {};
     const tasks = setTasks(req.me.id, body);
     res.json(tasks);
-    /* Выбрали модель расшифровки — записи без текста (модели не было, не
-       удалось, оборвалось) расшифровываются ей в фоне, ПОСЛЕ ответа: иначе
-       выбор модели ничего не менял бы для уже сохранённых записей, и они
-       оставались бы без текста навсегда. Итог — в контексте помощника. */
-    if (body.transcribe != null && tasks.transcribe) {
-      retranscribeFor(req.me.id)
-        .then((done) => { if (done.length) console.log(`[transcribe] повтор для ${req.me.id}: ${done.map((d) => `${d.fileId} ${d.status}`).join(", ")}`); })
-        .catch((e) => console.error(`[transcribe] повтор для ${req.me.id} не удался: ${e.message}`));
-    }
+    if (body.transcribe != null && tasks.transcribe) retranscribeLater(req.me.id);
   } catch (e) { badInput(e, res, next); }
+});
+
+/* ─────── агенты ───────
+
+   Агент — в настройках человека; участником организации (чтобы выбирать
+   его в ролях и делать воркером) он становится только у ВЛАДЕЛЬЦА: список
+   организации ведёт владелец, и чужой агент в нём был бы чужим решением.
+   Участник заводится после записи в настройках: агент без участника
+   допустим (не-владелец), участник без агента — нет. */
+
+router.post("/agents", async (req, res, next) => {
+  try {
+    const agent = addAgent(req.me.id, { name: req.body?.name });
+    if (req.me.isOwner) await addAgentUser({ id: agent.id, name: agent.name, addedBy: req.me.id });
+    return res.status(201).json(agent);
+  } catch (e) { return badInput(e, res, next); }
+});
+
+router.put("/agents/:id", async (req, res, next) => {
+  try {
+    const { name, models, transcribe } = req.body || {};
+    const agent = updateAgent(req.me.id, req.params.id, { name, models, transcribe });
+    if (!agent) return res.status(404).json({ error: "Агент не найден" });
+    if (name !== undefined && req.me.isOwner) await renameAgentUser(agent.id, agent.name);
+    res.json(agent);
+    // Расшифровку выбрали у ассистента — то же, что строка transcribe в
+    // таблице: записи без текста дорасшифровываются ей в фоне, после ответа.
+    if (agent.builtin && transcribe != null && agent.transcribe) retranscribeLater(req.me.id);
+    return undefined;
+  } catch (e) { return badInput(e, res, next); }
+});
+
+router.delete("/agents/:id", async (req, res, next) => {
+  try {
+    if (!removeAgent(req.me.id, req.params.id)) return res.status(404).json({ error: "Агент не найден" });
+    // Участника-агента может уже не быть — владелец убрал его из списка сам.
+    if (req.me.isOwner) await removeUser(agentUserId(req.params.id));
+    return res.status(204).end();
+  } catch (e) { return badInput(e, res, next); }
 });
 
 /* ─────── вопрос в два шага ─────── */
@@ -139,8 +182,25 @@ router.get("/ask/:id", (req, res) => {
 
 /* ─────── память ─────── */
 
+/* Память — у агента: без `agent` — ассистента, как было всегда. Агент,
+   которого нет в записи, — 400 словами: память «ничьего» агента нельзя
+   было бы ни увидеть на экране, ни удалить. */
+class BadAgent extends Error {
+  constructor(id) { super(`Агент «${id}» не найден`); this.status = 400; }
+}
+const agentOf = (req, raw) => {
+  const id = String(raw || "").trim() || DEFAULT_AGENT;
+  if (!agentFor(req.me.id, id)) throw new BadAgent(id);
+  return id;
+};
+
 router.get("/memory", async (req, res, next) => {
-  try { res.json(await listMemory(req.me.id)); } catch (e) { next(e); }
+  try {
+    res.json(await listMemory(req.me.id, agentOf(req, req.query.agent)));
+  } catch (e) {
+    if (e instanceof BadAgent) return res.status(400).json({ error: e.message });
+    return next(e);
+  }
 });
 
 /* Имя файла и название едут в заголовках, а заголовки — latin-1: клиент
@@ -168,8 +228,11 @@ router.post("/memory",
       if (req.header("X-Memory-Name") && !Buffer.isBuffer(req.body)) {
         return res.status(400).json({ error: "send the file as application/octet-stream, not as JSON" });
       }
+      // У файла агент едет в заголовке, как и название; у JSON — полем.
+      const agent = agentOf(req, isFile ? req.header("X-Memory-Agent") : req.body?.agent);
       const saved = isFile
         ? await addMemory(req.me.id, {
+          agent,
           title: headerText(req.header("X-Memory-Title")),
           text: headerText(req.header("X-Memory-Text")),
           file: {
@@ -179,11 +242,13 @@ router.post("/memory",
           },
         })
         : await addMemory(req.me.id, {
-          title: req.body?.title, text: req.body?.text,
+          agent, title: req.body?.title, text: req.body?.text,
         });
       res.status(201).json(saved);
     } catch (e) {
-      if (/required|at most|limit/.test(e.message)) return res.status(400).json({ error: e.message });
+      if (e instanceof BadAgent || /required|at most|limit/.test(e.message)) {
+        return res.status(400).json({ error: e.message });
+      }
       return next(e);
     }
   });

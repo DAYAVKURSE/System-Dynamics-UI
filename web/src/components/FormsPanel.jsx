@@ -111,9 +111,8 @@ export function FormsSection({ forms, busy, act }) {
     if (f) setText(await f.text());
   };
   return (
-    <div style={{ marginTop: 12 }}>
-      <div style={S.lbl}>анкеты</div>
-      <div style={{ fontSize: 11.5, color: C.muted, margin: "6px 0 8px", lineHeight: 1.6 }}>
+    <div style={{ marginTop: 4 }}>
+      <div style={{ fontSize: 11, color: C.muted, margin: "0 0 8px", lineHeight: 1.5 }}>
         Список вопросов, на которые человек отвечает в своей анкете. Какую
         анкету заполнять, говорит роль — выберите её у роли выше.
       </div>

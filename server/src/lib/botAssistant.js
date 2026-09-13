@@ -359,7 +359,7 @@ export async function onAssistantMessage(msg, from, deps = {}) {
     }
     try {
       const item = await memory.addMemory(userId, { text: body });
-      await send(from.id, `Запомнил: «${short(item.title)}». Посмотреть и удалить можно в Инструментах → Помощник.`);
+      await send(from.id, `Запомнил: «${short(item.title)}». Посмотреть и удалить можно в Инструментах → Агенты.`);
       return { remembered: item.id };
     } catch (e) {
       await send(from.id, `Не запомнил: ${e.message}`);

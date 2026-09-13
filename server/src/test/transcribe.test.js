@@ -134,7 +134,7 @@ describe("transcribeRecording — после сохранения записи",
     const r = await transcribeRecording(rec(), { pick, doFetch: vi.fn() });
     expect(r).toEqual({ status: "none", reason: NO_MODEL });
     expect(NO_MODEL).toMatch(/^расшифровки нет: модель для задачи «расшифровка записей звонков» не выбрана/);
-    expect(NO_MODEL).toMatch(/Инструментах → Помощник/);
+    expect(NO_MODEL).toMatch(/Инструментах → Агенты/);
     expect(await transcriptFor("f1")).toBeNull();
     // Модель — того, кто сохранил, для задачи «расшифровка» и БЕЗ отката.
     expect(pick).toHaveBeenCalledWith("100", "transcribe", { fallback: false });

@@ -21,7 +21,18 @@ import { deleteReport, saveReport } from "./reportStore.js";
    Пределы названы числами здесь и только здесь: 200 записей, 20 000
    знаков текста. Память идёт в контекст каждого вопроса целиком, и
    бесконечная память означала бы бесконечный контекст.
+
+   Память — у АГЕНТА (v1.3): у каждого агента человека своя, и в контекст
+   идёт только память того, кто отвечает. Запись помнит, чья она, полем
+   `agent`; прежние записи без поля — ассистента, встроенного агента: до
+   агентов вся память была его. Пределы — на человека, а не на агента:
+   файл один, и в контекст его читать всё равно целиком.
    ════════════════════════════════════════════════════════════════ */
+
+/* Встроенный агент — тот же id, что в assistantSettings.js; сюда он не
+   импортируется, чтобы память не зависела от настроек помощника. */
+export const DEFAULT_AGENT = "assistant";
+const agentOf = (m) => String(m?.agent || "").trim() || DEFAULT_AGENT;
 
 export const MAX_MEMORY_ITEMS = 200;
 export const MAX_MEMORY_TEXT = 20000;
@@ -81,12 +92,14 @@ const clean = (s, limit) => String(s ?? "").replace(/\r\n/g, "\n").trim().slice(
 
 /** Наружу — без внутренних полей; ссылка на файл уже в записи. */
 const view = (m) => ({
-  id: m.id, title: m.title, text: m.text, at: m.at,
+  id: m.id, title: m.title, text: m.text, at: m.at, agent: agentOf(m),
   file: m.file ? { name: m.file.name, type: m.file.type, size: m.file.size, url: m.file.url } : null,
 });
 
-export async function listMemory(userId) {
-  return (await readAll(userId)).map(view)
+/** Память одного агента человека; без агента — ассистента, как было всегда. */
+export async function listMemory(userId, agent = DEFAULT_AGENT) {
+  const who = agentOf({ agent });
+  return (await readAll(userId)).filter((m) => agentOf(m) === who).map(view)
     .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
@@ -95,7 +108,7 @@ export async function listMemory(userId) {
  * без него берётся первая строка текста или имя файла: спрашивать
  * название у заметки в одну фразу значило бы спрашивать её дважды.
  */
-export async function addMemory(userId, { title, text, file } = {}) {
+export async function addMemory(userId, { title, text, file, agent } = {}) {
   let body = clean(text, MAX_MEMORY_TEXT + 1);
   let saved = null;
 
@@ -128,6 +141,7 @@ export async function addMemory(userId, { title, text, file } = {}) {
     title: head || "без названия",
     text: body,
     file: saved,
+    agent: agentOf({ agent }),
     at: new Date().toISOString(),
   };
 

@@ -485,6 +485,10 @@ export async function listOrg() {
    Раздаёт роли владелец (здесь) и сам человек, подписав договор
    (`registerUser`). Третьего пути нет. */
 
+/* Договора здесь не ждут — и для людей тоже: роль от владельца этим
+   маршрутом выдаётся сразу, `pending` заводит только приглашение
+   (`addUser`). Агенту (`agent: true`) подписывать нечего и некому, и он
+   идёт тем же путём без исключений. */
 export async function setUserRoles(id, roles) {
   const org = await readOrg();
   const user = org.users.find((u) => u.id === String(id));
@@ -582,6 +586,46 @@ export async function addUser({ id, name, username, roleId, addedBy }) {
   else org.users.push(entry);
   await writeOrg(org);
   return entry;
+}
+
+/* ─────── агенты как участники ───────
+
+   Агент помощника (lib/assistantSettings.js) — не человек, но чтобы
+   владелец мог выбрать его в роли и поручить ему работу, он должен быть в
+   том же списке, откуда берутся люди. Участник-агент помечен `agent: true`,
+   его id — `ag_<id агента>`: с Telegram-id он не пересечётся, и по нему
+   видно, что это не человек. Договора у него нет, анкета пустая, входить
+   он не входит — `identify` его не зовёт, а если позовёт, найдёт по имени.
+   Заводит его владелец: агент не-владельца участником не становится. */
+export const agentUserId = (agentId) => `ag_${String(agentId)}`;
+
+export async function addAgentUser({ id, name, addedBy }) {
+  if (!id) throw new Error("id is required");
+  const org = await readOrg();
+  const uid = agentUserId(id);
+  const idx = org.users.findIndex((u) => u.id === uid);
+  const was = idx >= 0 ? org.users[idx] : null;
+  // Участник с таким id уже есть (агента удалили из списка и завели
+  // снова) — обновляем имя, роли не трогаем: их раздал владелец.
+  const entry = {
+    id: uid, name: String(name || uid), agent: true,
+    roles: roleIds(was?.roles), contracts: was?.contracts || {},
+    addedAt: new Date().toISOString(), addedBy: addedBy ? String(addedBy) : null,
+  };
+  if (idx >= 0) org.users[idx] = { ...org.users[idx], ...entry };
+  else org.users.push(entry);
+  await writeOrg(org);
+  return entry;
+}
+
+/** Агента переименовали в настройках — имя участника то же. Нет участника — null. */
+export async function renameAgentUser(agentId, name) {
+  const org = await readOrg();
+  const user = org.users.find((u) => u.id === agentUserId(agentId) && u.agent);
+  if (!user) return null;
+  const clean = String(name || "").trim();
+  if (clean && user.name !== clean) { user.name = clean; await writeOrg(org); }
+  return user;
 }
 
 export async function removeUser(id) {

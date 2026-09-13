@@ -43,6 +43,16 @@ export const providerModels = (id) =>
 export const putTasks = (t) =>
   json("/api/assistant/tasks", { method: "PUT", body: JSON.stringify(t) });
 
+/* ─────── агенты ───────
+   «Ассистент» есть всегда (`builtin`), остальных заводит человек. У агента
+   — коллекция моделей из своих провайдеров и своя память. */
+export const addAgent = (name) =>
+  json("/api/assistant/agents", { method: "POST", body: JSON.stringify({ name }) });
+export const updateAgent = (id, patch) =>
+  json(`/api/assistant/agents/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(patch) });
+export const dropAgent = (id) =>
+  json(`/api/assistant/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
+
 /* ─────── вопрос ───────
 
    В два шага: поставить вопрос и опрашивать ответ короткими запросами.
@@ -72,7 +82,8 @@ export async function askAssistant(question, context = "",
 
 /* ─────── память ─────── */
 
-export const listMemory = () => json("/api/assistant/memory");
+export const listMemory = (agent = "assistant") =>
+  json(`/api/assistant/memory?agent=${encodeURIComponent(agent)}`);
 export const dropMemory = (id) =>
   json(`/api/assistant/memory/${encodeURIComponent(id)}`, { method: "DELETE" });
 
@@ -84,12 +95,12 @@ const b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(String(s
  * Положить в память: `{title, text}` — заметка, `File` (или `{file, title}`) —
  * файл сырыми байтами. Текстовый файл сервер прочитает в саму запись.
  */
-export async function addMemory(item) {
+export async function addMemory(item, agent = "assistant") {
   const isFile = typeof File !== "undefined" && item instanceof File;
   const file = isFile ? item : item?.file;
   if (!file) {
     return json("/api/assistant/memory", { method: "POST",
-      body: JSON.stringify({ title: item?.title || "", text: item?.text || "" }) });
+      body: JSON.stringify({ title: item?.title || "", text: item?.text || "", agent }) });
   }
   /* Файл уходит как байты без типа, а настоящий тип — в X-Memory-Type:
      сервер разбирает JSON-тела для всех маршрутов разом, и .json-файл,
@@ -102,6 +113,7 @@ export async function addMemory(item) {
       "Content-Type": "application/octet-stream",
       "X-Memory-Name": b64(file.name),
       "X-Memory-Type": file.type || "application/octet-stream",
+      "X-Memory-Agent": agent,
       ...(item?.title && !isFile ? { "X-Memory-Title": b64(item.title) } : {}),
       "X-Telegram-Init-Data": getInitData(),
     },

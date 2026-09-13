@@ -21,6 +21,14 @@ import { DEFAULT_BASE_URL, KINDS, isKind } from "./aiProviders.js";
    «задача → модель»: одна модель отвечает на вопросы, другая
    расшифровывает записи.
 
+   АГЕНТЫ (v1.3). У человека есть агенты: встроенный «Ассистент», которого
+   нельзя удалить, и сколько угодно своих. У агента — коллекция моделей:
+   пары `{providerId, model}` из ЕГО провайдеров, которыми агент может
+   думать, и отдельная пара для расшифровки записей. Ключей у агента нет —
+   он ссылается на провайдера, ключ лежит там. Таблица «задача → модель»
+   осталась для совместимости: `modelFor` смотрит сначала в коллекцию
+   ассистента, а потом — в неё.
+
    Наружу ключ не уходит никогда — только `hasKey`: есть он или нет.
    Экрану большего не нужно: он спрашивает «можно ли задавать вопросы»,
    а не «какой ключ». Всё, что отдаётся за пределы этого модуля, проходит
@@ -43,10 +51,15 @@ export const TASK_IDS = TASKS.map((t) => t.id);
 /* Одна фраза на все места — бот, очередь: кто бы ни
    спросил ненастроенного помощника, ответ обязан звучать одинаково и
    называть, где это чинится. Чинит теперь сам человек, а не владелец. */
-export const NOT_CONFIGURED = "Помощник не настроен: добавьте провайдера и ключ в Инструментах → Помощник";
+export const NOT_CONFIGURED = "Помощник не настроен: добавьте провайдера и ключ в Инструментах → Агенты";
 
 export const MAX_PROVIDERS = 20;
 export const MAX_MODELS = 50;
+export const MAX_AGENTS = 20;
+/* Встроенный агент: есть у всех и всегда первый. На него смотрит
+   `modelFor`, к нему идёт память из бота, его нельзя удалить. */
+export const BUILTIN_AGENT_ID = "assistant";
+const builtinAgent = () => ({ id: BUILTIN_AGENT_ID, name: "Ассистент", builtin: true, models: [], transcribe: null });
 const NAME_LIMIT = 80;
 const MODEL_LIMIT = 120;
 // Ключи у всех видов — печатная латиница без пробелов. Перевод строки в
@@ -54,6 +67,9 @@ const MODEL_LIMIT = 120;
 // ключ с пробелом — это ключ, скопированный с куском страницы.
 const KEY_RE = /^[\x21-\x7e]{8,512}$/;
 const MODEL_RE = /^[A-Za-z0-9._:/-]+$/;
+// id агента едет в id участника организации и в запись памяти — только
+// то, что безопасно в любом из них.
+const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /* Прежняя схема (v1.1): один провайдер и три ключа в .env. Нужна только
    для переноса — один раз, владельцу, у которого ещё нет своего файла. */
@@ -82,13 +98,19 @@ const fileFor = (userId) => path.join(baseDir(),
   `${String(userId).replace(/[^a-zA-Z0-9_-]/g, "_") || "unknown"}.json`);
 
 const emptyTasks = () => Object.fromEntries(TASK_IDS.map((t) => [t, null]));
-const empty = () => ({ providers: [], tasks: emptyTasks() });
+const empty = () => ({ providers: [], tasks: emptyTasks(), agents: [builtinAgent()] });
 
 /* ─────── проверка полей ─────── */
 
 const cleanName = (name) => {
   const n = String(name ?? "").replace(/\s+/g, " ").trim().slice(0, NAME_LIMIT);
   if (!n) throw new BadInput("Название провайдера обязательно");
+  return n;
+};
+
+const cleanAgentName = (name) => {
+  const n = String(name ?? "").replace(/\s+/g, " ").trim().slice(0, NAME_LIMIT);
+  if (!n) throw new BadInput("Название агента обязательно");
   return n;
 };
 
@@ -152,6 +174,46 @@ function normalize(raw) {
     rec.tasks[t] = provider && provider.models.includes(model)
       ? { providerId: provider.id, model } : null;
   }
+  /* Пара агента живёт, пока провайдер и модель есть в записи: удалили
+     провайдера или сняли модель — пара уходит из коллекции сама, как
+     строка таблицы. Повторы — тоже след, а не выбор. */
+  const pairOf = (row) => {
+    const provider = row && rec.providers.find((p) => p.id === String(row.providerId));
+    const model = row ? String(row.model || "") : "";
+    return provider && provider.models.includes(model) ? { providerId: provider.id, model } : null;
+  };
+  const pairsOf = (rows) => {
+    const out = [];
+    for (const pair of (Array.isArray(rows) ? rows : []).map(pairOf)) {
+      if (pair && !out.some((x) => x.providerId === pair.providerId && x.model === pair.model)) out.push(pair);
+    }
+    return out;
+  };
+  const assistant = builtinAgent();
+  if (Array.isArray(raw?.agents)) {
+    const own = raw.agents.find((a) => a && a.id === BUILTIN_AGENT_ID);
+    if (own) {
+      assistant.name = String(own.name || "").trim() || assistant.name;
+      assistant.models = pairsOf(own.models);
+      assistant.transcribe = pairOf(own.transcribe);
+    }
+  } else {
+    /* Запись до агентов: её выбор — таблица задач. Строка чата становится
+       первой моделью ассистента, строка расшифровки — его расшифровкой,
+       чтобы после обновления помощник отвечал тем же, чем вчера. */
+    assistant.models = pairsOf([rec.tasks.chat]);
+    assistant.transcribe = pairOf(rec.tasks.transcribe);
+  }
+  rec.agents = [assistant];
+  for (const a of (Array.isArray(raw?.agents) ? raw.agents : [])) {
+    if (!a || typeof a !== "object" || !AGENT_ID_RE.test(String(a.id)) || a.id === BUILTIN_AGENT_ID) continue;
+    if (rec.agents.some((x) => x.id === String(a.id))) continue;
+    rec.agents.push({
+      id: String(a.id), name: String(a.name || "").trim() || "агент", builtin: false,
+      models: pairsOf(a.models), transcribe: pairOf(a.transcribe),
+    });
+    if (rec.agents.length >= MAX_AGENTS) break;
+  }
   return rec;
 }
 
@@ -211,7 +273,10 @@ export function fromLegacyEnv(env = process.env) {
     const p = { id: `p_${legacyId}`, name: spec.name, kind: spec.kind, baseUrl: "", key,
       models: [own] };
     rec.providers.push(p);
-    if (legacyId === chosen) rec.tasks.chat = { providerId: p.id, model: own };
+    if (legacyId === chosen) {
+      rec.tasks.chat = { providerId: p.id, model: own };
+      rec.agents[0].models = [{ providerId: p.id, model: own }];
+    }
   }
   return rec.providers.length ? rec : null;
 }
@@ -240,21 +305,38 @@ const providerView = (p) => ({
   hasKey: Boolean(p.key),
 });
 
-/** Что видно человеку на экране: его провайдеры без ключей и таблица. */
+/* Копия агента: ключей у него нет, но копия — чтобы правка ответа не
+   правила запись. */
+const agentView = (a) => ({
+  id: a.id, name: a.name, builtin: Boolean(a.builtin),
+  models: a.models.map((m) => ({ ...m })),
+  transcribe: a.transcribe ? { ...a.transcribe } : null,
+});
+
+/** Что видно человеку на экране: его провайдеры без ключей, агенты и таблица. */
 export function settingsView(userId) {
   const rec = readUserSettings(userId);
-  return { providers: rec.providers.map(providerView), tasks: { ...rec.tasks } };
+  return { providers: rec.providers.map(providerView), tasks: { ...rec.tasks },
+    agents: rec.agents.map(agentView) };
+}
+
+/** Агент человека — копия или null. Чужого не найти: файл свой. */
+export function agentFor(userId, id) {
+  const a = readUserSettings(userId).agents.find((x) => x.id === String(id));
+  return a ? agentView(a) : null;
 }
 
 /** Виды API — для экрана: название и адрес по умолчанию. */
 export const kindsView = () => KINDS.map((k) => ({ ...k }));
 
 /**
- * Чем отвечать на задачу. Правило: своя строка таблицы → строка
- * «помощник по умолчанию» → первый провайдер с ключом и первой моделью
- * из его списка → null, и тогда помощник говорит NOT_CONFIGURED.
- * Неизвестная задача считается «по умолчанию», а не ошибкой: новую
- * задачу проще завести, чем ловить опечатку в id.
+ * Чем отвечать на задачу. Правило: коллекция ассистента (первая пара, у
+ * чьего провайдера есть ключ) → своя строка таблицы → строка «помощник по
+ * умолчанию» → первый провайдер с ключом и первой моделью из его списка →
+ * null, и тогда помощник говорит NOT_CONFIGURED. Для расшифровки — пара
+ * расшифровки ассистента, потом строка таблицы: коллекция моделей чата
+ * записи не расшифровывает. Неизвестная задача считается «по умолчанию»,
+ * а не ошибкой: новую задачу проще завести, чем ловить опечатку в id.
  *
  * `fallback: false` — только своя строка, без отката. Так спрашивает
  * расшифровка: откат на модель чата отправлял бы десятки мегабайт записи
@@ -272,6 +354,11 @@ export function modelFor(userId, task, { fallback = true } = {}) {
     return p && p.key ? { kind: p.kind, baseUrl: p.baseUrl || DEFAULT_BASE_URL[p.kind], key: p.key,
       model: row.model, providerName: p.name } : null;
   };
+  const assistant = rec.agents[0];
+  const byAgent = task === "transcribe"
+    ? pick(assistant.transcribe)
+    : assistant.models.map(pick).find(Boolean) || null;
+  if (byAgent) return byAgent;
   const own = TASK_IDS.includes(task) ? pick(rec.tasks[task]) : null;
   if (own || !fallback) return own;
   const byChat = pick(rec.tasks.chat);
@@ -306,8 +393,8 @@ export function addProvider(userId, { name, kind, baseUrl, key } = {}) {
 /**
  * Правка провайдера. Пустой ключ значит «не трогать», а не «стереть»:
  * форма шлёт поля разом, и стереть ключ можно только удалив провайдера.
- * Модель, пропавшая из списка, снимается со строк таблицы: выбирать
- * можно только то, что в списке есть.
+ * Модель, пропавшая из списка, снимается со строк таблицы и из коллекций
+ * агентов: выбирать можно только то, что в списке есть.
  */
 export function updateProvider(userId, id, { name, baseUrl, key, models } = {}) {
   const rec = readUserSettings(userId);
@@ -326,7 +413,7 @@ export function removeProvider(userId, id) {
   const before = rec.providers.length;
   rec.providers = rec.providers.filter((p) => p.id !== String(id));
   if (rec.providers.length === before) return false;
-  writeUserSettings(userId, rec);   // normalize сам обнулит осиротевшие строки
+  writeUserSettings(userId, rec);   // normalize сам обнулит осиротевшие строки и пары агентов
   return true;
 }
 
@@ -352,6 +439,75 @@ export function setTasks(userId, tasks = {}) {
     rec.tasks[t] = { providerId: p.id, model };
   }
   return { ...writeUserSettings(userId, rec).tasks };
+}
+
+/* ─────── агенты ─────── */
+
+const newAgentId = (rec) => {
+  for (;;) {
+    const id = `a_${crypto.randomBytes(4).toString("hex")}`;
+    if (!rec.agents.some((a) => a.id === id)) return id;
+  }
+};
+
+/** Пара «провайдер, модель» — из записи и из списка провайдера, иначе — словами. */
+const cleanPair = (rec, row, what) => {
+  const p = rec.providers.find((x) => x.id === String(row?.providerId || ""));
+  if (!p) throw new BadInput(`${what}: выбран провайдер, которого нет`);
+  const model = String(row?.model || "");
+  if (!p.models.includes(model)) {
+    throw new BadInput(`${what}: модели «${model || "пусто"}» нет в списке провайдера «${p.name}»`);
+  }
+  return { providerId: p.id, model };
+};
+
+/** Коллекция моделей агента: каждая пара проверена, повторы убраны, порядок сохранён. */
+const cleanPairs = (rec, rows, what) => {
+  if (!Array.isArray(rows)) throw new BadInput(`${what}: коллекция моделей должна быть списком`);
+  const out = [];
+  for (const row of rows) {
+    const pair = cleanPair(rec, row, what);
+    if (!out.some((x) => x.providerId === pair.providerId && x.model === pair.model)) out.push(pair);
+  }
+  return out;
+};
+
+/** Новый агент — с одним названием; модели он получит правкой. */
+export function addAgent(userId, { name } = {}) {
+  const rec = readUserSettings(userId);
+  if (rec.agents.length >= MAX_AGENTS) throw new BadInput(`Агентов — не больше ${MAX_AGENTS}`);
+  const a = { id: newAgentId(rec), name: cleanAgentName(name), builtin: false, models: [], transcribe: null };
+  rec.agents.push(a);
+  writeUserSettings(userId, rec);
+  return agentView(a);
+}
+
+/**
+ * Правка агента: название, коллекция моделей, пара расшифровки. Присланы
+ * только те поля, что есть в теле. Нет такого агента — null: «не найден»
+ * здесь правда, а не ошибка ввода.
+ */
+export function updateAgent(userId, id, { name, models, transcribe } = {}) {
+  const rec = readUserSettings(userId);
+  const a = rec.agents.find((x) => x.id === String(id));
+  if (!a) return null;
+  if (name !== undefined) a.name = cleanAgentName(name);
+  if (models !== undefined) a.models = cleanPairs(rec, models, `У агента «${a.name}»`);
+  if (transcribe !== undefined) {
+    a.transcribe = transcribe == null ? null : cleanPair(rec, transcribe, `У агента «${a.name}» для расшифровки`);
+  }
+  return agentView(writeUserSettings(userId, rec).agents.find((x) => x.id === a.id));
+}
+
+/** Удаляет агента; встроенного — нельзя, и это говорится словами, а не «не найден». */
+export function removeAgent(userId, id) {
+  const rec = readUserSettings(userId);
+  const a = rec.agents.find((x) => x.id === String(id));
+  if (!a) return false;
+  if (a.builtin) throw new BadInput("Ассистента удалить нельзя");
+  rec.agents = rec.agents.filter((x) => x.id !== a.id);
+  writeUserSettings(userId, rec);
+  return true;
 }
 
 /** Провайдер с ключом — только для вызова его API (список моделей). Наружу не отдавать. */

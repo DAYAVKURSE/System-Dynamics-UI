@@ -10,6 +10,7 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
+import { FACTORS_ON } from "../lib/flags.js";
 import LooseCrew from "./LooseCrew.jsx";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
@@ -29,7 +30,7 @@ import TasksBoard, { autoFlow, runsOfFunc } from "./TasksBoard.jsx";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
-import AssistantSettings from "./AssistantSettings.jsx";
+import AgentsPanel from "./AgentsPanel.jsx";
 import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
@@ -1254,7 +1255,10 @@ export default function SystemModel(){
             вверх через всю страницу было бы дорогой в один конец. */}
         <LooseCrew people={people} entities={entities} funcs={funcs} roleName={roleName}
           onAdd={(pid,eid)=>setEntities(p=>p.map(x=>(x.id===eid
-            ? {...x,crew:[...crewOf(x),pid]} : x)))}/>
+            ? {...x,crew:[...crewOf(x),pid]} : x)))}
+          /* Нажатие (без перетаскивания) — окно с его страницей, как у
+             воркера в карточке актива. */
+          onOpen={id=>setCard(id)}/>
 
         <SchemeSVG entities={entities} traits={traits} funcs={funcs} moves={moves}
           zoom={zoom} sel={sel} valuesFor={valuesFor}
@@ -1334,7 +1338,7 @@ export default function SystemModel(){
               style={{fontSize:15,fontWeight:700,marginBottom:6}}
               onCommit={v=>setEntities(p=>p.map(e=>e.id===selE.id?{...e,name:v}:e))}/>
             <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
-              Актив — это воркеры, функции, факторы и ресурсы. Они и есть вкладки ниже.
+              {FACTORS_ON ? "Актив — это воркеры, функции, факторы и ресурсы." : "Актив — это воркеры, функции и ресурсы."} Они и есть вкладки ниже.
             </div>
 
             <AssetPanel entityId={selE.id}
@@ -1504,7 +1508,7 @@ export default function SystemModel(){
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
         <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-          {[["people","Люди и роли"],["assistant","Помощник"],["reminders","Напоминания"],
+          {[["people","Роли"],["assistant","Агенты"],["reminders","Напоминания"],
             ["calls","Звонки"],["export","Выгрузка"]]
             // «Люди и роли» — дело владельца. «Выгрузка» тоже: схем у
             // не-владельца не бывает, у него одна — та, где его назначили.
@@ -1519,10 +1523,11 @@ export default function SystemModel(){
              роли, владелец должен увидеть без перезагрузки. */
           onChanged={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); }}/>)}
 
-      {/* Помощник — всем, у кого есть «Инструменты»: не-владелец видит
-          провайдера и «есть ли ключ» без самого ключа, плюс свою память. */}
+      {/* Агенты — всем, у кого есть «Инструменты»: у каждого свои
+          провайдеры, модели и память; участником организации агент
+          становится только у владельца. */}
       {tab==="tools" && me.tabs.includes("tools") && tool==="assistant" && (
-        <AssistantSettings me={me}/>)}
+        <AgentsPanel me={me} onChanged={()=>{ if(me.isOwner&&!me.solo) refreshOrg(); }}/>)}
 
       {/* Напоминания — всем, у кого есть «Инструменты»: за сколько
           предупреждать, решает тот, кому напоминают. Ответ сервера кладётся

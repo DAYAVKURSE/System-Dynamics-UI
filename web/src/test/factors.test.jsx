@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import { FACTORS_ON } from "../lib/flags.js";
 import { chanceOf, conversionOf, factorsOf, newFactor, newFunc, normalizeFunc,
   normalizeFactors, checkFunc, funcGaps, takeQty } from "../lib/funcs.js";
 import { scheduleOf, solve } from "../lib/plan.js";
@@ -86,7 +87,21 @@ describe("что факторы меняют в расчёте", () => {
   });
 });
 
-describe("в интерфейсе", () => {
+/* Владелец (2026-09-13): «убери пока функционал факторов». Экран убран,
+   модель и расчёт остались — интерфейсные проверки ждут возврата флага. */
+describe("факторы пока убраны с экрана", () => {
+  it("вкладки «Факторы» у актива нет, пока флаг выключен", () => {
+    localStorage.clear();
+    render(<SystemModel />);
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    const names = screen.getAllByRole("button", { name: /^(Воркеры|Функции|Факторы|Ресурсы) \d/ })
+      .map((b) => b.textContent.split(" ")[0]);
+    expect(names).toEqual(FACTORS_ON ? ["Воркеры", "Функции", "Факторы", "Ресурсы"]
+      : ["Воркеры", "Функции", "Ресурсы"]);
+  });
+});
+
+describe.skipIf(!FACTORS_ON)("в интерфейсе", () => {
   let container;
   beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
   const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));

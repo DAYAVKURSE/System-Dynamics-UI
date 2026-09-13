@@ -1,3 +1,4 @@
+import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, TxtField } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWorkers,
@@ -785,7 +786,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 }).join(", ")
                 : "ничего не выдаёт"}
               {" · "}<Timing func={f} runs={runs} />
-              {!!factorsOf(f).length && (
+              {FACTORS_ON && !!factorsOf(f).length && (
                 <span style={{ color: ACC }}>
                   {` · факторы: ${factorsOf(f).map(factorName).join(", ")} — конверсия ${
                     Math.round(chanceOf(f, factors) * 100) / 100}%`}</span>)}
@@ -817,6 +818,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               onDel={(pid) => up(f.id, (x) => ({
                 ...x, gives: x.gives.filter((p) => p.id !== pid) }))} />
 
+            {FACTORS_ON && (<>
             {/* Факторы стоят сразу за ресурсами, потому что говорят о них:
                 при конверсии 10% входа нужно вдесятеро больше, чем
                 сказано в «берёт». Их бывает несколько — хватает любого. */}
@@ -853,6 +855,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 : `Конверсия ${Math.round(chanceOf(f, factors) * 100) / 100}%: входа нужно в ${
                   nm(Math.round(10000 / Math.max(chanceOf(f, factors), 0.01)) / 100)} раза больше, чем сказано в «берёт».`}
             </div>
+            </>)}
 
             {/* Время — такая же вилка, как количества: работа редко занимает
                 ровно столько, сколько задумано. Когда занимает — галочка
@@ -1369,8 +1372,9 @@ export default function AssetPanel(props) {
   const TABS = [
     ["workers", "Воркеры", workers],
     ["funcs", "Функции", mineFuncs],
-    // Факторы — сразу за функциями: их выбирают в функции, и рядом искать ближе.
-    ["factors", "Факторы", mineFactors],
+    // Факторы — сразу за функциями: их выбирают в функции, и рядом искать
+    // ближе. Пока убраны с экрана (lib/flags.js) — модель их помнит.
+    ...(FACTORS_ON ? [["factors", "Факторы", mineFactors]] : []),
     ["traits", "Ресурсы", mineTraits],
   ];
   return (

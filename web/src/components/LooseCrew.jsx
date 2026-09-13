@@ -55,7 +55,7 @@ export function looseOf(people = [], entities = []) {
 }
 
 export default function LooseCrew({ people = [], entities = [], funcs = [],
-  roleName = (id) => String(id), onAdd }) {
+  roleName = (id) => String(id), onAdd, onOpen }) {
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState("");
   const [drag, setDrag] = useState(null);    // {id, name, x, y} — кого ведут
@@ -68,7 +68,9 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
   useEffect(() => {
     if (!held.current) return undefined;
     const move = (ev) => {
-      if (!held.current) return;
+      const h = held.current;
+      if (!h) return;
+      if (Math.hypot(ev.clientX - h.sx, ev.clientY - h.sy) >= 6) h.moved = true;
       setDrag((p) => (p ? { ...p, x: ev.clientX, y: ev.clientY } : p));
     };
     const up = (ev) => {
@@ -76,6 +78,9 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
       if (!d) return;
       held.current = null;
       setDrag(null);
+      /* Отпустили, не сдвинув, — это нажатие: открываем страницу человека
+         окном (2026-09-13), как у воркера в карточке актива. */
+      if (!d.moved) { setMsg(""); onOpen?.(d.id); return; }
       /* Куда отпустили: у блока актива на схеме стоит `data-entity`, и
          спрашиваем мы именно то, что под пальцем, — не ближайший блок и
          не последний, над которым проходили. */
@@ -106,10 +111,11 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
     };
-  }, [drag?.id, entities, funcs, onAdd, roleName]);
+  }, [drag?.id, entities, funcs, onAdd, onOpen, roleName]);
 
   const grab = (ev, p) => {
-    held.current = { id: String(p.id), name: p.name || String(p.id), roles: p.roles || [] };
+    held.current = { id: String(p.id), name: p.name || String(p.id), roles: p.roles || [],
+      sx: ev.clientX, sy: ev.clientY, moved: false };
     setDrag({ id: String(p.id), name: p.name || String(p.id),
       x: ev.clientX, y: ev.clientY });
     setMsg("");
@@ -140,6 +146,7 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
               aria-label={`участник без актива: ${p.name}`}
               data-person={String(p.id)}
               onPointerDown={(ev) => grab(ev, p)}
+              onKeyDown={(ev) => { if (ev.key === "Enter") onOpen?.(String(p.id)); }}
               style={{ background: C.panel2, border: `1px solid ${C.line}`,
                 borderRadius: 8, padding: "5px 8px", cursor: "grab", touchAction: "none",
                 opacity: drag?.id === String(p.id) ? 0.4 : 1 }}>

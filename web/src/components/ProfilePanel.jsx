@@ -597,7 +597,7 @@ export function RemindersCard({ me, onSaved }) {
       <div style={{ fontSize: 11.5, color: C.muted, margin: "6px 0 8px", lineHeight: 1.6 }}>
         Бот напоминает о задаче заранее и в момент начала, а постановщику — о
         задаче, которую пора поставить. Напоминание повторяется каждую минуту,
-        пока вы не нажмёте кнопку под ним; «Отложить» спрашивает, на сколько.
+        пока вы не ответите на него кнопкой под сообщением в чате бота.
       </div>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <span style={{ fontSize: 11.5, color: C.muted }}>предупреждать</span>

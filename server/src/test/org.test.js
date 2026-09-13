@@ -3,9 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  addForm, addRole, addUser, identify, listOrg, openRoles, registerUser, removeForm,
-  removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
-  setUserRole, setUserRoles,
+  addAgentUser, addForm, addRole, addUser, agentUserId, identify, listOrg, openRoles,
+  registerUser, removeForm, removeRole, removeUser, renameAgentUser, setForm, setProfile,
+  setRoleContract, setRoleForm, setRoleTabs, setUserRole, setUserRoles,
 } from "../lib/orgStore.js";
 import {
   readModel, reviewTask, submitTask, tasksFor, viewFor, writeModel,
@@ -766,5 +766,52 @@ describe("анкеты как словари", () => {
     await writeRaw({ ownerId: "100", roles: [{ id: "executor", name: "и", tabs: [] }],
       users: [{ id: "601", name: "С", roles: [], answers: "строка" }] });
     expect((await identify("601", {})).profile.answers).toEqual({});
+  });
+});
+
+/* ─────── агенты как участники ───────
+   Агент помощника — в списке наравне с людьми (`agent: true`), чтобы его
+   можно было выбрать в роли и сделать воркером. Договора ему не нужно. */
+describe("агенты как участники", () => {
+  beforeEach(async () => { await identify("100", { name: "Владелец" }); });
+
+  it("заводится с ag_-id и меткой, виден в списке с пустой анкетой", async () => {
+    const u = await addAgentUser({ id: "a_1", name: "Юрист", addedBy: "100" });
+    expect(u).toMatchObject({ id: "ag_a_1", name: "Юрист", agent: true, roles: [], contracts: {}, addedBy: "100" });
+    expect(agentUserId("a_1")).toBe("ag_a_1");
+    const org = await listOrg();
+    const me = org.users.find((x) => x.id === "ag_a_1");
+    expect(me).toMatchObject({ agent: true, name: "Юрист", about: "", status: "ready", forms: [] });
+    // Люди — без метки.
+    expect(org.users.find((x) => x.id === "100").agent).toBeUndefined();
+    await expect(addAgentUser({ name: "без id" })).rejects.toThrow(/id is required/);
+  });
+
+  it("роль с договором выдаётся агенту сразу, без pending", async () => {
+    const role = await addRole({ name: "Подрядчик", tabs: ["tasks"] });
+    await setRoleContract(role.id, DOC);
+    await addAgentUser({ id: "a_1", name: "Юрист", addedBy: "100" });
+    const u = await setUserRoles("ag_a_1", [role.id, "worker"]);
+    expect(u.roles).toEqual([role.id, "worker"]);
+    expect(u.pending).toBeUndefined();
+    const me = await identify("ag_a_1", {});
+    expect(me).toMatchObject({ known: true, name: "Юрист", pending: "", tabs: ["tasks", "review"] });
+    expect(me.roles.map((r) => r.id)).toEqual([role.id, "worker"]);
+  });
+
+  it("переименование, повторное заведение (роли остаются) и удаление", async () => {
+    await addAgentUser({ id: "a_1", name: "Юрист", addedBy: "100" });
+    await setUserRoles("ag_a_1", ["worker"]);
+    expect((await renameAgentUser("a_1", "Юрист по договорам")).name).toBe("Юрист по договорам");
+    expect(await renameAgentUser("a_nope", "x")).toBeNull();
+    // Человека под этим именем не переименовать: функция — только для агентов.
+    expect(await renameAgentUser("100", "x")).toBeNull();
+    const again = await addAgentUser({ id: "a_1", name: "Юрист 2", addedBy: "100" });
+    expect(again.roles).toEqual(["worker"]);
+    expect((await listOrg()).users.filter((x) => x.id === "ag_a_1")).toHaveLength(1);
+    expect((await listOrg()).users.find((x) => x.id === "ag_a_1").name).toBe("Юрист 2");
+    expect(await removeUser("ag_a_1")).toBe(true);
+    expect(await removeUser("ag_a_1")).toBe(false);
+    expect((await listOrg()).users.some((x) => x.id === "ag_a_1")).toBe(false);
   });
 });

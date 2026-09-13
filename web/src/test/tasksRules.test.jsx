@@ -614,7 +614,7 @@ describe("«Инструменты» и роли", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Звонки" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
-    expect(screen.getByRole("button", { name: "Люди и роли" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Роли" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Звонки" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Выгрузка" })).toBeTruthy();
   });

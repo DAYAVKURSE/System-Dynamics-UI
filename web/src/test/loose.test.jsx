@@ -32,6 +32,8 @@ const show = (over = {}) => render(<LooseCrew people={PEOPLE} entities={ENTITIES
 const dragTo = (personLabel, entityId) => {
   const chip = screen.getByLabelText(personLabel);
   fireEvent.pointerDown(chip, { clientX: 10, clientY: 10 });
+  // Сдвиг — это и есть перетаскивание; без него нажатие открывает страницу.
+  fireEvent.pointerMove(window, { clientX: 200, clientY: 200 });
   const target = entityId
     ? { closest: () => ({ getAttribute: () => entityId }) }
     : { closest: () => null };
@@ -99,5 +101,28 @@ describe("подложка участников без актива", () => {
     dragTo("участник без актива: Иван", "a");
     expect(got).toEqual([]);
     expect(screen.getByText(/ни одна функция не называет роль/)).toBeInTheDocument();
+  });
+});
+
+describe("нажатие на участника без актива", () => {
+  it("отпустили, не сдвинув, — открывается его страница; сдвинули — это перетаскивание", () => {
+    /* Владелец (2026-09-13): «при нажатии на участника, у которого нет
+       актива на схеме, должно появляться модальное окно с его страницей». */
+    const opened = [];
+    const added = [];
+    show({ onOpen: (id) => opened.push(id), onAdd: (pid, eid) => added.push([pid, eid]) });
+    fireEvent.click(screen.getByLabelText("участники без актива: 2"));
+    const chip = screen.getByLabelText("участник без актива: Иван");
+    fireEvent.pointerDown(chip, { clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(window, { clientX: 12, clientY: 11 });
+    expect(opened).toEqual(["2"]);
+    expect(added).toEqual([]);
+    // А с движением — перенос на актив, окна нет.
+    fireEvent.pointerDown(chip, { clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(window, { clientX: 200, clientY: 200 });
+    document.elementFromPoint = () => ({ closest: () => ({ getAttribute: () => "a" }) });
+    fireEvent.pointerUp(window, { clientX: 300, clientY: 300 });
+    expect(opened).toEqual(["2"]);
+    expect(added).toEqual([["2", "a"]]);
   });
 });

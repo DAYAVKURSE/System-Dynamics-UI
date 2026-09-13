@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  KEY_VARS, NOT_CONFIGURED, TASKS, addProvider, fromLegacyEnv, modelFor,
-  providerFor, readUserSettings, removeProvider, setTasks, settingsView, updateProvider,
-  writeUserSettings,
+  KEY_VARS, MAX_AGENTS, NOT_CONFIGURED, TASKS, addAgent, addProvider, agentFor, fromLegacyEnv,
+  modelFor, providerFor, readUserSettings, removeAgent, removeProvider, setTasks, settingsView,
+  updateAgent, updateProvider, writeUserSettings,
 } from "../lib/assistantSettings.js";
 
 /* Провайдеры, ключи и модели — у каждого свои, в файле на человека.
@@ -35,7 +35,8 @@ const withModels = (user, over = {}, models = ["gpt-4.1", "gpt-4o-mini"]) => {
 describe("файл на человека", () => {
   it("пусто — так и сказано: ни провайдеров, ни строк таблицы, и modelFor — null", () => {
     expect(readUserSettings("200")).toEqual({ providers: [],
-      tasks: { chat: null, bot: null, transcribe: null } });
+      tasks: { chat: null, bot: null, transcribe: null },
+      agents: [{ id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null }] });
     expect(settingsView("200").providers).toEqual([]);
     expect(modelFor("200", "chat")).toBeNull();
     expect(NOT_CONFIGURED).toMatch(/добавьте провайдера/);
@@ -210,5 +211,129 @@ describe("перенос прежних настроек владельца из
     expect(fromLegacyEnv({})).toBeNull();
     // Перенесённое становится моделью владельца по задаче «chat».
     expect(modelFor("100", "chat")).toMatchObject({ kind: "anthropic", model: "claude-opus-4-1", providerName: "Claude" });
+  });
+});
+
+/* ─────── агенты ───────
+   Встроенный «Ассистент» есть у всех и всегда первый; свои агенты — с
+   коллекцией моделей из провайдеров человека. modelFor смотрит сначала в
+   коллекцию ассистента, потом — в прежнюю таблицу. */
+describe("агенты", () => {
+  const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null };
+
+  it("встроенный есть всегда, первым, и его нельзя удалить", () => {
+    expect(settingsView("200").agents).toEqual([ASSISTANT]);
+    expect(agentFor("200", "assistant")).toEqual(ASSISTANT);
+    expect(() => removeAgent("200", "assistant")).toThrow(/Ассистента удалить нельзя/);
+    expect(settingsView("200").agents).toEqual([ASSISTANT]);
+    // Пропавший из файла — воскресает на первом месте.
+    fs.mkdirSync(process.env.ASSISTANT_DIR, { recursive: true });
+    fs.writeFileSync(path.join(process.env.ASSISTANT_DIR, "200.json"),
+      JSON.stringify({ providers: [], agents: [{ id: "a_1", name: "Свой" }] }));
+    expect(settingsView("200").agents.map((a) => a.id)).toEqual(["assistant", "a_1"]);
+  });
+
+  it("создание, переименование, удаление; имя обязательно; предел назван числом", () => {
+    const a = addAgent("200", { name: "  Юрист   по договорам " });
+    expect(a).toEqual({ id: a.id, name: "Юрист по договорам", builtin: false, models: [], transcribe: null });
+    expect(a.id).toMatch(/^a_[0-9a-f]{8}$/);
+    expect(settingsView("200").agents.map((x) => x.id)).toEqual(["assistant", a.id]);
+    expect(updateAgent("200", a.id, { name: "Юрист" }).name).toBe("Юрист");
+    expect(() => updateAgent("200", a.id, { name: " " })).toThrow(/Название агента обязательно/);
+    expect(() => addAgent("200", { name: "" })).toThrow(/Название агента обязательно/);
+    expect(updateAgent("200", "нет-такого", { name: "x" })).toBeNull();
+    expect(updateAgent("100", a.id, { name: "чужой" })).toBeNull();
+    expect(removeAgent("200", a.id)).toBe(true);
+    expect(removeAgent("200", a.id)).toBe(false);
+    expect(settingsView("200").agents).toEqual([ASSISTANT]);
+    for (let i = 1; i < MAX_AGENTS; i += 1) addAgent("200", { name: `агент ${i}` });
+    expect(() => addAgent("200", { name: "лишний" })).toThrow(/не больше 20/);
+  });
+
+  it("пары моделей — только из провайдеров записи и их списков; повторы убираются, порядок сохраняется", () => {
+    const p = withModels("200");
+    const q = withModels("200", { name: "Claude", kind: "anthropic" }, ["claude-sonnet-4-5"]);
+    const a = addAgent("200", { name: "Свой" });
+    expect(() => updateAgent("200", a.id, { models: [{ providerId: "x", model: "gpt-4.1" }] })).toThrow(/провайдер, которого нет/);
+    expect(() => updateAgent("200", a.id, { models: [{ providerId: p.id, model: "gpt-5" }] })).toThrow(/модели «gpt-5» нет в списке провайдера «OpenAI»/);
+    expect(() => updateAgent("200", a.id, { models: "gpt-4.1" })).toThrow(/должна быть списком/);
+    expect(() => updateAgent("200", a.id, { transcribe: { providerId: p.id, model: "whisper" } })).toThrow(/для расшифровки: модели «whisper» нет/);
+    const upd = updateAgent("200", a.id, { models: [
+      { providerId: q.id, model: "claude-sonnet-4-5" }, { providerId: p.id, model: "gpt-4.1" },
+      { providerId: q.id, model: "claude-sonnet-4-5" },
+    ], transcribe: { providerId: p.id, model: "gpt-4o-mini" } });
+    expect(upd.models).toEqual([{ providerId: q.id, model: "claude-sonnet-4-5" }, { providerId: p.id, model: "gpt-4.1" }]);
+    expect(upd.transcribe).toEqual({ providerId: p.id, model: "gpt-4o-mini" });
+    expect(updateAgent("200", a.id, { transcribe: null }).transcribe).toBeNull();
+    // Ответ — копия: правка ответа не правит запись.
+    upd.models.push({ providerId: p.id, model: "gpt-4o-mini" });
+    expect(agentFor("200", a.id).models).toHaveLength(2);
+  });
+
+  it("удаление провайдера и снятие модели вычищают пары у всех агентов", () => {
+    const p = withModels("200");
+    const q = withModels("200", { name: "Второй" }, ["gpt-4o"]);
+    const a = addAgent("200", { name: "Свой" });
+    const pairs = [{ providerId: p.id, model: "gpt-4.1" }, { providerId: q.id, model: "gpt-4o" }, { providerId: p.id, model: "gpt-4o-mini" }];
+    updateAgent("200", "assistant", { models: pairs, transcribe: { providerId: p.id, model: "gpt-4o-mini" } });
+    updateAgent("200", a.id, { models: pairs, transcribe: { providerId: q.id, model: "gpt-4o" } });
+    updateProvider("200", p.id, { models: ["gpt-4.1"] });
+    let [assistant, own] = settingsView("200").agents;
+    expect(assistant.models).toEqual([{ providerId: p.id, model: "gpt-4.1" }, { providerId: q.id, model: "gpt-4o" }]);
+    expect(assistant.transcribe).toBeNull();
+    expect(own.transcribe).toEqual({ providerId: q.id, model: "gpt-4o" });
+    removeProvider("200", q.id);
+    [assistant, own] = settingsView("200").agents;
+    expect(assistant.models).toEqual([{ providerId: p.id, model: "gpt-4.1" }]);
+    expect(own.models).toEqual([{ providerId: p.id, model: "gpt-4.1" }]);
+    expect(own.transcribe).toBeNull();
+  });
+
+  it("modelFor: сначала коллекция ассистента (первая пара с ключом), потом прежняя таблица", () => {
+    const p = withModels("200", { name: "Мой OpenAI" });
+    const q = withModels("200", { name: "Claude", kind: "anthropic" }, ["claude-sonnet-4-5"]);
+    setTasks("200", { chat: { providerId: p.id, model: "gpt-4o-mini" }, bot: { providerId: p.id, model: "gpt-4.1" } });
+    // Коллекция пуста — прежняя логика.
+    expect(modelFor("200", "chat").model).toBe("gpt-4o-mini");
+    expect(modelFor("200", "bot").model).toBe("gpt-4.1");
+    updateAgent("200", "assistant", { models: [{ providerId: q.id, model: "claude-sonnet-4-5" }, { providerId: p.id, model: "gpt-4.1" }] });
+    expect(modelFor("200", "chat")).toMatchObject({ kind: "anthropic", model: "claude-sonnet-4-5", providerName: "Claude" });
+    expect(modelFor("200", "bot")).toMatchObject({ model: "claude-sonnet-4-5" });
+    expect(modelFor("200", "неизвестная задача")).toMatchObject({ model: "claude-sonnet-4-5" });
+    // Расшифровка — только своя пара: коллекция чата записи не расшифровывает.
+    expect(modelFor("200", "transcribe", { fallback: false })).toBeNull();
+    setTasks("200", { transcribe: { providerId: p.id, model: "gpt-4o-mini" } });
+    expect(modelFor("200", "transcribe", { fallback: false }).model).toBe("gpt-4o-mini");
+    updateAgent("200", "assistant", { transcribe: { providerId: p.id, model: "gpt-4.1" } });
+    expect(modelFor("200", "transcribe", { fallback: false })).toMatchObject({ model: "gpt-4.1", providerName: "Мой OpenAI" });
+    // Свой агент на modelFor не влияет: отвечает ассистент.
+    const a = addAgent("200", { name: "Свой" });
+    updateAgent("200", a.id, { models: [{ providerId: p.id, model: "gpt-4o-mini" }] });
+    expect(modelFor("200", "chat").model).toBe("claude-sonnet-4-5");
+  });
+
+  it("прежняя запись без agents: строка chat — первая модель ассистента, transcribe — его расшифровка", () => {
+    fs.mkdirSync(process.env.ASSISTANT_DIR, { recursive: true });
+    fs.writeFileSync(path.join(process.env.ASSISTANT_DIR, "200.json"), JSON.stringify({
+      providers: [{ id: "p_1", name: "OpenAI", kind: "openai", key: KEY, models: ["gpt-4.1", "whisper-1"] }],
+      tasks: { chat: { providerId: "p_1", model: "gpt-4.1" }, transcribe: { providerId: "p_1", model: "whisper-1" } },
+    }));
+    const [assistant] = settingsView("200").agents;
+    expect(assistant.models).toEqual([{ providerId: "p_1", model: "gpt-4.1" }]);
+    expect(assistant.transcribe).toEqual({ providerId: "p_1", model: "whisper-1" });
+    expect(modelFor("200", "chat").model).toBe("gpt-4.1");
+    expect(modelFor("200", "transcribe", { fallback: false }).model).toBe("whisper-1");
+    // Перенос — один раз: сняли модель у ассистента, таблица её не воскрешает.
+    updateAgent("200", "assistant", { models: [] });
+    expect(settingsView("200").agents[0].models).toEqual([]);
+    expect(settingsView("200").tasks.chat).toEqual({ providerId: "p_1", model: "gpt-4.1" });
+  });
+
+  it("перенос из .env кладёт выбранную модель и в коллекцию ассистента", () => {
+    process.env.AI_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "sk-openai-0123456789";
+    process.env.OWNER_TELEGRAM_ID = "100";
+    const view = settingsView("100");
+    expect(view.agents[0].models).toEqual([{ providerId: view.providers[0].id, model: "gpt-4o-mini" }]);
   });
 });

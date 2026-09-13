@@ -81,11 +81,12 @@ describe("настройки", () => {
     expect((await addProvider(777)).status).toBe(403);
   });
 
-  it("пусто — виды API и список задач есть, провайдеров нет", async () => {
+  it("пусто — виды API, список задач и встроенный агент есть, провайдеров нет", async () => {
     const res = await request(app).get("/api/assistant/settings").set(as(200));
     expect(res.status).toBe(200);
     expect(res.body.providers).toEqual([]);
     expect(res.body.tasks).toEqual({ chat: null, bot: null, transcribe: null });
+    expect(res.body.agents).toEqual([{ id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null }]);
     expect(res.body.kinds.map((k) => k.id)).toEqual(["openai", "anthropic", "hf"]);
     expect(res.body.kinds[0].defaultBaseUrl).toBe("https://api.openai.com/v1");
     expect(res.body.taskList.map((t) => t.id)).toEqual(["chat", "bot", "transcribe"]);
@@ -207,6 +208,27 @@ describe("выбор модели расшифровки дорасшифров�
     await new Promise((r) => setTimeout(r, 60));
     expect(sent).toHaveLength(2);
   });
+
+  it("PUT /agents/assistant с парой transcribe — то же самое; у своего агента — нет", async () => {
+    const { saveReport } = await import("../lib/reportStore.js");
+    const none = await saveReport("200", { name: "звонок-3.webm", type: "video/webm", kind: "call", bytes: Buffer.from("три") });
+    const sent = [];
+    globalThis.fetch = async (url, opts) => {
+      sent.push(url);
+      return { ok: true, status: 200, text: async () => `текст ${await opts.body.get("file").text()}` };
+    };
+    const { body: p } = await addProvider(200, { name: "Groq", baseUrl: "https://api.groq.com/openai/v1" });
+    await request(app).put(`/api/assistant/providers/${p.id}`).set(as(200)).send({ models: ["whisper-large-v3-turbo"] });
+    const { body: a } = await request(app).post("/api/assistant/agents").set(as(200)).send({ name: "Свой" });
+    await request(app).put(`/api/assistant/agents/${a.id}`).set(as(200)).send({ transcribe: { providerId: p.id, model: "whisper-large-v3-turbo" } });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(sent).toEqual([]);
+    const res = await request(app).put("/api/assistant/agents/assistant").set(as(200))
+      .send({ transcribe: { providerId: p.id, model: "whisper-large-v3-turbo" } });
+    expect(res.status).toBe(200);
+    expect(await settled(none.id, "done")).toMatchObject({ text: "текст три", model: "Groq / whisper-large-v3-turbo" });
+    expect(sent).toEqual(["https://api.groq.com/openai/v1/audio/transcriptions"]);
+  });
 });
 
 describe("вопрос в два шага", () => {
@@ -227,7 +249,7 @@ describe("вопрос в два шага", () => {
     expect(asked.status).toBe(202);
     expect(asked.body.id).toBeTruthy();
     const r = await poll(asked.body.id, 200);
-    expect(r.body).toEqual({ status: "error", error: "Помощник не настроен: добавьте провайдера и ключ в Инструментах → Помощник" });
+    expect(r.body).toEqual({ status: "error", error: "Помощник не настроен: добавьте провайдера и ключ в Инструментах → Агенты" });
   });
 
   it("настроен — ответ модели приходит вторым запросом, task уходит в очередь", async () => {
@@ -329,5 +351,104 @@ describe("память", () => {
     expect(bad.body.error).toMatch(/octet-stream/);
     const mine = await request(app).get("/api/assistant/memory").set(as(200));
     expect(mine.body).toHaveLength(1);
+  });
+});
+
+/* ─────── агенты ───────
+   Агент — в настройках человека; у владельца он ещё и участник
+   организации (`ag_<id>`), чтобы выбирать его в ролях. */
+describe("агенты", () => {
+  const orgUsers = async () => (await request(app).get("/api/org").set(as(100))).body.users;
+
+  it("владелец: 201 и участник-агент в организации; переименование и удаление идут за ним", async () => {
+    const created = await request(app).post("/api/assistant/agents").set(as(100)).send({ name: "Юрист" });
+    expect(created.status).toBe(201);
+    expect(created.body).toEqual({ id: created.body.id, name: "Юрист", builtin: false, models: [], transcribe: null });
+    const uid = `ag_${created.body.id}`;
+    let user = (await orgUsers()).find((u) => u.id === uid);
+    expect(user).toMatchObject({ id: uid, name: "Юрист", agent: true, roles: [], addedBy: "100" });
+    expect(user.about).toBe("");
+
+    const renamed = await request(app).put(`/api/assistant/agents/${created.body.id}`).set(as(100)).send({ name: "Юрист по договорам" });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.name).toBe("Юрист по договорам");
+    user = (await orgUsers()).find((u) => u.id === uid);
+    expect(user.name).toBe("Юрист по договорам");
+
+    // Роль агенту — без договора и без pending.
+    const role = await request(app).put(`/api/org/users/${uid}/roles`).set(as(100)).send({ roles: ["worker"] });
+    expect(role.status).toBe(200);
+    expect(role.body.roles).toEqual(["worker"]);
+    expect(role.body.pending).toBeUndefined();
+
+    const settings = await request(app).get("/api/assistant/settings").set(as(100));
+    expect(settings.body.agents.map((a) => a.id)).toEqual(["assistant", created.body.id]);
+
+    const gone = await request(app).delete(`/api/assistant/agents/${created.body.id}`).set(as(100));
+    expect(gone.status).toBe(204);
+    expect((await orgUsers()).some((u) => u.id === uid)).toBe(false);
+    expect((await request(app).delete(`/api/assistant/agents/${created.body.id}`).set(as(100))).status).toBe(404);
+  });
+
+  it("не-владелец: агент только в своих настройках, участника нет; чужого агента не найти", async () => {
+    const created = await request(app).post("/api/assistant/agents").set(as(200)).send({ name: "Свой" });
+    expect(created.status).toBe(201);
+    expect((await orgUsers()).some((u) => u.id === `ag_${created.body.id}`)).toBe(false);
+    expect((await request(app).put(`/api/assistant/agents/${created.body.id}`).set(as(100)).send({ name: "x" })).status).toBe(404);
+    expect((await request(app).delete(`/api/assistant/agents/${created.body.id}`).set(as(100))).status).toBe(404);
+    expect((await request(app).get("/api/assistant/settings").set(as(200))).body.agents).toHaveLength(2);
+    expect((await request(app).get("/api/assistant/settings").set(as(100))).body.agents).toHaveLength(1);
+  });
+
+  it("встроенного не удалить — 400 словами; пустое имя и чужая модель — 400", async () => {
+    const builtin = await request(app).delete("/api/assistant/agents/assistant").set(as(200));
+    expect(builtin.status).toBe(400);
+    expect(builtin.body.error).toBe("Ассистента удалить нельзя");
+    const empty = await request(app).post("/api/assistant/agents").set(as(200)).send({ name: " " });
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toMatch(/Название агента обязательно/);
+    const { body: p } = await addProvider(200);
+    await request(app).put(`/api/assistant/providers/${p.id}`).set(as(200)).send({ models: ["gpt-4.1"] });
+    const bad = await request(app).put("/api/assistant/agents/assistant").set(as(200))
+      .send({ models: [{ providerId: p.id, model: "gpt-5" }] });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/модели «gpt-5» нет в списке провайдера «OpenAI»/);
+    const ok = await request(app).put("/api/assistant/agents/assistant").set(as(200))
+      .send({ models: [{ providerId: p.id, model: "gpt-4.1" }], transcribe: { providerId: p.id, model: "gpt-4.1" } });
+    expect(ok.status).toBe(200);
+    expect(ok.body.models).toEqual([{ providerId: p.id, model: "gpt-4.1" }]);
+    expect(ok.body.transcribe).toEqual({ providerId: p.id, model: "gpt-4.1" });
+    // Модель ассистента — и есть модель помощника: бот и вопросы идут ей.
+    const settings = await request(app).get("/api/assistant/settings").set(as(200));
+    expect(settings.body.agents[0].models).toEqual([{ providerId: p.id, model: "gpt-4.1" }]);
+  });
+
+  it("память — по агенту: JSON полем agent, файл — заголовком; ?agent= в списке; неизвестный агент — 400", async () => {
+    const { body: a } = await request(app).post("/api/assistant/agents").set(as(200)).send({ name: "Свой" });
+    const t = await request(app).post("/api/assistant/memory").set(as(200)).send({ text: "заметка своего", agent: a.id });
+    expect(t.status).toBe(201);
+    expect(t.body.agent).toBe(a.id);
+    const f = await request(app).post("/api/assistant/memory").set(as(200))
+      .set("X-Memory-Name", b64("файл.txt")).set("X-Memory-Agent", a.id)
+      .set("Content-Type", "text/plain").send("файл своего");
+    expect(f.status).toBe(201);
+    expect(f.body.agent).toBe(a.id);
+    const common = await request(app).post("/api/assistant/memory").set(as(200)).send({ text: "заметка ассистента" });
+    expect(common.body.agent).toBe("assistant");
+
+    const byDefault = await request(app).get("/api/assistant/memory").set(as(200));
+    expect(byDefault.body.map((m) => m.text)).toEqual(["заметка ассистента"]);
+    const own = await request(app).get(`/api/assistant/memory?agent=${a.id}`).set(as(200));
+    expect(own.body.map((m) => m.text).sort()).toEqual(["заметка своего", "файл своего"]);
+    const unknown = await request(app).get("/api/assistant/memory?agent=a_nope").set(as(200));
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.error).toMatch(/Агент «a_nope» не найден/);
+    const badPost = await request(app).post("/api/assistant/memory").set(as(200)).send({ text: "x", agent: "a_nope" });
+    expect(badPost.status).toBe(400);
+    // Чужой агент — для меня неизвестный.
+    expect((await request(app).get(`/api/assistant/memory?agent=${a.id}`).set(as(100))).status).toBe(400);
+    // Удаление — по id, без агента.
+    expect((await request(app).delete(`/api/assistant/memory/${t.body.id}`).set(as(200))).status).toBe(204);
+    expect((await request(app).get(`/api/assistant/memory?agent=${a.id}`).set(as(200))).body).toHaveLength(1);
   });
 });

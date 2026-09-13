@@ -101,3 +101,34 @@ describe("память помощника", () => {
     expect((await listMemory("200")).map((m) => m.title).sort()).toEqual(["вторая", "первая"].sort());
   });
 });
+
+/* Память — у агента: без агента — ассистента, как было всегда. */
+describe("память по агентам", () => {
+  it("без агента — ассистент; прежние записи без поля читаются как его", async () => {
+    const m = await addMemory("200", { text: "общее" });
+    expect(m.agent).toBe("assistant");
+    await fs.writeFile(path.join(process.env.MEMORY_DIR, "200.json"),
+      JSON.stringify([{ id: "old", title: "старая", text: "до агентов", file: null, at: "2024-01-01T00:00:00.000Z" }]));
+    const list = await listMemory("200");
+    expect(list.map((x) => [x.id, x.agent])).toEqual([["old", "assistant"]]);
+    expect(await listMemory("200", "assistant")).toEqual(list);
+  });
+
+  it("свой агент видит только своё, ассистент — своё; предел — на человека", async () => {
+    await addMemory("200", { text: "ассистенту" });
+    await addMemory("200", { text: "юристу", agent: "a_1" });
+    await addMemory("200", { text: "юристу ещё", agent: "a_1" });
+    expect((await listMemory("200")).map((m) => m.text)).toEqual(["ассистенту"]);
+    expect((await listMemory("200", "a_1")).map((m) => m.text).sort()).toEqual(["юристу", "юристу ещё"]);
+    expect(await listMemory("200", "a_2")).toEqual([]);
+    await Promise.all(Array.from({ length: MAX_MEMORY_ITEMS - 3 },
+      (_, i) => addMemory("200", { text: `запись ${i}`, agent: i % 2 ? "a_1" : "assistant" })));
+    await expect(addMemory("200", { text: "лишняя", agent: "a_2" })).rejects.toThrow(/limit of 200/);
+  });
+
+  it("удаление — по id, чей бы агент ни был", async () => {
+    const m = await addMemory("200", { text: "юристу", agent: "a_1" });
+    expect(await removeMemory("200", m.id)).toBe(true);
+    expect(await listMemory("200", "a_1")).toEqual([]);
+  });
+});

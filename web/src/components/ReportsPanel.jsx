@@ -1,3 +1,4 @@
+import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
@@ -1286,7 +1287,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               personName={(id) => (nameOf ? nameOf(id) : id)} />
           </Part>
 
-          {!!factors.length && (
+          {FACTORS_ON && !!factors.length && (
             <Part n={5} title="Факторы — что влияет"
               hint="Что в этой цепочке случается само, без людей, и с какой вероятностью.">
               <FactorRows factors={factors} />
