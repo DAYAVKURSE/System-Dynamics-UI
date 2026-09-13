@@ -168,10 +168,44 @@ function Chart({lo,hi,fact,months,goalLine,cursorMonth,upTo}){
 /* ─────── СХЕМА ───────
    Активы и передачи между ними. Передача — выход функции с указанным
    получателем: другого способа ресурсу переехать в этой модели нет. */
-function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
+export const ZOOM_MIN=.32,ZOOM_MAX=1.6;
+function SchemeSVG({entities,traits,funcs,moves,zoom,onZoom,sel,valuesFor,
   onSelectEntity,onMoveEntity,assetOk,onWhy,onOpenFunc}){
   const DRAG_MIN=4;
   const drag=useRef(null);
+  const box=useRef(null);
+  /* Щипок двумя пальцами — масштаб (владелец, 2026-09-13). Слушаем
+     touch-события на обёртке схемы, не passive: иначе браузер сам бы
+     масштабировал страницу. Второй палец отменяет перетаскивание блока —
+     двигать и масштабировать разом нельзя, и это к лучшему. */
+  const pinch=useRef(null);
+  useEffect(()=>{
+    const el=box.current; if(!el||!onZoom) return undefined;
+    const dist=(t)=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+    const start=(ev)=>{
+      if(ev.touches.length!==2) return;
+      drag.current=null; setDragPos(null);
+      pinch.current={d0:dist(ev.touches),z0:zoom};
+      ev.preventDefault();
+    };
+    const move=(ev)=>{
+      const pz=pinch.current; if(!pz||ev.touches.length!==2) return;
+      ev.preventDefault();
+      const z=pz.z0*dist(ev.touches)/pz.d0;
+      onZoom(Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,Math.round(z*100)/100)));
+    };
+    const end=(ev)=>{ if(ev.touches.length<2) pinch.current=null; };
+    el.addEventListener("touchstart",start,{passive:false});
+    el.addEventListener("touchmove",move,{passive:false});
+    el.addEventListener("touchend",end);
+    el.addEventListener("touchcancel",end);
+    return ()=>{
+      el.removeEventListener("touchstart",start);
+      el.removeEventListener("touchmove",move);
+      el.removeEventListener("touchend",end);
+      el.removeEventListener("touchcancel",end);
+    };
+  },[zoom,onZoom]);
   // Пока блок ведут, его положение живёт здесь, а не в модели: правка модели
   // на каждое движение пальца перерисовывала бы всё приложение целиком.
   const [dragPos,setDragPos]=useState(null);
@@ -223,7 +257,8 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
   const CH=Math.max(740,...ents.map(e=>e.y+NH+24));
 
   return (
-    <div style={{overflow:"auto",WebkitOverflowScrolling:"touch"}}>
+    <div ref={box} data-scheme-box=""
+      style={{overflow:"auto",WebkitOverflowScrolling:"touch",touchAction:"pan-x pan-y"}}>
       <svg viewBox={`0 0 ${CW} ${CH}`} width={CW*zoom} height={CH*zoom}
         style={{display:"block"}}>
         <defs>
@@ -296,7 +331,12 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,sel,valuesFor,
             style={{cursor:onMoveEntity?"grab":"pointer",touchAction:"none"}}>
             <rect x={e.x} y={e.y} width={NW} height={NH} rx="12" fill={C.panel}
               stroke={sel===e.id?ACC:C.line} strokeWidth={sel===e.id?2.6:1.6}/>
-            <rect x={e.x} y={e.y} width="5" height={NH} rx="2.5" fill={e.color}/>
+            {/* Полоска состояния — ВНУТРИ блока, ровная, как у функций в
+                карточке актива: зелёная — актив принят, красная — нет.
+                Прежняя полоса цвета актива лежала на рамке и на скруглении
+                выходила за неё (владелец, 2026-09-13). */}
+            <rect x={e.x+6} y={e.y+10} width="3" height={NH-20} rx="1.5"
+              fill={ok?OK:BAD} data-state={ok?"ok":"bad"}/>
             <text x={e.x+14} y={e.y+26} fontSize="13.5" fontWeight="700" fill={C.text}>
               {e.name.length>23?e.name.slice(0,22)+"…":e.name}</text>
             <text x={e.x+14} y={e.y+44} fontSize="10.5" fill={ok?C.text:BAD}>актив</text>
@@ -1228,25 +1268,37 @@ export default function SystemModel(){
 
       {/* ═══ СХЕМА ═══ */}
       {tab==="scheme" && me.tabs.includes("scheme") && (<>
-        <div style={{...S.card,padding:6,marginBottom:10}}>
-          <div className="flex items-center gap-2 flex-wrap" style={{marginBottom:4}}>
-            <span style={S.lbl}>масштаб</span>
-            <button style={btn(false)} onClick={()=>setZoom(z=>Math.max(.32,z-.12))}>−</button>
-            <button style={btn(false)} onClick={()=>setZoom(z=>Math.min(1.6,z+.12))}>+</button>
-            <button style={btn(true)} onClick={addEntity}>+ актив</button>
-            <button style={btn(false)} onClick={alignGrid}
-              title="Расставит блоки по сетке, сохранив расстановку по рядам">
-              ⌗ выровнять</button>
-            <span style={{flex:1}}/>
-            <span style={S.lbl}>месяц</span>
-            <input type="range" min={0} max={span} value={simMonth}
-              aria-label="месяц на схеме"
-              onChange={e=>setSimMonth(Number(e.target.value))}
-              style={{width:130}}/>
-            <span style={{fontSize:11,color:ACC,minWidth:34}}>{simMonth} мес</span>
+        {/* Две формы рядом (владелец, 2026-09-13): слева кнопки схемы без
+            подписи «масштаб», справа — «прогноз» с ползунком месяца.
+            Прежде всё стояло одной строкой, и слово «месяц» в её конце
+            читалось как ни к чему не относящееся. */}
+        <div className="flex gap-2 flex-wrap" style={{marginBottom:10,alignItems:"stretch"}}>
+          <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 220px"}}
+            aria-label="масштаб">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button style={btn(false)} aria-label="уменьшить"
+                onClick={()=>setZoom(z=>Math.max(.32,z-.12))}>−</button>
+              <button style={btn(false)} aria-label="увеличить"
+                onClick={()=>setZoom(z=>Math.min(1.6,z+.12))}>+</button>
+              <button style={btn(false)} onClick={alignGrid}
+                title="Расставит блоки по сетке, сохранив расстановку по рядам">
+                ⌗ выровнять</button>
+              <button style={btn(true)} onClick={addEntity}>+ актив</button>
+            </div>
           </div>
-          <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5}}>
-            На блоке — сколько ресурса будет к этому месяцу, вилкой. Пунктир — передачи между активами.
+          <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 220px"}}
+            aria-label="прогноз на схеме">
+            <div style={S.lbl}>прогноз</div>
+            <div className="flex items-center gap-2" style={{marginTop:2}}>
+              <input type="range" min={0} max={span} value={simMonth}
+                aria-label="месяц на схеме"
+                onChange={e=>setSimMonth(Number(e.target.value))}
+                style={{flex:1,minWidth:90}}/>
+              <span style={{fontSize:11,color:ACC,minWidth:34}}>{simMonth} мес</span>
+            </div>
+            <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginTop:2}}>
+              На блоке — сколько ресурса будет к этому месяцу, вилкой. Пунктир — передачи.
+            </div>
           </div>
         </div>
 
@@ -1261,7 +1313,7 @@ export default function SystemModel(){
           onOpen={id=>setCard(id)}/>
 
         <SchemeSVG entities={entities} traits={traits} funcs={funcs} moves={moves}
-          zoom={zoom} sel={sel} valuesFor={valuesFor}
+          zoom={zoom} onZoom={setZoom} sel={sel} valuesFor={valuesFor}
           /* Нажатие на актив ведёт к его карточке: с «Деятельности» и
              «Прогноза» раздел под схемой переключается на «Управление». */
           onSelectEntity={id=>{ setSel(id); setUnder("edit"); }} onMoveEntity={moveE}

@@ -10,17 +10,23 @@ import {
 
    Владелец (2026-09-13): «вкладка «Помощник» должна называться «Агенты»;
    там одна форма «Ассистент» по умолчанию, которого нельзя удалить, и
-   внизу кнопка для добавления новых агентов. На форме агента — формы:
-   провайдер, коллекция моделей и память. В коллекции чекбоксом отмечаем
-   модели, которые агент может использовать. На форме провайдера
-   чекбоксами выбираем нужные модели из списка доступных; можно добавлять
-   провайдеров. Выбранные модели должны появиться в коллекции».
+   внизу кнопка для добавления новых агентов». И позже тем же днём:
+   «второй пункт «Коллекция моделей» нужно удалить — он не имеет смысла.
+   Пускай модели добавляются на форме провайдера, но убери поле ручного
+   ввода модели и кнопку «Добавить модель». Здесь должно быть поле со
+   списком моделей, которые загрузились при нажатии «Обновить список», и
+   при нажатии на каждую слева появляется галочка; повторное нажатие
+   снимает. Выбранные модели и есть коллекция».
 
-   Три формы — три вопроса. ПРОВАЙДЕР: откуда модели вообще берутся —
-   вид API, адрес, ключ и отмеченные у него модели (общие для всех
-   агентов человека: ключ один, платит он). КОЛЛЕКЦИЯ: какие из них
-   этому агенту можно (у «Ассистента» — ещё и какая расшифровывает
-   записи звонков). ПАМЯТЬ: что агент знает — у каждого своя.
+   Две формы — два вопроса. ПРОВАЙДЕР: откуда модели берутся — вид API,
+   адрес, ключ (общие для всех агентов человека: ключ один, платит он) и
+   список моделей, где галочка у строки значит «этот агент может её
+   использовать». Галочки — про ОТКРЫТОГО агента: в записи это
+   `agent.models` (пары «провайдер + модель»), а `provider.models` —
+   объединение отмеченного всеми агентами, оно ведётся здесь же
+   (`toggleModel`), потому что сервер принимает в коллекцию только модели,
+   отмеченные у провайдера. У «Ассистента» под списком — какая модель
+   расшифровывает записи звонков. ПАМЯТЬ: что агент знает — у каждого своя.
 
    «Ассистент» — тот, кто отвечает в чате бота и в задачах: первая
    отмеченная модель его коллекции и есть модель ответа. Остальные агенты
@@ -100,13 +106,25 @@ export default function AgentsPanel({ me, onChanged }) {
     setAgentId("assistant");
     onChanged?.();
   };
-  /* Коллекция: отметка — пара «провайдер + модель»; снятая с провайдера
-     модель из коллекций уходит сама (сервер). */
-  const toggleModel = (row) => {
-    const models = hasRow(agent.models, row)
-      ? agent.models.filter((x) => !sameRow(x, row)) : [...agent.models, row];
-    return run(() => updateAgent(agent.id, { models }));
-  };
+  /* Галочка у модели в списке провайдера — коллекция ОТКРЫТОГО агента.
+     Ставим: сперва модель отмечается у провайдера (иначе сервер пару не
+     примет), потом — пара в коллекцию агента. Снимаем: пара уходит из
+     коллекции, а у провайдера модель остаётся, пока её держит другой
+     агент, — снятая с провайдера модель ушла бы из всех коллекций. */
+  const toggleModel = (row) => run(async () => {
+    const p = providers.find((x) => x.id === row.providerId);
+    if (!p) return null;
+    if (hasRow(agent.models, row)) {
+      await updateAgent(agent.id, { models: agent.models.filter((x) => !sameRow(x, row)) });
+      const others = agents.some((a) => a.id !== agent.id && hasRow(a.models, row));
+      if (!others && p.models.includes(row.model)) {
+        await updateProvider(p.id, { models: p.models.filter((m) => m !== row.model) });
+      }
+      return null;
+    }
+    if (!p.models.includes(row.model)) await updateProvider(p.id, { models: [...p.models, row.model] });
+    return updateAgent(agent.id, { models: [...agent.models, row] });
+  });
 
   return (
     <div style={{ ...S.card, marginBottom: 10 }}>
@@ -152,7 +170,7 @@ export default function AgentsPanel({ me, onChanged }) {
             </div>
             <div style={{ ...hint, marginTop: 4 }}>
               {agent.builtin
-                ? "Отвечает первой отмеченной моделью из коллекции. Удалить нельзя — без него некому отвечать."
+                ? "Отвечает первой отмеченной моделью. Удалить нельзя — без него некому отвечать."
                 : "Участник организации: роли и активы — во вкладке «Роли» и в воркерах актива."}
             </div>
 
@@ -160,8 +178,9 @@ export default function AgentsPanel({ me, onChanged }) {
             <div style={form}>
               <div style={S.lbl}>1 · провайдер</div>
               <div style={{ ...hint, margin: "4px 0 6px" }}>
-                Откуда берутся модели: вид API, адрес и ключ. Отметьте у провайдера
-                нужные модели — они появятся в коллекции ниже.
+                Откуда берутся модели: вид API, адрес и ключ. Загрузите список моделей
+                и отметьте нажатием те, которыми {agent.builtin ? "ассистент" : "агент"} может
+                пользоваться, — отмеченные и есть его коллекция.
               </div>
               <div className="flex flex-wrap gap-2" style={{ margin: "6px 0" }} role="tablist"
                 aria-label="провайдеры">
@@ -183,18 +202,19 @@ export default function AgentsPanel({ me, onChanged }) {
                 <NewProvider form={providerForm} setForm={setProviderForm} kinds={view.kinds || []}
                   busy={busy} onAdd={createProvider} />)}
               {provider && (
-                <ProviderCard key={provider.id} p={provider} kind={kindOf(provider.kind)} busy={busy}
+                <ProviderCard key={`${provider.id}:${agent.id}`} p={provider} kind={kindOf(provider.kind)}
+                  busy={busy} agent={agent}
                   onSave={(patch) => run(() => updateProvider(provider.id, patch), "Сохранено.")}
                   onDrop={() => run(() => dropProvider(provider.id),
                     `Провайдер «${provider.name}» удалён вместе с ключом.`)}
-                  onModels={() => providerModels(provider.id)} />)}
+                  onModels={() => providerModels(provider.id)}
+                  onToggle={toggleModel} />)}
+              {agent.builtin && (
+                <Transcribe agent={agent} providers={providers} busy={busy}
+                  onTranscribe={(row) => run(() => updateAgent(agent.id, { transcribe: row }))} />)}
             </div>
 
-            {/* ═══ 2. КОЛЛЕКЦИЯ МОДЕЛЕЙ ═══ */}
-            <Collection agent={agent} providers={providers} busy={busy} onToggle={toggleModel}
-              onTranscribe={(row) => run(() => updateAgent(agent.id, { transcribe: row }))} />
-
-            {/* ═══ 3. ПАМЯТЬ ═══ */}
+            {/* ═══ 2. ПАМЯТЬ ═══ */}
             <Memory key={agent.id} agent={agent} busy={busy} setBusy={setBusy} />
           </div>)}
 
@@ -246,13 +266,12 @@ function NewProvider({ form, setForm, kinds, busy, onAdd }) {
   );
 }
 
-/* ─────── открытый провайдер: ключ «есть/нет», модели чекбоксами, удалить ─────── */
+/* ─────── открытый провайдер: ключ «есть/нет», список моделей с галочками, удалить ─────── */
 
-function ProviderCard({ p, kind, busy, onSave, onDrop, onModels }) {
+function ProviderCard({ p, kind, busy, agent, onSave, onDrop, onModels, onToggle }) {
   const [name, setName] = useState(p.name);
   const [baseUrl, setBaseUrl] = useState(p.baseUrl);
   const [key, setKey] = useState("");
-  const [manual, setManual] = useState("");
   const [offered, setOffered] = useState(null);   // список от провайдера: null — не спрашивали
   const [listMsg, setListMsg] = useState("");
   const [confirm, setConfirm] = useState(false);
@@ -262,29 +281,22 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels }) {
     await onSave({ name, baseUrl, ...(key ? { key } : {}) });
     setKey("");
   };
-  const toggle = (id) => onSave({ models: p.models.includes(id)
-    ? p.models.filter((x) => x !== id) : [...p.models, id] });
-  const addManual = async () => {
-    const id = manual.trim();
-    if (!id) { setListMsg("Введите имя модели — пустую добавлять нечего."); return; }
-    if (p.models.includes(id)) { setListMsg(`«${id}» уже отмечена.`); return; }
-    setListMsg("");
-    await onSave({ models: [...p.models, id] });
-    setManual("");
-  };
   const fetchList = async () => {
     setListMsg("");
     try {
       const list = await onModels();
       setOffered(list);
-      if (!list.length) setListMsg(`${kind?.name || "Провайдер"} список не отдал — введите имя модели вручную.`);
+      if (!list.length) setListMsg(`${kind?.name || "Провайдер"} список не отдал: проверьте адрес и ключ.`);
     } catch (e) { setOffered([]); setListMsg(e.message); }
   };
-  /* Что показывать чекбоксами: список провайдера, а над ним — то, что уже
-     отмечено, но в списке не нашлось (введено руками или список ещё не
-     спрашивали): отмеченное не должно исчезать с экрана. */
+  /* Что в списке: то, что отдал провайдер, а над ним — отмеченное у него
+     ранее, чего в списке нет (список ещё не спрашивали или модель из него
+     ушла): отмеченное не должно исчезать с экрана. */
   const known = new Set((offered || []).map((m) => m.id));
   const extra = p.models.filter((m) => !known.has(m));
+  const rows = [...extra.map((m) => ({ id: m, name: m, extra: true })), ...(offered || [])];
+  const picked = (id) => hasRow(agent?.models, { providerId: p.id, model: id });
+  const count = (agent?.models || []).filter((r) => r.providerId === p.id).length;
 
   return (
     <div style={{ background: C.panel, borderRadius: 8, padding: 10 }}>
@@ -317,82 +329,73 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels }) {
           </>)}
       </div>
 
-      <div style={S.lbl}>модели провайдера</div>
+      <div style={S.lbl}>модели</div>
       <div style={{ ...hint, margin: "4px 0 6px" }}>
-        Отметьте те, что нужны, — отмеченные попадают в коллекцию агентов.
-        {p.models.length ? ` Отмечено: ${p.models.length}.` : " Пока ничего не отмечено."}
+        Нажатие ставит галочку — модель в коллекции {agent?.builtin ? "ассистента" : "агента"};
+        повторное — снимает.{count ? ` Отмечено: ${count}.` : " Пока ничего не отмечено."}
       </div>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
         <button type="button" style={btn(false)} disabled={busy} onClick={fetchList}>
           {offered ? "Обновить список" : "Загрузить список моделей"}</button>
       </div>
-      {(offered || extra.length > 0) && (
-        <div style={{ maxHeight: 220, overflowY: "auto", marginBottom: 6 }}>
-          {[...extra.map((m) => ({ id: m, name: m, extra: true })), ...(offered || [])].map((m) => (
-            <label key={m.id} className="flex items-center gap-2"
-              style={{ padding: "3px 0", fontSize: 12, cursor: "pointer" }}>
-              <input type="checkbox" checked={p.models.includes(m.id)} disabled={busy}
-                aria-label={`модель ${m.id}`} onChange={() => toggle(m.id)} />
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {m.name === m.id ? m.id : `${m.name} (${m.id})`}
-                {m.extra && <span style={{ fontSize: 10, color: C.muted }}> · введена вручную</span>}
-              </span>
-            </label>))}
+      {/* Список — строки-кнопки с галочкой слева, а не чекбоксы: владелец
+          просил именно так («при нажатии слева появляется галочка»).
+          Для читалки и тестов строка — role="checkbox" с aria-checked. */}
+      {rows.length > 0 && (
+        <div role="group" aria-label={`модели ${p.name}`}
+          style={{ maxHeight: 220, overflowY: "auto", marginBottom: 6,
+            border: `1px solid ${C.line}`, borderRadius: 6 }}>
+          {rows.map((m) => {
+            const on = picked(m.id);
+            return (
+              <button key={m.id} type="button" role="checkbox" aria-checked={on} disabled={busy}
+                aria-label={`модель ${m.id}`} onClick={() => onToggle({ providerId: p.id, model: m.id })}
+                className="flex items-center gap-2"
+                style={{ width: "100%", textAlign: "left", background: on ? `${OK}22` : "transparent",
+                  border: "none", borderBottom: `1px solid ${C.line}`, color: C.text,
+                  padding: "5px 8px", fontSize: 12, cursor: busy ? "default" : "pointer" }}>
+                <span aria-hidden="true" style={{ width: 16, display: "inline-block",
+                  color: OK, fontWeight: 700 }}>{on ? "✓" : ""}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {m.name === m.id ? m.id : `${m.name} (${m.id})`}
+                </span>
+              </button>);
+          })}
         </div>)}
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-        <input aria-label="имя модели" style={{ ...S.inp, width: "auto", flex: 1, minWidth: 140 }}
-          placeholder="или вручную: gpt-4.1, claude-sonnet-4-5, meta-llama/…"
-          value={manual} onChange={(e) => setManual(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") addManual(); }} />
-        <button type="button" style={btn(true)} disabled={busy} onClick={addManual}>Добавить модель</button>
-      </div>
+      {!rows.length && !listMsg && (
+        <div style={{ ...hint, marginBottom: 4 }}>
+          Список пуст — нажмите «Загрузить список моделей».</div>)}
       {listMsg && <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{listMsg}</div>}
     </div>
   );
 }
 
-/* ─────── коллекция моделей агента: что ему можно ─────── */
+/* ─────── расшифровка записей звонков: только у «Ассистента» ─────── */
 
-function Collection({ agent, providers, busy, onToggle, onTranscribe }) {
-  const rows = providers.flatMap((p) => p.models.map((m) => ({ providerId: p.id, model: m,
-    label: `${p.name} / ${m}`, hasKey: p.hasKey })));
+function Transcribe({ agent, providers, busy, onTranscribe }) {
+  /* Выбирать — из коллекции ассистента: то, что он может использовать. */
+  const rows = (agent.models || []).map((r) => {
+    const p = providers.find((x) => x.id === r.providerId);
+    return { ...r, label: `${p?.name || r.providerId} / ${r.model}` };
+  });
   const t = agent.transcribe;
   const tValue = t ? `${t.providerId}|${t.model}` : "";
   return (
-    <div style={form}>
-      <div style={S.lbl}>2 · коллекция моделей</div>
-      <div style={{ ...hint, margin: "4px 0 6px" }}>
-        Все модели, отмеченные у провайдеров. Отметьте, какие этот агент может
-        использовать{agent.builtin ? "; первая отмеченная отвечает на вопросы" : ""}.
-      </div>
-      {rows.length === 0 && (
-        <div style={hint}>Коллекция пуста: отметьте модели у провайдера выше.</div>)}
-      {rows.map((r) => (
-        <label key={`${r.providerId}|${r.model}`} className="flex items-center gap-2"
-          style={{ padding: "4px 0", borderBottom: `1px solid ${C.line}`, fontSize: 12.5,
-            cursor: "pointer" }}>
-          <input type="checkbox" checked={hasRow(agent.models, r)} disabled={busy}
-            aria-label={`может использовать: ${r.label}`} onChange={() => onToggle({ providerId: r.providerId, model: r.model })} />
-          <span style={{ flex: 1 }}>{r.label}</span>
-          {!r.hasKey && <span style={{ fontSize: 10.5, color: WARN }}>у провайдера нет ключа</span>}
-        </label>))}
-      {agent.builtin && (
-        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 8 }}>
-          <span style={{ fontSize: 11.5, color: C.muted }}>расшифровка записей звонков</span>
-          <select aria-label="модель для расшифровки" style={{ ...S.inp, width: "auto", flex: 1, minWidth: 150 }}
-            disabled={busy || rows.length === 0} value={tValue}
-            onChange={(e) => {
-              const v = e.target.value;
-              const i = v.indexOf("|");
-              onTranscribe(v ? { providerId: v.slice(0, i), model: v.slice(i + 1) } : null);
-            }}>
-            {/* У расшифровки отката на модель чата нет (lib/transcribe.js):
-                подпись обязана говорить, что будет на самом деле — ничего. */}
-            <option value="">— не выбрана (расшифровки не будет)</option>
-            {rows.map((r) => (
-              <option key={`${r.providerId}|${r.model}`} value={`${r.providerId}|${r.model}`}>{r.label}</option>))}
-          </select>
-        </div>)}
+    <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 8 }}>
+      <span style={{ fontSize: 11.5, color: C.muted }}>расшифровка записей звонков</span>
+      <select aria-label="модель для расшифровки" style={{ ...S.inp, width: "auto", flex: 1, minWidth: 150 }}
+        disabled={busy || rows.length === 0} value={tValue}
+        onChange={(e) => {
+          const v = e.target.value;
+          const i = v.indexOf("|");
+          onTranscribe(v ? { providerId: v.slice(0, i), model: v.slice(i + 1) } : null);
+        }}>
+        {/* У расшифровки отката на модель чата нет (lib/transcribe.js):
+            подпись обязана говорить, что будет на самом деле — ничего. */}
+        <option value="">— не выбрана (расшифровки не будет)</option>
+        {rows.map((r) => (
+          <option key={`${r.providerId}|${r.model}`} value={`${r.providerId}|${r.model}`}>{r.label}</option>))}
+      </select>
     </div>
   );
 }
@@ -441,7 +444,7 @@ function Memory({ agent, busy, setBusy }) {
 
   return (
     <div style={form}>
-      <div style={S.lbl}>3 · память</div>
+      <div style={S.lbl}>2 · память</div>
       <div style={{ ...hint, margin: "4px 0 8px" }}>
         Заметки и файлы, которые {agent.builtin ? "ассистент" : "агент"} будет знать. Только
         ваши: чужой памяти здесь нет, а вашей нет ни у кого.

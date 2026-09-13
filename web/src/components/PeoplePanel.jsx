@@ -130,8 +130,13 @@ export default function PeoplePanel({ onPeople, onChanged }) {
   const userRow = (u) => {
     const owner = u.id === org.ownerId;
     return (
-      <div key={u.id} className="flex flex-wrap gap-2"
-        style={{ alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.line}` }}>
+      /* Каждый участник — своей формой внутри формы участников (владелец,
+         2026-09-13: «чтобы визуально достаточно это всё отделить»), а не
+         строкой с чертой снизу: у человека две-три строки (имя, роли,
+         договоры), и черта между ними не отделяла одного от другого. */
+      <div key={u.id} className="flex flex-wrap gap-2" aria-label={`участник ${u.name}`}
+        style={{ alignItems: "center", padding: 8, marginBottom: 6,
+          background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8 }}>
         <span style={{ fontSize: 12.5, flex: "1 1 130px" }}>
           {u.name}
           {u.username ? <span style={{ color: C.muted }}> @{u.username}</span> : null}

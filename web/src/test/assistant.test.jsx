@@ -91,15 +91,16 @@ function settingsServer(providers = [], agents = [ASSISTANT], extra = {}) {
 }
 
 describe("агенты", () => {
-  it("«Ассистент» есть всегда и без кнопки удаления; три формы: провайдер, коллекция, память", async () => {
+  it("«Ассистент» есть всегда и без кнопки удаления; две формы: провайдер, память", async () => {
     settingsServer([P1]);
     render(<AgentsPanel me={IVAN} />);
     const tabs = await screen.findByRole("tablist", { name: "агенты" });
     expect(within(tabs).getByRole("tab", { name: "Ассистент" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("button", { name: /удалить агента/ })).toBeNull();
     expect(screen.getByText("1 · провайдер")).toBeInTheDocument();
-    expect(screen.getByText("2 · коллекция моделей")).toBeInTheDocument();
-    expect(screen.getByText("3 · память")).toBeInTheDocument();
+    // «Коллекция моделей» убрана (владелец, 2026-09-13): коллекция — галочки у провайдера.
+    expect(screen.queryByText(/коллекция моделей/)).toBeNull();
+    expect(screen.getByText("2 · память")).toBeInTheDocument();
   });
 
   it("«+ агент» внизу — POST с именем, новая вкладка, у неё есть «Удалить агента»", async () => {
@@ -117,40 +118,64 @@ describe("агенты", () => {
     expect(screen.getByRole("tab", { name: "Закупщик · агент" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("провайдер: список моделей — чекбоксами, отметка уходит PUT models; вручную — тоже", async () => {
+  it("провайдер: модели списком после «Загрузить»; нажатие — галочка: PUT models провайдера и агента; повтор снимает", async () => {
     const { log } = settingsServer([{ ...P1, models: [] }], [ASSISTANT], {
       "GET /api/assistant/providers/p_1/models": [{ id: "gpt-4.1", name: "gpt-4.1" }, { id: "o3", name: "o3" }],
     });
     render(<AgentsPanel me={IVAN} />);
     await screen.findByRole("tab", { name: "Мой OpenAI ✓" });
+    // Ручного ввода и «Добавить модель» больше нет (владелец, 2026-09-13).
+    expect(screen.queryByLabelText("имя модели")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить модель" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Загрузить список моделей" }));
-    const box = await screen.findByLabelText("модель gpt-4.1");
-    expect(box).not.toBeChecked();
-    fireEvent.click(box);
-    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/providers/p_1")
-      && JSON.parse(r.body).models?.join() === "gpt-4.1")).toBe(true));
-    await waitFor(() => expect(screen.getByLabelText("модель gpt-4.1")).toBeChecked());
-    // Отмеченная у провайдера модель — строкой в коллекции агента.
-    expect(screen.getByLabelText("может использовать: Мой OpenAI / gpt-4.1")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("имя модели"), { target: { value: "gpt-5" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить модель" }));
-    await waitFor(() => expect(screen.getByLabelText("модель gpt-5")).toBeChecked());
+    const row = await screen.findByRole("checkbox", { name: "модель gpt-4.1" });
+    expect(row).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(row);
+    // Сперва модель отмечается у провайдера, затем пара — в коллекцию агента.
+    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant"))).toBe(true));
+    const pp = log.find((r) => r.method === "PUT" && r.url.endsWith("/providers/p_1"));
+    expect(JSON.parse(pp.body).models).toEqual(["gpt-4.1"]);
+    const pa = log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant"));
+    expect(JSON.parse(pa.body)).toEqual({ models: [{ providerId: "p_1", model: "gpt-4.1" }] });
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "модель gpt-4.1" }))
+      .toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByRole("button", { name: "Обновить список" })).toBeInTheDocument();
+    // Повторное нажатие снимает: пара уходит из коллекции, и модель — с провайдера
+    // (другой агент её не держит).
+    log.length = 0;
+    fireEvent.click(screen.getByRole("checkbox", { name: "модель gpt-4.1" }));
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "модель gpt-4.1" }))
+      .toHaveAttribute("aria-checked", "false"));
+    expect(JSON.parse(log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant")).body))
+      .toEqual({ models: [] });
+    expect(JSON.parse(log.find((r) => r.method === "PUT" && r.url.endsWith("/providers/p_1")).body).models)
+      .toEqual([]);
   });
 
-  it("коллекция: чекбокс «может использовать» — PUT models агента; расшифровка — отдельным выбором у Ассистента", async () => {
-    const { log } = settingsServer([P1]);
-    render(<AgentsPanel me={IVAN} />);
-    const row = await screen.findByLabelText("может использовать: Мой OpenAI / gpt-4.1");
-    expect(row).not.toBeChecked();
-    fireEvent.click(row);
-    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant"))).toBe(true));
-    const put = log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant"));
-    expect(JSON.parse(put.body)).toEqual({ models: [{ providerId: "p_1", model: "gpt-4.1" }] });
-    await waitFor(() => expect(screen.getByLabelText("может использовать: Мой OpenAI / gpt-4.1")).toBeChecked());
-    fireEvent.change(screen.getByLabelText("модель для расшифровки"), { target: { value: "p_1|gpt-4o-mini" } });
-    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.body.includes("transcribe"))).toBe(true));
+  it("галочки — про открытого агента; расшифровка у Ассистента — из его коллекции", async () => {
+    const { log } = settingsServer([P1], [{ ...ASSISTANT, models: [{ providerId: "p_1", model: "gpt-4.1" }] },
+      { id: "a_1", name: "Закупщик", builtin: false, models: [], transcribe: null }]);
+    render(<AgentsPanel me={OWNER} />);
+    await screen.findByRole("tab", { name: "Ассистент" });
+    // Отмеченные ранее модели провайдера видны и до «Загрузить»; у Ассистента gpt-4.1 отмечена.
+    expect(screen.getByRole("checkbox", { name: "модель gpt-4.1" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("checkbox", { name: "модель gpt-4o-mini" })).toHaveAttribute("aria-checked", "false");
+    // У другого агента та же модель не отмечена — коллекция своя.
+    fireEvent.click(screen.getByRole("tab", { name: "Закупщик · агент" }));
+    expect(screen.getByRole("checkbox", { name: "модель gpt-4.1" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByLabelText("модель для расшифровки")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "модель gpt-4o-mini" }));
+    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1"))).toBe(true));
+    expect(JSON.parse(log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1")).body))
+      .toEqual({ models: [{ providerId: "p_1", model: "gpt-4o-mini" }] });
+    // Расшифровка — только у Ассистента и только из его коллекции.
+    fireEvent.click(screen.getByRole("tab", { name: "Ассистент" }));
+    const sel = screen.getByLabelText("модель для расшифровки");
+    expect(Array.from(sel.options).map((o) => o.value)).toEqual(["", "p_1|gpt-4.1"]);
+    fireEvent.change(sel, { target: { value: "p_1|gpt-4.1" } });
+    await waitFor(() => expect(log.some((r) => r.body?.includes("transcribe"))).toBe(true));
     expect(JSON.parse(log.find((r) => r.body?.includes("transcribe")).body))
-      .toEqual({ transcribe: { providerId: "p_1", model: "gpt-4o-mini" } });
+      .toEqual({ transcribe: { providerId: "p_1", model: "gpt-4.1" } });
   });
 
   it("память у каждого агента своя: GET ?agent=, POST с agent", async () => {
