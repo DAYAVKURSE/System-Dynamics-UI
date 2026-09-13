@@ -450,6 +450,8 @@ export default function SystemModel(){
   const [simMonth,setSimMonth]=useState(0);
   // Что открыто под схемой: правка модели или её будущее.
   const [under,setUnder]=useState("edit");
+  // Спойлер процессов на «Управлении»: закрыт при открытии, помнится в сеансе.
+  const [procsOpen,setProcsOpen]=useState(false);
   const [me,setMe]=useState(SOLO);
   const [openCards,setOpenCards]=useState(()=>new Set());
   const [openCall,setOpenCall]=useState(()=>callFromLocation());
@@ -1067,6 +1069,19 @@ export default function SystemModel(){
     setUnder("edit");
     setFocus({kind:"func",id:fid,n:Date.now()});
   },[funcs]);
+  /* Нажали на сущность в шаге процесса — открываем её так же, как если бы
+     выбрали актив на схеме и нужную вкладку в карточке: актив — карточку,
+     ресурс — вкладку «Ресурсы» с этим ресурсом, должность — «Воркеров»
+     актива шага. Карточка стоит под формой процессов, на «Управлении». */
+  const openTraitCard=useCallback((tid)=>{
+    const t=traits.find(x=>x.id===tid); if(!t) return;
+    setSel(t.e);
+    setFocus({kind:"trait",id:tid,n:Date.now()});
+  },[traits]);
+  const openWorkersCard=useCallback((eid)=>{
+    setSel(eid);
+    setFocus({kind:"workers",id:eid,n:Date.now()});
+  },[]);
 
   const assetOk=useCallback((id)=>checkAsset(id,{funcs,traits,entities}).ok,
     [funcs,traits,entities]);
@@ -1243,7 +1258,9 @@ export default function SystemModel(){
 
         <SchemeSVG entities={entities} traits={traits} funcs={funcs} moves={moves}
           zoom={zoom} sel={sel} valuesFor={valuesFor}
-          onSelectEntity={id=>setSel(id)} onMoveEntity={moveE}
+          /* Нажатие на актив ведёт к его карточке: с «Деятельности» и
+             «Прогноза» раздел под схемой переключается на «Управление». */
+          onSelectEntity={id=>{ setSel(id); setUnder("edit"); }} onMoveEntity={moveE}
           assetOk={assetOk} onWhy={(kind,id)=>setWhy({kind,id})}
           onOpenFunc={openFuncCard}/>
 
@@ -1252,15 +1269,13 @@ export default function SystemModel(){
             способ показа, а не то, что показывают. Ползунок месяца — общий: он стоит над ними,
             потому что одинаково относится и к числам на блоках, и к хвостам
             графиков. */}
-        {/* Порядок — как идёт работа: сперва схему собирают («Управление»),
-            потом описывают, что за чем следует («Технологический процесс»),
+        {/* Порядок — как идёт работа: сперва схему собирают («Управление»;
+            технологические процессы — там же, первыми, под спойлером),
             потом смотрят, что по ней делали («Деятельность») и куда она
             идёт («Прогноз»). */}
         <div className="flex gap-2" style={{margin:"10px 0",overflowX:"auto"}}>
           <button style={btn(under==="edit")} onClick={()=>setUnder("edit")}>
             Управление</button>
-          <button style={btn(under==="proc")} onClick={()=>setUnder("proc")}>
-            Технологический процесс</button>
           {/* Отдельного доступа у них нет: «Прогноз» и «Деятельность» —
               разделы СХЕМЫ, и открывает их та же вкладка. Прежде они
               спрашивали свои `sim` и `timeline`, которых в списке вкладок
@@ -1272,8 +1287,14 @@ export default function SystemModel(){
             Прогноз</button>
         </div>
 
-        {under==="proc" && (
+        {/* Процессы — первыми на «Управлении», под спойлером: раздел
+            открывают нажатием, а до того он не заслоняет карточку актива.
+            Выбранный на схеме актив подсвечивает процессы, где он занят. */}
+        {under==="edit" && (
           <ProcessPanel procs={procs} setProcs={setProcs}
+            selected={sel} shown={procsOpen} onToggle={setProcsOpen}
+            onOpenAsset={id=>setSel(id)} onOpenTrait={openTraitCard}
+            onOpenWorkers={openWorkersCard}
             entities={entities} setEntities={setEntities}
             traits={traits} setTraits={setTraits}
             funcs={funcs} setFuncs={setFuncs}

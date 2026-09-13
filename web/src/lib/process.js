@@ -281,6 +281,11 @@ export function dropHypo(proc = {}, { entities = [], traits = [], funcs = [] } =
   };
 }
 
+/** Задействует ли процесс актив — как актив шага или как сторону входа/выхода. */
+export const procUsesAsset = (p = {}, assetId) => assetId != null && (p.steps || []).some((s) =>
+  String(s.asset?.id) === String(assetId)
+  || [...(s.takes || []), ...(s.gives || [])].some((x) => String(x.asset?.id) === String(assetId)));
+
 /* ─────── списки для выбора ─────── */
 
 /**

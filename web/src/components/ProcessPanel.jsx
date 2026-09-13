@@ -3,7 +3,7 @@ import { C, OK, WARN, BAD, ACC, S, btn, NumField } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
 import { PROC_STATUS, canAcceptProc, dropHypo, exactOption, filterOptions, newPort, newProc,
-  newStep, orderOptions, procIssues, procLabel, procText, stateOf, syncProcFuncs }
+  newStep, orderOptions, procIssues, procLabel, procText, procUsesAsset, stateOf, syncProcFuncs }
   from "../lib/process.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -35,18 +35,20 @@ const STATUS_TONE = { off: null, hypo: WARN, on: OK };
    и ставит её сюда. `onMouseDown` с `preventDefault` на списке держит
    фокус в поле: выбор — часть набора, а не его конец. */
 function Combo({ hint, word, label, value, state = "empty", options = [], onPick, onCreate,
-  disabled = false, disabledWhy = "" }) {
+  onOpen, disabled = false, disabledWhy = "" }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);   // выбранное меняют по «▾»
   const [text, setText] = useState("");
   const [cursor, setCursor] = useState(0);
   const list = filterOptions(options, text);
   const exact = exactOption(options, text);
   const fresh = !!text.trim() && !exact;
-  const pick = (o) => { onPick(o); setOpen(false); setText(""); };
+  const close = () => { setOpen(false); setEditing(false); setText(""); };
+  const pick = (o) => { onPick(o); close(); };
   const create = () => {
     if (!fresh || !onCreate) return;
     onCreate(text.trim());
-    setOpen(false); setText("");
+    close();
   };
   const onKey = (e) => {
     if (e.key === "ArrowDown") {
@@ -58,18 +60,41 @@ function Combo({ hint, word, label, value, state = "empty", options = [], onPick
       if (exact) pick(exact);
       else if (fresh) create();
       else if (list.length) pick(list[cursor]);
-    } else if (e.key === "Escape") { setOpen(false); setText(""); }
+    } else if (e.key === "Escape") close();
   };
   const bad = state === "deleted" || state === "unknown";
+  /* Выбранное — кнопкой с именем: нажатие ведёт к карточке сущности (как
+     выбор актива на схеме и нужной вкладки в нём), «▾» рядом — сменить
+     выбор. Пока не выбрано — сразу поле со списком. */
+  if (value && !editing) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, verticalAlign: "middle" }}>
+        <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{hint}</span>
+        <button type="button" aria-label={`${label}: открыть`} disabled={!onOpen || bad}
+          title={onOpen && !bad ? "открыть карточку" : ""} onClick={onOpen}
+          style={{ ...btn(false), fontSize: 12, padding: "3px 8px", maxWidth: 200,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            cursor: onOpen && !bad ? "pointer" : "default",
+            ...(bad ? { color: BAD, borderColor: BAD } : {}) }}>
+          {value.name}</button>
+        <button type="button" aria-label={`${label}: изменить`} title="выбрать другое"
+          onClick={() => { setEditing(true); setOpen(true); setText(""); setCursor(0); }}
+          style={{ ...btn(false), fontSize: 10, padding: "3px 5px" }}>▾</button>
+        {state === "deleted" && (
+          <span style={{ fontSize: 10, color: BAD, whiteSpace: "nowrap" }}>удалён — выберите замену</span>)}
+        {state === "unknown" && (
+          <span style={{ fontSize: 10, color: BAD, whiteSpace: "nowrap" }}>не найден</span>)}
+      </span>);
+  }
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, verticalAlign: "middle" }}>
       <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{hint}</span>
       <span style={{ position: "relative", display: "inline-block" }}>
-        <input value={open ? text : (value?.name || "")} aria-label={label}
+        <input value={open ? text : ""} aria-label={label} autoFocus={editing}
           disabled={disabled} title={disabled ? disabledWhy : ""}
           placeholder={disabled ? disabledWhy : "выберите или введите"}
           onFocus={() => { setOpen(true); setText(""); setCursor(0); }}
-          onBlur={() => { setOpen(false); setText(""); }}
+          onBlur={close}
           onChange={(e) => { setText(e.target.value); setCursor(0); }}
           onKeyDown={onKey}
           style={{ ...S.inp, width: 150, fontSize: 12, padding: "3px 6px",
@@ -102,16 +127,12 @@ function Combo({ hint, word, label, value, state = "empty", options = [], onPick
                 такого нет в списке</div>)}
           </div>)}
       </span>
-      {state === "deleted" && (
-        <span style={{ fontSize: 10, color: BAD, whiteSpace: "nowrap" }}>удалён — выберите замену</span>)}
-      {state === "unknown" && (
-        <span style={{ fontSize: 10, color: BAD, whiteSpace: "nowrap" }}>не найден</span>)}
     </span>);
 }
 
 /* ─── вход или выход шага: из какого / в какой актив, что, сколько ─── */
 function PortRow({ port, side, idx, assets, traitsOf, model, onChange, onRemove,
-  onCreateAsset, onCreateTrait }) {
+  onCreateAsset, onCreateTrait, onOpenAsset, onOpenTrait }) {
   const verb = side === "takes" ? "берёт" : "отдаёт";
   const assetState = stateOf(port.asset, "asset", model);
   const traitState = stateOf(port.trait, "trait", model);
@@ -120,14 +141,16 @@ function PortRow({ port, side, idx, assets, traitsOf, model, onChange, onRemove,
       <Combo hint={side === "takes" ? "из актива" : "в актив"} word="актив"
         label={`${verb} ${idx + 1}: актив`} value={port.asset} state={assetState}
         options={assets} onPick={(o) => onChange({ ...port, asset: o, trait: null })}
-        onCreate={onCreateAsset ? (n) => onCreateAsset(n) : undefined} />
+        onCreate={onCreateAsset ? (n) => onCreateAsset(n) : undefined}
+        onOpen={onOpenAsset && assetState === "ok" ? () => onOpenAsset(port.asset.id) : undefined} />
       <Combo hint="ресурс" word="ресурс" label={`${verb} ${idx + 1}: ресурс`}
         value={port.trait} state={traitState}
         options={assetState === "ok" ? traitsOf(port.asset.id) : []}
         disabled={assetState !== "ok"} disabledWhy="сначала актив"
         onPick={(o) => onChange({ ...port, trait: o })}
         onCreate={assetState === "ok" && onCreateTrait
-          ? (n) => onCreateTrait(port.asset.id, n) : undefined} />
+          ? (n) => onCreateTrait(port.asset.id, n) : undefined}
+        onOpen={onOpenTrait && traitState === "ok" ? () => onOpenTrait(port.trait.id) : undefined} />
       <span style={{ fontSize: 10.5, color: C.muted }}>×</span>
       <NumField value={port.qty} aria-label={`${verb} ${idx + 1}: сколько`}
         style={{ width: 54, fontSize: 12, padding: "3px 6px" }}
@@ -140,8 +163,19 @@ function PortRow({ port, side, idx, assets, traitsOf, model, onChange, onRemove,
 
 export default function ProcessPanel({ procs = [], setProcs, entities = [], setEntities,
   traits = [], setTraits, funcs = [], setFuncs, onDropFuncs, makeEntity,
-  positions = [], onAddPosition }) {
+  positions = [], onAddPosition, selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
+  shown: shownProp, onToggle }) {
   const [naming, setNaming] = useState(null);   // какой процесс сейчас называют
+  /* Спойлер (2026-09-13): форма стоит первой на «Управлении», но до нажатия
+     скрывает процессы — иначе она заслоняла бы карточку актива. Открыт ли
+     он, помнит `SystemModel` (переход на другую вкладку и обратно не
+     закрывает его); без такого пропа — своё состояние. */
+  const [shownOwn, setShownOwn] = useState(false);
+  const shown = shownProp ?? shownOwn;
+  const toggle = () => (onToggle ? onToggle(!shown) : setShownOwn((v) => !v));
+  // Процессы, где занят выбранный на схеме актив, — подсвечены.
+  const involved = procs.filter((p) => procUsesAsset(p, selected));
+  const selName = entities.find((e) => e.id === selected)?.name || "";
   // Последние процессы — для правок, приходящих с сервера (новая должность).
   const procsRef = useRef(procs); procsRef.current = procs;
 
@@ -239,8 +273,21 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
 
   return (
     <div style={{ ...S.card, marginTop: 10 }}>
-      <Section title="технологические процессы" addLabel="+ процесс" onAdd={add}
-        hint="Строка — шаг: актив, должность, что берёт и откуда, что отдаёт и куда. Всё выбирается из списков; новое имя заводится кнопкой OK."
+      <button type="button" aria-expanded={shown} aria-label="технологические процессы"
+        onClick={toggle}
+        className="flex items-center gap-2"
+        style={{ width: "100%", background: "transparent", border: "none", padding: 0,
+          cursor: "pointer", color: C.text, textAlign: "left" }}>
+        <span style={{ fontSize: 11, color: C.muted }}>{shown ? "▾" : "▸"}</span>
+        <span style={S.lbl}>технологические процессы</span>
+        <span style={{ fontSize: 10.5, color: C.muted }}>{procs.length}</span>
+        {!!selected && !!involved.length && (
+          <span style={{ fontSize: 10.5, color: ACC }}>
+            · с активом «{selName}»: {involved.length}</span>)}
+      </button>
+      {shown && (
+      <Section title="" addLabel="+ процесс" onAdd={add}
+        hint="Строка — шаг: актив, должность, что берёт и откуда, что отдаёт и куда. Всё выбирается из списков; новое имя заводится кнопкой OK. Нажатие на выбранное открывает его карточку ниже."
         empty={procs.length ? null : "Процессов пока нет."}>
         {procs.map((p) => {
           const issues = procIssues(p, model);
@@ -248,10 +295,16 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
           const label = procLabel(p);
           const assets = optAssets(p);
           const roles = optRoles(p);
+          const lit = !!selected && procUsesAsset(p, selected);
           return (
-            <div key={p.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
-              borderRadius: 8, padding: 8, marginBottom: 8,
-              borderLeft: `2px solid ${STATUS_TONE[p.status] || C.line}` }}>
+            <div key={p.id} data-lit={lit || undefined}
+              style={{ background: C.panel2, border: `1px solid ${lit ? ACC : C.line}`,
+                borderRadius: 8, padding: 8, marginBottom: 8,
+                borderLeft: `2px solid ${STATUS_TONE[p.status] || C.line}`,
+                boxShadow: lit ? `0 0 0 1px ${ACC}55` : "none" }}>
+              {lit && (
+                <div style={{ fontSize: 10.5, color: ACC, marginBottom: 4 }}>
+                  задействует выбранный актив «{selName}»</div>)}
               <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
                 <span style={S.lbl}>процесс</span>
                 {/* Название — по нажатию справа от слова «процесс»: поле
@@ -293,7 +346,8 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                     onCreateAsset={(name) => createAsset(p, name, (list, it) =>
                       withPort(list, p.id, s.id, side, j, (x) => ({ ...x, asset: it, trait: null })))}
                     onCreateTrait={(assetId, name) => createTrait(p, assetId, name, (list, it) =>
-                      withPort(list, p.id, s.id, side, j, (x) => ({ ...x, trait: it })))} />));
+                      withPort(list, p.id, s.id, side, j, (x) => ({ ...x, trait: it })))}
+                    onOpenAsset={onOpenAsset} onOpenTrait={onOpenTrait} />));
                 return (
                   <div key={s.id} style={{ marginTop: 6, padding: "6px 8px", borderRadius: 6,
                     border: `1px solid ${C.line}` }}>
@@ -303,13 +357,17 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                         value={s.asset} state={assetState} options={assets}
                         onPick={(o) => setStep(p, s.id, (x) => ({ ...x, asset: o }))}
                         onCreate={(name) => createAsset(p, name, (list, it) =>
-                          withStep(list, p.id, s.id, (x) => ({ ...x, asset: it })))} />
+                          withStep(list, p.id, s.id, (x) => ({ ...x, asset: it })))}
+                        onOpen={onOpenAsset && assetState === "ok"
+                          ? () => onOpenAsset(s.asset.id) : undefined} />
                       <Combo hint="должность" word="должность" label={`строка ${n}: должность`}
                         value={s.role} state={roleState} options={roles}
                         disabled={!positions.length && !onAddPosition}
                         disabledWhy="должностей нет"
                         onPick={(o) => setStep(p, s.id, (x) => ({ ...x, role: o }))}
-                        onCreate={onAddPosition ? (name) => createRole(p, s.id, name) : undefined} />
+                        onCreate={onAddPosition ? (name) => createRole(p, s.id, name) : undefined}
+                        onOpen={onOpenWorkers && assetState === "ok"
+                          ? () => onOpenWorkers(s.asset.id) : undefined} />
                       <span style={{ flex: 1 }} />
                       <button type="button" aria-label={`убрать строку ${n}`}
                         style={{ ...btn(false), fontSize: 11, padding: "2px 6px", color: BAD,
@@ -364,6 +422,6 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               </div>
             </div>);
         })}
-      </Section>
+      </Section>)}
     </div>);
 }

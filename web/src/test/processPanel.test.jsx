@@ -21,15 +21,29 @@ let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
 const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+/* Процессы — первыми на «Управлении», под спойлером: открывается нажатием. */
 const openProc = () => {
   scheme();
-  fireEvent.click(screen.getByRole("button", { name: "Технологический процесс" }));
+  fireEvent.click(screen.getByRole("button", { name: "Управление" }));
+  const toggle = screen.getByRole("button", { name: "технологические процессы" });
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
 };
 const addProc = () => {
   openProc();
   fireEvent.click(screen.getByRole("button", { name: "+ процесс" }));
 };
-const field = (label) => screen.getByLabelText(label);
+/* Выбранное стоит кнопкой с именем и «▾» рядом; поле со списком — по «▾». */
+const field = (label) => {
+  const edit = screen.queryByLabelText(`${label}: изменить`);
+  if (edit) fireEvent.click(edit);
+  return screen.getByLabelText(label);
+};
+const chosen = (label) => screen.getByLabelText(`${label}: открыть`).textContent;
+const tap = (name) => {
+  const g = container.querySelector(`[data-entity="${name}"]`);
+  fireEvent.pointerDown(g, { clientX: 50, clientY: 50, pointerId: 1 });
+  fireEvent.pointerUp(g, { clientX: 51, clientY: 50, pointerId: 1 });
+};
 const listOf = (label) => screen.getByRole("listbox", { name: `${label}: список` });
 /* Выбор из списка: фокус открывает список ДО набора, нажатие на пункт
    ставит его. */
@@ -118,14 +132,14 @@ describe("шаг собирается выборами", () => {
   it("новое имя — кнопка OK: актив и ресурс заводятся гипотезой и стоят в списке первыми", () => {
     addProc();
     create("строка 1: актив", "актив", "Склад");
-    expect(field("строка 1: актив")).toHaveValue("Склад");
+    expect(chosen("строка 1: актив")).toBe("Склад");
     fireEvent.click(screen.getByRole("button", { name: "строка 1: + отдаёт" }));
     fireEvent.focus(field("отдаёт 1: актив"));
     const names = within(listOf("отдаёт 1: актив")).getAllByRole("option").map((o) => o.textContent);
     expect(names[0]).toBe("Склад · новое");
     pick("отдаёт 1: актив", "Склад · новое");
     create("отдаёт 1: ресурс", "ресурс", "коробки");
-    expect(field("отдаёт 1: ресурс")).toHaveValue("коробки");
+    expect(chosen("отдаёт 1: ресурс")).toBe("коробки");
     const m = dump();
     const wh = m.entities.find((e) => e.name === "Склад");
     expect(wh.hypo).toBe(true);
@@ -231,15 +245,70 @@ describe("удалённое на схеме", () => {
     const m = dump();
     // Спрос с рынка удалили со схемы: вход остался с id, которого нет.
     loadJson({ ...m, traits: m.traits.filter((t) => t.id !== "dem") });
-    fireEvent.click(screen.getByRole("button", { name: "Технологический процесс" }));
-    expect(field("берёт 1: ресурс")).toHaveValue("спрос");
+    openProc();
+    expect(chosen("берёт 1: ресурс")).toBe("спрос");
     expect(screen.getByText("удалён — выберите замену")).toBeInTheDocument();
     expect(screen.getByText("строка 1: берёт: ресурс «спрос» удалён — выберите замену")).toBeInTheDocument();
     expect(status("Принято")).toBeDisabled();
     // Замена — другой ресурс того же актива.
     pick("берёт 1: актив", "Пользователи");
     pick("берёт 1: ресурс", "активные пользователи");
-    expect(screen.queryByText(/удалён/)).toBeNull();
+    expect(screen.queryByText("удалён — выберите замену")).toBeNull();
+    expect(screen.queryByText(/строка 1: берёт: ресурс «спрос» удалён/)).toBeNull();
     expect(status("Принято")).not.toBeDisabled();
+  });
+});
+
+describe("процессы живут на «Управлении»", () => {
+  it("своей вкладки нет; форма — первой, под спойлером, и до нажатия процессов не видно", () => {
+    scheme();
+    expect(screen.queryByRole("button", { name: "Технологический процесс" })).toBeNull();
+    const toggle = screen.getByRole("button", { name: "технологические процессы" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "+ процесс" })).toBeNull();
+    // Первой — выше карточки выбранного актива.
+    const card = screen.getByLabelText("название актива");
+    // eslint-disable-next-line no-bitwise
+    expect(toggle.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "+ процесс" })).toBeInTheDocument();
+  });
+
+  it("выбранный на схеме актив подсвечивает процессы, где он занят", () => {
+    buildStep();   // Пользователи берут у Рынка услуг
+    tap("vm");
+    expect(screen.queryByText(/задействует выбранный актив/)).toBeNull();
+    tap("mkt");
+    expect(screen.getByText("задействует выбранный актив «Рынок услуг»")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "технологические процессы" }).textContent)
+      .toMatch(/с активом «Рынок услуг»: 1/);
+  });
+
+  it("нажатие на сущность в шаге открывает её карточку под формой", () => {
+    buildStep();
+    // Ресурс «спрос» — во вкладке «Ресурсы» Рынка услуг.
+    fireEvent.click(screen.getByLabelText("берёт 1: ресурс: открыть"));
+    expect(screen.getByDisplayValue("Рынок услуг")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("спрос").length).toBeGreaterThan(0);
+    // Актив шага — его карточка.
+    fireEvent.click(screen.getByLabelText("строка 1: актив: открыть"));
+    expect(screen.getByDisplayValue("Пользователи")).toBeInTheDocument();
+    // Карточка стоит ПОД формой процессов.
+    const toggle = screen.getByRole("button", { name: "технологические процессы" });
+    // eslint-disable-next-line no-bitwise
+    expect(toggle.compareDocumentPosition(screen.getByDisplayValue("Пользователи"))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("нажатие на актив на схеме с «Прогноза» или «Деятельности» возвращает на «Управление»", () => {
+    scheme();
+    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
+    expect(screen.queryByLabelText("название актива")).toBeNull();
+    tap("mkt");
+    expect(screen.getByDisplayValue("Рынок услуг")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Деятельность" }));
+    expect(screen.queryByLabelText("название актива")).toBeNull();
+    tap("usr");
+    expect(screen.getByDisplayValue("Пользователи")).toBeInTheDocument();
   });
 });

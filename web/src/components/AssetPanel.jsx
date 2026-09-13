@@ -1354,9 +1354,12 @@ export default function AssetPanel(props) {
      значение не изменилось. */
   const focus = props.focus;
   useEffect(() => {
-    if (!focus || focus.kind !== "func") return;
-    setTab("funcs");
-    setOpenFunc(focus.id);
+    if (!focus) return;
+    // Из процесса (2026-09-13) просят открыть и ресурс, и воркеров: нажатие
+    // на сущность в шаге ведёт туда же, куда вкладка и карточка руками.
+    if (focus.kind === "func") { setTab("funcs"); setOpenFunc(focus.id); }
+    else if (focus.kind === "trait") { setTab("traits"); setOpenTrait(focus.id); }
+    else if (focus.kind === "workers") setTab("workers");
   }, [focus?.id, focus?.n, focus?.kind]);
   const mineFuncs = props.funcs.filter((f) => f.e === props.entityId).length;
   const mineTraits = props.traits.filter((t) => t.e === props.entityId).length;
