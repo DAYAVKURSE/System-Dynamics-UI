@@ -6,13 +6,16 @@ import { forecast } from "../lib/plan.js";
 
 /* РАЗДЕЛ «ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС» ПОД СХЕМОЙ.
 
-   Владелец: «я буквально должен вводить текст, а он должен выдавать
-   подсказки; если каких-то активов нет — они оборачиваются в рамку с
-   пунктирной линией, и при нажатии появляются кнопки принять или
-   отклонить». Здесь проверяется ровно это — и то, что из этого следует:
+   Владелец: «в поле ввода должно вводиться так: актив, должность
+   воркера, из какого актива, что берёт, и/или что выдаёт, в какой актив,
+   что выдаёт, перевод строки; для каждого выбора — подсказка слева и
+   выпадающий список; никакого ручного ввода двоеточий и стрелок; новое
+   имя — кнопка OK под полем; новое в списках первым; список появляется
+   до начала ввода; название процессу — по нажатию справа от слова
+   «процесс»». Здесь проверяется ровно это — и то, что из этого следует:
    принятое гипотетически считается только с галочкой, «не принято»
-   уносит гипотезы, а удалённое на схеме не даёт принять, пока не
-   поставлена замена. */
+   уносит гипотезы, удалённое на схеме не даёт принять, пока не выбрана
+   замена. */
 
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
@@ -25,13 +28,22 @@ const openProc = () => {
 const addProc = () => {
   openProc();
   fireEvent.click(screen.getByRole("button", { name: "+ процесс" }));
-  return screen.getByLabelText("текст процесса");
 };
-const type = (el, v) => fireEvent.change(el, { target: { value: v } });
-// Поле отдаёт текст по расфокусу: без blur разбор смотрел бы на прежнее.
-const write = (el, v) => { type(el, v); fireEvent.blur(el); };
-/* Как в assetPanel.test: на вкладке инструментов схемы нет, и единственное
-   текстовое поле — поле выгрузки. */
+const field = (label) => screen.getByLabelText(label);
+const listOf = (label) => screen.getByRole("listbox", { name: `${label}: список` });
+/* Выбор из списка: фокус открывает список ДО набора, нажатие на пункт
+   ставит его. */
+const pick = (label, name) => {
+  fireEvent.focus(field(label));
+  fireEvent.click(within(listOf(label)).getByRole("option", { name }));
+};
+/* Новое имя: набор, под списком — «OK». */
+const create = (label, word, name) => {
+  fireEvent.focus(field(label));
+  fireEvent.change(field(label), { target: { value: name } });
+  fireEvent.mouseDown(screen.getByRole("button", { name: `OK: новый ${word} «${name}»` }));
+};
+const status = (name) => screen.getByRole("button", { name });
 const openExport = () => {
   fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
   if (!container.querySelector("textarea")) {
@@ -54,132 +66,148 @@ const loadJson = (m) => {
   fireEvent.click(within(row).getByRole("button", { name: "Загрузить" }));
   scheme();
 };
-const status = (name) => screen.getByRole("button", { name });
-/* Заводит процесс со складом, которого на схеме нет, и принимает обе
-   гипотезы — актив и его ресурс. */
-const acceptWarehouse = () => {
-  const area = addProc();
-  write(area, "Склад: берёт спрос 1 → отдаёт коробки 2");
-  fireEvent.click(screen.getByRole("button", { name: "неизвестный актив «Склад»" }));
-  fireEvent.click(screen.getByRole("button", { name: "принять актив «Склад»" }));
-  fireEvent.click(screen.getByRole("button", { name: "неизвестный ресурс «коробки»" }));
-  fireEvent.click(screen.getByRole("button", { name: "принять ресурс «коробки»" }));
+/* Один собранный шаг: Пользователи берут спрос с Рынка услуг и отдают
+   заявки Пользователям. */
+const fillStep = () => {
+  pick("строка 1: актив", "Пользователи");
+  fireEvent.click(screen.getByRole("button", { name: "строка 1: + берёт" }));
+  pick("берёт 1: актив", "Рынок услуг");
+  pick("берёт 1: ресурс", "спрос");
+  fireEvent.click(screen.getByRole("button", { name: "строка 1: + отдаёт" }));
+  pick("отдаёт 1: актив", "Пользователи");
+  pick("отдаёт 1: ресурс", "заявки");
 };
+const buildStep = () => { addProc(); fillStep(); };
 
-describe("текст с подсказками", () => {
-  it("в начале строки подсказывает активы, после «берёт» — ресурсы, и вставляет имя", () => {
-    const area = addProc();
-    type(area, "Поль");
-    const list = screen.getByRole("listbox", { name: "подсказки процесса" });
-    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["актив Пользователи"]);
-    fireEvent.mouseDown(within(list).getByRole("option"));
-    expect(area.value).toBe("Пользователи: берёт ");
-    expect(screen.queryByRole("listbox")).toBeNull();
-
-    type(area, "Пользователи: берёт за");
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["ресурс заявки"]);
-    fireEvent.keyDown(area, { key: "Enter" });
-    expect(area.value).toBe("Пользователи: берёт заявки ");
-    // После числа подсказывать нечего.
-    type(area, "Пользователи: берёт заявки 2");
-    expect(screen.queryByRole("listbox")).toBeNull();
+describe("шаг собирается выборами", () => {
+  it("список открывается до набора; у каждого выбора подсказка слева; ресурс — после актива", () => {
+    addProc();
+    // Подсказки слева от выборов — словами владельца.
+    const row = field("строка 1: актив").closest("div");
+    expect(row.textContent).toMatch(/актив/);
+    expect(row.textContent).toMatch(/должность/);
+    fireEvent.focus(field("строка 1: актив"));
+    const names = within(listOf("строка 1: актив")).getAllByRole("option").map((o) => o.textContent);
+    expect(names).toEqual(["Рынок услуг", "Пользователи", "Виртуальный менеджер"]);
+    fireEvent.click(screen.getByRole("button", { name: "строка 1: + берёт" }));
+    // Ресурс не выбрать, пока не назван актив, из которого берут.
+    expect(field("берёт 1: ресурс")).toBeDisabled();
+    pick("берёт 1: актив", "Рынок услуг");
+    fireEvent.focus(field("берёт 1: ресурс"));
+    expect(within(listOf("берёт 1: ресурс")).getAllByRole("option").map((o) => o.textContent))
+      .toEqual(["спрос"]);
+    // Набранное сужает список, а не заменяет его.
+    fireEvent.change(field("строка 1: актив"), { target: { value: "поль" } });
+    fireEvent.focus(field("строка 1: актив"));
+    fireEvent.change(field("строка 1: актив"), { target: { value: "поль" } });
+    expect(within(listOf("строка 1: актив")).getAllByRole("option").map((o) => o.textContent))
+      .toEqual(["Пользователи"]);
   });
 
-  it("ошибка строки — словами под полем", () => {
-    const area = addProc();
-    write(area, "Склад берёт спрос 1");
-    // И у строки, и в списке причин под кнопками — это одно и то же.
-    expect(screen.getAllByText(/нет двоеточия после актива/).length).toBeGreaterThan(0);
+  it("собранный шаг — словами в имени процесса; несобранный — причины под строками", () => {
+    addProc();
+    expect(screen.getByText("строка 1: не выбран актив")).toBeInTheDocument();
     expect(status("Принято")).toBeDisabled();
+    fillStep();
+    expect(screen.queryByText(/строка 1:/)).toBeNull();
+    expect(status("Принято")).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /назвать процесс «Пользователи: берёт спрос из Рынок услуг/ }))
+      .toBeInTheDocument();
   });
-});
 
-describe("неизвестные имена", () => {
-  it("найденное — чип, ненайденное — пунктир; «Принять» заводит актив и ресурс с пометкой гипотезы", () => {
-    const area = addProc();
-    write(area, "Склад: берёт спрос 1 → отдаёт коробки 2");
-    const chip = screen.getByRole("button", { name: "неизвестный актив «Склад»" });
-    expect(chip.style.border).toMatch(/dashed/);
-    // «спрос» есть на схеме — он не кнопка, а просто чип.
-    expect(screen.queryByRole("button", { name: /«спрос»/ })).toBeNull();
-
-    // Ресурс раньше актива принять нельзя: ему негде быть.
-    fireEvent.click(screen.getByRole("button", { name: "неизвестный ресурс «коробки»" }));
-    expect(screen.getByRole("button", { name: "принять ресурс «коробки»" })).toBeDisabled();
-
-    fireEvent.click(chip);
-    fireEvent.click(screen.getByRole("button", { name: "принять актив «Склад»" }));
-    let m = dump();
+  it("новое имя — кнопка OK: актив и ресурс заводятся гипотезой и стоят в списке первыми", () => {
+    addProc();
+    create("строка 1: актив", "актив", "Склад");
+    expect(field("строка 1: актив")).toHaveValue("Склад");
+    fireEvent.click(screen.getByRole("button", { name: "строка 1: + отдаёт" }));
+    fireEvent.focus(field("отдаёт 1: актив"));
+    const names = within(listOf("отдаёт 1: актив")).getAllByRole("option").map((o) => o.textContent);
+    expect(names[0]).toBe("Склад · новое");
+    pick("отдаёт 1: актив", "Склад · новое");
+    create("отдаёт 1: ресурс", "ресурс", "коробки");
+    expect(field("отдаёт 1: ресурс")).toHaveValue("коробки");
+    const m = dump();
     const wh = m.entities.find((e) => e.name === "Склад");
-    expect(wh).toMatchObject({ hypo: true });
-    expect(m.procs[0].hypo.entities).toEqual([wh.id]);
-    expect(screen.queryByRole("button", { name: "неизвестный актив «Склад»" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "неизвестный ресурс «коробки»" }));
-    fireEvent.click(screen.getByRole("button", { name: "принять ресурс «коробки»" }));
-    m = dump();
+    expect(wh.hypo).toBe(true);
     const box = m.traits.find((t) => t.l === "коробки");
     expect(box).toMatchObject({ e: wh.id, hypo: true, accepted: false });
-    expect(m.procs[0].hypo.traits).toEqual([box.id]);
+    expect(m.procs[0].hypo).toMatchObject({ entities: [wh.id], traits: [box.id] });
+    expect(m.procs[0].text).toBe("Склад: берёт — → отдаёт коробки в Склад");
   });
 
-  it("«Отклонить» красит имя и не даёт принять процесс, пока строку не исправят", () => {
-    const area = addProc();
-    write(area, "Склад: берёт спрос 1 → отдаёт заявки 2");
-    fireEvent.click(screen.getByRole("button", { name: "неизвестный актив «Склад»" }));
-    fireEvent.click(screen.getByRole("button", { name: "отклонить актив «Склад»" }));
-    expect(screen.getByRole("button", { name: "отклонённый актив «Склад»" })).toBeInTheDocument();
-    expect(status("Принято")).toBeDisabled();
-    expect(status("Принято гипотетически")).toBeDisabled();
-    expect(status("Принято").title).toMatch(/отклонено/);
-    expect(dump().procs[0].missing.rejected).toEqual(["Склад"]);
+  it("название — по нажатию справа от слова «процесс»", () => {
+    addProc();
+    fireEvent.click(screen.getByRole("button", { name: /назвать процесс/ }));
+    const name = field("название процесса");
+    fireEvent.change(name, { target: { value: "Продажи" } });
+    fireEvent.keyDown(name, { key: "Enter" });
+    fireEvent.blur(name);
+    expect(screen.getByRole("button", { name: "назвать процесс «Продажи»" })).toBeInTheDocument();
+    expect(dump().procs[0].name).toBe("Продажи");
+  });
 
-    write(screen.getByLabelText("текст процесса"), "Пользователи: берёт спрос 1 → отдаёт заявки 2");
-    expect(status("Принято")).toBeEnabled();
+  it("сколько угодно входов и выходов; «+ строка» — новая строка; ✕ убирает", () => {
+    buildStep();
+    fireEvent.click(screen.getByRole("button", { name: "строка 1: + берёт" }));
+    expect(field("берёт 2: актив")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "убрать: берёт 2" }));
+    expect(screen.queryByLabelText("берёт 2: актив")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /\+ строка/ }));
+    expect(field("строка 2: актив")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "убрать строку 2" }));
+    expect(screen.queryByLabelText("строка 2: актив")).toBeNull();
   });
 });
 
 describe("три состояния процесса", () => {
-  it("«принято гипотетически» собирает функции в активах строк, «не принято» уносит их с гипотезами", () => {
-    acceptWarehouse();
-    expect(status("Не принято")).toHaveAttribute("aria-pressed", "true");
+  it("«принято гипотетически» собирает функцию в активе строки; «не принято» убирает её и гипотезы", () => {
+    addProc();
+    pick("строка 1: актив", "Пользователи");
+    fireEvent.click(screen.getByRole("button", { name: "строка 1: + берёт" }));
+    pick("берёт 1: актив", "Рынок услуг");
+    pick("берёт 1: ресурс", "спрос");
+    fireEvent.click(screen.getByRole("button", { name: "строка 1: + отдаёт" }));
+    create("отдаёт 1: актив", "актив", "Склад");
+    create("отдаёт 1: ресурс", "ресурс", "коробки");
+    fireEvent.change(field("отдаёт 1: сколько"), { target: { value: "2" } });
+    fireEvent.blur(field("отдаёт 1: сколько"));
     fireEvent.click(status("Принято гипотетически"));
-    expect(status("Принято гипотетически")).toHaveAttribute("aria-pressed", "true");
     let m = dump();
-    const wh = m.entities.find((e) => e.name === "Склад");
-    const f = m.funcs.find((x) => x.proc === m.procs[0].id);
-    expect(f).toMatchObject({ e: wh.id, accepted: true,
-      name: "процесс: Склад: берёт спрос 1 → отдаёт коробки 2" });
-    expect(f.takes[0]).toMatchObject({ trait: "dem", lo: 1, hi: 1 });
-    expect(f.gives[0].lo).toBe(2);
-    expect(m.procs[0].status).toBe("hypo");
-
+    const f = m.funcs.find((x) => x.proc);
+    expect(f).toMatchObject({ e: "usr", accepted: true });
+    expect(f.takes.map((p) => [p.trait, p.lo, p.hi])).toEqual([["dem", 1, 1]]);
+    const box = m.traits.find((t) => t.l === "коробки");
+    expect(f.gives.map((p) => [p.trait, p.lo, p.hi])).toEqual([[box.id, 2, 2]]);
     fireEvent.click(status("Не принято"));
     m = dump();
     expect(m.funcs.some((x) => x.proc)).toBe(false);
     expect(m.entities.some((e) => e.name === "Склад")).toBe(false);
     expect(m.traits.some((t) => t.l === "коробки")).toBe(false);
-    expect(m.procs[0]).toMatchObject({ status: "off", hypo: { entities: [], traits: [] } });
   });
 
-  it("правка текста принятого процесса пересобирает его функции", () => {
-    const area = addProc();
-    write(area, "Пользователи: берёт спрос 1 → отдаёт заявки 2");
+  it("правка шага принятого процесса пересобирает функцию", () => {
+    buildStep();
     fireEvent.click(status("Принято"));
-    expect(dump().funcs.find((x) => x.proc).gives[0].lo).toBe(2);
-    write(screen.getByLabelText("текст процесса"), "Пользователи: берёт спрос 1 → отдаёт заявки 5");
-    const fs = dump().funcs.filter((x) => x.proc);
-    expect(fs).toHaveLength(1);
-    expect(fs[0].gives[0].lo).toBe(5);
+    fireEvent.change(field("берёт 1: сколько"), { target: { value: "3" } });
+    fireEvent.blur(field("берёт 1: сколько"));
+    const f = dump().funcs.find((x) => x.proc);
+    expect(f.takes[0]).toMatchObject({ trait: "dem", lo: 3, hi: 3 });
   });
 
   it("гипотеза считается только с галочкой «включить гипотезы»", () => {
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    scheme();
     fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
     // Гипотез нет — и галочки нет: включать нечего.
     expect(screen.queryByLabelText("включить гипотезы")).toBeNull();
 
-    acceptWarehouse();
+    addProc();
+    pick("строка 1: актив", "Пользователи");
+    fireEvent.click(screen.getByRole("button", { name: "строка 1: + берёт" }));
+    pick("берёт 1: актив", "Рынок услуг");
+    pick("берёт 1: ресурс", "спрос");
+    fireEvent.click(screen.getByRole("button", { name: "строка 1: + отдаёт" }));
+    create("отдаёт 1: актив", "актив", "Склад");
+    create("отдаёт 1: ресурс", "ресурс", "коробки");
     fireEvent.click(status("Принято гипотетически"));
     const m = dump();
     expect(activeFuncs({ ...m, hypoOn: false }).some((f) => f.proc)).toBe(false);
@@ -194,37 +222,24 @@ describe("три состояния процесса", () => {
     expect(tick).not.toBeChecked();
     fireEvent.click(tick);
     expect(screen.getByLabelText("включить гипотезы")).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Деятельность" }));
-    expect(screen.getByLabelText("включить гипотезы")).toBeChecked();
   });
 });
 
 describe("удалённое на схеме", () => {
-  it("строка просит замену, и без неё принять нельзя; замена правит текст", () => {
-    acceptWarehouse();
-    fireEvent.click(status("Принято гипотетически"));
+  it("выбор краснеет и просит замену; без неё принять нельзя; замена — тем же списком", () => {
+    buildStep();
     const m = dump();
-    const wh = m.entities.find((e) => e.name === "Склад");
-    // Склад удалили на схеме: ушёл он, его ресурс и его функции.
-    loadJson({ ...m,
-      entities: m.entities.filter((e) => e.id !== wh.id),
-      traits: m.traits.filter((t) => t.e !== wh.id),
-      funcs: m.funcs.filter((f) => f.e !== wh.id) });
-
-    expect(screen.getByText(/Склад.*— удалён — выберите замену/)).toBeInTheDocument();
+    // Спрос с рынка удалили со схемы: вход остался с id, которого нет.
+    loadJson({ ...m, traits: m.traits.filter((t) => t.id !== "dem") });
+    fireEvent.click(screen.getByRole("button", { name: "Технологический процесс" }));
+    expect(field("берёт 1: ресурс")).toHaveValue("спрос");
+    expect(screen.getByText("удалён — выберите замену")).toBeInTheDocument();
+    expect(screen.getByText("строка 1: берёт: ресурс «спрос» удалён — выберите замену")).toBeInTheDocument();
     expect(status("Принято")).toBeDisabled();
-    expect(status("Принято гипотетически")).toBeDisabled();
-    expect(status("Принято").title).toBe("сначала поставьте замену: Склад, коробки");
-
-    fireEvent.change(screen.getByLabelText("замена для «Склад»"), { target: { value: "usr" } });
-    expect(screen.getByLabelText("текст процесса").value)
-      .toBe("Пользователи: берёт спрос 1 → отдаёт коробки 2");
-    expect(status("Принято")).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("замена для «коробки»"), { target: { value: "req" } });
-    expect(screen.getByLabelText("текст процесса").value)
-      .toBe("Пользователи: берёт спрос 1 → отдаёт заявки 2");
-    expect(status("Принято")).toBeEnabled();
-    fireEvent.click(status("Принято"));
-    expect(dump().funcs.find((f) => f.proc)).toMatchObject({ e: "usr" });
+    // Замена — другой ресурс того же актива.
+    pick("берёт 1: актив", "Пользователи");
+    pick("берёт 1: ресурс", "активные пользователи");
+    expect(screen.queryByText(/удалён/)).toBeNull();
+    expect(status("Принято")).not.toBeDisabled();
   });
 });

@@ -1278,6 +1278,11 @@ export default function SystemModel(){
             traits={traits} setTraits={setTraits}
             funcs={funcs} setFuncs={setFuncs}
             makeEntity={freshEntity}
+            /* Должности — те же, что у функций в карточке актива; новая
+               заводится на сервере и возвращается, чтобы встать в выбор. */
+            positions={roles}
+            onAddPosition={me.isOwner&&!me.solo
+              ?(n)=>addRole(n,[]).then(r=>refreshOrg().then(()=>r)):undefined}
             /* Задачи по снятым функциям процесса — как при удалении актива:
                выполнять больше нечего. */
             onDropFuncs={ids=>setTasks(p=>p.filter(t=>!ids.includes(t.funcId)))}/>)}

@@ -1,19 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { canAcceptProc, dropHypo, formatStep, hintAt, nameKey, normalizeProc, parseProcess,
-  procFuncs, procIssues, replaceName, resolveProc, stateOf, suggestNames, syncProcFuncs }
-  from "../lib/process.js";
+import { canAcceptProc, dropHypo, exactOption, filterOptions, nameKey, newProc, newStep,
+  normalizeProc, orderOptions, procFuncs, procIssues, procLabel, procText, stateOf,
+  stepComplete, stepText, syncProcFuncs } from "../lib/process.js";
 import { activeFuncs, liveModel, normalizeFunc } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
 import { chainOf } from "../lib/chain.js";
 
-/* ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС — ТЕКСТ, ИЗ КОТОРОГО СОБИРАЮТСЯ ФУНКЦИИ.
+/* ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС — ШАГИ, ИЗ КОТОРЫХ СОБИРАЮТСЯ ФУНКЦИИ.
 
-   Владелец пишет строками «Актив: берёт Ресурс 2 → отдаёт Ресурс 1», и
-   разбор должен понимать его так, как он пишет: без регистра, с «даёт»
-   вместо «отдаёт» и «->» вместо стрелки. Здесь проверяется сам разбор,
-   память записи о найденных id (переименованное остаётся своим, удалённое
-   видно удалённым), сборка функций и то, ради чего всё это: гипотеза
-   считается только по просьбе. */
+   Владелец собирает шаг выборами: актив, должность, входы «из актива →
+   ресурс», выходы «в актив → ресурс». Здесь проверяется запись шагов и её
+   чтение (прежние записи из текста читаются в нынешнюю форму), состояние
+   выбора (найдено, удалено, не найдено), сборка функций и то, ради чего
+   всё это: гипотеза считается только по просьбе. */
 
 const entities = [{ id: "usr", name: "Пользователи" }, { id: "mkt", name: "Рынок услуг" }];
 const traits = [
@@ -21,202 +20,155 @@ const traits = [
   { id: "req", e: "usr", l: "заявки" },
   { id: "req2", e: "mkt", l: "заявки" },
 ];
-const model = { entities, traits };
+const positions = [{ id: "sales", name: "менеджер" }];
+const model = { entities, traits, positions };
+const it_ = (id, name) => ({ id, name });
+const step = (over = {}) => ({ ...newStep(), id: "1",
+  asset: it_("usr", "Пользователи"), role: it_("sales", "менеджер"),
+  takes: [{ asset: it_("mkt", "Рынок услуг"), trait: it_("dem", "спрос"), qty: 2 }],
+  gives: [{ asset: it_("usr", "Пользователи"), trait: it_("req", "заявки"), qty: 1 }],
+  ...over });
+const proc = (over = {}) => ({ ...newProc(), id: "pr1", steps: [step()], ...over });
 
-describe("разбор строки", () => {
-  it("«Актив: берёт … → отдаёт …» — актив, входы с числами, выходы с числами", () => {
-    const { steps, errors } = parseProcess("Пользователи: берёт спрос 2, заявки 1 → отдаёт заявки 3", model);
-    expect(errors).toEqual([]);
-    expect(steps).toHaveLength(1);
-    expect(steps[0].asset).toEqual({ name: "Пользователи", id: "usr" });
-    expect(steps[0].takes).toEqual([
-      { name: "спрос", id: "dem", qty: 2 }, { name: "заявки", id: "req", qty: 1 }]);
-    expect(steps[0].gives).toEqual([{ name: "заявки", id: "req", qty: 3 }]);
+describe("запись шага", () => {
+  it("шаг словами: актив (должность): берёт … из … → отдаёт … в …", () => {
+    expect(stepText(step())).toBe(
+      "Пользователи (менеджер): берёт спрос ×2 из Рынок услуг → отдаёт заявки в Пользователи");
+    expect(stepText({ ...newStep(), asset: null })).toBe("?: берёт — → отдаёт —");
+    expect(procText(proc({ steps: [step(), step({ id: "2", gives: [] })] })).split("\n")).toHaveLength(2);
   });
 
-  it("«даёт», «выдаёт» и «->» читаются так же; десятичная запятая — число", () => {
-    const a = parseProcess("Пользователи: берёт спрос 1,5 -> даёт заявки 1", model);
-    const b = parseProcess("Пользователи: берёт спрос 1 → выдаёт заявки 2", model);
-    expect(a.errors).toEqual([]);
-    expect(a.steps[0].takes[0].qty).toBe(1.5);
-    expect(b.errors).toEqual([]);
-    expect(b.steps[0].gives[0].qty).toBe(2);
+  it("имя процесса — своё, иначе первый шаг словами, иначе «процесс»", () => {
+    expect(procLabel(proc({ name: "Продажи" }))).toBe("Продажи");
+    expect(procLabel(proc())).toMatch(/^Пользователи \(менеджер\): берёт/);
+    expect(procLabel(proc({ steps: [] }))).toBe("процесс");
   });
 
-  it("имена сравниваются без регистра, лишних пробелов и разницы «е/ё»", () => {
-    const { steps, errors } = parseProcess("  ПОЛЬЗОВАТЕЛИ : берет  Спрос 2 -> дает  ЗАЯВКИ 1 ", model);
-    expect(errors).toEqual([]);
-    expect(steps[0].asset.id).toBe("usr");
-    expect(steps[0].takes[0].id).toBe("dem");
-    expect(steps[0].gives[0].id).toBe("req");
-    expect(nameKey("Ёлка  большая ")).toBe("елка большая");
+  it("прежняя запись из текста читается в нынешнюю форму, шаг — по номеру строки", () => {
+    /* Идентификатор шага — номер строки: функции `${proc}_${line}` и
+       задачи на них не должны повиснуть после выката. */
+    const old = normalizeProc({ id: "pr9", text: "Пользователи: берёт спрос 2 → отдаёт заявки 1",
+      status: "on",
+      steps: [{ line: 1, text: "…", asset: { name: "Пользователи", id: "usr" },
+        takes: [{ name: "спрос", id: "dem", qty: 2 }],
+        gives: [{ name: "заявки", id: "req", qty: 1 }], error: null },
+      { line: 2, text: "плохая строка", asset: null, takes: [], gives: [], error: "нет двоеточия" }],
+      hypo: { entities: [], traits: [] } });
+    expect(old.name).toBe("");
+    expect(old.steps).toHaveLength(1);
+    expect(old.steps[0]).toMatchObject({ id: "1", asset: { id: "usr" }, role: null,
+      takes: [{ asset: null, trait: { id: "dem", name: "спрос" }, qty: 2 }],
+      gives: [{ asset: null, trait: { id: "req", name: "заявки" }, qty: 1 }] });
+    expect(old.hypo.roles).toEqual([]);
+    // Без актива у входа функция не собирается — актив выбирают заново.
+    expect(procIssues(old, model)).toEqual(["строка 1: берёт: не выбран актив",
+      "строка 1: отдаёт: не выбран актив"]);
   });
 
-  it("одноимённый ресурс берётся из актива строки, а не первый попавшийся", () => {
-    const { steps } = parseProcess("Рынок услуг: берёт спрос 1 → отдаёт заявки 1", model);
-    expect(steps[0].gives[0].id).toBe("req2");
-  });
-
-  it("ненайденное остаётся без id, а не ошибкой: так процесс и придумывают", () => {
-    const { steps, errors } = parseProcess("Склад: берёт спрос 1 → отдаёт коробки 2", model);
-    expect(errors).toEqual([]);
-    expect(steps[0].asset).toEqual({ name: "Склад", id: null });
-    expect(steps[0].gives[0]).toEqual({ name: "коробки", id: null, qty: 2 });
-  });
-
-  it("ошибки — словами и с номером строки; пустые строки не считаются", () => {
-    const text = [
-      "Пользователи берёт спрос 1 → отдаёт заявки 1",
-      "",
-      "Пользователи: берёт спрос 1 отдаёт заявки 1",
-      "Пользователи: спрос 1 → отдаёт заявки 1",
-      "Пользователи: берёт спрос → отдаёт заявки 1",
-      "Пользователи: берёт спрос 1 → отдаёт",
-      "Пользователи: берёт спрос 1 → отдаёт заявки 1",
-    ].join("\n");
-    const { steps, errors } = parseProcess(text, model);
-    expect(errors.map((e) => e.line)).toEqual([1, 3, 4, 5, 6]);
-    expect(errors[0].message).toMatch(/двоеточия/);
-    expect(errors[1].message).toMatch(/стрелки/);
-    expect(errors[2].message).toMatch(/«берёт»/);
-    expect(errors[3].message).toMatch(/не указано число/);
-    expect(errors[4].message).toMatch(/не сказано, что отдаёт/);
-    // Строка с ошибкой всё равно в списке: её показывают там же, где ошибка.
-    expect(steps).toHaveLength(6);
-    expect(steps[5]).toMatchObject({ line: 7, error: null });
-  });
-
-  it("каноническая запись строки — та, которой заменяют имя", () => {
-    const { steps } = parseProcess("Пользователи: берёт спрос 2 -> даёт заявки 1", model);
-    expect(formatStep(steps[0])).toBe("Пользователи: берёт спрос 2 → отдаёт заявки 1");
-    expect(replaceName("Склад: берёт спрос 1 -> даёт коробки 2\nПользователи: берёт спрос 1 → отдаёт заявки 1",
-      "asset", "склад", "Рынок услуг"))
-      .toBe("Рынок услуг: берёт спрос 1 → отдаёт коробки 2\nПользователи: берёт спрос 1 → отдаёт заявки 1");
-    expect(replaceName("Склад: берёт спрос 1 → отдаёт коробки 2", "trait", "Коробки", "заявки"))
-      .toBe("Склад: берёт спрос 1 → отдаёт заявки 2");
+  it("количество — положительное число, иначе 1; имена сравниваются без регистра и «ё»", () => {
+    const p = normalizeProc({ steps: [{ id: "a", takes: [{ trait: { id: "dem", name: "спрос" }, qty: 0 }],
+      gives: [{ trait: { id: "req", name: "x" }, qty: "2,5" }] }] });
+    expect(p.steps[0].takes[0].qty).toBe(1);
+    expect(p.steps[0].gives[0].qty).toBe(1);
+    expect(nameKey("  Заявки ")).toBe(nameKey("заЯвки"));
+    expect(nameKey("Ёлка")).toBe("елка");
   });
 });
 
-describe("память записи о найденных id", () => {
-  const proc = normalizeProc({ id: "pr1", text: "Пользователи: берёт спрос 1 → отдаёт заявки 1",
-    steps: parseProcess("Пользователи: берёт спрос 1 → отдаёт заявки 1", model).steps });
-
-  it("переименованный на схеме актив остаётся своим: id помнит, чего имя не знает", () => {
-    const renamed = { ...model, entities: [{ id: "usr", name: "Клиенты" }, entities[1]] };
-    const { steps } = resolveProc(proc, renamed);
-    expect(steps[0].asset.id).toBe("usr");
-    expect(stateOf(steps[0].asset, "asset", renamed, proc)).toBe("ok");
+describe("состояние выбора", () => {
+  it("не выбрано, найдено, удалено, не найдено — четыре разных ответа", () => {
+    expect(stateOf(null, "asset", model)).toBe("empty");
+    expect(stateOf(it_("usr", "Пользователи"), "asset", model)).toBe("ok");
+    expect(stateOf(it_("gone", "Склад"), "asset", model)).toBe("deleted");
+    expect(stateOf({ id: null, name: "Склад" }, "asset", model)).toBe("unknown");
+    expect(stateOf(it_("sales", "менеджер"), "role", model)).toBe("ok");
+    expect(stateOf(it_("x", "курьер"), "role", model)).toBe("deleted");
   });
 
-  it("удалённый со схемы — «удалён», а не «никогда не было»: ему просят замену", () => {
-    const gone = { ...model, entities: [entities[1]] };
-    const { steps } = resolveProc(proc, gone);
-    expect(stateOf(steps[0].asset, "asset", gone, proc)).toBe("deleted");
-    expect(procIssues(proc, gone)).toEqual(["сначала поставьте замену: Пользователи"]);
-    expect(canAcceptProc(proc, gone)).toBe(false);
-  });
-
-  it("неизвестное и отклонённое различаются, и оба не дают принять", () => {
-    const p = normalizeProc({ id: "pr2", text: "Склад: берёт спрос 1 → отдаёт коробки 2" });
-    const { steps } = resolveProc(p, model);
-    expect(stateOf(steps[0].asset, "asset", model, p)).toBe("unknown");
-    expect(procIssues(p, model)).toEqual(["сначала примите или отклоните: Склад, коробки"]);
-    const rej = { ...p, missing: { rejected: ["склад"] } };
-    expect(stateOf(steps[0].asset, "asset", model, rej)).toBe("rejected");
-    expect(procIssues(rej, model)).toEqual([
-      "сначала примите или отклоните: коробки",
-      "отклонено — исправьте или удалите строку: Склад"]);
-    expect(canAcceptProc(proc, model)).toBe(true);
-    expect(procIssues(normalizeProc({ id: "pr3", text: "" }), model)).toEqual(["процесс пуст"]);
-  });
-
-  it("прежняя запись без новых полей читается как «не принято»", () => {
-    expect(normalizeProc({ id: "x", text: "a" })).toEqual({
-      id: "x", text: "a", status: "off", steps: [],
-      hypo: { entities: [], traits: [] }, missing: { rejected: [] } });
-    expect(normalizeProc({ status: "странно" }).status).toBe("off");
+  it("причины отказа — словами, по строкам; собранный процесс принять можно", () => {
+    expect(procIssues(proc(), model)).toEqual([]);
+    expect(canAcceptProc(proc(), model)).toBe(true);
+    expect(procIssues(proc({ steps: [] }), model)).toEqual(["процесс пуст"]);
+    expect(procIssues(proc({ steps: [step({ asset: null, takes: [], gives: [] })] }), model))
+      .toEqual(["строка 1: не выбран актив", "строка 1: ничего не берёт и не отдаёт"]);
+    expect(procIssues(proc({ steps: [step({ asset: it_("gone", "Склад"),
+      takes: [{ asset: it_("mkt", "Рынок услуг"), trait: it_("old", "прайс"), qty: 1 }],
+      gives: [{ asset: it_("usr", "Пользователи"), trait: null, qty: 1 }] })] }), model))
+      .toEqual(["строка 1: актив «Склад» удалён — выберите замену",
+        "строка 1: берёт: ресурс «прайс» удалён — выберите замену",
+        "строка 1: отдаёт: не выбран ресурс"]);
+    expect(procIssues(proc({ steps: [step({ role: it_("x", "курьер") })] }), model))
+      .toEqual(["строка 1: должность «курьер» удалена — выберите другую"]);
   });
 });
 
 describe("функции из шагов", () => {
-  const text = "Пользователи: берёт спрос 2 → отдаёт заявки 1\nРынок услуг: берёт заявки 1 → отдаёт спрос 3";
-  const proc = normalizeProc({ id: "pr1", text, status: "hypo" });
-
-  it("по функции на строку, в активе строки, с точным числом и пометкой процесса", () => {
-    const fs = procFuncs(proc, model);
-    expect(fs).toHaveLength(2);
+  it("по функции на шаг, в активе шага, с точным числом и должностью исполнителя", () => {
+    const fs = procFuncs(proc({ status: "hypo" }), model);
+    expect(fs).toHaveLength(1);
     expect(fs[0]).toMatchObject({ id: "pr1_1", e: "usr", proc: "pr1", accepted: true,
-      name: "процесс: Пользователи: берёт спрос 2 → отдаёт заявки 1" });
-    expect(fs[0].takes[0]).toMatchObject({ trait: "dem", lo: 2, hi: 2 });
-    expect(fs[0].gives[0]).toMatchObject({ trait: "req", lo: 1, hi: 1 });
-    expect(fs[1]).toMatchObject({ id: "pr1_2", e: "mkt" });
-    // Не принятый процесс функций не даёт вовсе.
-    expect(procFuncs({ ...proc, status: "off" }, model)).toEqual([]);
+      takes: [{ trait: "dem", lo: 2, hi: 2 }], gives: [{ trait: "req", lo: 1, hi: 1 }],
+      posts: { owners: ["sales"] } });
+    expect(fs[0].name).toMatch(/^процесс: /);
+    // Без должности функция без исполнителя — правят в карточке.
+    expect(procFuncs(proc({ status: "on", steps: [step({ role: null })] }), model)[0].posts)
+      .toBeUndefined();
   });
 
-  it("строка с неизвестным функции не даёт: нечего брать и некуда отдавать", () => {
-    const p = normalizeProc({ id: "pr2", status: "on",
-      text: "Пользователи: берёт спрос 2 → отдаёт заявки 1\nСклад: берёт спрос 1 → отдаёт коробки 2" });
-    expect(procFuncs(p, model).map((f) => f.id)).toEqual(["pr2_1"]);
+  it("не принятый процесс и несобранный шаг функций не дают", () => {
+    expect(procFuncs(proc({ status: "off" }), model)).toEqual([]);
+    expect(stepComplete(step({ gives: [{ asset: it_("usr", "Пользователи"), trait: null, qty: 1 }] }),
+      model)).toBe(false);
+    expect(procFuncs(proc({ status: "on", steps: [step({ asset: it_("gone", "Склад") })] }), model))
+      .toEqual([]);
   });
 
-  it("пересборка: чужие функции не трогаются, свои — заново, положение на схеме остаётся", () => {
-    const own = normalizeFunc({ id: "f_own", e: "usr", name: "своя" });
-    const old = normalizeFunc({ id: "pr1_1", e: "usr", proc: "pr1", x: 40, y: 50,
-      takes: [{ trait: "req", lo: 9, hi: 9 }] });
-    const next = syncProcFuncs([own, old], [proc], model, normalizeFunc);
-    expect(next.map((f) => f.id)).toEqual(["f_own", "pr1_1", "pr1_2"]);
-    expect(next[1]).toMatchObject({ x: 40, y: 50 });
-    expect(next[1].takes[0]).toMatchObject({ trait: "dem", lo: 2 });
-    // Снятый процесс уносит свои функции.
-    expect(syncProcFuncs(next, [{ ...proc, status: "off" }], model, normalizeFunc)
-      .map((f) => f.id)).toEqual(["f_own"]);
+  it("пересборка: чужие функции не трогаются, свои — заново; положение и роли из карточки живут", () => {
+    const own = normalizeFunc({ id: "f1", e: "usr", name: "своя" });
+    const stale = normalizeFunc({ id: "pr1_1", e: "usr", proc: "pr1", name: "старая", x: 7,
+      posts: { setters: ["boss"], owners: ["old"] } });
+    const gone = normalizeFunc({ id: "pr1_9", e: "usr", proc: "pr1", name: "снятая" });
+    const out = syncProcFuncs([own, stale, gone], [proc({ status: "on" })], model, normalizeFunc);
+    expect(out.map((f) => f.id)).toEqual(["f1", "pr1_1"]);
+    const f = out[1];
+    expect(f.x).toBe(7);
+    expect(f.posts.setters).toEqual(["boss"]);
+    expect(f.posts.owners).toEqual(["sales"]);
+    expect(f.takes.map((p) => p.trait)).toEqual(["dem"]);
   });
 
-  it("уборка гипотез: уходит то, чем никто больше не пользуется", () => {
-    const ents = [...entities, { id: "wh", name: "Склад", hypo: true }];
-    const trs = [...traits, { id: "box", e: "wh", l: "коробки", hypo: true },
-      { id: "pal", e: "wh", l: "поддоны", hypo: true }];
-    const p = normalizeProc({ id: "pr1", status: "hypo", hypo: { entities: ["wh"], traits: ["box", "pal"] } });
-    const funcs = [
-      normalizeFunc({ id: "pr1_1", e: "wh", proc: "pr1", gives: [{ trait: "box" }] }),
-      normalizeFunc({ id: "f_other", e: "usr", takes: [{ trait: "pal" }] }),
-    ];
-    const out = dropHypo(p, { entities: ents, traits: trs, funcs });
-    expect(out.funcs.map((f) => f.id)).toEqual(["f_other"]);
-    expect(out.traits.map((t) => t.id)).toEqual(["dem", "req", "req2", "pal"]);
-    // Поддоны берёт чужая функция — они остались, и актив с ними тоже.
-    expect(out.entities.map((e) => e.id)).toEqual(["usr", "mkt", "wh"]);
-    expect(out.proc.hypo).toEqual({ entities: ["wh"], traits: ["pal"] });
+  it("уборка гипотез: уходит то, чем никто больше не пользуется; должности остаются", () => {
+    const e2 = [...entities, { id: "wh", name: "Склад", hypo: true }];
+    const t2 = [...traits, { id: "box", e: "wh", l: "коробки", hypo: true },
+      { id: "shared", e: "wh", l: "паллеты", hypo: true }];
+    const other = normalizeFunc({ id: "f9", e: "usr", takes: [{ trait: "shared", lo: 1, hi: 1 }] });
+    const mine = normalizeFunc({ id: "pr1_1", e: "wh", proc: "pr1" });
+    const p = proc({ hypo: { entities: ["wh"], traits: ["box", "shared"], roles: ["sales"] } });
+    const d = dropHypo(p, { entities: e2, traits: t2, funcs: [other, mine] });
+    expect(d.funcs.map((f) => f.id)).toEqual(["f9"]);
+    expect(d.traits.map((t) => t.id)).toContain("shared");
+    expect(d.traits.map((t) => t.id)).not.toContain("box");
+    // Склад остался: в нём живут паллеты, которые взяла чужая функция.
+    expect(d.entities.map((e) => e.id)).toContain("wh");
+    expect(d.proc.hypo).toEqual({ entities: ["wh"], traits: ["shared"], roles: ["sales"] });
   });
 });
 
-describe("подсказки при наборе", () => {
-  it("в начале строки — активы, после «берёт», «отдаёт» и запятой — ресурсы", () => {
-    expect(hintAt("Поль", 4)).toEqual({ kind: "asset", start: 0, query: "Поль" });
-    const t = "Пользователи: берёт сп";
-    expect(hintAt(t, t.length)).toEqual({ kind: "trait", start: t.length - 2, query: "сп" });
-    const c = "Пользователи: берёт спрос 2, за";
-    expect(hintAt(c, c.length)).toMatchObject({ kind: "trait", query: "за" });
-    const g = "Пользователи: берёт спрос 2 → отдаёт ";
-    expect(hintAt(g, g.length)).toMatchObject({ kind: "trait", query: "" });
+describe("списки для выбора", () => {
+  const options = [{ id: "a", name: "Аренда" }, { id: "b", name: "Банк" }, { id: "c", name: "Склад" }];
+
+  it("заведённое из процесса — первым, от нового к старому; остальное — как на схеме", () => {
+    expect(orderOptions(options, ["b", "c"]).map((o) => o.id)).toEqual(["c", "b", "a"]);
+    expect(orderOptions(options, ["zzz"]).map((o) => o.id)).toEqual(["a", "b", "c"]);
   });
 
-  it("после числа и после стрелки подсказывать нечего; вторая строка считается своей", () => {
-    const n = "Пользователи: берёт спрос 2";
-    expect(hintAt(n, n.length)).toBeNull();
-    const a = "Пользователи: берёт спрос 2 → ";
-    expect(hintAt(a, a.length)).toBeNull();
-    const two = "Пользователи: берёт спрос 2 → отдаёт заявки 1\nРын";
-    expect(hintAt(two, two.length)).toEqual({ kind: "asset", start: two.length - 3, query: "Рын" });
-  });
-
-  it("имена — по началу набранного, ресурсы актива строки первыми, без повторов", () => {
-    expect(suggestNames({ kind: "asset", query: "р" }, model)).toEqual(["Рынок услуг"]);
-    expect(suggestNames({ kind: "trait", query: "" }, model, "usr")).toEqual(["заявки", "спрос"]);
-    expect(suggestNames({ kind: "trait", query: "" }, model, "mkt")).toEqual(["спрос", "заявки"]);
-    expect(suggestNames({ kind: "trait", query: "за" }, model, null)).toEqual(["заявки"]);
-    expect(suggestNames(null, model)).toEqual([]);
+  it("набранное сужает список: сперва по началу, потом по вхождению; точное совпадение — без OK", () => {
+    expect(filterOptions(options, "").map((o) => o.id)).toEqual(["a", "b", "c"]);
+    expect(filterOptions(options, "ск").map((o) => o.id)).toEqual(["c"]);
+    expect(filterOptions(options, "ан").map((o) => o.id)).toEqual(["b"]);
+    expect(filterOptions(options, "клад").map((o) => o.id)).toEqual(["c"]);
+    expect(exactOption(options, " склад ")?.id).toBe("c");
+    expect(exactOption(options, "скла")).toBeNull();
   });
 });
 
