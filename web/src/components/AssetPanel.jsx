@@ -87,6 +87,25 @@ export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle
     </div>);
 }
 
+/**
+ * Форма — подкарточка ОДНОГО смыслового блока: подпись и то, что к ней
+ * относится, в одной рамке.
+ *
+ * Прежде раскрытая карточка шла сплошной лентой подписей и полей, и где
+ * кончается один вопрос и начинается другой, приходилось угадывать по
+ * отступам: «под ресурсами всё вместе» (владелец, 2026-09-13). Рамка
+ * отвечает на это без единого слова — то же, что делает `Card` для
+ * карточек в списке, только на шаг внутрь.
+ */
+function Form({ title, children, style }) {
+  return (
+    <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
+      borderRadius: 8, padding: 9, marginTop: 8, ...style }}>
+      {title && <div style={{ ...S.lbl, marginBottom: 5 }}>{title}</div>}
+      {children}
+    </div>);
+}
+
 const Num = ({ value, onChange, label, style }) => (
   <input type="number" value={value} aria-label={label}
     onChange={(e) => onChange(e.target.value)}
@@ -406,10 +425,14 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
             .map((pid, i) => {
               const on = inCrew(pid);
               return (
+                /* Каждый воркер — своей формой, а не строкой под чертой: у
+                   строки под именем висят ещё роли и исключения, и черта
+                   не говорила, где кончается один человек и начинается
+                   следующий (владелец, 2026-09-13). */
                 <div key={pid} className="flex flex-wrap gap-2"
-                  style={{ padding: "5px 0", opacity: on ? 1 : 0.55,
-                    alignItems: "center",
-                    borderTop: i ? `1px solid ${C.line}` : "none" }}>
+                  style={{ background: C.panel2, border: `1px solid ${C.line}`,
+                    borderRadius: 8, padding: 8, marginBottom: 6,
+                    opacity: on ? 1 : 0.55, alignItems: "center" }}>
                   <input type="checkbox" checked={on}
                     aria-label={`воркер актива: ${name(pid)}`}
                     onChange={() => onToggleCrew && onToggleCrew(pid)}
@@ -681,7 +704,7 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
 
 export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], workers,
   factors = [], people = [], nameOf, runsOf, open, setOpen, onWhy,
-  positions = [], rolesOf = () => [] }) {
+  positions = [], rolesOf = () => [], onMarket }) {
   const mine = funcs.filter((f) => f.e === entityId);
   const own = traits.filter((t) => t.e === entityId);
   const others = traits.filter((t) => t.e !== entityId);
@@ -797,11 +820,12 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 функция может быть понятна и по названию. Зато написанное
                 здесь едет в КАЖДУЮ её задачу, и постановщику не приходится
                 переписывать одно и то же в каждое выполнение. */}
-            <div style={{ ...S.lbl, marginTop: 8 }}>описание — необязательно</div>
-            <TxtField area value={f.about || ""} aria-label="описание функции"
-              placeholder="что это за работа — увидит исполнитель в каждой задаче"
-              style={{ minHeight: 52, margin: "4px 0", lineHeight: 1.5 }}
-              onCommit={(v) => up(f.id, (x) => ({ ...x, about: v }))} />
+            <Form title="описание — необязательно">
+              <TxtField area value={f.about || ""} aria-label="описание функции"
+                placeholder="что это за работа — увидит исполнитель в каждой задаче"
+                style={{ minHeight: 52, lineHeight: 1.5 }}
+                onCommit={(v) => up(f.id, (x) => ({ ...x, about: v }))} />
+            </Form>
 
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
               hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
@@ -820,11 +844,11 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               onDel={(pid) => up(f.id, (x) => ({
                 ...x, gives: x.gives.filter((p) => p.id !== pid) }))} />
 
-            {FACTORS_ON && (<>
             {/* Факторы стоят сразу за ресурсами, потому что говорят о них:
                 при конверсии 10% входа нужно вдесятеро больше, чем
                 сказано в «берёт». Их бывает несколько — хватает любого. */}
-            <div style={{ ...S.lbl, marginTop: 10 }}>факторы — необязательно</div>
+            {FACTORS_ON && (
+            <Form title="факторы — необязательно">
             {factorsOf(f).map((id, i) => (
               <div key={`${id}-${i}`} className="flex items-center gap-2"
                 style={{ background: C.panel2, border: `1px solid ${C.line}`,
@@ -857,12 +881,13 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 : `Конверсия ${Math.round(chanceOf(f, factors) * 100) / 100}%: входа нужно в ${
                   nm(Math.round(10000 / Math.max(chanceOf(f, factors), 0.01)) / 100)} раза больше, чем сказано в «берёт».`}
             </div>
-            </>)}
+            </Form>)}
 
             {/* Время — такая же вилка, как количества: работа редко занимает
                 ровно столько, сколько задумано. Когда занимает — галочка
                 «одинаковое» связывает границы, и число вводится одно. */}
-            <div className="flex items-center gap-2" style={{ marginTop: 10, flexWrap: "wrap" }}>
+            <Form title="срок">
+            <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
               <span style={S.lbl}>выполняется за</span>
               {/* «От» — только когда есть «до»: «выполняется за от 2 часа»
                   при точном времени читается как обрывок фразы. */}
@@ -892,13 +917,15 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 style={{ accentColor: ACC }} />
               точное время
             </label>
+            </Form>
 
             {/* Через сколько будет следующая ПОПЫТКА — не «повторение»:
                 попытка может и не удаться. «Сразу» значит, что следующая
                 начинается за предыдущей и всё упирается только в саму
                 работу. Тоже вилка: срок между попытками редко бывает
                 ровным. */}
-            <div className="flex items-center gap-2" style={{ marginTop: 6, flexWrap: "wrap" }}>
+            <Form title="следующая попытка">
+            <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
               <span style={S.lbl}>следующая попытка через</span>
               <select value={everyRange(f).hi > 0 ? "every" : "flow"}
                 aria-label="когда следующая попытка"
@@ -943,6 +970,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   style={{ accentColor: ACC }} />
                 точное время
               </label>)}
+            </Form>
 
             {/* Сколько таких дел идёт ОДНОВРЕМЕННО — два разных предела.
 
@@ -961,7 +989,8 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 исполнителей по-прежнему не делают работу вдвое быстрее —
                 см. инвариант 6. Поэтому в счёт идёт меньший из двух
                 пределов. */}
-            <div className="flex items-center gap-2" style={{ marginTop: 8, flexWrap: "wrap" }}>
+            <Form title="одновременные выполнения">
+            <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
               <span style={S.lbl}>одновременных выполнений на воркера</span>
               <Num value={f.par ?? 1} label="одновременных выполнений на воркера"
                 onChange={(v) => up(f.id, (x) => ({ ...x,
@@ -1001,11 +1030,13 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
               {`в календарь помещается ${nm(parOf(live(f)))} разом: столько дел `
                 + "займут время одного"}</div>
+            </Form>
 
             {/* Роли — У ФУНКЦИИ, и назначается ДОЛЖНОСТЬ, а не человек:
                 «ставит юрист, делает дизайнер, принимает редактор». Взять
                 работу сможет любой воркер актива с такой ролью — кроме
                 тех, кому её закрыли исключением (карточка «Воркеры»). */}
+            <Form title="должности и исполнители">
             {WORKER_KINDS.map((k) => (
               <Posts key={k.id} title={k.many} ids={postsOf(f, k.id)} positions={positions}
                 who={eligible(f, k.id, { crew: crewOf(workers), rolesOf, people })}
@@ -1015,6 +1046,33 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   ? "роль не выбрана — назначать некого"
                   : "ролей ещё нет: заведите их в «воркерах актива»"}
                 onToggle={(pid) => up(f.id, (x) => togglePost(x, k.id, pid))} />))}
+            </Form>
+
+            {/* ─── рынок услуг ───
+
+                Функция — это уже готовое описание работы: что берёт, что
+                выдаёт и за какой срок. Владелец (2026-09-13) просил
+                выставлять её наружу отсюда же: заказом, когда работу нужно
+                получить, услугой — когда готовы делать её для других.
+                Переписывать то же самое руками во второй раз не за чем.
+
+                Кнопки стоят, только когда рынок подключён (`onMarket`):
+                кнопка, которая никуда не ведёт, обещала бы то, чего нет. */}
+            {onMarket && (
+              <Form title="рынок услуг">
+                <div className="flex flex-wrap gap-2">
+                  <button style={{ ...btn(false), fontSize: 12 }}
+                    onClick={() => onMarket(f, "order")}>Сделать заказ</button>
+                  <button style={{ ...btn(false), fontSize: 12 }}
+                    onClick={() => onMarket(f, "service")}>Сделать услугой</button>
+                </div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6,
+                  lineHeight: 1.5 }}>
+                  {"Заказ появится у всех в «Рынке услуг» → «Заказы»; услуга — в «Услуги»."
+                    + " Название, описание, ресурсы и срок берутся из функции,"
+                    + " их можно поправить."}
+                </div>
+              </Form>)}
 
             {/* ─── «Принять» ───
 
@@ -1026,15 +1084,23 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             {/* Без нативного `disabled`: принятая кнопка остаётся в обходе
                 клавиатурой, иначе фокус на ней просто исчезает и человек не
                 узнаёт, что она вообще есть. */}
+            <Form title="принять">
             <button onClick={() => st.kind !== "ready" && accept(f.id)}
               aria-disabled={st.kind === "ready"}
               aria-label={`принять функцию ${f.name || "без названия"}`}
-              style={{ width: "100%", marginTop: 10, borderRadius: 7, padding: "7px",
+              style={{ width: "100%", borderRadius: 7, padding: "7px",
                 fontSize: 12, cursor: st.kind !== "ready" ? "pointer" : "default",
                 background: st.kind !== "ready" ? "rgba(61,220,151,.13)" : "transparent",
                 border: `1px solid ${st.kind !== "ready" ? OK : C.line}`,
                 color: st.kind !== "ready" ? OK : C.muted }}>
               {st.kind === "ready" ? "Принята — любая правка снимет пометку" : "Принять"}</button>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+              {st.kind === "ready"
+                ? "Функция принята: её можно пускать в дело. Любая правка снимет пометку."
+                : `Принять — сказать, что функцию можно пускать в дело.${
+                  st.kind === "gaps" ? ` Проверка считает, что ${st.gaps[0]}.` : ""}`}
+            </div>
+            </Form>
           </Card>);
       })}
     </Section>);
@@ -1259,7 +1325,8 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
               {` · есть ${nm(Number(t.have) || 0)} ${t.unit || ""}`}
               {` · выдают ${made}, берут ${used}`}
             </>}>
-            <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+            <Form title="количество и единица">
+            <div className="flex flex-wrap gap-2">
               {/* «Есть сейчас» не вводят: это число единиц в материалах и
                   принятых сдачах минус израсходованное. Введённое руками
                   число разошлось бы с вещами, которые можно скачать. */}
@@ -1275,6 +1342,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                 <TxtField value={t.unit || ""} onCommit={(v) => up(t.id, { unit: v })} />
               </div>
             </div>
+            </Form>
             {/* ─── чем подтверждается единица ───
                 Вопрос не к загрузке, а к ресурсу: чем подтверждается
                 договор, решают один раз — когда заводят «договоры», а не
@@ -1283,8 +1351,8 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                 Загружают только файл или текст; уникальный код создаёт
                 программа, а прикладывают к нему подтверждение — один файл
                 на всю загрузку. */}
-            <div style={{ ...S.lbl, marginTop: 8 }}>чем подтверждается единица</div>
-            <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+            <Form title="чем подтверждается единица">
+            <div className="flex flex-wrap gap-2">
               {MATERIAL_KINDS.map((k) => {
                 const on = traitKind(t) === k.id;
                 return (
@@ -1301,11 +1369,12 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                   ? "Каждую единицу вводят текстом — свой у каждой."
                   : "Каждую единицу прикладывают файлом — свой у каждой."}
             </div>
+            </Form>
 
             {/* Классификаций может быть несколько: кнопки не переключают
                 одну на другую, а ставят и снимают каждую сама по себе. */}
-            <div style={{ ...S.lbl, marginTop: 8 }}>чем считаем — можно несколько</div>
-            <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+            <Form title="чем считаем — можно несколько">
+            <div className="flex flex-wrap gap-2">
               {kinds.map((x) => {
                 const on = hasKind(t, x.id);
                 return (
@@ -1319,17 +1388,25 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
             <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
               Ресурс меняют функции. Цель по нему ставится в «Прогнозе».
             </div>
+            </Form>
             {/* «Принять» — как у функции: слово человека, что ресурс описан
                 верно. Кнопка нажимается всегда, а любая правка пометку
                 снимает — иначе зелёная точка стояла бы на изменённом. */}
+            <Form title="принять">
             <button onClick={() => !taken && accept(t.id)} aria-disabled={taken}
               aria-label={`принять ресурс ${t.l || "без названия"}`}
-              style={{ width: "100%", marginTop: 10, borderRadius: 7, padding: "7px",
+              style={{ width: "100%", borderRadius: 7, padding: "7px",
                 fontSize: 12, cursor: taken ? "default" : "pointer",
                 background: taken ? "transparent" : "rgba(61,220,151,.13)",
                 border: `1px solid ${taken ? C.line : OK}`,
                 color: taken ? C.muted : OK }}>
               {taken ? "Принят — любая правка снимет пометку" : "Принять"}</button>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+              {taken
+                ? "Ресурс принят. Любая правка названия, единицы или вида снимет пометку."
+                : "Принять — сказать, что ресурс описан верно."}
+            </div>
+            </Form>
           </Card>);
       })}
       <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
@@ -1401,8 +1478,12 @@ export default function AssetPanel(props) {
           positions={props.positions} onAddPosition={props.onAddPosition}
           onDropPosition={props.onDropPosition} onSetRoles={props.onSetRoles} />)}
 
+      {/* `onMarket` назван отдельно, хотя и уехал бы с `{...props}`: кнопки
+          «рынка услуг» показываются только когда он передан, и молчаливая
+          передача через россыпь пропсов это бы спрятала. */}
       {tab === "funcs" && (
-        <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc} />)}
+        <Funcs {...props} open={openFunc} setOpen={setOpenFunc} onWhy={props.onWhyFunc}
+          onMarket={props.onMarket} />)}
 
       {tab === "factors" && (
         <Factors entityId={props.entityId} factors={props.factors || []}

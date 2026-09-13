@@ -31,6 +31,7 @@ import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
 import AgentsPanel from "./AgentsPanel.jsx";
+import MarketPanel from "./MarketPanel.jsx";
 import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
@@ -392,7 +393,10 @@ function whenText(iso){
    её за ролью значило бы, что свою же анкету нельзя открыть без чужого
    разрешения. */
 export const SELF_TAB=["me","Анкета"];
-export const TAB_LIST=[SELF_TAB,["tasks","Задачи"],["review","Проверка"],
+/* «Рынок услуг» — первой, перед анкетой (владелец, 2026-09-13), и всем:
+   заказ оставляет любой зарегистрированный, роль тут не спрашивается. */
+export const MARKET_TAB=["market","Рынок услуг"];
+export const TAB_LIST=[MARKET_TAB,SELF_TAB,["tasks","Задачи"],["review","Проверка"],
   ["scheme","Схема"],["reports","Отчёты"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
@@ -479,6 +483,8 @@ export default function SystemModel(){
   const [ratings,setRatings]=useState(null);
   const [horizon,setHorizon]=useState(24);
   const [zoom,setZoom]=useState(0.6);
+  // Заготовка заказа/услуги из настроек функции — до открытия рынка.
+  const [marketDraft,setMarketDraft]=useState(null);
   const [json,setJson]=useState(""); const [jsonMsg,setJsonMsg]=useState("");
   const [savedList,setSavedList]=useState([]);
   const [savedSel,setSavedSel]=useState("");
@@ -1182,7 +1188,7 @@ export default function SystemModel(){
             остальным сервер её и не отдаёт — рисовать пустую карту с
             кнопками, которые ничего не сохранят, значило бы обещать
             работу, которой не будет. Наружу отчёт уходит ссылкой. */}
-        {TAB_LIST.filter(([k])=>k===SELF_TAB[0]
+        {TAB_LIST.filter(([k])=>k===SELF_TAB[0]||k===MARKET_TAB[0]
           ||me.isOwner||me.solo||me.tabs.includes(k))
           .map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
@@ -1204,6 +1210,13 @@ export default function SystemModel(){
           Ваши роли ничего не открывают — возможно, их удалили. Подпишите
           договор другой роли или попросите владельца назначить роль заново.
         </div>)}
+
+      {/* ═══ РЫНОК УСЛУГ · заказы и услуги всех зарегистрированных ═══
+          Из настроек функции сюда приводят «Сделать заказ» и «Сделать
+          услугой» — с формой, заполненной словами функции. */}
+      {tab==="market" && (
+        <MarketPanel me={me} traits={traitsLive} draft={marketDraft}
+          onDraftDone={()=>setMarketDraft(null)}/>)}
 
       {/* ═══ АНКЕТА · страница человека ═══
           Своя — по умолчанию; чужая открывается нажатием на человека в
@@ -1395,6 +1408,7 @@ export default function SystemModel(){
 
             <AssetPanel entityId={selE.id}
               me={me} published={published}
+              onMarket={(f,kind)=>{ setMarketDraft({kind,func:f,at:Date.now()}); setTab("market"); }}
               workers={workers} rolesOf={rolesOf} roleName={roleName}
               funcs={funcs} setFuncs={setFuncs}
               traits={traitsLive} setTraits={setTraits} materials={materials}

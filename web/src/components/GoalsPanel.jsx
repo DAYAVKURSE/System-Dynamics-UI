@@ -54,6 +54,25 @@ const num = (v) => Number(v) || 0;
    применял то, во что ещё не всмотрелся.
    ════════════════════════════════════════════════════════════════ */
 
+/**
+ * Форма — подкарточка одного смыслового блока цели: подпись и то, что к
+ * ней относится, в одной рамке.
+ *
+ * Раскрытая цель шла сплошной лентой: «что должно быть», срок, график и
+ * следствия различались только отступом, и где кончается один вопрос и
+ * начинается другой, приходилось угадывать (владелец, 2026-09-13). Та же
+ * подкарточка, что у функций и ресурсов актива, — чтобы вопрос «где я»
+ * решался одинаково везде.
+ */
+function Form({ title, children, style }) {
+  return (
+    <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
+      borderRadius: 8, padding: 9, marginTop: 8, ...style }}>
+      {title && <div style={{ ...S.lbl, marginBottom: 5 }}>{title}</div>}
+      {children}
+    </div>);
+}
+
 const Fig = ({ label, value, color, hint }) => (
   <div style={{ flex: "1 1 130px", background: C.panel2, border: `1px solid ${C.line}`,
     borderRadius: 8, padding: "7px 9px" }}>
@@ -241,8 +260,8 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
       {open && (<>
 
       {/* ─── ЧТО ─── */}
-      <div style={{ ...S.lbl, marginTop: 6 }}>что должно быть</div>
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+      <Form title="что должно быть">
+      <div className="flex flex-wrap gap-2">
         <Row label="ресурс">
           <select style={sel} value={goal.trait} aria-label="ресурс цели"
             onChange={(e) => up({ trait: e.target.value })}>
@@ -259,13 +278,14 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           </select>
         </Row>
       </div>
+      </Form>
 
       {/* ─── КОГДА ─── */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>к какому сроку</div>
+      <Form title="к какому сроку">
       {/* Одной строкой: кнопки, и рядом либо «сколько» с единицей, либо дата
           (владелец, 2026-09-13). Без переноса — иначе на телефоне поля
           уезжали вниз и растягивались на всю ширину. */}
-      <div className="flex gap-2" style={{ marginTop: 4, alignItems: "flex-end",
+      <div className="flex gap-2" style={{ alignItems: "flex-end",
         flexWrap: "nowrap" }}>
         <div className="flex gap-2" style={{ flex: "0 0 auto" }}>
           <button style={{ ...btn(goal.dueKind === DUE_IN), fontSize: 11, padding: "5px 9px" }}
@@ -293,6 +313,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
         Срок — про выход на темп, а не про первый результат.
       </div>
+      </Form>
 
       {/* ─── ВРЕМЯ НА ДОСТИЖЕНИЕ ───
 
@@ -302,7 +323,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           настоящее — и рядом стояли два ответа на один вопрос. Осталось
           только время: его человек и правда решает сам. Что цель съест по
           другим ресурсам, считается и показано ниже, в «цене по ресурсам». */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>в график работ</div>
+      <Form title="в график работ">
       {/* ─── бюджет времени: сперва «ограничивать ли», потом «сколько» ───
 
           Ноль в поле времени означал «не ограничиваем», и это приходилось
@@ -316,7 +337,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           непонятно, какой записи верить. Набранное число не теряется: пока
           форма открыта, оно помнится и возвращается при включении. */}
       <label className="flex items-center gap-2"
-        style={{ marginTop: 4, fontSize: 11.5, cursor: "pointer" }}>
+        style={{ fontSize: 11.5, cursor: "pointer" }}>
         <input type="checkbox" checked={capped} aria-label="учитывать график"
           style={{ accentColor: ACC }}
           onChange={(e) => {
@@ -402,6 +423,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
             ? `${goal.days.length} дн в неделю — по ним и считается бюджет времени.`
             : "Ничего не выбрано — значит все семь дней."}
       </div>
+      </Form>
 
       {/* ─── ЧТО ИЗ ЭТОГО СЛЕДУЕТ ─── */}
       {plan && <Verdict plan={plan} unit={unit} traits={traits} />}
@@ -431,9 +453,8 @@ function Verdict({ plan, unit, traits }) {
       </div>);
   }
   const budgetName = plan.rate.hours ? "в месяц" : "за весь срок";
-  return (<div style={{ marginTop: 10 }}>
-    <div style={S.lbl}>что из этого следует</div>
-    <div className="flex flex-wrap gap-2" style={{ marginTop: 5 }}>
+  return (<Form title="что из этого следует">
+    <div className="flex flex-wrap gap-2">
       {plan.perMonth != null && (
         <Fig label={`${unit || "ед."} в месяц по этому темпу`}
           value={nm(Math.round(plan.perMonth * 10) / 10)} />)}
@@ -514,7 +535,7 @@ function Verdict({ plan, unit, traits }) {
         Слева — названная цена, справа — та, что выходит по модели.
       </div>
     </>)}
-  </div>);
+  </Form>);
 }
 
 /**

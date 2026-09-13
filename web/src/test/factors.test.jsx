@@ -151,7 +151,10 @@ describe.skipIf(!FACTORS_ON)("в интерфейсе", () => {
 
   it("факторы стоят сразу за ресурсами — перед временем выполнения", () => {
     openFunc();
-    const card = screen.getByText("факторы — необязательно").closest("div").parentElement;
+    /* Подпись лежит в своей форме, форма — в раскрытой карточке: шаг
+       наружу за формой, второй — за карточкой. */
+    const card = screen.getByText("факторы — необязательно")
+      .closest("div").parentElement.parentElement;
     const pos = (t) => {
       const el = within(card).getByText(t);
       return [...card.querySelectorAll("*")].indexOf(el);
