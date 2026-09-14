@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn } from "./ui.jsx";
-import { openRoles, registerRemote } from "../identity.js";
+import { agreementHtml, openRoles, registerRemote, signAgreement } from "../identity.js";
 import { reportSrc } from "../storage.js";
+import { DocViewer, PlaceholderFields, dayText } from "./ContractsPanel.jsx";
+import SignaturePad from "./SignaturePad.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    РЕГИСТРАЦИЯ · участником становятся, подписав договор
@@ -26,6 +28,85 @@ import { reportSrc } from "../storage.js";
    Приготовленная роль (`pending`) — когда владелец уже позвал человека:
    она выбрана заранее, и остаётся подписать.
    ════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════
+   ДОГОВОР ОТ ВЛАДЕЛЬЦА · заполнить, подписать, отправить
+
+   Владелец (2026-09-14): «когда пользователь добавляется, ему должно
+   быть предложено заполнить оставшиеся плейсхолдеры при открытии
+   приложения, после чего подписать и отправить договор; подписи — по
+   нажатию «Поставить подпись» на экране телефона; после подписания
+   становится доступен интерфейс роли». Соглашение (`me.agreement`)
+   приходит вместе с «кто я»: владелец уже заполнил часть полей, сумму и
+   даты и подписал; человек видит документ с заполненным, дописывает
+   пустое, ставит свою подпись — и договор готов, роль действует.
+   ════════════════════════════════════════════════════════════════ */
+export function AgreementSign({ me, onDone }) {
+  const a = me.agreement;
+  const [values, setValues] = useState(() => Object.fromEntries(
+    (a.placeholders || []).filter((p) => !p.value).map((p) => [p.key, a.userValues?.[p.key] || ""])));
+  const [html, setHtml] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [sig, setSig] = useState(null);
+  const [pad, setPad] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    let live = true;
+    agreementHtml(a.id).then((r) => { if (live) setHtml(r.html); }).catch(() => {});
+    return () => { live = false; };
+  }, [a.id]);
+  const empty = (a.placeholders || []).filter((p) => !p.value);
+  const left = empty.filter((p) => !String(values[p.key] || "").trim());
+  const ready = !left.length && !!sig && !busy;
+  const send = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const r = await signAgreement(a.id, { values, sign2: sig });
+      onDone?.(r?.me || null);
+    } catch (e) { setMsg(e.message || "не удалось отправить"); }
+    setBusy(false);
+  };
+  const step = { ...S.lbl, marginTop: 10 };
+  return (
+    <div style={{ ...S.card, marginBottom: 10 }} aria-label="договор к подписи">
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+        Вам отправили договор «{a.docName}» — роль «{a.roleName}»
+      </div>
+      <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
+        Сумма {a.sum} · действует с {dayText(a.start)} по {dayText(a.end)}. Заполните оставшиеся
+        поля, прочитайте договор, поставьте подпись и отправьте — роль откроется сразу.
+      </div>
+      <div style={step}>1 · заполнить</div>
+      {!empty.length && (
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Всё уже заполнено владельцем.</div>)}
+      <div style={{ marginTop: 4 }}>
+        <PlaceholderFields placeholders={empty} values={values} onChange={setValues} required
+          label="договор" />
+      </div>
+      <div style={step}>2 · прочитать</div>
+      <button style={{ ...btn(false), marginTop: 4 }} disabled={!html} onClick={() => setOpen(true)}>
+        {html ? "Открыть договор" : "Загружаю договор…"}</button>
+      <div style={step}>3 · подписать</div>
+      <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 4 }}>
+        <button style={btn(true, sig ? OK : ACC)} onClick={() => setPad(true)}>
+          {sig ? "Подпись поставлена ✓ — переподписать" : "Поставить подпись"}</button>
+      </div>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 12 }}>
+        <button style={{ ...btn(true, OK), opacity: ready ? 1 : 0.5 }} disabled={!ready} onClick={send}>
+          {busy ? "Отправляю…" : "Подписать и отправить"}</button>
+        <span style={{ fontSize: 10.5, color: C.muted }}>
+          {left.length ? `заполните: ${left.map((p) => p.desc || p.key).join(", ")}`
+            : !sig ? "поставьте подпись" : "договор уйдёт владельцу, роль откроется сразу"}</span>
+      </div>
+      {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: 8 }}>{msg}</div>}
+      {open && html && (
+        <DocViewer title={a.docName} html={html} editable={false} onClose={() => setOpen(false)} />)}
+      {pad && (
+        <SignaturePad by={me.id} docHash={a.docHash} title="Подпись стороны 2"
+          onDone={(rec) => { setSig(rec); setPad(false); }} onCancel={() => setPad(false)} />)}
+    </div>);
+}
 
 export default function RegisterPanel({ me, onDone }) {
   const [roles, setRoles] = useState(null);
@@ -58,6 +139,8 @@ export default function RegisterPanel({ me, onDone }) {
   };
 
   const step = { ...S.lbl, marginTop: 10 };
+  // Договор от владельца — свой путь: заполнить, подписать, отправить.
+  if (me?.agreement) return <AgreementSign me={me} onDone={onDone} />;
   return (
     <div style={{ ...S.card, marginBottom: 10 }}>
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>

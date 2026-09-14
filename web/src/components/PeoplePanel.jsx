@@ -6,6 +6,8 @@ import {
 } from "../identity.js";
 import { putReportFile, reportSrc } from "../storage.js";
 import { FormsSection, RoleFormPick } from "./FormsPanel.jsx";
+import { DocsSection, InviteModal, dayText } from "./ContractsPanel.jsx";
+import { setRoleDoc } from "../identity.js";
 
 /* ════════════════════════════════════════════════════════════════
    РОЛИ · панель владельца: участники, роли, анкеты
@@ -82,11 +84,12 @@ function Contract({ role, busy, onSet }) {
     </div>);
 }
 
-export default function PeoplePanel({ onPeople, onChanged }) {
+export default function PeoplePanel({ me, onPeople, onChanged }) {
   const [org, setOrg] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [newRole, setNewRole] = useState("");
+  const [invite, setInvite] = useState(null);   // роль, в которую зовём
 
   const load = async () => {
     try {
@@ -176,11 +179,30 @@ export default function PeoplePanel({ onPeople, onChanged }) {
                   disabled={busy} aria-label={`убрать: ${u.name}`}
                   onClick={() => act(() => removeUser(u.id))}>✕</button>
               </div>
-              {!!Object.keys(u.contracts || {}).length && (
+              {/* Договоры участника — под ролями (владелец, 2026-09-14):
+                  начало, окончание, сумма; недействующий срок — жёлтым. */}
+              {!!(u.agreements || []).length && (
+                <div style={{ flexBasis: "100%" }} aria-label={`договоры: ${u.name}`}>
+                  {u.agreements.map((a) => {
+                    const on = (u.active || []).includes(a.roleId);
+                    return (
+                      <div key={a.id} className="flex flex-wrap gap-2"
+                        style={{ fontSize: 10.5, color: on ? C.text : WARN, alignItems: "center" }}>
+                        <span>{roleName(a.roleId) || a.roleId} · {a.docName || "договор"}</span>
+                        <span>с {dayText(a.start)}</span>
+                        <span>по {dayText(a.end)}</span>
+                        <span>сумма {a.sum}</span>
+                        {a.file?.url && (
+                          <a href={a.file.url} download={a.file.name} style={{ color: ACC }}>файл</a>)}
+                        {!on && <span>· не действует</span>}
+                      </div>);
+                  })}
+                </div>)}
+              {!!Object.keys(u.contracts || {}).filter((rid) => !(u.agreements || []).some((a) => a.roleId === rid)).length && (
                 <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
                   alignItems: "center" }}>
                   <span style={{ fontSize: 10, color: C.muted }}>договоры:</span>
-                  {Object.entries(u.contracts || {}).map(([rid, f]) => (
+                  {Object.entries(u.contracts || {}).filter(([rid]) => !(u.agreements || []).some((a) => a.roleId === rid)).map(([rid, f]) => (
                     <a key={rid} href={reportSrc(f)} target="_blank" rel="noreferrer"
                       download={f?.name || "договор"}
                       aria-label={`договор «${roleName(rid) || rid}»: ${u.name}`}
@@ -197,7 +219,8 @@ export default function PeoplePanel({ onPeople, onChanged }) {
         Участником человек становится, подписав договор роли: он открывает
         приложение, выбирает роль, читает договор и присылает подписанный
         экземпляр — роль выдаётся сама. Ниже три формы: кто участвует, какие
-        есть роли и что они открывают, о чём спрашивают анкеты.
+        есть роли и что они открывают (права сотрудников), какие есть договоры, о чём
+        спрашивают анкеты.
       </div>
 
       {/* ═══ 1. УЧАСТНИКИ ═══ */}
@@ -217,11 +240,13 @@ export default function PeoplePanel({ onPeople, onChanged }) {
           </div>)}
       </div>
 
-      {/* ═══ 2. РОЛИ ═══ */}
-      <div style={card} aria-label="роли">
-        {title("роли и что они открывают", org.roles.length)}
+      {/* ═══ 2. ПРАВА СОТРУДНИКОВ (владелец, 2026-09-14: так называется
+          форма ролей и того, что они открывают) ═══ */}
+      <div style={card} aria-label="права сотрудников">
+        {title("права сотрудников", org.roles.length)}
         <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
-          У роли — договор, анкета и вкладки, которые она открывает.
+          У роли — договор, анкета и вкладки, которые она открывает. Роль действует, пока
+          действует подписанный договор; «Пригласить участника» выдаёт договор роли.
         </div>
         {org.roles.map((r) => (
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
@@ -236,7 +261,23 @@ export default function PeoplePanel({ onPeople, onChanged }) {
                 title={org.roles.length <= 1 ? "Последнюю роль удалить нельзя — позвать станет некого" : ""}
                 onClick={() => act(() => removeRole(r.id))}>Удалить роль</button>
             </div>
-            <Contract role={r} busy={busy} onSet={(f) => act(() => setRoleContract(r.id, f))} />
+            {/* Договор роли — документ из формы «договоры» ниже; прежний
+                файл-шаблон показывается, пока он есть у роли. */}
+            <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 10.5, color: C.muted }}>договор:</span>
+              <select style={{ ...S.inp, flex: "0 1 220px", fontSize: 11.5, padding: "3px 6px" }}
+                value={r.doc || ""} disabled={busy} aria-label={`договор роли «${r.name}»`}
+                onChange={(e) => act(() => setRoleDoc(r.id, e.target.value || null))}>
+                <option value="">— нет: роль выдаётся без договора —</option>
+                {(org.docs || []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              {r.doc && (
+                <button type="button" style={btn(true, OK)} disabled={busy}
+                  aria-label={`пригласить участника: ${r.name}`}
+                  onClick={() => setInvite(r)}>Пригласить участника</button>)}
+            </div>
+            {r.contract && !r.doc && (
+              <Contract role={r} busy={busy} onSet={(f) => act(() => setRoleContract(r.id, f))} />)}
             {/* Анкета — тоже свойство роли: о чём спрашивать человека, решает
                 то, кем он здесь является. */}
             <RoleFormPick role={r} forms={org.forms || []} busy={busy} act={act} />
@@ -263,11 +304,20 @@ export default function PeoplePanel({ onPeople, onChanged }) {
         </div>
       </div>
 
-      {/* ═══ 3. АНКЕТЫ ═══ */}
+      {/* ═══ 3. ДОГОВОРЫ ═══ */}
+      <div style={card} aria-label="договоры">
+        {title("договоры", (org.docs || []).length)}
+        <DocsSection docs={org.docs || []} busy={busy} act={act} />
+      </div>
+
+      {/* ═══ 4. АНКЕТЫ ═══ */}
       <div style={card} aria-label="анкеты">
         {title("анкеты", (org.forms || []).length)}
         <FormsSection forms={org.forms || []} busy={busy} act={act} />
       </div>
+      {invite && (
+        <InviteModal role={invite} doc={(org.docs || []).find((d) => d.id === invite.doc) || null}
+          me={me} onClose={() => setInvite(null)} onDone={() => load()} />)}
       {msg && <div style={{ fontSize: 11.5, color: WARN, marginTop: 6 }}>{msg}</div>}
     </div>);
 }

@@ -16,6 +16,7 @@ import { publishStep } from "./lib/ratings.js";
 import { askNow, cancel as cancelAsk } from "./lib/assistantQueue.js";
 import * as memory from "./lib/memoryStore.js";
 import { recordGroupMessage } from "./lib/chatStore.js";
+import { bindLatestAgreement, claimAgreement } from "./lib/contractStore.js";
 import { resumeTranscripts } from "./lib/transcribe.js";
 
 const app = createApp();
@@ -183,6 +184,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
               /* Группы бот только слушает: сообщение ложится в хранилище чатов,
                  ответа в группу нет никакого (lib/chatStore.js). */
               chats: { record: recordGroupMessage },
+              /* Договоры: «/start agr_<токен>» привязывает соглашение к
+                 пришедшему; добавление по пересылке — к ждущему договору
+                 роли (lib/contractStore.js). */
+              contracts: { claim: claimAgreement, bind: bindLatestAgreement },
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
               answerInline,

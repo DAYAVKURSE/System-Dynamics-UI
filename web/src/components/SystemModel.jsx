@@ -699,7 +699,9 @@ export default function SystemModel(){
      при этом `traits` — по id, так что подмена здесь их не задевает. */
   const traitsLive=useMemo(()=>withStock({traits,tasks,funcs,materials}),
     [traits,tasks,funcs,materials]);
+  const loadGen=useRef(0);   // сколько раз документ клали на экран целиком
   const restoreDoc=useCallback((d)=>{
+    loadGen.current+=1;
     // Документ достраивается до нынешней записи, но НЕ переносится из
     // прежних версий: модели, собранные под старый расчёт, работать не
     // должны — см. lib/funcs.js.
@@ -731,6 +733,7 @@ export default function SystemModel(){
   },[]);
   useEffect(()=>{ const id=setTimeout(writeDraft,800); return ()=>clearTimeout(id); },
     [doc,writeDraft]);
+
   useEffect(()=>{
     // Telegram убивает WebView без предупреждения, и последние секунды работы
     // не дожили бы до конца паузы. localStorage синхронный — успевает.
@@ -865,6 +868,18 @@ export default function SystemModel(){
   /* Разобрались ли, что открывать. До этого момента на экране может стоять
      встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
   const [ready,setReady]=useState(false);
+  /* Первое собственное изменение — ответ на «Восстановить?»: человек начал
+     работать с тем, что на экране, и старый черновик ему не нужен.
+     Сравниваем не с сохранённым, а с тем, что легло на экран при последней
+     ЗАГРУЗКЕ (`loadGen` растёт в `restoreDoc`): загрузка достраивает
+     документ, и против сырой записи он выглядел бы «изменённым». */
+  const baseline=useRef({gen:0,doc:null});
+  useEffect(()=>{
+    if(baseline.current.gen!==loadGen.current||!baseline.current.doc){
+      baseline.current={gen:loadGen.current,doc}; return;
+    }
+    if(recovery&&ready&&!sameDoc(doc,baseline.current.doc)){ clearDraft(); setRecovery(null); }
+  },[doc,recovery,ready]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── напоминания ───
   /* Расписание задачи — её собственное: когда начать. А вот ЗА СКОЛЬКО
@@ -1034,7 +1049,12 @@ export default function SystemModel(){
     if(guard&&!guard()) return null;
     const loaded=docFrom(s.data,docRef.current);
     restoreDoc(loaded);
-    savedDoc.current=loaded; clearDraft(); setRecovery(null);
+    savedDoc.current=loaded;
+    /* Автозагрузка при старте (с `guard`) плашку «Восстановить» не гасит:
+       владелец (2026-09-14) видел её пару секунд — до того, как доезжала
+       схема с диска, — и решить не успевал. Плашка живёт до первого
+       собственного изменения или до ответа на неё; черновик тоже. */
+    if(!guard){ clearDraft(); setRecovery(null); }
     setSaveName(s.name); setSavedSel(s.id);
     /* Эта схема теперь и есть «последняя открытая»: с неё начнётся
        следующий заход. Отметка ставится и в браузере, и там, где лежит сам
@@ -1352,14 +1372,19 @@ export default function SystemModel(){
       {!me.known && !me.solo && (
         <RegisterPanel me={me} onDone={m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); }}/>)}
 
-      {me.known && !me.solo && !!me.pending && (
+      {/* Договор от владельца ждёт подписи — и у того, кто уже участвует:
+          новую роль тоже выдают договором (владелец, 2026-09-14). */}
+      {me.known && !me.solo && (!!me.pending || !!me.agreement) && (
         <RegisterPanel me={me} onDone={m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); }}/>)}
 
-      {me.known && !me.pending && !me.tabs.length && (
+      {me.known && !me.pending && !me.agreement && !me.tabs.length && (
         <div style={{...S.card,marginBottom:10,fontSize:11.5,color:C.muted,
           lineHeight:1.6}}>
-          Ваши роли ничего не открывают — возможно, их удалили. Подпишите
-          договор другой роли или попросите владельца назначить роль заново.
+          {(me.inactive||[]).length
+            ? <>Ваши роли не действуют: {me.inactive.map(r=>`«${r.name}» — ${r.why}`).join("; ")}.
+                Интерфейс роли откроется, когда владелец выдаст новый договор и вы его подпишете.</>
+            : <>Ваши роли ничего не открывают — возможно, их удалили. Подпишите
+                договор другой роли или попросите владельца назначить роль заново.</>}
         </div>)}
 
       {/* ═══ РЫНОК УСЛУГ · заказы и услуги всех зарегистрированных ═══

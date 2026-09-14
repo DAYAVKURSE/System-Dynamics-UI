@@ -280,6 +280,26 @@ export async function handleUpdate(update, deps) {
     if (handled) return handled;
   }
 
+  /* Ссылка приглашения с договором: «/start agr_<токен>» — человек открыл
+     бота по ссылке владельца. Соглашение становится его, роль —
+     приготовленной; подписывать — в приложении. Раньше проверки «владелец
+     ли»: приходит незваный. */
+  const inv = msg && String(msg.text || "").trim().match(/^\/start\s+agr_([A-Za-z0-9_-]{6,80})$/);
+  if (inv && deps.contracts?.claim) {
+    try {
+      await deps.contracts.claim(inv[1], { id: String(from.id), name: nameOf(from), username: from.username || "" });
+      await send(from.id, [
+        "Вам отправили договор.",
+        "Откройте приложение: там нужно заполнить оставшиеся поля, поставить подпись и отправить —",
+        "после этого откроется ваша роль.",
+      ].join("\n"));
+      return { claimed: inv[1] };
+    } catch (e) {
+      await send(from.id, `Не вышло: ${e.message}`);
+      return { error: e.message };
+    }
+  }
+
   if (!me.isOwner) {
     if (cb) await answer(cb.id, "Только владелец");
     /* Позванному — что бот умеет для него: сюда он попадает со стикером,
@@ -339,6 +359,7 @@ async function onMessage(msg, from, deps) {
       const role = await org.addRole({ name: text });
       await org.addUser({ id: wait.id, name: wait.name, username: wait.username,
         roleId: role.id, addedBy: from.id });
+      if (deps.contracts?.bind) await deps.contracts.bind(wait.id, role.id, wait);
       pending.delete(String(from.id));
       await send(from.id, `Готово: ${wait.name} — «${role.name}».`);
       return { added: wait.id, role: role.id };
@@ -455,7 +476,8 @@ async function onCallApp(arg, from, deps) {
   return { callApp: name };
 }
 
-async function onCallback(cb, from, { org, send, answer }) {
+async function onCallback(cb, from, deps) {
+  const { org, send, answer } = deps;
   const data = String(cb.data || "");
   const wait = pending.get(String(from.id));
   if (!wait) {
@@ -475,6 +497,8 @@ async function onCallback(cb, from, { org, send, answer }) {
     try {
       await org.addUser({ id: wait.id, name: wait.name, username: wait.username,
         roleId, addedBy: from.id });
+      // Для роли ждёт неотправленный никому договор — он теперь этого человека.
+      if (deps.contracts?.bind) await deps.contracts.bind(wait.id, roleId, wait);
       const role = (await org.listOrg()).roles.find((r) => r.id === roleId);
       pending.delete(String(from.id));
       await answer(cb.id, "Добавлен");

@@ -56,7 +56,7 @@ export const BUILTIN_ROLES = [
    один и тот же дизайнер может быть и исполнителем, и проверяющим.
    Должности заводит владелец в блоке воркеров; встроенных нет — какие
    должности бывают, знает он, а не мы. */
-const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [], forms: [] };
+const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [], forms: [], docs: [], agreements: [] };
 
 /* ─────── договор — акцепт участия ───────
 
@@ -108,7 +108,11 @@ export async function readOrg() {
     const old = Array.isArray(parsed.positions) ? parsed.positions : [];
     const all = [
       ...roles.map((r) => ({ ...r, tabs: normTabs(r.tabs), contract: fileRef(r.contract),
-        form: formLink(r.form) })),
+        form: formLink(r.form),
+        /* Договор-документ роли (lib/contractStore.js): по нему зовут
+           участника и его подписывают. Прежний `contract` (файл-шаблон)
+           остаётся читаться — роли, заведённые до документов, живут. */
+        doc: r.doc == null || r.doc === "" ? null : String(r.doc) })),
       ...old.filter((p) => p && p.id && !roles.some((r) => r.id === String(p.id)))
         .map((p) => ({ id: String(p.id), name: String(p.name || p.id),
           tabs: [], contract: null, form: null, builtin: false })),
@@ -127,13 +131,17 @@ export async function readOrg() {
       }),
       // Записи без анкет — это «анкет нет», а не поломка: список пустой.
       forms: (Array.isArray(parsed.forms) ? parsed.forms : []).map(formOf).filter(Boolean),
+      /* Документы договоров с версиями и выданные соглашения — как
+         записаны: их форму держит lib/contractStore.js. */
+      docs: Array.isArray(parsed.docs) ? parsed.docs : [],
+      agreements: Array.isArray(parsed.agreements) ? parsed.agreements : [],
     };
   } catch {
-    return { ...EMPTY, roles: [...BUILTIN_ROLES], users: [], forms: [] };
+    return { ...EMPTY, roles: [...BUILTIN_ROLES], users: [], forms: [], docs: [], agreements: [] };
   }
 }
 
-async function writeOrg(org) {
+export async function writeOrg(org) {
   await fs.mkdir(baseDir(), { recursive: true });
   // Через временный файл и переименование: иначе читатель, попавший на
   // середину записи, получил бы обрезанный JSON — а разбор здесь молча
@@ -187,7 +195,16 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
      только открывает. */
   const mine = userRoles(user || {})
     .map((rid) => org.roles.find((r) => r.id === rid)).filter(Boolean);
-  const role = mine[0] || null;
+  /* ДЕЙСТВУЮЩИЕ роли — те, что открывают вкладки. Роль с
+     договором-документом действует, пока действует подписанное по ней
+     соглашение (срок начался и не кончился); отключённая владельцем на
+     «Участниках» роль в `mine` не попадает вовсе. Роль без документа —
+     как прежде: выдана — действует (владелец, 2026-09-14: «интерфейс
+     недоступен, пока предложенный договор не подписан, если срок старого
+     закончился/не начался или роль отключена»). */
+  const active = mine.filter((r) => roleActive(org, user || {}, r));
+  const role = active[0] || mine[0] || null;
+  const offered = user ? pendingAgreementFor(org, user) : null;
   return {
     id, isOwner,
     known: isOwner || !!user,
@@ -207,10 +224,69 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
     // бы текстом под номерами, которые ничего не значат.
     forms: formsFor(org, user || {}),
     role: role || null,
-    // Владельцу доступно всё; остальным — то, что дают ЕГО РОЛИ вместе.
-    // Ни одной роли (её удалили или договор не подписан) — не показываем
-    // ничего, кроме объяснения.
-    tabs: isOwner ? [...TABS] : normTabs(mine.flatMap((r) => r.tabs || [])),
+    // Владельцу доступно всё; остальным — то, что дают ЕГО ДЕЙСТВУЮЩИЕ
+    // роли вместе. Ни одной (удалили, договор не подписан, срок вышел) —
+    // не показываем ничего, кроме объяснения.
+    tabs: isOwner ? [...TABS] : normTabs(active.flatMap((r) => r.tabs || [])),
+    /* Роли, которые у человека есть, но не действуют, — словами, чтобы
+       объяснение было точным: «срок договора вышел», а не «ролей нет». */
+    inactive: mine.filter((r) => !active.includes(r))
+      .map((r) => ({ id: r.id, name: r.name, why: roleWhyInactive(org, user || {}, r) })),
+    /* Предложенное соглашение — договор, который ждёт подписи ЭТОГО
+       человека: приложение ведёт его заполнять и подписывать. */
+    agreement: offered,
+  };
+}
+
+/* ─────── действует ли роль ───────
+
+   Соглашение (lib/contractStore.js) — подписанный договор с датами и
+   суммой. Роль с документом действует, пока есть подписанное по ней
+   соглашение этого человека, чей срок начался и не кончился (день
+   окончания — включительно). Роль без документа, но с прежним
+   файлом-шаблоном — действует, если подписанный экземпляр есть (как
+   прежде); без того и другого — просто выдана. */
+const dayStart = (v) => { const d = new Date(String(v || "")); return isNaN(d) ? null : d.getTime(); };
+export const agreementInForce = (a, now = Date.now()) => {
+  if (!a || a.status !== "signed") return false;
+  const s = dayStart(a.start), e = dayStart(a.end);
+  if (s != null && now < s) return false;
+  if (e != null && now > e + 86400000 - 1) return false;
+  return true;
+};
+export function roleActive(org, user, role, now = Date.now()) {
+  if (!role) return false;
+  if (role.doc) {
+    return (org.agreements || []).some((a) => a.roleId === role.id
+      && String(a.to?.id || "") === String(user.id) && agreementInForce(a, now));
+  }
+  if (role.contract) return !!(user.contracts || {})[role.id];
+  return true;
+}
+function roleWhyInactive(org, user, role, now = Date.now()) {
+  if (!role.doc) return "договор не подписан";
+  const own = (org.agreements || []).filter((a) => a.roleId === role.id
+    && String(a.to?.id || "") === String(user.id) && a.status === "signed");
+  if (!own.length) return "договор не подписан";
+  if (own.some((a) => dayStart(a.start) != null && now < dayStart(a.start))) return "срок договора ещё не начался";
+  return "срок договора закончился";
+}
+/** Соглашение, которое ждёт подписи человека, — самое свежее из «отправлено». */
+function pendingAgreementFor(org, user) {
+  const list = (org.agreements || []).filter((a) => a.status === "sent"
+    && String(a.to?.id || "") === String(user.id));
+  const a = list[list.length - 1];
+  if (!a) return null;
+  const doc = (org.docs || []).find((d) => d.id === a.docId);
+  const ver = (doc?.versions || []).find((v) => v.id === a.versionId) || (doc?.versions || []).slice(-1)[0];
+  const role = org.roles.find((r) => r.id === a.roleId);
+  const filled = { ...(doc?.values || {}), ...(a.values || {}), sum: a.sum, start: a.start, end: a.end };
+  return {
+    id: a.id, docId: a.docId, versionId: ver?.id || null, docName: doc?.name || "договор",
+    roleId: a.roleId, roleName: role?.name || a.roleId,
+    sum: a.sum, start: a.start, end: a.end, from: a.by, docHash: ver?.hash || "",
+    placeholders: (ver?.placeholders || []).map((p) => ({ ...p, value: filled[p.key] ?? "" })),
+    userValues: a.userValues || {},
   };
 }
 
@@ -486,8 +562,21 @@ export async function listOrg() {
     roles: org.roles,
     // Вопросы анкет — рядом с ответами: чужая анкета читается вопросом и
     // ответом, а не ответом под номером. Тот же вид, что в «кто я».
-    users: org.users.map((u) => ({ ...u, ...profileOf(u), forms: formsFor(org, u) })),
+    users: org.users.map((u) => ({ ...u, ...profileOf(u), forms: formsFor(org, u),
+      /* Подписанные договоры человека — под его ролями на «Участниках»:
+         даты и сумма (владелец, 2026-09-14). Штрихов подписей тут нет. */
+      agreements: (org.agreements || [])
+        .filter((a) => a.status === "signed" && String(a.to?.id || "") === String(u.id))
+        .map((a) => ({ id: a.id, roleId: a.roleId, sum: a.sum, start: a.start, end: a.end,
+          signedAt: a.signedAt, file: a.file,
+          docName: (org.docs || []).find((d) => d.id === a.docId)?.name || "" })),
+      active: userRoles(u).filter((rid) => {
+        const r = org.roles.find((x) => x.id === rid);
+        return r && roleActive(org, u, r);
+      }) })),
     forms: org.forms,
+    // Договоры-документы с версиями: штрихи подписей в них не лежат.
+    docs: org.docs || [],
   };
 }
 

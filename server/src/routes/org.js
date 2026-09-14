@@ -6,6 +6,14 @@ import {
   setUserRole, setUserRoles, TABS,
 } from "../lib/orgStore.js";
 import { MAX_REPORT_BYTES, saveReport } from "../lib/reportStore.js";
+import {
+  BadInput, addDoc, addVersion, agreementHtml, createAgreement, docHtml, inviteLink,
+  listAgreements, removeDoc, removeVersion, revokeAgreement, setRoleDoc, signAgreement,
+  updateDoc,
+} from "../lib/contractStore.js";
+
+const fail = (res, e, next) => (e instanceof BadInput
+  ? res.status(e.status).json({ error: e.message }) : next(e));
 
 const router = Router();
 router.use(telegramUser);
@@ -81,6 +89,27 @@ router.post("/register", async (req, res, next) => {
     }
     return next(e);
   }
+});
+
+/* ─── договоры глазами позванного: свои соглашения, текст, подпись ─── */
+router.get("/agreements/mine", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {}, { claim: false });
+    res.json({ agreements: await listAgreements({ userId: me.id, isOwner: false }) });
+  } catch (e) { fail(res, e, next); }
+});
+router.get("/agreements/:id/html", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {}, { claim: false });
+    res.json(await agreementHtml(me.id, req.params.id, { asOwner: me.isOwner }));
+  } catch (e) { fail(res, e, next); }
+});
+router.post("/agreements/:id/sign", async (req, res, next) => {
+  try {
+    const agreement = await signAgreement(req.telegramUserId, req.params.id, req.body || {});
+    const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    res.json({ agreement, me });
+  } catch (e) { fail(res, e, next); }
 });
 
 // Всё остальное — только владельцу. Проверка стоит на входе, а не в
@@ -216,6 +245,52 @@ router.put("/roles/:id/form", async (req, res, next) => {
     if (/unknown form/.test(e.message)) return res.status(400).json({ error: e.message });
     next(e);
   }
+});
+
+/* ─── документы договоров: версии, текст, значения ─── */
+router.post("/docs", async (req, res, next) => {
+  try { res.status(201).json(await addDoc(req.me.id, req.body || {})); }
+  catch (e) { fail(res, e, next); }
+});
+router.post("/docs/:id/versions", async (req, res, next) => {
+  try { res.status(201).json(await addVersion(req.me.id, req.params.id, req.body || {})); }
+  catch (e) { fail(res, e, next); }
+});
+router.put("/docs/:id", async (req, res, next) => {
+  try { res.json(await updateDoc(req.params.id, req.body || {})); }
+  catch (e) { fail(res, e, next); }
+});
+router.delete("/docs/:id", async (req, res, next) => {
+  try { await removeDoc(req.params.id); res.status(204).end(); }
+  catch (e) { fail(res, e, next); }
+});
+router.delete("/docs/:id/versions/:vid", async (req, res, next) => {
+  try { res.json(await removeVersion(req.params.id, req.params.vid)); }
+  catch (e) { fail(res, e, next); }
+});
+router.get("/docs/:id/html", async (req, res, next) => {
+  try { res.json(await docHtml(req.params.id, req.query.v)); }
+  catch (e) { fail(res, e, next); }
+});
+router.put("/roles/:id/doc", async (req, res, next) => {
+  try { res.json(await setRoleDoc(req.params.id, req.body?.docId ?? null)); }
+  catch (e) { fail(res, e, next); }
+});
+
+/* ─── соглашения: выдать, список, отозвать ─── */
+router.post("/agreements", async (req, res, next) => {
+  try {
+    const a = await createAgreement(req.me.id, req.body || {});
+    res.status(201).json({ ...a, link: inviteLink(a.token) });
+  } catch (e) { fail(res, e, next); }
+});
+router.get("/agreements", async (req, res, next) => {
+  try { res.json({ agreements: await listAgreements({ userId: req.me.id, isOwner: true }) }); }
+  catch (e) { fail(res, e, next); }
+});
+router.delete("/agreements/:id", async (req, res, next) => {
+  try { res.json(await revokeAgreement(req.params.id)); }
+  catch (e) { fail(res, e, next); }
 });
 
 export default router;

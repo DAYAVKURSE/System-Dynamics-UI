@@ -206,3 +206,44 @@ export const refuseFuncRemote = (id, off) =>
    про остальных — средние и публичные слова, нигде — автор. Сервер при
    каждом чтении пробует опубликовать то, что стало анонимным. */
 export const getRatings = () => json("/api/workspace/ratings");
+
+/* ─────── договоры: документы с версиями и соглашения ───────
+   (server/src/lib/contractStore.js). Файлы едут JSON-ом в base64, как при
+   регистрации: общее хранилище файлов заперто, и открывать его ради
+   договоров не нужно. Владельцу — документы и выдача, человеку — свои
+   соглашения, их текст и подпись. */
+export async function fileToData(file) {
+  return new Promise((ok, no) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result || ""));
+    r.onerror = () => no(new Error("не удалось прочитать файл"));
+    r.readAsDataURL(file);
+  });
+}
+const fileBody = async (file) => (file
+  ? { name: file.name, type: file.type || "application/octet-stream", data: await fileToData(file) }
+  : null);
+export const addDoc = async ({ name, file, note }) =>
+  json("/api/org/docs", { method: "POST", body: JSON.stringify({ name, note, file: await fileBody(file) }) });
+export const addDocVersion = async (id, { file, html, note }) =>
+  json(`/api/org/docs/${encodeURIComponent(id)}/versions`,
+    { method: "POST", body: JSON.stringify({ note, html, file: file ? await fileBody(file) : undefined }) });
+export const updateDoc = (id, patch) =>
+  json(`/api/org/docs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(patch) });
+export const removeDoc = (id) => json(`/api/org/docs/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const removeDocVersion = (id, vid) =>
+  json(`/api/org/docs/${encodeURIComponent(id)}/versions/${encodeURIComponent(vid)}`, { method: "DELETE" });
+export const docHtml = (id, vid) =>
+  json(`/api/org/docs/${encodeURIComponent(id)}/html${vid ? `?v=${encodeURIComponent(vid)}` : ""}`);
+export const setRoleDoc = (id, docId) =>
+  json(`/api/org/roles/${encodeURIComponent(id)}/doc`, { method: "PUT", body: JSON.stringify({ docId }) });
+export const createAgreement = (fields) =>
+  json("/api/org/agreements", { method: "POST", body: JSON.stringify(fields) });
+export const listAgreements = () => json("/api/org/agreements").then((r) => r.agreements || []);
+export const revokeAgreement = (id) =>
+  json(`/api/org/agreements/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const myAgreements = () => json("/api/org/agreements/mine").then((r) => r.agreements || []);
+export const agreementHtml = (id) => json(`/api/org/agreements/${encodeURIComponent(id)}/html`);
+export const signAgreement = (id, { values, sign2 }) =>
+  json(`/api/org/agreements/${encodeURIComponent(id)}/sign`,
+    { method: "POST", body: JSON.stringify({ values, sign2 }) });
