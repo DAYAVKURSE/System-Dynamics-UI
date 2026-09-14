@@ -134,7 +134,10 @@ describe("анкета", () => {
        читает сразу. */
     render(<ProfilePanel me={ME} personId="3" tasks={[]} funcs={[]}
       people={[{ id: "3", name: "Пётр", days: [1, 2, 3, 4, 5],
-        from: "10:00", to: "19:00", status: "off" }]} />);
+        from: "10:00", to: "19:00", status: "off",
+        // Выбор только что — он приоритетнее графика, и тест не зависит от
+        // того, в рабочие ли часы его запустили.
+        statusAt: new Date().toISOString() }]} />);
     expect(screen.getByText(/Работает: пн–пт · 10:00–19:00/)).toBeInTheDocument();
     expect(screen.getByText("сегодня не работаю")).toBeInTheDocument();
   });

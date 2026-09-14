@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 
 /* СХЕМА: две формы над ней, полоски состояния на блоках, щипок.
@@ -23,7 +23,6 @@ const touch = (el, type, points) => {
   Object.defineProperty(ev, "touches", { value: points.map(([x, y]) => ({ clientX: x, clientY: y })) });
   act(() => { el.dispatchEvent(ev); });
 };
-const svgWidth = () => Number(container.querySelector("svg").getAttribute("width"));
 
 describe("формы над схемой", () => {
   it("«масштаб» — только кнопки, без слова; справа «прогноз» с ползунком", () => {
@@ -71,37 +70,89 @@ describe("полоски на блоках", () => {
   });
 });
 
-describe("щипок", () => {
-  it("точка схемы под серединой пальцев остаётся под ней при смене масштаба", () => {
-    /* Владелец: «увеличивается не из той точки, откуда расходятся пальцы».
-       Масштаб 0,6 → под серединой (150; 100) лежит точка схемы (250; 167);
-       после щипка до 1,2 прокрутка должна стать 250·1,2 − 150 = 150. */
+/* Камера: viewBox svg. Окно в тестах не измеряется (0×0) — берётся
+   запасной размер 1000×600, и масштаб = 1000 / ширина viewBox. */
+const vb = () => {
+  const [x, y, w, h] = container.querySelector("svg").getAttribute("viewBox").split(" ").map(Number);
+  return { x, y, w, h };
+};
+const zoomOf = () => 1000 / vb().w;
+const sheet = () => {
+  const rects = Array.from(container.querySelectorAll("[data-entity] > rect:first-child"));
+  const cw = Math.max(1000, ...rects.map((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) + 24));
+  const ch = Math.max(740, ...rects.map((r) => Number(r.getAttribute("y")) + Number(r.getAttribute("height")) + 24));
+  return { cw, ch };
+};
+const fits = () => {
+  const v = vb(), { cw, ch } = sheet();
+  return v.x <= 0.01 && v.y <= 0.01 && v.x + v.w >= cw - 0.01 && v.y + v.h >= ch - 0.01;
+};
+
+describe("окно и лист", () => {
+  it("схема — в окне фиксированной высоты, лист вписан в него при открытии", () => {
     const box = container.querySelector("[data-scheme-box]");
-    let sl = 0, st = 0;
-    Object.defineProperty(box, "scrollLeft", { get: () => sl, set: (v) => { sl = v; }, configurable: true });
-    Object.defineProperty(box, "scrollTop", { get: () => st, set: (v) => { st = v; }, configurable: true });
+    expect(box.style.height).toContain("520px");
+    expect(box.style.overflow).toBe("hidden");
+    expect(container.querySelector("svg").getAttribute("width")).toBe("100%");
+    expect(fits()).toBe(true);
+  });
+
+  it("«+» плавно увеличивает, «−» уменьшает, а дальше «вписать лист» не уходит", async () => {
+    const z0 = zoomOf();
+    fireEvent.click(screen.getByRole("button", { name: "увеличить" }));
+    await waitFor(() => expect(zoomOf()).toBeGreaterThan(z0 * 1.2));
+    for (let i = 0; i < 8; i += 1) fireEvent.click(screen.getByRole("button", { name: "уменьшить" }));
+    await waitFor(() => expect(fits()).toBe(true));
+    expect(zoomOf()).toBeCloseTo(z0, 5);
+  });
+
+  it("один палец по пустому месту прокручивает лист, а не страницу", async () => {
+    fireEvent.click(screen.getByRole("button", { name: "увеличить" }));
+    // Пока лист уже окна, он стоит по центру и прокручивать нечего: ждём,
+    // когда масштаб перевалит за 1 и лист станет шире окна.
+    await waitFor(() => expect(zoomOf()).toBeGreaterThan(1));
+    const svg = container.querySelector("svg");
+    const x0 = vb().x;
+    fireEvent.pointerDown(svg, { clientX: 300, clientY: 200, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 200, clientY: 200 });
+    expect(vb().x).toBeGreaterThan(x0);
+    fireEvent.pointerUp(window, { clientX: 200, clientY: 200 });
+  });
+});
+
+describe("щипок", () => {
+  it("точка листа под серединой пальцев остаётся под ней на каждом движении", () => {
+    const box = container.querySelector("[data-scheme-box]");
+    const under = (sx, sy) => { const v = vb(), z = 1000 / v.w; return [v.x + sx / z, v.y + sy / z]; };
     touch(box, "touchstart", [[100, 100], [200, 100]]);
-    touch(box, "touchmove", [[50, 100], [250, 100]]);
-    expect(Math.round(sl)).toBe(150);
-    expect(Math.round(st)).toBe(Math.round((100 / 0.6) * 1.2 - 100));
+    const [wx, wy] = under(150, 100);
+    const z0 = zoomOf();
+    touch(box, "touchmove", [[50, 100], [250, 100]]);        // разводим — крупнее вдвое
+    expect(zoomOf()).toBeCloseTo(z0 * 2, 3);
+    expect(under(150, 100)[0]).toBeCloseTo(wx, 3);
+    expect(under(150, 100)[1]).toBeCloseTo(wy, 3);
+    // Середина пальцев сдвинулась — та же точка листа едет за ней.
+    touch(box, "touchmove", [[80, 140], [280, 140]]);
+    expect(under(180, 140)[0]).toBeCloseTo(wx, 3);
+    expect(under(180, 140)[1]).toBeCloseTo(wy, 3);
     touch(box, "touchend", []);
   });
 
-  it("двумя пальцами схема увеличивается и уменьшается в пределах масштаба", () => {
+  it("сводим пальцы до упора — лист целиком в окне; за лист камера не уезжает", () => {
     const box = container.querySelector("[data-scheme-box]");
-    const w0 = svgWidth();
+    touch(box, "touchstart", [[100, 100], [400, 100]]);
+    touch(box, "touchmove", [[240, 100], [260, 100]]);
+    touch(box, "touchend", []);
+    expect(fits()).toBe(true);
+    // Крупно и в угол: viewBox не выходит за лист.
     touch(box, "touchstart", [[100, 100], [200, 100]]);
-    touch(box, "touchmove", [[50, 100], [250, 100]]);   // разводим — крупнее
-    expect(svgWidth()).toBeGreaterThan(w0);
+    touch(box, "touchmove", [[0, 100], [300, 100]]);
     touch(box, "touchend", []);
-    const w1 = svgWidth();
-    touch(box, "touchstart", [[100, 100], [300, 100]]);
-    touch(box, "touchmove", [[150, 100], [250, 100]]);  // сводим — мельче
-    expect(svgWidth()).toBeLessThan(w1);
-    touch(box, "touchend", []);
-    // Кнопки «−»/«+» — тот же масштаб.
-    const w2 = svgWidth();
-    fireEvent.click(screen.getByRole("button", { name: "увеличить" }));
-    expect(svgWidth()).toBeGreaterThan(w2);
+    // Хотя бы половина окна — над листом по каждой оси.
+    const v = vb(), { cw, ch } = sheet();
+    expect(v.x).toBeGreaterThanOrEqual(-v.w / 2 - 0.01);
+    expect(v.y).toBeGreaterThanOrEqual(-v.h / 2 - 0.01);
+    expect(v.x).toBeLessThanOrEqual(cw - v.w / 2 + 0.01);
+    expect(v.y).toBeLessThanOrEqual(ch - v.h / 2 + 0.01);
   });
 });

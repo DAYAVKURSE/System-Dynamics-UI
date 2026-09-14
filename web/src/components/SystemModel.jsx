@@ -169,25 +169,137 @@ function Chart({lo,hi,fact,months,goalLine,cursorMonth,upTo}){
 /* ─────── СХЕМА ───────
    Активы и передачи между ними. Передача — выход функции с указанным
    получателем: другого способа ресурсу переехать в этой модели нет. */
-export const ZOOM_MIN=.32,ZOOM_MAX=1.6;
-function SchemeSVG({entities,traits,funcs,moves,zoom,onZoom,sel,valuesFor,
-  onSelectEntity,onMoveEntity,assetOk,onWhy,onOpenFunc}){
+/* ════════════════ КАМЕРА СХЕМЫ ════════════════
+   Владелец (2026-09-14): «при увеличении съезжает всё остальное
+   пространство; схема должна быть в окне фиксированного размера;
+   если двумя пальцами раздвигаю объект, по окончании он оказывается
+   далеко за пределами пальцев; движение должно быть плавным; лист
+   может быть каким угодно большим, но при полном уменьшении он
+   умещается в рамку».
+
+   Как это делают карты, Figma и Miro — и как сделано здесь:
+   · ОКНО фиксированной высоты, лист внутри него — через `viewBox` svg:
+     страница от масштаба не меняется, меняется только то, что в окне.
+   · КАМЕРА `{x, y, z}` — левый верхний угол видимого в координатах листа
+     и масштаб — живёт в ref и применяется к svg НАПРЯМУЮ на каждое
+     движение пальцев, без перерисовки React: отсюда плавность. React
+     перерисовывает по концу жеста и по правкам схемы, и тогда берёт ту
+     же камеру — расходиться им не из чего.
+   · ЩИПОК — геометрический, вокруг точки между пальцами: точка листа
+     под серединой пальцев остаётся под ней на каждом движении. Отдельно
+     «умно» увеличивать объект или подпись стрелки в таких редакторах не
+     принято: увеличивается вид целиком, а объект под пальцами остаётся
+     под пальцами — это и есть ощущение «раздвинул именно его».
+   · ПРЕДЕЛЫ: минимум — «вписать лист в окно» (`fitZoom`), максимум —
+     `ZOOM_MAX`; камера не уезжает за лист: если лист меньше окна, он
+     стоит по центру.
+   · ОДИН ПАЛЕЦ по пустому месту (и мышь) — прокрутка листа; колесо —
+     прокрутка, с Ctrl (щипок на тачпаде) — масштаб вокруг курсора;
+     кнопки «−»/«+» — масштаб вокруг центра окна с коротким плавным
+     переходом.
+   ═══════════════════════════════════════════════ */
+export const ZOOM_MAX=2.5;
+/* Размер окна, когда его нечем измерить (тесты, скрытая вкладка). */
+const BOX_FALLBACK={w:1000,h:600};
+export const fitZoom=(w,h,cw,ch)=>Math.min(w/cw,h/ch);
+
+const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves,sel,valuesFor,
+  onSelectEntity,onMoveEntity,assetOk,onWhy,onOpenFunc},ref){
   const DRAG_MIN=4;
   const drag=useRef(null);
   const box=useRef(null);
-  /* Щипок двумя пальцами — масштаб (владелец, 2026-09-13). Слушаем
-     touch-события на обёртке схемы, не passive: иначе браузер сам бы
-     масштабировал страницу. Второй палец отменяет перетаскивание блока —
-     двигать и масштабировать разом нельзя, и это к лучшему. */
+  const svgRef=useRef(null);
+  const cam=useRef(null);            // {x,y,z}; null — ещё не вписана
+  const size=useRef({...BOX_FALLBACK});
   const pinch=useRef(null);
-  /* Якорь щипка: точка схемы под серединой между пальцами должна остаться
-     под ней и после смены масштаба (владелец, 2026-09-13: «увеличивается
-     не из той точки, откуда расходятся пальцы»). Масштаб меняется через
-     состояние, то есть после перерисовки, поэтому прокрутка выставляется
-     в useLayoutEffect, когда svg уже нового размера. */
-  const pinchAt=useRef(null);
+  const pan=useRef(null);
+  const anim=useRef(null);
+  const [,bump]=useState(0);         // перерисовка по концу жеста
+  // Пока блок ведут, его положение живёт здесь, а не в модели: правка модели
+  // на каждое движение пальца перерисовывала бы всё приложение целиком.
+  const [dragPos,setDragPos]=useState(null);
+
+  const ents=dragPos
+    ? entities.map(e=>e.id===dragPos.id?{...e,x:dragPos.x,y:dragPos.y}:e)
+    : entities;
+  // Лист: не меньше окна по умолчанию, дальше растёт за блоками.
+  const CW=Math.max(1000,...ents.map(e=>e.x+NW+24));
+  const CH=Math.max(740,...ents.map(e=>e.y+NH+24));
+
+  const zMin=()=>fitZoom(size.current.w,size.current.h,CW,CH);
+  const clampZ=(z)=>Math.max(zMin(),Math.min(ZOOM_MAX,z));
+  /* Лист не теряется: по каждой оси хотя бы половина окна остаётся над
+     листом (как в картах — за край можно заглянуть, но не уехать в пустоту).
+     Жёстко «не дальше края» нельзя: тогда якорь щипка у края листа
+     срывался бы. Лист меньше окна — по центру. */
+  const settle=(c)=>{
+    const vw=size.current.w/c.z, vh=size.current.h/c.z;
+    c.x=vw>=CW?(CW-vw)/2:Math.max(-vw/2,Math.min(CW-vw/2,c.x));
+    c.y=vh>=CH?(CH-vh)/2:Math.max(-vh/2,Math.min(CH-vh/2,c.y));
+    return c;
+  };
+  const fitCam=()=>settle({x:0,y:0,z:zMin()});
+  const viewBox=(c)=>`${c.x} ${c.y} ${size.current.w/c.z} ${size.current.h/c.z}`;
+  const apply=()=>{ if(svgRef.current&&cam.current) svgRef.current.setAttribute("viewBox",viewBox(cam.current)); };
+  if(!cam.current) cam.current=fitCam();
+
+  /* Масштаб `z` так, чтобы точка листа под точкой окна (sx, sy) осталась
+     под ней. Это и есть якорь щипка и колеса. */
+  const zoomAt=(z,sx,sy)=>{
+    const c=cam.current;
+    const wx=c.x+sx/c.z, wy=c.y+sy/c.z;
+    const nz=clampZ(z);
+    c.z=nz; c.x=wx-sx/nz; c.y=wy-sy/nz;
+    settle(c); apply();
+  };
+  const panBy=(dx,dy)=>{ const c=cam.current; c.x-=dx/c.z; c.y-=dy/c.z; settle(c); apply(); };
+  /* Плавный переход к масштабу — для кнопок и колеса: рывок в полтора
+     раза читается как скачок, а 160 мс — как движение. */
+  const animateZoom=(target,sx,sy,ms=160)=>{
+    const z0=cam.current.z, z1=clampZ(target);
+    if(anim.current) cancelAnimationFrame(anim.current);
+    if(typeof requestAnimationFrame!=="function"||ms<=0){ zoomAt(z1,sx,sy); bump(n=>n+1); return; }
+    const t0=performance.now();
+    // Время — своё, а не из аргумента кадра: у него другая точка отсчёта.
+    const step=()=>{
+      const k=Math.min(1,Math.max(0,(performance.now()-t0)/ms)), e=1-(1-k)*(1-k);   // ease-out
+      zoomAt(z0+(z1-z0)*e,sx,sy);
+      if(k<1) anim.current=requestAnimationFrame(step); else { anim.current=null; bump(n=>n+1); }
+    };
+    anim.current=requestAnimationFrame(step);
+  };
+  React.useImperativeHandle(ref,()=>({
+    zoomBy:(k)=>animateZoom(cam.current.z*k,size.current.w/2,size.current.h/2),
+    fit:()=>{ cam.current=fitCam(); apply(); bump(n=>n+1); },
+    zoom:()=>cam.current.z,
+  }));
+
+  /* Размер окна — с экрана; окно скрыто (0×0) — прежний размер. При первом
+     измерении лист вписывается в окно. */
+  useLayoutEffect(()=>{
+    const el=box.current; if(!el) return undefined;
+    let first=true;
+    const measure=()=>{
+      const r=el.getBoundingClientRect();
+      if(!(r.width>0&&r.height>0)) return;
+      size.current={w:r.width,h:r.height};
+      if(first){ first=false; cam.current=fitCam(); } else settle(cam.current);
+      apply();
+    };
+    measure();
+    if(typeof ResizeObserver==="function"){
+      const ro=new ResizeObserver(measure); ro.observe(el);
+      return ()=>ro.disconnect();
+    }
+    window.addEventListener("resize",measure);
+    return ()=>window.removeEventListener("resize",measure);
+  },[]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Лист вырос или сжался — камера остаётся в его пределах.
+  useLayoutEffect(()=>{ settle(cam.current); apply(); });
+
+  /* ─── щипок: два пальца ─── */
   useEffect(()=>{
-    const el=box.current; if(!el||!onZoom) return undefined;
+    const el=box.current; if(!el) return undefined;
     const dist=(t)=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
     const mid=(t)=>{
       const r=el.getBoundingClientRect();
@@ -195,26 +307,25 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,onZoom,sel,valuesFor,
     };
     const start=(ev)=>{
       if(ev.touches.length!==2) return;
-      drag.current=null; setDragPos(null);
+      // Второй палец отменяет перетаскивание и прокрутку: жест — масштаб.
+      drag.current=null; setDragPos(null); pan.current=null;
+      if(anim.current){ cancelAnimationFrame(anim.current); anim.current=null; }
       const [mx,my]=mid(ev.touches);
-      // Координаты схемы (до масштаба) под серединой пальцев.
-      pinch.current={d0:dist(ev.touches),z0:zoom,
-        ax:(el.scrollLeft+mx)/zoom,ay:(el.scrollTop+my)/zoom};
+      const c=cam.current;
+      pinch.current={d0:dist(ev.touches),z0:c.z,wx:c.x+mx/c.z,wy:c.y+my/c.z};
       ev.preventDefault();
     };
     const move=(ev)=>{
       const pz=pinch.current; if(!pz||ev.touches.length!==2) return;
       ev.preventDefault();
-      const z=Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,
-        Math.round(pz.z0*dist(ev.touches)/pz.d0*100)/100));
       const [mx,my]=mid(ev.touches);
-      pinchAt.current={z,ax:pz.ax,ay:pz.ay,mx,my};
-      onZoom(z);
-      // Масштаб мог не измениться (упёрся в предел) — тогда эффекта не будет,
-      // а середина пальцев могла сдвинуться: держим точку под ней и так.
-      if(z===zoom){ el.scrollLeft=pz.ax*z-mx; el.scrollTop=pz.ay*z-my; }
+      const c=cam.current;
+      c.z=clampZ(pz.z0*dist(ev.touches)/pz.d0);
+      // Та же точка листа — под нынешней серединой пальцев, даже если она сдвинулась.
+      c.x=pz.wx-mx/c.z; c.y=pz.wy-my/c.z;
+      settle(c); apply();
     };
-    const end=(ev)=>{ if(ev.touches.length<2) pinch.current=null; };
+    const end=(ev)=>{ if(pinch.current&&ev.touches.length<2){ pinch.current=null; bump(n=>n+1); } };
     el.addEventListener("touchstart",start,{passive:false});
     el.addEventListener("touchmove",move,{passive:false});
     el.addEventListener("touchend",end);
@@ -225,41 +336,55 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,onZoom,sel,valuesFor,
       el.removeEventListener("touchend",end);
       el.removeEventListener("touchcancel",end);
     };
-  },[zoom,onZoom]);
-  useLayoutEffect(()=>{
-    const a=pinchAt.current, el=box.current;
-    if(!a||!el||a.z!==zoom) return;
-    el.scrollLeft=a.ax*zoom-a.mx;
-    el.scrollTop=a.ay*zoom-a.my;
-    pinchAt.current=null;
-  },[zoom]);
-  // Пока блок ведут, его положение живёт здесь, а не в модели: правка модели
-  // на каждое движение пальца перерисовывала бы всё приложение целиком.
-  const [dragPos,setDragPos]=useState(null);
+  },[CW,CH]);   // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ─── колесо: прокрутка; с Ctrl (щипок на тачпаде) — масштаб у курсора ─── */
+  useEffect(()=>{
+    const el=box.current; if(!el) return undefined;
+    const wheel=(ev)=>{
+      ev.preventDefault();
+      if(ev.ctrlKey||ev.metaKey){
+        const r=el.getBoundingClientRect();
+        zoomAt(cam.current.z*Math.exp(-ev.deltaY*0.0025),ev.clientX-r.left,ev.clientY-r.top);
+      } else panBy(-ev.deltaX,-ev.deltaY);
+    };
+    el.addEventListener("wheel",wheel,{passive:false});
+    return ()=>el.removeEventListener("wheel",wheel);
+  },[CW,CH]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ─── один палец / мышь: блок — перетаскивание, пустое место — прокрутка ─── */
   const down=(ev,e)=>{
     if(!onMoveEntity) return;
     drag.current={id:e.id,sx:ev.clientX,sy:ev.clientY,ox:e.x,oy:e.y,moved:false};
   };
+  const downBg=(ev)=>{
+    if(ev.target.closest&&ev.target.closest("[data-entity]")) return;
+    if(ev.pointerType==="mouse"&&ev.button!==0) return;
+    pan.current={sx:ev.clientX,sy:ev.clientY};
+  };
   useEffect(()=>{
-    if(!onMoveEntity) return undefined;
     // Слушаем на окне, а не на блоке: Safari (значит, и Telegram на iOS)
     // ненадёжно держит pointer capture внутри <svg>.
     const move=(ev)=>{
+      if(pinch.current) return;
+      const p=pan.current;
+      if(p){ panBy(ev.clientX-p.sx,ev.clientY-p.sy); p.sx=ev.clientX; p.sy=ev.clientY; return; }
       const d=drag.current; if(!d) return;
       const dx=ev.clientX-d.sx, dy=ev.clientY-d.sy;
       if(!d.moved&&Math.hypot(dx,dy)<DRAG_MIN) return;
       d.moved=true;
-      d.x=Math.max(0,Math.round(d.ox+dx/zoom));
-      d.y=Math.max(0,Math.round(d.oy+dy/zoom));
+      const z=cam.current.z;
+      d.x=Math.max(0,Math.round(d.ox+dx/z));
+      d.y=Math.max(0,Math.round(d.oy+dy/z));
       setDragPos({id:d.id,x:d.x,y:d.y});
     };
     const up=()=>{
+      if(pan.current){ pan.current=null; bump(n=>n+1); }
       const d=drag.current; if(!d) return;
       drag.current=null; setDragPos(null);
-      if(d.moved) onMoveEntity(d.id,d.x,d.y); else onSelectEntity(d.id);
+      if(d.moved){ if(onMoveEntity) onMoveEntity(d.id,d.x,d.y); } else onSelectEntity(d.id);
     };
-    const noScroll=(ev)=>{ if(drag.current) ev.preventDefault(); };
+    const noScroll=(ev)=>{ if(drag.current||pan.current) ev.preventDefault(); };
     window.addEventListener("pointermove",move);
     window.addEventListener("pointerup",up);
     window.addEventListener("pointercancel",up);
@@ -270,24 +395,24 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,onZoom,sel,valuesFor,
       window.removeEventListener("pointercancel",up);
       window.removeEventListener("touchmove",noScroll);
     };
-  },[zoom,onMoveEntity,onSelectEntity]);
+  },[onMoveEntity,onSelectEntity,CW,CH]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ents=dragPos
-    ? entities.map(e=>e.id===dragPos.id?{...e,x:dragPos.x,y:dragPos.y}:e)
-    : entities;
   const anchor=(a,b)=>{const ax=a.x+NW/2,ay=a.y+NH/2,bx=b.x+NW/2,by=b.y+NH/2;
     const dx=bx-ax,dy=by-ay;
     const s=Math.min(dx===0?1e9:NW/2/Math.abs(dx),dy===0?1e9:NH/2/Math.abs(dy));
     return [ax+dx*s,ay+dy*s];};
   const ent=(id)=>ents.find(e=>e.id===id);
-  const CW=Math.max(1000,...ents.map(e=>e.x+NW+24));
-  const CH=Math.max(740,...ents.map(e=>e.y+NH+24));
 
   return (
+    /* Окно фиксированной высоты: страница под ним не двигается, что бы ни
+       делали с масштабом. `touch-action: none` — жесты внутри наши. */
     <div ref={box} data-scheme-box=""
-      style={{overflow:"auto",WebkitOverflowScrolling:"touch",touchAction:"pan-x pan-y"}}>
-      <svg viewBox={`0 0 ${CW} ${CH}`} width={CW*zoom} height={CH*zoom}
-        style={{display:"block"}}>
+      style={{height:"min(56vh, 520px)",minHeight:280,overflow:"hidden",touchAction:"none",
+        position:"relative",border:`1px solid ${C.line}`,borderRadius:10,background:C.ink,
+        cursor:pan.current?"grabbing":"default"}}>
+      <svg ref={svgRef} viewBox={viewBox(cam.current)} width="100%" height="100%"
+        preserveAspectRatio="xMidYMid meet" style={{display:"block"}}
+        onPointerDown={downBg}>
         <defs>
           <marker id="aw" markerWidth="9" markerHeight="9" refX="8" refY="3"
             orient="auto"><path d="M0,0 L8,3 L0,6 z" fill={ACC}/></marker></defs>
@@ -384,7 +509,7 @@ function SchemeSVG({entities,traits,funcs,moves,zoom,onZoom,sel,valuesFor,
           </g>);})}
       </svg>
     </div>);
-}
+});
 
 /* « · 12.09.2026» к имени сохранённого сценария; без даты — ничего. */
 function savedOn(iso){
@@ -508,7 +633,7 @@ export default function SystemModel(){
   const [published,setPublished]=useState([]);
   const [ratings,setRatings]=useState(null);
   const [horizon,setHorizon]=useState(24);
-  const [zoom,setZoom]=useState(0.6);
+  const schemeRef=useRef(null);   // камера схемы: «−»/«+» зовут её напрямую
   // Заготовка заказа/услуги из настроек функции — до открытия рынка.
   const [marketDraft,setMarketDraft]=useState(null);
   const [json,setJson]=useState(""); const [jsonMsg,setJsonMsg]=useState("");
@@ -1320,9 +1445,9 @@ export default function SystemModel(){
             aria-label="масштаб">
             <div className="flex items-center gap-2 flex-wrap">
               <button style={btn(false)} aria-label="уменьшить"
-                onClick={()=>setZoom(z=>Math.max(.32,z-.12))}>−</button>
+                onClick={()=>schemeRef.current?.zoomBy(1/1.25)}>−</button>
               <button style={btn(false)} aria-label="увеличить"
-                onClick={()=>setZoom(z=>Math.min(1.6,z+.12))}>+</button>
+                onClick={()=>schemeRef.current?.zoomBy(1.25)}>+</button>
               <button style={btn(false)} onClick={alignGrid}
                 title="Расставит блоки по сетке, сохранив расстановку по рядам">
                 ⌗ выровнять</button>
@@ -1354,8 +1479,8 @@ export default function SystemModel(){
              воркера в карточке актива. */
           onOpen={id=>setCard(id)}/>
 
-        <SchemeSVG entities={entities} traits={traits} funcs={funcs} moves={moves}
-          zoom={zoom} onZoom={setZoom} sel={sel} valuesFor={valuesFor}
+        <SchemeSVG ref={schemeRef} entities={entities} traits={traits} funcs={funcs} moves={moves}
+          sel={sel} valuesFor={valuesFor}
           /* Нажатие на актив ведёт к его карточке: с «Деятельности» и
              «Прогноза» раздел под схемой переключается на «Управление». */
           onSelectEntity={id=>{ setSel(id); setUnder("edit"); }} onMoveEntity={moveE}
