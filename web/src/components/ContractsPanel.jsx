@@ -7,6 +7,7 @@ import {
   addDoc, addDocVersion, createAgreement, docHtml, removeDoc, removeDocVersion, updateDoc,
 } from "../identity.js";
 import { getTelegram } from "../telegram.js";
+import { diffHtml, diffText } from "../lib/docdiff.js";
 
 /* ════════════════════════════════════════════════════════════════
    ДОГОВОРЫ · документы с версиями, просмотр и правка, приглашение
@@ -38,6 +39,11 @@ import { getTelegram } from "../telegram.js";
      оформление Word при правке в приложении упрощается — это сказано
      под документом. Кто хочет сохранить оформление — правит в Word и
      загружает новую версию файлом.
+   · Изменения — не словами, а как в git (владелец, 2026-09-14): разница
+     по абзацам между версиями двумя рамками — зелёная с «+» (добавлено),
+     красная с «−» (убрано); у выделенного документа с правками — что
+     уйдёт в новую версию, без правок — последняя версия против
+     предыдущей; в дереве версий у каждой «+N −M».
    · Приглашение — ссылка на бота с токеном договора: «Выбрать чат»
      открывает у владельца выбор чата Telegram (t.me/share), человек
      открывает бота по ссылке — и договор его. Запасной путь — переслать
@@ -127,13 +133,38 @@ export function DocViewer({ title, html, editable = true, onChange, onClose }) {
   );
 }
 
+/* ─────── изменения двумя рамками: «+» зелёная, «−» красная ─────── */
+
+export function DiffForms({ diff, title, empty = "Изменений нет." }) {
+  const box = (sign, list, color, label) => (
+    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: 6,
+      padding: "4px 8px 8px", margin: "6px 0 0", minWidth: 0, flex: "1 1 200px" }}>
+      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sign}</legend>
+      {!list.length && <div style={{ ...hint, color: C.muted }}>—</div>}
+      {list.map((line, i) => (
+        <div key={i} style={{ fontSize: 11.5, lineHeight: 1.5, color: C.text,
+          borderBottom: i < list.length - 1 ? `1px solid ${C.line}` : "none", padding: "2px 0" }}>
+          {line}</div>))}
+    </fieldset>);
+  if (!diff) return null;
+  const none = !diff.added.length && !diff.removed.length;
+  return (
+    <div style={{ marginTop: 6 }} aria-label="изменения">
+      {title && <div style={{ ...S.lbl }}>{title}</div>}
+      {none ? <div style={hint}>{empty}</div> : (
+        <div className="flex flex-wrap gap-2">
+          {box("+", diff.added, OK, "добавлено")}
+          {box("−", diff.removed, BAD, "убрано")}
+        </div>)}
+    </div>);
+}
+
 /* ─────── форма загрузки нового документа ─────── */
 
 function NewDocForm({ busy, act, onDone }) {
   const [name, setName] = useState("");
   const [same, setSame] = useState(true);
   const [file, setFile] = useState(null);
-  const [note, setNote] = useState("");
   const fileName = file ? file.name.replace(/\.docx$/i, "") : "";
   const title = same ? fileName : name;
   return (
@@ -157,13 +188,10 @@ function NewDocForm({ busy, act, onDone }) {
         Обязательные: [(sum): …], [(start): …], [(end): …] — сумма и срок действия.
         Рамка сплошной линией — место подписи стороны 1, пунктирной — стороны 2.
       </div>
-      <input aria-label="описание версии" style={{ ...S.inp, margin: "6px 0" }}
-        placeholder="описание изменений (как в git): «первая версия»"
-        value={note} onChange={(e) => setNote(e.target.value)} />
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !file || !title.trim()}
           aria-label="загрузить договор"
-          onClick={() => act(async () => { await addDoc({ name: title.trim(), file, note }); onDone?.(); })}>
+          onClick={() => act(async () => { await addDoc({ name: title.trim(), file }); onDone?.(); })}>
           Загрузить</button>
         <button type="button" style={btn(false)} onClick={onDone}>Отмена</button>
       </div>
@@ -176,11 +204,29 @@ function NewDocForm({ busy, act, onDone }) {
 function DocCard({ doc, selected, onSelect, busy, act, onOpen, onDrop, html, setHtml }) {
   const ver = last(doc);
   const [versions, setVersions] = useState(false);
-  const [note, setNote] = useState("");
   const [values, setValues] = useState(doc.values || {});
   const [file, setFile] = useState(null);
+  /* HTML версий — для разницы: последняя против предыдущей, и каждая
+     версия против своей предыдущей в дереве. Грузится, когда нужно. */
+  const [texts, setTexts] = useState({});   // versionId → html
   useEffect(() => { setValues(doc.values || {}); }, [doc.values]);
   const dirty = html != null && html !== doc._html;
+  const needed = versions ? doc.versions.map((v) => v.id) : selected ? doc.versions.slice(-2).map((v) => v.id) : [];
+  useEffect(() => {
+    needed.filter((id) => texts[id] === undefined).forEach((id) => {
+      docHtml(doc.id, id).then((r) => setTexts((t) => ({ ...t, [id]: r.html }))).catch(() => {});
+    });
+  }, [needed.join(","), doc.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const prev = doc.versions[doc.versions.length - 2];
+  const latestHtml = texts[ver?.id] ?? doc._html;
+  const diff = dirty && latestHtml != null ? diffHtml(latestHtml, html)
+    : prev && texts[prev.id] != null && latestHtml != null ? diffHtml(texts[prev.id], latestHtml) : null;
+  const diffTitle = dirty ? "изменения к сохранению" : prev ? `версия ${when(ver?.at)} против ${when(prev.at)}` : "";
+  const verDiff = (i) => {
+    const v = doc.versions[i], p = doc.versions[i - 1];
+    if (!p) return "первая версия";
+    return texts[v.id] != null && texts[p.id] != null ? diffText(diffHtml(texts[p.id], texts[v.id])) : "…";
+  };
   const saveValues = () => {
     if (JSON.stringify(values) !== JSON.stringify(doc.values || {})) act(() => updateDoc(doc.id, { values }));
   };
@@ -208,15 +254,15 @@ function DocCard({ doc, selected, onSelect, busy, act, onOpen, onDrop, html, set
           <button type="button" style={btn(true, dirty ? WARN : undefined)} disabled={busy || !dirty}
             aria-label={`сохранить изменения ${doc.name}`}
             title={dirty ? "" : "Правок в документе нет"}
-            onClick={() => act(async () => { await addDocVersion(doc.id, { html, note }); setNote(""); setHtml(null); })}>
+            onClick={() => act(async () => { await addDocVersion(doc.id, { html }); setHtml(null); })}>
             Сохранить изменения</button>)}
         <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }} disabled={busy}
           aria-label={`удалить договор ${doc.name}`} onClick={() => onDrop(doc)}>Удалить</button>
       </div>
-      {selected && (
-        <input aria-label={`описание изменений ${doc.name}`} style={{ ...S.inp, marginTop: 6, fontSize: 12 }}
-          placeholder="описание изменений (как в git) — уйдёт с новой версией"
-          value={note} onChange={(e) => setNote(e.target.value)} />)}
+      {/* Изменения — как в git, двумя рамками: «+» зелёная, «−» красная. */}
+      {selected && (diff
+        ? <DiffForms diff={diff} title={diffTitle} />
+        : !prev && !dirty ? <div style={{ ...hint, marginTop: 6 }}>Первая версия — сравнивать пока не с чем.</div> : null)}
 
       {/* Дерево версий — по нажатию на файл. У каждой — скачать и удалить. */}
       <button type="button" style={{ ...btn(versions), marginTop: 6, fontSize: 11 }}
@@ -227,7 +273,8 @@ function DocCard({ doc, selected, onSelect, busy, act, onOpen, onDrop, html, set
           {[...doc.versions].reverse().map((v, i) => (
             <div key={v.id} className="flex flex-wrap items-center gap-2" style={{ fontSize: 11, padding: "3px 0" }}>
               <span style={{ color: i === 0 ? OK : C.muted }}>{i === 0 ? "● " : "○ "}{when(v.at)}</span>
-              <span style={{ flex: 1, minWidth: 80 }}>{v.note || "без описания"}</span>
+              <span style={{ flex: 1, minWidth: 80 }} aria-label={`изменения версии ${v.id}`}>
+                {verDiff(doc.versions.length - 1 - i)}</span>
               <a href={v.file?.url} download={v.file?.name} style={{ color: ACC }}
                 aria-label={`скачать версию ${v.id}`}>скачать</a>
               {i !== 0 && (
@@ -244,7 +291,7 @@ function DocCard({ doc, selected, onSelect, busy, act, onOpen, onDrop, html, set
             </label>
             {file && (
               <button type="button" style={btn(true)} disabled={busy}
-                onClick={() => act(async () => { await addDocVersion(doc.id, { file, note }); setFile(null); setNote(""); })}>
+                onClick={() => act(async () => { await addDocVersion(doc.id, { file }); setFile(null); })}>
                 Загрузить версию</button>)}
           </div>
         </div>)}

@@ -47,9 +47,12 @@ const ownerServer = (over = {}) => {
   const calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url, opts = {}) => {
     const u = String(url);
-    if (u.endsWith("/html")) {
+    if (u.includes("/html")) {
+      // Версии различаются текстом: v1 без п. 3, v2 — с ним.
+      const v1 = u.endsWith("?v=v1");
       return { ok: true, status: 200,
-        json: async () => ({ html: "<p>Текст договора <b>п. 1</b></p>", version: DOC.versions[1] }) };
+        json: async () => ({ html: v1 ? "<p>Текст договора <b>п. 1</b></p><p>старый пункт</p>"
+          : "<p>Текст договора <b>п. 1</b></p><p>п. 3 поправлен</p>", version: DOC.versions[v1 ? 0 : 1] }) };
     }
     if (opts.method && opts.method !== "GET") {
       calls.push({ url: u, method: opts.method, body: opts.body ? JSON.parse(opts.body) : null });
@@ -109,15 +112,16 @@ describe("форма договоров", () => {
     expect(screen.getByLabelText("название договора")).toBeDisabled();
     pickFile("файл договора", "Оферта.docx");
     expect(screen.getByLabelText("название договора")).toHaveValue("Оферта");
-    fireEvent.change(screen.getByLabelText("описание версии"), { target: { value: "первая" } });
+    // Описания изменений словами нет: разница считается сама, как в git.
+    expect(screen.queryByLabelText("описание версии")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "загрузить договор" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].url).toBe("/api/org/docs");
-    expect(calls[0].body).toMatchObject({ name: "Оферта", note: "первая", file: { name: "Оферта.docx" } });
+    expect(calls[0].body).toMatchObject({ name: "Оферта", file: { name: "Оферта.docx" } });
     expect(String(calls[0].body.file.data)).toMatch(/^data:/);
   });
 
-  it("нажатие на договор выделяет его: «Скачать», «Сохранить изменения», описание; повторное — снимает; версии деревом", async () => {
+  it("нажатие на договор выделяет его: «Скачать», «Сохранить изменения», разница двумя рамками; повторное — снимает; версии деревом", async () => {
     const calls = ownerServer();
     render(<PeoplePanel me={ME} />);
     const row = await screen.findByRole("button", { name: "документ Договор подряда" });
@@ -126,24 +130,36 @@ describe("форма договоров", () => {
     expect(screen.getByLabelText("скачать Договор подряда")).toHaveAttribute("href", "/api/reports/s/f2");
     const save = screen.getByRole("button", { name: "сохранить изменения Договор подряда" });
     expect(save).toBeDisabled();   // правок ещё нет
-    expect(screen.getByLabelText("описание изменений Договор подряда")).toBeInTheDocument();
+    // Без правок — последняя версия против предыдущей: «+» зелёная, «−» красная.
+    const plus = await screen.findByLabelText("добавлено");
+    const minus = screen.getByLabelText("убрано");
+    expect(plus.textContent).toContain("п. 3 поправлен");
+    expect(minus.textContent).toContain("старый пункт");
+    expect(plus.style.border).toContain("rgb(61, 220, 151)");
+    expect(minus.style.border).toContain("rgb(255, 92, 122)");
+    expect(within(plus).getByText("+", { selector: "legend" })).toBeInTheDocument();
+    expect(within(minus).getByText("−", { selector: "legend" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("описание изменений Договор подряда")).toBeNull();
     // Документ открылся на весь экран, с крестиком.
     const viewer = await screen.findByRole("dialog", { name: "документ Договор подряда" });
     expect(within(viewer).getByRole("button", { name: "закрыть документ" })).toBeInTheDocument();
     expect(within(viewer).getByLabelText("текст документа").innerHTML).toContain("п. 1");
     // Правка → «Сохранить изменения» активна → новая версия с описанием.
     const text = within(viewer).getByLabelText("текст документа");
-    text.innerHTML = "<p>Текст договора <b>п. 1</b> и п. 2</p>";
+    text.innerHTML = "<p>Текст договора <b>п. 1</b></p><p>п. 3 поправлен</p><p>новый п. 4</p>";
     fireEvent.input(text);
-    fireEvent.change(screen.getByLabelText("описание изменений Договор подряда"),
-      { target: { value: "добавлен п. 2" } });
+    // С правками разница — что уйдёт в новую версию.
+    await waitFor(() => expect(screen.getByText("изменения к сохранению")).toBeInTheDocument());
+    expect(screen.getByLabelText("добавлено").textContent).toContain("новый п. 4");
+    expect(screen.getByLabelText("убрано").textContent).toContain("—");
     fireEvent.click(screen.getByRole("button", { name: "сохранить изменения Договор подряда" }));
     await waitFor(() => expect(calls.some((c) => c.url === "/api/org/docs/doc1/versions")).toBe(true));
     expect(calls.find((c) => c.url === "/api/org/docs/doc1/versions").body)
-      .toMatchObject({ note: "добавлен п. 2", html: expect.stringContaining("п. 2") });
-    // Версии — деревом, старую можно удалить, последнюю — нет.
+      .toMatchObject({ html: expect.stringContaining("новый п. 4") });
+    // Версии — деревом с «+N −M», старую можно удалить, последнюю — нет.
     fireEvent.click(screen.getByRole("button", { name: "версии Договор подряда" }));
-    expect(screen.getByText("поправлен п. 3")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("изменения версии v2").textContent).toBe("+1 −1"));
+    expect(screen.getByLabelText("изменения версии v1").textContent).toBe("первая версия");
     expect(screen.getByRole("button", { name: "удалить версию v1" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "удалить версию v2" })).toBeNull();
     // Повторное нажатие — закрыть и снять выделение.
