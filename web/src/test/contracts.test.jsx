@@ -121,25 +121,33 @@ describe("форма договоров", () => {
     expect(String(calls[0].body.file.data)).toMatch(/^data:/);
   });
 
-  it("«Редактировать» первой, название в рамке; кнопки — только на документе; правки — формами по словам", async () => {
+  it("название — рамка всей карточки; Редактировать/Скачать/Удалить; кнопки правки — на документе; свёрнутый — полоска внизу", async () => {
     const calls = ownerServer();
     render(<PeoplePanel me={ME} />);
     const card = await screen.findByLabelText("договор Договор подряда");
-    // Первой — «Редактировать»; название — в рамке с подписью «договор».
+    // Название — подпись рамки всей карточки (legend fieldset'а), не отдельная рамка посреди.
+    expect(card.tagName).toBe("FIELDSET");
+    expect(card.querySelector("legend").textContent).toBe("Договор подряда");
+    expect(within(card).queryByLabelText("название Договор подряда")).toBeNull();
+    // Порядок: Редактировать, Скачать (ссылка на последнюю версию), Удалить.
     expect(within(card).getAllByRole("button")[0]).toHaveAccessibleName("редактировать Договор подряда");
-    const frame = within(card).getByLabelText("название Договор подряда");
-    expect(within(frame).getByText("договор", { selector: "legend" })).toBeInTheDocument();
-    expect(frame.textContent).toContain("Договор подряда");
-    // На карточке нет ни «Скачать», ни «Сохранить изменения», ни описания.
-    expect(within(card).queryByText(/Скачать/)).toBeNull();
+    const download = within(card).getByLabelText("скачать Договор подряда");
+    expect(download).toHaveAttribute("href", "/api/reports/s/f2");
+    expect(download.compareDocumentPosition(within(card).getByRole("button", { name: "редактировать Договор подряда" })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    const drop = within(card).getByRole("button", { name: "удалить договор Договор подряда" });
+    expect(download.compareDocumentPosition(drop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // «Сохранить изменения» на карточке нет.
     expect(within(card).queryByText(/Сохранить изменения/)).toBeNull();
     fireEvent.click(within(card).getByRole("button", { name: "редактировать Договор подряда" }));
     const viewer = await screen.findByRole("dialog", { name: "документ Договор подряда" });
     // Значки на документе: закрыть, свернуть, отменить, вернуть, сохранить (пока правок нет — неактивна).
     ["закрыть документ", "свернуть документ", "отменить правку", "вернуть правку", "сохранить документ"]
       .forEach((n) => expect(within(viewer).getByRole("button", { name: n })).toBeInTheDocument());
-    expect(within(viewer).getByRole("button", { name: "сохранить документ" })).toBeDisabled();
+    const saveBtn = within(viewer).getByRole("button", { name: "сохранить документ" });
+    expect(saveBtn).toBeDisabled();
+    expect(saveBtn.textContent).toBe("Сохранить");   // словом, не галочкой
     expect(within(viewer).getByRole("button", { name: "закрыть документ" }).style.borderRadius).toBe("50%");
+    expect(within(viewer).getByRole("button", { name: "свернуть документ" }).querySelector("svg")).not.toBeNull();
     // Правка: добавили слово в предложение.
     const text = within(viewer).getByLabelText("текст документа");
     text.innerHTML = "<p>Текст договора <b>п. 1</b></p><p>п. 3 срочно поправлен</p>";
@@ -148,14 +156,20 @@ describe("форма договоров", () => {
     // Свернули — документ спрятан, правки остались: на карточке одна зелёная форма с предложением и словом.
     fireEvent.click(within(viewer).getByRole("button", { name: "свернуть документ" }));
     expect(screen.queryByRole("dialog", { name: "документ Договор подряда" })).toBeNull();
+    // Свёрнутый документ — полоска внизу с названием.
+    const bar = screen.getByRole("region", { name: "свёрнутый документ Договор подряда" });
+    expect(bar.style.position).toBe("fixed");
+    expect(bar.textContent).toContain("Договор подряда");
+    expect(bar.textContent).toContain("свёрнут");
     expect(within(card).getByText("несохранённые изменения")).toBeInTheDocument();
     const plus = within(card).getByLabelText("добавлено");
     expect(plus.textContent).toBe("+п. 3 срочно поправлен");
     expect(plus.querySelector("[data-hl='+']").textContent.trim()).toBe("срочно");
     expect(within(card).queryByLabelText("убрано")).toBeNull();
-    // «Редактировать» снова — тот же документ с правками; сохранить — значком.
-    fireEvent.click(within(card).getByRole("button", { name: "редактировать Договор подряда" }));
+    // Нажатие на полоску разворачивает тот же документ с правками; полоска исчезает.
+    fireEvent.click(within(bar).getByRole("button", { name: "развернуть документ Договор подряда" }));
     const again = await screen.findByRole("dialog", { name: "документ Договор подряда" });
+    expect(screen.queryByRole("region", { name: "свёрнутый документ Договор подряда" })).toBeNull();
     fireEvent.click(within(again).getByRole("button", { name: "сохранить документ" }));
     await waitFor(() => expect(calls.some((c) => c.url === "/api/org/docs/doc1/versions")).toBe(true));
     expect(calls.find((c) => c.url === "/api/org/docs/doc1/versions").body.html).toContain("срочно");

@@ -140,14 +140,21 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
           style={roundBtn()}>✕</button>
         {editable && (<>
           <button type="button" aria-label="свернуть документ" title="Свернуть — правки останутся"
-            onClick={onCollapse} style={roundBtn()}>﹀</button>
+            onClick={onCollapse} style={roundBtn({ display: "flex", alignItems: "center", justifyContent: "center" })}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 6 L8 11 L13 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg></button>
           <button type="button" aria-label="отменить правку" title="Отменить"
             onClick={() => cmd("undo")} style={roundBtn()}>↶</button>
           <button type="button" aria-label="вернуть правку" title="Вернуть"
             onClick={() => cmd("redo")} style={roundBtn()}>↷</button>
+          {/* Сохранение — словом, а не значком (владелец, 2026-09-15): оно
+              должно быть очевидным. Зелёное, когда есть что сохранять. */}
           <button type="button" aria-label="сохранить документ" title={dirty ? "Сохранить новой версией" : "Правок нет"}
             disabled={!dirty || busy} onClick={onSave}
-            style={roundBtn({ color: dirty ? OK : "#fff", opacity: dirty ? 1 : 0.45, fontSize: 15 })}>✓</button>
+            style={roundBtn({ width: "auto", borderRadius: 19, padding: "0 14px", fontSize: 12.5, fontWeight: 700,
+              background: dirty ? "rgba(61,220,151,.85)" : "rgba(29,40,57,.72)",
+              color: dirty ? "#0E1420" : "#fff", opacity: dirty ? 1 : 0.55 })}>Сохранить</button>
         </>)}
       </div>
       <div style={{ fontSize: 11, color: C.muted, padding: "12px 60px 4px 16px" }}>
@@ -270,20 +277,21 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
     if (JSON.stringify(values) !== JSON.stringify(doc.values || {})) act(() => updateDoc(doc.id, { values }));
   };
   return (
-    <div style={{ ...sub, borderColor: opened ? ACC : C.line }} aria-label={`договор ${doc.name}`}>
-      <div className="flex items-center gap-2">
-        {/* Первой — «Редактировать»: открывает документ на весь экран. Кнопок
-            на карточке от этого не прибавляется (владелец, 2026-09-15). */}
+    /* Название — в рамке ВСЕЙ карточки договора, в её левом верхнем углу
+       (владелец, 2026-09-15), как знак у форм «+» и «−». */
+    <fieldset style={{ ...sub, borderColor: opened ? ACC : C.line, padding: "2px 8px 8px", minWidth: 0 }}
+      aria-label={`договор ${doc.name}`}>
+      <legend style={{ fontSize: 12.5, fontWeight: 700, padding: "0 6px", color: C.text,
+        maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</legend>
+      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6 }}>
+        версий: {doc.versions.length} · {when(ver?.at)}{dirty ? " · есть несохранённые правки" : ""}</div>
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Порядок кнопок — владельца: редактировать, скачать, удалить.
+            Новых кнопок при открытии документа не появляется. */}
         <button type="button" style={btn(opened)} disabled={busy} aria-label={`редактировать ${doc.name}`}
           onClick={() => onEdit(doc)}>Редактировать</button>
-        <fieldset aria-label={`название ${doc.name}`} style={{ flex: 1, minWidth: 0, border: `1px solid ${C.line}`,
-          borderRadius: 6, padding: "0 8px 5px", margin: 0 }}>
-          <legend style={{ ...S.lbl, padding: "0 4px" }}>договор</legend>
-          <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis",
-            whiteSpace: "nowrap" }}>{doc.name}</div>
-          <div style={{ fontSize: 10.5, color: C.muted }}>
-            версий: {doc.versions.length} · {when(ver?.at)}{dirty ? " · есть несохранённые правки" : ""}</div>
-        </fieldset>
+        <a href={ver?.file?.url} download={ver?.file?.name || `${doc.name}.docx`}
+          aria-label={`скачать ${doc.name}`} style={{ ...btn(false), textDecoration: "none" }}>Скачать</a>
         <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }} disabled={busy}
           aria-label={`удалить договор ${doc.name}`} onClick={() => onDrop(doc)}>Удалить</button>
       </div>
@@ -351,8 +359,29 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
               </div>);
           })}
         </div>)}
-    </div>
+    </fieldset>
   );
+}
+
+/* Свёрнутый документ — полоска внизу экрана с названием (владелец,
+   2026-09-15): нажатие разворачивает, крестик закрывает. Правки при
+   этом никуда не деваются. */
+function CollapsedBar({ title, dirty, onExpand, onClose }) {
+  return (
+    <div role="region" aria-label={`свёрнутый документ ${title}`}
+      style={{ position: "fixed", left: 8, right: 8, bottom: 8, zIndex: 55,
+        background: "rgba(29,40,57,.95)", border: `1px solid ${ACC}66`, borderRadius: 10,
+        boxShadow: "0 -2px 12px #0008", display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 12px" }}>
+      <button type="button" aria-label={`развернуть документ ${title}`} onClick={onExpand}
+        style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#fff",
+          textAlign: "left", cursor: "pointer", fontSize: 12.5, fontWeight: 600, padding: 0,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        📄 {title}
+        <span style={{ fontWeight: 400, color: C.muted, fontSize: 11 }}> · свёрнут{dirty ? " · есть несохранённые правки" : ""}</span>
+      </button>
+      <button type="button" aria-label={`закрыть свёрнутый документ ${title}`} onClick={onClose}
+        style={{ ...roundBtn(), width: 30, height: 30, lineHeight: "28px", fontSize: 14 }}>✕</button>
+    </div>);
 }
 
 /** Раздел «договоры» на «Ролях»: список документов и загрузка нового. */
@@ -410,6 +439,14 @@ export function DocsSection({ docs = [], busy, act }) {
           busy={busy} onChange={setHtml} onSave={save}
           onCollapse={() => setShown(false)}
           onClose={() => { setEdit(null); setHtml(null); setShown(false); }} />)}
+      {edit && !shown && (
+        <CollapsedBar title={edit.doc.name} dirty={html != null && html !== edit.doc._html}
+          onExpand={() => setShown(true)}
+          onClose={() => {
+            const dirtyNow = html != null && html !== edit.doc._html;
+            if (dirtyNow && typeof window !== "undefined" && !window.confirm("Закрыть без сохранения правок?")) return;
+            setEdit(null); setHtml(null);
+          }} />)}
       {readOnly && (
         <DocViewer title={`${readOnly.doc.name} · версия ${when(readOnly.version.at)}`} html={readOnly.html}
           editable={false} onClose={() => setReadOnly(null)} />)}
