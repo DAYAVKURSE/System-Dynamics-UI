@@ -77,3 +77,16 @@ describe("имя ↔ идентификатор", () => {
     expect(toStored("=@{t1}", TRAITS)).toBe("=@{t1}");
   });
 });
+
+describe("процент (владелец, 2026-09-15: операции)", () => {
+  it("«20%» — 0,2; «20% @ресурс» — процент от ресурса; «@ресурс*20%» — то же", () => {
+    expect(evalExpr("=20%").value).toBe(0.2);
+    expect(evalExpr("> 20% @{t1}", (id) => STOCK[id]).value).toBe(2);
+    expect(evalExpr("=@{t1}*20%", (id) => STOCK[id]).value).toBe(2);
+    expect(evalExpr("=50% (2+8)").value).toBe(5);
+    expect(evalExpr("=10 + 50% 4").value).toBe(12);
+  });
+  it("процент без числа — ошибка словами", () => {
+    expect(parseExpr("=%").error).toMatch(/не понимаю/);
+  });
+});

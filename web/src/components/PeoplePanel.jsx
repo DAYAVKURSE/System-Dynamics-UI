@@ -100,10 +100,14 @@ export default function PeoplePanel({ me, onPeople, onChanged }) {
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  const act = async (fn) => {
+  /* `quiet` — ошибку покажет сама форма, на месте (владелец, 2026-09-15:
+     «предупреждение было в самом низу страницы, а не на форме»); общая
+     строка внизу — для действий без своего места. Ошибка при этом
+     пробрасывается, чтобы форма её увидела. */
+  const act = async (fn, { quiet = false } = {}) => {
     setBusy(true); setMsg("");
     try { await fn(); await load(); onChanged?.(); }
-    catch (e) { setMsg(e.message); }
+    catch (e) { if (!quiet) setMsg(e.message); setBusy(false); if (quiet) throw e; }
     setBusy(false);
   };
 

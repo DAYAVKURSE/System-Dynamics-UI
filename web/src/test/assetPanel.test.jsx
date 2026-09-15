@@ -690,3 +690,22 @@ describe("ресурс и фактор принимает человек — к�
     expect(dump().factors.find((x) => x.name === "сезон").accepted).toBe(false);
   });
 });
+
+describe("операция у количества (владелец, 2026-09-15)", () => {
+  it("«операция» у входа: выражение с процентом от ресурса считается по остатку и кладётся в число", () => {
+    addFunc();
+    const name = addPort("takes");
+    fireEvent.click(screen.getByRole("button", { name: `операция ${name}` }));
+    const field = screen.getByLabelText(`выражение ${name}`);
+    // Ряд знаков без сравнения, с процентом.
+    fireEvent.focus(field);
+    expect(screen.getByRole("button", { name: "знак %" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "знак >" })).toBeNull();
+    fireEvent.change(field, { target: { value: "50% 8" } });
+    fireEvent.blur(field);
+    expect(screen.getByLabelText(`сколько ${name}`)).toHaveValue(4);
+    expect(screen.getByText(/= 4 по нынешним остаткам/)).toBeInTheDocument();
+    const f = dump().funcs.find((x) => x.takes.some((p) => p.expr));
+    expect(f.takes[0]).toMatchObject({ expr: "50% 8", lo: 4, hi: 4 });
+  });
+});

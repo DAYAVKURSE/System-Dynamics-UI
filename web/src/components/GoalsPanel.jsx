@@ -109,7 +109,9 @@ function Conds({ goal, traits, traitName, st, up }) {
   const drop = (i) => up({ exprs: shown.filter((_, k) => k !== i) });
   return (
     <div style={{ flex: "1 1 100%", minWidth: 0 }}>
-      <div style={S.lbl}>сколько — условия (между ними «и»)</div>
+      {/* «Операции», не «условия» (владелец, 2026-09-15): здесь считают —
+          числа, ссылки, действия и процент от значения. */}
+      <div style={S.lbl}>сколько — операции (между ними «и»)</div>
       {shown.map((e, i) => {
         const mine = st.list.find((x) => x.expr === e);
         return (
@@ -117,12 +119,12 @@ function Conds({ goal, traits, traitName, st, up }) {
             {i > 0 && (
               <span style={{ fontSize: 11, color: C.muted, padding: "7px 0" }}>и</span>)}
             <ExprField value={e} traits={traits} style={{ flex: 1, minWidth: 0 }}
-              aria-label={i ? `условие ${i + 1}` : "сколько ресурса"}
+              aria-label={i ? `операция ${i + 1}` : "сколько ресурса"}
               onCommit={(v) => set(i, v)} />
             {shown.length > 1 && (
               <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
                 fontSize: 11, padding: "5px 8px" }}
-                aria-label={`убрать условие ${i + 1}`}
+                aria-label={`убрать операцию ${i + 1}`}
                 onClick={() => drop(i)}>✕</button>)}
             {mine && mine.met != null && !mine.error && (
               <span style={{ fontSize: 11, padding: "7px 0",
@@ -131,11 +133,11 @@ function Conds({ goal, traits, traitName, st, up }) {
       })}
       <div className="flex flex-wrap gap-2" style={{ marginTop: 4, alignItems: "center" }}>
         <button style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }}
-          onClick={add}>+ условие</button>
+          onClick={add}>+ операция</button>
         <span style={{ fontSize: 10.5, color: C.muted }}>
           {st.target != null && st.cap != null
             ? `диапазон: от ${nm(st.target)} до ${nm(st.cap)}`
-            : "второе условие задаёт диапазон: «> 10» и «< 50»"}</span>
+            : "вторая операция задаёт диапазон: «> 10» и «< 50»; процент — «> 20% @ресурс»"}</span>
       </div>
       {st.conflict && (
         <div style={{ fontSize: 10.5, color: BAD, marginTop: 3 }}>{st.conflict}</div>)}

@@ -54,6 +54,8 @@
    ════════════════════════════════════════════════════════════════ */
 
 let seq = 0;
+import { evalExpr, toStored } from "./expr.js";
+
 const nextId = (prefix) => {
   seq += 1;
   return `${prefix}${Date.now().toString(36)}${seq.toString(36)}`;
@@ -139,10 +141,22 @@ const splitMark = (t) => {
   return { mark: null, rest: t };
 };
 
-/* Ресурс с количеством: «заявки 2» — имя всё до числа, число в конце. */
-const splitQty = (text) => {
-  const m = text.match(/^(.*\S)\s+(\d+(?:[.,]\d+)?)$/);
-  return m ? { name: m[1].trim(), qty: num(m[2]) } : { name: text.trim(), qty: 1 };
+/* Ресурс с количеством: «заявки 2» — имя всё до числа, число в конце.
+   Количество может быть ОПЕРАЦИЕЙ (владелец, 2026-09-15): «коробки 20%
+   @спрос» — тем же языком, что у целей и портов функции; считается по
+   нынешним остаткам, выражение остаётся у порта (`expr`). Хвост, похожий
+   на операцию, но не посчитавшийся (ресурс не найден), отделяется от
+   имени всё равно — иначе он стал бы частью имени ресурса. */
+const splitQty = (text, traits = []) => {
+  const m = text.match(/^(.*?\S)\s+([\d(@].*)$/);
+  if (m && /[\d@]/.test(m[2])) {
+    const r = evalExpr(toStored(m[2], traits),
+      (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; });
+    if (!r.error && r.value != null) return { name: m[1].trim(), qty: r.value, expr: m[2] };
+    if (/[%@]/.test(m[2])) return { name: m[1].trim(), qty: 1, expr: m[2], exprError: r.error || "не посчиталось" };
+  }
+  const n = text.match(/^(.*\S)\s+(\d+(?:[.,]\d+)?)$/);
+  return n ? { name: n[1].trim(), qty: num(n[2]) } : { name: text.trim(), qty: 1 };
 };
 
 /**
@@ -177,15 +191,18 @@ export function parseLine(src, { entities = [], traits = [], positions = [] } = 
     }
     const text = rest.text;
     if (!text) continue;
+    // `span` — где слово стоит в строке: по нему поле подсвечивает
+    // ненайденное красным прямо в тексте.
+    const span = { start: rest.start, end: rest.end };
     if (state === "asset") {
       const e = findEntity(text);
-      step.asset = { name: text, id: e ? e.id : null };
+      step.asset = { name: text, id: e ? e.id : null, span };
       state = "role";
       continue;
     }
     if (state === "role") {
       const r = findRole(text);
-      step.role = { name: text, id: r ? r.id : null };
+      step.role = { name: text, id: r ? r.id : null, span };
       state = "mark";
       continue;
     }
@@ -193,12 +210,14 @@ export function parseLine(src, { entities = [], traits = [], positions = [] } = 
     // pair: откуда/куда, затем что
     if (!pending) {
       const e = findEntity(text);
-      pending = { name: text, id: e ? e.id : null };
+      pending = { name: text, id: e ? e.id : null, span };
       continue;
     }
-    const { name, qty } = splitQty(text);
+    const { name, qty, expr, exprError } = splitQty(text, traits);
     const t = findTrait(name, pending.id);
-    step[side].push({ asset: pending, trait: { name, id: t ? t.id : null }, qty });
+    step[side].push({ asset: pending, trait: { name, id: t ? t.id : null,
+      span: { start: rest.start, end: rest.start + name.length } }, qty,
+      ...(expr ? { expr } : {}), ...(exprError ? { exprError } : {}) });
     pending = null;
   }
   if (pending) return { ...step, error: `у «${pending.name}» не назван ресурс` };
@@ -232,7 +251,8 @@ const qtyText = (q) => (q === 1 ? "" : ` ${String(q).replace(".", ",")}`);
 export const formatStep = (s) => {
   const parts = [s.asset?.name || ""];
   if (s.role?.name) parts.push(s.role.name);
-  const pairs = (list) => list.map((p) => `${p.asset?.name || ""}, ${p.trait?.name || ""}${qtyText(p.qty)}`);
+  // Операция остаётся операцией: «коробки 20% @спрос», а не посчитанное число.
+  const pairs = (list) => list.map((p) => `${p.asset?.name || ""}, ${p.trait?.name || ""}${p.expr ? ` ${p.expr}` : qtyText(p.qty)}`);
   if ((s.takes || []).length) parts.push(`${MARK_TAKE} ${pairs(s.takes).join(", ")}`);
   if ((s.gives || []).length) parts.push(`${MARK_GIVE} ${pairs(s.gives).join(", ")}`);
   return parts.join(", ");
@@ -269,6 +289,32 @@ export function resolveProc(proc = {}, model = {}) {
     gives: s.gives.map(port),
   }));
   return { steps, errors: now.errors };
+}
+
+/**
+ * Красные метки для поля (владелец, 2026-09-15: «пропущенные при вводе
+ * сущности должны вставляться в это поле в виде красных меток»): по
+ * строкам — где стоят ненайденные, отклонённые и удалённые имена (их
+ * место в строке) и что в строке пропущено (ошибка строения словами).
+ * Разбор — с памятью записи (`resolveProc`): переименованное на схеме
+ * красным не метится.
+ */
+export function marksOf(text = "", model = {}, proc = {}) {
+  const { steps } = resolveProc({ ...proc, text }, model);
+  return steps.map((s) => {
+    const marks = [];
+    const add = (it, kind) => {
+      if (!it?.span) return;
+      const st = stateOf(it, kind, model, proc);
+      if (st !== "ok" && st !== "empty") marks.push({ ...it.span, state: st, name: it.name, kind });
+    };
+    add(s.asset, "asset"); add(s.role, "role");
+    [...(s.takes || []), ...(s.gives || [])].forEach((p) => {
+      add(p.asset, "asset"); add(p.trait, "trait");
+      if (p.exprError) marks.push({ start: p.trait.span.end, end: p.trait.span.end, state: "expr", name: p.exprError });
+    });
+    return { line: s.line, marks: marks.sort((a, b) => a.start - b.start), error: s.error || "" };
+  });
 }
 
 /**

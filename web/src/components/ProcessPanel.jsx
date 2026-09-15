@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
-import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, newProc,
+import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, marksOf, newProc,
   procIssues, procLabel, procUsesAsset, replaceName, resolveProc, stateOf, suggestNames,
   syncProcFuncs } from "../lib/process.js";
 
@@ -36,12 +36,73 @@ const STATUS_TONE = { off: null, hypo: WARN, on: OK };
    ниже — имена. Стрелки и Enter выбирают, Escape закрывает, `onMouseDown`
    с `preventDefault` держит фокус в поле — выбор из списка это часть
    набора, не его конец. Набранное своё имя остаётся как есть. */
+/* ─────── красные метки прямо в поле ───────
+
+   Владелец (2026-09-15): «пропущенные при вводе сущности должны
+   вставляться в это поле в виде красных меток». В textarea цвет слову не
+   задать, поэтому под ним лежит подложка с тем же текстом тем же шрифтом
+   и с теми же отступами: текст подложки прозрачный, а под ненайденными,
+   отклонёнными и удалёнными именами — красная подсветка и черта. Что в
+   строке пропущено (ошибка строения — «у X не назван ресурс»), стоит
+   красной меткой у правого края строки; она позиционирована абсолютно и
+   на перенос строк не влияет, поэтому текст подложки и поля не
+   расходятся. Само поле над подложкой, с прозрачным фоном. */
+const MARK_STYLE = {
+  unknown: { background: "rgba(255,92,122,.28)", borderBottom: `2px solid ${BAD}` },
+  rejected: { background: "rgba(255,92,122,.18)", borderBottom: `2px dotted ${BAD}` },
+  deleted: { background: "rgba(255,92,122,.28)", borderBottom: `2px dashed ${BAD}` },
+};
+function Backdrop({ text, marks, style }) {
+  const lines = String(text || "").split("\n");
+  const byLine = new Map(marks.map((m) => [m.line, m]));
+  let lineNo = 0;
+  return (
+    <div aria-hidden="true" data-proc-backdrop="" style={{ ...style, position: "absolute", inset: 0,
+      color: "transparent", pointerEvents: "none", overflow: "hidden", whiteSpace: "pre-wrap",
+      wordBreak: "break-word", borderColor: "transparent", background: "transparent" }}>
+      {lines.map((ln, i) => {
+        if (ln.trim()) lineNo += 1;
+        const m = ln.trim() ? byLine.get(lineNo) : null;
+        const parts = [];
+        let at = 0;
+        // Метки идут по положению в ОБРЕЗАННОЙ строке: сдвиг на ведущие пробелы.
+        const lead = ln.length - ln.trimStart().length;
+        (m?.marks || []).forEach((k, j) => {
+          const s0 = k.start + lead, e0 = k.end + lead;
+          if (s0 > at) parts.push(<span key={`t${j}`}>{ln.slice(at, s0)}</span>);
+          if (k.state === "expr") {
+            parts.push(<span key={`x${j}`} data-mark="expr" title={k.name}
+              style={{ color: BAD, fontSize: 10 }}> ⚠</span>);
+          } else {
+            parts.push(<span key={`m${j}`} data-mark={k.state} title={k.name}
+              style={MARK_STYLE[k.state] || MARK_STYLE.unknown}>{ln.slice(s0, e0)}</span>);
+          }
+          at = Math.max(at, e0);
+        });
+        parts.push(<span key="rest">{ln.slice(at)}</span>);
+        return (
+          <div key={i} style={{ position: "relative", minHeight: "1.5em" }}>
+            {parts}{"\u200b"}
+            {m?.error && (
+              <span data-mark="error" style={{ position: "absolute", right: 0, top: 0, color: BAD,
+                fontSize: 10, lineHeight: "1.5em", background: C.ink, padding: "0 4px",
+                maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                ← {m.error}</span>)}
+          </div>);
+      })}
+    </div>);
+}
+
 function ProcText({ value = "", model, proc, onCommit, label }) {
   const [text, setText] = useState(value);
   const [focus, setFocus] = useState(false);
   const [pick, setPick] = useState(null);   // { kind, start, query, assetName, at }
   const [cursor, setCursor] = useState(0);
   const inp = useRef(null);
+  const back = useRef(null);
+  const marks = marksOf(text, model, proc);
+  const field = { ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12,
+    lineHeight: 1.5, boxSizing: "border-box" };
   // Снаружи поменяли (загрузили модель, поставили замену) — а мы не в
   // фокусе: показываем новое.
   useEffect(() => { if (!focus) setText(value); }, [value, focus]);
@@ -89,14 +150,18 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
   };
   return (
     <div style={{ position: "relative" }}>
-      <textarea ref={inp} value={text} aria-label={label}
-        rows={Math.max(3, text.split("\n").length + 1)}
-        placeholder={`Актив, Должность, ${MARK_TAKE} Откуда, Что 2, ${MARK_GIVE} Куда, Что`}
-        style={{ ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12,
-          resize: "vertical", lineHeight: 1.5 }}
-        onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
-        onBlur={() => { setFocus(false); setPick(null); if (text !== value) onCommit(text); }}
-        onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
+      <div style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
+        <Backdrop text={text} marks={marks} style={field} />
+        <textarea ref={inp} value={text} aria-label={label}
+          rows={Math.max(3, text.split("\n").length + 1)}
+          placeholder={`Актив, Должность, ${MARK_TAKE} Откуда, Что 2, ${MARK_GIVE} Куда, Что 20% @спрос`}
+          style={{ ...field, resize: "vertical", position: "relative", zIndex: 1,
+            background: "transparent", display: "block" }}
+          onScroll={(e) => { if (back.current) back.current.scrollTop = e.target.scrollTop; }}
+          onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
+          onBlur={() => { setFocus(false); setPick(null); if (text !== value) onCommit(text); }}
+          onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
+      </div>
       {pick && focus && (
         <div role="dialog" aria-label="подсказка процесса"
           onMouseDown={(e) => e.preventDefault()}

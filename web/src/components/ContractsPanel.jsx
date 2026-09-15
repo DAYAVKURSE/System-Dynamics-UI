@@ -165,6 +165,7 @@ function NewDocForm({ busy, act, onDone }) {
   const [name, setName] = useState("");
   const [same, setSame] = useState(true);
   const [file, setFile] = useState(null);
+  const [err, setErr] = useState("");
   const fileName = file ? file.name.replace(/\.docx$/i, "") : "";
   const title = same ? fileName : name;
   return (
@@ -191,10 +192,13 @@ function NewDocForm({ busy, act, onDone }) {
       <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !file || !title.trim()}
           aria-label="загрузить договор"
-          onClick={() => act(async () => { await addDoc({ name: title.trim(), file }); onDone?.(); })}>
+          onClick={() => { setErr(""); act(async () => { await addDoc({ name: title.trim(), file }); onDone?.(); }, { quiet: true })
+            .catch((e) => setErr(e.message)); }}>
           Загрузить</button>
         <button type="button" style={btn(false)} onClick={onDone}>Отмена</button>
       </div>
+      {/* Ошибка — здесь, под кнопкой, а не внизу страницы. */}
+      {err && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: 6, lineHeight: 1.5 }}>{err}</div>}
     </div>
   );
 }
@@ -209,6 +213,7 @@ function DocCard({ doc, selected, onSelect, busy, act, onOpen, onDrop, html, set
   /* HTML версий — для разницы: последняя против предыдущей, и каждая
      версия против своей предыдущей в дереве. Грузится, когда нужно. */
   const [texts, setTexts] = useState({});   // versionId → html
+  const [verErr, setVerErr] = useState("");
   useEffect(() => { setValues(doc.values || {}); }, [doc.values]);
   const dirty = html != null && html !== doc._html;
   const needed = versions ? doc.versions.map((v) => v.id) : selected ? doc.versions.slice(-2).map((v) => v.id) : [];
@@ -291,9 +296,11 @@ function DocCard({ doc, selected, onSelect, busy, act, onOpen, onDrop, html, set
             </label>
             {file && (
               <button type="button" style={btn(true)} disabled={busy}
-                onClick={() => act(async () => { await addDocVersion(doc.id, { file }); setFile(null); })}>
+                onClick={() => { setVerErr(""); act(async () => { await addDocVersion(doc.id, { file }); setFile(null); }, { quiet: true })
+                  .catch((e) => setVerErr(e.message)); }}>
                 Загрузить версию</button>)}
           </div>
+          {verErr && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: 4 }}>{verErr}</div>}
         </div>)}
 
       {/* Плейсхолдеры — из последней версии; значения общие для всех выдач. */}

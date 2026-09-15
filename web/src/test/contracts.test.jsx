@@ -236,3 +236,24 @@ describe("договор к подписи у позванного", () => {
     await waitFor(() => expect(onDone).toHaveBeenCalled());
   });
 });
+
+describe("ошибка загрузки — на форме", () => {
+  it("отказ сервера стоит под кнопкой «Загрузить», а не внизу страницы", async () => {
+    ownerServer();
+    const orig = global.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url, opts = {}) => {
+      if (opts.method === "POST" && String(url).endsWith("/api/org/docs")) {
+        return { ok: false, status: 400, json: async () => ({ error: "В договоре нет обязательных плейсхолдеров: [(sum): …]" }) };
+      }
+      return orig(url, opts);
+    }));
+    render(<PeoplePanel me={ME} />);
+    await screen.findByLabelText("договоры");
+    fireEvent.click(screen.getByRole("button", { name: "+ договор" }));
+    pickFile("файл договора", "без-суммы.docx");
+    fireEvent.click(screen.getByRole("button", { name: "загрузить договор" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/обязательных плейсхолдеров/);
+    expect(screen.getByLabelText("новый договор")).toContainElement(alert);
+  });
+});

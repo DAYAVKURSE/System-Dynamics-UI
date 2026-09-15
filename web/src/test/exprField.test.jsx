@@ -75,7 +75,7 @@ describe("ряд знаков", () => {
     const el = screen.getByLabelText("сколько ресурса");
     expect(keysOf()).toEqual([]);
     fireEvent.focus(el);
-    expect(keysOf()).toEqual([">", "<", "=", "!", "+", "-", "*", "/", "(", ")", "@"]);
+    expect(keysOf()).toEqual([">", "<", "=", "!", "+", "-", "*", "/", "%", "(", ")", "@"]);
   });
 
   it("знак встаёт в место курсора, а не в конец", () => {
@@ -97,5 +97,26 @@ describe("ряд знаков", () => {
     fireEvent.focus(el);
     fireEvent.mouseDown(screen.getByLabelText("знак @"));
     expect(screen.getByRole("listbox", { name: "ресурсы для выражения" })).toBeTruthy();
+  });
+});
+
+describe("процент и режим без сравнения", () => {
+  it("в ряду знаков есть «%»; у поля величины нет знаков сравнения", () => {
+    render(<Host />);
+    const el = screen.getByLabelText("сколько ресурса");
+    fireEvent.focus(el);
+    expect(screen.getByRole("button", { name: "знак %" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "знак >" })).toBeInTheDocument();
+  });
+  it("«plain»: без сравнения, с процентом", () => {
+    const got = [];
+    render(<ExprField plain value="" traits={TRAITS} aria-label="величина" onCommit={(x) => got.push(x)} />);
+    const el = screen.getByLabelText("величина");
+    fireEvent.focus(el);
+    expect(screen.queryByRole("button", { name: "знак >" })).toBeNull();
+    expect(screen.getByRole("button", { name: "знак %" })).toBeInTheDocument();
+    type(el, "20% @Заявки");
+    fireEvent.blur(el);
+    expect(got).toEqual(["20% @{t1}"]);
   });
 });

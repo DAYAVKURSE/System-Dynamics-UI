@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canAcceptProc, dropHypo, formatStep, hintAt, nameKey, newProc, normalizeProc,
   parseLine, parseProcess, procFuncs, procIssues, procLabel, procUsesAsset, replaceName,
-  resolveProc, stateOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
+  marksOf, resolveProc, stateOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
 import { activeFuncs, liveModel, normalizeFunc } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
 import { chainOf } from "../lib/chain.js";
@@ -29,11 +29,11 @@ describe("разбор строки", () => {
   it("слова через запятую: актив, должность, «берёт:» пары откуда/что, «отдаёт:» пары куда/что", () => {
     const s = parseLine(LINE, model);
     expect(s.error).toBeNull();
-    expect(s.asset).toEqual({ name: "Пользователи", id: "usr" });
-    expect(s.role).toEqual({ name: "менеджер", id: "sales" });
-    expect(s.takes).toEqual([{ asset: { name: "Рынок услуг", id: "mkt" },
+    expect(s.asset).toMatchObject({ name: "Пользователи", id: "usr", span: { start: 0, end: 12 } });
+    expect(s.role).toMatchObject({ name: "менеджер", id: "sales" });
+    expect(s.takes).toMatchObject([{ asset: { name: "Рынок услуг", id: "mkt" },
       trait: { name: "спрос", id: "dem" }, qty: 2 }]);
-    expect(s.gives).toEqual([{ asset: { name: "Пользователи", id: "usr" },
+    expect(s.gives).toMatchObject([{ asset: { name: "Пользователи", id: "usr" },
       trait: { name: "заявки", id: "req" }, qty: 1 }]);
   });
 
@@ -57,9 +57,9 @@ describe("разбор строки", () => {
   it("ненайденное остаётся без id, а не ошибкой: так процесс и придумывают", () => {
     const s = parseLine("Склад, кладовщик, берёт: Пользователи, заявки, отдаёт: Склад, коробки", model);
     expect(s.error).toBeNull();
-    expect(s.asset).toEqual({ name: "Склад", id: null });
-    expect(s.role).toEqual({ name: "кладовщик", id: null });
-    expect(s.gives[0]).toEqual({ asset: { name: "Склад", id: null },
+    expect(s.asset).toMatchObject({ name: "Склад", id: null });
+    expect(s.role).toMatchObject({ name: "кладовщик", id: null });
+    expect(s.gives[0]).toMatchObject({ asset: { name: "Склад", id: null },
       trait: { name: "коробки", id: null }, qty: 1 });
   });
 
@@ -247,5 +247,34 @@ describe("гипотеза считается только по просьбе",
     expect(chainOf(m, { from: "dem" }).steps.map((s) => s.id)).toEqual(["f1"]);
     expect(chainOf({ ...m, hypoOn: true }, { from: "dem" }).steps.map((s) => s.id).sort())
       .toEqual(["f1", "pr1_1"]);
+  });
+});
+
+describe("операции в количестве и красные метки (владелец, 2026-09-15)", () => {
+  const stocked = { ...model, traits: traits.map((t) => ({ ...t, have: t.id === "dem" ? 50 : 0 })) };
+  it("количество — операцией: «20% @спрос» считается по остатку, выражение остаётся у порта и в строке", () => {
+    const s = parseLine("Пользователи, берёт: Рынок услуг, спрос 20% @спрос, отдаёт: Пользователи, заявки 2*3", stocked);
+    expect(s.error).toBeNull();
+    expect(s.takes[0].trait).toMatchObject({ name: "спрос", id: "dem" });
+    expect(s.takes[0].qty).toBe(10);
+    expect(s.takes[0].expr).toBe("20% @спрос");
+    expect(s.gives[0].qty).toBe(6);
+    expect(formatStep(s)).toBe("Пользователи, берёт: Рынок услуг, спрос 20% @спрос, отдаёт: Пользователи, заявки 2*3");
+    // Ресурс в операции не найден — имя не портится, а ошибка названа.
+    const bad = parseLine("Пользователи, берёт: Рынок услуг, спрос 20% @нет, отдаёт: Пользователи, заявки", stocked);
+    expect(bad.takes[0].trait.name).toBe("спрос");
+    expect(bad.takes[0].exprError).toBeTruthy();
+  });
+  it("метки: где в строке стоят ненайденные имена и что пропущено", () => {
+    const text = "Пользователи, берёт: Рынок услуг, спрос, отдаёт: Склад, коробки\nСклад, берёт: Пользователи";
+    const m = marksOf(text, model, newProc());
+    expect(m[0].marks.map((k) => [k.name, k.state, k.start, k.end]))
+      .toEqual([["Склад", "unknown", 49, 54], ["коробки", "unknown", 56, 63]]);
+    expect(m[0].error).toBe("");
+    expect(m[1].marks.map((k) => k.name)).toEqual(["Склад"]);
+    expect(m[1].error).toMatch(/не назван ресурс/);
+    // Отклонённое — своя метка; найденное по памяти записи — без метки.
+    const proc = { ...newProc(), missing: { rejected: ["Склад"] } };
+    expect(marksOf(text, model, proc)[0].marks[0].state).toBe("rejected");
   });
 });

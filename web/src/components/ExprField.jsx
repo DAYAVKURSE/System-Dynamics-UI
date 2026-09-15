@@ -26,9 +26,13 @@ import { parseExpr, toShown, toStored } from "../lib/expr.js";
 
 /* Что можно нажать. Сравнение стоит первым и отделено: оно открывает
    выражение, остальное — внутри него. */
-const KEYS = [">", "<", "=", "!", "+", "-", "*", "/", "(", ")", "@"];
+const KEYS = [">", "<", "=", "!", "+", "-", "*", "/", "%", "(", ")", "@"];
+/* Без сравнения — для количеств у функции и в техпроцессе: там нужна
+   величина, а не условие. */
+const PLAIN_KEYS = KEYS.filter((k) => ![">", "<", "=", "!"].includes(k));
 
-export default function ExprField({ value = "", traits = [], onCommit, style, ...rest }) {
+export default function ExprField({ value = "", traits = [], onCommit, style, plain = false,
+  placeholder, ...rest }) {
   const nameOf = (id) => traits.find((t) => t.id === id)?.l || "";
   const [text, setText] = useState(() => toShown(value, nameOf));
   const [focus, setFocus] = useState(false);
@@ -51,7 +55,7 @@ export default function ExprField({ value = "", traits = [], onCommit, style, ..
     setText(v);
     const at = e.target.selectionStart ?? v.length;
     const before = v.slice(0, at);
-    const m = before.match(/@([^@\s+\-*/()]*)$/);
+    const m = before.match(/@([^@\s+\-*/()%]*)$/);
     setPick(m ? { at: at - m[0].length, query: m[1] } : null);
     setCursor(0);
   };
@@ -94,7 +98,7 @@ export default function ExprField({ value = "", traits = [], onCommit, style, ..
     <div style={{ position: "relative", ...style }}>
       <input ref={inp} value={text} {...rest}
         style={{ ...S.inp, width: "100%", fontFamily: "ui-monospace, Menlo, monospace" }}
-        placeholder="> 10   или   > @ресурс*0,5"
+        placeholder={placeholder ?? (plain ? "10   или   20% @ресурс" : "> 10   или   > 20% @ресурс")}
         onFocus={() => setFocus(true)}
         onBlur={() => { setFocus(false); setPick(null); commit(); }}
         onChange={onChange} onKeyDown={onKey} />
@@ -104,7 +108,7 @@ export default function ExprField({ value = "", traits = [], onCommit, style, ..
           теряло бы его на нажатии, ряд исчезал бы, и клик не доходил. */}
       {focus && (
         <div className="flex flex-wrap gap-2" style={{ marginTop: 3 }}>
-          {KEYS.map((k) => (
+          {(plain ? PLAIN_KEYS : KEYS).map((k) => (
             <button key={k} aria-label={`знак ${k}`} type="button"
               onMouseDown={(e) => { e.preventDefault(); put(k); }}
               style={{ ...btn(false), fontFamily: "ui-monospace, Menlo, monospace",

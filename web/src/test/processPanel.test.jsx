@@ -261,3 +261,16 @@ describe("процессы живут на «Управлении»", () => {
     expect(screen.getByDisplayValue("Рынок услуг")).toBeInTheDocument();
   });
 });
+
+describe("красные метки в поле", () => {
+  it("ненайденное имя подсвечено красным прямо под текстом; пропущенное — меткой у края строки", () => {
+    const area = addProc();
+    write(area, "Пользователи, берёт: Рынок услуг, спрос, отдаёт: Склад, коробки\nСклад, берёт: Пользователи");
+    const back = document.querySelector("[data-proc-backdrop]");
+    const marks = Array.from(back.querySelectorAll("[data-mark=unknown]")).map((m) => m.textContent);
+    expect(marks).toEqual(["Склад", "коробки", "Склад"]);
+    expect(back.querySelector("[data-mark=error]").textContent).toMatch(/не назван ресурс/);
+    // Поле лежит над подложкой с прозрачным фоном: подсветка видна сквозь него.
+    expect(area.style.background).toBe("transparent");
+  });
+});

@@ -1,6 +1,8 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, TxtField } from "./ui.jsx";
+import ExprField from "./ExprField.jsx";
+import { evalExpr } from "../lib/expr.js";
 import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWorkers,
   eligible, exceptOf, postsOf, togglePost, toggleExcept,
   editFunc, funcState,
@@ -129,10 +131,26 @@ const Num = ({ value, onChange, label, style }) => (
  * одно и то же, и хранить, каким из двух способов это набрали, незачем.
  * Открывается она по тому, различаются ли границы.
  */
-function PortQty({ p, name, onSet, fact }) {
+function PortQty({ p, name, onSet, fact, traits = [] }) {
   const lo = Number(p.lo) || 0;
   const hi = Number(p.hi) || 0;
   const [ranged, setRanged] = useState(lo !== hi);
+  /* Операция (владелец, 2026-09-15): количество можно задать выражением с
+     процентом от значения — «20% @Заявки» — тем же языком, что у целей.
+     Считается по нынешнему остатку ресурсов и кладётся в число (`lo` =
+     `hi`); само выражение остаётся у порта (`expr`), чтобы было видно,
+     откуда число, и чтобы его можно было поправить. */
+  const [opOpen, setOpOpen] = useState(!!p.expr);
+  const stockOf = (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; };
+  const applyExpr = (expr) => {
+    if (!expr.trim()) { onSet({ expr: "" }); return; }
+    const r = evalExpr(expr, stockOf);
+    if (r.value == null) { onSet({ expr }); return; }
+    const v = Math.round(r.value * 100) / 100;
+    setRanged(false);
+    onSet({ expr, lo: v, hi: v });
+  };
+  const opResult = p.expr ? evalExpr(p.expr, stockOf) : null;
   const exact = () => {
     // Схлопывая вилку, берём нижнюю границу: она — то, на что рассчитывали.
     const one = lo || hi;
@@ -165,7 +183,23 @@ function PortQty({ p, name, onSet, fact }) {
         style={{ accentColor: ACC }} />
       диапазон
     </label>
+    <button type="button" aria-label={`операция ${name}`} aria-pressed={opOpen}
+      onClick={() => setOpOpen((v) => !v)}
+      style={{ background: "transparent", cursor: "pointer",
+        border: `1px solid ${p.expr ? ACC : C.line}`, color: p.expr ? ACC : C.muted,
+        borderRadius: 20, padding: "1px 7px", fontSize: 10, whiteSpace: "nowrap" }}>
+      {p.expr ? "ƒ операция" : "○ операция"}</button>
     {fact}
+    {opOpen && (
+      <div style={{ flexBasis: "100%", marginTop: 3 }}>
+        <ExprField plain value={p.expr || ""} traits={traits}
+          aria-label={`выражение ${name}`} onCommit={applyExpr} />
+        <div style={{ fontSize: 10, color: opResult?.error ? BAD : C.muted, marginTop: 2 }}>
+          {!p.expr ? "число, «@ресурс», действия и процент от значения: «20% @Заявки»"
+            : opResult?.error ? opResult.error
+              : `= ${nm(Math.round((opResult?.value ?? 0) * 100) / 100)} по нынешним остаткам`}
+        </div>
+      </div>)}
   </>);
 }
 
@@ -637,7 +671,7 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                         списком вовсе. */}
                     <div className="flex flex-wrap items-center gap-2"
                       style={{ marginTop: 3 }}>
-                      <PortQty p={p} name={traitName(p.trait)}
+                      <PortQty p={p} name={traitName(p.trait)} traits={[...own, ...others]}
                         onSet={(patch) => onSet(p.id, patch)} />
                       {/* Расходует или только обрабатывает. Вопрос стоит у
                           входа, а не у ресурса: одна функция ткань режет, а
