@@ -17,9 +17,9 @@ import { parseExpr, toShown, toStored } from "../lib/expr.js";
 
    ─── буквы ресурсов ───
 
-   У функции ресурсы (входы, потом выходы) имеют буквы «а», «б», «в»…
-   (`ports` — [{id, letter, name}]): «50% а» — половина того, что берёт
-   ресурс «а». В записи буква — `#{id}` порта, на экране — буква по его
+   У функции ресурсы (входы, потом выходы) имеют буквы «A», «B», «C»…
+   (`ports` — [{id, letter, name}]): «50% A» — половина того, что берёт
+   ресурс «A». В записи буква — `#{id}` порта, на экране — буква по его
    нынешнему месту. Буквы стоят в ряду знаков, с именем ресурса рядом.
 
    ─── знаки кнопками ───
@@ -109,7 +109,7 @@ export default function ExprField({ value = "", traits = [], ports = [], onCommi
           размер под соседей — `inputStyle`. */}
       <input ref={inp} value={text} {...rest}
         style={{ ...S.inp, width: "100%", ...inputStyle }}
-        placeholder={placeholder ?? (plain ? (ports.length ? "10 · 45-55 · 50% а · 20% @ресурс" : "10   или   20% @ресурс")
+        placeholder={placeholder ?? (plain ? (ports.length ? "10 · 45-55 · 50% A · 20% @ресурс" : "10   или   20% @ресурс")
           : "> 10   или   > 20% @ресурс")}
         onFocus={() => setFocus(true)}
         onBlur={() => { setFocus(false); setPick(null); commit(); }}

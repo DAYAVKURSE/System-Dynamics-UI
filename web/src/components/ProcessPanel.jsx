@@ -192,7 +192,7 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
               </div>))}
             {!items.length && (
               <div style={{ padding: "5px 8px", fontSize: 11, color: C.muted }}>
-                {pick.kind === "qty" ? "число, диапазон 45-55, «50% а», «20% @ресурс»"
+                {pick.kind === "qty" ? "число, диапазон 45-55, «50% A», «20% @ресурс»"
                   : pick.query ? `«${pick.query}» — новое имя: примите его под полем после набора; через пробел — сколько` : "список пуст — введите своё имя"}
               </div>)}
           </div>

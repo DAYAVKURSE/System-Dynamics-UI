@@ -136,7 +136,7 @@ function PortQty({ p, name, onSet, fact, traits = [], ports = [], res }) {
   const hi = Number(p.hi) || 0;
   const [rangedOn, setRanged] = useState(lo !== hi);
   /* Операция (владелец, 2026-09-15): количество можно задать выражением —
-     «50% а» (доля другого ресурса этой функции по его букве), «45-55% а»
+     «50% A» (доля другого ресурса этой функции по его букве), «45-55% A»
      (диапазон), «20% @Заявки» (от остатка на схеме). Считает вся функция
      разом (`evalPorts` в `upPort`): буква — другой порт, и он должен быть
      посчитан первым. Результат ложится в `lo`/`hi`; само выражение
@@ -191,7 +191,7 @@ function PortQty({ p, name, onSet, fact, traits = [], ports = [], res }) {
           aria-label={`выражение ${name}`} onCommit={applyExpr} />
       </div>
       <div style={{ fontSize: 10, color: res?.error ? BAD : C.muted, marginTop: 2 }}>
-        {!p.expr ? "10 · 45-55 · 50% а (доля ресурса «а») · 20% @Заявки (от остатка)"
+        {!p.expr ? "10 · 45-55 · 50% A (доля ресурса «A») · 20% @Заявки (от остатка)"
           : res?.error ? res.error
             : `= ${res && res.lo !== res.hi ? `${shown(res.lo)}–${shown(res.hi)}` : shown(res?.lo ?? lo)}`}
       </div>
@@ -650,7 +650,7 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                     <div className="flex flex-wrap items-center gap-2">
                       <span style={{ flex: "1 1 90px", fontSize: 12.5, minWidth: 0 }}>
                         {/* Буква ресурса — ею на него ссылаются операции
-                            других ресурсов функции: «50% а». Входы первыми,
+                            других ресурсов функции: «50% A». Входы первыми,
                             выходы — следом. */}
                         <span aria-label={`буква ${letterOf(letterBase + list.indexOf(p))}: ${traitName(p.trait)}`}
                           style={{ color: ACC, fontWeight: 700, marginRight: 5 }}>

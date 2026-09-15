@@ -282,19 +282,19 @@ describe("операции — прямо в поле, с подсказками
     type(area, head);
     expect(popup()).toHaveTextContent("ожидается: сколько");
     expect(popup()).toHaveTextContent("для «заявки»");
-    expect(options()[0]).toBe("буква а — спрос (Рынок услуг)");
+    expect(options()[0]).toBe("буква A — спрос (Рынок услуг)");
     expect(options()).toContain("знак % — процент");
     fireEvent.keyDown(area, { key: "Tab" });
-    expect(area).toHaveValue(`${head}а`);
+    expect(area).toHaveValue(`${head}A`);
     fireEvent.blur(area);
-    // Разбор под полем: буквы у ресурсов, количество посчитано по «а».
-    expect(screen.getByLabelText("буква а: спрос")).toBeInTheDocument();
-    expect(screen.getByLabelText("буква б: заявки")).toBeInTheDocument();
+    // Разбор под полем: буквы у ресурсов, количество посчитано по «A».
+    expect(screen.getByLabelText("буква A: спрос")).toBeInTheDocument();
+    expect(screen.getByLabelText("буква B: заявки")).toBeInTheDocument();
     expect(screen.getByLabelText("ресурс «заявки»: открыть")).toHaveTextContent("заявки 500");
     expect(screen.queryByLabelText(/^операции с ресурсами/)).toBeNull();
   });
 
-  it("новые имена: после «оплата » окно ждёт «сколько» и предлагает знаки; после второго ресурса — букву «а»", () => {
+  it("новые имена: после «оплата » окно ждёт «сколько» и предлагает знаки; после второго ресурса — букву «A»", () => {
     const area = addProc();
     type(area, "Партнёр, берёт: Заказчик, оплата ");
     expect(popup()).toHaveTextContent("ожидается: сколько");
@@ -302,14 +302,14 @@ describe("операции — прямо в поле, с подсказками
     expect(options()).toContain("знак % — процент");
     const head = "Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% ";
     type(area, head);
-    expect(options()[0]).toBe("буква а — оплата (Заказчик)");
+    expect(options()[0]).toBe("буква A — оплата (Заказчик)");
     fireEvent.keyDown(area, { key: "Tab" });
-    expect(area).toHaveValue(`${head}а`);
+    expect(area).toHaveValue(`${head}A`);
   });
 
-  it("диапазон «45-55% а» показывается как от–до и уходит в функцию вилкой", () => {
+  it("диапазон «45-55% A» показывается как от–до и уходит в функцию вилкой", () => {
     const area = addProc();
-    write(area, "Пользователи, берёт: Рынок услуг, спрос 1000, отдаёт: Пользователи, заявки 45-55% а");
+    write(area, "Пользователи, берёт: Рынок услуг, спрос 1000, отдаёт: Пользователи, заявки 45-55% A");
     expect(screen.getByLabelText("ресурс «заявки»: открыть")).toHaveTextContent("заявки 450–550");
     fireEvent.click(screen.getByRole("button", { name: "Принято" }));
     const f = dump().funcs.find((x) => x.proc);

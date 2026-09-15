@@ -284,28 +284,30 @@ describe("буквы ресурсов в строке (владелец, 2026-09
   const trs = [...traits, { id: "pay1", e: "cust", l: "оплата", have: 0 }, { id: "pay2", e: "me", l: "оплата" },
     { id: "req3", e: "me", l: "заявки" }];
   const m = { entities: ents, traits: trs, positions };
-  const L = "Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 45-55% а, Я, заявки 2-4";
+  const L = "Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 45-55% A, Я, заявки 2-4";
 
-  it("ресурсы строки получают буквы по порядку; «45-55% а» — доля первого, диапазон — от и до", () => {
+  it("ресурсы строки получают буквы по порядку; «45-55% A» — доля первого, диапазон — от и до", () => {
     const s = parseLine(L, m);
     expect(s.error).toBeNull();
-    expect(s.takes[0]).toMatchObject({ letter: "а", trait: { name: "оплата", id: "pay1" }, qty: 1000 });
-    expect(s.gives[0]).toMatchObject({ letter: "б", trait: { name: "оплата", id: "pay2" }, qty: 450, qtyHi: 550, expr: "45-55% а" });
-    expect(s.gives[1]).toMatchObject({ letter: "в", trait: { name: "заявки", id: "req3" }, qty: 2, qtyHi: 4, expr: "2-4" });
+    expect(s.takes[0]).toMatchObject({ letter: "A", trait: { name: "оплата", id: "pay1" }, qty: 1000 });
+    expect(s.gives[0]).toMatchObject({ letter: "B", trait: { name: "оплата", id: "pay2" }, qty: 450, qtyHi: 550, expr: "45-55% A" });
+    expect(s.gives[1]).toMatchObject({ letter: "C", trait: { name: "заявки", id: "req3" }, qty: 2, qtyHi: 4, expr: "2-4" });
     expect(formatStep(s)).toBe(L);
-    // Латинская буква — та же по месту; буква позже своего ресурса — ошибка словами.
+    // Строчная буква читается как заглавная; буквы, которой нет, — ошибка словами.
     expect(parseLine("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% a", m).gives[0].qty).toBe(500);
-    // Буква — любой ресурс строки, хоть позже: «б» здесь — «оплата» у «Я» (1 → 0,5).
-    expect(parseLine("Партнёр, берёт: Заказчик, оплата 50% б, отдаёт: Я, оплата", m).takes[0].qty).toBe(0.5);
-    const bad = parseLine("Партнёр, берёт: Заказчик, оплата 50% в, отдаёт: Я, оплата", m);
-    expect(bad.takes[0].exprError).toMatch(/нет ресурса с буквой «в»/);
-    expect(marksOf("Партнёр, берёт: Заказчик, оплата 50% в, отдаёт: Я, оплата", m, newProc())[0].marks[0])
-      .toMatchObject({ state: "expr", name: expect.stringMatching(/«в»/) });
+    // Буква — любой ресурс строки, хоть позже: «B» здесь — «оплата» у «Я» (1 → 0,5).
+    expect(parseLine("Партнёр, берёт: Заказчик, оплата 50% B, отдаёт: Я, оплата", m).takes[0].qty).toBe(0.5);
+    const bad = parseLine("Партнёр, берёт: Заказчик, оплата 50% C, отдаёт: Я, оплата", m);
+    expect(bad.takes[0].exprError).toMatch(/нет ресурса с буквой «C»/);
+    expect(marksOf("Партнёр, берёт: Заказчик, оплата 50% C, отдаёт: Я, оплата", m, newProc())[0].marks[0])
+      .toMatchObject({ state: "expr", name: expect.stringMatching(/«C»/) });
+    // Кириллическая буква — не ссылка, а часть имени.
+    expect(parseLine("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата б", m).gives[0].trait.name).toBe("оплата б");
   });
 
   it("одна буква, которой в строке ещё нет, — часть имени ресурса, а не операция", () => {
-    const s = parseLine("Партнёр, берёт: Заказчик, оплата б, отдаёт: Я, оплата", m);
-    expect(s.takes[0].trait.name).toBe("оплата б");
+    const s = parseLine("Партнёр, берёт: Заказчик, оплата B, отдаёт: Я, оплата", m);
+    expect(s.takes[0].trait.name).toBe("оплата B");
     expect(s.takes[0].expr).toBeUndefined();
   });
 
@@ -326,7 +328,7 @@ describe("буквы ресурсов в строке (владелец, 2026-09
     expect(names(h1)).toEqual(["%", "@", "-", "*", "/", "+", "(", ")"]);   // ресурсов раньше нет — букв нет
     const h2 = at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% ");
     expect(h2).toMatchObject({ kind: "qty", query: "", traitName: "оплата" });
-    expect(names(h2)[0]).toBe("а");
+    expect(names(h2)[0]).toBe("A");
     expect(suggestNames(h2, m, newProc())[0]).toMatchObject({ kind: "буква", note: "оплата (Заказчик)", suffix: "" });
     // Подставляется слово у курсора, не весь хвост: «50% » остаётся.
     expect(h2.start).toBe("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% ".length);
@@ -334,7 +336,7 @@ describe("буквы ресурсов в строке (владелец, 2026-09
     expect(h3).toMatchObject({ kind: "qty", query: "@сп" });
     expect(names(h3)).toEqual(["@спрос"]);
     // Незнакомое имя с хвостом-операцией — тоже «сколько»; имя без хвоста — по-прежнему «что».
-    expect(at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, деньги 50% а")).toMatchObject({ kind: "qty", traitName: "деньги", query: "а" });
+    expect(at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, деньги 50% A")).toMatchObject({ kind: "qty", traitName: "деньги", query: "A" });
     expect(at("Партнёр, берёт: Заказчик, опл").kind).toBe("trait");
     // Новое имя (его нет на схеме) и пробел — тоже «сколько»: процесс пишут новыми именами.
     const h4 = at("Партнёр, берёт: Заказчик, аванс ");

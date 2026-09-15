@@ -92,26 +92,27 @@ describe("процент (владелец, 2026-09-15: операции)", () =
 });
 
 describe("буквы ресурсов и диапазоны (владелец, 2026-09-15)", () => {
-  const PORTS = [{ id: "p1", lo: 1000, hi: 1000 }, { id: "p2", lo: 1, hi: 1, expr: "50% а" }];
-  it("буквы — по порядку: «а», «б», «в»; латинские a, b, c — те же по месту", () => {
-    expect([0, 1, 2].map(letterOf)).toEqual(["а", "б", "в"]);
-    expect(letterIndex("б")).toBe(1);
+  const PORTS = [{ id: "p1", lo: 1000, hi: 1000 }, { id: "p2", lo: 1, hi: 1, expr: "50% A" }];
+  it("буквы — заглавные латинские по порядку: «A», «B», «C»; строчная читается так же; кириллица — не буква", () => {
+    expect([0, 1, 2].map(letterOf)).toEqual(["A", "B", "C"]);
+    expect(letterIndex("B")).toBe(1);
     expect(letterIndex("b")).toBe(1);
-    expect(letterIndex("Б")).toBe(1);
+    expect(letterIndex("б")).toBe(-1);
     expect(letterIndex("ы")).toBe(-1);
-    expect(lettersIn("50% а + b")).toEqual([0, 1]);
+    expect(lettersIn("50% A + b")).toEqual([0, 1]);
+    expect(parseExpr("=50% б").error).toMatch(/не буква ресурса: буквы латинские/);
   });
-  it("буква в операции — количество того ресурса; «50% а» — половина «а»", () => {
+  it("буква в операции — количество того ресурса; «50% A» — половина «A»", () => {
     const portOf = ({ i }) => (i === 0 ? { lo: 1000, hi: 1000 } : undefined);
-    expect(evalExpr("=50% а", () => undefined, portOf).value).toBe(500);
+    expect(evalExpr("=50% A", () => undefined, portOf).value).toBe(500);
     expect(evalExpr("=a/2", () => undefined, portOf).value).toBe(500);
-    expect(evalExpr("=50% б", () => undefined, portOf).error).toMatch(/нет ресурса с буквой «б»/);
+    expect(evalExpr("=50% B", () => undefined, portOf).error).toMatch(/нет ресурса с буквой «B»/);
     // Слово из букв — не буква: ресурс пишут через @.
     expect(parseExpr("=abc").error).toMatch(/буква — одна/);
   });
   it("диапазон «45-55» — от и до; выражение даёт обе границы", () => {
     expect(evalExpr("=45-55")).toMatchObject({ value: 45, lo: 45, hi: 55, error: "" });
-    expect(evalExpr("=45-55% а", () => undefined, () => ({ lo: 1000, hi: 1000 }))).toMatchObject({ lo: 450, hi: 550 });
+    expect(evalExpr("=45-55% A", () => undefined, () => ({ lo: 1000, hi: 1000 }))).toMatchObject({ lo: 450, hi: 550 });
     // Вычитаемое и делитель — наоборот, чтобы границы оставались границами.
     expect(evalExpr("=10-(2-4)")).toMatchObject({ lo: 6, hi: 8 });
     expect(evalExpr("=100/(2-4)")).toMatchObject({ lo: 25, hi: 50 });
@@ -128,23 +129,23 @@ describe("буквы ресурсов и диапазоны (владелец, 2
   });
   it("количества портов считаются по операциям: буква — другой порт, он первым; круг — ошибка", () => {
     const r = evalPorts(PORTS);
-    expect(r[0]).toMatchObject({ id: "p1", lo: 1000, hi: 1000, letter: "а", error: "" });
-    expect(r[1]).toMatchObject({ id: "p2", lo: 500, hi: 500, letter: "б", error: "" });
+    expect(r[0]).toMatchObject({ id: "p1", lo: 1000, hi: 1000, letter: "A", error: "" });
+    expect(r[1]).toMatchObject({ id: "p2", lo: 500, hi: 500, letter: "B", error: "" });
     // По идентификатору порта — то же; диапазон тянется по цепочке; сотые.
     const chain = evalPorts([...PORTS, { id: "p3", expr: "#{p2}*45-55%" }, { id: "p4", expr: "#{p3}/3" }]);
     expect(chain[2]).toMatchObject({ lo: 225, hi: 275 });
     expect(chain[3]).toMatchObject({ lo: 75, hi: 91.67 });
-    const loop = evalPorts([{ id: "x", expr: "б" }, { id: "y", expr: "а" }]);
-    expect(loop.map((x) => x.error)).toEqual(["операции ссылаются друг на друга по кругу", "«а» не посчиталась"]);
+    const loop = evalPorts([{ id: "x", expr: "B" }, { id: "y", expr: "A" }]);
+    expect(loop.map((x) => x.error)).toEqual(["операции ссылаются друг на друга по кругу", "«A» не посчиталась"]);
     // Порт без операции остаётся со своими числами; убранный порт — ошибка словами.
     expect(evalPorts([{ id: "z", lo: 2, hi: 4 }])[0]).toMatchObject({ lo: 2, hi: 4, error: "" });
     expect(evalPorts([{ id: "z", expr: "#{нет}" }])[0].error).toMatch(/убран/);
   });
   it("в записи буква — `#{id}` порта, на экране — буква по его месту; буква внутри имени не трогается", () => {
     const ids = ["p1", "p2"];
-    expect(toStored("50% a + @Заявки*б", TRAITS, ids)).toBe("50% #{p1} + @{t1}*#{p2}");
-    expect(toStored("50% в", TRAITS, ids)).toBe("50% в");   // такого порта нет — как есть
+    expect(toStored("50% a + @Заявки*B", TRAITS, ids)).toBe("50% #{p1} + @{t1}*#{p2}");
+    expect(toStored("50% C", TRAITS, ids)).toBe("50% C");   // такого порта нет — как есть
     expect(toStored("=@Заявки в работе*2", TRAITS, ids)).toBe("=@{t2}*2");
-    expect(toShown("50% #{p1} + @{t1}*#{p9}", (id) => TRAITS.find((t) => t.id === id)?.l, ids)).toBe("50% а + @Заявки*?");
+    expect(toShown("50% #{p1} + @{t1}*#{p9}", (id) => TRAITS.find((t) => t.id === id)?.l, ids)).toBe("50% A + @Заявки*?");
   });
 });

@@ -697,7 +697,7 @@ describe("операция у количества (владелец, 2026-09-15
     const name = addPort("takes");
     // Операция — всегда на виду, под количеством, с подписью; у ресурса — буква.
     expect(screen.getByLabelText(`операция ${name}`).textContent).toContain("операция");
-    expect(screen.getByLabelText(`буква а: ${name}`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`буква A: ${name}`)).toBeInTheDocument();
     const field = screen.getByLabelText(`выражение ${name}`);
     const numBox = screen.getByLabelText(`сколько ${name}`);
     expect(field.style.fontSize).toBe(numBox.style.fontSize);
@@ -714,7 +714,7 @@ describe("операция у количества (владелец, 2026-09-15
     expect(f.takes[0]).toMatchObject({ expr: "50% 8", lo: 4, hi: 4 });
   });
 
-  it("буква другого ресурса: выход «45-55% а» — доля входа «а», вилкой; число руками снимает операцию", () => {
+  it("буква другого ресурса: выход «45-55% A» — доля входа «A», вилкой; число руками снимает операцию", () => {
     addFunc();
     const inName = addPort("takes");
     // Выход — другой ресурс: одноимённый вход и выход не различить по подписям.
@@ -723,12 +723,12 @@ describe("операция у количества (владелец, 2026-09-15
     fireEvent.change(sel, { target: { value: opt.value } });
     const outName = opt.textContent;
     fireEvent.change(screen.getByLabelText(`сколько ${inName}`), { target: { value: "1000" } });
-    expect(screen.getByLabelText(`буква б: ${outName}`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`буква B: ${outName}`)).toBeInTheDocument();
     const field = screen.getByLabelText(`выражение ${outName}`);
     fireEvent.focus(field);
     // Буквы — в ряду знаков, с именем ресурса.
-    expect(screen.getByRole("button", { name: `буква а — ${inName}` })).toBeInTheDocument();
-    fireEvent.change(field, { target: { value: "45-55% а" } });
+    expect(screen.getByRole("button", { name: `буква A — ${inName}` })).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: "45-55% A" } });
     fireEvent.blur(field);
     expect(screen.getByText("= 450–550")).toBeInTheDocument();
     expect(screen.getByLabelText(`диапазон ${outName}`)).toBeChecked();
