@@ -148,13 +148,19 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
             onClick={() => cmd("undo")} style={roundBtn()}>↶</button>
           <button type="button" aria-label="вернуть правку" title="Вернуть"
             onClick={() => cmd("redo")} style={roundBtn()}>↷</button>
-          {/* Сохранение — словом, а не значком (владелец, 2026-09-15): оно
-              должно быть очевидным. Зелёное, когда есть что сохранять. */}
+          {/* Сохранение — значком дискеты (владелец, 2026-09-15: «не словами,
+              а значком, просто понятным»): его знают все. Зелёный кружок,
+              когда есть что сохранять. */}
           <button type="button" aria-label="сохранить документ" title={dirty ? "Сохранить новой версией" : "Правок нет"}
             disabled={!dirty || busy} onClick={onSave}
-            style={roundBtn({ width: "auto", borderRadius: 19, padding: "0 14px", fontSize: 12.5, fontWeight: 700,
-              background: dirty ? "rgba(61,220,151,.85)" : "rgba(29,40,57,.72)",
-              color: dirty ? "#0E1420" : "#fff", opacity: dirty ? 1 : 0.55 })}>Сохранить</button>
+            style={roundBtn({ background: dirty ? "rgba(61,220,151,.85)" : "rgba(29,40,57,.72)",
+              color: dirty ? "#0E1420" : "#fff", opacity: dirty ? 1 : 0.55,
+              display: "flex", alignItems: "center", justifyContent: "center" })}>
+            <svg data-icon="save" width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2 2h9l3 3v9H2z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              <path d="M4.5 2v4h5V2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              <rect x="4.5" y="9" width="7" height="5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            </svg></button>
         </>)}
       </div>
       <div style={{ fontSize: 11, color: C.muted, padding: "12px 60px 4px 16px" }}>

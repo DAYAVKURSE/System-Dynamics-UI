@@ -145,7 +145,9 @@ describe("форма договоров", () => {
       .forEach((n) => expect(within(viewer).getByRole("button", { name: n })).toBeInTheDocument());
     const saveBtn = within(viewer).getByRole("button", { name: "сохранить документ" });
     expect(saveBtn).toBeDisabled();
-    expect(saveBtn.textContent).toBe("Сохранить");   // словом, не галочкой
+    expect(saveBtn.querySelector("svg[data-icon='save']")).not.toBeNull();   // значок дискеты, без слов
+    expect(saveBtn.textContent.trim()).toBe("");
+    expect(saveBtn.style.borderRadius).toBe("50%");
     expect(within(viewer).getByRole("button", { name: "закрыть документ" }).style.borderRadius).toBe("50%");
     expect(within(viewer).getByRole("button", { name: "свернуть документ" }).querySelector("svg")).not.toBeNull();
     // Правка: добавили слово в предложение.
