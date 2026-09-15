@@ -54,7 +54,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 let seq = 0;
-import { evalExpr, toStored } from "./expr.js";
+import { evalPorts, letterIndex, letterOf, lettersIn, parseExpr, toStored } from "./expr.js";
 
 const nextId = (prefix) => {
   seq += 1;
@@ -143,20 +143,35 @@ const splitMark = (t) => {
 
 /* Ресурс с количеством: «заявки 2» — имя всё до числа, число в конце.
    Количество может быть ОПЕРАЦИЕЙ (владелец, 2026-09-15): «коробки 20%
-   @спрос» — тем же языком, что у целей и портов функции; считается по
-   нынешним остаткам, выражение остаётся у порта (`expr`). Хвост, похожий
-   на операцию, но не посчитавшийся (ресурс не найден), отделяется от
-   имени всё равно — иначе он стал бы частью имени ресурса. */
-const splitQty = (text, traits = []) => {
-  const m = text.match(/^(.*?\S)\s+([\d(@].*)$/);
-  if (m && /[\d@]/.test(m[2])) {
-    const r = evalExpr(toStored(m[2], traits),
-      (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; });
-    if (!r.error && r.value != null) return { name: m[1].trim(), qty: r.value, expr: m[2] };
-    if (/[%@]/.test(m[2])) return { name: m[1].trim(), qty: 1, expr: m[2], exprError: r.error || "не посчиталось" };
+   @спрос», «оплата 50% а», «оплата 45-55% а» — тем же языком, что у
+   целей и портов функции; буква — ресурс этой же строки по порядку
+   («а» — первый). Считается после разбора всей строки (`evalPorts`);
+   выражение остаётся у порта (`expr`).
+
+   Где кончается имя и начинается количество: первый пробел, после
+   которого хвост читается как выражение (число, скобка, «@», одна
+   буква). Хвост из одной буквы, которой в строке ещё нет («коробки б»
+   при одном ресурсе), — часть имени: ресурс так назвали. */
+const TAIL_START = /^(?:[\d(@]|[a-zA-Zа-яА-ЯёЁ](?![0-9a-zA-Zа-яА-ЯёЁ]))/;
+const PLAIN_NUM = /^\d+(?:[.,]\d+)?$/;
+export const splitQty = (text, traits = [], nPrior = 0) => {
+  const s = String(text || "").trim();
+  const re = /\s+/g;
+  let m;
+  while ((m = re.exec(s))) {
+    const name = s.slice(0, m.index).trim();
+    const tail = s.slice(m.index + m[0].length);
+    if (!name || !TAIL_START.test(tail)) continue;
+    const stored = toStored(tail, traits);
+    const p = parseExpr(stored);
+    // Хвост с «@» или «%» — операция даже с ошибкой: имя ресурса им не портится.
+    if (p.error && /[%@]/.test(tail)) return { name, qty: 1, expr: tail };
+    if (p.error || !p.ast) continue;
+    if (lettersIn(stored).some((k) => k >= nPrior) && !/[\d%@(]/.test(tail)) continue;
+    if (PLAIN_NUM.test(tail)) return { name, qty: num(tail) };
+    return { name, qty: 1, expr: tail };
   }
-  const n = text.match(/^(.*\S)\s+(\d+(?:[.,]\d+)?)$/);
-  return n ? { name: n[1].trim(), qty: num(n[2]) } : { name: text.trim(), qty: 1 };
+  return { name: s, qty: 1 };
 };
 
 /**
@@ -181,6 +196,7 @@ export function parseLine(src, { entities = [], traits = [], positions = [] } = 
   let state = "asset";
   let side = null;
   let pending = null;   // актив пары, ждущий ресурса
+  const order = [];     // порты по порядку появления — им и даются буквы
   for (const raw of tokens) {
     const { mark, rest } = splitMark(raw);
     if (mark) {
@@ -213,20 +229,29 @@ export function parseLine(src, { entities = [], traits = [], positions = [] } = 
       pending = { name: text, id: e ? e.id : null, span };
       continue;
     }
-    const { name, qty, expr, exprError } = splitQty(text, traits);
+    const { name, qty, expr } = splitQty(text, traits, order.length);
     const t = findTrait(name, pending.id);
-    step[side].push({ asset: pending, trait: { name, id: t ? t.id : null,
+    const port = { asset: pending, trait: { name, id: t ? t.id : null,
       span: { start: rest.start, end: rest.start + name.length } }, qty,
-      // Где в строке стоит количество (после имени, до конца слова): по
-      // нему форма операций подменяет его, не трогая остального.
-      qtySpan: { start: rest.start + name.length, end: rest.end },
-      ...(expr ? { expr } : {}), ...(exprError ? { exprError } : {}) });
+      letter: letterOf(order.length), ...(expr ? { expr } : {}) };
+    step[side].push(port);
+    order.push(port);
     pending = null;
   }
   if (pending) return { ...step, error: `у «${pending.name}» не назван ресурс` };
   if (!step.takes.length && !step.gives.length) {
     return { ...step, error: "не сказано, что берёт и что отдаёт" };
   }
+  /* Операции — по всей строке разом: буква ссылается на другой порт, и
+     он должен быть посчитан первым. Ошибка остаётся у порта словами. */
+  const stockOf = (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; };
+  const res = evalPorts(order.map((p, k) => ({ id: k, lo: p.qty, hi: p.qty,
+    expr: p.expr ? toStored(p.expr, traits) : "" })), stockOf);
+  order.forEach((p, k) => {
+    if (!p.expr) return;
+    if (res[k].error) p.exprError = res[k].error;
+    else { p.qty = res[k].lo; p.qtyHi = res[k].hi; }
+  });
   return step;
 }
 
@@ -292,32 +317,6 @@ export function resolveProc(proc = {}, model = {}) {
     gives: s.gives.map(port),
   }));
   return { steps, errors: now.errors };
-}
-
-/**
- * Записать операцию в строку текста: количество порта (число или прежнее
- * выражение) заменяется на `expr` — по положению в строке, остальное не
- * трогается. Пустое `expr` — количество убирается (значит 1). Текст —
- * единственный источник, и форма операций правит именно его.
- */
-export function setPortQty(text = "", lineNo, side, index, expr, model = {}) {
-  const lines = String(text || "").split("\n");
-  let n = 0;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (!lines[i].trim()) continue;
-    n += 1;
-    if (n !== lineNo) continue;
-    const raw = lines[i];
-    const lead = raw.length - raw.trimStart().length;
-    const step = parseLine(raw.trim(), model);
-    const p = (step[side] || [])[index];
-    if (!p?.qtySpan) return text;
-    const tail = String(expr || "").trim();
-    const { start, end } = p.qtySpan;
-    lines[i] = `${raw.slice(0, lead + start)}${tail ? ` ${tail}` : ""}${raw.slice(lead + end)}`;
-    return lines.join("\n");
-  }
-  return text;
 }
 
 /**
@@ -404,6 +403,8 @@ export const canAcceptProc = (proc, model) => procIssues(proc, model).length ===
  * функции (`posts.owners`). Время выполнения — как у любой новой функции
  * (день): процесс про то, что за чем следует, а не про сроки.
  */
+const letterIndexOf = (p) => { const k = LETTER_LIST.indexOf(p.letter); return k < 0 ? 0 : k; };
+const LETTER_LIST = Array.from({ length: 28 }, (_, i) => letterOf(i));
 export function procFuncs(proc = {}, model = {}) {
   if (proc.status === "off") return [];
   const { steps } = resolveProc(proc, model);
@@ -412,8 +413,16 @@ export function procFuncs(proc = {}, model = {}) {
   return steps.filter((s) => !s.error && ok(s.asset, "asset") && (!s.role || ok(s.role, "role"))
     && [...s.takes, ...s.gives].every((p) => ok(p.asset, "asset") && ok(p.trait, "trait")))
     .map((s) => {
+      /* Буквы строки → идентификаторы портов функции: буква в тексте —
+         по порядку появления, у функции — по идентификатору (`#{id}`),
+         чтобы карточка показывала свою букву, а смысл не менялся. */
+      const pid = (p, j, side) => `p_${proc.id}_${s.line}_${side}${j}`;
+      const byLetter = [];
+      s.takes.forEach((p, j) => { byLetter[letterIndexOf(p)] = pid(p, j, "t"); });
+      s.gives.forEach((p, j) => { byLetter[letterIndexOf(p)] = pid(p, j, "g"); });
       const port = (p, j, side) => ({
-        id: `p_${proc.id}_${s.line}_${side}${j}`, trait: p.trait.id, lo: p.qty, hi: p.qty,
+        id: pid(p, j, side), trait: p.trait.id, lo: p.qty, hi: p.qtyHi ?? p.qty,
+        ...(p.expr ? { expr: toStored(p.expr, model.traits || [], byLetter) } : {}),
       });
       return {
         id: `${proc.id}_${s.line}`,
@@ -492,6 +501,7 @@ export const HINT_WORD = {
   fromAsset: "откуда берёт (актив) — или «отдаёт:»",
   toAsset: "куда отдаёт (актив)",
   trait: "что (ресурс, можно с числом)",
+  qty: "сколько — число, диапазон 45-55, доля другого ресурса «50% а», «20% @ресурс»",
 };
 
 /**
@@ -502,7 +512,16 @@ export const HINT_WORD = {
  *
  * @returns {{kind, start, query, assetName}}
  */
-export function hintAt(text = "", at = 0) {
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/* Имя ресурса в начале набранного и пробел за ним: «оплата 50% » → хвост
+   «50% ». Без регистра, «е/ё» равны, пробелы — сколько угодно. */
+const nameThenTail = (q, name) => {
+  const re = new RegExp(`^\\s*${escapeRe(name).replace(/[её]/gi, "[еёЕЁ]").replace(/\\?\s+/g, "\\s+")}(\\s+)([\\s\\S]*)$`, "i");
+  const m = q.match(re);
+  return m ? { tail: m[2], tailAt: q.length - m[2].length } : null;
+};
+
+export function hintAt(text = "", at = 0, model = {}) {
   const lineStart = text.lastIndexOf("\n", at - 1) + 1;
   const lineEndRaw = text.indexOf("\n", at);
   const lineEnd = lineEndRaw < 0 ? text.length : lineEndRaw;
@@ -514,6 +533,7 @@ export function hintAt(text = "", at = 0) {
   let state = "asset";
   let side = null;
   let pending = null;
+  const prior = [];   // ресурсы строки до курсора — им уже даны буквы
   const step = (raw) => {
     const { mark, rest } = splitMark(raw);
     if (mark) { side = mark; state = "pair"; pending = null; if (!rest.text) return; }
@@ -522,7 +542,11 @@ export function hintAt(text = "", at = 0) {
     else if (state === "role") state = "mark";
     else if (state === "mark") state = "mark";
     else if (!pending) pending = rest.text;
-    else pending = null;
+    else {
+      const { name } = splitQty(rest.text, model.traits || [], prior.length);
+      prior.push({ letter: letterOf(prior.length), name, asset: pending });
+      pending = null;
+    }
   };
   tokens.slice(0, idx).forEach(step);
   // Слово с курсором могло начаться с метки: тогда ждут актив после неё.
@@ -542,7 +566,49 @@ export function hintAt(text = "", at = 0) {
   else if (state === "mark") kind = "mark";
   else if (pending) kind = "trait";
   else kind = side === "take" ? "fromAsset" : "toAsset";
-  return { kind, start: lineStart + start, query, assetName: pending, raw: queryText };
+  /* Имя ресурса набрано и за ним пробел — дальше ждут КОЛИЧЕСТВО (владелец,
+     2026-09-15: операции — прямо в поле, с подсказками). Имя узнаётся по
+     ресурсам актива пары; незнакомое — по хвосту, который читается как
+     выражение из того, что в строке уже есть. Подсказка подставляет не
+     весь хвост, а слово у курсора: после «50% » — букву, после «@» — имя. */
+  if (kind === "trait") {
+    const q = line.slice(start, caret);
+    const entities = model.entities || [], traits = model.traits || [];
+    const asset = entities.find((e) => nameKey(e.name) === nameKey(pending));
+    const own = (asset ? traits.filter((t) => t.e === asset.id) : [])
+      .map((t) => String(t.l)).sort((a, b) => b.length - a.length);
+    let hit = null;
+    let traitName = "";
+    /* Хвост после известного имени — количество, если начинается с числа,
+       скобки, «@» или буквы ресурса, который в строке уже есть: «заявки в»
+       при одном ресурсе — ещё имя, «заявки 45-» — уже количество. */
+    const qtyStart = (tail) => !tail || /^[\d(@]/.test(tail)
+      || (TAIL_START.test(tail) && letterIndex(tail[0]) < prior.length);
+    for (const n of own) {
+      const h = nameThenTail(q, n);
+      if (h && qtyStart(h.tail)) { hit = h; traitName = n; break; }
+    }
+    if (!hit) {
+      const m = q.match(/^(.*?\S)(\s+)([\s\S]*)$/);
+      if (m && TAIL_START.test(m[3])) {
+        const stored = toStored(m[3], traits);
+        const p = parseExpr(stored);
+        if (!p.error && p.ast && lettersIn(stored).every((k) => k < prior.length)) {
+          hit = { tail: m[3], tailAt: q.length - m[3].length }; traitName = m[1].trim();
+        }
+      }
+    }
+    if (hit) {
+      const tail = hit.tail;
+      const cut = Math.max(...[" ", "%", "*", "/", "+", "-", "(", ")"].map((ch) => tail.lastIndexOf(ch)));
+      const atPos = tail.lastIndexOf("@");
+      const sub = atPos >= 0 && atPos > cut ? atPos : cut + 1;
+      const subStart = start + hit.tailAt + sub;
+      return { kind: "qty", start: lineStart + subStart, query: line.slice(subStart, caret),
+        assetName: pending, traitName, prior, raw: tail };
+    }
+  }
+  return { kind, start: lineStart + start, query, assetName: pending, raw: queryText, prior };
 }
 
 /**
@@ -567,11 +633,26 @@ export function suggestNames(hint, { entities = [], traits = [], positions = [] 
     const asset = entities.find((e) => nameKey(e.name) === nameKey(hint.assetName));
     const own = asset ? traits.filter((t) => t.e === asset.id) : [];
     items = own.map((t) => ({ name: t.l, kind: "ресурс", fresh: fresh("traits", t.id) }));
+  } else if (hint.kind === "qty") {
+    /* Количество: буквы ресурсов строки (что за буквой — рядом), после
+       «@» — ресурсы всей схемы, и знаки. Буква и имя заменяют слово у
+       курсора без запятой; знак вставляется как есть. */
+    const q0 = String(hint.query || "");
+    if (q0.startsWith("@")) {
+      const assetOf = (t) => entities.find((e) => e.id === t.e)?.name || "";
+      items = traits.filter((t) => t.l).map((t) => ({ name: `@${t.l}`, kind: "ресурс",
+        note: assetOf(t), suffix: "", fresh: fresh("traits", t.id) }));
+    } else {
+      items = (hint.prior || []).map((p) => ({ name: p.letter, kind: "буква",
+        note: `${p.name} (${p.asset})`, suffix: "" }));
+      items.push(...[["%", "процент"], ["@", "ресурс схемы"], ["-", "диапазон: 45-55"], ["*", ""], ["/", ""],
+        ["+", ""], ["(", ""], [")", ""]].map(([name, note]) => ({ name, kind: "знак", note, suffix: "", insert: true })));
+    }
   }
   const seen = new Set();
   items = items.filter((it) => { const k = nameKey(it.name); if (seen.has(k)) return false; seen.add(k); return true; });
-  const starts = items.filter((it) => !q || nameKey(it.name).startsWith(q));
-  const inside = items.filter((it) => q && !nameKey(it.name).startsWith(q) && nameKey(it.name).includes(q));
+  const starts = items.filter((it) => it.insert || !q || nameKey(it.name).startsWith(q));
+  const inside = items.filter((it) => !it.insert && q && !nameKey(it.name).startsWith(q) && nameKey(it.name).includes(q));
   const list = [...starts, ...inside];
   return [...list.filter((it) => it.fresh), ...list.filter((it) => !it.fresh)];
 }

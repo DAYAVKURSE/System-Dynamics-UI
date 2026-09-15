@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { evalExpr, fromQty, goalOf, parseExpr, refsOf, splitOp, toShown, toStored }
-  from "../lib/expr.js";
+import { evalExpr, evalPorts, fromQty, goalOf, letterIndex, letterOf, lettersIn, parseExpr, refsOf,
+  splitOp, toShown, toStored } from "../lib/expr.js";
 
 /* ВЫРАЖЕНИЕ ЦЕЛИ: знак, числа, действия и ссылки на другие ресурсы.
    Ссылка хранится по идентификатору и показывается по имени. */
@@ -27,7 +27,7 @@ describe("разбор", () => {
   it("ссылки — по идентификатору, сколько угодно", () => {
     expect(refsOf("=@{t1}+@{t2}*2-@{t1}")).toEqual(["t1", "t2"]);
     const r = evalExpr("=@{t1}+@{t2}*2", (id) => STOCK[id]);
-    expect(r).toEqual({ op: "=", value: 18, error: "" });
+    expect(r).toMatchObject({ op: "=", value: 18, lo: 18, hi: 18, error: "" });
   });
 
   it("ошибка — словами и с позицией, а не нулём", () => {
@@ -88,5 +88,63 @@ describe("процент (владелец, 2026-09-15: операции)", () =
   });
   it("процент без числа — ошибка словами", () => {
     expect(parseExpr("=%").error).toMatch(/не понимаю/);
+  });
+});
+
+describe("буквы ресурсов и диапазоны (владелец, 2026-09-15)", () => {
+  const PORTS = [{ id: "p1", lo: 1000, hi: 1000 }, { id: "p2", lo: 1, hi: 1, expr: "50% а" }];
+  it("буквы — по порядку: «а», «б», «в»; латинские a, b, c — те же по месту", () => {
+    expect([0, 1, 2].map(letterOf)).toEqual(["а", "б", "в"]);
+    expect(letterIndex("б")).toBe(1);
+    expect(letterIndex("b")).toBe(1);
+    expect(letterIndex("Б")).toBe(1);
+    expect(letterIndex("ы")).toBe(-1);
+    expect(lettersIn("50% а + b")).toEqual([0, 1]);
+  });
+  it("буква в операции — количество того ресурса; «50% а» — половина «а»", () => {
+    const portOf = ({ i }) => (i === 0 ? { lo: 1000, hi: 1000 } : undefined);
+    expect(evalExpr("=50% а", () => undefined, portOf).value).toBe(500);
+    expect(evalExpr("=a/2", () => undefined, portOf).value).toBe(500);
+    expect(evalExpr("=50% б", () => undefined, portOf).error).toMatch(/нет ресурса с буквой «б»/);
+    // Слово из букв — не буква: ресурс пишут через @.
+    expect(parseExpr("=abc").error).toMatch(/буква — одна/);
+  });
+  it("диапазон «45-55» — от и до; выражение даёт обе границы", () => {
+    expect(evalExpr("=45-55")).toMatchObject({ value: 45, lo: 45, hi: 55, error: "" });
+    expect(evalExpr("=45-55% а", () => undefined, () => ({ lo: 1000, hi: 1000 }))).toMatchObject({ lo: 450, hi: 550 });
+    // Вычитаемое и делитель — наоборот, чтобы границы оставались границами.
+    expect(evalExpr("=10-(2-4)")).toMatchObject({ lo: 6, hi: 8 });
+    expect(evalExpr("=100/(2-4)")).toMatchObject({ lo: 25, hi: 50 });
+    // Обычное вычитание без диапазона — как было.
+    expect(evalExpr("=10 - 3").value).toBe(7);
+    expect(evalExpr("=@{t1}-3", (id) => STOCK[id]).value).toBe(7);
+  });
+  it("цель с диапазоном: «=45-55» выполнена между границами, «>» — выше верхней", () => {
+    expect(goalOf("=45-55", STOCK, 50)).toMatchObject({ target: 45, met: true });
+    expect(goalOf("=45-55", STOCK, 60).met).toBe(false);
+    expect(goalOf(">45-55", STOCK, 56)).toMatchObject({ target: 55, met: true });
+    expect(goalOf("<45-55", STOCK, 44).met).toBe(true);
+    expect(goalOf("!45-55", STOCK, 50).met).toBe(false);
+  });
+  it("количества портов считаются по операциям: буква — другой порт, он первым; круг — ошибка", () => {
+    const r = evalPorts(PORTS);
+    expect(r[0]).toMatchObject({ id: "p1", lo: 1000, hi: 1000, letter: "а", error: "" });
+    expect(r[1]).toMatchObject({ id: "p2", lo: 500, hi: 500, letter: "б", error: "" });
+    // По идентификатору порта — то же; диапазон тянется по цепочке; сотые.
+    const chain = evalPorts([...PORTS, { id: "p3", expr: "#{p2}*45-55%" }, { id: "p4", expr: "#{p3}/3" }]);
+    expect(chain[2]).toMatchObject({ lo: 225, hi: 275 });
+    expect(chain[3]).toMatchObject({ lo: 75, hi: 91.67 });
+    const loop = evalPorts([{ id: "x", expr: "б" }, { id: "y", expr: "а" }]);
+    expect(loop.map((x) => x.error)).toEqual(["операции ссылаются друг на друга по кругу", "«а» не посчиталась"]);
+    // Порт без операции остаётся со своими числами; убранный порт — ошибка словами.
+    expect(evalPorts([{ id: "z", lo: 2, hi: 4 }])[0]).toMatchObject({ lo: 2, hi: 4, error: "" });
+    expect(evalPorts([{ id: "z", expr: "#{нет}" }])[0].error).toMatch(/убран/);
+  });
+  it("в записи буква — `#{id}` порта, на экране — буква по его месту; буква внутри имени не трогается", () => {
+    const ids = ["p1", "p2"];
+    expect(toStored("50% a + @Заявки*б", TRAITS, ids)).toBe("50% #{p1} + @{t1}*#{p2}");
+    expect(toStored("50% в", TRAITS, ids)).toBe("50% в");   // такого порта нет — как есть
+    expect(toStored("=@Заявки в работе*2", TRAITS, ids)).toBe("=@{t2}*2");
+    expect(toShown("50% #{p1} + @{t1}*#{p9}", (id) => TRAITS.find((t) => t.id === id)?.l, ids)).toBe("50% а + @Заявки*?");
   });
 });

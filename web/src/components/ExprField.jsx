@@ -15,6 +15,13 @@ import { parseExpr, toShown, toStored } from "../lib/expr.js";
    словами, и в запись уходит как есть: чинить за человека нечего, а
    молча выбросить набранное — хуже ошибки.
 
+   ─── буквы ресурсов ───
+
+   У функции ресурсы (входы, потом выходы) имеют буквы «а», «б», «в»…
+   (`ports` — [{id, letter, name}]): «50% а» — половина того, что берёт
+   ресурс «а». В записи буква — `#{id}` порта, на экране — буква по его
+   нынешнему месту. Буквы стоят в ряду знаков, с именем ресурса рядом.
+
    ─── знаки кнопками ───
 
    Под полем, пока оно в фокусе, стоит ряд знаков: сравнение (> < = !),
@@ -31,23 +38,24 @@ const KEYS = [">", "<", "=", "!", "+", "-", "*", "/", "%", "(", ")", "@"];
    величина, а не условие. */
 const PLAIN_KEYS = KEYS.filter((k) => ![">", "<", "=", "!"].includes(k));
 
-export default function ExprField({ value = "", traits = [], onCommit, style, plain = false,
-  placeholder, ...rest }) {
+export default function ExprField({ value = "", traits = [], ports = [], onCommit, style, plain = false,
+  placeholder, inputStyle, ...rest }) {
   const nameOf = (id) => traits.find((t) => t.id === id)?.l || "";
-  const [text, setText] = useState(() => toShown(value, nameOf));
+  const portIds = ports.map((p) => p.id);
+  const [text, setText] = useState(() => toShown(value, nameOf, portIds));
   const [focus, setFocus] = useState(false);
   const [pick, setPick] = useState(null);   // { at, query } — открыт список
   const [cursor, setCursor] = useState(0);
   const inp = useRef(null);
   // Снаружи поменяли (загрузили модель) — а мы не в фокусе: показываем новое.
-  useEffect(() => { if (!focus) setText(toShown(value, nameOf)); }, [value, focus]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!focus) setText(toShown(value, nameOf, portIds)); }, [value, focus, portIds.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const items = pick
     ? traits.filter((t) => t.l && t.l.toLowerCase().startsWith(pick.query.toLowerCase()))
     : [];
 
   const commit = (t = text) => {
-    const stored = toStored(t, traits);
+    const stored = toStored(t, traits, portIds);
     if (stored !== (value || "")) onCommit?.(stored);
   };
   const onChange = (e) => {
@@ -81,7 +89,7 @@ export default function ExprField({ value = "", traits = [], onCommit, style, pl
     if (k === "@") { setPick({ at, query: "" }); setCursor(0); } else setPick(null);
     setTimeout(() => {
       el?.focus();
-      el?.setSelectionRange(at + 1, at + 1);
+      el?.setSelectionRange(at + k.length, at + k.length);
     }, 0);
   };
   const onKey = (e) => {
@@ -93,12 +101,16 @@ export default function ExprField({ value = "", traits = [], onCommit, style, pl
     }
     if (e.key === "Enter") { commit(); inp.current?.blur(); }
   };
-  const err = parseExpr(toStored(text, traits)).error;
+  const err = parseExpr(toStored(text, traits, portIds)).error;
   return (
     <div style={{ position: "relative", ...style }}>
+      {/* Тем же шрифтом и размером, что соседние поля (владелец,
+          2026-09-15: «поле операция везде больше остальных — выровняй»);
+          размер под соседей — `inputStyle`. */}
       <input ref={inp} value={text} {...rest}
-        style={{ ...S.inp, width: "100%", fontFamily: "ui-monospace, Menlo, monospace" }}
-        placeholder={placeholder ?? (plain ? "10   или   20% @ресурс" : "> 10   или   > 20% @ресурс")}
+        style={{ ...S.inp, width: "100%", ...inputStyle }}
+        placeholder={placeholder ?? (plain ? (ports.length ? "10 · 45-55 · 50% а · 20% @ресурс" : "10   или   20% @ресурс")
+          : "> 10   или   > 20% @ресурс")}
         onFocus={() => setFocus(true)}
         onBlur={() => { setFocus(false); setPick(null); commit(); }}
         onChange={onChange} onKeyDown={onKey} />
@@ -108,6 +120,12 @@ export default function ExprField({ value = "", traits = [], onCommit, style, pl
           теряло бы его на нажатии, ряд исчезал бы, и клик не доходил. */}
       {focus && (
         <div className="flex flex-wrap gap-2" style={{ marginTop: 3 }}>
+          {ports.map((p) => (
+            <button key={p.id} aria-label={`буква ${p.letter} — ${p.name}`} type="button"
+              title={p.name} onMouseDown={(e) => { e.preventDefault(); put(p.letter); }}
+              style={{ ...btn(false), fontSize: 12, padding: "2px 8px", minWidth: 26,
+                color: ACC, borderColor: ACC + "66" }}>
+              {p.letter}<span style={{ color: C.muted, fontWeight: 400 }}> {p.name}</span></button>))}
           {(plain ? PLAIN_KEYS : KEYS).map((k) => (
             <button key={k} aria-label={`знак ${k}`} type="button"
               onMouseDown={(e) => { e.preventDefault(); put(k); }}

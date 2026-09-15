@@ -2,7 +2,7 @@ import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useState } from "react";
 import { C, OK, BAD, ACC, WARN, S, btn, nm, TxtField } from "./ui.jsx";
 import ExprField from "./ExprField.jsx";
-import { evalExpr } from "../lib/expr.js";
+import { evalPorts, letterOf } from "../lib/expr.js";
 import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWorkers,
   eligible, exceptOf, postsOf, togglePost, toggleExcept,
   editFunc, funcState,
@@ -131,49 +131,46 @@ const Num = ({ value, onChange, label, style }) => (
  * одно и то же, и хранить, каким из двух способов это набрали, незачем.
  * Открывается она по тому, различаются ли границы.
  */
-function PortQty({ p, name, onSet, fact, traits = [] }) {
+function PortQty({ p, name, onSet, fact, traits = [], ports = [], res }) {
   const lo = Number(p.lo) || 0;
   const hi = Number(p.hi) || 0;
-  const [ranged, setRanged] = useState(lo !== hi);
-  /* Операция (владелец, 2026-09-15): количество можно задать выражением с
-     процентом от значения — «20% @Заявки» — тем же языком, что у целей.
-     Считается по нынешнему остатку ресурсов и кладётся в число (`lo` =
-     `hi`); само выражение остаётся у порта (`expr`), чтобы было видно,
-     откуда число, и чтобы его можно было поправить. */
-  const stockOf = (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; };
-  const applyExpr = (expr) => {
-    if (!expr.trim()) { onSet({ expr: "" }); return; }
-    const r = evalExpr(expr, stockOf);
-    if (r.value == null) { onSet({ expr }); return; }
-    const v = Math.round(r.value * 100) / 100;
-    setRanged(false);
-    onSet({ expr, lo: v, hi: v });
-  };
-  const opResult = p.expr ? evalExpr(p.expr, stockOf) : null;
+  const [rangedOn, setRanged] = useState(lo !== hi);
+  /* Операция (владелец, 2026-09-15): количество можно задать выражением —
+     «50% а» (доля другого ресурса этой функции по его букве), «45-55% а»
+     (диапазон), «20% @Заявки» (от остатка на схеме). Считает вся функция
+     разом (`evalPorts` в `upPort`): буква — другой порт, и он должен быть
+     посчитан первым. Результат ложится в `lo`/`hi`; само выражение
+     остаётся у порта (`expr`), чтобы было видно, откуда число. Число,
+     введённое руками, операцию снимает — иначе она тут же вернула бы своё. */
+  const ranged = rangedOn || (!!p.expr && lo !== hi);
+  const applyExpr = (expr) => onSet({ expr: expr.trim() });
+  const byHand = (patch) => onSet({ ...patch, ...(p.expr ? { expr: "" } : {}) });
   const exact = () => {
     // Схлопывая вилку, берём нижнюю границу: она — то, на что рассчитывали.
     const one = lo || hi;
     setRanged(false);
-    if (lo !== one || hi !== one) onSet({ lo: one, hi: one });
+    if (lo !== one || hi !== one) byHand({ lo: one, hi: one });
   };
   /* Своей строки у количества нет: оно стоит в строке ресурса, рядом с тем,
      расходуется ли взятое. Отдельная строка на каждое поле разносила один
-     ресурс на пять строк, и список переставал читаться списком. */
-  const box = { width: 46, fontSize: 11.5, padding: "3px 4px" };
+     ресурс на пять строк, и список переставал читаться списком. Поле
+     операции — того же размера, что и числа (владелец: «выровняй поля»). */
+  const box = { width: 52, fontSize: 12, padding: "4px 6px" };
+  const shown = (v) => nm(Math.round(v * 100) / 100);
   return (<>
     {ranged ? (<>
       <span style={S.lbl}>от</span>
       <Num value={p.lo} label={`сколько минимум ${name}`} style={box}
-        onChange={(v) => onSet({ lo: Number(v) || 0 })} />
+        onChange={(v) => byHand({ lo: Number(v) || 0 })} />
       <span style={S.lbl}>до</span>
       <Num value={p.hi} label={`сколько максимум ${name}`} style={box}
-        onChange={(v) => onSet({ hi: Number(v) || 0 })} />
+        onChange={(v) => byHand({ hi: Number(v) || 0 })} />
     </>) : (<>
       <span style={S.lbl}>ровно</span>
       {/* Одно число — сразу обе границы: иначе прогноз считал бы вилку,
           которой человек не задавал. */}
       <Num value={p.lo} label={`сколько ${name}`} style={box}
-        onChange={(v) => onSet({ lo: Number(v) || 0, hi: Number(v) || 0 })} />
+        onChange={(v) => byHand({ lo: Number(v) || 0, hi: Number(v) || 0 })} />
     </>)}
     <label className="flex items-center gap-2"
       style={{ fontSize: 10.5, color: C.muted, cursor: "pointer" }}>
@@ -189,13 +186,14 @@ function PortQty({ p, name, onSet, fact, traits = [] }) {
     <div style={{ flexBasis: "100%", marginTop: 3 }} aria-label={`операция ${name}`}>
       <div className="flex items-center gap-2">
         <span style={{ ...S.lbl, whiteSpace: "nowrap" }}>операция</span>
-        <ExprField plain value={p.expr || ""} traits={traits} style={{ flex: 1, minWidth: 0 }}
+        <ExprField plain value={p.expr || ""} traits={traits} ports={ports}
+          style={{ flex: 1, minWidth: 0 }} inputStyle={{ fontSize: box.fontSize, padding: box.padding }}
           aria-label={`выражение ${name}`} onCommit={applyExpr} />
       </div>
-      <div style={{ fontSize: 10, color: opResult?.error ? BAD : C.muted, marginTop: 2 }}>
-        {!p.expr ? "число, «@ресурс», действия и процент от значения: «20% @Заявки» — результат ляжет в количество"
-          : opResult?.error ? opResult.error
-            : `= ${nm(Math.round((opResult?.value ?? 0) * 100) / 100)} по нынешним остаткам`}
+      <div style={{ fontSize: 10, color: res?.error ? BAD : C.muted, marginTop: 2 }}>
+        {!p.expr ? "10 · 45-55 · 50% а (доля ресурса «а») · 20% @Заявки (от остатка)"
+          : res?.error ? res.error
+            : `= ${res && res.lo !== res.hi ? `${shown(res.lo)}–${shown(res.hi)}` : shown(res?.lo ?? lo)}`}
       </div>
     </div>
   </>);
@@ -576,7 +574,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
  * правда, не знал никто.
  */
 function Ports({ kind, title, hint, list, own, others, assetName, traitName,
-  runs, onAdd, onSet, onDel }) {
+  runs, onAdd, onSet, onDel, letterBase = 0, allPorts = [], info = new Map() }) {
   const [pick, setPick] = useState("");
   const out = kind === "gives";
   const taken = (t) => list.some((p) => p.trait === t.id);
@@ -651,6 +649,12 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                     padding: "6px 0" }}>
                     <div className="flex flex-wrap items-center gap-2">
                       <span style={{ flex: "1 1 90px", fontSize: 12.5, minWidth: 0 }}>
+                        {/* Буква ресурса — ею на него ссылаются операции
+                            других ресурсов функции: «50% а». Входы первыми,
+                            выходы — следом. */}
+                        <span aria-label={`буква ${letterOf(letterBase + list.indexOf(p))}: ${traitName(p.trait)}`}
+                          style={{ color: ACC, fontWeight: 700, marginRight: 5 }}>
+                          {letterOf(letterBase + list.indexOf(p))}</span>
                         {traitName(p.trait)}
                         {/* Чужой ресурс — это и есть связь с другим активом:
                             взятый приходит оттуда, выданный уходит туда. */}
@@ -670,6 +674,7 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
                     <div className="flex flex-wrap items-center gap-2"
                       style={{ marginTop: 3 }}>
                       <PortQty p={p} name={traitName(p.trait)} traits={[...own, ...others]}
+                        ports={allPorts} res={info.get(p.id)}
                         onSet={(patch) => onSet(p.id, patch)} />
                       {/* Расходует или только обрабатывает. Вопрос стоит у
                           входа, а не у ресурса: одна функция ткань режет, а
@@ -780,7 +785,23 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
   const live = (f) => (f.parCrew ? { ...f, parAll: Math.max(1, crew.length) } : f);
   const accept = (id) => setFuncs((p) => p.map((f) => (f.id === id
     ? { ...f, accepted: true } : f)));
-  const upPort = (id, kind, pid, patch) => up(id, (f) => ({
+  /* Операции у количеств считаются по всей функции: буква одного порта —
+     это количество другого. После любой правки порта числа (`lo`/`hi`)
+     у портов с операцией пересчитываются; не посчитавшееся остаётся как
+     было, ошибка видна под полем. */
+  const stockOf = (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; };
+  const portsOf = (f) => [...(f.takes || []), ...(f.gives || [])];
+  const settle = (f) => {
+    const res = new Map(evalPorts(portsOf(f), stockOf).map((r) => [r.id, r]));
+    const fix = (p) => {
+      const { expr, ...rest } = p;
+      if (!expr) return rest;   // снятая операция не остаётся пустой строкой в записи
+      const r = res.get(p.id);
+      return r && !r.error ? { ...p, lo: r.lo, hi: r.hi } : p;
+    };
+    return { ...f, takes: f.takes.map(fix), gives: f.gives.map(fix) };
+  };
+  const upPort = (id, kind, pid, patch) => up(id, (f) => settle({
     ...f, [kind]: f[kind].map((p) => (p.id === pid ? { ...p, ...patch } : p)),
   }));
   const togglePerson = (id, kind, pid) => up(id, (f) => ({
@@ -798,6 +819,9 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
         : "Функций пока нет. Функция обменивает одни ресурсы на другие: берёт одни, выдаёт другие."}>
       {mine.map((f) => {
         const runs = runsOf ? runsOf(f.id) : [];
+        // Буквы и результаты операций — для полей и рядов знаков.
+        const allPorts = portsOf(f).map((p, i) => ({ id: p.id, letter: letterOf(i), name: traitName(p.trait) }));
+        const info = new Map(evalPorts(portsOf(f), stockOf).map((r) => [r.id, r]));
         const st = funcState(f, { traits, factors });
         return (
           <Card key={f.id} title={f.name} titleLabel="функции"
@@ -862,6 +886,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
               hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
               assetName={assetName} traitName={traitName} runs={runs}
+              allPorts={allPorts} info={info}
               onAdd={(tid, group) => up(f.id, (x) => ({ ...x,
                 takes: [...x.takes, newPort(tid, 1, 1, group)] }))}
               onSet={(pid, patch) => upPort(f.id, "takes", pid, patch)}
@@ -871,6 +896,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             <Ports kind="gives" title="выдаёт" list={f.gives} own={own} others={others}
               hint="Функция ничего не выдаёт — значит она ничего не производит."
               assetName={assetName} traitName={traitName} runs={runs}
+              allPorts={allPorts} info={info} letterBase={f.takes.length}
               onAdd={(tid) => up(f.id, (x) => ({ ...x, gives: [...x.gives, newGive(tid)] }))}
               onSet={(pid, patch) => upPort(f.id, "gives", pid, patch)}
               onDel={(pid) => up(f.id, (x) => ({

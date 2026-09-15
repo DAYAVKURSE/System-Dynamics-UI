@@ -692,12 +692,16 @@ describe("ресурс и фактор принимает человек — к�
 });
 
 describe("операция у количества (владелец, 2026-09-15)", () => {
-  it("«операция» у входа: выражение с процентом от ресурса считается по остатку и кладётся в число", () => {
+  it("«операция» у входа: выражение с процентом считается и кладётся в число; поле — того же размера, что числа", () => {
     addFunc();
     const name = addPort("takes");
-    // Операция — всегда на виду, под количеством, с подписью.
+    // Операция — всегда на виду, под количеством, с подписью; у ресурса — буква.
     expect(screen.getByLabelText(`операция ${name}`).textContent).toContain("операция");
+    expect(screen.getByLabelText(`буква а: ${name}`)).toBeInTheDocument();
     const field = screen.getByLabelText(`выражение ${name}`);
+    const numBox = screen.getByLabelText(`сколько ${name}`);
+    expect(field.style.fontSize).toBe(numBox.style.fontSize);
+    expect(field.style.padding).toBe(numBox.style.padding);
     // Ряд знаков без сравнения, с процентом.
     fireEvent.focus(field);
     expect(screen.getByRole("button", { name: "знак %" })).toBeInTheDocument();
@@ -705,8 +709,43 @@ describe("операция у количества (владелец, 2026-09-15
     fireEvent.change(field, { target: { value: "50% 8" } });
     fireEvent.blur(field);
     expect(screen.getByLabelText(`сколько ${name}`)).toHaveValue(4);
-    expect(screen.getByText(/= 4 по нынешним остаткам/)).toBeInTheDocument();
+    expect(screen.getByText("= 4")).toBeInTheDocument();
     const f = dump().funcs.find((x) => x.takes.some((p) => p.expr));
     expect(f.takes[0]).toMatchObject({ expr: "50% 8", lo: 4, hi: 4 });
+  });
+
+  it("буква другого ресурса: выход «45-55% а» — доля входа «а», вилкой; число руками снимает операцию", () => {
+    addFunc();
+    const inName = addPort("takes");
+    // Выход — другой ресурс: одноимённый вход и выход не различить по подписям.
+    const sel = screen.getByLabelText("выдать ресурс");
+    const opt = [...sel.options].find((o) => o.value && o.textContent !== inName);
+    fireEvent.change(sel, { target: { value: opt.value } });
+    const outName = opt.textContent;
+    fireEvent.change(screen.getByLabelText(`сколько ${inName}`), { target: { value: "1000" } });
+    expect(screen.getByLabelText(`буква б: ${outName}`)).toBeInTheDocument();
+    const field = screen.getByLabelText(`выражение ${outName}`);
+    fireEvent.focus(field);
+    // Буквы — в ряду знаков, с именем ресурса.
+    expect(screen.getByRole("button", { name: `буква а — ${inName}` })).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: "45-55% а" } });
+    fireEvent.blur(field);
+    expect(screen.getByText("= 450–550")).toBeInTheDocument();
+    expect(screen.getByLabelText(`диапазон ${outName}`)).toBeChecked();
+    expect(screen.getByLabelText(`сколько минимум ${outName}`)).toHaveValue(450);
+    expect(screen.getByLabelText(`сколько максимум ${outName}`)).toHaveValue(550);
+    let f = dump().funcs.find((x) => x.gives.some((p) => p.expr));
+    const inId = f.takes[0].id;
+    expect(f.gives[0]).toMatchObject({ expr: `45-55% #{${inId}}`, lo: 450, hi: 550 });
+    // Вход изменился — выход пересчитался (после выгрузки — снова на вкладку функций, развернуть новую).
+    assetTab("Функции");
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть функции" }).pop());
+    fireEvent.change(screen.getByLabelText(`сколько ${inName}`), { target: { value: "100" } });
+    expect(screen.getByLabelText(`сколько минимум ${outName}`)).toHaveValue(45);
+    // Число руками — операции больше нет.
+    fireEvent.change(screen.getByLabelText(`сколько минимум ${outName}`), { target: { value: "40" } });
+    f = dump().funcs.find((x) => x.takes[0]?.id === inId);
+    expect(f.gives[0].expr).toBeUndefined();
+    expect(f.gives[0].lo).toBe(40);
   });
 });

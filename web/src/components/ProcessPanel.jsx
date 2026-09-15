@@ -2,9 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
-import ExprField from "./ExprField.jsx";
-import { evalExpr, toShown, toStored } from "../lib/expr.js";
-import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, marksOf, newProc, setPortQty,
+import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, marksOf, newProc,
   procIssues, procLabel, procUsesAsset, replaceName, resolveProc, stateOf, suggestNames,
   syncProcFuncs } from "../lib/process.js";
 
@@ -111,7 +109,7 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
 
   const items = pick ? suggestNames(pick, model, proc) : [];
   const place = (v, at) => {
-    const h = hintAt(v, at);
+    const h = hintAt(v, at, model);
     setPick({ ...h, at });
     setCursor(0);
   };
@@ -126,9 +124,11 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
      ровно там, где человеку снова надо набирать. */
   const choose = (it) => {
     if (!pick) return;
-    const suffix = it.mark ? " " : ", ";
-    const next = `${text.slice(0, pick.start)}${it.name}${suffix}${text.slice(pick.at)}`;
-    const caret = pick.start + it.name.length + suffix.length;
+    const suffix = it.suffix ?? (it.mark ? " " : ", ");
+    // Знак у количества вставляется в место курсора, буква и имя — вместо слова у курсора.
+    const from = it.insert ? pick.at : pick.start;
+    const next = `${text.slice(0, from)}${it.name}${suffix}${text.slice(pick.at)}`;
+    const caret = from + it.name.length + suffix.length;
     setText(next);
     setTimeout(() => {
       inp.current?.focus();
@@ -174,6 +174,7 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
             borderBottom: `1px solid ${C.line}` }}>
             ожидается: {HINT_WORD[pick.kind]}
             {pick.kind === "trait" && pick.assetName ? ` из «${pick.assetName}»` : ""}
+            {pick.kind === "qty" && pick.traitName ? ` — для «${pick.traitName}»` : ""}
             <span style={{ color: C.muted }}> · выберите или введите своё; Tab — подставить</span>
           </div>
           <div role="listbox" aria-label="подсказки процесса"
@@ -184,11 +185,13 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
                 style={{ padding: "5px 8px", fontSize: 12, cursor: "pointer",
                   background: i === cursor ? ACC + "22" : "transparent" }}>
                 <span style={{ color: C.muted }}>{it.kind} </span>{it.name}
+                {it.note && <span style={{ color: C.muted }}> — {it.note}</span>}
                 {it.fresh && <span style={{ fontSize: 10, color: WARN }}> · новое</span>}
               </div>))}
             {!items.length && (
               <div style={{ padding: "5px 8px", fontSize: 11, color: C.muted }}>
-                {pick.query ? `«${pick.query}» — новое имя: примите его под полем после набора` : "список пуст — введите своё имя"}
+                {pick.kind === "qty" ? "число, диапазон 45-55, «50% а», «20% @ресурс»"
+                  : pick.query ? `«${pick.query}» — новое имя: примите его под полем после набора` : "список пуст — введите своё имя"}
               </div>)}
           </div>
         </div>)}
@@ -200,10 +203,12 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
    карточку. Неизвестное — пунктир: это ещё не ошибка, а вопрос, и нажатие
    его задаёт. Отклонённое и удалённое — красные: первое ждёт правки
    строки, второе — замены. */
-function Chip({ item, kind, state, qty, hypo, open, onOpen, onAccept, acceptWhy, onReject,
+function Chip({ item, kind, state, qty, qtyHi, hypo, open, onOpen, onAccept, acceptWhy, onReject,
   onRestore, options = [], onReplace, onGo }) {
   const name = item?.name || "";
-  const tail = qty != null && qty !== 1 ? ` ${nm(qty)}` : "";
+  // Количество: число или «от–до», когда операция дала диапазон.
+  const tail = qtyHi != null && qtyHi !== qty ? ` ${nm(qty)}–${nm(qtyHi)}`
+    : qty != null && qty !== 1 ? ` ${nm(qty)}` : "";
   const base = { display: "inline-block", borderRadius: 6, padding: "1px 7px", fontSize: 12,
     lineHeight: 1.6, verticalAlign: "middle" };
   if (state === "ok") {
@@ -440,7 +445,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
 
               {/* Разбор построчно — под полем, там же, где набирают. */}
               {steps.map((s) => {
-                const chip = (it, kind, qty, assetId, assetOk = true) => {
+                const chip = (it, kind, qty, assetId, assetOk = true, qtyHi = null) => {
                   const st = stateOf(it, kind, model, p);
                   const k = key(s, kind, it.name);
                   const hypo = kind === "asset" ? p.hypo.entities.includes(it.id)
@@ -450,7 +455,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                     : kind === "trait" ? (onOpenTrait ? () => onOpenTrait(it.id) : null)
                       : (onOpenWorkers && s.asset?.id ? () => onOpenWorkers(s.asset.id) : null);
                   return (
-                    <Chip item={it} kind={kind} state={st} qty={qty} hypo={hypo}
+                    <Chip item={it} kind={kind} state={st} qty={qty} qtyHi={qtyHi} hypo={hypo}
                       open={openChip === k}
                       onOpen={() => setOpenChip(openChip === k ? null : k)}
                       onGo={go}
@@ -467,9 +472,12 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   const aOk = stateOf(x.asset, "asset", model, p) === "ok";
                   return (
                     <React.Fragment key={j}>{j ? ", " : ""}
+                      {/* Буква ресурса — ею на него ссылаются операции строки. */}
+                      <span aria-label={`буква ${x.letter}: ${x.trait?.name || ""}`}
+                        style={{ color: ACC, fontWeight: 700, marginRight: 3 }}>{x.letter}</span>
                       {chip(x.asset, "asset")}
                       <span style={{ color: C.muted }}> → </span>
-                      {chip(x.trait, "trait", x.qty, x.asset?.id, aOk)}
+                      {chip(x.trait, "trait", x.qty, x.asset?.id, aOk, x.qtyHi)}
                     </React.Fragment>);
                 };
                 return (
@@ -491,45 +499,6 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               {!!issues.length && !!p.text.trim() && (
                 <div style={{ fontSize: 10.5, color: BAD, marginTop: 6, lineHeight: 1.5 }}>
                   {issues.map((w, i) => <div key={i}>{w}</div>)}
-                </div>)}
-
-              {/* Операции с ресурсами (владелец, 2026-09-15) — форма после
-                  ввода ресурсов: у каждого ресурса шага поле операции тем
-                  же языком, что у целей и функций. Пишется в САМ ТЕКСТ
-                  строки (`setPortQty`): текст — единственный источник. */}
-              {steps.some((s) => (s.takes || []).length || (s.gives || []).length) && (
-                <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-                  padding: 8, marginTop: 8 }} aria-label={`операции с ресурсами ${procLabel(p)}`}>
-                  <div style={S.lbl}>операции с ресурсами</div>
-                  <div style={{ fontSize: 10.5, color: C.muted, margin: "3px 0 4px", lineHeight: 1.5 }}>
-                    Сколько ресурса берётся и отдаётся: число или операция — «20% @спрос». Результат
-                    считается по нынешним остаткам; операция остаётся в строке процесса.
-                  </div>
-                  {steps.map((s) => [["takes", "берёт"], ["gives", "отдаёт"]].map(([side, word]) =>
-                    (s[side] || []).map((port, j) => {
-                      const nameOf = (id) => traits.find((t) => t.id === id)?.l || "";
-                      const stockOf = (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; };
-                      const shownExpr = port.expr || (port.qty === 1 ? "" : String(port.qty).replace(".", ","));
-                      const r = port.expr ? evalExpr(toStored(port.expr, traits), stockOf) : null;
-                      const label = `${s.asset?.name || "?"} ${word} ${port.trait?.name || "?"}`;
-                      return (
-                        <div key={`${s.line}:${side}:${j}`} className="flex flex-wrap items-center gap-2"
-                          style={{ marginTop: 4 }}>
-                          <span style={{ fontSize: 11.5, flex: "1 1 160px", minWidth: 0 }}>
-                            <span style={{ color: C.muted }}>{s.line}. {s.asset?.name || "?"} {word} </span>
-                            {port.trait?.name}
-                            {port.asset?.name ? <span style={{ color: C.muted }}> ({port.asset.name})</span> : null}
-                          </span>
-                          <ExprField plain value={toStored(shownExpr, traits)} traits={traits}
-                            style={{ flex: "1 1 180px", minWidth: 0 }} aria-label={`операция: ${label}`}
-                            onCommit={(stored) => setText(p, setPortQty(p.text, s.line, side, j,
-                              toShown(stored, nameOf), model))} />
-                          <span style={{ fontSize: 10.5, color: port.exprError ? BAD : C.muted, minWidth: 60 }}>
-                            {port.exprError ? port.exprError
-                              : r && !r.error && r.value != null ? `= ${nm(Math.round(r.value * 100) / 100)}`
-                                : `= ${nm(port.qty)}`}</span>
-                        </div>);
-                    })))}
                 </div>)}
 
               {/* Три состояния, одно нажатие. Принять — гипотетически или

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canAcceptProc, dropHypo, formatStep, hintAt, nameKey, newProc, normalizeProc,
   parseLine, parseProcess, procFuncs, procIssues, procLabel, procUsesAsset, replaceName,
-  marksOf, resolveProc, setPortQty, stateOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
+  marksOf, resolveProc, stateOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
 import { activeFuncs, liveModel, normalizeFunc } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
 import { chainOf } from "../lib/chain.js";
@@ -279,20 +279,63 @@ describe("операции в количестве и красные метки 
   });
 });
 
-describe("операция пишется в строку (форма операций)", () => {
-  const stocked = { ...model, traits: traits.map((t) => ({ ...t, have: t.id === "dem" ? 50 : 0 })) };
-  it("setPortQty подменяет количество порта по положению, остальное не трогает", () => {
-    const text = "  Пользователи, берёт: Рынок услуг, спрос 2, отдаёт: Пользователи, заявки\n\nСклад, берёт: Пользователи, заявки";
-    const t1 = setPortQty(text, 1, "takes", 0, "20% @спрос", stocked);
-    expect(t1.split("\n")[0]).toBe("  Пользователи, берёт: Рынок услуг, спрос 20% @спрос, отдаёт: Пользователи, заявки");
-    expect(parseLine(t1.split("\n")[0].trim(), stocked).takes[0].qty).toBe(10);
-    // Выход без числа получает операцию; пустая операция убирает число.
-    const t2 = setPortQty(t1, 1, "gives", 0, "3", stocked);
-    expect(t2.split("\n")[0]).toMatch(/заявки 3$/);
-    expect(setPortQty(t2, 1, "gives", 0, "", stocked).split("\n")[0]).toMatch(/заявки$/);
-    // Вторая непустая строка — третья по счёту в тексте.
-    expect(setPortQty(t2, 2, "takes", 0, "5", stocked).split("\n")[2]).toBe("Склад, берёт: Пользователи, заявки 5");
-    // Нет такого порта — текст как был.
-    expect(setPortQty(t2, 9, "takes", 0, "5", stocked)).toBe(t2);
+describe("буквы ресурсов в строке (владелец, 2026-09-15)", () => {
+  const ents = [...entities, { id: "cust", name: "Заказчик" }, { id: "prt", name: "Партнёр" }, { id: "me", name: "Я" }];
+  const trs = [...traits, { id: "pay1", e: "cust", l: "оплата", have: 0 }, { id: "pay2", e: "me", l: "оплата" },
+    { id: "req3", e: "me", l: "заявки" }];
+  const m = { entities: ents, traits: trs, positions };
+  const L = "Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 45-55% а, Я, заявки 2-4";
+
+  it("ресурсы строки получают буквы по порядку; «45-55% а» — доля первого, диапазон — от и до", () => {
+    const s = parseLine(L, m);
+    expect(s.error).toBeNull();
+    expect(s.takes[0]).toMatchObject({ letter: "а", trait: { name: "оплата", id: "pay1" }, qty: 1000 });
+    expect(s.gives[0]).toMatchObject({ letter: "б", trait: { name: "оплата", id: "pay2" }, qty: 450, qtyHi: 550, expr: "45-55% а" });
+    expect(s.gives[1]).toMatchObject({ letter: "в", trait: { name: "заявки", id: "req3" }, qty: 2, qtyHi: 4, expr: "2-4" });
+    expect(formatStep(s)).toBe(L);
+    // Латинская буква — та же по месту; буква позже своего ресурса — ошибка словами.
+    expect(parseLine("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% a", m).gives[0].qty).toBe(500);
+    // Буква — любой ресурс строки, хоть позже: «б» здесь — «оплата» у «Я» (1 → 0,5).
+    expect(parseLine("Партнёр, берёт: Заказчик, оплата 50% б, отдаёт: Я, оплата", m).takes[0].qty).toBe(0.5);
+    const bad = parseLine("Партнёр, берёт: Заказчик, оплата 50% в, отдаёт: Я, оплата", m);
+    expect(bad.takes[0].exprError).toMatch(/нет ресурса с буквой «в»/);
+    expect(marksOf("Партнёр, берёт: Заказчик, оплата 50% в, отдаёт: Я, оплата", m, newProc())[0].marks[0])
+      .toMatchObject({ state: "expr", name: expect.stringMatching(/«в»/) });
+  });
+
+  it("одна буква, которой в строке ещё нет, — часть имени ресурса, а не операция", () => {
+    const s = parseLine("Партнёр, берёт: Заказчик, оплата б, отдаёт: Я, оплата", m);
+    expect(s.takes[0].trait.name).toBe("оплата б");
+    expect(s.takes[0].expr).toBeUndefined();
+  });
+
+  it("функция из строки: буквы — идентификаторами портов, вилка — в lo/hi", () => {
+    const proc = { ...newProc(), id: "pr9", text: L, status: "on" };
+    const f = procFuncs(proc, m)[0];
+    expect(f.takes[0]).toMatchObject({ id: "p_pr9_1_t0", lo: 1000, hi: 1000 });
+    expect(f.takes[0].expr).toBeUndefined();
+    expect(f.gives[0]).toMatchObject({ lo: 450, hi: 550, expr: "45-55% #{p_pr9_1_t0}" });
+    expect(f.gives[1]).toMatchObject({ lo: 2, hi: 4, expr: "2-4" });
+  });
+
+  it("подсказка «сколько»: после имени ресурса и пробела — буквы строки и знаки; после «@» — ресурсы схемы", () => {
+    const at = (t) => hintAt(t, t.length, m);
+    const names = (h) => suggestNames(h, m, newProc()).map((x) => x.name);
+    const h1 = at("Партнёр, берёт: Заказчик, оплата ");
+    expect(h1).toMatchObject({ kind: "qty", query: "", traitName: "оплата", assetName: "Заказчик" });
+    expect(names(h1)).toEqual(["%", "@", "-", "*", "/", "+", "(", ")"]);   // ресурсов раньше нет — букв нет
+    const h2 = at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% ");
+    expect(h2).toMatchObject({ kind: "qty", query: "", traitName: "оплата" });
+    expect(names(h2)[0]).toBe("а");
+    expect(suggestNames(h2, m, newProc())[0]).toMatchObject({ kind: "буква", note: "оплата (Заказчик)", suffix: "" });
+    // Подставляется слово у курсора, не весь хвост: «50% » остаётся.
+    expect(h2.start).toBe("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% ".length);
+    const h3 = at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% @сп");
+    expect(h3).toMatchObject({ kind: "qty", query: "@сп" });
+    expect(names(h3)).toEqual(["@спрос"]);
+    // Незнакомое имя с хвостом-операцией — тоже «сколько»; имя без хвоста — по-прежнему «что».
+    expect(at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, деньги 50% а")).toMatchObject({ kind: "qty", traitName: "деньги", query: "а" });
+    expect(at("Партнёр, берёт: Заказчик, опл").kind).toBe("trait");
+    expect(at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, заявки в").kind).toBe("trait");
   });
 });

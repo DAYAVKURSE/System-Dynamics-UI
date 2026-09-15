@@ -275,19 +275,32 @@ describe("красные метки в поле", () => {
   });
 });
 
-describe("операции с ресурсами (владелец, 2026-09-15)", () => {
-  it("после ввода ресурсов под полем — форма операций; операция уходит в строку текста", async () => {
+describe("операции — прямо в поле, с подсказками (владелец, 2026-09-15)", () => {
+  it("после имени ресурса подсказка ждёт «сколько»: буквы ресурсов строки и знаки; Tab подставляет букву; отдельной формы нет", () => {
     const area = addProc();
-    write(area, LINE);
-    const form = screen.getByLabelText(/^операции с ресурсами/);
-    const field = within(form).getByLabelText("операция: Пользователи берёт спрос");
-    expect(within(form).getByLabelText("операция: Пользователи отдаёт заявки")).toBeInTheDocument();
-    fireEvent.focus(field);
-    expect(within(form).getByRole("button", { name: "знак %" })).toBeInTheDocument();
-    fireEvent.change(field, { target: { value: "50% 8" } });
-    fireEvent.blur(field);
-    expect(screen.getByLabelText("текст процесса"))
-      .toHaveValue("Пользователи, берёт: Рынок услуг, спрос 50% 8, отдаёт: Пользователи, заявки");
-    expect(within(screen.getByLabelText(/^операции с ресурсами/)).getByText("= 4")).toBeInTheDocument();
+    const head = "Пользователи, берёт: Рынок услуг, спрос 1000, отдаёт: Пользователи, заявки 50% ";
+    type(area, head);
+    expect(popup()).toHaveTextContent("ожидается: сколько");
+    expect(popup()).toHaveTextContent("для «заявки»");
+    expect(options()[0]).toBe("буква а — спрос (Рынок услуг)");
+    expect(options()).toContain("знак % — процент");
+    fireEvent.keyDown(area, { key: "Tab" });
+    expect(area).toHaveValue(`${head}а`);
+    fireEvent.blur(area);
+    // Разбор под полем: буквы у ресурсов, количество посчитано по «а».
+    expect(screen.getByLabelText("буква а: спрос")).toBeInTheDocument();
+    expect(screen.getByLabelText("буква б: заявки")).toBeInTheDocument();
+    expect(screen.getByLabelText("ресурс «заявки»: открыть")).toHaveTextContent("заявки 500");
+    expect(screen.queryByLabelText(/^операции с ресурсами/)).toBeNull();
+  });
+
+  it("диапазон «45-55% а» показывается как от–до и уходит в функцию вилкой", () => {
+    const area = addProc();
+    write(area, "Пользователи, берёт: Рынок услуг, спрос 1000, отдаёт: Пользователи, заявки 45-55% а");
+    expect(screen.getByLabelText("ресурс «заявки»: открыть")).toHaveTextContent("заявки 450–550");
+    fireEvent.click(screen.getByRole("button", { name: "Принято" }));
+    const f = dump().funcs.find((x) => x.proc);
+    expect(f.gives[0]).toMatchObject({ lo: 450, hi: 550 });
+    expect(f.gives[0].expr).toMatch(/^45-55% #\{/);
   });
 });
