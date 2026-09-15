@@ -500,7 +500,7 @@ export const HINT_WORD = {
   mark: "«берёт:» или «отдаёт:»",
   fromAsset: "откуда берёт (актив) — или «отдаёт:»",
   toAsset: "куда отдаёт (актив)",
-  trait: "что (ресурс, можно с числом)",
+  trait: "что (ресурс)",
   qty: "сколько — число, диапазон 45-55, доля другого ресурса «50% а», «20% @ресурс»",
 };
 
@@ -590,7 +590,10 @@ export function hintAt(text = "", at = 0, model = {}) {
     }
     if (!hit) {
       const m = q.match(/^(.*?\S)(\s+)([\s\S]*)$/);
-      if (m && TAIL_START.test(m[3])) {
+      if (m && !m[3]) {
+        // Имя (любое, хоть новое) и пробел за ним — уже ждут количество.
+        hit = { tail: "", tailAt: q.length }; traitName = m[1].trim();
+      } else if (m && TAIL_START.test(m[3])) {
         const stored = toStored(m[3], traits);
         const p = parseExpr(stored);
         if (!p.error && p.ast && lettersIn(stored).every((k) => k < prior.length)) {
@@ -605,7 +608,7 @@ export function hintAt(text = "", at = 0, model = {}) {
       const sub = atPos >= 0 && atPos > cut ? atPos : cut + 1;
       const subStart = start + hit.tailAt + sub;
       return { kind: "qty", start: lineStart + subStart, query: line.slice(subStart, caret),
-        assetName: pending, traitName, prior, raw: tail };
+        assetName: pending, traitName, prior, raw: tail, nameStart: lineStart + start };
     }
   }
   return { kind, start: lineStart + start, query, assetName: pending, raw: queryText, prior };
@@ -645,6 +648,16 @@ export function suggestNames(hint, { entities = [], traits = [], positions = [] 
     } else {
       items = (hint.prior || []).map((p) => ({ name: p.letter, kind: "буква",
         note: `${p.name} (${p.asset})`, suffix: "" }));
+      /* Имя могло быть не дописано («заявки » → «заявки в работе»): ресурсы
+         актива пары, начинающиеся с набранного, остаются в списке и
+         подставляются целиком, с самого имени. */
+      if (!q0 && hint.traitName) {
+        const asset = entities.find((e) => nameKey(e.name) === nameKey(hint.assetName));
+        const own = asset ? traits.filter((t) => t.e === asset.id) : [];
+        const head = `${nameKey(hint.traitName)} `;
+        own.filter((t) => nameKey(t.l).startsWith(head)).forEach((t) =>
+          items.push({ name: t.l, kind: "ресурс", whole: true, fresh: fresh("traits", t.id) }));
+      }
       items.push(...[["%", "процент"], ["@", "ресурс схемы"], ["-", "диапазон: 45-55"], ["*", ""], ["/", ""],
         ["+", ""], ["(", ""], [")", ""]].map(([name, note]) => ({ name, kind: "знак", note, suffix: "", insert: true })));
     }

@@ -125,8 +125,9 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
   const choose = (it) => {
     if (!pick) return;
     const suffix = it.suffix ?? (it.mark ? " " : ", ");
-    // Знак у количества вставляется в место курсора, буква и имя — вместо слова у курсора.
-    const from = it.insert ? pick.at : pick.start;
+    // Знак у количества вставляется в место курсора, буква и имя — вместо
+    // слова у курсора, недописанное имя ресурса — с самого имени.
+    const from = it.insert ? pick.at : it.whole && pick.nameStart != null ? pick.nameStart : pick.start;
     const next = `${text.slice(0, from)}${it.name}${suffix}${text.slice(pick.at)}`;
     const caret = from + it.name.length + suffix.length;
     setText(next);
@@ -174,6 +175,7 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
             borderBottom: `1px solid ${C.line}` }}>
             ожидается: {HINT_WORD[pick.kind]}
             {pick.kind === "trait" && pick.assetName ? ` из «${pick.assetName}»` : ""}
+            {pick.kind === "trait" ? " · после имени через пробел — сколько" : ""}
             {pick.kind === "qty" && pick.traitName ? ` — для «${pick.traitName}»` : ""}
             <span style={{ color: C.muted }}> · выберите или введите своё; Tab — подставить</span>
           </div>
@@ -191,7 +193,7 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
             {!items.length && (
               <div style={{ padding: "5px 8px", fontSize: 11, color: C.muted }}>
                 {pick.kind === "qty" ? "число, диапазон 45-55, «50% а», «20% @ресурс»"
-                  : pick.query ? `«${pick.query}» — новое имя: примите его под полем после набора` : "список пуст — введите своё имя"}
+                  : pick.query ? `«${pick.query}» — новое имя: примите его под полем после набора; через пробел — сколько` : "список пуст — введите своё имя"}
               </div>)}
           </div>
         </div>)}

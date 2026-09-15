@@ -92,7 +92,7 @@ describe("текст с всплывающими подсказками", () => 
     expect(popup()).toHaveTextContent("должность");
     expect(options()).toEqual(["метка берёт:", "метка отдаёт:"]);
     type(area, "Пользователи, берёт: Рынок услуг, ");
-    expect(popup()).toHaveTextContent("ожидается: что (ресурс, можно с числом) из «Рынок услуг»");
+    expect(popup()).toHaveTextContent("ожидается: что (ресурс) из «Рынок услуг» · после имени через пробел — сколько");
     expect(options()).toEqual(["ресурс спрос"]);
     // Выбор подставляет имя и запятую — дальше сразу следующее слово.
     fireEvent.mouseDown(within(popup()).getByRole("option"));
@@ -292,6 +292,19 @@ describe("операции — прямо в поле, с подсказками
     expect(screen.getByLabelText("буква б: заявки")).toBeInTheDocument();
     expect(screen.getByLabelText("ресурс «заявки»: открыть")).toHaveTextContent("заявки 500");
     expect(screen.queryByLabelText(/^операции с ресурсами/)).toBeNull();
+  });
+
+  it("новые имена: после «оплата » окно ждёт «сколько» и предлагает знаки; после второго ресурса — букву «а»", () => {
+    const area = addProc();
+    type(area, "Партнёр, берёт: Заказчик, оплата ");
+    expect(popup()).toHaveTextContent("ожидается: сколько");
+    expect(popup()).toHaveTextContent("для «оплата»");
+    expect(options()).toContain("знак % — процент");
+    const head = "Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% ";
+    type(area, head);
+    expect(options()[0]).toBe("буква а — оплата (Заказчик)");
+    fireEvent.keyDown(area, { key: "Tab" });
+    expect(area).toHaveValue(`${head}а`);
   });
 
   it("диапазон «45-55% а» показывается как от–до и уходит в функцию вилкой", () => {
