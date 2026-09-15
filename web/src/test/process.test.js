@@ -325,7 +325,7 @@ describe("буквы ресурсов в строке (владелец, 2026-09
     const names = (h) => suggestNames(h, m, newProc()).map((x) => x.name);
     const h1 = at("Партнёр, берёт: Заказчик, оплата ");
     expect(h1).toMatchObject({ kind: "qty", query: "", traitName: "оплата", assetName: "Заказчик" });
-    expect(names(h1)).toEqual(["%", "@", "-", "*", "/", "+", "(", ")"]);   // ресурсов раньше нет — букв нет
+    expect(names(h1)).toEqual(["%", "@", "-", "*", "/", "+", "(", ")", "→"]);   // ресурсов раньше нет — букв нет; «→» — дальше
     const h2 = at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% ");
     expect(h2).toMatchObject({ kind: "qty", query: "", traitName: "оплата" });
     expect(names(h2)[0]).toBe("A");

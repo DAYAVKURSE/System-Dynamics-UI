@@ -583,7 +583,7 @@ export function hintAt(text = "", at = 0, model = {}) {
     /* Хвост после известного имени — количество, если начинается с числа,
        скобки, «@» или буквы ресурса, который в строке уже есть: «заявки в»
        при одном ресурсе — ещё имя, «заявки 45-» — уже количество. */
-    const qtyStart = (tail) => !tail || /^[\d(@]/.test(tail)
+    const qtyStart = (tail) => !tail || /^[\d(@%]/.test(tail)
       || (TAIL_START.test(tail) && letterIndex(tail[0]) < prior.length);
     for (const n of own) {
       const h = nameThenTail(q, n);
@@ -661,6 +661,9 @@ export function suggestNames(hint, { entities = [], traits = [], positions = [] 
       }
       items.push(...[["%", "процент"], ["@", "ресурс схемы"], ["-", "диапазон: 45-55"], ["*", ""], ["/", ""],
         ["+", ""], ["(", ""], [")", ""]].map(([name, note]) => ({ name, kind: "знак", note, suffix: "", insert: true })));
+      // Количество набрано (или не нужно — тогда 1): запятая к следующему ресурсу.
+      items.push({ name: "→", kind: "дальше", note: "запятая — к следующему ресурсу", insert: true,
+        text: ",", suffix: " ", trimBefore: true });
     }
   }
   const seen = new Set();

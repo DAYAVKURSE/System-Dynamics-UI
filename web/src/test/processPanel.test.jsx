@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { activeFuncs } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
@@ -81,7 +81,7 @@ const acceptWarehouse = () => {
 };
 
 describe("текст с всплывающими подсказками", () => {
-  it("окно у поля говорит, что ожидается, и предлагает имена по месту: актив, должность или метка, откуда, что", () => {
+  it("окно у поля говорит, что ожидается, и предлагает имена по месту: актив, должность или метка, откуда, что", async () => {
     const area = addProc();
     type(area, "");
     expect(popup()).toHaveTextContent("ожидается: актив");
@@ -94,8 +94,20 @@ describe("текст с всплывающими подсказками", () => 
     type(area, "Пользователи, берёт: Рынок услуг, ");
     expect(popup()).toHaveTextContent("ожидается: что (ресурс) из «Рынок услуг» · после имени через пробел — сколько");
     expect(options()).toEqual(["ресурс спрос"]);
-    // Выбор подставляет имя и запятую — дальше сразу следующее слово.
+    // Выбор подставляет имя и ПРОБЕЛ — и окно сразу ждёт «сколько».
     fireEvent.mouseDown(within(popup()).getByRole("option"));
+    expect(area).toHaveValue("Пользователи, берёт: Рынок услуг, спрос ");
+    // Окно переставляется после возврата фокуса в поле (следующий тик).
+    await waitFor(() => expect(popup()).toHaveTextContent("ожидается: сколько"));
+    expect(options()).toContain("дальше → — запятая — к следующему ресурсу");
+    // Число набрано — «дальше →» ставит запятую к следующему ресурсу.
+    type(area, "Пользователи, берёт: Рынок услуг, спрос 2");
+    fireEvent.mouseDown(within(popup()).getByRole("option", { name: /дальше/ }));
+    expect(area).toHaveValue("Пользователи, берёт: Рынок услуг, спрос 2, ");
+    await waitFor(() => expect(popup()).toHaveTextContent("откуда берёт"));
+    // Без числа «дальше →» тоже работает: пробел перед запятой убирается.
+    type(area, "Пользователи, берёт: Рынок услуг, спрос ");
+    fireEvent.mouseDown(within(popup()).getByRole("option", { name: /дальше/ }));
     expect(area).toHaveValue("Пользователи, берёт: Рынок услуг, спрос, ");
   });
 

@@ -124,12 +124,18 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
      ровно там, где человеку снова надо набирать. */
   const choose = (it) => {
     if (!pick) return;
-    const suffix = it.suffix ?? (it.mark ? " " : ", ");
+    /* После РЕСУРСА — пробел, а не запятая (владелец, 2026-09-15: «запятая
+       ставится после ввода ресурса, а не выходит предложение ввести
+       количество»): окно сразу переходит к «сколько». Запятую к
+       следующему ресурсу ставит пункт «дальше →» или сам человек. */
+    const suffix = it.suffix ?? (it.mark ? " " : pick.kind === "trait" ? " " : ", ");
     // Знак у количества вставляется в место курсора, буква и имя — вместо
     // слова у курсора, недописанное имя ресурса — с самого имени.
     const from = it.insert ? pick.at : it.whole && pick.nameStart != null ? pick.nameStart : pick.start;
-    const next = `${text.slice(0, from)}${it.name}${suffix}${text.slice(pick.at)}`;
-    const caret = from + it.name.length + suffix.length;
+    const head = it.trimBefore ? text.slice(0, from).replace(/[ \t]+$/, "") : text.slice(0, from);
+    const put = it.text ?? it.name;
+    const next = `${head}${put}${suffix}${text.slice(pick.at)}`;
+    const caret = head.length + put.length + suffix.length;
     setText(next);
     setTimeout(() => {
       inp.current?.focus();
