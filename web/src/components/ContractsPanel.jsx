@@ -7,7 +7,7 @@ import {
   addDoc, addDocVersion, createAgreement, docHtml, removeDoc, removeDocVersion, updateDoc,
 } from "../identity.js";
 import { getTelegram } from "../telegram.js";
-import { diffHtml, diffText } from "../lib/docdiff.js";
+import { changeFormsHtml } from "../lib/docdiff.js";
 
 /* ════════════════════════════════════════════════════════════════
    ДОГОВОРЫ · документы с версиями, просмотр и правка, приглашение
@@ -96,32 +96,63 @@ export function PlaceholderFields({ placeholders = [], values = {}, onChange, re
 
 /* ─────── документ на весь экран ─────── */
 
+/* Круглый полупрозрачный значок на документе — как крестик, чтобы не
+   загораживать текст (владелец, 2026-09-15). */
+const roundBtn = (extra = {}) => ({ width: 38, height: 38, borderRadius: "50%",
+  background: "rgba(29,40,57,.72)", color: "#fff", border: `1px solid ${C.line}`, fontSize: 17,
+  lineHeight: "36px", textAlign: "center", cursor: "pointer", boxShadow: "0 2px 8px #0008",
+  backdropFilter: "blur(2px)", padding: 0, ...extra });
+
 /**
  * Документ над формой, на весь экран: HTML от сервера в contentEditable —
- * его листают и правят. Крестик в тёмном кружке закрывает. Правки уходят
- * наверх по вводу; сохраняет их кнопка «Сохранить изменения» на карточке.
+ * его листают и правят. Кнопки — ТОЛЬКО здесь, столбиком под крестиком
+ * (владелец, 2026-09-15): свернуть (документ прячется, правки остаются),
+ * отменить и вернуть правку, сохранить (новая версия). Крестик закрывает;
+ * несохранённые правки при этом спрашиваются.
  */
-export function DocViewer({ title, html, editable = true, onChange, onClose }) {
+export function DocViewer({ title, html, editable = true, dirty = false, busy = false,
+  onChange, onSave, onCollapse, onClose }) {
   const box = useRef(null);
   // HTML ставится один раз: React не должен перерисовывать contentEditable
   // на каждом вводе — курсор улетал бы в начало.
   useEffect(() => { if (box.current) box.current.innerHTML = html || ""; }, [html]);
   useEffect(() => {
-    const key = (e) => { if (e.key === "Escape") onClose?.(); };
+    const key = (e) => { if (e.key === "Escape") (onCollapse || onClose)?.(); };
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
-  }, [onClose]);
+  }, [onCollapse, onClose]);
+  const cmd = (name) => {
+    box.current?.focus();
+    try { document.execCommand(name); } catch { /* jsdom без execCommand */ }
+    if (box.current) onChange?.(box.current.innerHTML);
+  };
+  const close = () => {
+    if (dirty && typeof window !== "undefined" && !window.confirm("Закрыть без сохранения правок?")) return;
+    onClose?.();
+  };
   return (
     <div role="dialog" aria-label={`документ ${title}`} aria-modal="true"
       style={{ position: "fixed", inset: 0, zIndex: 60, background: "#0E1420",
         overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
-      <button type="button" aria-label="закрыть документ" onClick={onClose}
-        style={{ position: "fixed", top: 10, right: 12, zIndex: 61, width: 38, height: 38,
-          borderRadius: "50%", background: "#1D2839", color: "#fff", border: `1px solid ${C.line}`,
-          fontSize: 18, lineHeight: "36px", textAlign: "center", cursor: "pointer",
-          boxShadow: "0 2px 8px #0008" }}>✕</button>
-      <div style={{ fontSize: 11, color: C.muted, padding: "12px 56px 4px 16px" }}>
+      <div style={{ position: "fixed", top: 10, right: 12, zIndex: 61, display: "flex",
+        flexDirection: "column", gap: 8 }}>
+        <button type="button" aria-label="закрыть документ" title="Закрыть" onClick={close}
+          style={roundBtn()}>✕</button>
+        {editable && (<>
+          <button type="button" aria-label="свернуть документ" title="Свернуть — правки останутся"
+            onClick={onCollapse} style={roundBtn()}>﹀</button>
+          <button type="button" aria-label="отменить правку" title="Отменить"
+            onClick={() => cmd("undo")} style={roundBtn()}>↶</button>
+          <button type="button" aria-label="вернуть правку" title="Вернуть"
+            onClick={() => cmd("redo")} style={roundBtn()}>↷</button>
+          <button type="button" aria-label="сохранить документ" title={dirty ? "Сохранить новой версией" : "Правок нет"}
+            disabled={!dirty || busy} onClick={onSave}
+            style={roundBtn({ color: dirty ? OK : "#fff", opacity: dirty ? 1 : 0.45, fontSize: 15 })}>✓</button>
+        </>)}
+      </div>
+      <div style={{ fontSize: 11, color: C.muted, padding: "12px 60px 4px 16px" }}>
         {title}{editable ? " · правится прямо здесь; сложное оформление Word при сохранении упрощается" : " · только чтение"}
+        {dirty ? " · есть несохранённые правки" : ""}
       </div>
       <div ref={box} contentEditable={editable} suppressContentEditableWarning
         aria-label="текст документа"
@@ -133,29 +164,34 @@ export function DocViewer({ title, html, editable = true, onChange, onClose }) {
   );
 }
 
-/* ─────── изменения двумя рамками: «+» зелёная, «−» красная ─────── */
+/* ─────── изменения формами: «+» зелёная, «−» красная, по одному месту ─────── */
 
-export function DiffForms({ diff, title, empty = "Изменений нет." }) {
-  const box = (sign, list, color, label) => (
-    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: 6,
-      padding: "4px 8px 8px", margin: "6px 0 0", minWidth: 0, flex: "1 1 200px" }}>
-      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sign}</legend>
-      {!list.length && <div style={{ ...hint, color: C.muted }}>—</div>}
-      {list.map((line, i) => (
-        <div key={i} style={{ fontSize: 11.5, lineHeight: 1.5, color: C.text,
-          borderBottom: i < list.length - 1 ? `1px solid ${C.line}` : "none", padding: "2px 0" }}>
-          {line}</div>))}
-    </fieldset>);
-  if (!diff) return null;
-  const none = !diff.added.length && !diff.removed.length;
+/**
+ * Одна форма — одно изменение (владелец, 2026-09-15): предложение, в
+ * которое добавили или из которого убрали слова, и сами слова выделены
+ * цветом рамки. Форм столько, сколько мест изменилось.
+ */
+export function DiffForms({ forms, title, empty = "Изменений нет." }) {
+  if (!forms) return null;
+  const box = (f, i) => {
+    const color = f.sign === "+" ? OK : BAD;
+    return (
+      <fieldset key={i} aria-label={f.sign === "+" ? "добавлено" : "убрано"}
+        style={{ border: `1px solid ${color}`, borderRadius: 6, padding: "2px 8px 6px",
+          margin: "6px 0 0", minWidth: 0 }}>
+        <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{f.sign === "+" ? "+" : "−"}</legend>
+        <div style={{ fontSize: 11.5, lineHeight: 1.6, color: C.text }}>
+          {f.parts.map((p, k) => (
+            <span key={k} data-hl={p.hl ? f.sign : undefined}
+              style={p.hl ? { background: `${color}33`, color, fontWeight: 600, borderRadius: 3, padding: "0 2px" } : undefined}>
+              {p.text}{k < f.parts.length - 1 ? " " : ""}</span>))}
+        </div>
+      </fieldset>);
+  };
   return (
-    <div style={{ marginTop: 6 }} aria-label="изменения">
-      {title && <div style={{ ...S.lbl }}>{title}</div>}
-      {none ? <div style={hint}>{empty}</div> : (
-        <div className="flex flex-wrap gap-2">
-          {box("+", diff.added, OK, "добавлено")}
-          {box("−", diff.removed, BAD, "убрано")}
-        </div>)}
+    <div style={{ marginTop: 4 }} aria-label="изменения">
+      {title && <div style={S.lbl}>{title}</div>}
+      {!forms.length ? <div style={hint}>{empty}</div> : forms.map(box)}
     </div>);
 }
 
@@ -203,116 +239,118 @@ function NewDocForm({ busy, act, onDone }) {
   );
 }
 
-/* ─────── один документ: строка, версии, плейсхолдеры, просмотр ─────── */
+/* ─────── один документ: «Редактировать», название в рамке, плейсхолдеры, версии ─────── */
 
-function DocCard({ doc, selected, onSelect, busy, act, onOpen, onDrop, html, setHtml }) {
+function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer }) {
   const ver = last(doc);
+  const [phOpen, setPhOpen] = useState(false);
   const [versions, setVersions] = useState(false);
+  const [openVer, setOpenVer] = useState(null);   // id раскрытой прошлой версии
   const [values, setValues] = useState(doc.values || {});
   const [file, setFile] = useState(null);
-  /* HTML версий — для разницы: последняя против предыдущей, и каждая
-     версия против своей предыдущей в дереве. Грузится, когда нужно. */
-  const [texts, setTexts] = useState({});   // versionId → html
   const [verErr, setVerErr] = useState("");
+  /* HTML версий — для изменений: текущие правки против последней, и каждая
+     прошлая версия против своей предыдущей. Грузится, когда нужно. */
+  const [texts, setTexts] = useState({});   // versionId → html
   useEffect(() => { setValues(doc.values || {}); }, [doc.values]);
-  const dirty = html != null && html !== doc._html;
-  const needed = versions ? doc.versions.map((v) => v.id) : selected ? doc.versions.slice(-2).map((v) => v.id) : [];
+  const dirty = html != null && doc._html != null && html !== doc._html;
+  const needed = versions ? doc.versions.map((v) => v.id) : [];
   useEffect(() => {
     needed.filter((id) => texts[id] === undefined).forEach((id) => {
       docHtml(doc.id, id).then((r) => setTexts((t) => ({ ...t, [id]: r.html }))).catch(() => {});
     });
   }, [needed.join(","), doc.id]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const prev = doc.versions[doc.versions.length - 2];
-  const latestHtml = texts[ver?.id] ?? doc._html;
-  const diff = dirty && latestHtml != null ? diffHtml(latestHtml, html)
-    : prev && texts[prev.id] != null && latestHtml != null ? diffHtml(texts[prev.id], latestHtml) : null;
-  const diffTitle = dirty ? "изменения к сохранению" : prev ? `версия ${when(ver?.at)} против ${when(prev.at)}` : "";
-  const verDiff = (i) => {
+  const current = dirty ? changeFormsHtml(doc._html, html) : null;
+  const verForms = (i) => {
     const v = doc.versions[i], p = doc.versions[i - 1];
-    if (!p) return "первая версия";
-    return texts[v.id] != null && texts[p.id] != null ? diffText(diffHtml(texts[p.id], texts[v.id])) : "…";
+    if (!p) return [];
+    return texts[v.id] != null && texts[p.id] != null ? changeFormsHtml(texts[p.id], texts[v.id]) : null;
   };
   const saveValues = () => {
     if (JSON.stringify(values) !== JSON.stringify(doc.values || {})) act(() => updateDoc(doc.id, { values }));
   };
   return (
-    <div style={{ ...sub, borderColor: selected ? ACC : C.line, background: selected ? `${ACC}14` : C.panel2 }}
-      aria-label={`договор ${doc.name}`}>
+    <div style={{ ...sub, borderColor: opened ? ACC : C.line }} aria-label={`договор ${doc.name}`}>
       <div className="flex items-center gap-2">
-        {/* Название — кнопка: выделяет документ и открывает его; у
-            выделенного оно становится «Скачать». Повторное нажатие на
-            выделенный — закрыть и снять выделение. */}
-        {selected ? (
-          <a href={ver?.file?.url} download={ver?.file?.name || `${doc.name}.docx`}
-            aria-label={`скачать ${doc.name}`}
-            style={{ ...btn(true), textDecoration: "none", fontSize: 12 }}>⤓ Скачать</a>
-        ) : null}
-        <button type="button" aria-label={`документ ${doc.name}`} aria-pressed={selected}
-          onClick={() => onSelect(doc)}
-          style={{ ...btn(selected), flex: 1, textAlign: "left", fontSize: 12.5, fontWeight: 600,
-            minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-          {doc.name}
-          <span style={{ fontWeight: 400, color: C.muted, fontSize: 10.5 }}>
-            {" "}· версий: {doc.versions.length} · {when(ver?.at)}</span>
-        </button>
-        {selected && (
-          <button type="button" style={btn(true, dirty ? WARN : undefined)} disabled={busy || !dirty}
-            aria-label={`сохранить изменения ${doc.name}`}
-            title={dirty ? "" : "Правок в документе нет"}
-            onClick={() => act(async () => { await addDocVersion(doc.id, { html }); setHtml(null); })}>
-            Сохранить изменения</button>)}
+        {/* Первой — «Редактировать»: открывает документ на весь экран. Кнопок
+            на карточке от этого не прибавляется (владелец, 2026-09-15). */}
+        <button type="button" style={btn(opened)} disabled={busy} aria-label={`редактировать ${doc.name}`}
+          onClick={() => onEdit(doc)}>Редактировать</button>
+        <fieldset aria-label={`название ${doc.name}`} style={{ flex: 1, minWidth: 0, border: `1px solid ${C.line}`,
+          borderRadius: 6, padding: "0 8px 5px", margin: 0 }}>
+          <legend style={{ ...S.lbl, padding: "0 4px" }}>договор</legend>
+          <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis",
+            whiteSpace: "nowrap" }}>{doc.name}</div>
+          <div style={{ fontSize: 10.5, color: C.muted }}>
+            версий: {doc.versions.length} · {when(ver?.at)}{dirty ? " · есть несохранённые правки" : ""}</div>
+        </fieldset>
         <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }} disabled={busy}
           aria-label={`удалить договор ${doc.name}`} onClick={() => onDrop(doc)}>Удалить</button>
       </div>
-      {/* Изменения — как в git, двумя рамками: «+» зелёная, «−» красная. */}
-      {selected && (diff
-        ? <DiffForms diff={diff} title={diffTitle} />
-        : !prev && !dirty ? <div style={{ ...hint, marginTop: 6 }}>Первая версия — сравнивать пока не с чем.</div> : null)}
+      {/* Текущие правки — формами, по одному месту в каждой. */}
+      {dirty && <DiffForms forms={current} title="несохранённые изменения" />}
 
-      {/* Дерево версий — по нажатию на файл. У каждой — скачать и удалить. */}
-      <button type="button" style={{ ...btn(versions), marginTop: 6, fontSize: 11 }}
-        aria-label={`версии ${doc.name}`} onClick={() => setVersions((v) => !v)}>
-        📄 {ver?.file?.name || "файл"} · версии ({doc.versions.length})</button>
-      {versions && (
-        <div style={{ marginTop: 4, borderLeft: `2px solid ${C.line}`, paddingLeft: 8 }}>
-          {[...doc.versions].reverse().map((v, i) => (
-            <div key={v.id} className="flex flex-wrap items-center gap-2" style={{ fontSize: 11, padding: "3px 0" }}>
-              <span style={{ color: i === 0 ? OK : C.muted }}>{i === 0 ? "● " : "○ "}{when(v.at)}</span>
-              <span style={{ flex: 1, minWidth: 80 }} aria-label={`изменения версии ${v.id}`}>
-                {verDiff(doc.versions.length - 1 - i)}</span>
-              <a href={v.file?.url} download={v.file?.name} style={{ color: ACC }}
-                aria-label={`скачать версию ${v.id}`}>скачать</a>
-              {i !== 0 && (
-                <button type="button" style={{ ...btn(false), color: BAD, padding: "1px 6px", fontSize: 10.5 }}
-                  disabled={busy} aria-label={`удалить версию ${v.id}`}
-                  onClick={() => act(() => removeDocVersion(doc.id, v.id))}>Удалить</button>)}
-            </div>))}
-          <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 4 }}>
-            <label style={{ ...btn(false), fontSize: 11, display: "inline-block" }}>
-              {file ? `📄 ${file.name}` : "Новая версия файлом"}
-              <input type="file" accept=".docx" style={{ display: "none" }}
-                aria-label={`файл новой версии ${doc.name}`}
-                onChange={(e) => setFile(e.target.files?.[0] || null)} />
-            </label>
-            {file && (
-              <button type="button" style={btn(true)} disabled={busy}
-                onClick={() => { setVerErr(""); act(async () => { await addDocVersion(doc.id, { file }); setFile(null); }, { quiet: true })
-                  .catch((e) => setVerErr(e.message)); }}>
-                Загрузить версию</button>)}
-          </div>
-          {verErr && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: 4 }}>{verErr}</div>}
+      {/* Плейсхолдеры — под спойлером: их много, а нужны не каждый раз. */}
+      <button type="button" style={{ ...btn(phOpen), marginTop: 6, fontSize: 11 }}
+        aria-expanded={phOpen} aria-label={`плейсхолдеры ${doc.name}`} onClick={() => setPhOpen((v) => !v)}>
+        {phOpen ? "▾" : "▸"} плейсхолдеры ({(ver?.placeholders || []).length})</button>
+      {phOpen && (
+        <div style={{ marginTop: 4 }} onBlur={saveValues}>
+          <PlaceholderFields placeholders={ver?.placeholders || []} values={values} onChange={setValues}
+            label={`поле ${doc.name}`} />
+          <div style={hint}>Заполнять все не обязательно; при выдаче договора пустые дозаполняются.</div>
         </div>)}
 
-      {/* Плейсхолдеры — из последней версии; значения общие для всех выдач. */}
-      <div style={{ ...S.lbl, marginTop: 8 }}>плейсхолдеры</div>
-      <div style={{ marginTop: 4 }} onBlur={saveValues}>
-        <PlaceholderFields placeholders={ver?.placeholders || []} values={values} onChange={setValues}
-          label={`поле ${doc.name}`} />
+      {/* «Загрузить новый» — перед списком версий. */}
+      <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 6 }}>
+        <label style={{ ...btn(false), fontSize: 11, display: "inline-block" }}>
+          {file ? `📄 ${file.name}` : "Загрузить новый"}
+          <input type="file" accept=".docx" style={{ display: "none" }}
+            aria-label={`файл новой версии ${doc.name}`}
+            onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        </label>
+        {file && (
+          <button type="button" style={btn(true)} disabled={busy} aria-label={`загрузить версию ${doc.name}`}
+            onClick={() => { setVerErr(""); act(async () => { await addDocVersion(doc.id, { file }); setFile(null); }, { quiet: true })
+              .catch((e) => setVerErr(e.message)); }}>
+            Загрузить</button>)}
+        <button type="button" style={{ ...btn(versions), fontSize: 11 }} aria-expanded={versions}
+          aria-label={`прошлые версии ${doc.name}`} onClick={() => setVersions((v) => !v)}>
+          прошлые версии ({doc.versions.length})</button>
       </div>
-      <div style={hint}>Заполнять все не обязательно; при выдаче договора пустые дозаполняются.</div>
-      {selected && (
-        <button type="button" style={{ ...btn(false), marginTop: 6, fontSize: 11 }} onClick={() => onOpen(doc)}>
-          Открыть документ</button>)}
+      {verErr && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: 4 }}>{verErr}</div>}
+      {versions && (
+        <div style={{ marginTop: 4, borderLeft: `2px solid ${C.line}`, paddingLeft: 8 }}>
+          {[...doc.versions].reverse().map((v, i) => {
+            const idx = doc.versions.length - 1 - i;
+            const isOpen = openVer === v.id;
+            const forms = isOpen ? verForms(idx) : null;
+            return (
+              <div key={v.id} style={{ padding: "3px 0" }}>
+                <button type="button" aria-label={`версия ${v.id}`} aria-expanded={isOpen}
+                  style={{ ...btn(isOpen), fontSize: 11, textAlign: "left", width: "100%" }}
+                  onClick={() => setOpenVer(isOpen ? null : v.id)}>
+                  <span style={{ color: i === 0 ? OK : C.muted }}>{i === 0 ? "● " : "○ "}</span>
+                  {when(v.at)}{i === 0 ? " · последняя" : ""}{idx === 0 ? " · первая" : ""}</button>
+                {isOpen && (
+                  <div style={{ padding: "4px 0 4px 6px" }}>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" style={btn(false)} aria-label={`открыть версию ${v.id}`}
+                        onClick={() => viewer(doc, v)}>открыть</button>
+                      <a href={v.file?.url} download={v.file?.name} aria-label={`скачать версию ${v.id}`}
+                        style={{ ...btn(false), textDecoration: "none" }}>скачать</a>
+                      {i !== 0 && (
+                        <button type="button" style={{ ...btn(false), color: BAD }} disabled={busy}
+                          aria-label={`удалить версию ${v.id}`}
+                          onClick={() => act(() => removeDocVersion(doc.id, v.id))}>удалить</button>)}
+                    </div>
+                    {idx === 0 ? <div style={{ ...hint, marginTop: 4 }}>Первая версия — сравнивать не с чем.</div>
+                      : forms == null ? <div style={{ ...hint, marginTop: 4 }}>Считаю изменения…</div>
+                        : <DiffForms forms={forms} title="изменения против предыдущей" />}
+                  </div>)}
+              </div>);
+          })}
+        </div>)}
     </div>
   );
 }
@@ -320,32 +358,46 @@ function DocCard({ doc, selected, onSelect, busy, act, onOpen, onDrop, html, set
 /** Раздел «договоры» на «Ролях»: список документов и загрузка нового. */
 export function DocsSection({ docs = [], busy, act }) {
   const [adding, setAdding] = useState(false);
-  const [selected, setSelected] = useState(null);   // id документа
-  const [viewer, setViewer] = useState(null);       // {doc, html}
-  const [html, setHtml] = useState(null);           // правленный HTML выделенного
+  const [edit, setEdit] = useState(null);      // {doc, html} — документ в правке (может быть свёрнут)
+  const [shown, setShown] = useState(false);   // документ на экране
+  const [readOnly, setReadOnly] = useState(null);   // {doc, version, html} — прошлая версия
+  const [html, setHtml] = useState(null);      // правленный HTML
   const [err, setErr] = useState("");
-  const open = async (doc) => {
+  const openEdit = async (doc) => {
     setErr("");
+    // Свёрнутый документ с правками — просто показать снова.
+    if (edit?.doc.id === doc.id) { setShown((v) => !v); return; }
     try {
       const r = await docHtml(doc.id);
       doc._html = r.html;
-      setViewer({ doc, html: r.html });
+      setEdit({ doc, html: r.html }); setHtml(null); setShown(true);
     } catch (e) { setErr(e.message); }
   };
-  const select = (doc) => {
-    if (selected === doc.id) { setSelected(null); setViewer(null); setHtml(null); return; }
-    setSelected(doc.id); setHtml(null); open(doc);
+  const openVersion = async (doc, v) => {
+    setErr("");
+    try {
+      const r = await docHtml(doc.id, v.id);
+      setReadOnly({ doc, version: v, html: r.html });
+    } catch (e) { setErr(e.message); }
   };
+  const save = () => act(async () => {
+    await addDocVersion(edit.doc.id, { html });
+    // Сохранённое — теперь и есть документ: правок больше нет.
+    edit.doc._html = html; setHtml(null); setEdit(null); setShown(false);
+  });
+  const cur = edit ? docs.find((d) => d.id === edit.doc.id) : null;
+  if (cur && edit && cur !== edit.doc) { cur._html = edit.doc._html; }
   return (
     <div style={{ marginTop: 4 }}>
       <div style={{ ...hint, marginBottom: 8 }}>
-        Договоры — документы Word с историей версий. Нажатие на договор открывает его на весь экран;
-        повторное — закрывает. Какой договор подписывают по роли, выбирается у роли.
+        Договоры — документы Word с историей версий. «Редактировать» открывает документ на весь экран;
+        сохранить, отменить и свернуть — значками на самом документе. Какой договор подписывают по роли,
+        выбирается у роли.
       </div>
       {docs.map((d) => (
-        <DocCard key={d.id} doc={d} selected={selected === d.id} onSelect={select} busy={busy} act={act}
-          onOpen={open} html={selected === d.id ? html : null} setHtml={setHtml}
-          onDrop={(doc) => act(async () => { await removeDoc(doc.id); if (selected === doc.id) { setSelected(null); setViewer(null); } })} />))}
+        <DocCard key={d.id} doc={d} opened={edit?.doc.id === d.id} onEdit={openEdit} busy={busy} act={act}
+          html={edit?.doc.id === d.id ? html : null} setHtml={setHtml} viewer={openVersion}
+          onDrop={(doc) => act(async () => { await removeDoc(doc.id); if (edit?.doc.id === doc.id) { setEdit(null); setShown(false); } })} />))}
       {!docs.length && <div style={{ ...hint, marginBottom: 6 }}>Договоров пока нет.</div>}
       {adding ? (
         <NewDocForm busy={busy} act={act} onDone={() => setAdding(false)} />
@@ -353,9 +405,14 @@ export function DocsSection({ docs = [], busy, act }) {
         <button type="button" style={btn(true)} disabled={busy} onClick={() => setAdding(true)}>
           + договор</button>)}
       {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: 6 }}>{err}</div>}
-      {viewer && selected === viewer.doc.id && (
-        <DocViewer title={viewer.doc.name} html={viewer.html} onChange={setHtml}
-          onClose={() => { setViewer(null); }} />)}
+      {edit && shown && (
+        <DocViewer title={edit.doc.name} html={edit.html} dirty={html != null && html !== edit.doc._html}
+          busy={busy} onChange={setHtml} onSave={save}
+          onCollapse={() => setShown(false)}
+          onClose={() => { setEdit(null); setHtml(null); setShown(false); }} />)}
+      {readOnly && (
+        <DocViewer title={`${readOnly.doc.name} · версия ${when(readOnly.version.at)}`} html={readOnly.html}
+          editable={false} onClose={() => setReadOnly(null)} />)}
     </div>
   );
 }

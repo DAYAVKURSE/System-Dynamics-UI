@@ -121,57 +121,83 @@ describe("форма договоров", () => {
     expect(String(calls[0].body.file.data)).toMatch(/^data:/);
   });
 
-  it("нажатие на договор выделяет его: «Скачать», «Сохранить изменения», разница двумя рамками; повторное — снимает; версии деревом", async () => {
+  it("«Редактировать» первой, название в рамке; кнопки — только на документе; правки — формами по словам", async () => {
     const calls = ownerServer();
     render(<PeoplePanel me={ME} />);
-    const row = await screen.findByRole("button", { name: "документ Договор подряда" });
-    expect(screen.queryByLabelText("скачать Договор подряда")).toBeNull();
-    fireEvent.click(row);
-    expect(screen.getByLabelText("скачать Договор подряда")).toHaveAttribute("href", "/api/reports/s/f2");
-    const save = screen.getByRole("button", { name: "сохранить изменения Договор подряда" });
-    expect(save).toBeDisabled();   // правок ещё нет
-    // Без правок — последняя версия против предыдущей: «+» зелёная, «−» красная.
-    const plus = await screen.findByLabelText("добавлено");
-    const minus = screen.getByLabelText("убрано");
-    expect(plus.textContent).toContain("п. 3 поправлен");
-    expect(minus.textContent).toContain("старый пункт");
-    expect(plus.style.border).toContain("rgb(61, 220, 151)");
-    expect(minus.style.border).toContain("rgb(255, 92, 122)");
-    expect(within(plus).getByText("+", { selector: "legend" })).toBeInTheDocument();
-    expect(within(minus).getByText("−", { selector: "legend" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("описание изменений Договор подряда")).toBeNull();
-    // Документ открылся на весь экран, с крестиком.
+    const card = await screen.findByLabelText("договор Договор подряда");
+    // Первой — «Редактировать»; название — в рамке с подписью «договор».
+    expect(within(card).getAllByRole("button")[0]).toHaveAccessibleName("редактировать Договор подряда");
+    const frame = within(card).getByLabelText("название Договор подряда");
+    expect(within(frame).getByText("договор", { selector: "legend" })).toBeInTheDocument();
+    expect(frame.textContent).toContain("Договор подряда");
+    // На карточке нет ни «Скачать», ни «Сохранить изменения», ни описания.
+    expect(within(card).queryByText(/Скачать/)).toBeNull();
+    expect(within(card).queryByText(/Сохранить изменения/)).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "редактировать Договор подряда" }));
     const viewer = await screen.findByRole("dialog", { name: "документ Договор подряда" });
-    expect(within(viewer).getByRole("button", { name: "закрыть документ" })).toBeInTheDocument();
-    expect(within(viewer).getByLabelText("текст документа").innerHTML).toContain("п. 1");
-    // Правка → «Сохранить изменения» активна → новая версия с описанием.
+    // Значки на документе: закрыть, свернуть, отменить, вернуть, сохранить (пока правок нет — неактивна).
+    ["закрыть документ", "свернуть документ", "отменить правку", "вернуть правку", "сохранить документ"]
+      .forEach((n) => expect(within(viewer).getByRole("button", { name: n })).toBeInTheDocument());
+    expect(within(viewer).getByRole("button", { name: "сохранить документ" })).toBeDisabled();
+    expect(within(viewer).getByRole("button", { name: "закрыть документ" }).style.borderRadius).toBe("50%");
+    // Правка: добавили слово в предложение.
     const text = within(viewer).getByLabelText("текст документа");
-    text.innerHTML = "<p>Текст договора <b>п. 1</b></p><p>п. 3 поправлен</p><p>новый п. 4</p>";
+    text.innerHTML = "<p>Текст договора <b>п. 1</b></p><p>п. 3 срочно поправлен</p>";
     fireEvent.input(text);
-    // С правками разница — что уйдёт в новую версию.
-    await waitFor(() => expect(screen.getByText("изменения к сохранению")).toBeInTheDocument());
-    expect(screen.getByLabelText("добавлено").textContent).toContain("новый п. 4");
-    expect(screen.getByLabelText("убрано").textContent).toContain("—");
-    fireEvent.click(screen.getByRole("button", { name: "сохранить изменения Договор подряда" }));
-    await waitFor(() => expect(calls.some((c) => c.url === "/api/org/docs/doc1/versions")).toBe(true));
-    expect(calls.find((c) => c.url === "/api/org/docs/doc1/versions").body)
-      .toMatchObject({ html: expect.stringContaining("новый п. 4") });
-    // Версии — деревом с «+N −M», старую можно удалить, последнюю — нет.
-    fireEvent.click(screen.getByRole("button", { name: "версии Договор подряда" }));
-    await waitFor(() => expect(screen.getByLabelText("изменения версии v2").textContent).toBe("+1 −1"));
-    expect(screen.getByLabelText("изменения версии v1").textContent).toBe("первая версия");
-    expect(screen.getByRole("button", { name: "удалить версию v1" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "удалить версию v2" })).toBeNull();
-    // Повторное нажатие — закрыть и снять выделение.
-    fireEvent.click(screen.getByRole("button", { name: "документ Договор подряда" }));
+    expect(within(viewer).getByRole("button", { name: "сохранить документ" })).not.toBeDisabled();
+    // Свернули — документ спрятан, правки остались: на карточке одна зелёная форма с предложением и словом.
+    fireEvent.click(within(viewer).getByRole("button", { name: "свернуть документ" }));
     expect(screen.queryByRole("dialog", { name: "документ Договор подряда" })).toBeNull();
-    expect(screen.queryByLabelText("скачать Договор подряда")).toBeNull();
+    expect(within(card).getByText("несохранённые изменения")).toBeInTheDocument();
+    const plus = within(card).getByLabelText("добавлено");
+    expect(plus.textContent).toBe("+п. 3 срочно поправлен");
+    expect(plus.querySelector("[data-hl='+']").textContent.trim()).toBe("срочно");
+    expect(within(card).queryByLabelText("убрано")).toBeNull();
+    // «Редактировать» снова — тот же документ с правками; сохранить — значком.
+    fireEvent.click(within(card).getByRole("button", { name: "редактировать Договор подряда" }));
+    const again = await screen.findByRole("dialog", { name: "документ Договор подряда" });
+    fireEvent.click(within(again).getByRole("button", { name: "сохранить документ" }));
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/org/docs/doc1/versions")).toBe(true));
+    expect(calls.find((c) => c.url === "/api/org/docs/doc1/versions").body.html).toContain("срочно");
+  });
+
+  it("«прошлые версии»: версия раскрывается кнопками открыть/скачать/удалить и изменениями; «Загрузить новый» — перед списком", async () => {
+    ownerServer();
+    render(<PeoplePanel me={ME} />);
+    const card = await screen.findByLabelText("договор Договор подряда");
+    const upload = within(card).getByText("Загрузить новый");
+    const versions = within(card).getByRole("button", { name: "прошлые версии Договор подряда" });
+    // eslint-disable-next-line no-bitwise
+    expect(upload.compareDocumentPosition(versions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(versions);
+    expect(within(card).queryByRole("button", { name: "открыть версию v2" })).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "версия v2" }));
+    expect(within(card).getByRole("button", { name: "открыть версию v2" })).toBeInTheDocument();
+    expect(within(card).getByLabelText("скачать версию v2")).toHaveAttribute("href", "/api/reports/s/f2");
+    expect(within(card).queryByRole("button", { name: "удалить версию v2" })).toBeNull();   // последнюю нельзя
+    // Изменения v2 против v1 — формами: замена абзаца → «+» и «−» с выделением.
+    await waitFor(() => expect(within(card).getByLabelText("добавлено")).toBeInTheDocument());
+    expect(within(card).getByLabelText("добавлено").textContent).toContain("п. 3 поправлен");
+    expect(within(card).getByLabelText("убрано").textContent).toContain("старый пункт");
+    // Повторное нажатие — скрыть.
+    fireEvent.click(within(card).getByRole("button", { name: "версия v2" }));
+    expect(within(card).queryByRole("button", { name: "открыть версию v2" })).toBeNull();
+    // Старую можно удалить; «открыть» показывает её только для чтения.
+    fireEvent.click(within(card).getByRole("button", { name: "версия v1" }));
+    expect(within(card).getByRole("button", { name: "удалить версию v1" })).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: "открыть версию v1" }));
+    const ro = await screen.findByRole("dialog", { name: /документ Договор подряда · версия/ });
+    expect(within(ro).getByLabelText("текст документа")).toHaveAttribute("contenteditable", "false");
   });
 
   it("плейсхолдеры документа — поля в рамке с описанием; значения уезжают PUT", async () => {
     const calls = ownerServer();
     render(<PeoplePanel me={ME} />);
-    const city = await screen.findByLabelText("поле Договор подряда: city");
+    // Плейсхолдеры — под спойлером.
+    const card = await screen.findByLabelText("договор Договор подряда");
+    expect(within(card).queryByLabelText("поле Договор подряда: city")).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "плейсхолдеры Договор подряда" }));
+    const city = screen.getByLabelText("поле Договор подряда: city");
     expect(city).toHaveValue("Москва");
     expect(screen.getByText("город", { selector: "legend" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("поле Договор подряда: fio"), { target: { value: "Иванов" } });
