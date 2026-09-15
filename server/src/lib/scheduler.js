@@ -126,6 +126,68 @@ export function repeatDue(schedule, nowMs) {
     .map(([id, rem]) => ({ id, ...rem }));
 }
 
+/* ─────── список напоминаний для человека ───────
+
+   Владелец (2026-09-15): «в напоминаниях должен быть так же список
+   напоминаний» — что и когда пришлёт бот. Считается по расписанию
+   человека теми же правилами, что и отправка, но наперёд: у задачи
+   исполнителю — ближайшее начало (отложенная — момент, до которого
+   отложили) и предупреждение за `warn` минут; у задачи постановщику —
+   «нужно поставить», оно без времени: уходит сразу и повторяется.
+   Висящее (уже отправленное и повторяющееся каждую минуту) помечено
+   отдельно — с «молчит до», если отложено. Времена — UTC-метки ISO;
+   на экране их переводят в местное. */
+function nextPlanned(task, nowMs, tzOffset = 0) {
+  if (task.repeat === "once" || !task.repeat) {
+    const ms = wallToUtc(task.start, tzOffset);
+    return isNaN(ms) ? null : ms;
+  }
+  if (!task.time) return null;
+  for (let shift = 0; shift <= 7; shift += 1) {
+    const day = wallDate(nowMs + shift * DAY, tzOffset);
+    if (task.repeat === "weekly") {
+      const days = Array.isArray(task.days) ? task.days : [];
+      if (!days.includes(weekdayIndex(day))) continue;
+    }
+    const stamp = `${day.getUTCFullYear()}-${pad(day.getUTCMonth() + 1)}-${pad(day.getUTCDate())}T${task.time}`;
+    const ms = wallToUtc(stamp, tzOffset);
+    if (isNaN(ms)) continue;
+    if (ms >= nowMs - FIRE_WINDOW_MS) return ms;
+  }
+  return null;
+}
+const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
+export function listReminders(schedule, nowMs = Date.now()) {
+  const { tasks = [], reminders = {}, tzOffset = 0 } = schedule || {};
+  const out = [];
+  tasks.forEach((t) => {
+    if (t.status === "done" || t.canceled === true) return;
+    const hang = reminders[`${t.kind === "setup" ? "setup" : "task"}:${t.id}`] || null;
+    const hanging = hang && reminderAlive(hang, tasks)
+      ? { since: iso(Number(hang.lastSentAt) || null), deferredUntil: hang.deferredUntil || null } : null;
+    if (t.kind === "setup") {
+      if (t.status !== "wait") return;
+      out.push({ id: `setup:${t.id}`, kind: "setup", taskId: t.id, title: t.title, at: null,
+        end: t.end || "", repeat: "once", hanging });
+      return;
+    }
+    if (!DEFERRABLE.includes(t.status)) return;
+    const deferred = t.deferredUntil ? Date.parse(t.deferredUntil) : NaN;
+    const at = Number.isFinite(deferred) && deferred > nowMs - FIRE_WINDOW_MS ? deferred : nextPlanned(t, nowMs, tzOffset);
+    const warn = Number(t.warn) || 0;
+    if (at != null && warn > 0 && !(Number.isFinite(deferred) && at === deferred)) {
+      out.push({ id: `warn:${t.id}`, kind: "warn", taskId: t.id, title: t.title, at: iso(at - warn * MIN),
+        warn, repeat: t.repeat || "once", hanging: null });
+    }
+    out.push({ id: `start:${t.id}`, kind: "start", taskId: t.id, title: t.title, at: iso(at),
+      repeat: t.repeat || "once", deferred: Number.isFinite(deferred) && at === deferred, hanging });
+  });
+  // Сперва то, что висит, потом по времени; без времени — в конец.
+  return out.sort((a, b) => (b.hanging ? 1 : 0) - (a.hanging ? 1 : 0)
+    || (a.at == null ? 1 : 0) - (b.at == null ? 1 : 0)
+    || String(a.at || "").localeCompare(String(b.at || "")));
+}
+
 /* Что пора отправить прямо сейчас. Возвращает список без побочных эффектов;
    отправку и отметку «уже отправлено» делает вызывающий код. */
 export function dueNotifications(schedule, nowMs, sent = {}) {

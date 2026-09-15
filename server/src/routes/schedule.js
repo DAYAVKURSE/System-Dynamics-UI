@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { readSchedule, saveSchedule } from "../lib/scheduleStore.js";
+import { listReminders } from "../lib/scheduler.js";
 
 const router = Router();
 router.use(telegramUser);
@@ -13,6 +14,14 @@ router.get("/", async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+/* Список напоминаний человека: что и когда пришлёт бот, что висит. */
+router.get("/reminders", async (req, res, next) => {
+  try {
+    const s = await readSchedule(req.telegramUserId);
+    res.json({ reminders: listReminders(s, Date.now()), tzOffset: s?.tzOffset ?? 0 });
+  } catch (e) { next(e); }
 });
 
 router.put("/", async (req, res, next) => {

@@ -247,3 +247,6 @@ export const agreementHtml = (id) => json(`/api/org/agreements/${encodeURICompon
 export const signAgreement = (id, { values, sign2 }) =>
   json(`/api/org/agreements/${encodeURIComponent(id)}/sign`,
     { method: "POST", body: JSON.stringify({ values, sign2 }) });
+
+/* ─────── напоминания: что и когда пришлёт бот ─────── */
+export const listReminders = () => json("/api/schedule/reminders").then((r) => r.reminders || []);

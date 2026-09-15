@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField } from "./ui.jsx";
 import PersonStats from "./PersonStats.jsx";
-import { getDuty, putProfile, refuseFuncRemote } from "../identity.js";
+import { getDuty, putProfile, refuseFuncRemote, listReminders as listRemindersRemote } from "../identity.js";
 import { FormAnswers } from "./FormsPanel.jsx";
 import { WEEK, WORKER_KINDS, dutyOf } from "../lib/funcs.js";
 import { WARNS } from "./TasksBoard.jsx";
@@ -634,6 +634,49 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
    а не постановщик. Записывается в анкету (`warnMin`) тем же маршрутом,
    что и график: это тоже сведения о человеке, а не о задаче.
    ════════════════════════════════════════════════════════════════ */
+/* Список напоминаний (владелец, 2026-09-15): что и когда пришлёт бот —
+   считает сервер по расписанию человека (`listReminders` в scheduler.js).
+   Висящее — то, что уже ушло и повторяется каждую минуту. */
+const KIND_WORD = { warn: "предупреждение", start: "пора начинать", setup: "нужно поставить" };
+const whenLocal = (isoStr) => {
+  const d = new Date(isoStr || "");
+  return isNaN(d.getTime()) ? "" : d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit",
+    hour: "2-digit", minute: "2-digit" });
+};
+export function ReminderList({ known }) {
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState("");
+  const load = () => listRemindersRemote().then(setList).catch((e) => setErr(e.message));
+  useEffect(() => { if (known) load(); }, [known]);   // eslint-disable-line react-hooks/exhaustive-deps
+  if (!known) return null;
+  return (
+    <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 8,
+      marginTop: 8 }} aria-label="список напоминаний">
+      <div className="flex items-center gap-2">
+        <span style={{ ...S.lbl, flex: 1 }}>список напоминаний</span>
+        <button type="button" style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }} onClick={load}>
+          Обновить</button>
+      </div>
+      {list === null && !err && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Загружаю…</div>}
+      {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: 4 }}>{err}</div>}
+      {list && !list.length && (
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Напоминаний нет: у задач нет времени начала, и ничего не ждёт постановки.</div>)}
+      {(list || []).map((r) => (
+        <div key={r.id} className="flex flex-wrap gap-2" aria-label={`напоминание ${r.id}`}
+          style={{ fontSize: 11.5, padding: "4px 0", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+          <span style={{ flex: "1 1 160px", minWidth: 0 }}>
+            <span style={{ color: r.hanging ? WARN : C.muted }}>{KIND_WORD[r.kind] || r.kind} · </span>{r.title}
+          </span>
+          <span style={{ color: C.muted, whiteSpace: "nowrap" }}>
+            {r.hanging
+              ? (r.hanging.deferredUntil ? `отложено до ${whenLocal(r.hanging.deferredUntil)}` : "висит, повторяется каждую минуту")
+              : r.at ? `${whenLocal(r.at)}${r.repeat && r.repeat !== "once" ? " · повтор" : ""}${r.deferred ? " · отложено" : ""}`
+                : "сразу, пока не поставят"}
+          </span>
+        </div>))}
+    </div>);
+}
+
 export function RemindersCard({ me, onSaved }) {
   const current = warnMinOf(me?.profile?.warnMin);
   const [msg, setMsg] = useState("");
@@ -673,5 +716,6 @@ export function RemindersCard({ me, onSaved }) {
           ? "Применяется сразу. Чтобы напоминание дошло, у бота должен быть начат диалог."
           : "Без сервера напоминаний нет: боту некуда слать, и выбирать здесь нечего."}
       </div>
+      <ReminderList known={known} />
     </div>);
 }

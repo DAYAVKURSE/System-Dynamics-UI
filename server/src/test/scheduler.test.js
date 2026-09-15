@@ -547,3 +547,36 @@ describe("повтор и напоминание о постановке", () =>
     expect(opened).toEqual([["200", "setup", "s1", now]]);
   });
 });
+
+import { listReminders } from "../lib/scheduler.js";
+
+describe("список напоминаний (владелец, 2026-09-15)", () => {
+  const now = Date.parse("2026-09-15T10:00:00Z");
+  it("исполнителю — предупреждение и «пора начинать» по времени; постановщику — «нужно поставить» без времени; висящее — первым", () => {
+    const schedule = { tzOffset: 0, tasks: [
+      { id: "a", title: "Сверстать", status: "backlog", kind: "task", start: "2026-09-15T12:00", repeat: "once", warn: 30 },
+      { id: "b", title: "Поставить макет", status: "wait", kind: "setup" },
+      { id: "c", title: "Готовая", status: "done", kind: "task", start: "2026-09-15T13:00", repeat: "once" },
+      { id: "d", title: "Ежедневная", status: "backlog", kind: "task", repeat: "daily", time: "09:00", warn: 0 },
+    ], reminders: { "setup:b": { kind: "setup", taskId: "b", lastSentAt: now - 60000 } } };
+    const list = listReminders(schedule, now);
+    expect(list.map((r) => r.id)).toEqual(["setup:b", "warn:a", "start:a", "start:d"]);
+    expect(list[0].hanging).toMatchObject({ deferredUntil: null });
+    expect(list[1].at).toBe("2026-09-15T11:30:00.000Z");
+    expect(list[2].at).toBe("2026-09-15T12:00:00.000Z");
+    // Ежедневная в 09:00 сегодня уже прошла — следующая завтра.
+    expect(list[3].at).toBe("2026-09-16T09:00:00.000Z");
+    expect(list[3].repeat).toBe("daily");
+  });
+  it("отложенная — момент, до которого отложили; отложенное висящее — «молчит до»", () => {
+    const schedule = { tzOffset: 0, tasks: [
+      { id: "a", title: "Сверстать", status: "deferred", kind: "task", start: "2026-09-15T08:00", repeat: "once", warn: 30,
+        deferredUntil: "2026-09-15T15:00:00.000Z" }],
+    reminders: { "task:a": { kind: "task", taskId: "a", lastSentAt: now - 120000, deferredUntil: "2026-09-15T15:00:00.000Z" } } };
+    const list = listReminders(schedule, now);
+    expect(list.map((r) => r.id)).toEqual(["start:a"]);   // предупреждение отложенной не шлётся
+    expect(list[0]).toMatchObject({ at: "2026-09-15T15:00:00.000Z", deferred: true,
+      hanging: { deferredUntil: "2026-09-15T15:00:00.000Z" } });
+    expect(listReminders(null, now)).toEqual([]);
+  });
+});
