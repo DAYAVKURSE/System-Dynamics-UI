@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
-import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, marksOf, newProc,
+import ExprField from "./ExprField.jsx";
+import { evalExpr, toShown, toStored } from "../lib/expr.js";
+import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, marksOf, newProc, setPortQty,
   procIssues, procLabel, procUsesAsset, replaceName, resolveProc, stateOf, suggestNames,
   syncProcFuncs } from "../lib/process.js";
 
@@ -489,6 +491,45 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               {!!issues.length && !!p.text.trim() && (
                 <div style={{ fontSize: 10.5, color: BAD, marginTop: 6, lineHeight: 1.5 }}>
                   {issues.map((w, i) => <div key={i}>{w}</div>)}
+                </div>)}
+
+              {/* Операции с ресурсами (владелец, 2026-09-15) — форма после
+                  ввода ресурсов: у каждого ресурса шага поле операции тем
+                  же языком, что у целей и функций. Пишется в САМ ТЕКСТ
+                  строки (`setPortQty`): текст — единственный источник. */}
+              {steps.some((s) => (s.takes || []).length || (s.gives || []).length) && (
+                <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
+                  padding: 8, marginTop: 8 }} aria-label={`операции с ресурсами ${procLabel(p)}`}>
+                  <div style={S.lbl}>операции с ресурсами</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, margin: "3px 0 4px", lineHeight: 1.5 }}>
+                    Сколько ресурса берётся и отдаётся: число или операция — «20% @спрос». Результат
+                    считается по нынешним остаткам; операция остаётся в строке процесса.
+                  </div>
+                  {steps.map((s) => [["takes", "берёт"], ["gives", "отдаёт"]].map(([side, word]) =>
+                    (s[side] || []).map((port, j) => {
+                      const nameOf = (id) => traits.find((t) => t.id === id)?.l || "";
+                      const stockOf = (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; };
+                      const shownExpr = port.expr || (port.qty === 1 ? "" : String(port.qty).replace(".", ","));
+                      const r = port.expr ? evalExpr(toStored(port.expr, traits), stockOf) : null;
+                      const label = `${s.asset?.name || "?"} ${word} ${port.trait?.name || "?"}`;
+                      return (
+                        <div key={`${s.line}:${side}:${j}`} className="flex flex-wrap items-center gap-2"
+                          style={{ marginTop: 4 }}>
+                          <span style={{ fontSize: 11.5, flex: "1 1 160px", minWidth: 0 }}>
+                            <span style={{ color: C.muted }}>{s.line}. {s.asset?.name || "?"} {word} </span>
+                            {port.trait?.name}
+                            {port.asset?.name ? <span style={{ color: C.muted }}> ({port.asset.name})</span> : null}
+                          </span>
+                          <ExprField plain value={toStored(shownExpr, traits)} traits={traits}
+                            style={{ flex: "1 1 180px", minWidth: 0 }} aria-label={`операция: ${label}`}
+                            onCommit={(stored) => setText(p, setPortQty(p.text, s.line, side, j,
+                              toShown(stored, nameOf), model))} />
+                          <span style={{ fontSize: 10.5, color: port.exprError ? BAD : C.muted, minWidth: 60 }}>
+                            {port.exprError ? port.exprError
+                              : r && !r.error && r.value != null ? `= ${nm(Math.round(r.value * 100) / 100)}`
+                                : `= ${nm(port.qty)}`}</span>
+                        </div>);
+                    })))}
                 </div>)}
 
               {/* Три состояния, одно нажатие. Принять — гипотетически или

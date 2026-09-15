@@ -695,7 +695,8 @@ describe("операция у количества (владелец, 2026-09-15
   it("«операция» у входа: выражение с процентом от ресурса считается по остатку и кладётся в число", () => {
     addFunc();
     const name = addPort("takes");
-    fireEvent.click(screen.getByRole("button", { name: `операция ${name}` }));
+    // Операция — всегда на виду, под количеством, с подписью.
+    expect(screen.getByLabelText(`операция ${name}`).textContent).toContain("операция");
     const field = screen.getByLabelText(`выражение ${name}`);
     // Ряд знаков без сравнения, с процентом.
     fireEvent.focus(field);

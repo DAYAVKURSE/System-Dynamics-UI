@@ -217,6 +217,9 @@ export function parseLine(src, { entities = [], traits = [], positions = [] } = 
     const t = findTrait(name, pending.id);
     step[side].push({ asset: pending, trait: { name, id: t ? t.id : null,
       span: { start: rest.start, end: rest.start + name.length } }, qty,
+      // Где в строке стоит количество (после имени, до конца слова): по
+      // нему форма операций подменяет его, не трогая остального.
+      qtySpan: { start: rest.start + name.length, end: rest.end },
       ...(expr ? { expr } : {}), ...(exprError ? { exprError } : {}) });
     pending = null;
   }
@@ -289,6 +292,32 @@ export function resolveProc(proc = {}, model = {}) {
     gives: s.gives.map(port),
   }));
   return { steps, errors: now.errors };
+}
+
+/**
+ * Записать операцию в строку текста: количество порта (число или прежнее
+ * выражение) заменяется на `expr` — по положению в строке, остальное не
+ * трогается. Пустое `expr` — количество убирается (значит 1). Текст —
+ * единственный источник, и форма операций правит именно его.
+ */
+export function setPortQty(text = "", lineNo, side, index, expr, model = {}) {
+  const lines = String(text || "").split("\n");
+  let n = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i].trim()) continue;
+    n += 1;
+    if (n !== lineNo) continue;
+    const raw = lines[i];
+    const lead = raw.length - raw.trimStart().length;
+    const step = parseLine(raw.trim(), model);
+    const p = (step[side] || [])[index];
+    if (!p?.qtySpan) return text;
+    const tail = String(expr || "").trim();
+    const { start, end } = p.qtySpan;
+    lines[i] = `${raw.slice(0, lead + start)}${tail ? ` ${tail}` : ""}${raw.slice(lead + end)}`;
+    return lines.join("\n");
+  }
+  return text;
 }
 
 /**

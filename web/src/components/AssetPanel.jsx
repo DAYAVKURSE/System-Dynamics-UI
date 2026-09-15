@@ -140,7 +140,6 @@ function PortQty({ p, name, onSet, fact, traits = [] }) {
      Считается по нынешнему остатку ресурсов и кладётся в число (`lo` =
      `hi`); само выражение остаётся у порта (`expr`), чтобы было видно,
      откуда число, и чтобы его можно было поправить. */
-  const [opOpen, setOpOpen] = useState(!!p.expr);
   const stockOf = (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; };
   const applyExpr = (expr) => {
     if (!expr.trim()) { onSet({ expr: "" }); return; }
@@ -183,23 +182,22 @@ function PortQty({ p, name, onSet, fact, traits = [] }) {
         style={{ accentColor: ACC }} />
       диапазон
     </label>
-    <button type="button" aria-label={`операция ${name}`} aria-pressed={opOpen}
-      onClick={() => setOpOpen((v) => !v)}
-      style={{ background: "transparent", cursor: "pointer",
-        border: `1px solid ${p.expr ? ACC : C.line}`, color: p.expr ? ACC : C.muted,
-        borderRadius: 20, padding: "1px 7px", fontSize: 10, whiteSpace: "nowrap" }}>
-      {p.expr ? "ƒ операция" : "○ операция"}</button>
     {fact}
-    {opOpen && (
-      <div style={{ flexBasis: "100%", marginTop: 3 }}>
-        <ExprField plain value={p.expr || ""} traits={traits}
+    {/* Операция — всегда на виду (владелец, 2026-09-15: «в функциях не
+        добавлены операции с ресурсами»): поле под количеством, с подписью
+        и результатом. */}
+    <div style={{ flexBasis: "100%", marginTop: 3 }} aria-label={`операция ${name}`}>
+      <div className="flex items-center gap-2">
+        <span style={{ ...S.lbl, whiteSpace: "nowrap" }}>операция</span>
+        <ExprField plain value={p.expr || ""} traits={traits} style={{ flex: 1, minWidth: 0 }}
           aria-label={`выражение ${name}`} onCommit={applyExpr} />
-        <div style={{ fontSize: 10, color: opResult?.error ? BAD : C.muted, marginTop: 2 }}>
-          {!p.expr ? "число, «@ресурс», действия и процент от значения: «20% @Заявки»"
-            : opResult?.error ? opResult.error
-              : `= ${nm(Math.round((opResult?.value ?? 0) * 100) / 100)} по нынешним остаткам`}
-        </div>
-      </div>)}
+      </div>
+      <div style={{ fontSize: 10, color: opResult?.error ? BAD : C.muted, marginTop: 2 }}>
+        {!p.expr ? "число, «@ресурс», действия и процент от значения: «20% @Заявки» — результат ляжет в количество"
+          : opResult?.error ? opResult.error
+            : `= ${nm(Math.round((opResult?.value ?? 0) * 100) / 100)} по нынешним остаткам`}
+      </div>
+    </div>
   </>);
 }
 

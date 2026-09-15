@@ -274,3 +274,20 @@ describe("красные метки в поле", () => {
     expect(area.style.background).toBe("transparent");
   });
 });
+
+describe("операции с ресурсами (владелец, 2026-09-15)", () => {
+  it("после ввода ресурсов под полем — форма операций; операция уходит в строку текста", async () => {
+    const area = addProc();
+    write(area, LINE);
+    const form = screen.getByLabelText(/^операции с ресурсами/);
+    const field = within(form).getByLabelText("операция: Пользователи берёт спрос");
+    expect(within(form).getByLabelText("операция: Пользователи отдаёт заявки")).toBeInTheDocument();
+    fireEvent.focus(field);
+    expect(within(form).getByRole("button", { name: "знак %" })).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: "50% 8" } });
+    fireEvent.blur(field);
+    expect(screen.getByLabelText("текст процесса"))
+      .toHaveValue("Пользователи, берёт: Рынок услуг, спрос 50% 8, отдаёт: Пользователи, заявки");
+    expect(within(screen.getByLabelText(/^операции с ресурсами/)).getByText("= 4")).toBeInTheDocument();
+  });
+});

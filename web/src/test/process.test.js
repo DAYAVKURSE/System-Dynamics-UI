@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canAcceptProc, dropHypo, formatStep, hintAt, nameKey, newProc, normalizeProc,
   parseLine, parseProcess, procFuncs, procIssues, procLabel, procUsesAsset, replaceName,
-  marksOf, resolveProc, stateOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
+  marksOf, resolveProc, setPortQty, stateOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
 import { activeFuncs, liveModel, normalizeFunc } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
 import { chainOf } from "../lib/chain.js";
@@ -276,5 +276,23 @@ describe("операции в количестве и красные метки 
     // Отклонённое — своя метка; найденное по памяти записи — без метки.
     const proc = { ...newProc(), missing: { rejected: ["Склад"] } };
     expect(marksOf(text, model, proc)[0].marks[0].state).toBe("rejected");
+  });
+});
+
+describe("операция пишется в строку (форма операций)", () => {
+  const stocked = { ...model, traits: traits.map((t) => ({ ...t, have: t.id === "dem" ? 50 : 0 })) };
+  it("setPortQty подменяет количество порта по положению, остальное не трогает", () => {
+    const text = "  Пользователи, берёт: Рынок услуг, спрос 2, отдаёт: Пользователи, заявки\n\nСклад, берёт: Пользователи, заявки";
+    const t1 = setPortQty(text, 1, "takes", 0, "20% @спрос", stocked);
+    expect(t1.split("\n")[0]).toBe("  Пользователи, берёт: Рынок услуг, спрос 20% @спрос, отдаёт: Пользователи, заявки");
+    expect(parseLine(t1.split("\n")[0].trim(), stocked).takes[0].qty).toBe(10);
+    // Выход без числа получает операцию; пустая операция убирает число.
+    const t2 = setPortQty(t1, 1, "gives", 0, "3", stocked);
+    expect(t2.split("\n")[0]).toMatch(/заявки 3$/);
+    expect(setPortQty(t2, 1, "gives", 0, "", stocked).split("\n")[0]).toMatch(/заявки$/);
+    // Вторая непустая строка — третья по счёту в тексте.
+    expect(setPortQty(t2, 2, "takes", 0, "5", stocked).split("\n")[2]).toBe("Склад, берёт: Пользователи, заявки 5");
+    // Нет такого порта — текст как был.
+    expect(setPortQty(t2, 9, "takes", 0, "5", stocked)).toBe(t2);
   });
 });
