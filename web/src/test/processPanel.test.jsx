@@ -329,3 +329,30 @@ describe("операции — прямо в поле, с подсказками
     expect(f.gives[0].expr).toMatch(/^45-55% #\{/);
   });
 });
+
+describe("строки по смыслу и раскраска поля (владелец, 2026-09-16)", () => {
+  it("метка из подсказки встаёт с новой строки; поле рисует плашки по виду и круглые скобки сторон", async () => {
+    const area = addProc();
+    type(area, "Пользователи, ");
+    fireEvent.mouseDown(within(popup()).getByRole("option", { name: /^метка берёт:/ }));
+    expect(area).toHaveValue("Пользователи\nберёт: ");
+    await waitFor(() => expect(popup()).toHaveTextContent("откуда берёт"));
+    // Подстановка актива после метки не съедает пробел за ней.
+    fireEvent.mouseDown(within(popup()).getByRole("option", { name: /^актив Рынок услуг/ }));
+    expect(area).toHaveValue("Пользователи\nберёт: Рынок услуг, ");
+    write(area, "Пользователи, менеджер\nберёт: Рынок услуг, спрос 1000\nотдаёт: Пользователи, заявки 45-55% A\nСклад, берёт: Пользователи, заявки 2");
+    const back = container.querySelector("[data-proc-backdrop]");
+    const kinds = Array.from(back.querySelectorAll("[data-kind]")).map((e) => `${e.dataset.kind}:${e.textContent}`);
+    expect(kinds).toEqual(["asset:Пользователи", "role:менеджер", "mark:берёт:", "asset:Рынок услуг", "trait:спрос 1000",
+      "mark:отдаёт:", "asset:Пользователи", "trait:заявки 45-55% A", "asset:Склад", "mark:берёт:", "asset:Пользователи", "trait:заявки 2"]);
+    expect(Array.from(back.querySelectorAll("[data-bracket]")).map((e) => `${e.dataset.bracket}:${e.textContent}`))
+      .toEqual(["take:Рынок услуг, спрос 1000", "give:Пользователи, заявки 45-55% A", "take:Пользователи, заявки 2"]);
+    // Не найденное — красной плашкой; текст поля прозрачный, курсор — нет.
+    expect(Array.from(back.querySelectorAll("[data-mark=unknown]")).map((e) => e.textContent)).toContain("Склад");
+    expect(area.style.color).toBe("transparent");
+    expect(area.style.caretColor).not.toBe("transparent");
+    // Один шаг из трёх строк — одна функция.
+    fireEvent.click(screen.getByRole("button", { name: "неизвестный актив «Склад»" }));
+    expect(screen.getAllByText(/^1\./).length).toBeGreaterThan(0);
+  });
+});

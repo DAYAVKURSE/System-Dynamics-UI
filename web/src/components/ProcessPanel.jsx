@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
-import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, marksOf, newProc,
+import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, newProc, paintOf,
   procIssues, procLabel, procUsesAsset, replaceName, resolveProc, stateOf, suggestNames,
   syncProcFuncs } from "../lib/process.js";
 
@@ -47,47 +47,82 @@ const STATUS_TONE = { off: null, hypo: WARN, on: OK };
    красной меткой у правого края строки; она позиционирована абсолютно и
    на перенос строк не влияет, поэтому текст подложки и поля не
    расходятся. Само поле над подложкой, с прозрачным фоном. */
-const MARK_STYLE = {
-  unknown: { background: "rgba(255,92,122,.28)", borderBottom: `2px solid ${BAD}` },
-  rejected: { background: "rgba(255,92,122,.18)", borderBottom: `2px dotted ${BAD}` },
-  deleted: { background: "rgba(255,92,122,.28)", borderBottom: `2px dashed ${BAD}` },
-};
-function Backdrop({ text, marks, style }) {
+const DARK = "#0E1420";
+const PURPLE = "#C9A0FF";
+/* Плашка — подложка без отступов: цвет и кольцо `box-shadow` вокруг слова,
+   чтобы буквы подложки и поля не разъезжались (отступы сдвинули бы текст). */
+const plate = (bg, fg = DARK, ring = "") => ({ background: bg, color: fg, borderRadius: 5,
+  boxShadow: `0 0 0 3px ${bg}${ring ? `, 0 0 0 4px ${ring}` : ""}` });
+const SIDE = { take: ACC, give: OK };
+function spanStyle(k) {
+  const bad = k.state === "unknown" || k.state === "rejected" || k.state === "deleted";
+  if (k.kind === "mark") return { color: C.muted };
+  let st;
+  if (bad) st = plate(BAD);
+  else if (k.kind === "asset") st = plate(C.panel2, C.text, C.line);   // как блок на схеме
+  else if (k.kind === "role") st = plate(PURPLE);
+  else st = plate(SIDE[k.side] || ACC);
+  if (k.state === "rejected") st.textDecoration = "underline dotted";
+  if (k.state === "deleted") st.textDecoration = "underline dashed";
+  if (k.exprError) st.boxShadow = `${st.boxShadow}, 0 0 0 6px ${BAD}`;
+  return st;
+}
+/* Круглая скобка стороны: две дуги по краям, абсолютно позиционированные,
+   на текст не влияют; внутри — лёгкая подложка цвета стороны. */
+function Bracket({ side, children }) {
+  const c = SIDE[side] || ACC;
+  const arc = { position: "absolute", top: -3, bottom: -3, width: 7, border: `2px solid ${c}`, pointerEvents: "none" };
+  return (
+    <span data-bracket={side} style={{ position: "relative", background: `${c}1F`, boxShadow: `0 0 0 3px ${c}1F`, borderRadius: 7 }}>
+      {children}
+      <i style={{ ...arc, left: -11, borderRight: "none", borderRadius: "8px 0 0 8px" }} />
+      <i style={{ ...arc, right: -11, borderLeft: "none", borderRadius: "0 8px 8px 0" }} />
+    </span>);
+}
+function Backdrop({ text, paint, style }) {
   const lines = String(text || "").split("\n");
-  const byLine = new Map(marks.map((m) => [m.line, m]));
-  let lineNo = 0;
+  const byRow = new Map(paint.map((r) => [r.row, r]));
+  /* Кусок строки [from, to) с плашками слов внутри него. */
+  const piece = (ln, from, to, spans, lead, key) => {
+    const out = [];
+    let at = from;
+    spans.filter((k) => k.start + lead >= from && k.end + lead <= to).forEach((k, j) => {
+      const s0 = k.start + lead, e0 = k.end + lead;
+      if (s0 > at) out.push(<span key={`${key}t${j}`}>{ln.slice(at, s0)}</span>);
+      const bad = k.state && k.state !== "ok" && k.state !== "empty";
+      out.push(<span key={`${key}m${j}`} data-kind={k.kind} data-side={k.side || undefined}
+        data-mark={bad ? k.state : (k.exprError ? "expr" : undefined)}
+        title={k.exprError || (bad ? k.state : undefined)} style={spanStyle(k)}>{ln.slice(s0, e0)}</span>);
+      at = e0;
+    });
+    if (to > at) out.push(<span key={`${key}r`}>{ln.slice(at, to)}</span>);
+    return out;
+  };
   return (
     <div aria-hidden="true" data-proc-backdrop="" style={{ ...style, position: "absolute", inset: 0,
-      color: "transparent", pointerEvents: "none", overflow: "hidden", whiteSpace: "pre-wrap",
+      color: C.text, pointerEvents: "none", overflow: "hidden", whiteSpace: "pre-wrap",
       wordBreak: "break-word", borderColor: "transparent", background: "transparent" }}>
       {lines.map((ln, i) => {
-        if (ln.trim()) lineNo += 1;
-        const m = ln.trim() ? byLine.get(lineNo) : null;
+        const r = byRow.get(i);
+        const lead = ln.length - ln.trimStart().length;
         const parts = [];
         let at = 0;
-        // Метки идут по положению в ОБРЕЗАННОЙ строке: сдвиг на ведущие пробелы.
-        const lead = ln.length - ln.trimStart().length;
-        (m?.marks || []).forEach((k, j) => {
-          const s0 = k.start + lead, e0 = k.end + lead;
-          if (s0 > at) parts.push(<span key={`t${j}`}>{ln.slice(at, s0)}</span>);
-          if (k.state === "expr") {
-            parts.push(<span key={`x${j}`} data-mark="expr" title={k.name}
-              style={{ color: BAD, fontSize: 10 }}> ⚠</span>);
-          } else {
-            parts.push(<span key={`m${j}`} data-mark={k.state} title={k.name}
-              style={MARK_STYLE[k.state] || MARK_STYLE.unknown}>{ln.slice(s0, e0)}</span>);
-          }
-          at = Math.max(at, e0);
+        // Скобки сторон — по порядку; слова внутри скобки рисуются внутри неё.
+        (r?.brackets || []).forEach((b, j) => {
+          const s0 = b.start + lead, e0 = b.end + lead;
+          if (s0 > at) parts.push(...piece(ln, at, s0, r.spans, lead, `p${j}`));
+          parts.push(<Bracket key={`b${j}`} side={b.side}>{piece(ln, s0, e0, r.spans, lead, `i${j}`)}</Bracket>);
+          at = e0;
         });
-        parts.push(<span key="rest">{ln.slice(at)}</span>);
+        parts.push(...piece(ln, at, ln.length, r?.spans || [], lead, "z"));
         return (
-          <div key={i} style={{ position: "relative", minHeight: "1.5em" }}>
+          <div key={i} style={{ position: "relative", minHeight: "1.9em" }}>
             {parts}{"\u200b"}
-            {m?.error && (
+            {r?.error && (
               <span data-mark="error" style={{ position: "absolute", right: 0, top: 0, color: BAD,
-                fontSize: 10, lineHeight: "1.5em", background: C.ink, padding: "0 4px",
+                fontSize: 10, lineHeight: "1.9em", background: C.ink, padding: "0 4px",
                 maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                ← {m.error}</span>)}
+                ← {r.error}</span>)}
           </div>);
       })}
     </div>);
@@ -100,9 +135,10 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
   const [cursor, setCursor] = useState(0);
   const inp = useRef(null);
   const back = useRef(null);
-  const marks = marksOf(text, model, proc);
+  const paint = paintOf(text, model, proc);
+  // Межстрочный интервал шире обычного: плашкам и скобкам нужен воздух.
   const field = { ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12,
-    lineHeight: 1.5, boxSizing: "border-box" };
+    lineHeight: 1.9, boxSizing: "border-box" };
   // Снаружи поменяли (загрузили модель, поставили замену) — а мы не в
   // фокусе: показываем новое.
   useEffect(() => { if (!focus) setText(value); }, [value, focus]);
@@ -132,7 +168,14 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
     // Знак у количества вставляется в место курсора, буква и имя — вместо
     // слова у курсора, недописанное имя ресурса — с самого имени.
     const from = it.insert ? pick.at : it.whole && pick.nameStart != null ? pick.nameStart : pick.start;
-    const head = it.trimBefore ? text.slice(0, from).replace(/[ \t]+$/, "") : text.slice(0, from);
+    let head = it.trimBefore ? text.slice(0, from).replace(/[ \t]+$/, "") : text.slice(0, from);
+    /* Метка «берёт:»/«отдаёт:» — с новой строки, если в этой уже что-то
+       есть (владелец, 2026-09-16: строки по смыслу): запятая и пробелы
+       перед ней убираются. */
+    if (it.mark) {
+      const rowStart = head.lastIndexOf("\n") + 1;
+      if (head.slice(rowStart).trim()) head = `${head.replace(/[,\s]+$/, "")}\n`;
+    }
     const put = it.text ?? it.name;
     const next = `${head}${put}${suffix}${text.slice(pick.at)}`;
     const caret = head.length + put.length + suffix.length;
@@ -150,22 +193,27 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
     if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => (c + 1) % items.length); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => (c - 1 + items.length) % items.length); }
     else if (e.key === "Tab") { e.preventDefault(); choose(items[cursor]); }
-    else if (e.key === "Enter" && pick.query && items[cursor]
+    else if (e.key === "Enter" && pick.kind !== "qty" && pick.query && items[cursor]
       && items[cursor].name.toLowerCase().startsWith(pick.query.toLowerCase())) {
       // Enter выбирает только когда набранное — начало подсказки; иначе
-      // это перевод строки, следующий шаг.
+      // это перевод строки, следующий шаг. У количества Enter — всегда
+      // перевод строки: «45-55% A» и Enter не должны подставлять букву.
       e.preventDefault(); choose(items[cursor]);
     }
   };
   return (
     <div style={{ position: "relative" }}>
       <div style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
-        <Backdrop text={text} marks={marks} style={field} />
-        <textarea ref={inp} value={text} aria-label={label}
+        <Backdrop text={text} paint={paint} style={field} />
+        {/* Текст поля прозрачный: слова рисует подложка — плашками; курсор
+            и выделение остаются у поля. Подсказка-заполнитель — своим
+            серым (см. <style> ниже), иначе она тоже стала бы прозрачной. */}
+        <style>{`textarea[data-proc-text]::placeholder{color:${NEU};opacity:1}`}</style>
+        <textarea ref={inp} value={text} aria-label={label} data-proc-text=""
           rows={Math.max(3, text.split("\n").length + 1)}
-          placeholder={`Актив, Должность, ${MARK_TAKE} Откуда, Что 2, ${MARK_GIVE} Куда, Что 20% @спрос`}
+          placeholder={`Актив, Должность\n${MARK_TAKE} Откуда, Что 2\n${MARK_GIVE} Куда, Что 50% A`}
           style={{ ...field, resize: "vertical", position: "relative", zIndex: 1,
-            background: "transparent", display: "block" }}
+            background: "transparent", color: "transparent", caretColor: C.text, display: "block" }}
           onScroll={(e) => { if (back.current) back.current.scrollTop = e.target.scrollTop; }}
           onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
           onBlur={() => { setFocus(false); setPick(null); if (text !== value) onCommit(text); }}

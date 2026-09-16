@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canAcceptProc, dropHypo, formatStep, hintAt, nameKey, newProc, normalizeProc,
   parseLine, parseProcess, procFuncs, procIssues, procLabel, procUsesAsset, replaceName,
-  marksOf, resolveProc, stateOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
+  marksOf, paintOf, resolveProc, stateOf, stepsOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
 import { activeFuncs, liveModel, normalizeFunc } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
 import { chainOf } from "../lib/chain.js";
@@ -348,5 +348,53 @@ describe("буквы ресурсов в строке (владелец, 2026-09
       .find((x) => x.whole)).toMatchObject({ name: "заявки в работе" });
     expect(h5.nameStart).toBe("Партнёр, берёт: Рынок услуг, ".length);
     expect(at("Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, заявки в").kind).toBe("trait");
+  });
+});
+
+describe("шаг из нескольких строк и раскраска поля (владелец, 2026-09-16)", () => {
+  const T = "Пользователи, менеджер\nберёт: Рынок услуг, спрос 1000\nотдаёт: Пользователи, заявки 45-55% A\n\nСклад, берёт: Пользователи, заявки 2";
+
+  it("строка с «берёт:»/«отдаёт:» продолжает шаг предыдущей строки; пустая строка шаг закрывает", () => {
+    const g = stepsOf(T);
+    expect(g.map((x) => [x.line, x.rows.map((r) => r.row)])).toEqual([[1, [0, 1, 2]], [5, [4]]]);
+    const { steps, errors } = parseProcess(T, model);
+    expect(errors).toEqual([]);
+    expect(steps[0]).toMatchObject({ line: 1, asset: { id: "usr" }, role: { id: "sales" } });
+    expect(steps[0].takes[0]).toMatchObject({ trait: { name: "спрос" }, qty: 1000, letter: "A" });
+    expect(steps[0].gives[0]).toMatchObject({ trait: { name: "заявки" }, qty: 450, qtyHi: 550, letter: "B" });
+    expect(steps[1]).toMatchObject({ line: 5, asset: { name: "Склад", id: null } });
+    // Ошибка строения — у первой строки шага.
+    expect(parseProcess("Пользователи\nберёт: Рынок услуг", model).errors).toEqual([{ line: 1, message: "у «Рынок услуг» не назван ресурс" }]);
+  });
+
+  it("раскраска — по исходным строкам: плашки слов с видом и стороной, скобки сторон, ресурс вместе с количеством", () => {
+    const rows = T.split("\n");
+    const paint = paintOf(T, model, newProc());
+    const cut = (r, k) => rows[r.row].slice(k.start + k.lead, k.end + k.lead);
+    const r1 = paint.find((r) => r.row === 1);
+    expect(r1.spans.map((k) => [k.kind, cut(r1, k), k.side])).toEqual([
+      ["mark", "берёт:", "take"], ["asset", "Рынок услуг", "take"], ["trait", "спрос 1000", "take"]]);
+    expect(r1.brackets.map((b) => [b.side, cut(r1, b)])).toEqual([["take", "Рынок услуг, спрос 1000"]]);
+    const r2 = paint.find((r) => r.row === 2);
+    expect(r2.spans.find((k) => k.kind === "trait")).toMatchObject({ letter: "B", state: "ok" });
+    expect(cut(r2, r2.brackets[0])).toBe("Пользователи, заявки 45-55% A");
+    const r0 = paint.find((r) => r.row === 0);
+    expect(r0.spans.map((k) => [k.kind, k.state])).toEqual([["asset", "ok"], ["role", "ok"]]);
+    expect(paint.find((r) => r.row === 4).spans[0]).toMatchObject({ kind: "asset", state: "unknown", name: "Склад" });
+  });
+
+  it("подсказка на строке-продолжении знает буквы ресурсов из строк выше", () => {
+    const at = T.indexOf("45-55% A") + "45-55% ".length;
+    const h = hintAt(T, at, model);
+    expect(h).toMatchObject({ kind: "qty", query: "" });
+    expect(h.prior.map((p) => [p.letter, p.name])).toEqual([["A", "спрос"]]);
+    expect(hintAt("Пользователи\nберёт: ", "Пользователи\nберёт: ".length, model).kind).toBe("fromAsset");
+    // Пробел после метки не съедается подстановкой: начало — после него.
+    expect(hintAt("Пользователи, берёт: ", "Пользователи, берёт: ".length, model).start).toBe("Пользователи, берёт: ".length);
+  });
+
+  it("замена имени меняет слово на месте — строки по смыслу остаются", () => {
+    expect(replaceName(T, "trait", "заявки", "обращения")).toBe(T.replace(/заявки/g, "обращения"));
+    expect(replaceName(T, "asset", "Пользователи", "Клиенты").split("\n")[2]).toBe("отдаёт: Клиенты, обращения 45-55% A".replace("обращения", "заявки"));
   });
 });

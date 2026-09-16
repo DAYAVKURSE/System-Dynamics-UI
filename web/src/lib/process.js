@@ -132,14 +132,18 @@ export function tokenize(line = "") {
 const splitMark = (t) => {
   if (TAKE.test(t.text)) {
     const m = t.text.match(TAKE)[0];
-    return { mark: "take", rest: { text: t.text.slice(m.length).trim(), start: t.start + m.length, end: t.end } };
+    return { mark: "take", markSpan: { start: t.start, end: t.start + m.trimEnd().length },
+      rest: { text: t.text.slice(m.length).trim(), start: t.start + m.length, end: t.end } };
   }
   if (GIVE.test(t.text)) {
     const m = t.text.match(GIVE)[0];
-    return { mark: "give", rest: { text: t.text.slice(m.length).trim(), start: t.start + m.length, end: t.end } };
+    return { mark: "give", markSpan: { start: t.start, end: t.start + m.trimEnd().length },
+      rest: { text: t.text.slice(m.length).trim(), start: t.start + m.length, end: t.end } };
   }
   return { mark: null, rest: t };
 };
+/** Начинается ли строка с метки «берёт:»/«отдаёт:» — тогда она продолжает шаг. */
+export const startsWithMark = (line = "") => TAKE.test(String(line).trim()) || GIVE.test(String(line).trim());
 
 /* Ресурс с количеством: «заявки 2» — имя всё до числа, число в конце.
    Количество может быть ОПЕРАЦИЕЙ (владелец, 2026-09-15): «коробки 20%
@@ -191,23 +195,31 @@ export function parseLine(src, { entities = [], traits = [], positions = [] } = 
      переименован, память записи (`resolveProc`) найдёт обоих по именам. */
   const findTrait = (name, assetId) => (assetId
     ? traits.find((t) => t.e === assetId && nameKey(t.l) === nameKey(name)) || null : null);
-  const step = { asset: null, role: null, takes: [], gives: [], error: null };
+  /* `marks` — где стоят «берёт:»/«отдаёт:»; `sides` — от первого слова
+     после метки до конца последней пары той же метки: по ним поле рисует
+     скобки цветом стороны. */
+  const step = { asset: null, role: null, takes: [], gives: [], error: null, marks: [], sides: [] };
   const tokens = tokenize(src).filter((t, i, all) => t.text || i < all.length - 1);
   if (!tokens.length || !tokens[0].text) return { ...step, error: "не назван актив" };
   let state = "asset";
   let side = null;
   let pending = null;   // актив пары, ждущий ресурса
   const order = [];     // порты по порядку появления — им и даются буквы
+  let range = null;     // скобка текущей стороны
   for (const raw of tokens) {
-    const { mark, rest } = splitMark(raw);
+    const { mark, markSpan, rest } = splitMark(raw);
     if (mark) {
       if (pending) return { ...step, error: `у «${pending.name}» не назван ресурс` };
       side = mark === "take" ? "takes" : "gives";
       state = "pair";
+      step.marks.push({ ...markSpan, side: mark });
+      range = { side: mark, start: rest.text ? rest.start : rest.end, end: rest.end };
+      step.sides.push(range);
       if (!rest.text) continue;
     }
     const text = rest.text;
     if (!text) continue;
+    if (range && state === "pair") { if (range.start > rest.start) range.start = rest.start; range.end = rest.end; }
     // `span` — где слово стоит в строке: по нему поле подсвечивает
     // ненайденное красным прямо в тексте.
     const span = { start: rest.start, end: rest.end };
@@ -234,6 +246,8 @@ export function parseLine(src, { entities = [], traits = [], positions = [] } = 
     const t = findTrait(name, pending.id);
     const port = { asset: pending, trait: { name, id: t ? t.id : null,
       span: { start: rest.start, end: rest.start + name.length } }, qty,
+      // Всё слово — имя с количеством: одной плашкой в поле.
+      span: { start: rest.start, end: rest.end },
       letter: letterOf(order.length), ...(expr ? { expr } : {}) };
     step[side].push(port);
     order.push(port);
@@ -261,19 +275,49 @@ export function parseLine(src, { entities = [], traits = [], positions = [] } = 
  * непустой — свой шаг, даже с ошибкой: строку показывают там же, где
  * ошибка, а не отдельным списком в стороне.
  */
+/**
+ * Шаги из строк текста (владелец, 2026-09-16: «разделение на разные
+ * строки по смыслу»): строка, начинающаяся с «берёт:» или «отдаёт:»,
+ * продолжает шаг предыдущей строки; строка без метки начинает шаг.
+ * Пустая строка шаг закрывает. Строки шага склеиваются через «, » в
+ * одну (`text`), и разбор идёт по ней; `rows` помнят, с какого места
+ * склейки начинается каждая строка — по ним метки возвращаются в поле.
+ */
+export function stepsOf(text = "") {
+  const groups = [];
+  let open = null;
+  String(text || "").split("\n").forEach((raw, row) => {
+    const src = raw.trim();
+    if (!src) { open = null; return; }
+    const lead = raw.length - raw.trimStart().length;
+    if (open && startsWithMark(src)) {
+      open.rows.push({ row, lead, offset: open.text.length + 2, len: src.length });
+      open.text += `, ${src}`;
+      return;
+    }
+    open = { line: row + 1, text: src, rows: [{ row, lead, offset: 0, len: src.length }] };
+    groups.push(open);
+  });
+  return groups;
+}
+
 export function parseProcess(text = "", model = {}) {
   const steps = [];
   const errors = [];
-  String(text || "").split("\n").forEach((raw, i) => {
-    const src = raw.trim();
-    if (!src) return;
-    const line = i + 1;
-    const step = { line, text: src, ...parseLine(src, model) };
-    if (step.error) errors.push({ line, message: step.error });
+  stepsOf(text).forEach((g) => {
+    const step = { line: g.line, text: g.text, rows: g.rows, ...parseLine(g.text, model) };
+    if (step.error) errors.push({ line: g.line, message: step.error });
     steps.push(step);
   });
   return { steps, errors };
 }
+
+/** Положение куска склеенной строки шага в исходной строке поля: {row, start, end}. */
+export const toRow = (step, start, end) => {
+  const rows = step.rows || [{ row: step.line - 1, offset: 0, len: Infinity, lead: 0 }];
+  const r = [...rows].reverse().find((x) => start >= x.offset) || rows[0];
+  return { row: r.row, lead: r.lead, start: start - r.offset, end: Math.min(end, r.offset + r.len) - r.offset };
+};
 
 const qtyText = (q) => (q === 1 ? "" : ` ${String(q).replace(".", ",")}`);
 /** Строка в каноническом виде — ею заменяют строку, где поменяли имя. */
@@ -342,8 +386,45 @@ export function marksOf(text = "", model = {}, proc = {}) {
       add(p.asset, "asset"); add(p.trait, "trait");
       if (p.exprError) marks.push({ start: p.trait.span.end, end: p.trait.span.end, state: "expr", name: p.exprError });
     });
-    return { line: s.line, marks: marks.sort((a, b) => a.start - b.start), error: s.error || "" };
+    return { line: s.line, marks: marks.sort((a, b) => a.start - b.start).map((k) => ({ ...k, ...toRow(s, k.start, k.end), start: k.start, end: k.end })), error: s.error || "" };
   });
+}
+
+/**
+ * Раскраска поля (владелец, 2026-09-16): по исходным строкам — плашки
+ * слов с их видом и состоянием и скобки сторон. Координаты — в
+ * обрезанной строке (`lead` — её отступ). Актив — плашка как блок на
+ * схеме, должность — фиолетовая, ресурс с количеством — одна плашка
+ * цветом стороны, ненайденное — красная; «берёт:»/«отдаёт:» — серые.
+ * Ошибка строения — у первой строки шага.
+ */
+export function paintOf(text = "", model = {}, proc = {}) {
+  const { steps } = resolveProc({ ...proc, text }, model);
+  const rows = new Map();
+  const rowOf = (row) => { if (!rows.has(row)) rows.set(row, { row, spans: [], brackets: [], error: "" }); return rows.get(row); };
+  steps.forEach((s) => {
+    const put = (span, extra) => {
+      if (!span) return;
+      const at = toRow(s, span.start, span.end);
+      rowOf(at.row).spans.push({ start: at.start, end: at.end, lead: at.lead, ...extra });
+    };
+    const named = (it, kind, side) => it?.span && put(it.span, { kind, side, name: it.name, state: stateOf(it, kind, model, proc) });
+    named(s.asset, "asset"); named(s.role, "role");
+    (s.marks || []).forEach((m) => put(m, { kind: "mark", side: m.side }));
+    (s.sides || []).forEach((r) => {
+      if (r.end <= r.start) return;
+      const at = toRow(s, r.start, r.end);
+      rowOf(at.row).brackets.push({ start: at.start, end: at.end, lead: at.lead, side: r.side });
+    });
+    [["takes", "take"], ["gives", "give"]].forEach(([list, side]) => (s[list] || []).forEach((p) => {
+      named(p.asset, "asset", side);
+      if (p.span) put(p.span, { kind: "trait", side, name: p.trait?.name, letter: p.letter,
+        state: stateOf(p.trait, "trait", model, proc), exprError: p.exprError || "" });
+    }));
+    if (s.error) rowOf(s.line - 1).error = s.error;
+    (s.rows || []).forEach((r) => rowOf(r.row));
+  });
+  return [...rows.values()].map((r) => ({ ...r, spans: r.spans.sort((a, b) => a.start - b.start) }));
 }
 
 /**
@@ -534,7 +615,19 @@ export function hintAt(text = "", at = 0, model = {}) {
   let state = "asset";
   let side = null;
   let pending = null;
-  const prior = [];   // ресурсы строки до курсора — им уже даны буквы
+  const prior = [];   // ресурсы шага до курсора — им уже даны буквы
+  /* Строка с меткой продолжает шаг: сперва проходим строки шага выше
+     (до строки без метки включительно), потом слова этой строки. */
+  const above = [];
+  if (startsWithMark(line)) {
+    const rowsAbove = text.slice(0, lineStart).split("\n").slice(0, -1);
+    for (let i = rowsAbove.length - 1; i >= 0; i -= 1) {
+      const l = rowsAbove[i];
+      if (!l.trim()) break;
+      above.unshift(l);
+      if (!startsWithMark(l)) break;
+    }
+  }
   const step = (raw) => {
     const { mark, rest } = splitMark(raw);
     if (mark) { side = mark; state = "pair"; pending = null; if (!rest.text) return; }
@@ -549,6 +642,7 @@ export function hintAt(text = "", at = 0, model = {}) {
       pending = null;
     }
   };
+  above.forEach((l) => tokenize(l).forEach(step));
   tokens.slice(0, idx).forEach(step);
   // Слово с курсором могло начаться с метки: тогда ждут актив после неё.
   const { mark, rest } = splitMark(cur);
@@ -556,7 +650,9 @@ export function hintAt(text = "", at = 0, model = {}) {
   let queryText = cur.text;
   if (mark && caret >= rest.start) {
     side = mark; state = "pair"; pending = null;
-    start = rest.start; queryText = rest.text;
+    // Пробелы после метки — не часть набранного: подстановка их не съедает.
+    start = rest.start + (line.slice(rest.start, caret).match(/^\s*/) || [""])[0].length;
+    queryText = rest.text;
   } else if (mark) {
     start = cur.start; queryText = cur.text;
   }
@@ -677,26 +773,24 @@ export function suggestNames(hint, { entities = [], traits = [], positions = [] 
 /**
  * Замена имени в тексте — в тех строках, где оно стоит, и только в роли,
  * в которой стояло: актив на актив, должность на должность, ресурс на
- * ресурс. Строка с заменой переписывается в каноническом виде.
+ * ресурс. Меняется само слово на своём месте (по `span`): строки,
+ * разбитые по смыслу, остаются как их набрал человек.
  */
 export function replaceName(text = "", kind, oldName, newName) {
   const key = nameKey(oldName);
   const { steps } = parseProcess(text);
-  const byLine = new Map(steps.map((s) => [s.line, s]));
-  return String(text || "").split("\n").map((raw, i) => {
-    const s = byLine.get(i + 1);
-    if (!s || s.error) return raw;
-    const swap = (it) => (it && nameKey(it.name) === key ? { ...it, name: newName } : it);
-    const port = (p) => (kind === "asset" ? { ...p, asset: swap(p.asset) }
-      : kind === "trait" ? { ...p, trait: swap(p.trait) } : p);
-    const next = {
-      ...s,
-      asset: kind === "asset" ? swap(s.asset) : s.asset,
-      role: kind === "role" ? swap(s.role) : s.role,
-      takes: s.takes.map(port),
-      gives: s.gives.map(port),
-    };
-    const hit = JSON.stringify(next) !== JSON.stringify(s);
-    return hit ? formatStep(next) : raw;
-  }).join("\n");
+  const lines = String(text || "").split("\n");
+  const edits = [];   // {row, start, end} в исходной строке (с отступом)
+  steps.forEach((s) => {
+    if (s.error) return;
+    const hit = (it) => it && nameKey(it.name) === key;
+    const put = (it) => { const at = toRow(s, it.span.start, it.span.end); edits.push({ row: at.row, start: at.lead + at.start, end: at.lead + at.end }); };
+    if (kind === "asset") { if (hit(s.asset)) put(s.asset); [...s.takes, ...s.gives].forEach((p) => hit(p.asset) && put(p.asset)); }
+    if (kind === "role" && hit(s.role)) put(s.role);
+    if (kind === "trait") [...s.takes, ...s.gives].forEach((p) => hit(p.trait) && put(p.trait));
+  });
+  edits.sort((a, b) => (a.row - b.row) || (b.start - a.start)).forEach((e) => {
+    lines[e.row] = `${lines[e.row].slice(0, e.start)}${newName}${lines[e.row].slice(e.end)}`;
+  });
+  return lines.join("\n");
 }
