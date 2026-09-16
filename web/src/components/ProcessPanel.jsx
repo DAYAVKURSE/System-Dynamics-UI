@@ -500,7 +500,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 label="текст процесса" onCommit={(t) => setText(p, t)} />
 
               {/* Разбор построчно — под полем, там же, где набирают. */}
-              {steps.map((s) => {
+              {steps.map((s, si) => {
                 const chip = (it, kind, qty, assetId, assetOk = true, qtyHi = null) => {
                   const st = stateOf(it, kind, model, p);
                   const k = key(s, kind, it.name);
@@ -538,7 +538,8 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 };
                 return (
                   <div key={s.line} style={{ marginTop: 6, fontSize: 12, lineHeight: 1.9 }}>
-                    <span style={{ color: C.muted, marginRight: 6 }}>{s.line}.</span>
+                    {/* Номер шага по порядку, а не номер строки: шаг может занимать несколько строк. */}
+                    <span style={{ color: C.muted, marginRight: 6 }}>{si + 1}.</span>
                     {s.error
                       ? <span style={{ color: BAD }}>{s.text} — {s.error}</span>
                       : <>
