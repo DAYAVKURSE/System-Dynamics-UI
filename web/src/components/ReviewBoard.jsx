@@ -146,6 +146,14 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
             {!!String(f?.about || "").trim() && (
               <div style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.5,
                 whiteSpace: "pre-wrap", color: C.muted }}>{f.about}</div>)}
+            {/* Критерии проверки — то, по чему принимают работу (владелец, 2026-09-18). */}
+            {!!(f?.checks || []).length && (
+              <div aria-label="критерии проверки" style={{ marginBottom: 6 }}>
+                <div style={S.lbl}>критерии проверки</div>
+                <ul style={{ margin: "3px 0 0", paddingLeft: 18, fontSize: 12, lineHeight: 1.5 }}>
+                  {f.checks.map((c, i) => (<li key={`${i}:${c}`}>{c}</li>))}
+                </ul>
+              </div>)}
             {t.body && <div style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.5 }}>{t.body}</div>}
 
             {!sub && <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>

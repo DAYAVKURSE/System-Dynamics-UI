@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, peopleOfPosition, procFuncs,
-  parseDur, parseEvery, parsePar, setTaskTime, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
+  parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -203,6 +203,22 @@ describe("сроки задачи в тексте (владелец, 2026-09-18)
     t = setTaskTime(t, 0, "dur", "4-6 ч");
     expect(t.split("\n")[1]).toBe("Срок: 4-6 ч");
     expect(setTaskTime(t, 0, "dur", null)).toBe("Задача: шаг\nОдновременно: 3\nКто: Владелец");
+  });
+});
+
+describe("критерии проверки задачи (владелец, 2026-09-18)", () => {
+  it("строки «Критерий:» читаются, уходят в функцию и правятся setTaskChecks", () => {
+    const T = "Задача: шаг\nСрок: 2 дн\nКритерий: есть ссылка\nКритерий: заполнены поля\nКто: Владелец\nОтдаёт: оффер 1";
+    const { funcs, errors } = parseText(T, model, {});
+    expect(errors).toEqual([]);
+    expect((funcs[0].tasks[0].checks || []).map((c) => c.text)).toEqual(["есть ссылка", "заполнены поля"]);
+    expect(procFuncs({ id: "p", text: T }, model)[0].checks).toEqual(["есть ссылка", "заполнены поля"]);
+    expect(parseText("Задача: a\nКритерий:", model, {}).errors[0].message).toMatch(/напишите, что проверяем/);
+    expect(setTaskChecks("Задача: шаг\nСрок: 2 дн\nКто: Владелец", 0, ["раз", "два"]))
+      .toBe("Задача: шаг\nСрок: 2 дн\nКритерий: раз\nКритерий: два\nКто: Владелец");
+    expect(setTaskChecks(T, 0, []).split("\n")).toEqual(["Задача: шаг", "Срок: 2 дн", "Кто: Владелец", "Отдаёт: оффер 1"]);
+    // После названия задачи метка «Критерий:» есть в подсказках.
+    expect(suggest(hintAt("Задача: шаг", 11, model), model).some((i) => i.name === "Критерий:")).toBe(true);
   });
 });
 

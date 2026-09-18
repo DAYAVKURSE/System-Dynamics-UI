@@ -6,7 +6,7 @@ import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, 
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
   suggest, toggleRole, usesAsset, whoState, renameVar, setTaskTime, parseDur, parseEvery, parsePar,
-  durText, everyText, parText, TIME_UNITS } from "../lib/proc2.js";
+  durText, everyText, parText, TIME_UNITS, setTaskChecks } from "../lib/proc2.js";
 import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
 import { hasKind, toggleKind } from "../lib/traits.js";
 import { MATERIAL_KINDS, traitKind } from "../lib/units.js";
@@ -367,6 +367,19 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     return out;
   })();
   const setTime = (kind, next) => rewrite(setTaskTime(text, taskRow, kind, next));
+  /* Критерии проверки задачи — строки «Критерий: …» (владелец, 2026-09-18). */
+  const taskChecks = (() => {
+    if (taskRow < 0) return [];
+    const rows = text.split("\n");
+    const out = [];
+    for (let i = taskRow + 1; i < rows.length; i += 1) {
+      const lab = labelOf(rows[i]);
+      if (!lab || !["dur", "every", "par", "check"].includes(lab.kind)) break;
+      if (lab.kind === "check" && lab.rest.text.trim()) out.push(lab.rest.text.trim());
+    }
+    return out;
+  })();
+  const setChecks = (list) => rewrite(setTaskChecks(text, taskRow, list));
   /* «Кому:»/«От кого:» — то же меню, что у «Кто:», без ролей (владелец, 2026-09-18). */
   const whoRow = caretRow >= 0 && ["who", "to", "from"].includes(rowKind) ? caretRow : -1;
   const isWho = whoRow >= 0 && rowKind === "who";
@@ -502,14 +515,19 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const wrap = useRef(null);
   const [menuPos, setMenuPos] = useState(null);
   const drag = useRef(null);
-  const menuKey = whoRow >= 0 ? `who:${whoRow}` : res ? `res:${resKey}` : "";
+  const menuKey = taskRow >= 0 ? `task:${taskRow}` : whoRow >= 0 ? `who:${whoRow}` : res ? `res:${resKey}` : "";
   useEffect(() => {
     if (!menuKey || menuPos) return;
-    const r = wrap.current?.getBoundingClientRect?.() || { right: 0, top: 0 };
-    const row = whoRow >= 0 ? whoRow : resRow;
+    /* Всплывает рядом со строкой, но всегда в видимой части экрана: если
+       снизу не помещается — поднимается выше (владелец, 2026-09-18). */
+    const r = wrap.current?.getBoundingClientRect?.() || { right: 0, top: 0, bottom: 0 };
+    const row = taskRow >= 0 ? taskRow : whoRow >= 0 ? whoRow : resRow;
     const W = 210;
+    const H = taskRow >= 0 ? 230 : 300;
+    const vh = window.innerHeight || 800;
     const x = Math.max(8, Math.min((window.innerWidth || 400) - W - 8, r.right - W - 6));
-    const y = Math.max(8, Math.min((window.innerHeight || 800) - 260, r.top + 7 + row * LINE_H * 12 - scrollTop));
+    const want = r.top + 7 + Math.max(0, row) * LINE_H * 12 - scrollTop;
+    const y = Math.max(8, Math.min(vh - H - 8, want));
     setMenuPos({ x, y });
   }, [menuKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   /* Одно касание: меню сразу активно и едет за пальцем — без первого
@@ -635,6 +653,22 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           </div>
           {taskRow >= 0 ? (
           <div data-task-menu="" aria-label={`меню задачи ${taskName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Fold title="критерии проверки" open={fold === "checks"} onToggle={() => setFold(fold === "checks" ? "" : "checks")}
+              value={taskChecks.length ? String(taskChecks.length) : "—"}>
+              {!taskChecks.length && <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 4 }}>по чему проверяющий примет работу</div>}
+              {taskChecks.map((c, i) => (
+                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 3 }}>
+                  <input defaultValue={c} aria-label={`критерий ${i + 1}`}
+                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 5px" }}
+                    onBlur={(e) => { const v = e.target.value.trim(); setChecks(taskChecks.map((x, k) => (k === i ? v : x)).filter(Boolean)); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                  <button type="button" aria-label={`убрать критерий ${i + 1}`} title="убрать"
+                    onClick={() => setChecks(taskChecks.filter((x, k) => k !== i))}
+                    style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
+                </div>))}
+              <button type="button" aria-label="добавить критерий" onClick={() => setChecks([...taskChecks, "новый критерий"])}
+                style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}>+ критерий</button>
+            </Fold>
             <Fold title="срок" open={fold === "dur"} onToggle={() => setFold(fold === "dur" ? "" : "dur")}
               value={durText(taskTime)}>
               <Range lo={taskTime.dur} hi={taskTime.durHi} unit={taskTime.durUnit} label="срок"

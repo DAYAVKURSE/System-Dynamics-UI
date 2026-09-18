@@ -150,6 +150,9 @@ export const newFunc = (e, name = "новая функция") => ({
   // едет в каждую её задачу, чтобы исполнителю не приходилось спрашивать,
   // что вообще за работа.
   about: "",
+  /* Критерии проверки (владелец, 2026-09-18): по чему проверяющий решает,
+     принята ли работа. Список строк — виден исполнителю и проверяющему. */
+  checks: [],
   takes: [],
   gives: [],
   dur: 1,
@@ -482,6 +485,7 @@ export const normalizeFunc = (f = {}) => {
     e: f.e ?? null,
     name: f.name ?? "",
     about: f.about == null ? "" : String(f.about),
+    checks: Array.isArray(f.checks) ? f.checks.map((x) => String(x)).filter((x) => x.trim()) : [],
     factors: factorsOf(f),
     /* Должности ролей и исключения — часть записи функции. Старые списки
        людей в `setters/owners/reviewers` остаются: по ним читаются схемы,

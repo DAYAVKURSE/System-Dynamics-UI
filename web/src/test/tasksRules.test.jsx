@@ -347,6 +347,21 @@ describe("назначения берутся из воркеров актива
     expect(screen.queryByText(/Постановщик ещё не написал/)).toBeNull();
   });
 
+  it("критерии проверки видны исполнителю в задаче (владелец, 2026-09-18)", () => {
+    const funcs = [{ ...FUNCS[0], checks: ["есть ссылка", "заполнены поля"] }];
+    const Board = () => {
+      const [tasks, setTasks] = React.useState([{ ...newTask({ funcId: "f1", title: "Задача A" }), status: "progress", body: "" }]);
+      const [openId, setOpenId] = React.useState(null);
+      return (<TasksBoard funcs={funcs} entities={ENTITIES} traits={TRAITS}
+        tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId} nameOf={(id) => id} />);
+    };
+    render(<Board />);
+    fireEvent.click(screen.getByText("Задача A"));
+    const box = screen.getByLabelText("критерии проверки");
+    expect(within(box).getByText("есть ссылка")).toBeInTheDocument();
+    expect(within(box).getByText("заполнены поля")).toBeInTheDocument();
+  });
+
   it("содержимое не обязательно: задача ставится и без него", () => {
     /* Что это за работа, уже сказано описанием функции. Требовать
        переписывать его в каждую задачу значило бы спрашивать второй раз

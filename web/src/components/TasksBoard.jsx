@@ -527,6 +527,16 @@ function FuncCard({func,entities,traitName}){
       {!!String(func.about||"").trim()&&(
         <div style={{color:C.text,marginTop:4,whiteSpace:"pre-wrap"}}>
           {func.about}</div>)}
+      {/* Критерии проверки (владелец, 2026-09-18): по чему проверяющий
+          примет работу. Исполнитель видит их до сдачи, проверяющий — при
+          проверке; оба смотрят на один список. */}
+      {!!(func.checks||[]).length&&(
+        <div aria-label="критерии проверки" style={{marginTop:6}}>
+          <div style={S.lbl}>критерии проверки</div>
+          <ul style={{margin:"3px 0 0",paddingLeft:18,color:C.text}}>
+            {func.checks.map((c,i)=>(<li key={`${i}:${c}`} style={{marginBottom:2}}>{c}</li>))}
+          </ul>
+        </div>)}
       <div style={{color:C.muted,marginTop:4}}>
         берёт: {func.takes.length
           ? func.takes.map(p=>`${traitName(p.trait)} ${rangeText(p)}`

@@ -281,7 +281,7 @@ describe("роли, статусы, функции", () => {
     const menu = () => container.querySelector("[data-task-menu]");
     expect(menu()).not.toBeNull();
     expect(within(menu()).getAllByRole("button").map((b) => b.getAttribute("aria-label")))
-      .toEqual(["срок", "следующая попытка", "одновременные выполнения"]);
+      .toEqual(["критерии проверки", "срок", "следующая попытка", "одновременные выполнения"]);
     fireEvent.click(within(menu()).getByRole("button", { name: "срок" }));
     const lo = screen.getByLabelText("срок: сколько");
     fireEvent.change(lo, { target: { value: "3" } });
@@ -294,6 +294,22 @@ describe("роли, статусы, функции", () => {
     expect(area.value.split("\n")[2]).toBe("Одновременно: 2");
     // Значения живут в тексте, поэтому переживают пересборку функций.
     expect(dump().procs[0].text.split("\n").slice(1, 3)).toEqual(["Срок: 3 дн", "Одновременно: 2"]);
+  });
+
+  it("меню задачи: критерии проверки добавляются «+» и уходят в текст и в функцию (владелец, 2026-09-18)", () => {
+    const area = addProc();
+    write(area, TEXT);
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: 3 } });
+    const menu = () => container.querySelector("[data-task-menu]");
+    fireEvent.click(within(menu()).getByRole("button", { name: "критерии проверки" }));
+    fireEvent.click(within(menu()).getByRole("button", { name: "добавить критерий" }));
+    expect(area.value.split("\n")[1]).toBe("Критерий: новый критерий");
+    const inp = screen.getByLabelText("критерий 1");
+    fireEvent.change(inp, { target: { value: "есть ссылка" } });
+    fireEvent.blur(inp);
+    expect(area.value.split("\n")[1]).toBe("Критерий: есть ссылка");
+    expect(dump().procs[0].text.split("\n")[1]).toBe("Критерий: есть ссылка");
   });
 
   it("меню ресурса: единица, чем подтверждается, чем считаем — под спойлерами (владелец, 2026-09-18)", () => {

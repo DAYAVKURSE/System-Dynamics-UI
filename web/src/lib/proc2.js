@@ -61,12 +61,12 @@ const LABELS = [
   ["take", ["берет", "берут"]], ["give", ["отдает", "отдают", "выдает", "выдают", "дает", "дают"]],
   ["to", ["кому", "куда"]], ["from", ["от кого", "откуда"]], ["or", ["или"]],
   ["if", ["если"]], ["then", ["то"]], ["else", ["иначе"]],
-  ["dur", ["срок"]], ["every", ["попытка"]], ["par", ["одновременно"]],
+  ["dur", ["срок"]], ["every", ["попытка"]], ["par", ["одновременно"]], ["check", ["критерий"]],
 ];
 const LABEL_KIND = new Map(LABELS.flatMap(([k, ws]) => ws.map((w) => [w, k])));
 export const LABEL_TEXT = { func: "Функция:", task: "Задача:", who: "Кто:", take: "Берёт:", takes: "Берут:",
   give: "Отдаёт:", gives: "Отдают:", to: "Кому:", from: "От кого:", or: "Или:", if: "Если:", then: "То:", else: "Иначе:",
-  dur: "Срок:", every: "Попытка:", par: "Одновременно:" };
+  dur: "Срок:", every: "Попытка:", par: "Одновременно:", check: "Критерий:" };
 
 /* ─────── сроки задачи в тексте (владелец, 2026-09-18) ───────
    «Срок: 2 дн» / «Срок: 2-4 дн», «Попытка: сразу» / «Попытка: через 3 дн»,
@@ -296,6 +296,14 @@ export function parseText(text = "", model = {}, proc = {}) {
       /* «То:» — своей строкой после «Если:» (владелец, 2026-09-18); строение
          ветки не меняет, только помнит строку для раскраски и разницы. */
       /* Сроки задачи — строками текста (владелец, 2026-09-18). */
+      /* Критерий проверки — строка «Критерий: …», их может быть сколько угодно. */
+      if (lab.kind === "check") {
+        if (!task) { err(row, "«Критерий:» без задачи"); return; }
+        const t2 = rest.trim();
+        if (!t2) { err(row, "«Критерий:» — напишите, что проверяем"); return; }
+        task.checks = [...(task.checks || []), { text: t2, row, span: { start: rs, end: rs + rest.trimEnd().length } }];
+        last = "check"; lastStep = null; lastWho = null; return;
+      }
       if (lab.kind === "dur" || lab.kind === "every" || lab.kind === "par") {
         if (!task) { err(row, `«${LABEL_TEXT[lab.kind]}» без задачи`); return; }
         const val = lab.kind === "dur" ? parseDur(rest) : lab.kind === "every" ? parseEvery(rest) : parsePar(rest);
@@ -500,6 +508,7 @@ export function paintOf(text = "", model = {}, proc = {}) {
     f.tasks.forEach((t) => {
       if (t.span) put(t.row, t.span, { kind: "task", name: t.name });
       Object.entries(t.timeRows || {}).forEach(([k, r]) => put(r.row, r.span, { kind: "qty", side: "time", state: "ok", name: LABEL_TEXT[k], tail: "" }));
+      (t.checks || []).forEach((c) => put(c.row, c.span, { kind: "check", state: "ok", name: c.text }));
       t.branches.forEach((b) => {
         if (b.condSpan) put(b.condRow ?? b.row, b.condSpan, { kind: "cond" });
         b.who.forEach((w) => {
@@ -571,6 +580,22 @@ export function setTaskTime(text = "", taskRow, kind, value) {
   return lines.join("\n");
 }
 
+/** Переписать критерии задачи: строки «Критерий: …» под её сроками. */
+export function setTaskChecks(text = "", taskRow, list = []) {
+  const lines = String(text || "").split("\n");
+  let at = taskRow + 1;
+  const keep = [];
+  while (at < lines.length) {
+    const k = labelOf(lines[at])?.kind;
+    if (k === "check") { at += 1; continue; }
+    if (["dur", "every", "par"].includes(k)) { keep.push(lines[at]); at += 1; continue; }
+    break;
+  }
+  const rest = lines.slice(at);
+  const checks = list.map((x) => String(x).trim()).filter(Boolean).map((x) => `${LABEL_TEXT.check} ${x}`);
+  return [...lines.slice(0, taskRow + 1), ...keep, ...checks, ...rest].join("\n");
+}
+
 /** Переименовать переменную ресурса во всём тексте: «(переменная: X)», «(X)», «(флаг X)». */
 export function renameVar(text = "", from = "", to = "") {
   const esc = String(from).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -605,6 +630,7 @@ export const HINT = {
   dur: "срок — сколько идёт одно выполнение",
   every: "следующая попытка — «сразу» или «через 3 дн»",
   par: "одновременных выполнений на воркера",
+  check: "критерий проверки — по чему принимают работу",
 };
 
 const TAIL_START = /^(?:[\d(@%=]|[a-zA-Z](?![0-9a-zA-Zа-яА-ЯёЁ]))/;
@@ -648,6 +674,7 @@ export function hintAt(text = "", at = 0, model = {}) {
     afterOp: /[=<>≠≥≤]\s*$/.test(rest) };
   if (lab.kind === "else" || lab.kind === "then") return { kind: "label", start: at, query: "", ctx };
   if (lab.kind === "dur" || lab.kind === "every" || lab.kind === "par") return { kind: lab.kind, start: restStart, query: rest.trim(), ctx };
+  if (lab.kind === "check") return { kind: "check", start: restStart, query: rest.trim(), ctx };
   // take / give / or: ресурс у курсора.
   const parts = splitItems(rest, 0);
   const lastComma = rest.lastIndexOf(",");
@@ -730,7 +757,7 @@ export function suggest(hint, model = {}, proc = {}) {
     else if (c.lastLab === "give" && !c.blankBefore) items.push(label("to", "куда"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
     else if (c.lastLab === "to" && !c.blankBefore) items.push(label("to", "ещё кому"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
     else if (c.lastLab === "from" && !c.blankBefore) items.push(label("from", "ещё от кого"), label(plural ? "gives" : "give"), label(plural ? "takes" : "take"), label("who"));
-    else if (["dur", "every", "par"].includes(c.lastLab) && !c.blankBefore) items.push(label("who", "участник"), label("dur", "сколько идёт"), label("every", "когда следующая"), label("par", "одновременных"), label("take", "что берёт"), label("give", "что отдаёт"));
+    else if (["dur", "every", "par", "check"].includes(c.lastLab) && !c.blankBefore) items.push(label("who", "участник"), label("check", "что проверяем"), label("dur", "сколько идёт"), label("every", "когда следующая"), label("par", "одновременных"), label("take", "что берёт"), label("give", "что отдаёт"));
     else if ((c.lastLab === "then" || c.lastLab === "if") && !c.blankBefore) items.push(label("who", "участник"), label("take", "что берёт"), label("give", "что отдаёт"));
     else if ((c.hasWho || c.whoRun) && !c.blankBefore) items.push(label(plural ? "takes" : "take", "что берёт"), label(plural ? "gives" : "give", "что отдаёт"), label("who", "ещё участник"));
     else items.push(label("who", "участник"), label("task", "новая задача"), label("func", "новая функция"));
@@ -816,12 +843,15 @@ export function suggest(hint, model = {}, proc = {}) {
     if (hint.kind === "every") items.push({ name: "сразу", kind: "срок", note: "следующая начинается за предыдущей", suffix: "\n" });
     TIME_UNITS.forEach((u) => items.push({ name: u, kind: "единица", note: "", insert: true, text: ` ${u}`, suffix: "\n" }));
     items.push({ name: "", kind: "", note: "число и единица: «2 дн», вилка — «2-4 дн»", info: true });
+  } else if (hint.kind === "check") {
+    items.push({ name: "", kind: "", note: "по чему проверяющий решит, что работа принята", info: true });
+    items.push({ name: "↵", kind: "дальше", note: "ещё критерий", insert: true, text: `\n${LABEL_TEXT.check}`, suffix: " ", trimBefore: true });
   } else if (hint.kind === "par") {
     items.push({ name: "", kind: "", note: "сколько таких задач идёт у одного воркера одновременно", info: true });
     items.push({ name: ", на актив", kind: "дальше", note: "предел на весь актив", insert: true, text: ", на актив ", suffix: "" });
   } else if (hint.kind === "name") {
-    if (hint.label === "task") ["who", "dur", "every", "par"].forEach((k) => items.push({ name: LABEL_TEXT[k], kind: "метка",
-      note: k === "who" ? "участник" : k === "dur" ? "сколько идёт" : k === "every" ? "когда следующая" : "одновременных",
+    if (hint.label === "task") ["who", "check", "dur", "every", "par"].forEach((k) => items.push({ name: LABEL_TEXT[k], kind: "метка",
+      note: k === "who" ? "участник" : k === "check" ? "что проверяем" : k === "dur" ? "сколько идёт" : k === "every" ? "когда следующая" : "одновременных",
       insert: true, text: `\n${LABEL_TEXT[k]}`, suffix: " ", trimBefore: true }));
     items.push({ name: "↵", kind: "дальше", note: hint.label === "func" ? "новая строка: Задача:" : "новая строка: Кто:", insert: true,
       text: `\n${LABEL_TEXT[hint.label === "func" ? "task" : "who"]}`, suffix: " ", trimBefore: true });
@@ -994,7 +1024,7 @@ export function procFuncs(proc = {}, model = {}) {
         chain: { id: fid, name: fname, step: ti + 1, of: f.tasks.length },
         takes: main.takes, gives: main.gives, steps: main.steps, who: main.who, posts: main.posts,
         ...(main.cond ? { cond: main.cond } : {}), ...(alt.length ? { alt } : {}),
-        dur: 1, durHi: 1, durUnit: "дн", ...(t.time || {}), accepted: true,
+        dur: 1, durHi: 1, durUnit: "дн", ...(t.time || {}), checks: (t.checks || []).map((c) => c.text), accepted: true,
       });
     });
   });
@@ -1092,6 +1122,7 @@ export function taskBlocks(text = "", model = {}) {
     const rows = new Set();
     rows.add(t.row);
     Object.values(t.timeRows || {}).forEach((r) => rows.add(r.row));
+    (t.checks || []).forEach((c) => rows.add(c.row));
     t.branches.forEach((b) => { rows.add(b.row); if (b.thenRow != null) rows.add(b.thenRow); b.who.forEach((w) => rows.add(w.row)); b.steps.forEach((s) => { rows.add(s.row); s.items.forEach((it) => rows.add(it.row ?? s.row)); [...(s.tos || []), ...(s.froms || [])].forEach((x) => rows.add(x.row)); s.or.forEach((it) => rows.add(it.row ?? s.row)); }); });
     const body = [...rows].sort((a, b) => a - b).map((r) => lines[r]).join("\n");
     out.push({ key: `${f.name || fi}|${t.name || ti}`, name: t.name || `задача ${ti + 1}`, func: f.name, text: body });
