@@ -90,6 +90,8 @@ export const normalizeProc = (p = {}) => ({
   hypo: { entities: ids(p.hypo?.entities), traits: ids(p.hypo?.traits), roles: ids(p.hypo?.roles) },
   missing: { rejected: (Array.isArray(p.missing?.rejected) ? p.missing.rejected : [])
     .map(String) },
+  // Версии текста (владелец, 2026-09-18): {id, at, text, note}.
+  versions: Array.isArray(p.versions) ? p.versions.filter((v) => v && typeof v.text === "string") : [],
 });
 export const normalizeProcs = (list) =>
   (Array.isArray(list) ? list.map(normalizeProc) : []);
@@ -100,7 +102,8 @@ export const nameKey = (s) => String(s ?? "").trim().toLowerCase()
 
 /** Имя процесса: своё, иначе первая строка текста, иначе «процесс». */
 export const procLabel = (p = {}) => String(p.name || "").trim()
-  || String(p.text || "").split("\n").map((l) => l.trim()).find(Boolean) || "процесс";
+  || (String(p.text || "").split("\n").map((l) => l.trim()).find(Boolean) || "")
+    .replace(/^(?:функция|задача)\s*:\s*/i, "") || "процесс";
 
 /* ─────── разбор ─────── */
 
@@ -528,12 +531,12 @@ export function procFuncs(proc = {}, model = {}) {
  * текст про них ничего не говорит. Рецепт — что берёт и что отдаёт — и
  * должность исполнителя всегда из текста.
  */
-export function syncProcFuncs(funcs = [], procs = [], model = {}, normalize = (f) => f) {
+export function syncProcFuncs(funcs = [], procs = [], model = {}, normalize = (f) => f, build = procFuncs) {
   const alive = new Set(procs.filter((p) => p.status !== "off").map((p) => p.id));
   const was = new Map(funcs.filter((f) => f.proc).map((f) => [f.id, f]));
   const rest = funcs.filter((f) => !f.proc);
   const built = procs.filter((p) => alive.has(p.id))
-    .flatMap((p) => procFuncs(p, model))
+    .flatMap((p) => build(p, model))
     .map((f) => {
       const old = was.get(f.id) || {};
       const posts = f.posts ? { ...(old.posts || {}), ...f.posts } : old.posts;

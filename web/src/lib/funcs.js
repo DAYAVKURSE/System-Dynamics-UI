@@ -744,6 +744,8 @@ export const WORKER_KINDS = [
 export const normalizeAsset = (e = {}) => ({
   ...e,
   crew: ids(e.crew),
+  // Должности актива (владелец, 2026-09-18): одна должность — у одного актива.
+  posts: ids(e.posts),
   ...Object.fromEntries(WORKER_KINDS.map((k) => [k.id, ids(e[k.id])])),
   // Порядок влияет на выбор, пока владелец не сказал «нет»: у старых записей
   // поля нет, и читать это как «выключено» значило бы отнять поведение,

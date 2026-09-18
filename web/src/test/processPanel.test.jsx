@@ -1,26 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
-import { activeFuncs } from "../lib/funcs.js";
-import { forecast } from "../lib/plan.js";
 
-/* РАЗДЕЛ «ТЕХНОЛОГИЧЕСКИЕ ПРОЦЕССЫ» НА «УПРАВЛЕНИИ».
-
-   Владелец: «я буквально должен вводить текст, а он должен выдавать
-   подсказки»; «как она была полем ввода, так должна и остаться; подсказки
-   — только всплывающим окном; имя сущности человек должен иметь
-   возможность ввести сам или выбрать из списка». Порядок слов в строке —
-   его: актив, должность, берёт: откуда, что; отдаёт: куда, что. Здесь
-   проверяется ровно это — и то, что из этого следует: принятое
-   гипотетически считается только с галочкой, «не принято» уносит
-   гипотезы, удалённое на схеме не даёт принять, пока не поставлена
-   замена, найденное открывается карточкой. */
+/* РАЗДЕЛ «ТЕХНОЛОГИЧЕСКИЕ ПРОЦЕССЫ» НА «УПРАВЛЕНИИ» — язык v2 (владелец,
+   2026-09-18): строки с метками, подсказки окном над полем, роли значками
+   и кнопками у выделенной должности, версии, выгрузка/загрузка. */
 
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
 const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
-/* Процессы — первыми на «Управлении», под спойлером: открывается нажатием. */
 const openProc = () => {
   scheme();
   fireEvent.click(screen.getByRole("button", { name: "Управление" }));
@@ -32,19 +21,17 @@ const addProc = () => {
   fireEvent.click(screen.getByRole("button", { name: "+ процесс" }));
   return screen.getByLabelText("текст процесса");
 };
-const type = (el, v) => {
+const type = (el, v, at = v.length) => {
   fireEvent.focus(el);
-  fireEvent.change(el, { target: { value: v, selectionStart: v.length } });
+  fireEvent.change(el, { target: { value: v, selectionStart: at } });
 };
-// Поле отдаёт текст по расфокусу: без blur разбор смотрел бы на прежнее.
 const write = (el, v) => { type(el, v); fireEvent.blur(el); };
 const popup = () => screen.getByRole("dialog", { name: "подсказка процесса" });
 const options = () => within(popup()).getAllByRole("option").map((o) => o.textContent);
+const pick = (re) => fireEvent.mouseDown(within(popup()).getByRole("option", { name: re }));
 const openExport = () => {
   fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
-  if (!container.querySelector("textarea")) {
-    fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
-  }
+  if (!container.querySelector("textarea")) fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
   return container.querySelector("textarea");
 };
 const dump = () => {
@@ -60,299 +47,137 @@ const loadJson = (m) => {
   fireEvent.blur(area);
   const row = screen.getByRole("button", { name: "Выгрузить" }).parentElement;
   fireEvent.click(within(row).getByRole("button", { name: "Загрузить" }));
-  scheme();
 };
-const status = (name) => screen.getByRole("button", { name });
-const LINE = "Пользователи, берёт: Рынок услуг, спрос, отдаёт: Пользователи, заявки";
-const tap = (name) => {
-  const g = container.querySelector(`[data-entity="${name}"]`);
-  fireEvent.pointerDown(g, { clientX: 50, clientY: 50, pointerId: 1 });
-  fireEvent.pointerUp(g, { clientX: 51, clientY: 50, pointerId: 1 });
-};
-/* Заводит процесс со складом, которого на схеме нет, и принимает обе
-   гипотезы — актив и его ресурс. */
-const acceptWarehouse = () => {
-  const area = addProc();
-  write(area, "Пользователи, берёт: Рынок услуг, спрос, отдаёт: Склад, коробки 2");
-  fireEvent.click(screen.getByRole("button", { name: "неизвестный актив «Склад»" }));
-  fireEvent.click(screen.getByRole("button", { name: "принять актив «Склад»" }));
-  fireEvent.click(screen.getByRole("button", { name: "неизвестный ресурс «коробки»" }));
-  fireEvent.click(screen.getByRole("button", { name: "принять ресурс «коробки»" }));
-};
+const TEXT = "Задача: лид\nКто: Пользователи\nБерёт: заявки 2\nОтдаёт: заявки 50% A";
 
-describe("текст с всплывающими подсказками", () => {
-  it("окно у поля говорит, что ожидается, и предлагает имена по месту: актив, должность или метка, откуда, что", async () => {
+describe("подсказки ведут по строкам", () => {
+  it("метка → «Кто:» → актив (новая строка) → «Берёт:» → ресурс → сколько → новая строка → «Кому:»", async () => {
     const area = addProc();
     type(area, "");
-    expect(popup()).toHaveTextContent("ожидается: актив");
-    expect(options()).toEqual(["актив Рынок услуг", "актив Пользователи", "актив Виртуальный менеджер"]);
-    type(area, "Поль");
-    expect(options()).toEqual(["актив Пользователи"]);
-    type(area, "Пользователи, ");
-    expect(popup()).toHaveTextContent("должность");
-    expect(options()).toEqual(["метка берёт:", "метка отдаёт:"]);
-    type(area, "Пользователи, берёт: Рынок услуг, ");
-    expect(popup()).toHaveTextContent("ожидается: что (ресурс) из «Рынок услуг» · после имени через пробел — сколько");
-    expect(options()).toEqual(["ресурс спрос"]);
-    // Выбор подставляет имя и ПРОБЕЛ — и окно сразу ждёт «сколько».
-    fireEvent.mouseDown(within(popup()).getByRole("option"));
-    expect(area).toHaveValue("Пользователи, берёт: Рынок услуг, спрос ");
-    // Окно переставляется после возврата фокуса в поле (следующий тик).
-    await waitFor(() => expect(popup()).toHaveTextContent("ожидается: сколько"));
-    expect(options()).toContain("дальше → — запятая — к следующему ресурсу");
-    // Число набрано — «дальше →» ставит запятую к следующему ресурсу.
-    type(area, "Пользователи, берёт: Рынок услуг, спрос 2");
-    fireEvent.mouseDown(within(popup()).getByRole("option", { name: /дальше/ }));
-    expect(area).toHaveValue("Пользователи, берёт: Рынок услуг, спрос 2, ");
-    await waitFor(() => expect(popup()).toHaveTextContent("откуда берёт"));
-    // Без числа «дальше →» тоже работает: пробел перед запятой убирается.
-    type(area, "Пользователи, берёт: Рынок услуг, спрос ");
-    fireEvent.mouseDown(within(popup()).getByRole("option", { name: /дальше/ }));
-    expect(area).toHaveValue("Пользователи, берёт: Рынок услуг, спрос, ");
+    expect(popup().style.bottom).toBe("100%");   // окно над полем
+    expect(options().slice(0, 2)).toEqual(["метка Кто: — участник", "метка Задача: — новая задача"]);
+    pick(/^метка Задача:/);
+    expect(area).toHaveValue("Задача: ");
+    type(area, "Задача: лид");
+    pick(/^дальше ↵/);
+    expect(area).toHaveValue("Задача: лид\nКто: ");
+    await waitFor(() => expect(options()[1]).toBe("актив Пользователи — любой воркер"));
+    pick(/^актив Пользователи/);
+    expect(area).toHaveValue("Задача: лид\nКто: Пользователи\n");
+    await waitFor(() => expect(options().slice(0, 2)).toEqual(["метка Берёт: — что берёт", "метка Отдаёт: — что отдаёт"]));
+    pick(/^метка Берёт:/);
+    await waitFor(() => expect(options()).toContain("ресурс заявки — Пользователи"));
+    pick(/^ресурс заявки/);
+    expect(area).toHaveValue("Задача: лид\nКто: Пользователи\nБерёт: заявки ");
+    await waitFor(() => expect(popup()).toHaveTextContent("сколько"));
+    type(area, "Задача: лид\nКто: Пользователи\nБерёт: заявки 2");
+    pick(/^дальше ↵ — новая строка$/);
+    expect(area).toHaveValue("Задача: лид\nКто: Пользователи\nБерёт: заявки 2\n");
+    await waitFor(() => expect(options()[0]).toBe("метка От кого: — откуда"));
+    pick(/^метка Отдаёт:/);
+    await waitFor(() => expect(options()).toContain("ресурс заявки — Пользователи"));
+    pick(/^ресурс заявки/);
+    type(area, `${TEXT}`);
+    pick(/новая строка: Кому:/);
+    expect(area).toHaveValue(`${TEXT}\nКому: `);
+    await waitFor(() => expect(options()).toContain("актив Рынок услуг"));
+    pick(/^актив Рынок услуг/);
+    expect(area).toHaveValue(`${TEXT}\nКому: Рынок услуг\n`);
   });
 
-  it("своё имя вводится как есть: подсказка молчит, разбор показывает его пунктиром", () => {
+  it("поле рисует метки серым, задачу, актив, ресурсы плашками стороны в скобках; под полем — разбор с буквами", () => {
     const area = addProc();
-    type(area, "Скл");
-    expect(popup()).toHaveTextContent("«Скл» — новое имя");
-    fireEvent.blur(area);
-    write(area, "Склад, берёт: Пользователи, заявки");
-    expect(screen.getByRole("button", { name: "неизвестный актив «Склад»" })).toBeInTheDocument();
-    expect(screen.getByText(/сначала примите или отклоните: Склад/)).toBeInTheDocument();
-  });
-
-  it("ошибка строки — словами под полем", () => {
-    const area = addProc();
-    write(area, "Пользователи, менеджер, спрос");
-    expect(screen.getAllByText(/ждут «берёт:» или «отдаёт:»/).length).toBeGreaterThan(0);
-    expect(status("Принято")).toBeDisabled();
-  });
-});
-
-describe("неизвестные имена", () => {
-  it("найденное — чип, ненайденное — пунктир; «Принять» заводит актив и ресурс в нём с пометкой «гипотеза»", () => {
-    acceptWarehouse();
-    const m = dump();
-    const wh = m.entities.find((e) => e.name === "Склад");
-    expect(wh.hypo).toBe(true);
-    const box = m.traits.find((t) => t.l === "коробки");
-    expect(box).toMatchObject({ e: wh.id, hypo: true, accepted: false });
-    expect(m.procs[0].hypo).toMatchObject({ entities: [wh.id], traits: [box.id] });
-    openProc();
-    expect(screen.getAllByText("· гипотеза").length).toBe(2);
-    expect(screen.queryByText(/сначала примите/)).toBeNull();
-    expect(status("Принято")).not.toBeDisabled();
-  });
-
-  it("ресурс нельзя принять раньше актива; «Отклонить» красит имя и не даёт принять процесс, «Вернуть» снимает", () => {
-    const area = addProc();
-    write(area, "Пользователи, берёт: Рынок услуг, спрос, отдаёт: Склад, коробки");
-    fireEvent.click(screen.getByRole("button", { name: "неизвестный ресурс «коробки»" }));
-    expect(screen.getByRole("button", { name: "принять ресурс «коробки»" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "неизвестный актив «Склад»" }));
-    fireEvent.click(screen.getByRole("button", { name: "отклонить актив «Склад»" }));
-    expect(screen.getByRole("button", { name: "отклонённый актив «Склад»" })).toBeInTheDocument();
-    expect(screen.getByText(/отклонено — исправьте или удалите строку: Склад/)).toBeInTheDocument();
-    expect(status("Принято гипотетически")).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "отклонённый актив «Склад»" }));
-    fireEvent.click(screen.getByRole("button", { name: "вернуть актив «Склад»" }));
-    expect(screen.getByRole("button", { name: "неизвестный актив «Склад»" })).toBeInTheDocument();
-  });
-});
-
-describe("три состояния процесса", () => {
-  it("«принято гипотетически» собирает функцию в активе строки; «не принято» убирает её и гипотезы", () => {
-    acceptWarehouse();
-    fireEvent.click(status("Принято гипотетически"));
-    let m = dump();
-    const f = m.funcs.find((x) => x.proc);
-    expect(f).toMatchObject({ e: "usr", accepted: true });
-    expect(f.takes.map((p) => [p.trait, p.lo, p.hi])).toEqual([["dem", 1, 1]]);
-    const box = m.traits.find((t) => t.l === "коробки");
-    expect(f.gives.map((p) => [p.trait, p.lo, p.hi])).toEqual([[box.id, 2, 2]]);
-    openProc();
-    fireEvent.click(status("Не принято"));
-    m = dump();
-    expect(m.funcs.some((x) => x.proc)).toBe(false);
-    expect(m.entities.some((e) => e.name === "Склад")).toBe(false);
-    expect(m.traits.some((t) => t.l === "коробки")).toBe(false);
-  });
-
-  it("правка текста принятого процесса пересобирает функцию", () => {
-    const area = addProc();
-    write(area, LINE);
-    fireEvent.click(status("Принято"));
-    write(screen.getByLabelText("текст процесса"), LINE.replace("спрос,", "спрос 3,"));
-    const f = dump().funcs.find((x) => x.proc);
-    expect(f.takes[0]).toMatchObject({ trait: "dem", lo: 3, hi: 3 });
-  });
-
-  it("гипотеза считается только с галочкой «включить гипотезы»", () => {
-    scheme();
-    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
-    expect(screen.queryByLabelText("включить гипотезы")).toBeNull();
-    acceptWarehouse();
-    fireEvent.click(status("Принято гипотетически"));
-    const m = dump();
-    expect(activeFuncs({ ...m, hypoOn: false }).some((f) => f.proc)).toBe(false);
-    expect(activeFuncs({ ...m, hypoOn: true }).some((f) => f.proc)).toBe(true);
-    const box = m.traits.find((t) => t.l === "коробки").id;
-    const traits = m.traits.map((t) => ({ ...t, have: 100 }));
-    expect(forecast({ ...m, traits, hypoOn: false }, { span: 3 }).hi[box][3]).toBe(100);
-    expect(forecast({ ...m, traits, hypoOn: true }, { span: 3 }).hi[box][3]).toBeGreaterThan(100);
-    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
-    const tick = screen.getByLabelText("включить гипотезы");
-    expect(tick).not.toBeChecked();
-    fireEvent.click(tick);
-    expect(screen.getByLabelText("включить гипотезы")).toBeChecked();
-  });
-});
-
-describe("удалённое на схеме", () => {
-  it("строка просит замену, и без неё принять нельзя; замена — правка текста", () => {
-    const area = addProc();
-    write(area, LINE);
-    const m = dump();
-    // «спрос» удалён; у «Рынка услуг» остаётся другой ресурс — он и предлагается заменой.
-    loadJson({ ...m, traits: [...m.traits.filter((t) => t.id !== "dem"),
-      { id: "req2", e: "mkt", k: "res", l: "заявки", unit: "шт." }] });
-    openProc();
-    expect(screen.getByText(/спрос — удалён — выберите замену/)).toBeInTheDocument();
-    expect(status("Принято")).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("замена для «спрос»"), { target: { value: "req2" } });
-    expect(screen.getByLabelText("текст процесса"))
-      .toHaveValue("Пользователи, берёт: Рынок услуг, заявки, отдаёт: Пользователи, заявки");
-    expect(status("Принято")).not.toBeDisabled();
-  });
-});
-
-describe("процессы живут на «Управлении»", () => {
-  it("своей вкладки нет; форма — первой, под спойлером; название — по нажатию справа от «процесс»", () => {
-    scheme();
-    expect(screen.queryByRole("button", { name: "Технологический процесс" })).toBeNull();
-    const toggle = screen.getByRole("button", { name: "технологические процессы" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("button", { name: "+ процесс" })).toBeNull();
-    const card = screen.getByLabelText("название актива");
-    // eslint-disable-next-line no-bitwise
-    expect(toggle.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    addProc();
-    fireEvent.click(screen.getByRole("button", { name: /назвать процесс/ }));
-    const name = screen.getByLabelText("название процесса");
-    fireEvent.change(name, { target: { value: "Продажи" } });
-    fireEvent.keyDown(name, { key: "Enter" });
-    fireEvent.blur(name);
-    expect(screen.getByRole("button", { name: "назвать процесс «Продажи»" })).toBeInTheDocument();
-    expect(dump().procs[0].name).toBe("Продажи");
-  });
-
-  it("выбранный на схеме актив подсвечивает процессы, где он занят", () => {
-    write(addProc(), LINE);   // Пользователи берут у Рынка услуг
-    tap("vm");
-    expect(screen.queryByText(/задействует выбранный актив/)).toBeNull();
-    tap("mkt");
-    expect(screen.getByText("задействует выбранный актив «Рынок услуг»")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "технологические процессы" }).textContent)
-      .toMatch(/с активом «Рынок услуг»: 1/);
-  });
-
-  it("нажатие на найденное в строке открывает его карточку под формой", () => {
-    write(addProc(), LINE);
-    fireEvent.click(screen.getByLabelText("ресурс «спрос»: открыть"));
-    expect(screen.getByDisplayValue("Рынок услуг")).toBeInTheDocument();
-    expect(screen.getAllByDisplayValue("спрос").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getAllByLabelText("актив «Пользователи»: открыть")[0]);
-    expect(screen.getByDisplayValue("Пользователи")).toBeInTheDocument();
-  });
-
-  it("нажатие на актив на схеме с «Прогноза» возвращает на «Управление»", () => {
-    scheme();
-    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
-    expect(screen.queryByLabelText("название актива")).toBeNull();
-    tap("mkt");
-    expect(screen.getByDisplayValue("Рынок услуг")).toBeInTheDocument();
-  });
-});
-
-describe("красные метки в поле", () => {
-  it("ненайденное имя подсвечено красным прямо под текстом; пропущенное — меткой у края строки", () => {
-    const area = addProc();
-    write(area, "Пользователи, берёт: Рынок услуг, спрос, отдаёт: Склад, коробки\nСклад, берёт: Пользователи");
-    const back = document.querySelector("[data-proc-backdrop]");
-    const marks = Array.from(back.querySelectorAll("[data-mark=unknown]")).map((m) => m.textContent);
-    expect(marks).toEqual(["Склад", "коробки", "Склад"]);
-    expect(back.querySelector("[data-mark=error]").textContent).toMatch(/не назван ресурс/);
-    // Поле лежит над подложкой с прозрачным фоном: подсветка видна сквозь него.
-    expect(area.style.background).toBe("transparent");
-  });
-});
-
-describe("операции — прямо в поле, с подсказками (владелец, 2026-09-15)", () => {
-  it("после имени ресурса подсказка ждёт «сколько»: буквы ресурсов строки и знаки; Tab подставляет букву; отдельной формы нет", () => {
-    const area = addProc();
-    const head = "Пользователи, берёт: Рынок услуг, спрос 1000, отдаёт: Пользователи, заявки 50% ";
-    type(area, head);
-    expect(popup()).toHaveTextContent("ожидается: сколько");
-    expect(popup()).toHaveTextContent("для «заявки»");
-    expect(options()[0]).toBe("буква A — спрос (Рынок услуг)");
-    expect(options()).toContain("знак % — процент");
-    fireEvent.keyDown(area, { key: "Tab" });
-    expect(area).toHaveValue(`${head}A`);
-    fireEvent.blur(area);
-    // Разбор под полем: буквы у ресурсов, количество посчитано по «A».
-    expect(screen.getByLabelText("буква A: спрос")).toBeInTheDocument();
-    expect(screen.getByLabelText("буква B: заявки")).toBeInTheDocument();
-    expect(screen.getByLabelText("ресурс «заявки»: открыть")).toHaveTextContent("заявки 500");
-    expect(screen.queryByLabelText(/^операции с ресурсами/)).toBeNull();
-  });
-
-  it("новые имена: после «оплата » окно ждёт «сколько» и предлагает знаки; после второго ресурса — букву «A»", () => {
-    const area = addProc();
-    type(area, "Партнёр, берёт: Заказчик, оплата ");
-    expect(popup()).toHaveTextContent("ожидается: сколько");
-    expect(popup()).toHaveTextContent("для «оплата»");
-    expect(options()).toContain("знак % — процент");
-    const head = "Партнёр, берёт: Заказчик, оплата 1000, отдаёт: Я, оплата 50% ";
-    type(area, head);
-    expect(options()[0]).toBe("буква A — оплата (Заказчик)");
-    fireEvent.keyDown(area, { key: "Tab" });
-    expect(area).toHaveValue(`${head}A`);
-  });
-
-  it("диапазон «45-55% A» показывается как от–до и уходит в функцию вилкой", () => {
-    const area = addProc();
-    write(area, "Пользователи, берёт: Рынок услуг, спрос 1000, отдаёт: Пользователи, заявки 45-55% A");
-    expect(screen.getByLabelText("ресурс «заявки»: открыть")).toHaveTextContent("заявки 450–550");
-    fireEvent.click(screen.getByRole("button", { name: "Принято" }));
-    const f = dump().funcs.find((x) => x.proc);
-    expect(f.gives[0]).toMatchObject({ lo: 450, hi: 550 });
-    expect(f.gives[0].expr).toMatch(/^45-55% #\{/);
-  });
-});
-
-describe("строки по смыслу и раскраска поля (владелец, 2026-09-16)", () => {
-  it("метка из подсказки встаёт с новой строки; поле рисует плашки по виду и круглые скобки сторон", async () => {
-    const area = addProc();
-    type(area, "Пользователи, ");
-    fireEvent.mouseDown(within(popup()).getByRole("option", { name: /^метка берёт:/ }));
-    expect(area).toHaveValue("Пользователи\nберёт: ");
-    await waitFor(() => expect(popup()).toHaveTextContent("откуда берёт"));
-    // Подстановка актива после метки не съедает пробел за ней.
-    fireEvent.mouseDown(within(popup()).getByRole("option", { name: /^актив Рынок услуг/ }));
-    expect(area).toHaveValue("Пользователи\nберёт: Рынок услуг, ");
-    write(area, "Пользователи, менеджер\nберёт: Рынок услуг, спрос 1000\nотдаёт: Пользователи, заявки 45-55% A\nСклад, берёт: Пользователи, заявки 2");
+    write(area, TEXT);
     const back = container.querySelector("[data-proc-backdrop]");
-    const kinds = Array.from(back.querySelectorAll("[data-kind]")).map((e) => `${e.dataset.kind}:${e.textContent}`);
-    expect(kinds).toEqual(["asset:Пользователи", "role:менеджер", "mark:берёт:", "asset:Рынок услуг", "trait:спрос 1000",
-      "mark:отдаёт:", "asset:Пользователи", "trait:заявки 45-55% A", "asset:Склад", "mark:берёт:", "asset:Пользователи", "trait:заявки 2"]);
-    expect(Array.from(back.querySelectorAll("[data-bracket]")).map((e) => `${e.dataset.bracket}:${e.textContent}`))
-      .toEqual(["take:Рынок услуг, спрос 1000", "give:Пользователи, заявки 45-55% A", "take:Пользователи, заявки 2"]);
-    // Не найденное — красной плашкой; текст поля прозрачный, курсор — нет.
-    expect(Array.from(back.querySelectorAll("[data-mark=unknown]")).map((e) => e.textContent)).toContain("Склад");
+    expect(Array.from(back.querySelectorAll("[data-kind]")).map((e) => `${e.dataset.kind}:${e.textContent}`))
+      .toEqual(["mark:Задача:", "task:лид", "mark:Кто:", "asset:Пользователи", "mark:Берёт:", "trait:заявки 2", "mark:Отдаёт:", "trait:заявки 50% A"]);
+    expect(Array.from(back.querySelectorAll("[data-bracket]")).map((e) => e.dataset.bracket)).toEqual(["take", "give"]);
     expect(area.style.color).toBe("transparent");
-    expect(area.style.caretColor).not.toBe("transparent");
-    // Один шаг из трёх строк — одна функция.
-    fireEvent.click(screen.getByRole("button", { name: "неизвестный актив «Склад»" }));
-    expect(screen.getAllByText(/^1\./).length).toBeGreaterThan(0);
+    expect(screen.getByText(/задача 1:/)).toHaveTextContent("лид");
+    expect(screen.getByLabelText("буква A: заявки")).toBeInTheDocument();
+    expect(screen.getByLabelText("буква B: заявки")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("ресурс «заявки»: открыть")).toHaveLength(2);
+  });
+});
+
+describe("роли, статусы, функции", () => {
+  it("курсор в строке «Кто:» показывает кнопки ролей; нажатие ставит значок в текст", async () => {
+    const area = addProc();
+    write(area, TEXT);
+    fireEvent.focus(area);
+    fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
+    const btns = container.querySelector("[data-role-buttons]");
+    expect(btns).not.toBeNull();
+    expect(within(btns).getAllByRole("button")).toHaveLength(3);
+    fireEvent.click(within(btns).getByRole("button", { name: "постановщик: Пользователи" }));
+    expect(area).toHaveValue("Задача: лид\nКто: Пользователи ✎\nБерёт: заявки 2\nОтдаёт: заявки 50% A");
+    await waitFor(() => expect(container.querySelector("[data-kind=roles]").textContent).toBe("✎"));
+    expect(screen.getByLabelText("постановщик: Пользователи", { selector: "span" })).toBeInTheDocument();
+  });
+
+  it("«принято» собирает функцию с задачей в активе исполнителя; неизвестный ресурс принимается в актив «Кому»", () => {
+    const area = addProc();
+    write(area, `${TEXT}\nКому: Рынок услуг`);
+    // «заявки» у «Рынка услуг» нет — принять нельзя, пока не принят ресурс.
+    expect(screen.getByRole("button", { name: "Принято" })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("неизвестный ресурс «заявки»"));
+    fireEvent.click(screen.getByLabelText("принять ресурс «заявки»"));
+    expect(screen.getByRole("button", { name: "Принято" })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Принято" }));
+    const m = dump();
+    const f = m.funcs.find((x) => x.proc);
+    expect(f).toMatchObject({ e: "usr", name: "процесс: лид" });
+    expect(f.tasks).toHaveLength(1);
+    expect(f.tasks[0].branches[0].steps.map((s) => s.kind)).toEqual(["take", "give"]);
+    expect(f.takes[0]).toMatchObject({ lo: 2, hi: 2 });
+    expect(f.gives[0]).toMatchObject({ lo: 1, hi: 1 });
+    expect(m.traits.find((t) => t.e === "mkt" && t.l === "заявки")).toMatchObject({ hypo: true });
+    // Принятие само сохранило версию.
+    expect(screen.getByRole("button", { name: "прошлые версии" })).toHaveTextContent("(1)");
+  });
+
+  it("старый текст «Актив, Должность, берёт: …» переводится в новый язык при загрузке", async () => {
+    addProc();
+    const m = dump();
+    m.procs = [{ id: "old1", name: "", text: "Пользователи, берёт: Рынок услуг, спрос 2, отдаёт: Пользователи, заявки", status: "off",
+      steps: [], hypo: { entities: [], traits: [], roles: [] }, missing: { rejected: [] } }];
+    loadJson(m);
+    openProc();
+    await waitFor(() => expect(screen.getByLabelText("текст процесса")).toHaveValue("Задача: Пользователи\nКто: Пользователи\nБерёт: спрос 2\nОт кого: Рынок услуг\nОтдаёт: заявки"));
+  });
+});
+
+describe("версии, выгрузка и загрузка", () => {
+  it("«Сохранить версию» с описанием; «Прошлые версии» на всю ширину; спойлер — изменения по задачам", () => {
+    const area = addProc();
+    write(area, TEXT);
+    fireEvent.change(screen.getByLabelText("что изменилось"), { target: { value: "первая" } });
+    fireEvent.click(screen.getByRole("button", { name: "сохранить версию" }));
+    write(area, TEXT.replace("50% A", "40% A"));
+    fireEvent.change(screen.getByLabelText("что изменилось"), { target: { value: "доля меньше" } });
+    fireEvent.click(screen.getByRole("button", { name: "сохранить версию" }));
+    const past = screen.getByRole("button", { name: "прошлые версии" });
+    expect(past.style.width).toBe("100%");
+    expect(past).toHaveTextContent("(2)");
+    fireEvent.click(past);
+    const rows = screen.getAllByRole("button", { name: /^версия / });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("доля меньше");   // новейшая — первой
+    fireEvent.click(rows[0]);
+    expect(within(screen.getByLabelText("добавлено или изменено")).getByText("лид")).toBeInTheDocument();
+    expect(screen.getByLabelText("добавлено или изменено")).toHaveTextContent("40% A");
+    expect(screen.getByLabelText("убрано или заменено")).toHaveTextContent("50% A");
+  });
+
+  it("выгрузка — роли словами; загрузка из окна — значками", () => {
+    const area = addProc();
+    write(area, "Задача: лид\nКто: Пользователи ✎ ⚙\nОтдаёт: заявки");
+    fireEvent.click(screen.getByRole("button", { name: "выгрузить техпроцесс" }));
+    expect(screen.getByLabelText("текст: выгрузка техпроцесса")).toHaveValue("Задача: лид\nКто: Пользователи (постановщик, исполнитель)\nОтдаёт: заявки");
+    fireEvent.click(screen.getByRole("button", { name: "закрыть окно" }));
+    fireEvent.click(screen.getByRole("button", { name: "загрузить техпроцесс" }));
+    fireEvent.change(screen.getByLabelText("текст: загрузка техпроцесса"), { target: { value: "Задача: x\nКто: Пользователи (проверяющий)\nОтдаёт: заявки" } });
+    fireEvent.click(screen.getByRole("button", { name: "Загрузить" }));
+    expect(screen.getByLabelText("текст процесса")).toHaveValue("Задача: x\nКто: Пользователи ✓\nОтдаёт: заявки");
   });
 });

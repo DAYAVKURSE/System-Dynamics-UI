@@ -2,61 +2,58 @@ import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
-import { HINT_WORD, MARK_GIVE, MARK_TAKE, PROC_STATUS, canAcceptProc, dropHypo, hintAt, newProc, paintOf,
-  procIssues, procLabel, procUsesAsset, replaceName, resolveProc, stateOf, suggestNames,
-  syncProcFuncs } from "../lib/process.js";
+import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs } from "../lib/process.js";
+import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
+  issuesOf, itemState, labelOf, paintOf, parseText, procFuncs, replaceName, suggest, toggleRole, usesAsset,
+  whoState } from "../lib/proc2.js";
 
 /* ════════════════════════════════════════════════════════════════
    ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС · раздел на «Управлении»
 
    Владелец: «я буквально должен вводить текст, а он должен выдавать
    подсказки»; «как она была полем ввода, так должна и остаться;
-   подсказки должны быть видны только как всплывающее окно; имя сущности
-   человек должен иметь возможность ввести сам или выбрать из выпадающего
-   списка» (2026-09-13). Порядок слов в строке — его: актив, должность,
-   откуда берёт и что, куда отдаёт и что.
+   подсказки — только всплывающим окном» (2026-09-13). Язык текста —
+   его (2026-09-18): строки с метками «Функция:», «Задача:», «Кто:»,
+   «Берёт:», «Отдаёт:», «Кому:», «Или:», «Если … То:», «Иначе:» (см.
+   lib/proc2.js).
 
-   Поэтому здесь ТЕКСТ — строка на шаг — и всплывающее окно у поля
-   (`ProcText`): что ожидается на месте курсора и список имён; выбрать —
-   нажатием или Enter, ввести своё — просто набрать. Разбор (lib/process.js)
-   стоит под полем построчно: найденное — чипами (нажатие открывает
-   карточку сущности), ненайденное — пунктиром, и по нажатию на пунктир
-   человек решает, принять это как новую сущность или отклонить.
+   Поле — textarea с прозрачным текстом над подложкой (`Backdrop`),
+   которая рисует те же слова плашками: должность — фиолетовая, актив —
+   как блок на схеме, ресурс с количеством — цветом стороны, «берёт»/
+   «отдаёт» — в круглых скобках цвета стороны; справа у «Кто:» —
+   пометка актива; роли — квадратики-значки, а у выделенной должности —
+   кнопки ролей. Окно подсказки — над полем.
 
    Все правки идут через одну дверь (`commit`): процесс, его функции и
-   заведённые им сущности меняются одним заходом — в историю правок ложится
-   один шаг, и «отменить» возвращает всё разом, а не по частям.
+   заведённые им ресурсы меняются одним заходом — в историю правок
+   ложится один шаг.
    ════════════════════════════════════════════════════════════════ */
 
-const WORD = { asset: "актив", trait: "ресурс", role: "должность" };
 const STATUS_TONE = { off: null, hypo: WARN, on: OK };
-
-/* ─── текст со всплывающими подсказками ───
-   Окно стоит под полем, пока поле в фокусе: заголовок — что ожидается,
-   ниже — имена. Стрелки и Enter выбирают, Escape закрывает, `onMouseDown`
-   с `preventDefault` держит фокус в поле — выбор из списка это часть
-   набора, не его конец. Набранное своё имя остаётся как есть. */
-/* ─────── красные метки прямо в поле ───────
-
-   Владелец (2026-09-15): «пропущенные при вводе сущности должны
-   вставляться в это поле в виде красных меток». В textarea цвет слову не
-   задать, поэтому под ним лежит подложка с тем же текстом тем же шрифтом
-   и с теми же отступами: текст подложки прозрачный, а под ненайденными,
-   отклонёнными и удалёнными именами — красная подсветка и черта. Что в
-   строке пропущено (ошибка строения — «у X не назван ресурс»), стоит
-   красной меткой у правого края строки; она позиционирована абсолютно и
-   на перенос строк не влияет, поэтому текст подложки и поля не
-   расходятся. Само поле над подложкой, с прозрачным фоном. */
 const DARK = "#0E1420";
 const PURPLE = "#C9A0FF";
-/* Плашка — подложка без отступов: цвет и кольцо `box-shadow` вокруг слова,
-   чтобы буквы подложки и поля не разъезжались (отступы сдвинули бы текст). */
+const ROLE_COLOR = { setter: WARN, doer: ACC, checker: OK };
+const HAND_COLORS = ["#F78CB2", "#B4F78C", "#8CD4F7", "#F7D68C", "#C98CF7", "#8CF7E0", "#F7A98C"];
+export const handColor = (h) => HAND_COLORS[(String(h || "A").toUpperCase().charCodeAt(0) - 65 + 7 * 26) % HAND_COLORS.length];
+const SIDE = { take: ACC, give: OK };
+const LINE_H = 1.9;
+
+/* ─────── подложка ───────
+   Плашка — без отступов: цвет и кольцо `box-shadow` вокруг слова, чтобы
+   буквы подложки и поля не разъезжались (отступы сдвинули бы текст). */
 const plate = (bg, fg = DARK, ring = "") => ({ background: bg, color: fg, borderRadius: 5,
   boxShadow: `0 0 0 3px ${bg}${ring ? `, 0 0 0 4px ${ring}` : ""}` });
-const SIDE = { take: ACC, give: OK };
 function spanStyle(k) {
-  const bad = k.state === "unknown" || k.state === "rejected" || k.state === "deleted";
+  const bad = k.state === "unknown" || k.state === "rejected" || k.state === "deleted" || k.state === "noasset";
   if (k.kind === "mark") return { color: C.muted };
+  if (k.kind === "func") return { color: C.text, borderBottom: `2px solid ${C.line}` };
+  if (k.kind === "task") return { color: C.text, borderBottom: `1px solid ${C.line}` };
+  if (k.kind === "cond") return { color: WARN };
+  if (k.kind === "roles") {
+    const one = k.roles.length === 1 ? k.roles[0] : null;
+    return one ? plate(ROLE_COLOR[one]) : plate(C.panel2, C.muted, C.line);
+  }
+  if (k.kind === "hand") return plate(handColor(k.hand));
   let st;
   if (bad) st = plate(BAD);
   else if (k.kind === "asset") st = plate(C.panel2, C.text, C.line);   // как блок на схеме
@@ -67,13 +64,10 @@ function spanStyle(k) {
   if (k.exprError) st.boxShadow = `${st.boxShadow}, 0 0 0 6px ${BAD}`;
   return st;
 }
-/* Круглая скобка стороны: две дуги по краям, абсолютно позиционированные,
-   на текст не влияют; внутри — лёгкая подложка цвета стороны. */
+/* Круглая скобка стороны: две дуги на якорях нулевой ширины в начале и в
+   конце — при переносе на две строки каждая остаётся в своей строке. */
 function Bracket({ side, children }) {
   const c = SIDE[side] || ACC;
-  /* Дуги привязаны к якорям нулевой ширины в начале и в конце: якорь
-     стоит в своей строке, и при переносе содержимого на две строки дуга
-     не растягивается на обе (владелец, 2026-09-18). */
   const anchor = { display: "inline-block", width: 0, height: "1em", verticalAlign: "text-bottom", position: "relative", overflow: "visible" };
   const arc = { position: "absolute", top: -6, height: "1.55em", width: 7, border: `2px solid ${c}`, pointerEvents: "none", boxSizing: "border-box" };
   return (
@@ -84,21 +78,20 @@ function Bracket({ side, children }) {
       <span style={anchor}><i style={{ ...arc, right: -11, borderLeft: "none", borderRadius: "0 8px 8px 0" }} /></span>
     </span>);
 }
-function Backdrop({ text, paint, style }) {
+function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1 }) {
   const lines = String(text || "").split("\n");
   const byRow = new Map(paint.map((r) => [r.row, r]));
-  /* Кусок строки [from, to) с плашками слов внутри него. */
-  const piece = (ln, from, to, spans, lead, key) => {
+  const piece = (ln, from, to, spans, key) => {
     const out = [];
     let at = from;
-    spans.filter((k) => k.start + lead >= from && k.end + lead <= to).forEach((k, j) => {
-      const s0 = k.start + lead, e0 = k.end + lead;
-      if (s0 > at) out.push(<span key={`${key}t${j}`}>{ln.slice(at, s0)}</span>);
-      const bad = k.state && k.state !== "ok" && k.state !== "empty";
+    spans.filter((k) => k.start >= from && k.end <= to).forEach((k, j) => {
+      if (k.start > at) out.push(<span key={`${key}t${j}`}>{ln.slice(at, k.start)}</span>);
+      const bad = k.state && k.state !== "ok";
       out.push(<span key={`${key}m${j}`} data-kind={k.kind} data-side={k.side || undefined}
         data-mark={bad ? k.state : (k.exprError ? "expr" : undefined)}
-        title={k.exprError || (bad ? k.state : undefined)} style={spanStyle(k)}>{ln.slice(s0, e0)}</span>);
-      at = e0;
+        title={k.exprError || (k.kind === "roles" ? k.roles.map((r) => ROLE_WORD[r]).join(", ") : bad ? k.state : undefined)}
+        style={spanStyle(k)}>{ln.slice(k.start, k.end)}</span>);
+      at = k.end;
     });
     if (to > at) out.push(<span key={`${key}r`}>{ln.slice(at, to)}</span>);
     return out;
@@ -109,23 +102,26 @@ function Backdrop({ text, paint, style }) {
       wordBreak: "break-word", borderColor: "transparent", background: "transparent" }}>
       {lines.map((ln, i) => {
         const r = byRow.get(i);
-        const lead = ln.length - ln.trimStart().length;
         const parts = [];
         let at = 0;
-        // Скобки сторон — по порядку; слова внутри скобки рисуются внутри неё.
-        (r?.brackets || []).forEach((b, j) => {
-          const s0 = b.start + lead, e0 = b.end + lead;
-          if (s0 > at) parts.push(...piece(ln, at, s0, r.spans, lead, `p${j}`));
-          parts.push(<Bracket key={`b${j}`} side={b.side}>{piece(ln, s0, e0, r.spans, lead, `i${j}`)}</Bracket>);
-          at = e0;
+        (r?.brackets || []).sort((a, b) => a.start - b.start).forEach((b, j) => {
+          if (b.start > at) parts.push(...piece(ln, at, b.start, r.spans, `p${j}`));
+          parts.push(<Bracket key={`b${j}`} side={b.side}>{piece(ln, b.start, b.end, r.spans, `i${j}`)}</Bracket>);
+          at = b.end;
         });
-        parts.push(...piece(ln, at, ln.length, r?.spans || [], lead, "z"));
+        parts.push(...piece(ln, at, ln.length, r?.spans || [], "z"));
         return (
-          <div key={i} style={{ position: "relative", minHeight: "1.9em" }}>
-            {parts}{"\u200b"}
+          <div key={i} style={{ position: "relative", minHeight: `${LINE_H}em` }}>
+            {parts}{"​"}
+            {/* Пометка актива справа у «Кто:» (владелец, 2026-09-18). */}
+            {r?.note && (
+              <span data-note={r.note} style={{ position: "absolute", right: 4 + (i === activeRow ? noteGap : 0), top: 0, color: C.muted,
+                fontSize: 10, lineHeight: `${LINE_H}em`, background: C.ink, padding: "0 5px", borderRadius: 4,
+                border: `1px solid ${C.line}`, whiteSpace: "nowrap", maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {r.note}</span>)}
             {r?.error && (
               <span data-mark="error" style={{ position: "absolute", right: 0, top: 0, color: BAD,
-                fontSize: 10, lineHeight: "1.9em", background: C.ink, padding: "0 4px",
+                fontSize: 10, lineHeight: `${LINE_H}em`, background: C.ink, padding: "0 4px",
                 maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 ← {r.error}</span>)}
           </div>);
@@ -133,57 +129,28 @@ function Backdrop({ text, paint, style }) {
     </div>);
 }
 
+/* ─────── поле с подсказками ─────── */
 function ProcText({ value = "", model, proc, onCommit, label }) {
   const [text, setText] = useState(value);
   const [focus, setFocus] = useState(false);
-  const [pick, setPick] = useState(null);   // { kind, start, query, assetName, at }
+  const [pick, setPick] = useState(null);   // подсказка у курсора + at
   const [cursor, setCursor] = useState(0);
+  const [caretRow, setCaretRow] = useState(-1);
   const inp = useRef(null);
   const back = useRef(null);
   const paint = paintOf(text, model, proc);
-  // Межстрочный интервал шире обычного: плашкам и скобкам нужен воздух.
   const field = { ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12,
-    lineHeight: 1.9, boxSizing: "border-box" };
-  // Снаружи поменяли (загрузили модель, поставили замену) — а мы не в
-  // фокусе: показываем новое.
+    lineHeight: LINE_H, boxSizing: "border-box" };
   useEffect(() => { if (!focus) setText(value); }, [value, focus]);
 
-  const items = pick ? suggestNames(pick, model, proc) : [];
+  const items = pick ? suggest(pick, model, proc) : [];
   const place = (v, at) => {
     const h = hintAt(v, at, model);
     setPick({ ...h, at });
     setCursor(0);
+    setCaretRow(v.slice(0, at).split("\n").length - 1);
   };
-  const onChange = (e) => {
-    const v = e.target.value;
-    setText(v);
-    place(v, e.target.selectionStart ?? v.length);
-  };
-  const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
-  /* Подсказка вставляет имя и то, что после него идёт всегда: запятую с
-     пробелом; у метки — пробел. Иначе выбор из списка заканчивался бы
-     ровно там, где человеку снова надо набирать. */
-  const choose = (it) => {
-    if (!pick) return;
-    /* После РЕСУРСА — пробел, а не запятая (владелец, 2026-09-15: «запятая
-       ставится после ввода ресурса, а не выходит предложение ввести
-       количество»): окно сразу переходит к «сколько». Запятую к
-       следующему ресурсу ставит пункт «дальше →» или сам человек. */
-    const suffix = it.suffix ?? (it.mark ? " " : pick.kind === "trait" ? " " : ", ");
-    // Знак у количества вставляется в место курсора, буква и имя — вместо
-    // слова у курсора, недописанное имя ресурса — с самого имени.
-    const from = it.insert ? pick.at : it.whole && pick.nameStart != null ? pick.nameStart : pick.start;
-    let head = it.trimBefore ? text.slice(0, from).replace(/[ \t]+$/, "") : text.slice(0, from);
-    /* Метка «берёт:»/«отдаёт:» — с новой строки, если в этой уже что-то
-       есть (владелец, 2026-09-16: строки по смыслу): запятая и пробелы
-       перед ней убираются. */
-    if (it.mark) {
-      const rowStart = head.lastIndexOf("\n") + 1;
-      if (head.slice(rowStart).trim()) head = `${head.replace(/[,\s]+$/, "")}\n`;
-    }
-    const put = it.text ?? it.name;
-    const next = `${head}${put}${suffix}${text.slice(pick.at)}`;
-    const caret = head.length + put.length + suffix.length;
+  const apply = (next, caret) => {
     setText(next);
     setTimeout(() => {
       inp.current?.focus();
@@ -191,170 +158,265 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
       place(next, caret);
     }, 0);
   };
+  const onChange = (e) => { const v = e.target.value; setText(v); place(v, e.target.selectionStart ?? v.length); };
+  const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
+  /* Подстановка: пункт несёт `suffix` (что после), `insert` (вставить у
+     курсора, не заменяя набранное), `text` (что вставить вместо имени),
+     `trimBefore` (убрать пробелы перед), `caretBack` (курсор внутрь). */
+  const choose = (it) => {
+    if (!pick || it.info) return;
+    const suffix = it.suffix ?? ", ";
+    const from = it.insert ? pick.at : pick.start;
+    const head = it.trimBefore ? text.slice(0, from).replace(/[ \t]+$/, "") : text.slice(0, from);
+    const put = it.text ?? it.name;
+    const next = `${head}${put}${suffix}${text.slice(pick.at)}`;
+    apply(next, head.length + put.length + suffix.length - (it.caretBack || 0));
+  };
   const onKey = (e) => {
     if (!pick) return;
     if (e.key === "Escape") { setPick(null); return; }
     if (!items.length) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => (c + 1) % items.length); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => (c - 1 + items.length) % items.length); }
-    else if (e.key === "Tab") { e.preventDefault(); choose(items[cursor]); }
-    else if (e.key === "Enter" && pick.kind !== "qty" && pick.query && items[cursor]
-      && items[cursor].name.toLowerCase().startsWith(pick.query.toLowerCase())) {
-      // Enter выбирает только когда набранное — начало подсказки; иначе
-      // это перевод строки, следующий шаг. У количества Enter — всегда
-      // перевод строки: «45-55% A» и Enter не должны подставлять букву.
-      e.preventDefault(); choose(items[cursor]);
+    const list = items.filter((i) => !i.info);
+    if (e.key === "ArrowDown") { e.preventDefault(); setCursor((c) => (c + 1) % list.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setCursor((c) => (c - 1 + list.length) % list.length); }
+    else if (e.key === "Tab") { e.preventDefault(); if (list[cursor]) choose(list[cursor]); }
+    else if (e.key === "Enter" && pick.kind !== "qty" && pick.kind !== "name" && pick.query && list[cursor]
+      && !list[cursor].insert && list[cursor].name.toLowerCase().startsWith(pick.query.toLowerCase())) {
+      e.preventDefault(); choose(list[cursor]);
     }
   };
+  /* Кнопки ролей у выделенной должности: строка «Кто:», где стоит
+     курсор. Нажатие ставит или снимает значок в тексте. */
+  const rowLine = caretRow >= 0 ? text.split("\n")[caretRow] || "" : "";
+  const whoRow = focus && caretRow >= 0 && labelOf(rowLine)?.kind === "who" ? caretRow : -1;
+  const whoName = whoRow >= 0 ? (paint.find((r) => r.row === whoRow)?.spans.find((k) => k.kind === "role" || k.kind === "asset")?.name || "") : "";
+  const roleOn = (role) => rowLine.includes(ICON[role]);
+  const toggle = (role) => {
+    const next = toggleRole(text, whoRow, role);
+    const caret = Math.min(inp.current?.selectionStart ?? next.length, next.length);
+    setText(next); onCommit(next);
+    setTimeout(() => { inp.current?.focus(); inp.current?.setSelectionRange(caret, caret); place(next, caret); }, 0);
+  };
+  const header = pick ? `${HINT[pick.kind] || ""}${pick.kind === "trait" && pick.asset ? ` — ресурсы «${pick.asset.name}»` : ""}${pick.kind === "qty" && pick.traitName ? ` — для «${pick.traitName}»` : ""}` : "";
   return (
     <div style={{ position: "relative" }}>
-      <div style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
-        <Backdrop text={text} paint={paint} style={field} />
-        {/* Текст поля прозрачный: слова рисует подложка — плашками; курсор
-            и выделение остаются у поля. Подсказка-заполнитель — своим
-            серым (см. <style> ниже), иначе она тоже стала бы прозрачной. */}
-        <style>{`textarea[data-proc-text]::placeholder{color:${NEU};opacity:1}`}</style>
-        <textarea ref={inp} value={text} aria-label={label} data-proc-text=""
-          rows={Math.max(3, text.split("\n").length + 1)}
-          placeholder={`Актив, Должность\n${MARK_TAKE} Откуда, Что 2\n${MARK_GIVE} Куда, Что 50% A`}
-          style={{ ...field, resize: "vertical", position: "relative", zIndex: 1,
-            background: "transparent", color: "transparent", caretColor: C.text, display: "block" }}
-          onScroll={(e) => { if (back.current) back.current.scrollTop = e.target.scrollTop; }}
-          onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
-          onBlur={() => { setFocus(false); setPick(null); if (text !== value) onCommit(text); }}
-          onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
-      </div>
-      {/* Окно — НАД полем (владелец, 2026-09-18: «подсказка загораживает
-          поле ввода»), в спокойных цветах панели. */}
       {pick && focus && (
         <div role="dialog" aria-label="подсказка процесса"
           onMouseDown={(e) => e.preventDefault()}
           style={{ position: "absolute", left: 0, right: 0, bottom: "100%", zIndex: 20,
             background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6,
             boxShadow: "0 -6px 20px rgba(0,0,0,.35)", marginBottom: 4 }}>
-          <div style={{ padding: "5px 8px", fontSize: 10.5, color: C.muted,
-            borderBottom: `1px solid ${C.line}` }}>
-            ожидается: {HINT_WORD[pick.kind]}
-            {pick.kind === "trait" && pick.assetName ? ` из «${pick.assetName}»` : ""}
-            {pick.kind === "trait" ? " · после имени через пробел — сколько" : ""}
-            {pick.kind === "qty" && pick.traitName ? ` — для «${pick.traitName}»` : ""}
-            <span style={{ color: C.muted }}> · выберите или введите своё; Tab — подставить</span>
+          <div style={{ padding: "5px 8px", fontSize: 10.5, color: C.muted, borderBottom: `1px solid ${C.line}` }}>
+            {header}<span style={{ opacity: 0.7 }}> · Tab — подставить</span>
           </div>
-          <div role="listbox" aria-label="подсказки процесса"
-            style={{ maxHeight: 160, overflowY: "auto" }}>
-            {items.map((it, i) => (
-              <div key={`${it.kind}:${it.name}`} role="option" aria-selected={i === cursor}
+          <div role="listbox" aria-label="подсказки процесса" style={{ maxHeight: 150, overflowY: "auto" }}>
+            {items.filter((i) => !i.info).map((it, i) => (
+              <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={i === cursor}
                 onMouseDown={(e) => { e.preventDefault(); choose(it); }}
-                style={{ padding: "5px 8px", fontSize: 12, cursor: "pointer",
-                  background: i === cursor ? ACC + "22" : "transparent" }}>
+                style={{ padding: "4px 8px", fontSize: 12, cursor: "pointer",
+                  background: i === cursor ? `${C.line}88` : "transparent" }}>
                 <span style={{ color: C.muted }}>{it.kind} </span>{it.name}
                 {it.note && <span style={{ color: C.muted }}> — {it.note}</span>}
-                {it.fresh && <span style={{ fontSize: 10, color: WARN }}> · новое</span>}
               </div>))}
+            {items.filter((i) => i.info).map((it, i) => (
+              <div key={`info${i}`} style={{ padding: "4px 8px", fontSize: 11, color: C.muted }}>{it.note}</div>))}
             {!items.length && (
-              <div style={{ padding: "5px 8px", fontSize: 11, color: C.muted }}>
-                {pick.kind === "qty" ? "число, диапазон 45-55, «50% A», «20% @ресурс»"
-                  : pick.query ? `«${pick.query}» — новое имя: примите его под полем после набора; через пробел — сколько` : "список пуст — введите своё имя"}
+              <div style={{ padding: "4px 8px", fontSize: 11, color: C.muted }}>
+                {pick.query ? `«${pick.query}» — своё имя; после ввода нажмите Tab на «↵» или перейдите на новую строку` : "введите своё"}
               </div>)}
           </div>
         </div>)}
+      <div style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
+        <Backdrop text={text} paint={paint} style={field} activeRow={whoRow} noteGap={whoRow >= 0 ? 78 : 0} />
+        <style>{`textarea[data-proc-text]::placeholder{color:${NEU};opacity:1}`}</style>
+        <textarea ref={inp} value={text} aria-label={label} data-proc-text=""
+          rows={Math.max(4, text.split("\n").length + 1)}
+          placeholder={`Задача: название\nКто: Должность ✎ ⚙\nБерёт: ресурс 2\nОтдаёт: ресурс 50% A\nКому: Должность`}
+          style={{ ...field, resize: "vertical", position: "relative", zIndex: 1,
+            background: "transparent", color: "transparent", caretColor: C.text, display: "block" }}
+          onScroll={(e) => { if (back.current) back.current.scrollTop = e.target.scrollTop; }}
+          onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
+          onBlur={() => { setFocus(false); setPick(null); setCaretRow(-1); if (text !== value) onCommit(text); }}
+          onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
+        {whoRow >= 0 && (
+          <div data-role-buttons="" onMouseDown={(e) => e.preventDefault()}
+            style={{ position: "absolute", right: 6, top: 7 + whoRow * LINE_H * 12, zIndex: 2, display: "flex", gap: 3,
+              height: LINE_H * 12, alignItems: "center" }}>
+            {ROLE_KINDS.map((role) => (
+              <button key={role} type="button" aria-pressed={roleOn(role)}
+                aria-label={`${ROLE_WORD[role]}: ${whoName}`} title={ROLE_WORD[role]}
+                onClick={() => toggle(role)}
+                style={{ width: 22, height: 18, borderRadius: 4, fontSize: 11, lineHeight: "16px", padding: 0, cursor: "pointer",
+                  background: roleOn(role) ? ROLE_COLOR[role] : C.panel, color: roleOn(role) ? DARK : C.muted,
+                  border: `1px solid ${roleOn(role) ? ROLE_COLOR[role] : C.line}` }}>{ICON[role]}</button>))}
+          </div>)}
+      </div>
     </div>);
 }
 
-/* ─── одно имя из строки ───
-   Четыре состояния — четыре вида. Найденное — чип, нажатие открывает его
-   карточку. Неизвестное — пунктир: это ещё не ошибка, а вопрос, и нажатие
-   его задаёт. Отклонённое и удалённое — красные: первое ждёт правки
-   строки, второе — замены. */
-function Chip({ item, kind, state, qty, qtyHi, hypo, open, onOpen, onAccept, acceptWhy, onReject,
-  onRestore, options = [], onReplace, onGo }) {
-  const name = item?.name || "";
-  // Количество: число или «от–до», когда операция дала диапазон.
-  const tail = qtyHi != null && qtyHi !== qty ? ` ${nm(qty)}–${nm(qtyHi)}`
-    : qty != null && qty !== 1 ? ` ${nm(qty)}` : "";
-  const base = { display: "inline-block", borderRadius: 6, padding: "1px 7px", fontSize: 12,
-    lineHeight: 1.6, verticalAlign: "middle" };
+/* ─────── чип имени под полем ─────── */
+const WORD = { asset: "актив", trait: "ресурс", role: "должность" };
+function Chip({ name, kind, state, tail = "", open, onOpen, onAccept, acceptWhy, onReject, onRestore, options = [], onReplace, onGo, hypo }) {
+  const base = { display: "inline-block", borderRadius: 6, padding: "1px 7px", fontSize: 12, lineHeight: 1.6, verticalAlign: "middle" };
   if (state === "ok") {
     return (
-      <button type="button" onClick={onGo} disabled={!onGo}
-        aria-label={`${WORD[kind]} «${name}»: открыть`}
-        title={onGo ? "открыть карточку" : ""}
-        style={{ ...base, border: `1px solid ${C.line}`, background: C.panel, color: C.text,
-          cursor: onGo ? "pointer" : "default" }}>
-        {name}{tail}
-        {hypo && <span style={{ fontSize: 10, color: WARN }}> · гипотеза</span>}
+      <button type="button" onClick={onGo} disabled={!onGo} aria-label={`${WORD[kind]} «${name}»: открыть`}
+        style={{ ...base, border: `1px solid ${C.line}`, background: C.panel, color: C.text, cursor: onGo ? "pointer" : "default" }}>
+        {name}{tail}{hypo && <span style={{ fontSize: 10, color: WARN }}> · гипотеза</span>}
       </button>);
   }
   if (state === "deleted") {
     return (
       <span style={{ ...base, border: `1px solid ${BAD}`, color: BAD }}>
         {name}{tail} — удалён — выберите замену
-        <select aria-label={`замена для «${name}»`} value=""
-          onChange={(e) => e.target.value && onReplace(e.target.value)}
-          style={{ ...S.inp, width: "auto", display: "inline-block", marginLeft: 6,
-            padding: "1px 4px", fontSize: 11 }}>
+        <select aria-label={`замена для «${name}»`} value="" onChange={(e) => e.target.value && onReplace(e.target.value)}
+          style={{ ...S.inp, width: "auto", display: "inline-block", marginLeft: 6, padding: "1px 4px", fontSize: 11 }}>
           <option value="">— замена —</option>
           {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
       </span>);
+  }
+  if (state === "noasset") {
+    return <span style={{ ...base, border: `1px dashed ${BAD}`, color: BAD }} title="чей это ресурс — назовите «Кто:» с должностью актива или «Кому:»/«От кого:»">{name}{tail} — чей?</span>;
   }
   const rejected = state === "rejected";
   return (
     <span style={{ display: "inline" }}>
       <button type="button" onClick={onOpen} aria-expanded={open}
         aria-label={`${rejected ? "отклонённый" : "неизвестный"} ${WORD[kind]} «${name}»`}
-        style={{ ...base, cursor: "pointer",
-          border: rejected ? `1px solid ${BAD}` : `1px dashed ${ACC}`,
+        style={{ ...base, cursor: "pointer", border: rejected ? `1px solid ${BAD}` : `1px dashed ${ACC}`,
           color: rejected ? BAD : ACC, background: "transparent" }}>
         {name}{tail}{rejected ? " — отклонено" : ""}</button>
       {open && (
         <span style={{ marginLeft: 4, whiteSpace: "nowrap" }}>
-          <button type="button" aria-label={`принять ${WORD[kind]} «${name}»`}
-            disabled={!!acceptWhy} title={acceptWhy || ""}
-            style={{ ...btn(true, OK), fontSize: 11, padding: "2px 7px",
-              opacity: acceptWhy ? 0.5 : 1 }}
-            onClick={onAccept}>Принять</button>
-          {" "}
+          {onAccept && (
+            <button type="button" aria-label={`принять ${WORD[kind]} «${name}»`} disabled={!!acceptWhy} title={acceptWhy || ""}
+              style={{ ...btn(true, OK), fontSize: 11, padding: "2px 7px", opacity: acceptWhy ? 0.5 : 1 }}
+              onClick={onAccept}>Принять</button>)}
+          {onAccept && " "}
           {rejected
-            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`}
-              style={{ ...btn(false), fontSize: 11, padding: "2px 7px" }}
-              onClick={onRestore}>Вернуть</button>
-            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`}
-              style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 7px" }}
-              onClick={onReject}>Отклонить</button>}
+            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`} style={{ ...btn(false), fontSize: 11, padding: "2px 7px" }} onClick={onRestore}>Вернуть</button>
+            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`} style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 7px" }} onClick={onReject}>Отклонить</button>}
         </span>)}
     </span>);
 }
 
+/* ─────── окно выгрузки/загрузки ─────── */
+function TextModal({ title, value, onChange, onClose, onLoad }) {
+  const [msg, setMsg] = useState("");
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); setMsg("скопировано"); } catch { setMsg("выделите текст и скопируйте"); }
+  };
+  const file = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => onChange(String(r.result || ""));
+    r.readAsText(f);
+  };
+  return (
+    <div role="dialog" aria-label={title} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}
+      onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...S.card, width: "min(640px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex items-center gap-2"><span style={S.lbl}>{title}</span><span style={{ flex: 1 }} />
+          <button type="button" style={{ ...btn(false), fontSize: 11 }} onClick={onClose} aria-label="закрыть окно">✕</button></div>
+        <textarea aria-label={`текст: ${title}`} value={value} readOnly={!onLoad} onChange={(e) => onChange?.(e.target.value)}
+          style={{ ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12, lineHeight: 1.5, minHeight: 260, resize: "vertical" }} />
+        <div className="flex flex-wrap items-center gap-2">
+          {onLoad ? (<>
+            <input type="file" accept=".txt,text/plain" aria-label="файл техпроцесса" onChange={file} style={{ fontSize: 11 }} />
+            <button type="button" style={btn(true)} onClick={onLoad}>Загрузить</button>
+          </>) : (
+            <button type="button" style={btn(true)} onClick={copy}>Скопировать</button>)}
+          {msg && <span style={{ fontSize: 11, color: C.muted }}>{msg}</span>}
+        </div>
+      </div>
+    </div>);
+}
+
+/* ─────── версии ─────── */
+const when = (iso) => { try { return new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+function TaskDiff({ added, removed }) {
+  const box = (sign, list, color, label) => (
+    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: 8, padding: "4px 8px 8px", margin: 0, minWidth: 0 }}>
+      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sign}</legend>
+      {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
+      {list.map((t, i) => (
+        <div key={i} style={{ marginTop: i ? 6 : 0 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600 }}>{t.func ? `${t.func} · ` : ""}{t.name}</div>
+          <pre style={{ margin: 0, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 11, whiteSpace: "pre-wrap", color: C.muted }}>{t.text}</pre>
+        </div>))}
+    </fieldset>);
+  return (
+    <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{box("+", added, OK, "добавлено или изменено")}</div>
+      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{box("−", removed, BAD, "убрано или заменено")}</div>
+    </div>);
+}
+function Versions({ proc, model, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [which, setWhich] = useState(null);
+  const [note, setNote] = useState("");
+  const list = proc.versions || [];
+  const last = list[list.length - 1];
+  const dirty = (last?.text ?? "") !== proc.text;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div className="flex items-center gap-2">
+        <input value={note} onChange={(e) => setNote(e.target.value)} aria-label="что изменилось" placeholder="что изменилось"
+          style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "4px 6px" }} />
+        <button type="button" style={{ ...btn(dirty), fontSize: 11, padding: "4px 8px" }} disabled={!dirty}
+          aria-label="сохранить версию" onClick={() => { onSave(note.trim()); setNote(""); }}>Сохранить версию</button>
+      </div>
+      {/* «Прошлые версии» — на всю ширину формы (владелец, 2026-09-18). */}
+      <button type="button" aria-expanded={open} aria-label="прошлые версии"
+        onClick={() => setOpen((v) => !v)}
+        style={{ ...btn(false), width: "100%", marginTop: 6, fontSize: 11.5, textAlign: "center" }}>
+        {open ? "▾" : "▸"} Прошлые версии{list.length ? ` (${list.length})` : ""}</button>
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          {!list.length && <div style={{ fontSize: 11, color: C.muted }}>Версий пока нет — сохраните первую.</div>}
+          {[...list].reverse().map((v, ri) => {
+            const i = list.length - 1 - ri;
+            const prev = list[i - 1];
+            const shown = which === v.id;
+            return (
+              <div key={v.id} style={{ borderTop: `1px solid ${C.line}`, padding: "6px 0" }}>
+                <button type="button" aria-expanded={shown} aria-label={`версия ${when(v.at)}`}
+                  onClick={() => setWhich(shown ? null : v.id)}
+                  className="flex items-center gap-2"
+                  style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
+                  <span style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{shown ? "▾" : "▸"} {when(v.at)}</span>
+                  <span style={{ flex: 1, fontSize: 11.5, color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{v.note || "—"}</span>
+                </button>
+                {shown && <TaskDiff {...diffTasks(prev?.text ?? "", v.text, model)} />}
+              </div>);
+          })}
+        </div>)}
+    </div>);
+}
+
+/* ═══════════════ раздел ═══════════════ */
 export default function ProcessPanel({ procs = [], setProcs, entities = [], setEntities,
-  traits = [], setTraits, funcs = [], setFuncs, onDropFuncs, makeEntity,
-  positions = [], onAddPosition, selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
+  traits = [], setTraits, funcs = [], setFuncs, onDropFuncs,
+  positions = [], selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
   shown: shownProp, onToggle }) {
-  // Какой пунктирный чип раскрыт: «процесс:строка:вид:имя».
   const [openChip, setOpenChip] = useState(null);
-  const [naming, setNaming] = useState(null);   // какой процесс сейчас называют
-  /* Спойлер (2026-09-13): форма стоит первой на «Управлении», но до нажатия
-     скрывает процессы — иначе она заслоняла бы карточку актива. Открыт ли
-     он, помнит `SystemModel`; без такого пропа — своё состояние. */
+  const [naming, setNaming] = useState(null);
+  const [modal, setModal] = useState(null);   // {proc, mode:"export"|"import", text}
   const [shownOwn, setShownOwn] = useState(false);
   const shown = shownProp ?? shownOwn;
   const toggle = () => (onToggle ? onToggle(!shown) : setShownOwn((v) => !v));
-  const involved = procs.filter((p) => procUsesAsset(p, selected));
-  const selName = entities.find((e) => e.id === selected)?.name || "";
-  // Последние процессы — для правок, приходящих с сервера (новая должность).
-  const procsRef = useRef(procs); procsRef.current = procs;
-
   const model = { entities, traits, positions };
-  /* Одна дверь на все правки. `steps` пересчитываются каждый раз — они
-     память записи о найденных id, и устаревать им нельзя; функции
-     процессов пересобираются по нынешним текстам и статусам; задачи по
-     функциям, которых больше нет, снимаются. */
-  const commit = ({ procs: next, entities: e2 = entities, traits: t2 = traits,
-    funcs: f2 = funcs }) => {
+  const involved = procs.filter((p) => usesAsset(p, model, selected));
+  const selName = entities.find((e) => e.id === selected)?.name || "";
+
+  /* Одна дверь на все правки: функции процессов пересобираются по
+     нынешним текстам (v2), задачи по функциям, которых больше нет, снимаются. */
+  const commit = ({ procs: next, entities: e2 = entities, traits: t2 = traits, funcs: f2 = funcs }) => {
     const m = { entities: e2, traits: t2, positions };
-    const withSteps = next.map((p) => ({ ...p, steps: resolveProc(p, m).steps }));
-    const synced = syncProcFuncs(f2, withSteps, m, normalizeFunc);
-    setProcs(withSteps);
+    const synced = syncProcFuncs(f2, next, m, normalizeFunc, procFuncs);
+    setProcs(next);
     if (e2 !== entities) setEntities(e2);
     if (t2 !== traits) setTraits(t2);
     setFuncs(synced);
@@ -362,226 +424,184 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
     const gone = funcs.filter((f) => f.proc && !after.has(f.id)).map((f) => f.id);
     if (gone.length && onDropFuncs) onDropFuncs(gone);
   };
-  const patchIn = (list, id, make) => list.map((p) => (p.id === id ? make(p) : p));
-  const patch = (id, make) => patchIn(procs, id, make);
+  const patch = (id, make) => procs.map((p) => (p.id === id ? make(p) : p));
+  /* Старый текст («Актив, Должность, берёт: …») переводится в новый язык
+     один раз, при первом показе: по памяти записи о шагах. */
+  useEffect(() => {
+    if (!procs.some((p) => isV1(p.text))) return;
+    commit({ procs: procs.map((p) => (isV1(p.text) ? { ...p, text: fromV1(p.text, resolveProc(p, model).steps) } : p)) });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const add = () => commit({ procs: [...procs, newProc()] });
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
   const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text })) });
-  /* «Не принято» — функций от процесса нет, и его гипотезы уходят со
-     схемы: без процесса они ничьи. Задачи по его функциям — тоже. */
+  const saveVersion = (p, note, text = p.text) => {
+    const v = { id: `v${Date.now().toString(36)}${(p.versions || []).length.toString(36)}`, at: new Date().toISOString(), text, note };
+    commit({ procs: patch(p.id, (x) => ({ ...x, versions: [...(x.versions || []), v] })) });
+  };
   const setStatus = (p, status) => {
     if (status === "off") {
       const d = dropHypo(p, { entities, traits, funcs });
-      commit({ procs: patch(p.id, () => ({ ...d.proc, status })), entities: d.entities,
-        traits: d.traits, funcs: d.funcs });
+      commit({ procs: patch(p.id, () => ({ ...d.proc, status })), entities: d.entities, traits: d.traits, funcs: d.funcs });
       return;
     }
-    if (!canAcceptProc(p, model)) return;
-    commit({ procs: patch(p.id, (x) => ({ ...x, status })) });
+    if (issuesOf(p, model).length) return;
+    // Принятие — само по себе версия, если текст с прошлой версии менялся.
+    const last = (p.versions || [])[(p.versions || []).length - 1];
+    const versions = (last?.text ?? "") !== p.text
+      ? [...(p.versions || []), { id: `v${Date.now().toString(36)}`, at: new Date().toISOString(), text: p.text, note: status === "on" ? "принято" : "принято гипотетически" }]
+      : (p.versions || []);
+    commit({ procs: patch(p.id, (x) => ({ ...x, status, versions })) });
   };
   const del = (p) => {
     const d = dropHypo(p, { entities, traits, funcs });
-    commit({ procs: procs.filter((x) => x.id !== p.id), entities: d.entities,
-      traits: d.traits, funcs: d.funcs });
+    commit({ procs: procs.filter((x) => x.id !== p.id), entities: d.entities, traits: d.traits, funcs: d.funcs });
   };
-  /* Принять неизвестное — завести его: актив рядом с существующими,
-     ресурс — в названном активе пары, оба с пометкой `hypo` (ресурс к
-     тому же не принят — принимает его человек в карточке). Должность —
-     запись организации: уезжает на сервер, и разбор находит её, когда
-     список должностей перечитан. */
-  const acceptName = (p, kind, item, assetId) => {
+  /* Принять неизвестный ресурс — завести его в активе, чей он, с пометкой
+     `hypo`. Должности из процесса не заводятся: их даёт владелец в «Правах
+     сотрудников» и назначает активу во вкладке «Воркеры». */
+  const acceptTrait = (p, it) => {
     setOpenChip(null);
-    if (kind === "asset") {
-      const e = { ...makeEntity(item.name), hypo: true };
-      commit({ entities: [...entities, e],
-        procs: patch(p.id, (x) => ({ ...x,
-          hypo: { ...x.hypo, entities: [...x.hypo.entities, e.id] } })) });
-      return;
-    }
-    if (kind === "role") {
-      if (!onAddPosition) return;
-      Promise.resolve(onAddPosition(item.name)).then((r) => {
-        if (!r || r.id == null) return;
-        commit({ procs: patchIn(procsRef.current, p.id, (x) => ({ ...x,
-          hypo: { ...x.hypo, roles: [...x.hypo.roles, r.id] } })) });
-      }).catch(() => {});
-      return;
-    }
-    const t = { id: `t${Date.now().toString(36)}${traits.length.toString(36)}`, e: assetId,
-      ks: [], k: "", l: item.name, unit: "ед.", hypo: true, accepted: false };
-    commit({ traits: [...traits, t],
-      procs: patch(p.id, (x) => ({ ...x,
-        hypo: { ...x.hypo, traits: [...x.hypo.traits, t.id] } })) });
+    if (!it.asset?.id) return;
+    const t = { id: `t${Date.now().toString(36)}${traits.length.toString(36)}`, e: it.asset.id, ks: [], k: "", l: it.name, unit: "ед.", hypo: true, accepted: false };
+    commit({ traits: [...traits, t], procs: patch(p.id, (x) => ({ ...x, hypo: { ...x.hypo, traits: [...x.hypo.traits, t.id] } })) });
   };
-  const rejectName = (p, name) => {
-    setOpenChip(null);
-    commit({ procs: patch(p.id, (x) => ({ ...x,
-      missing: { ...x.missing, rejected: [...x.missing.rejected, name] } })) });
-  };
-  const restoreName = (p, name) => {
-    setOpenChip(null);
-    commit({ procs: patch(p.id, (x) => ({ ...x,
-      missing: { ...x.missing,
-        rejected: x.missing.rejected.filter((r) => r.toLowerCase() !== name.toLowerCase()) } })) });
-  };
-  /* Замена удалённого — правка текста: имя в строке меняется на выбранное,
-     и дальше всё идёт своим чередом. Текст — единственный источник, и
-     подменять id мимо него значило бы завести второй. */
+  const rejectName = (p, name) => { setOpenChip(null); commit({ procs: patch(p.id, (x) => ({ ...x, missing: { ...x.missing, rejected: [...x.missing.rejected, name] } })) }); };
+  const restoreName = (p, name) => { setOpenChip(null); commit({ procs: patch(p.id, (x) => ({ ...x, missing: { ...x.missing, rejected: x.missing.rejected.filter((r) => r.toLowerCase() !== name.toLowerCase()) } })) }); };
   const replace = (p, kind, oldName, id) => {
-    const name = kind === "asset" ? entities.find((e) => e.id === id)?.name
-      : kind === "role" ? positions.find((r) => String(r.id) === String(id))?.name
-        : traits.find((t) => t.id === id)?.l;
+    const name = kind === "trait" ? traits.find((t) => t.id === id)?.l
+      : positions.find((r) => String(r.id) === String(id))?.name || entities.find((e) => e.id === id)?.name;
     if (!name) return;
-    setText(p, replaceName(p.text, kind, oldName, name));
+    setText(p, replaceName(p.text, kind, oldName, name, model));
   };
-
-  const assetOptions = entities.map((e) => ({ id: e.id, name: e.name }));
-  const roleOptions = positions.map((r) => ({ id: r.id, name: r.name }));
-  const traitOptions = (assetId) => traits.filter((t) => !assetId || t.e === assetId)
-    .map((t) => ({ id: t.id, name: t.l }));
+  const traitOptions = (assetId) => traits.filter((t) => !assetId || t.e === assetId).map((t) => ({ id: t.id, name: t.l }));
 
   return (
     <div style={{ ...S.card, marginTop: 10 }}>
-      <button type="button" aria-expanded={shown} aria-label="технологические процессы"
-        onClick={toggle} className="flex items-center gap-2"
-        style={{ width: "100%", background: "transparent", border: "none", padding: 0,
-          cursor: "pointer", color: C.text, textAlign: "left" }}>
+      <button type="button" aria-expanded={shown} aria-label="технологические процессы" onClick={toggle} className="flex items-center gap-2"
+        style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
         <span style={{ fontSize: 11, color: C.muted }}>{shown ? "▾" : "▸"}</span>
         <span style={S.lbl}>технологические процессы</span>
         <span style={{ fontSize: 10.5, color: C.muted }}>{procs.length}</span>
-        {!!selected && !!involved.length && (
-          <span style={{ fontSize: 10.5, color: ACC }}>
-            · с активом «{selName}»: {involved.length}</span>)}
+        {!!selected && !!involved.length && <span style={{ fontSize: 10.5, color: ACC }}>· с активом «{selName}»: {involved.length}</span>}
       </button>
       {shown && (
       <Section title="" addLabel="+ процесс" onAdd={add}
-        hint={`Строка — шаг: «Актив, Должность, ${MARK_TAKE} Откуда, Что 2, ${MARK_GIVE} Куда, Что». Подсказки — окном у поля по мере набора; имя можно ввести своё. Нажатие на найденное открывает его карточку ниже.`}
+        hint="Строки с метками: «Функция:», «Задача:», «Кто: Должность» (актив подставится сам), «Берёт:», «Отдаёт:», «Кому:». Подсказки — окном над полем; ресурс можно ввести свой."
         empty={procs.length ? null : "Процессов пока нет."}>
         {procs.map((p) => {
-          const { steps } = resolveProc(p, model);
-          const issues = procIssues(p, model);
+          const { funcs: pf } = parseText(p.text, model, p);
+          const issues = issuesOf(p, model);
           const can = issues.length === 0;
           const label = procLabel(p);
-          const lit = !!selected && procUsesAsset(p, selected);
-          const key = (s, kind, name) => `${p.id}:${s.line}:${kind}:${name}`;
+          const lit = !!selected && usesAsset(p, model, selected);
+          const key = (...parts) => `${p.id}:${parts.join(":")}`;
+          const traitChip = (it, k) => {
+            const st = itemState(it, p, model);
+            const tail = it.qtyHi != null && it.qtyHi !== it.qty ? ` ${nm(it.qty)}–${nm(it.qtyHi)}` : it.qty != null && it.qty !== 1 ? ` ${nm(it.qty)}` : "";
+            const name = it.ref ? `(${it.var})` : it.name;
+            return (
+              <React.Fragment key={k}>
+                <span aria-label={`буква ${it.letter}: ${name}`} style={{ color: ACC, fontWeight: 700, marginRight: 3 }}>{it.letter}</span>
+                <Chip name={name} kind="trait" state={st} tail={tail} hypo={it.trait?.id ? p.hypo.traits.includes(it.trait.id) : false}
+                  open={openChip === k} onOpen={() => setOpenChip(openChip === k ? null : k)}
+                  onGo={it.trait?.id && onOpenTrait ? () => onOpenTrait(it.trait.id) : null}
+                  onAccept={() => acceptTrait(p, it)} acceptWhy={it.asset ? "" : "не понятно, чей ресурс"}
+                  onReject={() => rejectName(p, it.name)} onRestore={() => restoreName(p, it.name)}
+                  options={traitOptions(it.asset?.id)} onReplace={(id) => replace(p, "trait", it.name, id)} />
+                {it.var && !it.ref && <span style={{ fontSize: 10.5, color: C.muted }}> ({it.var})</span>}
+              </React.Fragment>);
+          };
+          const whoChip = (w, k) => {
+            const st = whoState(w, p);
+            const roles = ROLE_KINDS.filter((r) => w.roles[r]);
+            return (
+              <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 6 }}>
+                <Chip name={w.name} kind={w.anyWorker ? "asset" : "role"} state={st}
+                  open={openChip === k} onOpen={() => setOpenChip(openChip === k ? null : k)}
+                  onGo={w.asset?.id ? () => (w.anyWorker ? onOpenAsset?.(w.asset.id) : onOpenWorkers?.(w.asset.id)) : null}
+                  onReject={() => rejectName(p, w.name)} onRestore={() => restoreName(p, w.name)} />
+                {w.asset && !w.anyWorker && <span style={{ fontSize: 10.5, color: C.muted }}>{w.asset.name}</span>}
+                {roles.map((r) => <span key={r} title={ROLE_WORD[r]} aria-label={`${ROLE_WORD[r]}: ${w.name}`}
+                  style={{ fontSize: 10, background: ROLE_COLOR[r], color: DARK, borderRadius: 3, padding: "0 4px" }}>{ICON[r]}</span>)}
+                {w.hand && <span aria-label={`рука ${w.hand}: ${w.name}`} style={{ fontSize: 10, background: handColor(w.hand), color: DARK, borderRadius: 3, padding: "0 4px" }}>рука {w.hand}</span>}
+              </span>);
+          };
           return (
             <div key={p.id} data-lit={lit || undefined}
-              style={{ background: C.panel2, border: `1px solid ${lit ? ACC : C.line}`,
-                borderRadius: 8, padding: 8, marginBottom: 8,
-                borderLeft: `2px solid ${STATUS_TONE[p.status] || C.line}`,
-                boxShadow: lit ? `0 0 0 1px ${ACC}55` : "none" }}>
-              {lit && (
-                <div style={{ fontSize: 10.5, color: ACC, marginBottom: 4 }}>
-                  задействует выбранный актив «{selName}»</div>)}
+              style={{ background: C.panel2, border: `1px solid ${lit ? ACC : C.line}`, borderRadius: 8, padding: 8, marginBottom: 8,
+                borderLeft: `2px solid ${STATUS_TONE[p.status] || C.line}`, boxShadow: lit ? `0 0 0 1px ${ACC}55` : "none" }}>
+              {lit && <div style={{ fontSize: 10.5, color: ACC, marginBottom: 4 }}>задействует выбранный актив «{selName}»</div>}
               <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
                 <span style={S.lbl}>процесс</span>
-                {/* Название — по нажатию справа от слова «процесс»: поле
-                    становится редактируемым, Enter или уход — записывает. */}
                 {naming === p.id ? (
-                  <input autoFocus aria-label="название процесса" defaultValue={p.name}
-                    placeholder="название процесса"
+                  <input autoFocus aria-label="название процесса" defaultValue={p.name} placeholder="название процесса"
                     style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 600, padding: "3px 6px" }}
                     onBlur={(e) => { rename(p, e.target.value); setNaming(null); }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") e.currentTarget.blur();
-                      if (e.key === "Escape") setNaming(null);
-                    }} />
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
                 ) : (
-                  <button type="button" aria-label={`назвать процесс «${label}»`}
-                    title="нажмите, чтобы назвать процесс" onClick={() => setNaming(p.id)}
-                    style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent",
-                      border: "none", padding: 0, color: p.name ? C.text : C.muted, fontSize: 12.5,
-                      fontWeight: 600, cursor: "text", overflow: "hidden",
-                      textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {label}</button>)}
-                <span style={{ fontSize: 10.5, color: STATUS_TONE[p.status] || C.muted,
-                  whiteSpace: "nowrap" }}>
+                  <button type="button" aria-label={`назвать процесс «${label}»`} title="нажмите, чтобы назвать процесс" onClick={() => setNaming(p.id)}
+                    style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", padding: 0, color: p.name ? C.text : C.muted,
+                      fontSize: 12.5, fontWeight: 600, cursor: "text", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</button>)}
+                <span style={{ fontSize: 10.5, color: STATUS_TONE[p.status] || C.muted, whiteSpace: "nowrap" }}>
                   {PROC_STATUS.find(([id]) => id === p.status)?.[1].toLowerCase()}</span>
-                <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
-                  fontSize: 11, padding: "2px 6px" }}
+                <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11, padding: "2px 6px" }}
                   aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
               </div>
 
-              <ProcText value={p.text} model={model} proc={p}
-                label="текст процесса" onCommit={(t) => setText(p, t)} />
+              <ProcText value={p.text} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} />
 
-              {/* Разбор построчно — под полем, там же, где набирают. */}
-              {steps.map((s, si) => {
-                const chip = (it, kind, qty, assetId, assetOk = true, qtyHi = null) => {
-                  const st = stateOf(it, kind, model, p);
-                  const k = key(s, kind, it.name);
-                  const hypo = kind === "asset" ? p.hypo.entities.includes(it.id)
-                    : kind === "role" ? p.hypo.roles.includes(String(it.id))
-                      : p.hypo.traits.includes(it.id);
-                  const go = kind === "asset" ? (onOpenAsset ? () => onOpenAsset(it.id) : null)
-                    : kind === "trait" ? (onOpenTrait ? () => onOpenTrait(it.id) : null)
-                      : (onOpenWorkers && s.asset?.id ? () => onOpenWorkers(s.asset.id) : null);
-                  return (
-                    <Chip item={it} kind={kind} state={st} qty={qty} qtyHi={qtyHi} hypo={hypo}
-                      open={openChip === k}
-                      onOpen={() => setOpenChip(openChip === k ? null : k)}
-                      onGo={go}
-                      onAccept={() => acceptName(p, kind, it, assetId)}
-                      acceptWhy={kind === "trait" && !assetOk ? "сначала примите актив"
-                        : kind === "role" && !onAddPosition ? "должности заводит владелец на сервере" : ""}
-                      onReject={() => rejectName(p, it.name)}
-                      onRestore={() => restoreName(p, it.name)}
-                      options={kind === "asset" ? assetOptions : kind === "role" ? roleOptions
-                        : traitOptions(assetId)}
-                      onReplace={(id) => replace(p, kind, it.name, id)} />);
-                };
-                const pair = (x, j) => {
-                  const aOk = stateOf(x.asset, "asset", model, p) === "ok";
-                  return (
-                    <React.Fragment key={j}>{j ? ", " : ""}
-                      {/* Буква ресурса — ею на него ссылаются операции строки. */}
-                      <span aria-label={`буква ${x.letter}: ${x.trait?.name || ""}`}
-                        style={{ color: ACC, fontWeight: 700, marginRight: 3 }}>{x.letter}</span>
-                      {chip(x.asset, "asset")}
-                      <span style={{ color: C.muted }}> → </span>
-                      {chip(x.trait, "trait", x.qty, x.asset?.id, aOk, x.qtyHi)}
-                    </React.Fragment>);
-                };
-                return (
-                  <div key={s.line} style={{ marginTop: 6, fontSize: 12, lineHeight: 1.9 }}>
-                    {/* Номер шага по порядку, а не номер строки: шаг может занимать несколько строк. */}
-                    <span style={{ color: C.muted, marginRight: 6 }}>{si + 1}.</span>
-                    {s.error
-                      ? <span style={{ color: BAD }}>{s.text} — {s.error}</span>
-                      : <>
-                        {chip(s.asset, "asset")}
-                        {s.role && <> <span style={{ color: C.muted }}>·</span> {chip(s.role, "role")}</>}
-                        {!!s.takes.length && <span style={{ color: C.muted }}> берёт </span>}
-                        {s.takes.map(pair)}
-                        {!!s.gives.length && <span style={{ color: C.muted }}> отдаёт </span>}
-                        {s.gives.map(pair)}
-                      </>}
-                  </div>);
-              })}
+              <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+                <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="выгрузить техпроцесс"
+                  onClick={() => setModal({ proc: p, mode: "export", text: exportText(p.text) })}>Выгрузить</button>
+                <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="загрузить техпроцесс"
+                  onClick={() => setModal({ proc: p, mode: "import", text: "" })}>Загрузить</button>
+              </div>
+
+              {/* Разбор — под полем: функции, задачи, участники и шаги. */}
+              {pf.map((f, fi) => (
+                <div key={fi} style={{ marginTop: 8, fontSize: 12, lineHeight: 1.9 }}>
+                  <div style={{ fontSize: 11, color: C.muted }}>функция: <span style={{ color: C.text }}>{f.name || `без названия (${f.tasks[0]?.name || "…"})`}</span></div>
+                  {f.tasks.map((t, ti) => (
+                    <div key={ti} style={{ paddingLeft: 8, borderLeft: `2px solid ${C.line}`, marginTop: 4 }}>
+                      <div style={{ fontSize: 11, color: C.muted }}>задача {ti + 1}: <span style={{ color: C.text }}>{t.name || "без названия"}</span></div>
+                      {t.branches.map((b, bi) => (
+                        <div key={bi}>
+                          {(b.cond || b.isElse) && <div style={{ fontSize: 11, color: WARN }}>{b.isElse ? "иначе" : `если ${b.cond}`}</div>}
+                          {!!b.who.length && <div>{b.who.map((w, wi) => whoChip(w, key(fi, ti, bi, "who", wi)))}</div>}
+                          {b.steps.map((s, si) => (
+                            <div key={si}>
+                              <span style={{ color: C.muted }}>{s.kind === "take" ? "берёт " : "отдаёт "}</span>
+                              {s.items.map((it, j) => <React.Fragment key={j}>{j ? ", " : ""}{traitChip(it, key(fi, ti, bi, si, j))}</React.Fragment>)}
+                              {!!s.or.length && <span style={{ color: C.muted }}> или </span>}
+                              {s.or.map((it, j) => <React.Fragment key={`o${j}`}>{j ? ", " : ""}{traitChip(it, key(fi, ti, bi, si, "or", j))}</React.Fragment>)}
+                              {(s.to || s.from) && <span style={{ color: C.muted }}> {s.to ? "→" : "←"} {(s.to || s.from).asset?.name || (s.to || s.from).name}</span>}
+                            </div>))}
+                        </div>))}
+                    </div>))}
+                </div>))}
 
               {!!issues.length && !!p.text.trim() && (
-                <div style={{ fontSize: 10.5, color: BAD, marginTop: 6, lineHeight: 1.5 }}>
-                  {issues.map((w, i) => <div key={i}>{w}</div>)}
-                </div>)}
+                <div style={{ fontSize: 10.5, color: BAD, marginTop: 6, lineHeight: 1.5 }}>{issues.map((w, i) => <div key={i}>{w}</div>)}</div>)}
 
-              {/* Три состояния, одно нажатие. Принять — гипотетически или
-                  насовсем — нельзя, пока в строках есть неизвестное,
-                  отклонённое или удалённое: подсказка говорит, что сперва. */}
               <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
                 {PROC_STATUS.map(([id, name]) => {
                   const on = p.status === id;
                   const locked = id !== "off" && !can;
                   return (
-                    <button key={id} aria-pressed={on} disabled={locked}
-                      title={locked ? issues[0] : ""}
-                      style={{ ...btn(on, STATUS_TONE[id] || undefined), fontSize: 11,
-                        opacity: locked ? 0.5 : 1, cursor: locked ? "default" : "pointer" }}
+                    <button key={id} aria-pressed={on} disabled={locked} title={locked ? issues[0] : ""}
+                      style={{ ...btn(on, STATUS_TONE[id] || undefined), fontSize: 11, opacity: locked ? 0.5 : 1, cursor: locked ? "default" : "pointer" }}
                       onClick={() => !on && setStatus(p, id)}>{name}</button>);
                 })}
               </div>
+              <Versions proc={p} model={model} onSave={(note) => saveVersion(p, note)} />
             </div>);
         })}
       </Section>)}
+      {modal && (
+        <TextModal title={modal.mode === "export" ? "выгрузка техпроцесса" : "загрузка техпроцесса"}
+          value={modal.text} onClose={() => setModal(null)}
+          onChange={modal.mode === "import" ? (t) => setModal({ ...modal, text: t }) : undefined}
+          onLoad={modal.mode === "import" ? () => { setText(modal.proc, importText(modal.text)); setModal(null); } : undefined} />)}
     </div>);
 }

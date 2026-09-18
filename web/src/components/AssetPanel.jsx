@@ -341,7 +341,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
   rolesOf = () => [], roleName = () => "", onToggleCrew, onOrder, onOpenPerson,
   pickByOrder = true, onPickByOrder,
   published, me,
-  positions = [], onAddPosition, onDropPosition, onSetRoles }) {
+  positions = [], onSetRoles, posts = [], onTogglePost, assets = [] }) {
   /* ИСКЛЮЧЕНИЯ. Что человек делает, решает его ДОЛЖНОСТЬ: функция называет
      роль, и всякий воркер актива с ней эту работу берёт. Здесь —
      обратное: «эту функцию он не берёт». Поэтому в строке стоят только те
@@ -360,12 +360,18 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
      Ролей у человека НЕСКОЛЬКО: он и дизайнер, и проверяющий. Поэтому
      здесь отметки, а не выпадающий список: выпадающий заставлял выбрать
      одну и молча отменял остальные. */
-  const [newPosition, setNewPosition] = useState("");
   const [posMsg, setPosMsg] = useState("");
   const act = async (fn) => {
     setPosMsg("");
     try { await fn(); } catch (e) { setPosMsg(e.message || "не вышло"); }
   };
+  /* ДОЛЖНОСТИ АКТИВА (владелец, 2026-09-18): новые роли здесь не
+     заводятся — выбираются из уже существующих те, что работают в этом
+     активе; одна должность — у одного актива. По ним ниже — подходящие
+     сотрудники. */
+  const hasPost = (id) => posts.some((x) => String(x) === String(id));
+  const assetOfPost = (id) => assets.find((a) => a.id !== entityId && (a.posts || []).some((x) => String(x) === String(id)));
+  const fits = (pid) => (rolesOf(pid) || []).some((r) => hasPost(r));
   // Кто смотрит — тот себя в списке видит без рейтинга (`visibleStats`).
   const stat = (id) => visibleStats({ tasks, funcs, published }, id, me?.id);
   const personOf = (id) => people.find((p) => String(p.id) === String(id)) || {};
@@ -396,44 +402,31 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
             Порядок здесь задаёт человек, и именно в этом порядке воркеры
             показываются потом в формах выбора: у выбирающего бывают
             причины, которых в цифрах нет. */}
-        {/* ─── роли ───
-            Список ролей создаётся здесь: у воркера роли видны в строке, и
-            заводить их в другой вкладке значило бы ходить туда за каждым
-            новым человеком. Список ОДИН на всё приложение: те же роли
-            открывают вкладки, по ним же заключают договоры в «Людях и
-            ролях» и назначают работу у функции. */}
-        {onAddPosition && (
+        {/* ─── должности актива ─── */}
+        {onTogglePost && (
           <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 8, marginBottom: 8 }}>
-            <div style={{ ...S.lbl, marginBottom: 4 }}>роли</div>
+            borderRadius: 8, padding: 8, marginBottom: 8 }} aria-label="должности актива">
+            <div style={{ ...S.lbl, marginBottom: 4 }}>должности актива</div>
             {!positions.length && (
               <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
-                Ролей ещё нет — добавьте первую.</div>)}
+                Должностей ещё нет — заведите их в «Правах сотрудников».</div>)}
             <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
-              {positions.map((p) => (
-                <span key={p.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999,
-                  background: C.panel, border: `1px solid ${C.line}` }}>
-                  {p.name}
-                  {onDropPosition && (
-                    <button style={{ background: "none", border: "none", cursor: "pointer",
-                      color: C.muted, marginLeft: 4, padding: 0 }}
-                      aria-label={`убрать роль: ${p.name}`}
-                      onClick={() => act(() => onDropPosition(p.id))}>×</button>)}
-                </span>))}
+              {positions.map((p) => {
+                const on = hasPost(p.id);
+                const other = !on ? assetOfPost(p.id) : null;
+                return (
+                  <button key={p.id} type="button" aria-pressed={on}
+                    aria-label={`должность актива «${p.name}»`}
+                    title={other ? `сейчас у актива «${other.name}» — нажатие переведёт сюда` : ""}
+                    style={{ ...btn(on, on ? "#C9A0FF" : null), fontSize: 11, padding: "2px 8px",
+                      opacity: other ? 0.6 : 1 }}
+                    onClick={() => act(() => onTogglePost(p.id))}>
+                    {p.name}{other ? <span style={{ fontSize: 10, opacity: 0.8 }}> · {other.name}</span> : null}</button>);
+              })}
             </div>
-            <div className="flex gap-2">
-              <input style={{ ...S.inp, flex: 1 }} value={newPosition} aria-label="новая роль"
-                placeholder="название роли"
-                onChange={(e) => setNewPosition(e.target.value)} />
-              <button style={btn(false)} disabled={!newPosition.trim()}
-                onClick={() => act(async () => {
-                  await onAddPosition(newPosition.trim()); setNewPosition(""); })}>
-                Добавить</button>
-            </div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-              Роль — кем человек здесь числится; по ней и назначают работу.
-              Ролей у одного может быть несколько. Что роль открывает и какой
-              по ней договор — в «Людях и ролях».
+            <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
+              Отметьте должности, которые работают в этом активе. Одна должность —
+              у одного актива. Ниже — сотрудники с этими должностями.
             </div>
             {posMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{posMsg}</div>}
           </div>)}
@@ -442,15 +435,16 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
           <div style={{ ...S.lbl, marginBottom: 4 }}>воркеры</div>
           {!crew.length && (
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
-              {people.some((p) => (rolesOf(p.id) || []).length)
-                ? "Пока никого: отметьте, кто работает в этом активе."
-                : "Ни у кого ещё нет роли — отметить в активе некого."}</div>)}
+              {onTogglePost && !posts.length ? "Сперва отметьте должности актива — по ним найдутся сотрудники."
+                : people.some((p) => (onTogglePost ? fits(p.id) : (rolesOf(p.id) || []).length))
+                  ? "Пока никого: отметьте, кто работает в этом активе."
+                  : "Ни у кого нет этих должностей — отметить в активе некого."}</div>)}
           {/* Кого вообще можно отметить: у кого ЕСТЬ роль. Человек без
               роли работу брать не может — её назначают ролью, — и строка
               с отметкой обещала бы то, чего не будет. Уже отмеченные
               остаются в списке всегда: молча пропавший воркер выглядел бы
               поломкой, а не правилом. */}
-          {[...crew, ...people.filter((p) => (rolesOf(p.id) || []).length)
+          {[...crew, ...people.filter((p) => (onTogglePost ? fits(p.id) : (rolesOf(p.id) || []).length))
             .map((p) => p.id).filter((id) => !inCrew(id))]
             .map((pid, i) => {
               const on = inCrew(pid);
@@ -1533,8 +1527,8 @@ export default function AssetPanel(props) {
           pickByOrder={props.pickByOrder} onPickByOrder={props.onPickByOrder}
           onOpenPerson={props.onOpenPerson}
           published={props.published} me={props.me}
-          positions={props.positions} onAddPosition={props.onAddPosition}
-          onDropPosition={props.onDropPosition} onSetRoles={props.onSetRoles} />)}
+          positions={props.positions} onSetRoles={props.onSetRoles}
+          posts={props.posts} onTogglePost={props.onTogglePost} assets={props.entities} />)}
 
       {/* `onMarket` назван отдельно, хотя и уехал бы с `{...props}`: кнопки
           «рынка услуг» показываются только когда он передан, и молчаливая

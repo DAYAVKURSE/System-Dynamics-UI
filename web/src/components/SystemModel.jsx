@@ -816,6 +816,18 @@ export default function SystemModel(){
      том, кого здесь нет. Прежние списки ролей у самого актива при этом
      тоже чистятся — они больше не редактируются, но у старых моделей
      остались, и `crewOf` читает их как членство. */
+  /* Должности актива: одна должность — у одного актива (владелец,
+     2026-09-18). Отметка переводит должность сюда, снимая её с другого. */
+  const togglePost=(rid)=>{
+    setEntities(p=>{
+      const has=(p.find(x=>x.id===sel)?.posts||[]).some(z=>String(z)===String(rid));
+      return p.map(x=>{
+        const drop=(x.posts||[]).filter(z=>String(z)!==String(rid));
+        if(x.id!==sel) return drop.length===(x.posts||[]).length?x:{...x,posts:drop};
+        return {...x,posts:has?drop:[...drop,rid]};
+      });
+    });
+  };
   const toggleCrew=(pid)=>{
     const e=entities.find(x=>x.id===sel);
     if(!e) return;
@@ -1550,8 +1562,6 @@ export default function SystemModel(){
             /* Должности — те же, что у функций в карточке актива; новая
                заводится на сервере и возвращается, чтобы встать в выбор. */
             positions={roles}
-            onAddPosition={me.isOwner&&!me.solo
-              ?(n)=>addRole(n,[]).then(r=>refreshOrg().then(()=>r)):undefined}
             /* Задачи по снятым функциям процесса — как при удалении актива:
                выполнять больше нечего. */
             onDropFuncs={ids=>setTasks(p=>p.filter(t=>!ids.includes(t.funcId)))}/>)}
@@ -1598,8 +1608,7 @@ export default function SystemModel(){
               pickByOrder={pickByOrderOf(selE)} onPickByOrder={setPickByOrder}
               onOpenPerson={id=>setCard(id)}
               positions={roles}
-              onAddPosition={me.isOwner&&!me.solo?(n)=>addRole(n,[]).then(refreshOrg):undefined}
-              onDropPosition={me.isOwner&&!me.solo?(id)=>removeRole(id).then(refreshOrg):undefined}
+              posts={selE.posts||[]} onTogglePost={togglePost}
               onSetRoles={me.isOwner&&!me.solo
                 ?(pid,list)=>setUserRoles(pid,list).then(refreshOrg):undefined}
               focus={focus}
