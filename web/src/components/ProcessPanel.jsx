@@ -212,21 +212,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     setEditing(true); setFocus(true);
     place(text, el.selectionStart ?? text.length);
   };
-  /* Конец правки по Enter (когда нечего подставить): поле снова только
-     для чтения, клавиатура закрывается (blur), курсор и меню — остаются.
-     Нажатие вне поля заканчивает правку через onBlur. */
-  const endEdit = () => {
-    const el = inp.current;
-    if (!el) return;
-    hold.current = true;
-    el.readOnly = true;
-    el.blur();
-    hold.current = false;
-    setEditing(false);
-    el.focus({ preventScroll: true });
-    if (text !== value) onCommit(text);
-    place(text, el.selectionStart ?? text.length);
-  };
+  /* Правку заканчивает только нажатие вне поля (onBlur). */
   /* Подстановка: пункт несёт `suffix` (что после), `insert` (вставить у
      курсора, не заменяя набранное), `text` (что вставить вместо имени),
      `trimBefore` (убрать пробелы перед), `caretBack` (курсор внутрь). */
@@ -242,12 +228,15 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const onKey = (e) => {
     const list = pick ? items.filter((i) => !i.info) : [];
     if (e.key === "Enter" && !e.shiftKey) {
-      // Enter подставляет начатое имя, иначе заканчивает правку (владелец, 2026-09-18).
+      /* Enter подставляет начатое имя; иначе — обычный перенос строки, и
+         на новой строке подсказка предлагает метку следующей сущности
+         (владелец, 2026-09-18: «должна просто переводиться строка»).
+         Правка при этом не кончается — только нажатием вне поля. */
       if (pick && pick.kind !== "qty" && pick.kind !== "name" && pick.query && list[cursor]
         && !list[cursor].insert && list[cursor].name.toLowerCase().startsWith(pick.query.toLowerCase())) {
-        e.preventDefault(); choose(list[cursor]); return;
+        e.preventDefault(); choose(list[cursor]);
       }
-      e.preventDefault(); endEdit(); return;
+      return;
     }
     if (!pick) return;
     if (e.key === "Escape") { setPick(null); return; }
@@ -455,7 +444,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           onMouseDown={(e) => { if (e.target.tagName !== "INPUT") e.preventDefault(); }}
           style={{ marginTop: 4, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6 }}>
           <div style={{ padding: "5px 8px", fontSize: 10.5, color: C.muted, borderBottom: `1px solid ${C.line}` }}>
-            {header}<span style={{ opacity: 0.7 }}> · Tab — подставить · Enter — закончить правку</span>
+            {header}<span style={{ opacity: 0.7 }}> · Tab — подставить · Enter — новая строка</span>
           </div>
           <div role="listbox" aria-label="подсказки процесса" style={{ maxHeight: 150, overflowY: "auto" }}>
             {items.filter((i) => !i.info).map((it, i) => (

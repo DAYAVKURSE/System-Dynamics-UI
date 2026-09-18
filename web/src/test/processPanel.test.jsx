@@ -57,7 +57,7 @@ const loadJson = (m) => {
 const TEXT = "Задача: лид\nКто: Пользователи\nБерёт: заявки 2\nОтдаёт: заявки 50% A";
 
 describe("просмотр и правка (владелец, 2026-09-18)", () => {
-  it("одинарное нажатие: поле только для чтения, меню сущности есть, подсказок нет; двойное: правка, подсказки под полем, меню нет; Enter или нажатие вне поля — конец правки", () => {
+  it("одинарное нажатие: поле только для чтения, меню сущности есть, подсказок нет; двойное: правка, подсказки под полем, меню нет; нажатие вне поля — конец правки, Enter — новая строка", () => {
     const area = addProc();
     write(area, TEXT);
     expect(area).toHaveAttribute("readonly");
@@ -75,13 +75,13 @@ describe("просмотр и правка (владелец, 2026-09-18)", () =
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
     expect(container.querySelector("[data-role-buttons]")).toBeNull();
     expect(screen.getByRole("dialog", { name: "подсказка процесса" })).toBeInTheDocument();
-    // Enter (где нечего подставить) — конец правки: поле снова для чтения.
+    // Enter — обычный перенос строки, правка продолжается, на новой строке — метки (владелец, 2026-09-18).
     fireEvent.click(area, { target: { selectionStart: TEXT.length } });
-    fireEvent.keyDown(area, { key: "Enter" });
-    expect(area).toHaveAttribute("readonly");
-    expect(screen.queryByRole("dialog", { name: "подсказка процесса" })).toBeNull();
-    fireEvent.doubleClick(area);
+    const ev = fireEvent.keyDown(area, { key: "Enter" });
+    expect(ev).toBe(true);   // не перехвачен — браузер переносит строку
     expect(area).not.toHaveAttribute("readonly");
+    type(area, `${TEXT}\n`);
+    expect(options()[0]).toMatch(/^метка /);
     // Одинарное нажатие и прокрутка внутри поля правку не прерывают (владелец, 2026-09-18).
     fireEvent.mouseDown(area, { detail: 1 });
     fireEvent.click(area, { target: { selectionStart: 3 } });
