@@ -166,6 +166,10 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
      только для чтения: без клавиатуры, подсказок и меню. */
   const [editing, setEditing] = useState(false);
   const lastTap = useRef(0);
+  /* Плавающее меню живёт, пока его не закрыли крестиком или не начали
+     правку (владелец, 2026-09-18): нажатие вне меню делает его
+     полупрозрачным (неактивным), нажатие на нём — снова активным. */
+  const [menuActive, setMenuActive] = useState(true);
   const [pick, setPick] = useState(null);   // подсказка у курсора + at
   const [cursor, setCursor] = useState(0);
   const [caretRow, setCaretRow] = useState(-1);
@@ -186,6 +190,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     setPick({ ...h, at });
     setCursor(0);
     setCaretRow(v.slice(0, at).split("\n").length - 1);
+    setMenuActive(true);
   };
   const apply = (next, caret) => {
     setText(next);
@@ -257,7 +262,10 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
      Каждое нажатие правит текст — единственный источник. */
   const rowLine = caretRow >= 0 ? text.split("\n")[caretRow] || "" : "";
   /* Меню сущностей — в просмотре (одинарное нажатие ставит курсор); в правке их нет, есть подсказки. */
-  const whoRow = focus && !editing && caretRow >= 0 && labelOf(rowLine)?.kind === "who" ? caretRow : -1;
+  const rowKind = labelOf(rowLine)?.kind || "";
+  /* «Кому:»/«От кого:» — то же меню, что у «Кто:», без ролей (владелец, 2026-09-18). */
+  const whoRow = !editing && caretRow >= 0 && ["who", "to", "from"].includes(rowKind) ? caretRow : -1;
+  const isWho = whoRow >= 0 && rowKind === "who";
   const whoSpan = whoRow >= 0 ? paint.find((r) => r.row === whoRow)?.spans : null;
   const whoName = whoSpan?.find((k) => k.kind === "role" || k.kind === "asset")?.name || "";
   const whoHand = whoSpan?.find((k) => k.kind === "hand")?.hand || null;
@@ -292,7 +300,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
      знака — явная просьба ввести число или выбрать из списка. Текст —
      единственный источник: поле и список правят хвост после имени. */
   const rowStartOf = (row) => text.split("\n").slice(0, row).reduce((n, l) => n + l.length + 1, 0);
-  const resRow = focus && !editing && caretRow >= 0 && ["take", "give", "or"].includes(labelOf(rowLine)?.kind) ? caretRow : -1;
+  const resRow = !editing && caretRow >= 0 && ["take", "give", "or"].includes(labelOf(rowLine)?.kind) ? caretRow : -1;
   const resStart = resRow >= 0 ? rowStartOf(resRow) : 0;
   const caretIn = pick ? pick.at - resStart : -1;
   const resSpans = resRow >= 0 ? (paint.find((r) => r.row === resRow)?.spans || []) : [];
@@ -403,7 +411,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
       style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left", background: "transparent",
         color: C.text, border: `1px solid ${C.line}`, ...style }}>
       <span style={{ width: 16, textAlign: "center" }}>{icon}</span>{label.split(":")[0].replace(/^./, (c) => c.toUpperCase())}</button>);
-  const menuTitle = whoRow >= 0 ? `участник «${whoName}»` : res ? (resRef ? `закреплённый ресурс «${res.varName}»` : `ресурс «${res.name}»`) : "";
+  const menuTitle = whoRow >= 0 ? `${rowKind === "to" ? "кому" : rowKind === "from" ? "от кого" : "участник"} «${whoName}»` : res ? (resRef ? `закреплённый ресурс «${res.varName}»` : `ресурс «${res.name}»`) : "";
   return (
     <div style={{ position: "relative" }}>
       <div ref={wrap} style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
@@ -422,7 +430,8 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
             /* Фокус ушёл в поле меню (операция, имя) — меню не закрывать. */
             if (e.relatedTarget?.closest?.("[data-proc-menu]")) hold.current = true;
             if (hold.current) return;
-            setEditing(false); setFocus(false); setPick(null); setCaretRow(-1); setScrollTop(0); if (text !== value) onCommit(text); }}
+            // Меню не закрывается — становится неактивным; закрывает крестик или начало правки.
+            setEditing(false); setFocus(false); setScrollTop(0); setMenuActive(false); if (text !== value) onCommit(text); }}
           readOnly={!editing}
           onMouseDown={(e) => {
             if (!editing && e.detail >= 2) { e.preventDefault(); startEdit(); }
@@ -467,20 +476,29 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
         </div>)}
       {/* Плавающее меню сущности: участник или ресурс. */}
       {(whoRow >= 0 || res) && (
-        <div data-proc-menu="" onMouseDown={(e) => { if (e.target.tagName === "INPUT") hold.current = true; else e.preventDefault(); }}
+        <div data-proc-menu="" data-active={menuActive ? "1" : "0"}
+          /* pointerdown — раньше mousedown и не гасится preventDefault шапки при перетаскивании. */
+          onPointerDown={() => setMenuActive(true)}
+          onMouseDown={(e) => { setMenuActive(true); if (e.target.tagName === "INPUT") hold.current = true; else e.preventDefault(); }}
           style={{ position: "fixed", left: menuPos?.x ?? 8, top: menuPos?.y ?? 8, zIndex: 40, width: 210,
+            opacity: menuActive ? 1 : 0.55, transition: "opacity .15s",
             background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 5, boxShadow: "0 6px 20px rgba(0,0,0,.35)" }}>
-          <div aria-label="перетащить меню" title="перетащить"
-            onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd}
-            className="flex items-center gap-2"
-            style={{ cursor: "move", touchAction: "none", fontSize: 10.5, color: C.muted, padding: "1px 2px 4px", userSelect: "none" }}>
-            <span style={{ letterSpacing: -1 }}>⋮⋮</span>
-            <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{menuTitle}</span>
+          <div className="flex items-center gap-1" style={{ padding: "1px 2px 4px" }}>
+            <div aria-label="перетащить меню" title="перетащить"
+              onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd}
+              className="flex items-center gap-2"
+              style={{ flex: 1, minWidth: 0, cursor: "move", touchAction: "none", fontSize: 10.5, color: C.muted, userSelect: "none" }}>
+              <span style={{ letterSpacing: -1 }}>⋮⋮</span>
+              <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{menuTitle}</span>
+            </div>
+            <button type="button" aria-label="закрыть меню" title="закрыть"
+              onClick={() => { setCaretRow(-1); setPickVar(false); setPickPerson(false); }}
+              style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 3px", fontSize: 13, lineHeight: 1 }}>✕</button>
           </div>
           {whoRow >= 0 ? (
           <div data-role-buttons="" aria-label={`меню участника ${whoName}`}
             style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {ROLE_KINDS.map((role) => (
+            {isWho && ROLE_KINDS.map((role) => (
               <button key={role} type="button" aria-pressed={roleOn(role)} aria-label={`${ROLE_WORD[role]}: ${whoName}`}
                 onClick={() => toggle(role)} className="flex items-center gap-2"
                 style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left",

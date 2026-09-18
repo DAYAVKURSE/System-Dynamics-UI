@@ -84,7 +84,15 @@ describe("просмотр и правка (владелец, 2026-09-18)", () =
     expect(area).not.toHaveAttribute("readonly");
     fireEvent.mouseDown(area, { detail: 1 });   // одинарное нажатие на поле
     expect(area).toHaveAttribute("readonly");
-    fireEvent.blur(area);   // нажатие вне поля — меню исчезает
+    // Нажатие вне поля: меню остаётся, но неактивно (полупрозрачно); нажатие на нём — снова активно; крестик закрывает.
+    fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
+    fireEvent.blur(area);
+    const menu2 = container.querySelector("[data-proc-menu]");
+    expect(menu2).not.toBeNull();
+    expect(menu2.style.opacity).toBe("0.55");
+    fireEvent.mouseDown(menu2);
+    expect(menu2.style.opacity).toBe("1");
+    fireEvent.click(within(menu2).getByRole("button", { name: "закрыть меню" }));
     expect(container.querySelector("[data-proc-menu]")).toBeNull();
     // Высота поля фиксированная: rows не зависит от текста.
     expect(area.getAttribute("rows")).toBe("12");
@@ -203,6 +211,23 @@ describe("роли, статусы, функции", () => {
     expect(ops).toHaveLength(1);
     expect(ops[0].closest("[data-kind=trait]").textContent).toBe("заявки 50% A");   // строка «Отдаёт:» без курсора
     expect(ops[0].children[0].style.color).toBe("transparent");
+  });
+
+  it("строка «Кому:» открывает то же меню без ролей: закрепить и выбрать сотрудника (владелец, 2026-09-18)", () => {
+    const area = addProc();
+    const T2 = `${TEXT}\nКому: Рынок услуг`;
+    write(area, T2);
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: T2.indexOf("Рынок услуг") + 2 } });
+    const menu = container.querySelector("[data-role-buttons]");
+    expect(menu).not.toBeNull();
+    expect(within(menu).getAllByRole("button").map((b) => b.textContent)).toEqual(["🔒Закрепить сотрудника", "👤Выбрать сотрудника"]);
+    expect(container.querySelector("[data-proc-menu]").textContent).toContain("кому «Рынок услуг»");
+    fireEvent.click(within(menu).getByRole("button", { name: "закрепить сотрудника: Рынок услуг" }));
+    expect(area.value.split("\n")[4]).toMatch(/^Кому: Рынок услуг \{[a-z]+ [a-z]+\}$/);
+    fireEvent.click(within(menu).getByRole("button", { name: "выбрать сотрудника: Рынок услуг" }));
+    fireEvent.click(within(screen.getByRole("listbox", { name: "сотрудники: Рынок услуг" })).getByRole("option", { name: "автоматически" }));
+    expect(area.value.split("\n")[4]).toBe("Кому: Рынок услуг");
   });
 
   it("«Закрепить ресурс» даёт переменную из одного слова; «Выбрать ресурс» ставит ссылку, и поле операции пропадает (владелец, 2026-09-18)", async () => {

@@ -282,11 +282,11 @@ export function parseText(text = "", model = {}, proc = {}) {
       }
       if (lab.kind === "to" || lab.kind === "from") {
         if (!lastStep) { err(row, `«${LABEL_TEXT[lab.kind]}» без «Берёт:»/«Отдаёт:» перед ней`); return; }
-        const name = rest.replace(/,\s*$/, "").trim();
-        const pos = (model.positions || []).find((p) => nameKey(p.name) === nameKey(name)) || null;
-        const asset = pos ? assetOfPosition(pos, model) : (model.entities || []).find((e) => nameKey(e.name) === nameKey(name)) || null;
-        lastStep[lab.kind] = { name, span: { start: rs, end: rs + name.length }, row, pos: pos ? { id: pos.id, name: pos.name } : null,
-          asset: asset ? { id: asset.id, name: asset.name } : null };
+        /* Получатель/отправитель — как участник (владелец, 2026-09-18):
+           «{рука}» и «@сотрудник» читаются, роли на этих строках не в счёт. */
+        const w = parseWho(rest, rs, model);
+        lastStep[lab.kind] = { name: w.name, span: w.span, row, pos: w.pos, asset: w.asset, hand: w.hand, person: w.person, personId: w.personId,
+          marks: w.marks.filter((m) => m.kind === "hand" || m.kind === "person") };
         last = lab.kind; return;
       }
       if (lab.kind === "or") {
@@ -451,8 +451,12 @@ export function paintOf(text = "", model = {}, proc = {}) {
             s.items.forEach((it) => { const r = it.row ?? s.row; const cur = byRow.get(r); byRow.set(r, cur ? { start: Math.min(cur.start, it.span.start), end: Math.max(cur.end, it.span.end) } : { ...it.span }); });
             byRow.forEach((sp, r) => rowOf(r).brackets.push({ ...sp, side }));
           }
-          if (s.to) put(s.to.row, s.to.span, { kind: "asset", state: s.to.asset ? "ok" : "unknown", name: s.to.name });
-          if (s.from) put(s.from.row, s.from.span, { kind: "asset", state: s.from.asset ? "ok" : "unknown", name: s.from.name });
+          [s.to, s.from].forEach((x) => {
+            if (!x) return;
+            put(x.row, x.span, { kind: "asset", state: x.asset ? "ok" : "unknown", name: x.name });
+            (x.marks || []).forEach((m) => put(x.row, m, { kind: m.kind, hand: m.hand, person: m.person, brace: !!m.brace, at: !!m.at,
+              known: m.kind !== "person" || !!x.personId }));
+          });
         });
       });
     });
@@ -678,9 +682,9 @@ export function suggest(hint, model = {}, proc = {}) {
 export function exportText(text = "") {
   return String(text || "").split("\n").map((line) => {
     const lab = labelOf(line);
-    if (!lab || lab.kind !== "who") return line;
+    if (!lab || !["who", "to", "from"].includes(lab.kind)) return line;
     const rest = lab.rest.text;
-    const icons = (rest.match(/[✎⚙✓]/g) || []).map((c) => ROLE_WORD[ROLE_BY_WORD[c]]);
+    const icons = lab.kind === "who" ? (rest.match(/[✎⚙✓]/g) || []).map((c) => ROLE_WORD[ROLE_BY_WORD[c]]) : [];
     if (!icons.length && !/[{@]/.test(rest)) return line;
     if (!icons.length) {
       // Без значков — только рука и сотрудник словами.
@@ -704,7 +708,7 @@ export function exportText(text = "") {
 export function importText(text = "") {
   return String(text || "").replace(/\r\n?/g, "\n").split("\n").map((line) => {
     const lab = labelOf(line);
-    if (!lab || lab.kind !== "who") return line;
+    if (!lab || !["who", "to", "from"].includes(lab.kind)) return line;
     let rest = lab.rest.text;
     rest = rest.replace(/\s*\(([^()]*)\)/g, (m, inner) => {
       const words = inner.split(/[,\s]+/).map((w) => nameKey(w)).filter(Boolean);
@@ -800,6 +804,8 @@ export function procFuncs(proc = {}, model = {}) {
               port = { id, trait: it.trait?.id ?? null, lo: it.qty, hi: it.qtyHi ?? it.qty,
                 ...(it.var ? { var: it.var } : {}), ...(s.kind === "give" && s.to?.asset ? { to: s.to.asset.id } : {}),
                 ...(s.kind === "take" && s.from?.asset ? { from: s.from.asset.id } : {}),
+                ...(s.kind === "give" && s.to?.hand ? { toHand: s.to.hand } : {}), ...(s.kind === "give" && s.to?.person ? { toPerson: s.to.person } : {}),
+                ...(s.kind === "take" && s.from?.hand ? { fromHand: s.from.hand } : {}), ...(s.kind === "take" && s.from?.person ? { fromPerson: s.from.person } : {}),
                 ...(it.expr ? { expr: toStored(it.expr, traits, letters) } : {}) };
             }
             (s.kind === "take" ? takes : gives).push(port);
@@ -888,7 +894,7 @@ const rewriteWho = (text, row, make) => {
   const lines = String(text || "").split("\n");
   const line = lines[row] ?? "";
   const lab = labelOf(line);
-  if (!lab || lab.kind !== "who") return text;
+  if (!lab || !["who", "to", "from"].includes(lab.kind)) return text;
   const rest = lab.rest.text;
   const trail = rest.match(/,\s*$/) ? "," : "";
   const core = make(rest.replace(/,\s*$/, "")).replace(/\s+$/, "");

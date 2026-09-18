@@ -76,6 +76,24 @@ describe("переменные ресурсов: плашка и переиме�
   });
 });
 
+describe("«Кому:»/«От кого:» — как участник: рука и сотрудник (владелец, 2026-09-18)", () => {
+  it("читаются «{рука}» и «@сотрудник», красятся плашками, ставятся setHand/setPerson, уходят в порт функции", () => {
+    const text = "Задача: x\nКто: Партнёр-фрилансер\nОтдаёт: оплата 5\nКому: Владелец {space bear} @Иван";
+    const { funcs } = parseText(text, model, {});
+    const step = funcs[0].tasks[0].branches[0].steps[0];
+    expect(step.to).toMatchObject({ name: "Владелец", hand: "space bear", person: "Иван" });
+    const spans = paintOf(text, model, {})[3].spans.map((k) => k.kind);
+    expect(spans).toEqual(["mark", "asset", "hand", "person"]);
+    expect(setHand("Кому: Владелец", 0, "quiet fox")).toBe("Кому: Владелец {quiet fox}");
+    expect(setPerson("От кого: Владелец {quiet fox}", 0, "Пётр")).toBe("От кого: Владелец @Пётр");
+    expect(setAuto("Кому: Владелец @Пётр", 0)).toBe("Кому: Владелец");
+    expect(exportText("Кому: Владелец {space bear}")).toBe("Кому: Владелец (переменная: сотрудник space bear)");
+    expect(importText("Кому: Владелец (переменная: сотрудник space bear)")).toBe("Кому: Владелец {space bear}");
+    const f = procFuncs({ id: "p", text }, model)[0];
+    expect([...f.takes, ...f.gives].find((x) => x.to)).toMatchObject({ to: "own", toHand: "space bear", toPerson: "Иван" });
+  });
+});
+
 describe("разбор", () => {
   it("метки строк: функция, задача, кто, берёт/отдаёт (и множественное число), кому", () => {
     expect(labelOf("Кто: Владелец")).toMatchObject({ kind: "who", rest: { text: "Владелец", start: 5 } });
