@@ -204,6 +204,36 @@ describe("кнопки под полем", () => {
     expect(Number(box.getAttribute("height"))).toBeGreaterThan(72);       // блок вырос под текст
   });
 
+  it("раскладка и масштаб майнд-карты помнятся между открытиями (владелец, 2026-09-18)", () => {
+    const open = () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "майнд-карта процесса" }).pop());
+      return screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    };
+    let dlg = open();
+    let node = within(dlg).getByLabelText("задача собрать");
+    const was = Number(node.querySelector("rect").getAttribute("x"));
+    fireEvent.touchStart(node.querySelector("[data-drag-handle]"), { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(node.querySelector("[data-drag-handle]"), { touches: [{ clientX: 170, clientY: 130 }] });
+    fireEvent.touchEnd(node.querySelector("[data-drag-handle]"), {});
+    fireEvent.click(within(dlg).getByRole("button", { name: "крупнее" }));
+    fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
+
+    dlg = open();                                        // открыли заново
+    node = within(dlg).getByLabelText("задача собрать");
+    expect(Number(node.querySelector("rect").getAttribute("x"))).toBe(was + 70);
+    const sheet = dlg.querySelector("[data-pannable]").firstChild;
+    expect(sheet.style.transform).toContain("scale(1.2)");
+
+    fireEvent.click(within(dlg).getByRole("button", { name: "в начало" }));   // «сброс» возвращает на места
+    expect(Number(node.querySelector("rect").getAttribute("x"))).toBe(was);
+    fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
+    dlg = open();
+    node = within(dlg).getByLabelText("задача собрать");
+    expect(Number(node.querySelector("rect").getAttribute("x"))).toBe(was);
+    expect(dlg.querySelector("[data-pannable]").firstChild.style.transform).toContain("scale(1)");
+    fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
+  });
+
   it("карта двигается, если тянуть мимо блока", () => {
     fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
     const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });

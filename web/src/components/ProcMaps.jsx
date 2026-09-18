@@ -90,18 +90,43 @@ export function portText(p) {
   return `${base}${qty ? ` ${qty}` : ""}${tail}`;
 }
 
+/* ─── Раскладка майнд-карты помнится (владелец, 2026-09-18) ───
+
+   Где разложены блоки и какой у карты масштаб — это НЕ описание процесса, а
+   то, как владелец смотрит на него сейчас. Поэтому раскладка живёт в памяти
+   браузера (`localStorage`), а не в модели: попав в модель, она уезжала бы на
+   сервер и вставала бы шагом в «Отменить» — нажатие «Отменить» после
+   раскладывания карты откатывало бы перетаскивание вместо настоящей правки.
+   Плата за это — раскладка своя на каждом устройстве.
+
+   Блоки помнятся по имени («функция»задача»), а не по месту в тексте: тогда
+   добавленная выше задача не сдвигает всю раскладку. Две задачи с одним
+   именем внутри одной функции делят место — редкий случай, и он безобиден. */
+const layoutKey = (procId) => `sdui:procmap:${procId || "нет"}`;
+export function loadLayout(procId) {
+  try {
+    const raw = window.localStorage.getItem(layoutKey(procId));
+    const v = raw ? JSON.parse(raw) : null;
+    return v && typeof v === "object" ? v : {};
+  } catch { return {}; }
+}
+export function saveLayout(procId, layout) {
+  try { window.localStorage.setItem(layoutKey(procId), JSON.stringify(layout || {})); } catch { /* память могла быть закрыта */ }
+}
+
 /* Окно, внутри которого можно двигаться пальцем и мышью. */
-function Pannable({ label, children, wide = 1200, tall = 700 }) {
-  const [at, setAt] = useState({ x: 0, y: 0 });
-  const [k, setK] = useState(1);
+function Pannable({ label, children, wide = 1200, tall = 700, view, onView, onReset }) {
+  const [at, setAt] = useState(() => ({ x: view?.x || 0, y: view?.y || 0 }));
+  const [k, setK] = useState(() => view?.k || 1);
   const drag = useRef(null);
+  const zoom = (d) => { const n = Math.min(2, Math.max(0.4, Math.round((k + d) * 10) / 10)); setK(n); onView?.({ ...at, k: n }); };
   /* Жест, начатый на ручке блока, карту не двигает (владелец, 2026-09-18:
      «перемещение объекта и перемещение всей карты происходит одновременно»):
      блок ловит его сам, а окно к нему не прикасается. */
   const onHandle = (e) => !!(e.target?.closest?.("[data-drag-handle]"));
   const start = (x, y) => { drag.current = { x, y, ax: at.x, ay: at.y }; };
   const move = (x, y) => { if (drag.current) setAt({ x: drag.current.ax + (x - drag.current.x), y: drag.current.ay + (y - drag.current.y) }); };
-  const stop = () => { drag.current = null; };
+  const stop = () => { if (!drag.current) return; drag.current = null; onView?.({ ...at, k }); };
   return (
     <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
       <div aria-label={label} data-pannable=""
@@ -116,11 +141,11 @@ function Pannable({ label, children, wide = 1200, tall = 700 }) {
           transform: `scale(${k})`, transformOrigin: "0 0" }}>{children}</div>
       </div>
       <div className="flex items-center gap-2" style={{ position: "absolute", right: 6, bottom: 6, zIndex: 2 }}>
-        <button type="button" aria-label="мельче" onClick={() => setK((v) => Math.max(0.4, Math.round((v - 0.2) * 10) / 10))}
+        <button type="button" aria-label="мельче" onClick={() => zoom(-0.2)}
           style={{ ...btn(false), fontSize: 12, padding: "2px 8px" }}>−</button>
-        <button type="button" aria-label="крупнее" onClick={() => setK((v) => Math.min(2, Math.round((v + 0.2) * 10) / 10))}
+        <button type="button" aria-label="крупнее" onClick={() => zoom(0.2)}
           style={{ ...btn(false), fontSize: 12, padding: "2px 8px" }}>+</button>
-        <button type="button" aria-label="в начало" onClick={() => { setAt({ x: 0, y: 0 }); setK(1); }}
+        <button type="button" aria-label="в начало" onClick={() => { setAt({ x: 0, y: 0 }); setK(1); onView?.({ x: 0, y: 0, k: 1 }); onReset?.(); }}
           style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}>сброс</button>
       </div>
     </div>);
@@ -219,7 +244,7 @@ const doerOf = (t) => t.who.find((w) => w.roles.includes("doer")) || t.who[0] ||
 const keyOf = (w) => (w ? (w.person || w.hand || w.name || "") : "");
 
 /** Майнд-карта: блоки задач, люди под ними, ресурсы и взаимодействия стрелками. */
-function MindMap({ plan }) {
+function MindMap({ plan, layout = {}, onLayout }) {
   const W = 280, GAPX = 110, GAPY = 50;   // GAPY — поверх места под именем исполнителя
   /* Строки блока — что берёт и что отдаёт, с количеством, закреплённым
      именем и второй стороной. Пустых разделов нет (владелец, 2026-09-18). */
@@ -265,8 +290,18 @@ function MindMap({ plan }) {
     return node;
   });
   /* Блоки двигаются перетаскиванием (владелец, 2026-09-18); положение
-     помнится, пока открыто окно. */
-  const [moved, setMoved] = useState({});
+     помнится и после закрытия окна — по имени задачи. */
+  const idOf = (t) => `${t.func}»${t.name}`;
+  const [moved, setMoved] = useState(() => {
+    const was = layout.moved || {}, out = {};
+    withRows.forEach((t) => { const p0 = was[idOf(t)]; if (p0 && typeof p0.x === "number") out[t.key] = p0; });
+    return out;
+  });
+  const keep = (m) => {
+    const out = {};
+    withRows.forEach((t) => { if (m[t.key]) out[idOf(t)] = m[t.key]; });
+    onLayout?.({ moved: out });
+  };
   const drag = useRef(null);
   const nodes = base.map((n) => ({ ...n, x: moved[n.key]?.x ?? n.x, y: moved[n.key]?.y ?? n.y }));
   const at = (k) => nodes.find((n) => n.key === k);
@@ -301,7 +336,7 @@ function MindMap({ plan }) {
     const t = e.touches[0];
     if (t) drift(t.clientX, t.clientY);
   };
-  const up = () => { drag.current = null; };
+  const up = () => { if (!drag.current) return; drag.current = null; keep(moved); };
   const width = Math.max(600, Math.max(...nodes.map((n) => n.x + W), 0) + 40, 40 + people0(plan).length * 170);
   const height = Math.max(300, Math.max(...nodes.map((n) => n.y + n.h + n.below + 12), 0) + 20);
 
@@ -350,7 +385,9 @@ function MindMap({ plan }) {
   /* Полоса людей тоже растёт под перенесённые имена. */
   const laneTall = 46 + Math.max(0, ...people.map((p) => (wrap(p.name, 20).length - 1) * 11 + wrap(p.post || "", 22).length * 10));
   return (
-    <Pannable label="майнд-карта процесса" wide={width} tall={laneY + laneTall}>
+    <Pannable label="майнд-карта процесса" wide={width} tall={laneY + laneTall}
+      view={layout.view} onView={(v) => onLayout?.({ view: v })}
+      onReset={() => { setMoved({}); onLayout?.({ moved: {} }); }}>
       <svg width={width} height={laneY + laneTall} style={{ display: "block" }}
         onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         <defs>
@@ -462,6 +499,16 @@ function MindMap({ plan }) {
 /** Модальное окно с картой процесса. */
 export default function ProcMaps({ mode, proc, model, onClose }) {
   const plan = procPlan(proc?.text || "", model, proc || {});
+  /* Раскладка майнд-карты помнится между открытиями: читаем при открытии,
+     дописываем по концу жеста (владелец, 2026-09-18). */
+  const saved = useRef(null);
+  if (saved.current === null) saved.current = loadLayout(proc?.id);
+  const [layout, setLayout] = useState(saved.current);
+  const putLayout = (patch) => setLayout((L) => {
+    const next = { ...L, ...patch };
+    saveLayout(proc?.id, next);
+    return next;
+  });
   const title = mode === "timeline" ? "Таймлайн процесса" : "Майнд-карта процесса";
   return (
     <div role="dialog" aria-label={title} onClick={onClose}
@@ -478,9 +525,11 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
         <div style={{ fontSize: 10.5, color: C.muted }}>
           {mode === "timeline"
             ? "Прогноз по описанию: сколько идёт каждая задача и сколько ждать следующую попытку. Нажмите на полосу — задача раскроется целиком."
-            : "Что куда уходит: задачи и ресурсы между ними. Сплошная стрелка — выданный ресурс, взятый другой задачей (цвет — закреплённого имени); пунктирная — «или», иной исход; серая дуга внизу — кто с кем взаимодействует. Стрелка всегда подходит к ближней стороне блока."}
+            : "Что куда уходит: задачи и ресурсы между ними. Сплошная стрелка — выданный ресурс, взятый другой задачей (цвет — закреплённого имени); пунктирная — «или», иной исход; серая дуга внизу — кто с кем взаимодействует. Стрелка всегда подходит к ближней стороне блока. Блоки тянутся за шапку: раскладка и масштаб помнятся на этом устройстве, «сброс» возвращает их на места."}
         </div>
-        {mode === "timeline" ? <Timeline plan={plan} /> : <MindMap plan={plan} />}
+        {mode === "timeline"
+          ? <Timeline plan={plan} />
+          : <MindMap plan={plan} layout={layout} onLayout={putLayout} />}
       </div>
     </div>);
 }
