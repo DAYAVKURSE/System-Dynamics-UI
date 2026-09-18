@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
 import { parseText, ROLE_KINDS } from "../lib/proc2.js";
 import { hoursRange, everyRange } from "../lib/funcs.js";
@@ -145,25 +145,93 @@ export function saveLayout(procId, layout) {
 }
 
 /* Окно, внутри которого можно двигаться пальцем и мышью. */
-function Pannable({ label, children, wide = 1200, tall = 700, view, onView, onReset }) {
+function Pannable({ label, children, wide = 1200, tall = 700, view, onView, onReset, lockAxis = false }) {
   const [at, setAt] = useState(() => ({ x: view?.x || 0, y: view?.y || 0 }));
   const [k, setK] = useState(() => view?.k || 1);
   const drag = useRef(null);
-  const zoom = (d) => { const n = Math.min(2, Math.max(0.4, Math.round((k + d) * 10) / 10)); setK(n); onView?.({ ...at, k: n }); };
+  const pinch = useRef(null);
+  const box = useRef(null);
+  const atRef = useRef(at), kRef = useRef(k), viewRef = useRef(onView);
+  atRef.current = at; kRef.current = k; viewRef.current = onView;
+  const fit = (z) => Math.min(2, Math.max(0.4, z));
+  const zoom = (d) => { const n = fit(Math.round((k + d) * 10) / 10); setK(n); onView?.({ ...at, k: n }); };
   /* Жест, начатый на ручке блока, карту не двигает (владелец, 2026-09-18:
      «перемещение объекта и перемещение всей карты происходит одновременно»):
      блок ловит его сам, а окно к нему не прикасается. */
   const onHandle = (e) => !!(e.target?.closest?.("[data-drag-handle]"));
-  const start = (x, y) => { drag.current = { x, y, ax: at.x, ay: at.y }; };
-  const move = (x, y) => { if (drag.current) setAt({ x: drag.current.ax + (x - drag.current.x), y: drag.current.ay + (y - drag.current.y) }); };
+  const start = (x, y) => { drag.current = { x, y, ax: at.x, ay: at.y, axis: null }; };
+  /* Таймлайн водят по одной оси (владелец, 2026-09-18: «нельзя его водить во
+     все стороны»): по первым 6 пикселям решаем, это движение вдоль шкалы или
+     поперёк, и дальше держим только его — иначе шкала уезжает под пальцем. */
+  const move = (x, y) => {
+    const d = drag.current;
+    if (!d || pinch.current) return;
+    let dx = x - d.x, dy = y - d.y;
+    if (lockAxis) {
+      if (!d.axis) {
+        if (Math.hypot(dx, dy) < 6) return;
+        d.axis = Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
+      }
+      if (d.axis === "x") dy = 0; else dx = 0;
+    }
+    setAt({ x: d.ax + dx, y: d.ay + dy });
+  };
   const stop = () => { if (!drag.current) return; drag.current = null; onView?.({ ...at, k }); };
+
+  /* Щипок двумя пальцами — как на схеме активов (владелец, 2026-09-18).
+     Слушаем сами, а не через React: нужен `passive: false`, иначе браузер не
+     отдаёт жест. Точка листа под серединой пальцев остаётся на месте. */
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return undefined;
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY) || 1;
+    const mid = (t) => {
+      const r = el.getBoundingClientRect();
+      return [(t[0].clientX + t[1].clientX) / 2 - r.left, (t[0].clientY + t[1].clientY) / 2 - r.top];
+    };
+    const begin = (ev) => {
+      if (ev.touches.length !== 2) return;
+      drag.current = null;                       // второй палец отменяет прокрутку
+      const [mx, my] = mid(ev.touches);
+      const k0 = kRef.current, a0 = atRef.current;
+      pinch.current = { d0: dist(ev.touches), k0, y0: a0.y, cx: (mx - a0.x) / k0, cy: (my - a0.y) / k0 };
+      ev.preventDefault();
+    };
+    const spread = (ev) => {
+      const pz = pinch.current;
+      if (!pz || ev.touches.length !== 2) return;
+      ev.preventDefault();
+      const [mx, my] = mid(ev.touches);
+      const k1 = fit(pz.k0 * (dist(ev.touches) / pz.d0));
+      setK(k1);
+      /* На таймлайне щипок только приближает: по вертикали лист не уводим,
+         иначе шкала уезжает, а её водят отдельным движением. */
+      setAt({ x: mx - pz.cx * k1, y: lockAxis ? pz.y0 : my - pz.cy * k1 });
+    };
+    const done = (ev) => {
+      if (!pinch.current || ev.touches.length >= 2) return;
+      pinch.current = null;
+      viewRef.current?.({ ...atRef.current, k: kRef.current });
+    };
+    el.addEventListener("touchstart", begin, { passive: false });
+    el.addEventListener("touchmove", spread, { passive: false });
+    el.addEventListener("touchend", done);
+    el.addEventListener("touchcancel", done);
+    return () => {
+      el.removeEventListener("touchstart", begin);
+      el.removeEventListener("touchmove", spread);
+      el.removeEventListener("touchend", done);
+      el.removeEventListener("touchcancel", done);
+    };
+  }, [lockAxis]);
+
   return (
     <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
-      <div aria-label={label} data-pannable=""
-        onPointerDown={(e) => { if (onHandle(e)) return; e.currentTarget.setPointerCapture?.(e.pointerId); start(e.clientX, e.clientY); }}
+      <div aria-label={label} data-pannable="" ref={box}
+        onPointerDown={(e) => { if (onHandle(e) || pinch.current) return; e.currentTarget.setPointerCapture?.(e.pointerId); start(e.clientX, e.clientY); }}
         onPointerMove={(e) => move(e.clientX, e.clientY)} onPointerUp={stop} onPointerCancel={stop}
-        onTouchStart={(e) => { if (onHandle(e)) return; const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }}
-        onTouchMove={(e) => { if (!drag.current) return; const t = e.touches[0]; if (t) { e.preventDefault(); move(t.clientX, t.clientY); } }}
+        onTouchStart={(e) => { if (onHandle(e) || e.touches.length > 1) { drag.current = null; return; } const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }}
+        onTouchMove={(e) => { if (!drag.current || e.touches.length > 1) return; const t = e.touches[0]; if (t) move(t.clientX, t.clientY); }}
         onTouchEnd={stop} onTouchCancel={stop}
         style={{ position: "absolute", inset: 0, overflow: "hidden", touchAction: "none",
           background: C.ink, border: `1px solid ${C.line}`, borderRadius: 8, cursor: drag.current ? "grabbing" : "grab" }}>
@@ -255,7 +323,7 @@ function Timeline({ plan }) {
     t.along.length ? `разом с: ${t.along.join(", ")}` : "",
     t.cond != null ? `ветка «если ${t.cond}»` : t.isElse ? "ветка «иначе»" : ""].filter(Boolean).join(" · ");
   return (
-    <Pannable label="таймлайн процесса" wide={width} tall={tall}>
+    <Pannable label="таймлайн процесса" wide={width} tall={tall} lockAxis>
       <div style={{ position: "relative", width, minHeight: tall, fontSize: 11 }}>
         {marks.map((i) => (
           <div key={i} style={{ position: "absolute", left: i * PX + 8, top: 0, bottom: 0, borderLeft: `1px solid ${C.line}66` }}>
@@ -412,6 +480,7 @@ function MindMap({ plan, layout = {}, onLayout }) {
   };
   const touchMove = (e) => {
     if (!drag.current) return;
+    if (e.touches.length > 1) { drag.current = null; return; }   // два пальца — это масштаб
     e.stopPropagation();
     const t = e.touches[0];
     if (t) drift(t.clientX, t.clientY);

@@ -261,6 +261,50 @@ describe("кнопки под полем", () => {
     fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
   });
 
+  it("таймлайн водится по одной оси, а щипок двумя пальцами меняет масштаб (владелец, 2026-09-18)", () => {
+    fireEvent.click(screen.getAllByRole("button", { name: "таймлайн процесса" }).pop());
+    const dlg = screen.getByRole("dialog", { name: "Таймлайн процесса" });
+    const pane = dlg.querySelector("[data-pannable]");
+    const sheet = pane.firstChild;
+    // Вдоль шкалы: движение почти горизонтальное — вертикаль не трогаем.
+    fireEvent.touchStart(pane, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(pane, { touches: [{ clientX: 160, clientY: 130 }] });
+    fireEvent.touchEnd(pane, { touches: [] });
+    expect(sheet.style.left).toBe("60px");
+    expect(sheet.style.top).toBe("0px");
+    // Поперёк: движение почти вертикальное — горизонталь стоит.
+    fireEvent.touchStart(pane, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(pane, { touches: [{ clientX: 130, clientY: 200 }] });
+    fireEvent.touchEnd(pane, { touches: [] });
+    expect(sheet.style.left).toBe("60px");
+    expect(sheet.style.top).toBe("100px");
+    // Щипок: пальцы разошлись вдвое — масштаб вырос (до потолка 2).
+    fireEvent.touchStart(pane, { touches: [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }] });
+    fireEvent.touchMove(pane, { touches: [{ clientX: 60, clientY: 100 }, { clientX: 240, clientY: 100 }] });
+    fireEvent.touchEnd(pane, { touches: [] });
+    expect(sheet.style.transform).toContain("scale(1.8)");
+    expect(sheet.style.top).toBe("100px");        // щипок на таймлайне не уводит лист по вертикали
+    fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
+  });
+
+  it("на майнд-карте щипок тоже меняет масштаб, а блок при этом не едет", () => {
+    fireEvent.click(screen.getAllByRole("button", { name: "майнд-карта процесса" }).pop());
+    const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    const pane = dlg.querySelector("[data-pannable]");
+    const sheet = pane.firstChild;
+    const node = within(dlg).getByLabelText("задача собрать");
+    const handle = node.querySelector("[data-drag-handle]");
+    const was = node.querySelector("rect").getAttribute("x");
+    fireEvent.touchStart(handle, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchStart(pane, { touches: [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }] });
+    fireEvent.touchMove(handle, { touches: [{ clientX: 60, clientY: 100 }, { clientX: 240, clientY: 100 }] });
+    fireEvent.touchMove(pane, { touches: [{ clientX: 60, clientY: 100 }, { clientX: 240, clientY: 100 }] });
+    fireEvent.touchEnd(pane, { touches: [] });
+    expect(sheet.style.transform).toContain("scale(1.8)");
+    expect(node.querySelector("rect").getAttribute("x")).toBe(was);   // блок остался на месте
+    fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
+  });
+
   it("карта двигается, если тянуть мимо блока", () => {
     fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
     const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
