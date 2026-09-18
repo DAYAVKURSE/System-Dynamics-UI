@@ -310,6 +310,26 @@ describe("роли, статусы, функции", () => {
     spy.mockRestore();
   });
 
+  it("в просмотре клавиша включает правку, Enter переводит строку и не подставляет подсказку (владелец, 2026-09-18)", () => {
+    const area = addProc();
+    const T2 = "Задача: лид\nКто: Пользователи\nБерёт: заявки 2";
+    write(area, T2);
+    view(area);
+    // Курсор на ресурсе: меню ресурса открыто, поле только для чтения.
+    fireEvent.click(area, { target: { selectionStart: T2.indexOf("заявки") + 3 } });
+    expect(area).toHaveAttribute("readonly");
+    // Enter не должен ничего подставлять — только включить правку.
+    fireEvent.keyDown(area, { key: "Enter" });
+    expect(area).not.toHaveAttribute("readonly");
+    expect(area.value).toBe(T2);
+    // И обычный символ включает правку так же.
+    write(area, T2);
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: T2.length } });
+    fireEvent.keyDown(area, { key: "к" });
+    expect(area).not.toHaveAttribute("readonly");
+  });
+
   it("меню задачи: критерии проверки добавляются «+» и уходят в текст и в функцию (владелец, 2026-09-18)", () => {
     const area = addProc();
     write(area, TEXT);

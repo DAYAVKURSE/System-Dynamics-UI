@@ -338,6 +338,18 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     apply(next, head.length + put.length + suffix.length - (it.caretBack || 0));
   };
   const onKey = (e) => {
+    /* В просмотре подсказки не участвуют: набранная клавиша включает
+       правку и попадает в поле как обычно (владелец, 2026-09-18: «после
+       закрепления переменной Enter не переводит строку» — вместо переноса
+       Enter подставлял скрытую подсказку в readOnly-поле). */
+    if (!editing) {
+      const puts = e.key === "Enter" || e.key === "Backspace" || e.key === "Delete"
+        || (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey);
+      if (!puts) return;
+      const el = inp.current;
+      if (el) { el.readOnly = false; setEditing(true); setFocus(true); }
+      return;   // событие не перехватываем — браузер сам вставит
+    }
     const list = pick ? items.filter((i) => !i.info) : [];
     if (e.key === "Enter" && !e.shiftKey) {
       /* Enter подставляет начатое имя; иначе — обычный перенос строки, и
@@ -435,8 +447,16 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     setTimeout(() => { hold.current = false; }, 400);
   };
   const roleOn = (role) => rowLine.includes(ICON[role]);
-  const rewrite = (next) => {
-    const caret = Math.min(inp.current?.selectionStart ?? next.length, next.length);
+  /* `at` — куда поставить курсор после правки; без него он остаётся на
+     месте. После правок из меню ставим в конец изменённой строки, чтобы
+     дальше сразу набирать или переводить строку (владелец, 2026-09-18). */
+  const rowEnd = (t, row) => {
+    const rows = String(t).split("\n");
+    if (row < 0 || row >= rows.length) return null;
+    return rows.slice(0, row).reduce((n, l) => n + l.length + 1, 0) + rows[row].length;
+  };
+  const rewrite = (next, at = null) => {
+    const caret = at != null ? Math.min(at, next.length) : Math.min(inp.current?.selectionStart ?? next.length, next.length);
     setText(next); onCommit(next);
     /* Правка из меню уезжает в модель: функции пересобираются, схема
        перерисовывается — прыжок случается и через полсекунды (владелец,
@@ -483,7 +503,8 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const [fold, setFold] = useState("");   // какой раздел меню раскрыт
   const pinRes = () => {
     const at = resStart + (res.tail ? res.tailSpan.end : res.nameSpan.end);
-    rewrite(`${text.slice(0, at)} (${newVarName(new Set([...procVars, ...usedHands()]))})${text.slice(at)}`);
+    const next = `${text.slice(0, at)} (${newVarName(new Set([...procVars, ...usedHands()]))})${text.slice(at)}`;
+    rewrite(next, rowEnd(next, resRow));
   };
   const unpinRes = () => {
     let a = resStart + resVar.start; const b = resStart + resVar.end;
@@ -493,7 +514,8 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const useVar = (v) => {
     const a = resStart + res.itemSpan.start, b = resStart + res.itemSpan.end;
     setPickVar(false);
-    rewrite(`${text.slice(0, a)}(${v})${text.slice(b)}`);
+    const next = `${text.slice(0, a)}(${v})${text.slice(b)}`;
+    rewrite(next, rowEnd(next, resRow));
   };
   const dropRef = () => {
     let a = resStart + res.itemSpan.start; let b = resStart + res.itemSpan.end;
