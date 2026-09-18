@@ -276,7 +276,7 @@ export function parseText(text = "", model = {}, proc = {}) {
       }
       if (lab.kind === "take" || lab.kind === "give") {
         const items = splitItems(rest, rs).map((it) => parseItem(it, traits, countItems(branch)));
-        const step = { kind: lab.kind, items, row, label: lab.label, plural: lab.plural, or: [], to: null, from: null,
+        const step = { kind: lab.kind, items, row, label: lab.label, plural: lab.plural, or: [], to: null, from: null, tos: [], froms: [],
           span: items.length ? { start: items[0].span.start, end: items[items.length - 1].span.end } : { start: rs, end: rs } };
         branch.steps.push(step); lastStep = step; last = lab.kind; return;
       }
@@ -285,8 +285,13 @@ export function parseText(text = "", model = {}, proc = {}) {
         /* Получатель/отправитель — как участник (владелец, 2026-09-18):
            «{рука}» и «@сотрудник» читаются, роли на этих строках не в счёт. */
         const w = parseWho(rest, rs, model);
-        lastStep[lab.kind] = { name: w.name, span: w.span, row, pos: w.pos, asset: w.asset, hand: w.hand, person: w.person, personId: w.personId,
+        const side = { name: w.name, span: w.span, row, pos: w.pos, asset: w.asset, hand: w.hand, person: w.person, personId: w.personId,
           marks: w.marks.filter((m) => m.kind === "hand" || m.kind === "person") };
+        /* Строк «Кому:»/«От кого:» может быть несколько (владелец, 2026-09-18):
+           `tos`/`froms` — все, `to`/`from` — первая (для прежнего кода). */
+        const list = lab.kind === "to" ? lastStep.tos : lastStep.froms;
+        list.push(side);
+        if (!lastStep[lab.kind]) lastStep[lab.kind] = side;
         last = lab.kind; return;
       }
       if (lab.kind === "or") {
@@ -451,7 +456,7 @@ export function paintOf(text = "", model = {}, proc = {}) {
             s.items.forEach((it) => { const r = it.row ?? s.row; const cur = byRow.get(r); byRow.set(r, cur ? { start: Math.min(cur.start, it.span.start), end: Math.max(cur.end, it.span.end) } : { ...it.span }); });
             byRow.forEach((sp, r) => rowOf(r).brackets.push({ ...sp, side }));
           }
-          [s.to, s.from].forEach((x) => {
+          [...(s.tos || []), ...(s.froms || [])].forEach((x) => {
             if (!x) return;
             put(x.row, x.span, { kind: "asset", state: x.asset ? "ok" : "unknown", name: x.name });
             (x.marks || []).forEach((m) => put(x.row, m, { kind: m.kind, hand: m.hand, person: m.person, brace: !!m.brace, at: !!m.at,
@@ -617,6 +622,8 @@ export function suggest(hint, model = {}, proc = {}) {
     const plural = c.whoRun >= 2;
     if (c.lastLab === "take" && !c.blankBefore) items.push(label("from", "откуда"), label(plural ? "gives" : "give"), label(plural ? "takes" : "take"), label("who"));
     else if (c.lastLab === "give" && !c.blankBefore) items.push(label("to", "куда"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
+    else if (c.lastLab === "to" && !c.blankBefore) items.push(label("to", "ещё кому"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
+    else if (c.lastLab === "from" && !c.blankBefore) items.push(label("from", "ещё от кого"), label(plural ? "gives" : "give"), label(plural ? "takes" : "take"), label("who"));
     else if ((c.hasWho || c.whoRun) && !c.blankBefore) items.push(label(plural ? "takes" : "take", "что берёт"), label(plural ? "gives" : "give", "что отдаёт"), label("who", "ещё участник"));
     else items.push(label("who", "участник"), label("task", "новая задача"), label("func", "новая функция"));
     if (!items.some((i) => i.mark === "who")) items.push(label("who"));
@@ -813,6 +820,18 @@ export function procFuncs(proc = {}, model = {}) {
             }
             (s.kind === "take" ? takes : gives).push(port);
             ids.push(id);
+            /* Ещё получатели/отправители — тот же ресурс каждому, порт на каждого. */
+            const more = (s.kind === "give" ? s.tos || [] : s.froms || []).slice(1);
+            more.forEach((x, j) => {
+              if (!x.asset) return;
+              const pid = `${id}_${j + 1}`;
+              const extra = s.kind === "give"
+                ? { to: x.asset.id, ...(x.hand ? { toHand: x.hand } : {}), ...(x.person ? { toPerson: x.person } : {}) }
+                : { from: x.asset.id, ...(x.hand ? { fromHand: x.hand } : {}), ...(x.person ? { fromPerson: x.person } : {}) };
+              const { to: _t, toHand: _th, toPerson: _tp, from: _f, fromHand: _fh, fromPerson: _fp, ...base } = port;
+              (s.kind === "take" ? takes : gives).push({ ...base, id: pid, ...extra });
+              ids.push(pid);
+            });
           });
           const or = s.or.map((it) => { const k = t.items.indexOf(it); return { id: `p_${tid}_${k}`, trait: it.trait?.id ?? null, lo: it.qty, hi: it.qtyHi ?? it.qty, var: it.var, flag: !!it.flag }; });
           steps.push({ kind: s.kind, ports: ids, ...(or.length ? { or } : {}) });
@@ -847,7 +866,7 @@ export const usesAsset = (proc = {}, model = {}, assetId) => {
   const { funcs } = parseText(proc.text, model, proc);
   return funcs.some((f) => f.tasks.some((t) => t.branches.some((b) =>
     b.who.some((w) => String(w.asset?.id) === String(assetId))
-    || b.steps.some((s) => String(s.asset?.id) === String(assetId) || String(s.to?.asset?.id) === String(assetId) || String(s.from?.asset?.id) === String(assetId)))));
+    || b.steps.some((s) => String(s.asset?.id) === String(assetId) || [...(s.tos || []), ...(s.froms || [])].some((x) => String(x.asset?.id) === String(assetId)) || String(s.to?.asset?.id) === String(assetId) || String(s.from?.asset?.id) === String(assetId)))));
 };
 
 /* ─────── замена и правка на месте ─────── */
@@ -862,7 +881,7 @@ export function replaceName(text = "", kind, oldName, newName, model = {}) {
     if (kind !== "trait") b.who.forEach((w) => { if (nameKey(w.name) === key) edits.push({ row: w.row, ...w.span }); });
     b.steps.forEach((s) => {
       if (kind === "trait") [...s.items, ...s.or].forEach((it) => { if (it.name && nameKey(it.name) === key) edits.push({ row: it.row ?? s.row, ...it.nameSpan }); });
-      else [s.to, s.from].forEach((x) => { if (x && nameKey(x.name) === key) edits.push({ row: x.row, ...x.span }); });
+      else [...(s.tos || []), ...(s.froms || [])].forEach((x) => { if (x && nameKey(x.name) === key) edits.push({ row: x.row, ...x.span }); });
     });
   })));
   edits.sort((a, b) => (a.row - b.row) || (b.start - a.start)).forEach((e) => {
@@ -925,7 +944,7 @@ export function taskBlocks(text = "", model = {}) {
   funcs.forEach((f, fi) => f.tasks.forEach((t, ti) => {
     const rows = new Set();
     rows.add(t.row);
-    t.branches.forEach((b) => { rows.add(b.row); b.who.forEach((w) => rows.add(w.row)); b.steps.forEach((s) => { rows.add(s.row); s.items.forEach((it) => rows.add(it.row ?? s.row)); if (s.to) rows.add(s.to.row); if (s.from) rows.add(s.from.row); s.or.forEach((it) => rows.add(it.row ?? s.row)); }); });
+    t.branches.forEach((b) => { rows.add(b.row); b.who.forEach((w) => rows.add(w.row)); b.steps.forEach((s) => { rows.add(s.row); s.items.forEach((it) => rows.add(it.row ?? s.row)); [...(s.tos || []), ...(s.froms || [])].forEach((x) => rows.add(x.row)); s.or.forEach((it) => rows.add(it.row ?? s.row)); }); });
     const body = [...rows].sort((a, b) => a - b).map((r) => lines[r]).join("\n");
     out.push({ key: `${f.name || fi}|${t.name || ti}`, name: t.name || `задача ${ti + 1}`, func: f.name, text: body });
   }));

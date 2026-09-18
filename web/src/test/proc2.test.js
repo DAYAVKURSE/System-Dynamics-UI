@@ -102,6 +102,25 @@ describe("«Кому:»/«От кого:» — как участник: рука
   });
 });
 
+describe("несколько «Кому:» (владелец, 2026-09-18)", () => {
+  it("все получатели читаются, красятся, дают по порту на каждого; после «Кому:» подсказка предлагает ещё «Кому:»", () => {
+    const text = "Задача: x\nКто: Партнёр-фрилансер\nОтдаёт: оплата 5\nКому: Владелец\nКому: Партнёр-фрилансер {space bear}";
+    const { funcs, errors } = parseText(text, model, {});
+    expect(errors).toEqual([]);
+    const step = funcs[0].tasks[0].branches[0].steps[0];
+    expect(step.tos.map((x) => x.name)).toEqual(["Владелец", "Партнёр-фрилансер"]);
+    expect(step.to.name).toBe("Владелец");
+    expect(paintOf(text, model, {})[4].spans.map((k) => k.kind)).toEqual(["mark", "asset", "hand"]);
+    const f = procFuncs({ id: "p", text }, model)[0];
+    expect(f.gives.map((g) => [g.trait, g.to, g.toHand || ""])).toEqual([["t4", "own", ""], ["t4", "prt", "space bear"]]);   // ресурс — по первому получателю
+    expect(f.steps[0].ports).toHaveLength(2);
+    const labels = suggest(hintAt(`${text}\n`, text.length + 1, model), model).map((i) => `${i.name} ${i.note || ""}`.trim());
+    expect(labels[0]).toBe("Кому: ещё кому");
+    expect(usesAsset({ id: "p", text }, model, "prt")).toBe(true);
+    expect(replaceName(text, "who", "Владелец", "Босс", model).split("\n")[3]).toBe("Кому: Босс");
+  });
+});
+
 describe("разбор", () => {
   it("метки строк: функция, задача, кто, берёт/отдаёт (и множественное число), кому", () => {
     expect(labelOf("Кто: Владелец")).toMatchObject({ kind: "who", rest: { text: "Владелец", start: 5 } });
