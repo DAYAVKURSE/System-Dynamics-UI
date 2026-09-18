@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, peopleOfPosition, procFuncs,
-  capFirstTyped, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
+  capFirstTyped, indentText, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -250,6 +250,22 @@ describe("имя новой сущности с большой буквы (вл�
     // Вставка нескольких символов (вставка из буфера) не трогается.
     expect(capFirstTyped("Задача: ", "Задача: лид", 11)).toBeNull();
     expect(typed("Задача: ", "л", 9)).toBe("Задача: Л");
+  });
+});
+
+describe("отступы по смыслу (владелец, 2026-09-18)", () => {
+  it("задача внутри функции, её строки внутри задачи, строки ветки внутри «То:»/«Иначе:»", () => {
+    const T = ["Функция: Обработка", "", "Задача: собрать", "Срок: 2 дн", "Кто: Владелец", "Если: a", "То:", "Кто: Владелец", "Иначе:", "Кто: Владелец"].join("\n");
+    expect(indentText(T).split("\n")).toEqual([
+      "Функция: Обработка", "", "  Задача: собрать", "    Срок: 2 дн", "    Кто: Владелец",
+      "    Если: a", "    То:", "      Кто: Владелец", "    Иначе:", "      Кто: Владелец"]);
+    // Без функции задача стоит у края, её строки — на шаг внутрь.
+    expect(indentText("Задача: a\nКто: Владелец").split("\n")).toEqual(["Задача: a", "  Кто: Владелец"]);
+    // Повторный проход ничего не меняет, а разбор от отступов не страдает.
+    expect(indentText(indentText(T))).toBe(indentText(T));
+    const plain = "Задача: a\nКто: Владелец\nОтдаёт: оффер 1";
+    expect(parseText(indentText(plain), model, {}).errors).toEqual([]);
+    expect(parseText(indentText(plain), model, {}).funcs[0].tasks[0].name).toBe("a");
   });
 });
 

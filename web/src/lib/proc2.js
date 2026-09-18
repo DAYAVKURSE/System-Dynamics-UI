@@ -604,6 +604,32 @@ export function capFirstTyped(before = "", after = "", at = 0) {
   return `${after.slice(0, at - 1)}${ch.toUpperCase()}${after.slice(at)}`;
 }
 
+/**
+ * Отступы по смыслу (владелец, 2026-09-18): задача внутри функции, её
+ * строки внутри задачи, строки ветки внутри «То:»/«Иначе:».
+ *
+ * Отступ — настоящие пробелы в тексте, а не оформление подложки: поле и
+ * подложка должны совпадать посимвольно, иначе курсор разъедется. Разбор
+ * ведущие пробелы и так пропускает (`labelOf`), поэтому смысл не меняется.
+ */
+const STEP = "  ";
+export function indentText(text = "") {
+  const lines = String(text || "").split("\n");
+  let hasFunc = false;
+  let inBranch = false;   // идём внутри «То:»/«Иначе:»
+  return lines.map((raw) => {
+    const line = raw.replace(/^[ \t]+/, "");
+    if (!line.trim()) { inBranch = false; return ""; }
+    const kind = labelOf(line)?.kind || null;
+    if (kind === "func") { hasFunc = true; inBranch = false; return line; }
+    if (kind === "task") { inBranch = false; return `${hasFunc ? STEP : ""}${line}`; }
+    const base = hasFunc ? STEP.repeat(2) : STEP;
+    if (kind === "then" || kind === "else") { inBranch = true; return `${base}${line}`; }
+    if (kind === "if") { inBranch = false; return `${base}${line}`; }
+    return `${base}${inBranch ? STEP : ""}${line}`;
+  }).join("\n");
+}
+
 /** Переписать критерии задачи: строки «Критерий: …» под её сроками. */
 export function setTaskChecks(text = "", taskRow, list = []) {
   const lines = String(text || "").split("\n");

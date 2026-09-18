@@ -6,7 +6,7 @@ import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, 
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
   suggest, toggleRole, usesAsset, whoState, renameVar, setTaskTime, parseDur, parseEvery, parsePar,
-  durText, everyText, parText, TIME_UNITS, setTaskChecks, capFirstTyped } from "../lib/proc2.js";
+  durText, everyText, parText, TIME_UNITS, setTaskChecks, capFirstTyped, indentText } from "../lib/proc2.js";
 import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
 import { hasKind, toggleKind } from "../lib/traits.js";
 import ProcMaps from "./ProcMaps.jsx";
@@ -294,6 +294,21 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   useEffect(() => { if (!focus) setText(value); }, [value, focus]);
 
   const items = pick ? suggest(pick, model, proc) : [];
+  /* Отступы по смыслу: выравниваем текст и ведём курсор за его строкой
+     (владелец, 2026-09-18). */
+  const reflow = (next, caret) => {
+    const out = indentText(next);
+    if (out === next) return { text: next, caret };
+    const rowsA = next.split("\n");
+    const rowsB = out.split("\n");
+    const row = next.slice(0, caret).split("\n").length - 1;
+    const startA = rowsA.slice(0, row).reduce((n, l) => n + l.length + 1, 0);
+    const startB = rowsB.slice(0, row).reduce((n, l) => n + l.length + 1, 0);
+    const leadA = (rowsA[row] || "").length - (rowsA[row] || "").replace(/^[ \t]+/, "").length;
+    const leadB = (rowsB[row] || "").length - (rowsB[row] || "").replace(/^[ \t]+/, "").length;
+    const col = Math.max(leadA, caret - startA);
+    return { text: out, caret: Math.min(out.length, startB + leadB + (col - leadA)) };
+  };
   const place = (v, at) => {
     const h = hintAt(v, at, model);
     setPick({ ...h, at });
@@ -301,7 +316,8 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     setCaretRow(v.slice(0, at).split("\n").length - 1);
     setMenuActive(!editingRef.current);
   };
-  const apply = (next, caret) => {
+  const apply = (raw, rawCaret) => {
+    const { text: next, caret } = reflow(raw, rawCaret);
     setText(next);
     setTimeout(() => keepScroll(() => {
       inp.current?.focus({ preventScroll: true });
@@ -318,6 +334,14 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     if (big) {
       setText(big);
       setTimeout(() => { inp.current?.setSelectionRange(at, at); place(big, at); }, 0);
+      return;
+    }
+    /* Отступы — сразу при наборе: и после перевода строки, и как только в
+       новой строке появился первый символ (владелец, 2026-09-18). */
+    const { text: next, caret } = reflow(v, at);
+    if (next !== v) {
+      setText(next);
+      setTimeout(() => { inp.current?.setSelectionRange(caret, caret); place(next, caret); }, 0);
       return;
     }
     setText(v); place(v, at);
@@ -467,8 +491,9 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     if (row < 0 || row >= rows.length) return null;
     return rows.slice(0, row).reduce((n, l) => n + l.length + 1, 0) + rows[row].length;
   };
-  const rewrite = (next, at = null) => {
-    const caret = at != null ? Math.min(at, next.length) : Math.min(inp.current?.selectionStart ?? next.length, next.length);
+  const rewrite = (raw, at = null) => {
+    const want = at != null ? Math.min(at, raw.length) : Math.min(inp.current?.selectionStart ?? raw.length, raw.length);
+    const { text: next, caret } = reflow(raw, want);
     setText(next); onCommit(next);
     /* Правка из меню уезжает в модель: функции пересобираются, схема
        перерисовывается — прыжок случается и через полсекунды (владелец,
@@ -1087,7 +1112,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
 
   const add = () => commit({ procs: [...procs, newProc()] });
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
-  const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: tidyProcText(text) })) });
+  const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: indentText(tidyProcText(text)) })) });
   const saveVersion = (p, note, text = p.text) => {
     const v = { id: `v${Date.now().toString(36)}${(p.versions || []).length.toString(36)}`, at: new Date().toISOString(), text, note };
     commit({ procs: patch(p.id, (x) => ({ ...x, versions: [...(x.versions || []), v] })) });
@@ -1203,7 +1228,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
               </div>
 
-              <ProcText value={p.text} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands}
+              <ProcText value={indentText(p.text)} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands}
                 kinds={kinds} onTrait={(id, patch) => commit({ procs, traits: traits.map((t) => (t.id === id ? { ...t, ...patch } : t)) })} />
 
               {/* Карты процесса — справа под полем (владелец, 2026-09-18). */}
