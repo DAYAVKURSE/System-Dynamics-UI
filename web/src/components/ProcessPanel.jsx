@@ -78,7 +78,7 @@ function Bracket({ side, children }) {
       <span style={anchor}><i style={{ ...arc, right: -11, borderLeft: "none", borderRadius: "0 8px 8px 0" }} /></span>
     </span>);
 }
-function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1 }) {
+function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, backRef = null }) {
   const lines = String(text || "").split("\n");
   const byRow = new Map(paint.map((r) => [r.row, r]));
   const piece = (ln, from, to, spans, key) => {
@@ -107,7 +107,7 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1 }) {
     return out;
   };
   return (
-    <div aria-hidden="true" data-proc-backdrop="" style={{ ...style, position: "absolute", inset: 0,
+    <div aria-hidden="true" data-proc-backdrop="" ref={backRef} style={{ ...style, position: "absolute", inset: 0,
       color: C.text, pointerEvents: "none", overflow: "hidden", whiteSpace: "pre-wrap",
       wordBreak: "break-word", borderColor: "transparent", background: "transparent" }}>
       {lines.map((ln, i) => {
@@ -148,6 +148,10 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const [caretRow, setCaretRow] = useState(-1);
   const inp = useRef(null);
   const back = useRef(null);
+  /* Прокрутка поля (владелец, 2026-09-18): пока поле в фокусе, его высота
+     ограничена и включается собственная прокрутка; подложка и меню
+     участника сдвигаются вместе с текстом. */
+  const [scrollTop, setScrollTop] = useState(0);
   const paint = paintOf(text, model, proc);
   const field = { ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12,
     lineHeight: LINE_H, boxSizing: "border-box" };
@@ -261,21 +265,22 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           </div>
         </div>)}
       <div style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
-        <Backdrop text={text} paint={paint} style={field} activeRow={whoRow} noteGap={whoRow >= 0 ? 190 : 0} />
+        <Backdrop text={text} paint={paint} style={field} activeRow={whoRow} noteGap={whoRow >= 0 ? 190 : 0} backRef={back} />
         <style>{`textarea[data-proc-text]::placeholder{color:${NEU};opacity:1}`}</style>
         <textarea ref={inp} value={text} aria-label={label} data-proc-text=""
           rows={Math.max(4, text.split("\n").length + 1)}
           placeholder={`Задача: название\nКто: Должность ✎ ⚙\nБерёт: ресурс 2\nОтдаёт: ресурс 50% A\nКому: Должность`}
           style={{ ...field, resize: "vertical", position: "relative", zIndex: 1,
-            background: "transparent", color: "transparent", caretColor: C.text, display: "block" }}
-          onScroll={(e) => { if (back.current) back.current.scrollTop = e.target.scrollTop; }}
+            background: "transparent", color: "transparent", caretColor: C.text, display: "block",
+            maxHeight: focus ? "45vh" : undefined, overflowY: focus ? "auto" : undefined }}
+          onScroll={(e) => { const t = e.target.scrollTop; if (back.current) back.current.scrollTop = t; setScrollTop(t); }}
           onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
-          onBlur={() => { if (hold.current) return; setFocus(false); setPick(null); setCaretRow(-1); if (text !== value) onCommit(text); }}
+          onBlur={() => { if (hold.current) return; setFocus(false); setPick(null); setCaretRow(-1); setScrollTop(0); if (text !== value) onCommit(text); }}
           onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
         {whoRow >= 0 && (
           <div data-role-buttons="" onMouseDown={(e) => { if (e.target.tagName !== "INPUT") e.preventDefault(); }}
             aria-label={`меню участника ${whoName}`}
-            style={{ position: "absolute", right: 6, top: 7 + whoRow * LINE_H * 12, zIndex: 3, display: "flex", flexDirection: "column", gap: 2,
+            style={{ position: "absolute", right: 6, top: 7 + whoRow * LINE_H * 12 - scrollTop, zIndex: 3, display: "flex", flexDirection: "column", gap: 2,
               width: 180, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 4, boxShadow: "0 6px 20px rgba(0,0,0,.35)" }}>
             {ROLE_KINDS.map((role) => (
               <button key={role} type="button" aria-pressed={roleOn(role)} aria-label={`${ROLE_WORD[role]}: ${whoName}`}

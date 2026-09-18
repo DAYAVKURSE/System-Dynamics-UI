@@ -383,6 +383,24 @@ describe("функция заводится и живёт", () => {
     expect(screen.getByLabelText("сколько заявки").value).toBe("1");
   });
 
+  it("задачи прячутся под спойлером функции; у функции и у задачи — свои имена (владелец, 2026-09-18)", () => {
+    addFunc();
+    const fn = screen.getAllByLabelText("название функции").pop();
+    fireEvent.click(screen.getAllByRole("button", { name: /^добавить задачу в функцию/ }).pop());
+    // Две задачи в одной функции — обе внутри, каждая со своим полем имени.
+    expect(screen.getAllByLabelText("название задачи").length).toBe(2);
+    const task = screen.getAllByLabelText("название задачи").pop();
+    fireEvent.change(task, { target: { value: "проверить макет" } });
+    fireEvent.blur(task);
+    fireEvent.change(fn, { target: { value: "вёрстка" } });
+    fireEvent.blur(fn);
+    // Свернули функцию — задач не видно.
+    fireEvent.click(screen.getAllByRole("button", { name: "свернуть функции" }).pop());
+    expect(screen.queryByDisplayValue("проверить макет")).toBeNull();
+    const rec = dump().funcs.filter((f) => f.chain?.name === "вёрстка");
+    expect(rec.map((f) => f.name)).toContain("проверить макет");
+  });
+
   it("название правится и переживает выгрузку", () => {
     addFunc();
     const box = screen.getAllByLabelText("название функции").pop();

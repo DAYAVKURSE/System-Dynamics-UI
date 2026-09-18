@@ -820,7 +820,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
     g.list.push(f);
   });
   groups.forEach((g) => g.list.sort((a, b) => (a.chain?.step || 0) - (b.chain?.step || 0)));
-  const ordered = groups.flatMap((g) => g.list.map((f, i) => ({ f, g, first: i === 0 })));
   const elsewhere = (g) => funcs.filter((x) => x.chain?.id === g.id && x.e !== entityId)
     .sort((a, b) => (a.chain?.step || 0) - (b.chain?.step || 0));
   const chainSize = (g) => funcs.filter((x) => x.chain?.id === g.id).length || g.list.length;
@@ -833,44 +832,39 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
       ? { ...x, chain: { id: g.id, name, step: 1, of: 2 } } : x)).concat(t));
     setOpen(t.id);
   };
-  const renameChain = (g, name) => setFuncs((p) => p.map((x) => (x.chain?.id === g.id || (x.id === g.id && !x.chain)
-    ? { ...x, ...(x.chain ? { chain: { ...x.chain, name } } : { name }) } : x)));
+  /* Название ФУНКЦИИ — у цепочки; у одиночной записи оно заводится тут же,
+     и с этого момента функция и её задача названы по-разному. */
+  /* Имя функции живёт в `chain.name`, у каждой задачи — своё `name`
+     (владелец, 2026-09-18). Пока единственная задача носит имя функции
+     (ей не дали своего), переименование функции переименовывает и её. */
+  const renameChain = (g, name) => setFuncs((p) => p.map((x) => {
+    if (!(x.chain?.id === g.id || (x.id === g.id && !x.chain))) return x;
+    const same = g.list.length === 1 && x.name === (g.name || x.name);
+    return { ...x, name: same ? name : x.name, chain: x.chain ? { ...x.chain, name } : { id: x.id, name, step: 1, of: 1 } };
+  }));
 
   return (
     <Section title="функции актива" addLabel="+ функция" onAdd={add}
       empty={mine.length ? null
         : "Функций пока нет. Функция обменивает одни ресурсы на другие: берёт одни, выдаёт другие."}>
-      {ordered.map(({ f, g, first }) => {
+      {groups.map((g) => {
+        const gOpen = open === g.id || g.list.some((x) => x.id === open);
+        const states = g.list.map((x) => funcState(x, { traits, factors }));
+        const allReady = states.every((x) => x.kind === "ready");
+        const first = g.list[0];
+        const gName = g.name || first.name;
+        const tasks = g.list.map((f) => {
         const runs = runsOf ? runsOf(f.id) : [];
         // Буквы и результаты операций — для полей и рядов знаков.
         const allPorts = portsOf(f).map((p, i) => ({ id: p.id, letter: letterOf(i), name: traitName(p.trait) }));
         const info = new Map(evalPorts(portsOf(f), stockOf).map((r) => [r.id, r]));
         const st = funcState(f, { traits, factors });
-        const chained = g.chained || g.list.length > 1;
-        const head = first && chained && (
-          <div aria-label={`функция ${g.name || f.name}`} className="flex flex-wrap items-center gap-2"
-            style={{ marginTop: 8, padding: "6px 8px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8 }}>
-            <span style={S.lbl}>функция</span>
-            {f.proc
-              ? <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>{g.name || f.name}</span>
-              : <TxtField value={g.name || f.name} aria-label={`название функции ${g.name || f.name}`}
-                style={{ flex: 1, minWidth: 120, fontSize: 12.5, fontWeight: 600, padding: "3px 6px" }}
-                onCommit={(v) => renameChain(g, v)} />}
-            <span style={{ fontSize: 10.5, color: C.muted }}>задач: {chainSize(g)}</span>
-            {!f.proc && (
-              <button style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}
-                aria-label={`добавить задачу в функцию ${g.name || f.name}`} onClick={() => addTask(g)}>+ задача</button>)}
-            {elsewhere(g).map((x) => (
-              <div key={x.id} style={{ flexBasis: "100%", fontSize: 11, color: C.muted }}>
-                задача {x.chain.step}: {x.name} — в активе «{assetName(x.e)}»</div>))}
-          </div>);
+        const tOpen = open === f.id || (open === g.id && g.list.length === 1);
         return (
-          <React.Fragment key={f.id}>
-          {head}
-          <Card title={f.name} titleLabel={g.chained || g.list.length > 1 ? `задачи ${f.chain?.step || ""}` : "функции"}
+          <Card key={f.id} title={f.name} titleLabel="задачи"
             onTitle={(v) => up(f.id, (x) => ({ ...x, name: v }))}
-            open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)}
-            onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(null); }}
+            open={tOpen} onToggle={() => setOpen(tOpen ? g.id : f.id)}
+            onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(g.id); }}
             accent={st.kind === "ready" ? OK : BAD}
             /* role="status" — чтобы смена состояния («готова» → «не принята»)
                прозвучала: без неё читалка молчит, и правка выглядит так,
@@ -1168,42 +1162,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 onToggle={(pid) => up(f.id, (x) => togglePost(x, k.id, pid))} />))}
             </Form>
 
-            {/* Ручная функция из одной задачи: вторая задача заводится отсюда
-                и связывает обе в цепочку. */}
-            {!f.proc && !chained && (
-              <Form title="задачи функции">
-                <button style={{ ...btn(false), fontSize: 12 }}
-                  aria-label={`добавить задачу в функцию ${g.name || f.name}`} onClick={() => addTask(g)}>+ задача</button>
-                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-                  Сейчас функция — одна задача. Вторая задача встанет за ней: следующая берёт то, что выдала предыдущая.
-                </div>
-              </Form>)}
-
-            {/* ─── рынок услуг ───
-
-                Функция — это уже готовое описание работы: что берёт, что
-                выдаёт и за какой срок. Владелец (2026-09-13) просил
-                выставлять её наружу отсюда же: заказом, когда работу нужно
-                получить, услугой — когда готовы делать её для других.
-                Переписывать то же самое руками во второй раз не за чем.
-
-                Кнопки стоят, только когда рынок подключён (`onMarket`):
-                кнопка, которая никуда не ведёт, обещала бы то, чего нет. */}
-            {onMarket && first && (
-              <Form title="рынок услуг">
-                <div className="flex flex-wrap gap-2">
-                  <button style={{ ...btn(false), fontSize: 12 }}
-                    onClick={() => onMarket(f, "order")}>Сделать заказ</button>
-                  <button style={{ ...btn(false), fontSize: 12 }}
-                    onClick={() => onMarket(f, "service")}>Сделать услугой</button>
-                </div>
-                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6,
-                  lineHeight: 1.5 }}>
-                  {"Заказ появится у всех в «Рынке услуг» → «Заказы»; услуга — в «Услуги»."
-                    + " Название, описание, ресурсы и срок берутся из функции,"
-                    + " их можно поправить."}
-                </div>
-              </Form>)}
 
             {/* ─── «Принять» ───
 
@@ -1232,8 +1190,63 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   st.kind === "gaps" ? ` Проверка считает, что ${st.gaps[0]}.` : ""}`}
             </div>
             </Form>
-          </Card>
-          </React.Fragment>);
+          </Card>);
+        });
+        /* ФУНКЦИЯ — спойлер (владелец, 2026-09-18): своё название, под ним
+           задачи со своими названиями, каждая — своей карточкой. Задачи в
+           других активах — строкой; «+ задача» и рынок услуг — у функции. */
+        return (
+          <Card key={g.id} title={gName} titleLabel="функции" onTitle={(v) => renameChain(g, v)}
+            open={gOpen} onToggle={() => setOpen(gOpen ? null : g.id)}
+            onDelete={() => { setFuncs((p) => p.filter((x) => !g.list.some((f) => f.id === x.id))); setOpen(null); }}
+            accent={allReady ? OK : BAD}
+            mark={<span role="status" className="flex items-center gap-2">
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: allReady ? OK : BAD }} />
+              <span style={{ fontSize: 10.5, color: allReady ? OK : BAD }}>{allReady ? "готова" : "не готова"}</span>
+              {first.proc && <span style={{ fontSize: 10.5, color: C.muted }}>· из технологического процесса</span>}
+            </span>}
+            summary={`задач: ${chainSize(g)} — ${[...g.list.map((f) => f.name || "без названия"), ...elsewhere(g).map((x) => `${x.name} (${assetName(x.e)})`)].join(", ")}`}>
+            {elsewhere(g).map((x) => (
+              <div key={x.id} style={{ fontSize: 11, color: C.muted, margin: "2px 0 4px" }}>
+                задача {x.chain.step}: {x.name} — в активе «{assetName(x.e)}»</div>))}
+            {tasks}
+            {/* Ручная функция из одной задачи: вторая задача заводится отсюда
+                и связывает обе в цепочку. */}
+            {!first.proc && (
+              <Form title="задачи функции">
+                <button style={{ ...btn(false), fontSize: 12 }}
+                  aria-label={`добавить задачу в функцию ${gName}`} onClick={() => addTask(g)}>+ задача</button>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+                  Задачи идут по порядку: следующая берёт то, что выдала предыдущая.
+                </div>
+              </Form>)}
+
+            {/* ─── рынок услуг ───
+
+                Функция — это уже готовое описание работы: что берёт, что
+                выдаёт и за какой срок. Владелец (2026-09-13) просил
+                выставлять её наружу отсюда же: заказом, когда работу нужно
+                получить, услугой — когда готовы делать её для других.
+                Переписывать то же самое руками во второй раз не за чем.
+
+                Кнопки стоят, только когда рынок подключён (`onMarket`):
+                кнопка, которая никуда не ведёт, обещала бы то, чего нет. */}
+            {onMarket && (
+              <Form title="рынок услуг">
+                <div className="flex flex-wrap gap-2">
+                  <button style={{ ...btn(false), fontSize: 12 }}
+                    onClick={() => onMarket(first, "order")}>Сделать заказ</button>
+                  <button style={{ ...btn(false), fontSize: 12 }}
+                    onClick={() => onMarket(first, "service")}>Сделать услугой</button>
+                </div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6,
+                  lineHeight: 1.5 }}>
+                  {"Заказ появится у всех в «Рынке услуг» → «Заказы»; услуга — в «Услуги»."
+                    + " Название, описание, ресурсы и срок берутся из функции,"
+                    + " их можно поправить."}
+                </div>
+              </Form>)}
+          </Card>);
       })}
     </Section>);
 }

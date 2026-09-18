@@ -253,7 +253,8 @@ describe("стрелка передачи ведёт к своей функци�
     fireEvent.click(arrow);
 
     // Открылась карточка именно этой функции — со своими входами и выходами.
-    expect(screen.getByDisplayValue("Сбор заявок")).toBeInTheDocument();
+    // Карточка функции и внутри неё карточка её единственной задачи.
+    expect(screen.getAllByDisplayValue("Сбор заявок").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("выдать ресурс")).toBeInTheDocument();
   });
 });
