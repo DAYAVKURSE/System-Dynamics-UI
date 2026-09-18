@@ -37,6 +37,14 @@ describe("знак «=», хвост операции и ресурсы без �
     expect(items[0].tailSpan).toEqual({ start: 14, end: 16 });
   });
 
+  it("после ресурса в «Отдаёт:» есть «или» — новая строка «Или:»; в «Берёт:» его нет (владелец, 2026-09-18)", () => {
+    const give = suggest(hintAt("Кто: Владелец\nОтдаёт: оффер 5", 29, model), model);
+    expect(give.find((i) => i.name === "или")).toMatchObject({ kind: "дальше", text: "\nИли:", suffix: " " });
+    expect(give.find((i) => i.name === "→").note).toMatch(/^и /);
+    const take = suggest(hintAt("Кто: Владелец\nБерёт: оффер 5", 28, model), model);
+    expect(take.find((i) => i.name === "или")).toBeUndefined();
+  });
+
   it("в списке «сколько» есть знак «=» (ровно); раскраска несёт хвост операции", () => {
     const h = hintAt("Отдаёт: оффер 5", 15, model);
     expect(h.kind).toBe("qty");
