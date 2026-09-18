@@ -78,10 +78,14 @@ function Bracket({ side, children }) {
       <span style={anchor}><i style={{ ...arc, right: -11, borderLeft: "none", borderRadius: "0 8px 8px 0" }} /></span>
     </span>);
 }
-function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, backRef = null }) {
+/* Простое количество («2», «=1», «45-55») показывается как есть; иная
+   операция на строках без курсора — значком «ƒ» той же ширины (владелец,
+   2026-09-18: «в поле — значок, при нажатии видна вся операция»). */
+const SIMPLE_TAIL = /^=?\s*\d+(?:[.,]\d+)?(?:\s*-\s*\d+(?:[.,]\d+)?)?$/;
+function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = -1, backRef = null }) {
   const lines = String(text || "").split("\n");
   const byRow = new Map(paint.map((r) => [r.row, r]));
-  const piece = (ln, from, to, spans, key) => {
+  const piece = (ln, from, to, spans, key, row = -1) => {
     const out = [];
     let at = from;
     spans.filter((k) => k.start >= from && k.end <= to).forEach((k, j) => {
@@ -92,11 +96,19 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, backRef = n
          но не видны — в прямоугольнике только имя (владелец, 2026-09-18). */
       const wrap = (k.kind === "hand" && k.brace) ? [1, 1] : (k.kind === "person" && k.at) ? [1, 0] : null;
       const inner = wrap ? raw.slice(wrap[0], raw.length - wrap[1]) : raw;
+      const op = k.kind === "trait" && k.tail && !SIMPLE_TAIL.test(k.tail) && row !== caretRow && k.tailSpan
+        && k.tailSpan.start >= k.start && k.tailSpan.end <= k.end ? { a: k.tailSpan.start - k.start, b: k.tailSpan.end - k.start } : null;
       out.push(<span key={`${key}m${j}`} data-kind={k.kind} data-side={k.side || undefined}
         data-mark={bad ? k.state : (k.exprError ? "expr" : undefined)}
         title={k.exprError || (k.kind === "roles" ? k.roles.map((r) => ROLE_WORD[r]).join(", ") : k.kind === "hand" ? `переменная сотрудника: ${k.hand}` : k.kind === "person" ? (k.known ? "именно этот сотрудник" : "нет такого сотрудника") : bad ? k.state : undefined)}
         style={wrap ? {} : spanStyle(k)}>
-        {wrap ? (<>
+        {op ? (<>
+          {raw.slice(0, op.a)}
+          <span data-op={k.tail} title={`операция: ${k.tail}`} style={{ position: "relative", display: "inline-block" }}>
+            <span style={{ color: "transparent" }}>{raw.slice(op.a, op.b)}</span>
+          </span>
+          {raw.slice(op.b)}
+        </>) : wrap ? (<>
           <span style={{ color: "transparent" }}>{raw.slice(0, wrap[0])}</span>
           <span style={spanStyle(k)}>{inner}</span>
           {wrap[1] ? <span style={{ color: "transparent" }}>{raw.slice(raw.length - wrap[1])}</span> : null}
@@ -115,11 +127,11 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, backRef = n
         const parts = [];
         let at = 0;
         (r?.brackets || []).sort((a, b) => a.start - b.start).forEach((b, j) => {
-          if (b.start > at) parts.push(...piece(ln, at, b.start, r.spans, `p${j}`));
-          parts.push(<Bracket key={`b${j}`} side={b.side}>{piece(ln, b.start, b.end, r.spans, `i${j}`)}</Bracket>);
+          if (b.start > at) parts.push(...piece(ln, at, b.start, r.spans, `p${j}`, i));
+          parts.push(<Bracket key={`b${j}`} side={b.side}>{piece(ln, b.start, b.end, r.spans, `i${j}`, i)}</Bracket>);
           at = b.end;
         });
-        parts.push(...piece(ln, at, ln.length, r?.spans || [], "z"));
+        parts.push(...piece(ln, at, ln.length, r?.spans || [], "z", i));
         return (
           <div key={i} style={{ position: "relative", minHeight: `${LINE_H}em` }}>
             {parts}{"​"}
@@ -167,7 +179,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const apply = (next, caret) => {
     setText(next);
     setTimeout(() => {
-      inp.current?.focus();
+      inp.current?.focus({ preventScroll: true });
       inp.current?.setSelectionRange(caret, caret);
       place(next, caret);
     }, 0);
@@ -177,13 +189,13 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   /* Подстановка: пункт несёт `suffix` (что после), `insert` (вставить у
      курсора, не заменяя набранное), `text` (что вставить вместо имени),
      `trimBefore` (убрать пробелы перед), `caretBack` (курсор внутрь). */
-  const choose = (it) => {
-    if (!pick || it.info) return;
+  const choose = (it, pk = pick) => {
+    if (!pk || it.info) return;
     const suffix = it.suffix ?? ", ";
-    const from = it.insert ? pick.at : pick.start;
+    const from = it.insert ? pk.at : pk.start;
     const head = it.trimBefore ? text.slice(0, from).replace(/[ \t]+$/, "") : text.slice(0, from);
     const put = it.text ?? it.name;
-    const next = `${head}${put}${suffix}${text.slice(pick.at)}`;
+    const next = `${head}${put}${suffix}${text.slice(pk.at)}`;
     apply(next, head.length + put.length + suffix.length - (it.caretBack || 0));
   };
   const onKey = (e) => {
@@ -219,7 +231,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const rewrite = (next) => {
     const caret = Math.min(inp.current?.selectionStart ?? next.length, next.length);
     setText(next); onCommit(next);
-    setTimeout(() => { inp.current?.focus(); inp.current?.setSelectionRange(caret, caret); place(next, caret); }, 0);
+    setTimeout(() => { inp.current?.focus({ preventScroll: true }); inp.current?.setSelectionRange(caret, caret); place(next, caret); }, 0);
   };
   const toggle = (role) => rewrite(toggleRole(text, whoRow, role));
   const fixHand = () => rewrite(setHand(text, whoRow, newHandName(usedHands())));
@@ -227,18 +239,67 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     const n = String(name || "").trim().toLowerCase();
     hold.current = false;
     setRenamingHand(false);
-    if (!n || n === whoHand) { setTimeout(() => inp.current?.focus(), 0); return; }
-    if ([...usedHands()].some((h) => h === n) && n !== whoHand) { setTimeout(() => inp.current?.focus(), 0); return; }
+    if (!n || n === whoHand) { setTimeout(() => inp.current?.focus({ preventScroll: true }), 0); return; }
+    if ([...usedHands()].some((h) => h === n) && n !== whoHand) { setTimeout(() => inp.current?.focus({ preventScroll: true }), 0); return; }
     // Переименовать — во всех строках этого процесса, где стоит эта рука.
     const re = new RegExp(`\\{\\s*${whoHand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\}`, "gi");
     rewrite(text.replace(re, `{${n}}`));
   };
   const procHands = [...new Set(paint.flatMap((r) => r.spans.filter((k) => k.kind === "hand" && k.hand).map((k) => k.hand)))];
+  /* Меню ресурса (владелец, 2026-09-18): курсор на ресурсе в строке
+     «Берёт:/Отдаёт:/Или:» — справа окно как у участника: поле операции,
+     под ним список (буквы, знаки с «=», ресурсы схемы, «дальше»). После
+     знака — явная просьба ввести число или выбрать из списка. Текст —
+     единственный источник: поле и список правят хвост после имени. */
+  const rowStartOf = (row) => text.split("\n").slice(0, row).reduce((n, l) => n + l.length + 1, 0);
+  const resRow = focus && caretRow >= 0 && ["take", "give", "or"].includes(labelOf(rowLine)?.kind) ? caretRow : -1;
+  const resStart = resRow >= 0 ? rowStartOf(resRow) : 0;
+  const caretIn = pick ? pick.at - resStart : -1;
+  const res = resRow >= 0 ? (paint.find((r) => r.row === resRow)?.spans || []).find((k) => k.kind === "trait" && k.name
+    && k.start <= caretIn && (caretIn <= k.end || /^\s*$/.test(rowLine.slice(k.end, caretIn)))) || null : null;
+  const resKey = res ? `${resRow}:${res.nameSpan?.start ?? res.start}` : "";
+  const [opDraft, setOpDraft] = useState("");
+  const opFocus = useRef(false);
+  const opRef = useRef(null);
+  useEffect(() => { if (!opFocus.current) setOpDraft(res?.tail || ""); opRef.current = null; }, [resKey, res?.tail]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const opAnchor = () => {
+    if (opRef.current) return opRef.current;
+    const has = !!res.tail;
+    const a = resStart + (has ? res.tailSpan.start : res.nameSpan.end);
+    let b = resStart + (has ? res.tailSpan.end : res.nameSpan.end);
+    if (!has) while (text[b] === " ") b += 1;
+    opRef.current = { a, b };
+    return opRef.current;
+  };
+  const putOp = (v) => {
+    const r = opAnchor();
+    const val = String(v || "").trim();
+    const head = text.slice(0, r.a).replace(/ +$/, "");
+    const rest = text.slice(r.b);
+    opRef.current = { a: head.length + (val ? 1 : 0), b: head.length + (val ? 1 + val.length : 0) };
+    return val ? `${head} ${val}${rest}` : `${head}${rest}`;
+  };
+  const opEdit = (v) => { setOpDraft(v); setText(putOp(v)); };
+  const opDone = (v) => { opFocus.current = false; hold.current = false; rewrite(putOp(v)); };
+  const dangling = /[=+\-*/%(@]\s*$/.test(opDraft);
+  const tailAt = res ? resStart + (res.tail ? res.tailSpan.end : res.nameSpan.end) : 0;
+  const tailHint = res ? (res.tail ? hintAt(text, tailAt, model) : hintAt(`${text.slice(0, tailAt)} ${text.slice(tailAt)}`, tailAt + 1, model)) : null;
+  const opItems = (tailHint && tailHint.kind === "qty" ? suggest({ ...tailHint, query: /@[^\s]*$/.test(opDraft) ? opDraft.match(/@[^\s]*$/)[0] : "" }, model, proc) : [])
+    .filter((it) => !it.info && (!dangling || /@\s*$/.test(opDraft) || it.kind === "буква" || it.name === "@" || it.name === "("));
+  const opPick = (it) => {
+    if (it.kind === "дальше" || it.kind === "переменная") { choose(it, { ...tailHint, at: tailAt, start: tailAt }); return; }
+    let next;
+    if (it.name === "=") next = opDraft.startsWith("=") ? opDraft : `=${opDraft}`;
+    else if (it.kind === "ресурс") next = opDraft.replace(/@[^\s]*$/, "") + it.name;
+    else if (it.kind === "буква") next = opDraft && !/\s$/.test(opDraft) ? `${opDraft} ${it.name}` : `${opDraft}${it.name}`;
+    else next = `${opDraft}${it.name}`;
+    setOpDraft(next); rewrite(putOp(next));
+  };
   const persons = whoRow >= 0 ? peopleOfPosition(whoName, model) : [];
   const header = pick ? `${HINT[pick.kind] || ""}${pick.kind === "trait" && pick.asset ? ` — ресурсы «${pick.asset.name}»` : ""}${pick.kind === "qty" && pick.traitName ? ` — для «${pick.traitName}»` : ""}` : "";
   return (
     <div style={{ position: "relative" }}>
-      {pick && focus && (
+      {pick && focus && !(pick.kind === "qty" && res) && (
         <div role="dialog" aria-label="подсказка процесса"
           onMouseDown={(e) => e.preventDefault()}
           style={{ position: "absolute", left: 0, right: 0, bottom: "100%", zIndex: 20,
@@ -265,8 +326,9 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           </div>
         </div>)}
       <div style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
-        <Backdrop text={text} paint={paint} style={field} activeRow={whoRow} noteGap={whoRow >= 0 ? 190 : 0} backRef={back} />
-        <style>{`textarea[data-proc-text]::placeholder{color:${NEU};opacity:1}`}</style>
+        <Backdrop text={text} paint={paint} style={field} activeRow={whoRow} caretRow={focus ? caretRow : -1} noteGap={whoRow >= 0 ? 190 : 0} backRef={back} />
+        <style>{`textarea[data-proc-text]::placeholder{color:${NEU};opacity:1}
+[data-proc-backdrop] [data-op]::before{content:"ƒ";position:absolute;left:0;top:0;font-style:italic;font-weight:700}`}</style>
         <textarea ref={inp} value={text} aria-label={label} data-proc-text=""
           rows={Math.max(4, text.split("\n").length + 1)}
           placeholder={`Задача: название\nКто: Должность ✎ ⚙\nБерёт: ресурс 2\nОтдаёт: ресурс 50% A\nКому: Должность`}
@@ -275,8 +337,34 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
             maxHeight: focus ? "45vh" : undefined, overflowY: focus ? "auto" : undefined }}
           onScroll={(e) => { const t = e.target.scrollTop; if (back.current) back.current.scrollTop = t; setScrollTop(t); }}
           onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
-          onBlur={() => { if (hold.current) return; setFocus(false); setPick(null); setCaretRow(-1); setScrollTop(0); if (text !== value) onCommit(text); }}
-          onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
+          onBlur={(e) => {
+            /* Фокус ушёл в поле меню (операция, имя переменной) — меню не закрывать. */
+            if (e.relatedTarget?.closest?.("[data-res-menu],[data-role-buttons]")) hold.current = true;
+            if (hold.current) return;
+            setFocus(false); setPick(null); setCaretRow(-1); setScrollTop(0); if (text !== value) onCommit(text); }}
+          onChange={(e) => { opRef.current = null; onChange(e); }} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
+        {res && (
+          <div data-res-menu="" onMouseDown={(e) => { if (e.target.tagName === "INPUT") hold.current = true; else e.preventDefault(); }}
+            aria-label={`меню ресурса ${res.name}`}
+            style={{ position: "absolute", right: 6, top: 7 + resRow * LINE_H * 12 - scrollTop, zIndex: 3, display: "flex", flexDirection: "column", gap: 3,
+              width: 200, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 5, boxShadow: "0 6px 20px rgba(0,0,0,.35)" }}>
+            <div style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>ресурс «{res.name}»</div>
+            <input value={opDraft} aria-label={`операция: ${res.name}`} placeholder="сколько / операция"
+              style={{ ...S.inp, fontSize: 12, padding: "3px 6px", fontFamily: "ui-monospace, Menlo, monospace" }}
+              onFocus={() => { hold.current = true; opFocus.current = true; opAnchor(); }}
+              onChange={(e) => opEdit(e.target.value)}
+              onBlur={(e) => opDone(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }} />
+            <div style={{ fontSize: 10.5, color: dangling ? WARN : C.muted, lineHeight: 1.35 }}>
+              {dangling ? "введите число или выберите из списка ↓" : "число, диапазон 45-55, буква другого ресурса, «@ресурс»"}</div>
+            <div role="listbox" aria-label={`операция: варианты`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 5 }}>
+              {opItems.map((it) => (
+                <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={false} onClick={() => opPick(it)}
+                  style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer" }}>
+                  <span style={{ color: C.muted }}>{it.kind} </span>{it.name}{it.note && <span style={{ color: C.muted }}> — {it.note}</span>}</div>))}
+              {!opItems.length && <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>введите число</div>}
+            </div>
+          </div>)}
         {whoRow >= 0 && (
           <div data-role-buttons="" onMouseDown={(e) => { if (e.target.tagName !== "INPUT") e.preventDefault(); }}
             aria-label={`меню участника ${whoName}`}
@@ -297,7 +385,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
                     <input autoFocus defaultValue={whoHand} aria-label="имя переменной сотрудника"
                       style={{ ...S.inp, flex: 1, fontSize: 11, padding: "1px 4px" }}
                       onBlur={(e) => renameHand(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { hold.current = false; setRenamingHand(false); inp.current?.focus(); } }} />
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { hold.current = false; setRenamingHand(false); inp.current?.focus({ preventScroll: true }); } }} />
                   ) : (
                     <button type="button" aria-label={`переименовать переменную ${whoHand}`} title="нажмите, чтобы переименовать"
                       onClick={() => { hold.current = true; setRenamingHand(true); }}

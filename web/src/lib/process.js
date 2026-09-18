@@ -160,7 +160,7 @@ export const startsWithMark = (line = "") => TAKE.test(String(line).trim()) || G
    латинская буква). Хвост из одной буквы, которой в строке ещё нет
    («коробки B» при одном ресурсе), — часть имени: ресурс так назвали;
    кириллическая буква — всегда часть имени. */
-const TAIL_START = /^(?:[\d(@]|[a-zA-Z](?![0-9a-zA-Zа-яА-ЯёЁ]))/;
+const TAIL_START = /^(?:[\d(@=]|[a-zA-Z](?![0-9a-zA-Zа-яА-ЯёЁ]))/;
 const PLAIN_NUM = /^\d+(?:[.,]\d+)?$/;
 export const splitQty = (text, traits = [], nPrior = 0) => {
   const s = String(text || "").trim();
@@ -170,13 +170,18 @@ export const splitQty = (text, traits = [], nPrior = 0) => {
     const name = s.slice(0, m.index).trim();
     const tail = s.slice(m.index + m[0].length);
     if (!name || !TAIL_START.test(tail)) continue;
-    const stored = toStored(tail, traits);
+    /* «=1» — «ровно» (владелец, 2026-09-18): знак в начале хвоста ничего
+       не меняет в счёте, но ставится из списка, а не руками. */
+    const core = tail.replace(/^=\s*/, "");
+    const stored = toStored(core, traits);
     const p = parseExpr(stored);
-    // Хвост с «@» или «%» — операция даже с ошибкой: имя ресурса им не портится.
-    if (p.error && /[%@]/.test(tail)) return { name, qty: 1, expr: tail };
-    if (p.error || !p.ast) continue;
-    if (lettersIn(stored).some((k) => k >= nPrior) && !/[\d%@(]/.test(tail)) continue;
-    if (PLAIN_NUM.test(tail)) return { name, qty: num(tail) };
+    /* Хвост с «@», «%», «=» или начатый как число — операция даже с
+       ошибкой (недописанная «5 +»): имя ресурса им не портится, а поле
+       показывает, что операция не закончена. */
+    if (p.error && (/[%@=]/.test(tail) || /^[\d(]/.test(tail))) return { name, qty: 1, expr: tail };
+    if (p.error || !p.ast) { if (tail.startsWith("=")) return { name, qty: 1, expr: tail }; continue; }
+    if (lettersIn(stored).some((k) => k >= nPrior) && !/[\d%@(=]/.test(tail)) continue;
+    if (PLAIN_NUM.test(core)) return { name, qty: num(core) };
     return { name, qty: 1, expr: tail };
   }
   return { name: s, qty: 1 };

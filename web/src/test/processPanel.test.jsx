@@ -29,6 +29,8 @@ const write = (el, v) => { type(el, v); fireEvent.blur(el); };
 const popup = () => screen.getByRole("dialog", { name: "подсказка процесса" });
 const options = () => within(popup()).getAllByRole("option").map((o) => o.textContent);
 const pick = (re) => fireEvent.mouseDown(within(popup()).getByRole("option", { name: re }));
+const opList = () => screen.getByRole("listbox", { name: "операция: варианты" });
+const pickOp = (re) => fireEvent.click(within(opList()).getByRole("option", { name: re }));
 const openExport = () => {
   fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
   if (!container.querySelector("textarea")) fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
@@ -69,16 +71,17 @@ describe("подсказки ведут по строкам", () => {
     await waitFor(() => expect(options()).toContain("ресурс заявки — Пользователи"));
     pick(/^ресурс заявки/);
     expect(area).toHaveValue("Задача: лид\nКто: Пользователи\nБерёт: заявки ");
-    await waitFor(() => expect(popup()).toHaveTextContent("сколько"));
+    // После имени ресурса — меню ресурса справа: поле операции и список (владелец, 2026-09-18).
+    await waitFor(() => expect(screen.getByLabelText("операция: заявки")).toBeInTheDocument());
     type(area, "Задача: лид\nКто: Пользователи\nБерёт: заявки 2");
-    pick(/^дальше ↵ — новая строка$/);
+    pickOp(/^дальше ↵ — новая строка$/);
     expect(area).toHaveValue("Задача: лид\nКто: Пользователи\nБерёт: заявки 2\n");
     await waitFor(() => expect(options()[0]).toBe("метка От кого: — откуда"));
     pick(/^метка Отдаёт:/);
     await waitFor(() => expect(options()).toContain("ресурс заявки — Пользователи"));
     pick(/^ресурс заявки/);
     type(area, `${TEXT}`);
-    pick(/новая строка: Кому:/);
+    pickOp(/новая строка: Кому:/);
     expect(area).toHaveValue(`${TEXT}\nКому: `);
     await waitFor(() => expect(options()).toContain("актив Рынок услуг"));
     pick(/^актив Рынок услуг/);
@@ -129,6 +132,37 @@ describe("роли, статусы, функции", () => {
     expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["автоматически", name]);
     fireEvent.click(within(list).getByRole("option", { name: "автоматически" }));
     expect(area.value.split("\n")[1]).toBe("Кто: Пользователи ✎");
+  });
+
+  it("курсор на ресурсе открывает меню ресурса: поле операции, знак «=», просьба ввести число; в поле операция — значком (владелец, 2026-09-18)", async () => {
+    const area = addProc();
+    write(area, TEXT);
+    fireEvent.focus(area);
+    fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("заявки 2") + 2 } });
+    const menu = container.querySelector("[data-res-menu]");
+    expect(menu).not.toBeNull();
+    const op = screen.getByLabelText("операция: заявки");
+    expect(op.value).toBe("2");
+    const names = () => within(opList()).getAllByRole("option").map((o) => o.textContent);
+    expect(names()).toContain("знак = — ровно");
+    // Знак «=» — «ровно»: ставится из списка, без ручного ввода.
+    pickOp(/^знак = — ровно$/);
+    expect(area.value.split("\n")[2]).toBe("Берёт: заявки =2");
+    // После знака — явная просьба: число или пункт из списка (буквы, @ресурс).
+    fireEvent.focus(op);
+    fireEvent.change(op, { target: { value: "=2 +" } });
+    expect(area.value.split("\n")[2]).toBe("Берёт: заявки =2 +");
+    expect(within(menu).getByText(/введите число или выберите из списка/)).toBeInTheDocument();
+    expect(names().every((n) => /^буква|^знак [@(]/.test(n))).toBe(true);
+    fireEvent.change(op, { target: { value: "50% A" } });
+    fireEvent.blur(op);
+    expect(area.value.split("\n")[2]).toBe("Берёт: заявки 50% A");
+    // В поле операция другой строки — значком «ƒ» (текст прозрачный), на строке с курсором — целиком.
+    await waitFor(() => expect(container.querySelector("[data-proc-backdrop] [data-op='50% A']")).not.toBeNull());
+    const ops = Array.from(container.querySelectorAll("[data-proc-backdrop] [data-op]"));
+    expect(ops).toHaveLength(1);
+    expect(ops[0].closest("[data-kind=trait]").textContent).toBe("заявки 50% A");   // строка «Отдаёт:» без курсора
+    expect(ops[0].children[0].style.color).toBe("transparent");
   });
 
   it("«принято» собирает функцию с задачей в активе исполнителя; неизвестный ресурс принимается в актив «Кому»", () => {

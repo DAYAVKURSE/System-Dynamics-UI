@@ -26,6 +26,38 @@ const T = `Функция: Передача лида
 Отдает: назначенный диапазон 45-55% A (переменная: время A)
 Кому: Партнёр-фрилансер`;
 
+describe("знак «=», хвост операции и ресурсы без актива (владелец, 2026-09-18)", () => {
+  it("«=2» — ровно 2; недописанная операция остаётся хвостом с ошибкой, имя не портится", () => {
+    const { funcs } = parseText("Задача: x\nКто: Владелец\nОтдаёт: оффер =2, оплата 5 +", model, {});
+    const items = funcs[0].tasks[0].branches[0].steps[0].items;
+    expect(items[0]).toMatchObject({ name: "оффер", qty: 2, tail: "=2" });
+    expect(items[0].expr).toBeUndefined();
+    expect(items[1]).toMatchObject({ name: "оплата", expr: "5 +", tail: "5 +" });
+    expect(items[1].exprError).toBeTruthy();
+    expect(items[0].tailSpan).toEqual({ start: 14, end: 16 });
+  });
+
+  it("в списке «сколько» есть знак «=» (ровно); раскраска несёт хвост операции", () => {
+    const h = hintAt("Отдаёт: оффер 5", 15, model);
+    expect(h.kind).toBe("qty");
+    expect(suggest(h, model).find((i) => i.name === "=")).toMatchObject({ kind: "знак", note: "ровно" });
+    const span = paintOf("Кто: Владелец\nОтдаёт: оффер 50% A", model, {})[1].spans.find((k) => k.kind === "trait");
+    expect(span).toMatchObject({ name: "оффер", tail: "50% A" });
+  });
+
+  it("после «Отдаёт:» без актива — ресурсы всех активов с пометкой, а не «сперва назовите кто»", () => {
+    const items = suggest(hintAt("Отдаёт: ", 8, model), model);
+    expect(items.filter((i) => i.kind === "ресурс").map((i) => `${i.name} — ${i.note}`)).toEqual(
+      ["оффер — Владелец", "назначенный диапазон — Партнёр", "оплата — Партнёр", "оплата — Владелец"]);
+    const info = items.find((i) => i.info);
+    expect(info.note).toMatch(/актива исполнителя/);
+    expect(info.note).not.toMatch(/сперва/);
+    // «Кто:» с должностью без актива — то же.
+    const noAsset = suggest(hintAt("Кто: Курьер\nБерёт: ", 19, model), model);
+    expect(noAsset.some((i) => i.kind === "ресурс")).toBe(true);
+  });
+});
+
 describe("разбор", () => {
   it("метки строк: функция, задача, кто, берёт/отдаёт (и множественное число), кому", () => {
     expect(labelOf("Кто: Владелец")).toMatchObject({ kind: "who", rest: { text: "Владелец", start: 5 } });

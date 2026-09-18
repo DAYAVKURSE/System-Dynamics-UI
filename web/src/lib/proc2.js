@@ -203,8 +203,14 @@ function parseItem(it, traits, nPrior) {
   const sq = expr == null ? splitQty(namePart, traits, nPrior) : { name: namePart, qty: 1, expr };
   const name = sq.name;
   const at = it.text.indexOf(name);
+  // Хвост после имени до первой скобки — количество или операция (для меню ресурса и значка в поле).
+  let ta = Math.max(0, at) + name.length;
+  let tb = Math.max(ta, groups.length ? Math.min(...groups.map((g) => g.start)) - it.start : it.text.length);
+  while (ta < tb && /\s/.test(it.text[ta])) ta += 1;
+  while (tb > ta && /\s/.test(it.text[tb - 1])) tb -= 1;
   return { name, span: { start: it.start, end: it.end },
     nameSpan: { start: it.start + Math.max(0, at), end: it.start + Math.max(0, at) + name.length },
+    tailSpan: { start: it.start + ta, end: it.start + tb }, tail: it.text.slice(ta, tb),
     qty: sq.qty, ...(sq.expr ? { expr: sq.expr } : {}), var: vname, flag, ref: !name && !!vname };
 }
 
@@ -423,7 +429,8 @@ export function paintOf(text = "", model = {}, proc = {}) {
           const side = s.kind;
           [...s.items, ...s.or].forEach((it) => {
             const r = it.row ?? s.row;
-            put(r, it.span, { kind: "trait", side, state: itemState(it, proc, model), name: it.name, letter: it.letter, exprError: it.exprError || "" });
+            put(r, it.span, { kind: "trait", side, state: itemState(it, proc, model), name: it.name, letter: it.letter, exprError: it.exprError || "",
+              nameSpan: it.nameSpan, tailSpan: it.tailSpan, tail: it.tail || "" });
           });
           if (s.items.length) {
             const byRow = new Map();
@@ -465,7 +472,7 @@ export const HINT = {
   name: "название",
 };
 
-const TAIL_START = /^(?:[\d(@%]|[a-zA-Z](?![0-9a-zA-Zа-яА-ЯёЁ]))/;
+const TAIL_START = /^(?:[\d(@%=]|[a-zA-Z](?![0-9a-zA-Zа-яА-ЯёЁ]))/;
 
 /**
  * Что ожидается у курсора. Возвращает {kind, start, query, ...}: `start` —
@@ -526,7 +533,7 @@ export function hintAt(text = "", at = 0, model = {}) {
   if (!hit && m && (!m[3] || TAIL_START.test(m[3]))) { hit = { tail: m[3], tailAt: q.length - m[3].length }; traitName = m[1].trim(); }
   if (hit && !/\(/.test(q)) {
     const tail = hit.tail;
-    const cut = Math.max(...[" ", "%", "*", "/", "+", "-", "(", ")"].map((ch) => tail.lastIndexOf(ch)));
+    const cut = Math.max(...[" ", "%", "*", "/", "+", "-", "(", ")", "="].map((ch) => tail.lastIndexOf(ch)));
     const atPos = tail.lastIndexOf("@");
     const sub = atPos >= 0 && atPos > cut ? atPos : cut + 1;
     const subStart = restStart + itemStart + lead + hit.tailAt + sub;
@@ -602,7 +609,17 @@ export function suggest(hint, model = {}, proc = {}) {
     const own = a ? traits.filter((t) => t.e === a.id) : [];
     own.forEach((t) => items.push({ name: t.l, kind: "ресурс", note: a.name, suffix: " " }));
     if (hint.side === "take") (hint.ctx?.vars || []).forEach((v) => items.push({ name: `(${v})`, kind: "переменная", suffix: " " }));
-    if (!a) items.push({ name: "", kind: "", note: "сперва назовите «Кто:» — по должности найдётся актив и его ресурсы", info: true });
+    if (!a) {
+      /* Актив исполнителя не определён (нет «Кто:» или у должности нет
+         актива) — ресурсы всех активов с пометкой актива. «Сперва назовите
+         кто» после «Отдаёт:» неприменимо: отдают только своё (владелец,
+         2026-09-18). */
+      const assetOf = (t) => entities.find((e) => e.id === t.e)?.name || "";
+      traits.filter((t) => t.l).forEach((t) => items.push({ name: t.l, kind: "ресурс", note: assetOf(t), suffix: " " }));
+      items.push({ name: "", kind: "", note: hint.side === "give"
+        ? "отдают ресурс актива исполнителя; актив пока не определён — показаны ресурсы всех активов"
+        : "актив пока не определён — показаны ресурсы всех активов", info: true });
+    }
   } else if (hint.kind === "qty") {
     const q0 = String(hint.query || "");
     if (q0.startsWith("@")) {
@@ -610,7 +627,7 @@ export function suggest(hint, model = {}, proc = {}) {
       items = traits.filter((t) => t.l).map((t) => ({ name: `@${t.l}`, kind: "ресурс", note: assetOf(t), suffix: "" }));
     } else {
       items = (hint.prior || []).map((p) => ({ name: p.letter, kind: "буква", note: `${p.name} (${p.asset})`, suffix: "" }));
-      items.push(...[["%", "процент"], ["@", "ресурс схемы"], ["-", "диапазон: 45-55"], ["*", ""], ["/", ""], ["+", ""], ["(", ""], [")", ""]]
+      items.push(...[["=", "ровно"], ["%", "процент"], ["@", "ресурс схемы"], ["-", "диапазон: 45-55"], ["*", ""], ["/", ""], ["+", ""], ["(", ""], [")", ""]]
         .map(([name, note]) => ({ name, kind: "знак", note, suffix: "", insert: true })));
       items.push({ name: "(переменная: …)", kind: "переменная", note: "назвать, чтобы взять в другой задаче", insert: true, text: " (переменная: )", suffix: "", caretBack: 1 });
       items.push({ name: "→", kind: "дальше", note: "ещё ресурс через запятую", insert: true, text: ",", suffix: " ", trimBefore: true });

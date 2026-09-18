@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canAcceptProc, dropHypo, formatStep, hintAt, nameKey, newProc, normalizeProc,
   parseLine, parseProcess, procFuncs, procIssues, procLabel, procUsesAsset, replaceName,
   marksOf, paintOf, resolveProc, stateOf, stepsOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
+import { splitQty } from "../lib/process.js";
 import { activeFuncs, liveModel, normalizeFunc } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
 import { chainOf } from "../lib/chain.js";
@@ -396,5 +397,14 @@ describe("шаг из нескольких строк и раскраска по
   it("замена имени меняет слово на месте — строки по смыслу остаются", () => {
     expect(replaceName(T, "trait", "заявки", "обращения")).toBe(T.replace(/заявки/g, "обращения"));
     expect(replaceName(T, "asset", "Пользователи", "Клиенты").split("\n")[2]).toBe("отдаёт: Клиенты, обращения 45-55% A".replace("обращения", "заявки"));
+  });
+});
+
+describe("splitQty: знак «=» и недописанная операция (владелец, 2026-09-18)", () => {
+  it("«=3» — ровно 3; «=50% A» — операция; «5 +» — операция с ошибкой, имя целое", () => {
+    expect(splitQty("заявки =3")).toEqual({ name: "заявки", qty: 3 });
+    expect(splitQty("заявки =50% A", [], 1)).toEqual({ name: "заявки", qty: 1, expr: "=50% A" });
+    expect(splitQty("заявки 5 +")).toEqual({ name: "заявки", qty: 1, expr: "5 +" });
+    expect(splitQty("заявки =")).toEqual({ name: "заявки", qty: 1, expr: "=" });
   });
 });
