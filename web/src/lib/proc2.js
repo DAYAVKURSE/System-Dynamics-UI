@@ -268,6 +268,12 @@ export function parseText(text = "", model = {}, proc = {}) {
   const funcs = [];
   const errors = [];
   let blanks = 2;          // сколько пустых строк перед этой (в начале — как две)
+  /* Условие может накрывать НЕСКОЛЬКО задач: «Если: … / То:» отдельными
+     строками перед задачами (владелец, 2026-09-18). Пока не видно, чем
+     окажется «Если:» — веткой задачи или условием группы, — держим его в
+     `pending`; решает следующая строка. */
+  let group = { cond: null, isElse: false, row: -1, span: null };
+  let pending = null;
   let fn = null, task = null, branch = null, last = null, lastStep = null, lastWho = null;
   const newFunc = (name, row) => { fn = { name, row, tasks: [], span: null }; funcs.push(fn); task = null; branch = null; return fn; };
   const newTask = (name, row) => {
@@ -289,8 +295,15 @@ export function parseText(text = "", model = {}, proc = {}) {
     blanks = 0;
     if (lab) {
       const rest = lab.rest.text, rs = lab.rest.start;
-      if (lab.kind === "func") { newFunc(rest.trim(), row); fn.span = { start: rs, end: rs + rest.trimEnd().length }; last = "func"; return; }
-      if (lab.kind === "task") { if (gap >= 2 && fn && fn.tasks.length) newFunc("", row); newTask(rest.trim(), row); task.span = { start: rs, end: rs + rest.trimEnd().length }; last = "task"; return; }
+      if (lab.kind === "func") { group = { cond: null, isElse: false, row: -1, span: null }; pending = null; newFunc(rest.trim(), row); fn.span = { start: rs, end: rs + rest.trimEnd().length }; last = "func"; return; }
+      if (lab.kind === "task") {
+        if (pending) { group = { cond: pending.cond, isElse: false, row: pending.row, span: pending.span }; pending = null; }
+        if (gap >= 2 && fn && fn.tasks.length && group.cond == null && !group.isElse) newFunc("", row);
+        newTask(rest.trim(), row);
+        if (group.cond != null) { task.cond = group.cond; task.condRow = group.row; task.condSpan = group.span; }
+        if (group.isElse) { task.isElse = true; task.elseRow = group.row; }
+        task.span = { start: rs, end: rs + rest.trimEnd().length }; last = "task"; return;
+      }
       if (gap >= 2 && fn && fn.tasks.length && lab.kind !== "else" && lab.kind !== "then") newFunc("", row);
       else if (gap === 1 && task && (lab.kind === "who" || lab.kind === "if")) { task = null; branch = null; }
       /* «То:» — своей строкой после «Если:» (владелец, 2026-09-18); строение
@@ -313,13 +326,32 @@ export function parseText(text = "", model = {}, proc = {}) {
         last = lab.kind; lastStep = null; lastWho = null; return;
       }
       if (lab.kind === "then") {
+        if (pending) { group = { cond: pending.cond, isElse: false, row: pending.row, span: pending.span, thenRow: row }; pending = null;
+          last = "then"; lastStep = null; lastWho = null; return; }
         if (!branch || branch.cond == null) { err(row, "«То:» без «Если:» перед ней"); return; }
         branch.thenRow = row;
         last = "then"; lastStep = null; lastWho = null; return;
       }
+      /* «Если:» до всякой задачи или между задачами — придержим: решает
+         следующая строка («То:»/«Задача:» — условие группы, иначе ветка). */
+      if (lab.kind === "if" && (!task || atStart)) {
+        pending = { cond: rest.replace(/,?\s*то\s*:?\s*$/i, "").trim(), row, span: { start: rs, end: rs + rest.length } };
+        last = "if"; lastStep = null; lastWho = null; return;
+      }
+      if (pending) {
+        // Обычная строка после «Если:» — значит это ветка задачи (задача заведётся сама).
+        const b0 = ensureBranch(pending.row);
+        if (b0.who.length || b0.steps.length || b0.cond) { branch = { cond: pending.cond, who: [], steps: [], row: pending.row }; task.branches.push(branch); }
+        else b0.cond = pending.cond;
+        branch.condSpan = pending.span; branch.condRow = pending.row;
+        pending = null;
+      }
       const b = ensureBranch(row);
       if (lab.kind === "if") {
         const cond = rest.replace(/,?\s*то\s*:?\s*$/i, "").trim();
+        /* Между задачами условие относится к следующим задачам, а не к
+           предыдущей: придерживаем и ждём «То:» либо «Задача:». */
+        if (!task || atStart) { pending = { cond, row, span: { start: rs, end: rs + rest.length } }; last = "if"; lastStep = null; lastWho = null; return; }
         if (b.who.length || b.steps.length || b.cond) { branch = { cond, who: [], steps: [], row }; task.branches.push(branch); }
         else b.cond = cond;
         // Строка условия своя: ветка могла быть заведена строкой «Задача:».
@@ -327,6 +359,7 @@ export function parseText(text = "", model = {}, proc = {}) {
         last = "if"; lastStep = null; lastWho = null; return;
       }
       if (lab.kind === "else") {
+        if (group.cond != null || group.isElse) { group = { cond: null, isElse: true, row, span: null }; last = "else"; lastStep = null; lastWho = null; return; }
         if (!task) { err(row, "«Иначе:» без «Если:»"); return; }
         branch = { cond: null, isElse: true, who: [], steps: [], row }; task.branches.push(branch);
         last = "else"; lastStep = null; lastWho = null; return;
@@ -507,6 +540,7 @@ export function paintOf(text = "", model = {}, proc = {}) {
     if (f.span) put(f.row, f.span, { kind: "func", name: f.name });
     f.tasks.forEach((t) => {
       if (t.span) put(t.row, t.span, { kind: "task", name: t.name });
+      if (t.condSpan && t.condRow != null) put(t.condRow, t.condSpan, { kind: "cond" });
       Object.entries(t.timeRows || {}).forEach(([k, r]) => put(r.row, r.span, { kind: "qty", side: "time", state: "ok", name: LABEL_TEXT[k], tail: "" }));
       (t.checks || []).forEach((c) => put(c.row, c.span, { kind: "check", state: "ok", name: c.text }));
       t.branches.forEach((b) => {
@@ -1077,7 +1111,7 @@ export function procFuncs(proc = {}, model = {}) {
         id: tid, e: main.e, name: t.name || `задача ${ti + 1}`, proc: proc.id,
         chain: { id: fid, name: fname, step: ti + 1, of: f.tasks.length },
         takes: main.takes, gives: main.gives, steps: main.steps, who: main.who, posts: main.posts,
-        ...(main.cond ? { cond: main.cond } : {}), ...(alt.length ? { alt } : {}),
+        ...(main.cond || t.cond ? { cond: main.cond || t.cond } : {}), ...(t.isElse ? { condElse: true } : {}), ...(alt.length ? { alt } : {}),
         dur: 1, durHi: 1, durUnit: "дн", ...(t.time || {}), checks: (t.checks || []).map((c) => c.text), accepted: true,
       });
     });
@@ -1176,6 +1210,8 @@ export function taskBlocks(text = "", model = {}) {
     const rows = new Set();
     rows.add(t.row);
     Object.values(t.timeRows || {}).forEach((r) => rows.add(r.row));
+    if (t.condRow != null) rows.add(t.condRow);
+    if (t.elseRow != null) rows.add(t.elseRow);
     (t.checks || []).forEach((c) => rows.add(c.row));
     t.branches.forEach((b) => { rows.add(b.row); if (b.thenRow != null) rows.add(b.thenRow); b.who.forEach((w) => rows.add(w.row)); b.steps.forEach((s) => { rows.add(s.row); s.items.forEach((it) => rows.add(it.row ?? s.row)); [...(s.tos || []), ...(s.froms || [])].forEach((x) => rows.add(x.row)); s.or.forEach((it) => rows.add(it.row ?? s.row)); }); });
     const body = [...rows].sort((a, b) => a - b).map((r) => lines[r]).join("\n");
