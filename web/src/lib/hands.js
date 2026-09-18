@@ -33,6 +33,14 @@ const ADJ = ["brave", "calm", "clever", "cosmic", "curious", "eager", "fancy", "
 const NOUN = ["bear", "donut", "falcon", "otter", "panda", "comet", "maple", "river", "harbor", "lantern", "meadow", "orbit", "pebble", "pixel",
   "rocket", "saddle", "tulip", "walrus", "yeti", "zebra", "acorn", "badger", "canoe", "dolphin", "ember", "fjord", "garden", "heron", "island",
   "jigsaw", "kettle", "lemur", "mango", "nebula", "oyster", "parrot", "quartz", "raven", "sparrow", "tundra", "violet", "wagon", "beacon", "cactus"];
+/* Имя переменной РЕСУРСА — одно слово (владелец, 2026-09-18: «закрепить
+   ресурс — имя переменной из одного слова»), уникальное среди `used`. */
+export const newVarName = (used = new Set()) => {
+  const has = (n) => [...used].some((u) => String(u).toLowerCase() === n);
+  for (let i = 0; i < 200; i += 1) { const n = NOUN[Math.floor(Math.random() * NOUN.length)]; if (!has(n)) return n; }
+  for (let k = 2; k < 1000; k += 1) { const n = `${NOUN[k % NOUN.length]}${k}`; if (!has(n)) return n; }
+  return `var${Date.now()}`;
+};
 export const newHandName = (used = new Set()) => {
   const has = (n) => used.has(n) || [...used].some((u) => String(u).toLowerCase() === n);
   for (let i = 0; i < 200; i += 1) {

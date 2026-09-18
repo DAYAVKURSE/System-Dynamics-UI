@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, peopleOfPosition, procFuncs,
-  replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
+  renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -55,6 +55,24 @@ describe("знак «=», хвост операции и ресурсы без �
     // «Кто:» с должностью без актива — то же.
     const noAsset = suggest(hintAt("Кто: Курьер\nБерёт: ", 19, model), model);
     expect(noAsset.some((i) => i.kind === "ресурс")).toBe(true);
+  });
+});
+
+describe("переменные ресурсов: плашка и переименование (владелец, 2026-09-18)", () => {
+  it("плашка ресурса — имя и количество, переменная — своей плашкой; ссылка «(X)» — только плашка переменной", () => {
+    const rows = paintOf("Кто: Владелец\nОтдаёт: оффер 2 (переменная: lead)\nБерёт: (lead)", model, {});
+    const give = rows[1].spans.filter((k) => k.kind !== "mark");
+    expect(give.map((k) => [k.kind, k.start, k.end])).toEqual([["trait", 8, 15], ["var", 16, 34]]);
+    expect(give[1]).toMatchObject({ varName: "lead", ref: false, inner: { start: 29, end: 33 }, itemSpan: { start: 8, end: 34 } });
+    const take = rows[2].spans.filter((k) => k.kind !== "mark");
+    expect(take.map((k) => k.kind)).toEqual(["var"]);
+    expect(take[0]).toMatchObject({ varName: "lead", ref: true, itemSpan: { start: 7, end: 13 } });
+  });
+
+  it("renameVar правит объявление, ссылки и флаг во всём тексте", () => {
+    expect(renameVar("Отдаёт: оффер (переменная: lead)\nБерёт: (lead), (флаг lead)\nЕсли: время", "lead", "deal"))
+      .toBe("Отдаёт: оффер (переменная: deal)\nБерёт: (deal), (флаг deal)\nЕсли: время");
+    expect(renameVar("(переменная: leader)", "lead", "x")).toBe("(переменная: leader)");
   });
 });
 

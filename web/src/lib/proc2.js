@@ -194,8 +194,16 @@ export function assetOfPosition(pos, { entities = [] } = {}) {
 /** Один ресурс шага: имя, сколько, переменная. */
 function parseItem(it, traits, nPrior) {
   const { name: noParen, groups } = takeParens(it.text, it.start);
-  let vname = null, flag = false;
-  groups.forEach((g) => { const v = varOf(g); if (v) { vname = v.replace(/^флаг\s+/i, ""); flag = /^флаг\s+/i.test(v); } });
+  let vname = null, flag = false, varSpan = null;
+  groups.forEach((g) => {
+    const v = varOf(g);
+    if (!v) return;
+    vname = v.replace(/^флаг\s+/i, ""); flag = /^флаг\s+/i.test(v);
+    // Где стоит имя внутри скобок — для плашки в поле и меню ресурса.
+    const raw = it.text.slice(g.start - it.start, g.end - it.start);
+    const at = raw.lastIndexOf(vname);
+    varSpan = { start: g.start, end: g.end, inner: { start: g.start + Math.max(1, at), end: g.start + Math.max(1, at) + vname.length } };
+  });
   // «оффер. Сколько: =1» — количество отдельной меткой.
   let namePart = noParen, expr = null;
   const sk = noParen.match(/^(.*?)\.?\s*сколько\s*:\s*(.+)$/i);
@@ -210,7 +218,7 @@ function parseItem(it, traits, nPrior) {
   while (tb > ta && /\s/.test(it.text[tb - 1])) tb -= 1;
   return { name, span: { start: it.start, end: it.end },
     nameSpan: { start: it.start + Math.max(0, at), end: it.start + Math.max(0, at) + name.length },
-    tailSpan: { start: it.start + ta, end: it.start + tb }, tail: it.text.slice(ta, tb),
+    tailSpan: { start: it.start + ta, end: it.start + tb }, tail: it.text.slice(ta, tb), varSpan,
     qty: sq.qty, ...(sq.expr ? { expr: sq.expr } : {}), var: vname, flag, ref: !name && !!vname };
 }
 
@@ -429,8 +437,14 @@ export function paintOf(text = "", model = {}, proc = {}) {
           const side = s.kind;
           [...s.items, ...s.or].forEach((it) => {
             const r = it.row ?? s.row;
-            put(r, it.span, { kind: "trait", side, state: itemState(it, proc, model), name: it.name, letter: it.letter, exprError: it.exprError || "",
-              nameSpan: it.nameSpan, tailSpan: it.tailSpan, tail: it.tail || "" });
+            /* Плашка ресурса — имя и количество; переменная в скобках —
+               своей плашкой цветом имени (2026-09-18), ссылка «(X)» — только она. */
+            const st = itemState(it, proc, model);
+            if (it.name) put(r, { start: it.span.start, end: Math.max(it.nameSpan.end, it.tailSpan?.end ?? 0, it.span.start) },
+              { kind: "trait", side, state: st, name: it.name, letter: it.letter, exprError: it.exprError || "",
+                nameSpan: it.nameSpan, tailSpan: it.tailSpan, tail: it.tail || "", itemSpan: it.span, varName: it.var || "" });
+            if (it.varSpan) put(r, it.varSpan, { kind: "var", side, state: it.ref ? st : "ok", varName: it.var, ref: !!it.ref, flag: !!it.flag,
+              inner: it.varSpan.inner, itemSpan: it.span, letter: it.letter });
           });
           if (s.items.length) {
             const byRow = new Map();
@@ -445,6 +459,14 @@ export function paintOf(text = "", model = {}, proc = {}) {
   });
   errors.forEach((e) => { rowOf(e.row).error = e.message; });
   return [...rows.values()].map((r) => ({ ...r, spans: r.spans.sort((a, b) => a.start - b.start) }));
+}
+
+/** Переименовать переменную ресурса во всём тексте: «(переменная: X)», «(X)», «(флаг X)». */
+export function renameVar(text = "", from = "", to = "") {
+  const esc = String(from).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!esc) return String(text || "");
+  const re = new RegExp(`\\(\\s*((?:переменная\\s*:\\s*|флаг\\s+)?)${esc}\\s*\\)`, "gi");
+  return String(text || "").replace(re, (m, pre) => `(${pre}${String(to).trim()})`);
 }
 
 /* ─────── подсказки ─────── */

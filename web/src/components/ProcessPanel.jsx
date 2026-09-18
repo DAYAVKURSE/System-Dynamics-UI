@@ -5,8 +5,8 @@ import { normalizeFunc } from "../lib/funcs.js";
 import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs } from "../lib/process.js";
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
-  suggest, toggleRole, usesAsset, whoState } from "../lib/proc2.js";
-import { allHands, handColor, newHandName } from "../lib/hands.js";
+  suggest, toggleRole, usesAsset, whoState, renameVar } from "../lib/proc2.js";
+import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
 
 /* ════════════════════════════════════════════════════════════════
    ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС · раздел на «Управлении»
@@ -53,6 +53,7 @@ function spanStyle(k) {
     return one ? plate(ROLE_COLOR[one]) : plate(C.panel2, C.muted, C.line);
   }
   if (k.kind === "hand") return plate(handColor(k.hand));
+  if (k.kind === "var") return k.state && k.state !== "ok" ? plate(BAD) : plate(handColor(k.varName || ""));
   if (k.kind === "person") return k.known ? plate("#FFD9A0") : plate(BAD);
   let st;
   if (bad) st = plate(BAD);
@@ -96,13 +97,18 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
          но не видны — в прямоугольнике только имя (владелец, 2026-09-18). */
       const wrap = (k.kind === "hand" && k.brace) ? [1, 1] : (k.kind === "person" && k.at) ? [1, 0] : null;
       const inner = wrap ? raw.slice(wrap[0], raw.length - wrap[1]) : raw;
+      const vr = k.kind === "var" && k.inner ? { a: k.inner.start - k.start, b: k.inner.end - k.start } : null;
       const op = k.kind === "trait" && k.tail && !SIMPLE_TAIL.test(k.tail) && row !== caretRow && k.tailSpan
         && k.tailSpan.start >= k.start && k.tailSpan.end <= k.end ? { a: k.tailSpan.start - k.start, b: k.tailSpan.end - k.start } : null;
       out.push(<span key={`${key}m${j}`} data-kind={k.kind} data-side={k.side || undefined}
         data-mark={bad ? k.state : (k.exprError ? "expr" : undefined)}
-        title={k.exprError || (k.kind === "roles" ? k.roles.map((r) => ROLE_WORD[r]).join(", ") : k.kind === "hand" ? `переменная сотрудника: ${k.hand}` : k.kind === "person" ? (k.known ? "именно этот сотрудник" : "нет такого сотрудника") : bad ? k.state : undefined)}
-        style={wrap ? {} : spanStyle(k)}>
-        {op ? (<>
+        title={k.exprError || (k.kind === "roles" ? k.roles.map((r) => ROLE_WORD[r]).join(", ") : k.kind === "hand" ? `переменная сотрудника: ${k.hand}` : k.kind === "var" ? (k.ref ? `закреплённый ресурс: ${k.varName}` : `переменная ресурса: ${k.varName}`) : k.kind === "person" ? (k.known ? "именно этот сотрудник" : "нет такого сотрудника") : bad ? k.state : undefined)}
+        style={wrap || vr ? {} : spanStyle(k)}>
+        {vr ? (<>
+          <span style={{ color: C.muted }}>{raw.slice(0, vr.a)}</span>
+          <span data-var={k.varName} style={spanStyle(k)}>{raw.slice(vr.a, vr.b)}</span>
+          <span style={{ color: C.muted }}>{raw.slice(vr.b)}</span>
+        </>) : op ? (<>
           {raw.slice(0, op.a)}
           <span data-op={k.tail} title={`операция: ${k.tail}`} style={{ position: "relative", display: "inline-block" }}>
             <span style={{ color: "transparent" }}>{raw.slice(op.a, op.b)}</span>
@@ -255,15 +261,52 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const resRow = focus && caretRow >= 0 && ["take", "give", "or"].includes(labelOf(rowLine)?.kind) ? caretRow : -1;
   const resStart = resRow >= 0 ? rowStartOf(resRow) : 0;
   const caretIn = pick ? pick.at - resStart : -1;
-  const res = resRow >= 0 ? (paint.find((r) => r.row === resRow)?.spans || []).find((k) => k.kind === "trait" && k.name
-    && k.start <= caretIn && (caretIn <= k.end || /^\s*$/.test(rowLine.slice(k.end, caretIn)))) || null : null;
-  const resKey = res ? `${resRow}:${res.nameSpan?.start ?? res.start}` : "";
+  const resSpans = resRow >= 0 ? (paint.find((r) => r.row === resRow)?.spans || []) : [];
+  const inItem = (k) => k.itemSpan && k.itemSpan.start <= caretIn && (caretIn <= k.itemSpan.end || /^\s*$/.test(rowLine.slice(k.itemSpan.end, caretIn)));
+  const res = resSpans.find((k) => ((k.kind === "trait" && k.name) || (k.kind === "var" && k.ref)) && inItem(k)) || null;
+  /* Переменная этого ресурса (закреплён) или сама ссылка «(X)». */
+  const resVar = res ? (res.kind === "var" ? res : resSpans.find((k) => k.kind === "var" && !k.ref && k.itemSpan.start === res.itemSpan.start) || null) : null;
+  const resRef = !!res && res.kind === "var";
+  const resName = res ? (resRef ? `(${res.varName})` : res.name) : "";
+  const resKey = res ? `${resRow}:${res.itemSpan.start}` : "";
+  /* Закрепить ресурс — переменная из одного слова; выбрать — ссылка на
+     закреплённый ресурс этого процесса (владелец, 2026-09-18). */
+  const procVars = [...new Set(paint.flatMap((r) => r.spans.filter((k) => k.kind === "var" && !k.ref && k.varName).map((k) => k.varName)))];
+  const [pickVar, setPickVar] = useState(false);
+  const [renamingVar, setRenamingVar] = useState(false);
+  const pinRes = () => {
+    const at = resStart + (res.tail ? res.tailSpan.end : res.nameSpan.end);
+    rewrite(`${text.slice(0, at)} (переменная: ${newVarName(new Set([...procVars, ...usedHands()]))})${text.slice(at)}`);
+  };
+  const unpinRes = () => {
+    let a = resStart + resVar.start; const b = resStart + resVar.end;
+    while (a > resStart && text[a - 1] === " ") a -= 1;
+    rewrite(text.slice(0, a) + text.slice(b));
+  };
+  const useVar = (v) => {
+    const a = resStart + res.itemSpan.start, b = resStart + res.itemSpan.end;
+    setPickVar(false);
+    rewrite(`${text.slice(0, a)}(${v})${text.slice(b)}`);
+  };
+  const dropRef = () => {
+    let a = resStart + res.itemSpan.start; let b = resStart + res.itemSpan.end;
+    while (a > resStart && text[a - 1] === " ") a -= 1;
+    if (text.slice(b).match(/^,\s*/)) b += text.slice(b).match(/^,\s*/)[0].length;
+    rewrite(text.slice(0, a) + text.slice(b));
+  };
+  const renameVarTo = (name) => {
+    const n = String(name || "").trim();
+    hold.current = false; setRenamingVar(false);
+    if (!n || n === resVar.varName || procVars.some((v) => v.toLowerCase() === n.toLowerCase())) { setTimeout(() => inp.current?.focus({ preventScroll: true }), 0); return; }
+    rewrite(renameVar(text, resVar.varName, n));
+  };
   const [opDraft, setOpDraft] = useState("");
   const opFocus = useRef(false);
   const opRef = useRef(null);
   useEffect(() => { if (!opFocus.current) setOpDraft(res?.tail || ""); opRef.current = null; }, [resKey, res?.tail]);   // eslint-disable-line react-hooks/exhaustive-deps
   const opAnchor = () => {
     if (opRef.current) return opRef.current;
+    if (resRef) { opRef.current = { a: resStart + res.itemSpan.start, b: resStart + res.itemSpan.end }; return opRef.current; }
     const has = !!res.tail;
     const a = resStart + (has ? res.tailSpan.start : res.nameSpan.end);
     let b = resStart + (has ? res.tailSpan.end : res.nameSpan.end);
@@ -282,10 +325,10 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const opEdit = (v) => { setOpDraft(v); setText(putOp(v)); };
   const opDone = (v) => { opFocus.current = false; hold.current = false; rewrite(putOp(v)); };
   const dangling = /[=+\-*/%(@]\s*$/.test(opDraft);
-  const tailAt = res ? resStart + (res.tail ? res.tailSpan.end : res.nameSpan.end) : 0;
-  const tailHint = res ? (res.tail ? hintAt(text, tailAt, model) : hintAt(`${text.slice(0, tailAt)} ${text.slice(tailAt)}`, tailAt + 1, model)) : null;
+  const tailAt = res && !resRef ? resStart + (res.tail ? res.tailSpan.end : res.nameSpan.end) : 0;
+  const tailHint = res && !resRef ? (res.tail ? hintAt(text, tailAt, model) : hintAt(`${text.slice(0, tailAt)} ${text.slice(tailAt)}`, tailAt + 1, model)) : null;
   const opItems = (tailHint && tailHint.kind === "qty" ? suggest({ ...tailHint, query: /@[^\s]*$/.test(opDraft) ? opDraft.match(/@[^\s]*$/)[0] : "" }, model, proc) : [])
-    .filter((it) => !it.info && (!dangling || /@\s*$/.test(opDraft) || it.kind === "буква" || it.name === "@" || it.name === "("));
+    .filter((it) => !it.info && it.kind !== "переменная" && (!dangling || /@\s*$/.test(opDraft) || it.kind === "буква" || it.name === "@" || it.name === "("));
   const opPick = (it) => {
     if (it.kind === "дальше" || it.kind === "переменная") { choose(it, { ...tailHint, at: tailAt, start: tailAt }); return; }
     let next;
@@ -345,10 +388,51 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           onChange={(e) => { opRef.current = null; onChange(e); }} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
         {res && (
           <div data-res-menu="" onMouseDown={(e) => { if (e.target.tagName === "INPUT") hold.current = true; else e.preventDefault(); }}
-            aria-label={`меню ресурса ${res.name}`}
+            aria-label={`меню ресурса ${resName}`}
             style={{ position: "absolute", right: 6, top: 7 + resRow * LINE_H * 12 - scrollTop, zIndex: 3, display: "flex", flexDirection: "column", gap: 3,
               width: 200, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 5, boxShadow: "0 6px 20px rgba(0,0,0,.35)" }}>
-            <div style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>ресурс «{res.name}»</div>
+            <div style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {resRef ? `закреплённый ресурс «${res.varName}»` : `ресурс «${res.name}»`}</div>
+            {resVar ? (
+              <div style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+                <div className="flex items-center gap-2">
+                  <span style={{ width: 16, textAlign: "center" }}>{resRef ? "🔗" : "📌"}</span>
+                  {renamingVar && !resRef ? (
+                    <input autoFocus defaultValue={resVar.varName} aria-label="имя переменной ресурса"
+                      style={{ ...S.inp, flex: 1, fontSize: 11, padding: "1px 4px" }}
+                      onBlur={(e) => renameVarTo(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { hold.current = false; setRenamingVar(false); inp.current?.focus({ preventScroll: true }); } }} />
+                  ) : (
+                    <button type="button" aria-label={resRef ? `закреплённый ресурс ${resVar.varName}` : `переименовать переменную ресурса ${resVar.varName}`}
+                      title={resRef ? "ссылка на закреплённый ресурс" : "нажмите, чтобы переименовать"} disabled={resRef}
+                      onClick={() => { if (resRef) return; hold.current = true; setRenamingVar(true); }}
+                      style={{ flex: 1, textAlign: "left", background: handColor(resVar.varName), color: DARK, border: "none", borderRadius: 4,
+                        padding: "1px 6px", fontSize: 11, cursor: resRef ? "default" : "text" }}>{resVar.varName}</button>)}
+                  <button type="button" aria-label={resRef ? `снять выбор ресурса: ${resVar.varName}` : `открепить ресурс: ${res.name}`}
+                    title={resRef ? "убрать ссылку" : "открепить ресурс"} onClick={resRef ? dropRef : unpinRes}
+                    style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" aria-label={`закрепить ресурс: ${res.name}`} onClick={pinRes} className="flex items-center gap-2"
+                style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left", background: "transparent",
+                  color: C.text, border: `1px solid ${C.line}` }}>
+                <span style={{ width: 16, textAlign: "center" }}>📌</span>Закрепить ресурс</button>)}
+            <button type="button" aria-expanded={pickVar} aria-label={`выбрать ресурс: ${resName}`}
+              onClick={() => setPickVar((v) => !v)} className="flex items-center gap-2"
+              style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left",
+                background: resRef ? handColor(res.varName) : "transparent", color: resRef ? DARK : C.text, border: `1px solid ${resRef ? handColor(res.varName) : C.line}` }}>
+              <span style={{ width: 16, textAlign: "center" }}>🔗</span>{resRef ? res.varName : "Выбрать ресурс"}</button>
+            {pickVar && (
+              <div role="listbox" aria-label={`закреплённые ресурсы: ${resName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 5 }}>
+                {procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).map((v) => (
+                  <div key={v} role="option" aria-selected={resRef && res.varName === v} onClick={() => useVar(v)}
+                    style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer", background: resRef && res.varName === v ? `${C.line}88` : "transparent" }}>
+                    <span style={{ background: handColor(v), color: DARK, borderRadius: 4, padding: "0 5px" }}>{v}</span></div>))}
+                {!procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).length && (
+                  <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>закреплённых ресурсов в этом процессе нет — «Закрепить ресурс» у нужного</div>)}
+              </div>)}
+            {!resRef && (<>
             <input value={opDraft} aria-label={`операция: ${res.name}`} placeholder="сколько / операция"
               style={{ ...S.inp, fontSize: 12, padding: "3px 6px", fontFamily: "ui-monospace, Menlo, monospace" }}
               onFocus={() => { hold.current = true; opFocus.current = true; opAnchor(); }}
@@ -364,6 +448,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
                   <span style={{ color: C.muted }}>{it.kind} </span>{it.name}{it.note && <span style={{ color: C.muted }}> — {it.note}</span>}</div>))}
               {!opItems.length && <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>введите число</div>}
             </div>
+            </>)}
           </div>)}
         {whoRow >= 0 && (
           <div data-role-buttons="" onMouseDown={(e) => { if (e.target.tagName !== "INPUT") e.preventDefault(); }}
@@ -391,15 +476,15 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
                       onClick={() => { hold.current = true; setRenamingHand(true); }}
                       style={{ flex: 1, textAlign: "left", background: handColor(whoHand), color: DARK, border: "none", borderRadius: 4,
                         padding: "1px 6px", fontSize: 11, cursor: "text" }}>{whoHand}</button>)}
-                  <button type="button" aria-label={`снять фиксацию: ${whoName}`} title="снять фиксацию" onClick={() => rewrite(setAuto(text, whoRow))}
+                  <button type="button" aria-label={`открепить сотрудника: ${whoName}`} title="открепить сотрудника" onClick={() => rewrite(setAuto(text, whoRow))}
                     style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
                 </div>
               </div>
             ) : (
-              <button type="button" aria-label={`зафиксировать сотрудника: ${whoName}`} onClick={fixHand} className="flex items-center gap-2"
+              <button type="button" aria-label={`закрепить сотрудника: ${whoName}`} onClick={fixHand} className="flex items-center gap-2"
                 style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left", background: "transparent",
                   color: C.text, border: `1px solid ${C.line}` }}>
-                <span style={{ width: 16, textAlign: "center" }}>🔒</span>Зафиксировать сотрудника</button>)}
+                <span style={{ width: 16, textAlign: "center" }}>🔒</span>Закрепить сотрудника</button>)}
             <button type="button" aria-expanded={pickPerson} aria-label={`выбрать сотрудника: ${whoName}`}
               onClick={() => setPickPerson((v) => !v)} className="flex items-center gap-2"
               style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left",

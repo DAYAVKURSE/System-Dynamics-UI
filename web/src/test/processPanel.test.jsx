@@ -104,7 +104,7 @@ describe("подсказки ведут по строкам", () => {
 });
 
 describe("роли, статусы, функции", () => {
-  it("курсор в строке «Кто:» открывает меню столбиком: роли с названиями, «Зафиксировать сотрудника», «Выбрать сотрудника»", async () => {
+  it("курсор в строке «Кто:» открывает меню столбиком: роли с названиями, «Закрепить сотрудника», «Выбрать сотрудника»", async () => {
     const area = addProc();
     write(area, TEXT);
     fireEvent.focus(area);
@@ -113,12 +113,12 @@ describe("роли, статусы, функции", () => {
     expect(menu).not.toBeNull();
     expect(menu.style.flexDirection).toBe("column");
     expect(within(menu).getAllByRole("button").map((b) => b.textContent)).toEqual(
-      ["✎постановщик", "⚙исполнитель", "✓проверяющий", "🔒Зафиксировать сотрудника", "👤Выбрать сотрудника"]);
+      ["✎постановщик", "⚙исполнитель", "✓проверяющий", "🔒Закрепить сотрудника", "👤Выбрать сотрудника"]);
     fireEvent.click(within(menu).getByRole("button", { name: "постановщик: Пользователи" }));
     expect(area).toHaveValue("Задача: лид\nКто: Пользователи ✎\nБерёт: заявки 2\nОтдаёт: заявки 50% A");
     await waitFor(() => expect(container.querySelector("[data-kind=roles]").textContent).toBe("✎"));
     // Фиксация — переменная из двух латинских слов в фигурных скобках; в поле видно только имя в плашке.
-    fireEvent.click(within(menu).getByRole("button", { name: "зафиксировать сотрудника: Пользователи" }));
+    fireEvent.click(within(menu).getByRole("button", { name: "закрепить сотрудника: Пользователи" }));
     const line = area.value.split("\n")[1];
     expect(line).toMatch(/^Кто: Пользователи ✎ \{[a-z]+ [a-z]+\}$/);
     const name = line.match(/\{([^}]+)\}/)[1];
@@ -163,6 +163,43 @@ describe("роли, статусы, функции", () => {
     expect(ops).toHaveLength(1);
     expect(ops[0].closest("[data-kind=trait]").textContent).toBe("заявки 50% A");   // строка «Отдаёт:» без курсора
     expect(ops[0].children[0].style.color).toBe("transparent");
+  });
+
+  it("«Закрепить ресурс» даёт переменную из одного слова; «Выбрать ресурс» ставит ссылку, и поле операции пропадает (владелец, 2026-09-18)", async () => {
+    const area = addProc();
+    write(area, TEXT);
+    fireEvent.focus(area);
+    fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("заявки 50% A") + 2 } });
+    const menu = () => container.querySelector("[data-res-menu]");
+    expect(within(menu()).getAllByRole("button").map((b) => b.textContent).slice(0, 2)).toEqual(["📌Закрепить ресурс", "🔗Выбрать ресурс"]);
+    fireEvent.click(within(menu()).getByRole("button", { name: "закрепить ресурс: заявки" }));
+    const line = area.value.split("\n")[3];
+    expect(line).toMatch(/^Отдаёт: заявки 50% A \(переменная: [a-z]+\)$/);
+    const name = line.match(/\(переменная: ([a-z]+)\)/)[1];
+    // Переменная — плашкой цветом имени; скобки и слово «переменная:» серые.
+    await waitFor(() => expect(container.querySelector(`[data-proc-backdrop] [data-var='${name}']`)).not.toBeNull());
+    expect(container.querySelector("[data-proc-backdrop] [data-kind=var]").textContent).toBe(`(переменная: ${name})`);
+    // Переименование — во всём тексте.
+    fireEvent.click(within(menu()).getByRole("button", { name: `переименовать переменную ресурса ${name}` }));
+    const inp = screen.getByLabelText("имя переменной ресурса");
+    fireEvent.change(inp, { target: { value: "leads" } });
+    fireEvent.blur(inp);
+    expect(area.value.split("\n")[3]).toBe("Отдаёт: заявки 50% A (переменная: leads)");
+    // В строке «Берёт:» — «Выбрать ресурс»: закреплённые ресурсы процесса; выбранный заменяет ресурс ссылкой.
+    fireEvent.click(area, { target: { selectionStart: area.value.indexOf("заявки 2") + 1 } });
+    fireEvent.click(within(menu()).getByRole("button", { name: "выбрать ресурс: заявки" }));
+    const list = screen.getByRole("listbox", { name: "закреплённые ресурсы: заявки" });
+    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["leads"]);
+    fireEvent.click(within(list).getByRole("option", { name: "leads" }));
+    expect(area.value.split("\n")[2]).toBe("Берёт: (leads)");
+    // Ссылка выбрана — операции нет: поля операции и списка «сколько» в меню нет.
+    fireEvent.click(area, { target: { selectionStart: area.value.indexOf("(leads)") + 2 } });
+    expect(menu()).not.toBeNull();
+    expect(screen.queryByLabelText(/^операция: /)).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "операция: варианты" })).toBeNull();
+    expect(within(menu()).getByRole("button", { name: "выбрать ресурс: (leads)" })).toHaveTextContent("leads");
+    fireEvent.click(within(menu()).getByRole("button", { name: "снять выбор ресурса: leads" }));
+    expect(area.value.split("\n")[2]).toBe("Берёт:");
   });
 
   it("«принято» собирает функцию с задачей в активе исполнителя; неизвестный ресурс принимается в актив «Кому»", () => {
