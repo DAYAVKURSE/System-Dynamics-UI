@@ -23,6 +23,8 @@ const addProc = () => {
 };
 /* Правка включается двойным нажатием на текст (владелец, 2026-09-18). */
 const edit = (el) => { fireEvent.doubleClick(el); fireEvent.focus(el); };
+/* Просмотр: одинарное нажатие ставит курсор и открывает меню сущности. */
+const view = (el) => fireEvent.focus(el);
 const type = (el, v, at = v.length) => {
   edit(el);
   fireEvent.change(el, { target: { value: v, selectionStart: at } });
@@ -30,7 +32,7 @@ const type = (el, v, at = v.length) => {
 const write = (el, v) => { type(el, v); fireEvent.blur(el); };
 const popup = () => screen.getByRole("dialog", { name: "подсказка процесса" });
 const options = () => within(popup()).getAllByRole("option").map((o) => o.textContent);
-const pick = (re) => fireEvent.mouseDown(within(popup()).getByRole("option", { name: re }));
+const pick = (re) => fireEvent.click(within(popup()).getByRole("option", { name: re }));
 const opList = () => screen.getByRole("listbox", { name: "операция: варианты" });
 const pickOp = (re) => fireEvent.click(within(opList()).getByRole("option", { name: re }));
 const openExport = () => {
@@ -54,23 +56,38 @@ const loadJson = (m) => {
 };
 const TEXT = "Задача: лид\nКто: Пользователи\nБерёт: заявки 2\nОтдаёт: заявки 50% A";
 
-describe("правка по двойному нажатию", () => {
-  it("одинарное нажатие не включает правку: поле только для чтения, подсказки и меню не показываются; двойное — включает; нажатие вне поля — выключает", () => {
+describe("просмотр и правка (владелец, 2026-09-18)", () => {
+  it("одинарное нажатие: поле только для чтения, меню сущности есть, подсказок нет; двойное: правка, подсказки под полем, меню нет; Enter или нажатие на поле — конец правки", () => {
     const area = addProc();
     write(area, TEXT);
     expect(area).toHaveAttribute("readonly");
-    fireEvent.focus(area);
+    view(area);
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
+    expect(container.querySelector("[data-role-buttons]")).not.toBeNull();
     expect(screen.queryByRole("dialog", { name: "подсказка процесса" })).toBeNull();
-    expect(container.querySelector("[data-role-buttons]")).toBeNull();
     expect(screen.getByText("двойное нажатие — правка")).toBeInTheDocument();
+    // Плавающее меню — не в поле: position fixed, с шапкой для перетаскивания.
+    const float = container.querySelector("[data-proc-menu]");
+    expect(float.style.position).toBe("fixed");
+    expect(within(float).getByLabelText("перетащить меню")).toBeInTheDocument();
     fireEvent.doubleClick(area);
     expect(area).not.toHaveAttribute("readonly");
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
-    expect(container.querySelector("[data-role-buttons]")).not.toBeNull();
-    fireEvent.blur(area);   // нажатие в другом месте
-    expect(area).toHaveAttribute("readonly");
     expect(container.querySelector("[data-role-buttons]")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "подсказка процесса" })).toBeInTheDocument();
+    // Enter (где нечего подставить) — конец правки: поле снова для чтения.
+    fireEvent.click(area, { target: { selectionStart: TEXT.length } });
+    fireEvent.keyDown(area, { key: "Enter" });
+    expect(area).toHaveAttribute("readonly");
+    expect(screen.queryByRole("dialog", { name: "подсказка процесса" })).toBeNull();
+    fireEvent.doubleClick(area);
+    expect(area).not.toHaveAttribute("readonly");
+    fireEvent.mouseDown(area, { detail: 1 });   // одинарное нажатие на поле
+    expect(area).toHaveAttribute("readonly");
+    fireEvent.blur(area);   // нажатие вне поля — меню исчезает
+    expect(container.querySelector("[data-proc-menu]")).toBeNull();
+    // Высота поля фиксированная: rows не зависит от текста.
+    expect(area.getAttribute("rows")).toBe("12");
   });
 });
 
@@ -78,7 +95,9 @@ describe("подсказки ведут по строкам", () => {
   it("метка → «Кто:» → актив (новая строка) → «Берёт:» → ресурс → сколько → новая строка → «Кому:»", async () => {
     const area = addProc();
     type(area, "");
-    expect(popup().style.bottom).toBe("100%");   // окно над полем
+    // окно подсказок — под полем, в потоке (владелец, 2026-09-18)
+    expect(area.compareDocumentPosition(popup()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(popup().style.position).not.toBe("absolute");
     expect(options().slice(0, 2)).toEqual(["метка Кто: — участник", "метка Задача: — новая задача"]);
     pick(/^метка Задача:/);
     expect(area).toHaveValue("Задача: ");
@@ -93,17 +112,16 @@ describe("подсказки ведут по строкам", () => {
     await waitFor(() => expect(options()).toContain("ресурс заявки — Пользователи"));
     pick(/^ресурс заявки/);
     expect(area).toHaveValue("Задача: лид\nКто: Пользователи\nБерёт: заявки ");
-    // После имени ресурса — меню ресурса справа: поле операции и список (владелец, 2026-09-18).
-    await waitFor(() => expect(screen.getByLabelText("операция: заявки")).toBeInTheDocument());
+    await waitFor(() => expect(popup()).toHaveTextContent("сколько"));
     type(area, "Задача: лид\nКто: Пользователи\nБерёт: заявки 2");
-    pickOp(/^дальше ↵ — новая строка$/);
+    pick(/^дальше ↵ — новая строка$/);
     expect(area).toHaveValue("Задача: лид\nКто: Пользователи\nБерёт: заявки 2\n");
     await waitFor(() => expect(options()[0]).toBe("метка От кого: — откуда"));
     pick(/^метка Отдаёт:/);
     await waitFor(() => expect(options()).toContain("ресурс заявки — Пользователи"));
     pick(/^ресурс заявки/);
     type(area, `${TEXT}`);
-    pickOp(/новая строка: Кому:/);
+    pick(/новая строка: Кому:/);
     expect(area).toHaveValue(`${TEXT}\nКому: `);
     await waitFor(() => expect(options()).toContain("актив Рынок услуг"));
     pick(/^актив Рынок услуг/);
@@ -129,7 +147,7 @@ describe("роли, статусы, функции", () => {
   it("курсор в строке «Кто:» открывает меню столбиком: роли с названиями, «Закрепить сотрудника», «Выбрать сотрудника»", async () => {
     const area = addProc();
     write(area, TEXT);
-    edit(area);
+    view(area);
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
     const menu = container.querySelector("[data-role-buttons]");
     expect(menu).not.toBeNull();
@@ -159,7 +177,7 @@ describe("роли, статусы, функции", () => {
   it("курсор на ресурсе открывает меню ресурса: поле операции, знак «=», просьба ввести число; в поле операция — значком (владелец, 2026-09-18)", async () => {
     const area = addProc();
     write(area, TEXT);
-    edit(area);
+    view(area);
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("заявки 2") + 2 } });
     const menu = container.querySelector("[data-res-menu]");
     expect(menu).not.toBeNull();
@@ -190,23 +208,26 @@ describe("роли, статусы, функции", () => {
   it("«Закрепить ресурс» даёт переменную из одного слова; «Выбрать ресурс» ставит ссылку, и поле операции пропадает (владелец, 2026-09-18)", async () => {
     const area = addProc();
     write(area, TEXT);
-    edit(area);
+    view(area);
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("заявки 50% A") + 2 } });
     const menu = () => container.querySelector("[data-res-menu]");
     expect(within(menu()).getAllByRole("button").map((b) => b.textContent).slice(0, 2)).toEqual(["📌Закрепить ресурс", "🔗Выбрать ресурс"]);
     fireEvent.click(within(menu()).getByRole("button", { name: "закрепить ресурс: заявки" }));
     const line = area.value.split("\n")[3];
-    expect(line).toMatch(/^Отдаёт: заявки 50% A \(переменная: [a-z]+\)$/);
-    const name = line.match(/\(переменная: ([a-z]+)\)/)[1];
-    // Переменная — плашкой цветом имени; скобки и слово «переменная:» серые.
+    // Без слова «переменная» (владелец, 2026-09-18): имя в скобках.
+    expect(line).toMatch(/^Отдаёт: заявки 50% A \([a-z]+\)$/);
+    const name = line.match(/\(([a-z]+)\)/)[1];
+    // Имя — плашкой цветом имени; скобки не видны (прозрачные).
     await waitFor(() => expect(container.querySelector(`[data-proc-backdrop] [data-var='${name}']`)).not.toBeNull());
-    expect(container.querySelector("[data-proc-backdrop] [data-kind=var]").textContent).toBe(`(переменная: ${name})`);
+    const plate = container.querySelector("[data-proc-backdrop] [data-kind=var]");
+    expect(plate.textContent).toBe(`(${name})`);
+    expect(plate.children[0].style.color).toBe("transparent");
     // Переименование — во всём тексте.
-    fireEvent.click(within(menu()).getByRole("button", { name: `переименовать переменную ресурса ${name}` }));
-    const inp = screen.getByLabelText("имя переменной ресурса");
+    fireEvent.click(within(menu()).getByRole("button", { name: `переименовать закреплённый ресурс ${name}` }));
+    const inp = screen.getByLabelText("имя закреплённого ресурса");
     fireEvent.change(inp, { target: { value: "leads" } });
     fireEvent.blur(inp);
-    expect(area.value.split("\n")[3]).toBe("Отдаёт: заявки 50% A (переменная: leads)");
+    expect(area.value.split("\n")[3]).toBe("Отдаёт: заявки 50% A (leads)");
     // В строке «Берёт:» — «Выбрать ресурс»: закреплённые ресурсы процесса; выбранный заменяет ресурс ссылкой.
     fireEvent.click(area, { target: { selectionStart: area.value.indexOf("заявки 2") + 1 } });
     fireEvent.click(within(menu()).getByRole("button", { name: "выбрать ресурс: заявки" }));

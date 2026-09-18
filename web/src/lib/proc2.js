@@ -651,7 +651,7 @@ export function suggest(hint, model = {}, proc = {}) {
       items = (hint.prior || []).map((p) => ({ name: p.letter, kind: "буква", note: `${p.name} (${p.asset})`, suffix: "" }));
       items.push(...[["=", "ровно"], ["%", "процент"], ["@", "ресурс схемы"], ["-", "диапазон: 45-55"], ["*", ""], ["/", ""], ["+", ""], ["(", ""], [")", ""]]
         .map(([name, note]) => ({ name, kind: "знак", note, suffix: "", insert: true })));
-      items.push({ name: "(переменная: …)", kind: "переменная", note: "назвать, чтобы взять в другой задаче", insert: true, text: " (переменная: )", suffix: "", caretBack: 1 });
+      items.push({ name: "(…)", kind: "закрепить", note: "имя в скобках — взять в другой задаче", insert: true, text: " ()", suffix: "", caretBack: 1 });
       items.push({ name: "→", kind: "дальше", note: "ещё ресурс через запятую", insert: true, text: ",", suffix: " ", trimBefore: true });
       items.push({ name: "↵", kind: "дальше", note: hint.side === "give" ? "новая строка: Кому:" : "новая строка: От кого:", insert: true,
         text: `\n${LABEL_TEXT[hint.side === "give" ? "to" : "from"]}`, suffix: " ", trimBefore: true });
