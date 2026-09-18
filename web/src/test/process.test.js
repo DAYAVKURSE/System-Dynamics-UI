@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canAcceptProc, dropHypo, formatStep, hintAt, nameKey, newProc, normalizeProc,
   parseLine, parseProcess, procFuncs, procIssues, procLabel, procUsesAsset, replaceName,
   marksOf, paintOf, resolveProc, stateOf, stepsOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
-import { splitQty, stripVarWord } from "../lib/process.js";
+import { splitQty, stripVarWord, splitThen } from "../lib/process.js";
 import { activeFuncs, liveModel, normalizeFunc } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
 import { chainOf } from "../lib/chain.js";
@@ -414,5 +414,13 @@ describe("stripVarWord: «(переменная: X)» → «(X)» (владел�
     expect(stripVarWord("Отдаёт: заявки 2 (переменная: lead), оплата (Переменная:  deal )")).toBe("Отдаёт: заявки 2 (lead), оплата (deal)");
     expect(stripVarWord("Кто: Менеджер (переменная: сотрудник space bear)")).toBe("Кто: Менеджер (переменная: сотрудник space bear)");
     expect(normalizeProc({ text: "Берёт: (переменная: lead)" }).text).toBe("Берёт: (lead)");
+  });
+});
+
+describe("splitThen: «Если: X, То:» → «Если: X» и строка «То:» (владелец, 2026-09-18)", () => {
+  it("переносит «То:» на новую строку при нормализации; уже отдельная строка не трогается", () => {
+    expect(splitThen("Задача: a\nЕсли: lead > 5, То:\nКто: x")).toBe("Задача: a\nЕсли: lead > 5\nТо:\nКто: x");
+    expect(splitThen("Если: lead\nТо:")).toBe("Если: lead\nТо:");
+    expect(normalizeProc({ text: "Если: a то:" }).text).toBe("Если: a\nТо:");
   });
 });

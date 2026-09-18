@@ -189,6 +189,17 @@ describe("роли, статусы, функции", () => {
     expect(area.value.split("\n")[1]).toBe("Кто: Пользователи ✎");
   });
 
+  it("«Если:», «То:», «Иначе:» — одним цветом с условием (владелец, 2026-09-18)", () => {
+    const area = addProc();
+    write(area, "Задача: лид\nЕсли: lead > 5\nТо:\nКто: Пользователи\nИначе:\nКто: Пользователи");
+    const marks = Array.from(container.querySelectorAll("[data-proc-backdrop] [data-kind=mark]")).map((e) => [e.textContent, e.style.color]);
+    const warn = marks.find(([t]) => t === "Если:")[1];
+    expect(warn).not.toBe(marks.find(([t]) => t === "Задача:")[1]);
+    expect(marks.find(([t]) => t === "То:")[1]).toBe(warn);
+    expect(marks.find(([t]) => t === "Иначе:")[1]).toBe(warn);
+    expect(container.querySelector("[data-proc-backdrop] [data-kind=cond]").style.color).toBe(warn);
+  });
+
   it("пропущенные значения помечены «?»: ресурс без количества, метка без значения (владелец, 2026-09-18)", () => {
     const area = addProc();
     write(area, "Задача: лид\nКто:\nБерёт: заявки\nОтдаёт: заявки 2");

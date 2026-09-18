@@ -60,11 +60,11 @@ const LABELS = [
   ["func", ["функция"]], ["task", ["задача"]], ["who", ["кто"]],
   ["take", ["берет", "берут"]], ["give", ["отдает", "отдают", "выдает", "выдают", "дает", "дают"]],
   ["to", ["кому", "куда"]], ["from", ["от кого", "откуда"]], ["or", ["или"]],
-  ["if", ["если"]], ["else", ["иначе"]],
+  ["if", ["если"]], ["then", ["то"]], ["else", ["иначе"]],
 ];
 const LABEL_KIND = new Map(LABELS.flatMap(([k, ws]) => ws.map((w) => [w, k])));
 export const LABEL_TEXT = { func: "Функция:", task: "Задача:", who: "Кто:", take: "Берёт:", takes: "Берут:",
-  give: "Отдаёт:", gives: "Отдают:", to: "Кому:", from: "От кого:", or: "Или:", if: "Если:", else: "Иначе:" };
+  give: "Отдаёт:", gives: "Отдают:", to: "Кому:", from: "От кого:", or: "Или:", if: "Если:", then: "То:", else: "Иначе:" };
 
 /** Метка строки: {kind, label:{start,end}, rest:{text,start}} или null. */
 export function labelOf(line = "") {
@@ -255,14 +255,22 @@ export function parseText(text = "", model = {}, proc = {}) {
       const rest = lab.rest.text, rs = lab.rest.start;
       if (lab.kind === "func") { newFunc(rest.trim(), row); fn.span = { start: rs, end: rs + rest.trimEnd().length }; last = "func"; return; }
       if (lab.kind === "task") { if (gap >= 2 && fn && fn.tasks.length) newFunc("", row); newTask(rest.trim(), row); task.span = { start: rs, end: rs + rest.trimEnd().length }; last = "task"; return; }
-      if (gap >= 2 && fn && fn.tasks.length && lab.kind !== "else") newFunc("", row);
+      if (gap >= 2 && fn && fn.tasks.length && lab.kind !== "else" && lab.kind !== "then") newFunc("", row);
       else if (gap === 1 && task && (lab.kind === "who" || lab.kind === "if")) { task = null; branch = null; }
+      /* «То:» — своей строкой после «Если:» (владелец, 2026-09-18); строение
+         ветки не меняет, только помнит строку для раскраски и разницы. */
+      if (lab.kind === "then") {
+        if (!branch || branch.cond == null) { err(row, "«То:» без «Если:» перед ней"); return; }
+        branch.thenRow = row;
+        last = "then"; lastStep = null; lastWho = null; return;
+      }
       const b = ensureBranch(row);
       if (lab.kind === "if") {
         const cond = rest.replace(/,?\s*то\s*:?\s*$/i, "").trim();
         if (b.who.length || b.steps.length || b.cond) { branch = { cond, who: [], steps: [], row }; task.branches.push(branch); }
         else b.cond = cond;
-        branch.condSpan = { start: rs, end: rs + rest.length };
+        // Строка условия своя: ветка могла быть заведена строкой «Задача:».
+        branch.condSpan = { start: rs, end: rs + rest.length }; branch.condRow = row;
         last = "if"; lastStep = null; lastWho = null; return;
       }
       if (lab.kind === "else") {
@@ -430,7 +438,7 @@ export function paintOf(text = "", model = {}, proc = {}) {
     f.tasks.forEach((t) => {
       if (t.span) put(t.row, t.span, { kind: "task", name: t.name });
       t.branches.forEach((b) => {
-        if (b.condSpan) put(b.row, b.condSpan, { kind: "cond" });
+        if (b.condSpan) put(b.condRow ?? b.row, b.condSpan, { kind: "cond" });
         b.who.forEach((w) => {
           const st = whoState(w, proc);
           // Пустое имя («Кто:» без значения) плашкой не красится — там стоит «?».
@@ -543,7 +551,7 @@ export function hintAt(text = "", at = 0, model = {}) {
   }
   if (lab.kind === "if") return { kind: "cond", start: restStart + rest.length - (rest.match(/[^\s,И!()=<>≠≥≤]*$/) || [""])[0].length, query: (rest.match(/[^\s,И!()=<>≠≥≤]*$/) || [""])[0], ctx, vars: ctx.vars,
     afterOp: /[=<>≠≥≤]\s*$/.test(rest) };
-  if (lab.kind === "else") return { kind: "label", start: at, query: "", ctx };
+  if (lab.kind === "else" || lab.kind === "then") return { kind: "label", start: at, query: "", ctx };
   // take / give / or: ресурс у курсора.
   const parts = splitItems(rest, 0);
   const lastComma = rest.lastIndexOf(",");
@@ -626,6 +634,7 @@ export function suggest(hint, model = {}, proc = {}) {
     else if (c.lastLab === "give" && !c.blankBefore) items.push(label("to", "куда"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
     else if (c.lastLab === "to" && !c.blankBefore) items.push(label("to", "ещё кому"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
     else if (c.lastLab === "from" && !c.blankBefore) items.push(label("from", "ещё от кого"), label(plural ? "gives" : "give"), label(plural ? "takes" : "take"), label("who"));
+    else if ((c.lastLab === "then" || c.lastLab === "if") && !c.blankBefore) items.push(label("who", "участник"), label("take", "что берёт"), label("give", "что отдаёт"));
     else if ((c.hasWho || c.whoRun) && !c.blankBefore) items.push(label(plural ? "takes" : "take", "что берёт"), label(plural ? "gives" : "give", "что отдаёт"), label("who", "ещё участник"));
     else items.push(label("who", "участник"), label("task", "новая задача"), label("func", "новая функция"));
     if (!items.some((i) => i.mark === "who")) items.push(label("who"));
@@ -682,7 +691,8 @@ export function suggest(hint, model = {}, proc = {}) {
       items.push(...[["=", "равно"], [">", "больше"], ["<", "меньше"], ["≥", "не меньше"], ["≤", "не больше"], ["≠", "не равно"]]
         .map(([name, note]) => ({ name, kind: "знак", note, suffix: " ", insert: true, text: name, trimBefore: false })));
       items.push({ name: "И", kind: "знак", suffix: " ", insert: true, text: "И" }, { name: "ИЛИ", kind: "знак", suffix: " ", insert: true, text: "ИЛИ" },
-        { name: "!", kind: "знак", note: "не", suffix: "", insert: true, text: "!" }, { name: ", То:", kind: "дальше", suffix: "\n", insert: true, text: ", То:", trimBefore: true });
+        { name: "!", kind: "знак", note: "не", suffix: "", insert: true, text: "!" },
+        { name: "↵", kind: "дальше", note: "новая строка: То:", suffix: "\n", insert: true, text: "\nТо:", trimBefore: true });
     }
   } else if (hint.kind === "name") {
     items.push({ name: "↵", kind: "дальше", note: hint.label === "func" ? "новая строка: Задача:" : "новая строка: Кто:", insert: true,
@@ -953,7 +963,7 @@ export function taskBlocks(text = "", model = {}) {
   funcs.forEach((f, fi) => f.tasks.forEach((t, ti) => {
     const rows = new Set();
     rows.add(t.row);
-    t.branches.forEach((b) => { rows.add(b.row); b.who.forEach((w) => rows.add(w.row)); b.steps.forEach((s) => { rows.add(s.row); s.items.forEach((it) => rows.add(it.row ?? s.row)); [...(s.tos || []), ...(s.froms || [])].forEach((x) => rows.add(x.row)); s.or.forEach((it) => rows.add(it.row ?? s.row)); }); });
+    t.branches.forEach((b) => { rows.add(b.row); if (b.thenRow != null) rows.add(b.thenRow); b.who.forEach((w) => rows.add(w.row)); b.steps.forEach((s) => { rows.add(s.row); s.items.forEach((it) => rows.add(it.row ?? s.row)); [...(s.tos || []), ...(s.froms || [])].forEach((x) => rows.add(x.row)); s.or.forEach((it) => rows.add(it.row ?? s.row)); }); });
     const body = [...rows].sort((a, b) => a - b).map((r) => lines[r]).join("\n");
     out.push({ key: `${f.name || fi}|${t.name || ti}`, name: t.name || `задача ${ti + 1}`, func: f.name, text: body });
   }));

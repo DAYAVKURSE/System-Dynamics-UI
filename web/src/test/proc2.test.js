@@ -135,6 +135,24 @@ describe("«Если:» — знаки сравнения (владелец, 202
   });
 });
 
+describe("«То:» своей строкой (владелец, 2026-09-18)", () => {
+  it("«То:» после «Если:» читается, без «Если:» — ошибка; после «То:» подсказка предлагает Кто/Берёт/Отдаёт; из условия — пункт «↵ То:»", () => {
+    const text = "Задача: a\nЕсли: lead > 5\nТо:\nКто: Владелец\nОтдаёт: оффер 1\nИначе:\nКто: Владелец\nОтдаёт: оффер 2";
+    const { funcs, errors } = parseText(text, model, {});
+    expect(errors).toEqual([]);
+    const [b1, b2] = funcs[0].tasks[0].branches;
+    expect(b1).toMatchObject({ cond: "lead > 5", thenRow: 2 });
+    expect(b1.who[0].name).toBe("Владелец");
+    expect(b2.isElse).toBe(true);
+    expect(labelOf("То:")).toMatchObject({ kind: "then" });
+    expect(parseText("Задача: a\nТо:", model, {}).errors[0].message).toMatch(/«То:» без «Если:»/);
+    const labels = suggest(hintAt("Задача: a\nЕсли: x\nТо:\n", 22, model), model).slice(0, 3).map((i) => i.name);
+    expect(labels).toEqual(["Кто:", "Берёт:", "Отдаёт:"]);
+    const item = suggest(hintAt("Задача: a\nЕсли: lead ", 21, model), model).find((i) => i.note === "новая строка: То:");
+    expect(item).toMatchObject({ name: "↵", text: "\nТо:", suffix: "\n" });
+  });
+});
+
 describe("разбор", () => {
   it("метки строк: функция, задача, кто, берёт/отдаёт (и множественное число), кому", () => {
     expect(labelOf("Кто: Владелец")).toMatchObject({ kind: "who", rest: { text: "Владелец", start: 5 } });

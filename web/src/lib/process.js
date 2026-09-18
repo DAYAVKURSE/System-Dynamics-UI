@@ -86,11 +86,16 @@ export const newProc = () => ({
    «(переменная: сотрудник …)» это не трогает — его читает importText. */
 export const stripVarWord = (text = "") =>
   String(text || "").replace(/\(\s*переменная\s*:(?!\s*сотрудник(?:\s|\)))\s*([^()]*?)\s*\)/gi, "($1)");
+/* «Если: X, То:» → «Если: X» + строка «То:» (владелец, 2026-09-18: «То»
+   переносится на новую строку). */
+export const splitThen = (text = "") =>
+  String(text || "").replace(/^([ \t]*если\s*:[^\n]*?),?[ \t]*то[ \t]*:?[ \t]*$/gim, "$1\nТо:");
+export const tidyProcText = (text = "") => splitThen(stripVarWord(text));
 export const normalizeProc = (p = {}) => ({
   ...p,
   id: p.id ?? nextId("pr"),
   name: p.name == null ? "" : String(p.name),
-  text: p.text == null ? "" : stripVarWord(String(p.text)),
+  text: p.text == null ? "" : tidyProcText(String(p.text)),
   status: STATUSES.includes(p.status) ? p.status : "off",
   steps: Array.isArray(p.steps) ? p.steps : [],
   hypo: { entities: ids(p.hypo?.entities), traits: ids(p.hypo?.traits), roles: ids(p.hypo?.roles) },

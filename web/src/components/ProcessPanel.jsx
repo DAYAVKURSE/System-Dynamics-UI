@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
-import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, stripVarWord } from "../lib/process.js";
+import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, tidyProcText } from "../lib/process.js";
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
   suggest, toggleRole, usesAsset, whoState, renameVar } from "../lib/proc2.js";
@@ -44,7 +44,8 @@ const plate = (bg, fg = DARK, ring = "") => ({ background: bg, color: fg, border
   boxShadow: `0 0 0 3px ${bg}${ring ? `, 0 0 0 4px ${ring}` : ""}` });
 function spanStyle(k) {
   const bad = k.state === "unknown" || k.state === "rejected" || k.state === "deleted" || k.state === "noasset";
-  if (k.kind === "mark") return { color: C.muted };
+  // «Если:», «То:», «Иначе:» — одним цветом с условием (владелец, 2026-09-18).
+  if (k.kind === "mark") return { color: ["if", "then", "else"].includes(k.label) ? WARN : C.muted };
   if (k.kind === "func") return { color: C.text, borderBottom: `2px solid ${C.line}` };
   if (k.kind === "task") return { color: C.text, borderBottom: `1px solid ${C.line}` };
   if (k.kind === "cond") return { color: WARN };
@@ -801,7 +802,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
 
   const add = () => commit({ procs: [...procs, newProc()] });
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
-  const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: stripVarWord(text) })) });
+  const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: tidyProcText(text) })) });
   const saveVersion = (p, note, text = p.text) => {
     const v = { id: `v${Date.now().toString(36)}${(p.versions || []).length.toString(36)}`, at: new Date().toISOString(), text, note };
     commit({ procs: patch(p.id, (x) => ({ ...x, versions: [...(x.versions || []), v] })) });
