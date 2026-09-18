@@ -88,6 +88,28 @@ const fits = () => {
   return v.x <= 0.01 && v.y <= 0.01 && v.x + v.w >= cw - 0.01 && v.y + v.h >= ch - 0.01;
 };
 
+describe("схема просыпается одним нажатием (владелец, 2026-09-18)", () => {
+  const box = () => container.querySelector("[data-scheme-box]");
+  it("пока не нажали — жесты пальца уходят странице; одно касание будит, нажатие вне усыпляет", () => {
+    expect(box().dataset.live).toBe("0");
+    expect(box().style.touchAction).toBe("pan-y");
+    expect(screen.getByText("нажмите, чтобы двигать схему")).toBeInTheDocument();
+    // Свайп пальцем схему не будит и жестов себе не забирает.
+    fireEvent.pointerDown(box(), { pointerType: "touch", clientX: 100, clientY: 100 });
+    fireEvent.pointerUp(box(), { pointerType: "touch", clientX: 100, clientY: 180 });
+    expect(box().dataset.live).toBe("0");
+    // Касание без движения — будит.
+    fireEvent.pointerDown(box(), { pointerType: "touch", clientX: 100, clientY: 100 });
+    fireEvent.pointerUp(box(), { pointerType: "touch", clientX: 102, clientY: 101 });
+    expect(box().dataset.live).toBe("1");
+    expect(box().style.touchAction).toBe("none");
+    expect(screen.queryByText("нажмите, чтобы двигать схему")).toBeNull();
+    // Нажатие вне схемы — снова спит.
+    fireEvent.pointerDown(document.body, { pointerType: "touch" });
+    expect(box().dataset.live).toBe("0");
+  });
+});
+
 describe("окно и лист", () => {
   it("схема — в окне фиксированной высоты, лист вписан в него при открытии", () => {
     const box = container.querySelector("[data-scheme-box]");

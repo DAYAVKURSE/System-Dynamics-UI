@@ -216,6 +216,31 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
   const [rubber,setRubber]=useState(null);
   const box=useRef(null);
   const svgRef=useRef(null);
+  /* Пальцем схема перехватывает жесты только ПОСЛЕ одиночного нажатия по
+     ней (владелец, 2026-09-18: «скроллю страницу, палец останавливается на
+     схеме — прокрутка прекращается»). Пока не нажали, `touch-action`
+     оставляет прокрутку странице, а касания до схемы не доходят. Мышь
+     работает всегда: колесо и перетаскивание страницу не листают. */
+  const [live,setLive]=useState(false);
+  const tap=useRef(null);
+  useEffect(()=>{
+    if(!live) return undefined;
+    const off=(ev)=>{ if(!box.current?.contains(ev.target)) setLive(false); };
+    window.addEventListener("pointerdown",off,true);
+    return ()=>window.removeEventListener("pointerdown",off,true);
+  },[live]);
+  const armTouch=(ev)=>{
+    if(ev.pointerType!=="touch"||live) return;
+    // Первое касание — только «разбудить»: жест уходит странице.
+    ev.stopPropagation();
+    tap.current={x:ev.clientX,y:ev.clientY};
+  };
+  const armEnd=(ev)=>{
+    if(ev.pointerType!=="touch"||live||!tap.current) return;
+    const moved=Math.abs(ev.clientX-tap.current.x)>8||Math.abs(ev.clientY-tap.current.y)>8;
+    tap.current=null;
+    if(!moved) setLive(true);   // прокрутили — схема осталась спящей
+  };
   const cam=useRef(null);            // {x,y,z}; null — ещё не вписана
   const size=useRef({...BOX_FALLBACK});
   const pinch=useRef(null);
@@ -441,10 +466,16 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
   return (
     /* Окно фиксированной высоты: страница под ним не двигается, что бы ни
        делали с масштабом. `touch-action: none` — жесты внутри наши. */
-    <div ref={box} data-scheme-box=""
-      style={{height:"min(56vh, 520px)",minHeight:280,overflow:"hidden",touchAction:"none",
+    <div ref={box} data-scheme-box="" data-live={live?"1":"0"}
+      onPointerDownCapture={armTouch} onPointerUp={armEnd} onPointerCancel={()=>{tap.current=null;}}
+      style={{height:"min(56vh, 520px)",minHeight:280,overflow:"hidden",touchAction:live?"none":"pan-y",
         position:"relative",border:`1px solid ${C.line}`,borderRadius:10,background:C.ink,
         cursor:pan.current?"grabbing":"default"}}>
+      {/* Пока схема спит — подпись: одно нажатие и она берёт жесты себе. */}
+      {!live&&(
+        <div aria-hidden="true" style={{position:"absolute",right:8,top:8,zIndex:2,pointerEvents:"none",
+          fontSize:10,color:C.muted,background:`${C.ink}cc`,border:`1px solid ${C.line}`,
+          borderRadius:6,padding:"2px 6px"}}>нажмите, чтобы двигать схему</div>)}
       <svg ref={svgRef} viewBox={viewBox(cam.current)} width="100%" height="100%"
         preserveAspectRatio="xMidYMid meet" style={{display:"block"}}
         onPointerDown={downBg}>
@@ -515,7 +546,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
              человека отпускают НА БЛОК, и спросить надо именно тот, что
              под пальцем (`elementFromPoint`), а не ближайший. */
           return (<g key={e.id} data-entity={e.id} onPointerDown={ev=>down(ev,e)}
-            style={{cursor:onMoveEntity?"grab":"pointer",touchAction:"none"}}>
+            style={{cursor:onMoveEntity?"grab":"pointer",touchAction:live?"none":"pan-y"}}>
             <rect x={e.x} y={e.y} width={NW} height={NH} rx="12" fill={C.panel}
               stroke={sel===e.id?ACC:C.line} strokeWidth={sel===e.id?2.6:1.6}/>
             {/* Полоска состояния — ВНУТРИ блока, ровная, как у функций в
@@ -556,7 +587,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
             stroke={handColor(pinOf(rubber.from).hand||"A")} strokeWidth="1.6" strokeDasharray="4 3" style={{pointerEvents:"none"}}/>)}
         {pins.map(p=>(
           <g key={p.func} data-pin={p.func} data-hand={p.hand||undefined} onPointerDown={ev=>pinDown(ev,p)}
-            style={{cursor:onHand?"grab":"default",touchAction:"none"}}>
+            style={{cursor:onHand?"grab":"default",touchAction:live?"none":"pan-y"}}>
             <title>{p.name}{p.hand?` · рука ${p.hand} — нажмите, чтобы снять; тяните к другой точке, чтобы связать`:" — тяните к другой точке, чтобы связать одной рукой"}</title>
             <circle cx={p.x} cy={p.y} r="9" fill="transparent"/>
             <circle cx={p.x} cy={p.y} r="4.5" fill={p.hand?handColor(p.hand):C.panel}
