@@ -111,7 +111,8 @@ describe("агенты", () => {
     fireEvent.change(name, { target: { value: "Закупщик" } });
     fireEvent.blur(name);
     fireEvent.click(screen.getByRole("button", { name: "+ агент" }));
-    await screen.findByRole("tab", { name: "Закупщик · агент" });
+    // На CI ответ POST и перечитывание списка иногда дольше секунды по умолчанию.
+    await screen.findByRole("tab", { name: "Закупщик · агент" }, { timeout: 5000 });
     const post = log.find((r) => r.method === "POST" && r.url === "/api/assistant/agents");
     expect(JSON.parse(post.body)).toEqual({ name: "Закупщик" });
     expect(screen.getByRole("button", { name: "удалить агента Закупщик" })).toBeInTheDocument();

@@ -107,6 +107,8 @@ describe("«Кому:»/«От кого:» — как участник: рука
     const step = funcs[0].tasks[0].branches[0].steps[0];
     expect(step.to).toMatchObject({ name: "Владелец", hand: "space bear", person: "Иван" });
     const spans = paintOf(text, model, {})[3].spans.map((k) => k.kind);
+    // У «Кому:» с должностью — пометка актива справа, как у «Кто:» (владелец, 2026-09-18).
+    expect(paintOf("Кто: Владелец\nОтдаёт: оффер 1\nКому: Партнёр-фрилансер", model, {})[2].note).toBe("Партнёр");
     expect(spans).toEqual(["mark", "asset", "hand", "person"]);
     expect(setHand("Кому: Владелец", 0, "quiet fox")).toBe("Кому: Владелец {quiet fox}");
     expect(setPerson("От кого: Владелец {quiet fox}", 0, "Пётр")).toBe("От кого: Владелец @Пётр");
