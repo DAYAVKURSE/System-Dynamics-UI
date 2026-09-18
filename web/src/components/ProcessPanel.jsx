@@ -71,12 +71,17 @@ function spanStyle(k) {
    на текст не влияют; внутри — лёгкая подложка цвета стороны. */
 function Bracket({ side, children }) {
   const c = SIDE[side] || ACC;
-  const arc = { position: "absolute", top: -3, bottom: -3, width: 7, border: `2px solid ${c}`, pointerEvents: "none" };
+  /* Дуги привязаны к якорям нулевой ширины в начале и в конце: якорь
+     стоит в своей строке, и при переносе содержимого на две строки дуга
+     не растягивается на обе (владелец, 2026-09-18). */
+  const anchor = { display: "inline-block", width: 0, height: "1em", verticalAlign: "text-bottom", position: "relative", overflow: "visible" };
+  const arc = { position: "absolute", top: -6, height: "1.55em", width: 7, border: `2px solid ${c}`, pointerEvents: "none", boxSizing: "border-box" };
   return (
-    <span data-bracket={side} style={{ position: "relative", background: `${c}1F`, boxShadow: `0 0 0 3px ${c}1F`, borderRadius: 7 }}>
+    <span data-bracket={side} style={{ background: `${c}1F`, boxShadow: `0 0 0 3px ${c}1F`, borderRadius: 7,
+      WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>
+      <span style={anchor}><i style={{ ...arc, left: -11, borderRight: "none", borderRadius: "8px 0 0 8px" }} /></span>
       {children}
-      <i style={{ ...arc, left: -11, borderRight: "none", borderRadius: "8px 0 0 8px" }} />
-      <i style={{ ...arc, right: -11, borderLeft: "none", borderRadius: "0 8px 8px 0" }} />
+      <span style={anchor}><i style={{ ...arc, right: -11, borderLeft: "none", borderRadius: "0 8px 8px 0" }} /></span>
     </span>);
 }
 function Backdrop({ text, paint, style }) {
@@ -219,13 +224,15 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
           onBlur={() => { setFocus(false); setPick(null); if (text !== value) onCommit(text); }}
           onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
       </div>
+      {/* Окно — НАД полем (владелец, 2026-09-18: «подсказка загораживает
+          поле ввода»), в спокойных цветах панели. */}
       {pick && focus && (
         <div role="dialog" aria-label="подсказка процесса"
           onMouseDown={(e) => e.preventDefault()}
-          style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20,
-            background: C.panel, border: `1px solid ${ACC}66`, borderRadius: 6,
-            boxShadow: "0 6px 20px rgba(0,0,0,.35)", marginTop: 2 }}>
-          <div style={{ padding: "5px 8px", fontSize: 10.5, color: ACC,
+          style={{ position: "absolute", left: 0, right: 0, bottom: "100%", zIndex: 20,
+            background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6,
+            boxShadow: "0 -6px 20px rgba(0,0,0,.35)", marginBottom: 4 }}>
+          <div style={{ padding: "5px 8px", fontSize: 10.5, color: C.muted,
             borderBottom: `1px solid ${C.line}` }}>
             ожидается: {HINT_WORD[pick.kind]}
             {pick.kind === "trait" && pick.assetName ? ` из «${pick.assetName}»` : ""}
