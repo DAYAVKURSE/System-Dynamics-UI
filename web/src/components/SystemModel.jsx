@@ -14,7 +14,7 @@ import { FACTORS_ON } from "../lib/flags.js";
 import LooseCrew from "./LooseCrew.jsx";
 import { applyHand, handColor, handLinks, linkPath, pinsOf, removeHand } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
-import { procFuncs as procFuncs2 } from "../lib/proc2.js";
+import { procFuncs as procFuncs2, replaceName } from "../lib/proc2.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
@@ -1837,8 +1837,23 @@ export default function SystemModel(){
       {tab==="tools" && me.tabs.includes("tools") && tool==="people" && (
         <PeoplePanel me={me} onPeople={setPeople}
           /* Роли и анкеты меняют и «кто я»: анкету, назначенную своей
-             роли, владелец должен увидеть без перезагрузки. */
-          onChanged={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); }}/>)}
+             роли, владелец должен увидеть без перезагрузки. Список ролей
+             тоже перечитывается: схема берёт названия должностей отсюда. */
+          onChanged={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); refreshOrg(); }}
+          /* Переименованная роль (владелец, 2026-09-18: «после изменения
+             имени роли она не изменилась на схеме»): новое имя — в список
+             ролей, в тексты процессов («Кто:», «Кому:», «От кого:») и в
+             функции, собранные из них. */
+          onRoleRenamed={async (id,from,to)=>{
+            const o=await listOrg().catch(()=>null);
+            const nextRoles=o?.roles||roles.map(r=>r.id===String(id)?{...r,name:to}:r);
+            const nextPeople=o?.users||people;
+            setRoles(nextRoles); if(o?.users) setPeople(o.users);
+            const m={entities,traits,positions:nextRoles,people:nextPeople,rolesOf};
+            const next=procs.map(p=>({...p,text:replaceName(p.text,"who",from,to,m)}));
+            setProcs(next);
+            setFuncs(f=>syncProcFuncs(f,next,m,normalizeFunc,procFuncs2));
+          }}/>)}
 
       {/* Агенты — всем, у кого есть «Инструменты»: у каждого свои
           провайдеры, модели и память; участником организации агент

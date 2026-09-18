@@ -84,7 +84,7 @@ function Contract({ role, busy, onSet }) {
     </div>);
 }
 
-export default function PeoplePanel({ me, onPeople, onChanged }) {
+export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) {
   const [renaming, setRenaming] = useState(null);   // какую роль переименовывают
   const [org, setOrg] = useState(null);
   const [msg, setMsg] = useState("");
@@ -247,8 +247,9 @@ export default function PeoplePanel({ me, onPeople, onChanged }) {
 
       {/* ═══ 2. ПРАВА СОТРУДНИКОВ (владелец, 2026-09-14: так называется
           форма ролей и того, что они открывают) ═══ */}
-      <div style={card} aria-label="права сотрудников">
-        {title("права сотрудников", org.roles.length)}
+      {/* Форма называется «роли» (владелец, 2026-09-18), прежде — «права сотрудников». */}
+      <div style={card} aria-label="роли">
+        {title("роли", org.roles.length)}
         <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
           У роли — договор, анкета и вкладки, которые она открывает. Роль действует, пока
           действует подписанный договор; «Пригласить участника» выдаёт договор роли.
@@ -262,7 +263,7 @@ export default function PeoplePanel({ me, onPeople, onChanged }) {
               {renaming === r.id ? (
                 <input autoFocus defaultValue={r.name} aria-label={`новое название роли «${r.name}»`}
                   style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 700, padding: "3px 6px" }}
-                  onBlur={(e) => { const v = e.target.value.trim(); setRenaming(null); if (v && v !== r.name) act(() => renameRole(r.id, v)); }}
+                  onBlur={(e) => { const v = e.target.value.trim(); setRenaming(null); if (v && v !== r.name) act(async () => { await renameRole(r.id, v); onRoleRenamed?.(r.id, r.name, v); }); }}
                   onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenaming(null); }} />
               ) : (
                 <button type="button" aria-label={`переименовать роль «${r.name}»`} title="нажмите, чтобы переименовать"

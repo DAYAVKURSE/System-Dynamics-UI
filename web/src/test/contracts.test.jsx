@@ -76,12 +76,12 @@ const pickFile = (label, name = "novyi.docx") => {
   fireEvent.change(input);
 };
 
-describe("права сотрудников и договоры участников", () => {
-  it("форма ролей называется «права сотрудников»; у роли — договор из списка и «Пригласить участника»", async () => {
+describe("роли и договоры участников", () => {
+  it("форма ролей называется «роли»; у роли — договор из списка и «Пригласить участника»", async () => {
     const calls = ownerServer();
     render(<PeoplePanel me={ME} />);
-    const rights = await screen.findByLabelText("права сотрудников");
-    expect(within(rights).getByText("права сотрудников")).toBeInTheDocument();
+    const rights = await screen.findByLabelText("роли");
+    expect(within(rights).getByText("роли")).toBeInTheDocument();
     expect(screen.getByLabelText("договор роли «исполнитель»")).toHaveValue("doc1");
     expect(screen.getByRole("button", { name: "пригласить участника: исполнитель" })).toBeInTheDocument();
     // У роли без договора приглашения нет: выдавать нечего.

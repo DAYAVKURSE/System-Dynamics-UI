@@ -69,7 +69,7 @@ describe("анкеты в «Ролях»", () => {
     const { container } = render(<PeoplePanel />);
     await screen.findByText("анкеты");
     // Три формы, каждая своей карточкой: участники, роли, анкеты — в этом порядке.
-    const [people, roles, forms] = ["участники", "права сотрудников", "анкеты"].map((l) => screen.getByLabelText(l));
+    const [people, roles, forms] = ["участники", "роли", "анкеты"].map((l) => screen.getByLabelText(l));
     // eslint-disable-next-line no-bitwise
     expect(people.compareDocumentPosition(roles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // eslint-disable-next-line no-bitwise
