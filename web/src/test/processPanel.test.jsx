@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 
 /* РАЗДЕЛ «ТЕХНОЛОГИЧЕСКИЕ ПРОЦЕССЫ» НА «УПРАВЛЕНИИ» — язык v2 (владелец,
@@ -294,6 +294,20 @@ describe("роли, статусы, функции", () => {
     expect(area.value.split("\n")[2]).toBe("Одновременно: 2");
     // Значения живут в тексте, поэтому переживают пересборку функций.
     expect(dump().procs[0].text.split("\n").slice(1, 3)).toEqual(["Срок: 3 дн", "Одновременно: 2"]);
+  });
+
+  it("подстановка пункта не уносит страницу: прыжок к полю отменяется (владелец, 2026-09-18)", async () => {
+    const area = addProc();
+    type(area, "Задача: лид\nОтдаёт: заявки 2");
+    const spy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    Object.defineProperty(window, "scrollY", { value: 900, configurable: true });
+    pick(/^дальше или/);
+    expect(area.value.split("\n").pop()).toBe("Или: ");
+    // Ждём возврата фокуса (он и уносит страницу), затем «прыжок в начало».
+    await new Promise((r) => { setTimeout(r, 25); });
+    Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(0, 900));
+    spy.mockRestore();
   });
 
   it("меню задачи: критерии проверки добавляются «+» и уходят в текст и в функцию (владелец, 2026-09-18)", () => {

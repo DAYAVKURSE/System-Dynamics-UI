@@ -259,6 +259,28 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const [caretRow, setCaretRow] = useState(-1);
   const inp = useRef(null);
   const back = useRef(null);
+  /* Возврат фокуса и курсора после подстановки не должен уносить страницу
+     (владелец, 2026-09-18: «при нажатии на оператор ИЛИ страница
+     проскроллилась в начало»). На телефоне focus/setSelectionRange у
+     textarea прокручивают страницу к полю, и preventScroll помогает не
+     везде: держим положение сами — до и сразу после правки. */
+  const keepScroll = (fn) => {
+    const x = window.scrollX || 0;
+    const y = window.scrollY || 0;
+    /* Возвращаем только заметный прыжок (> 24 px): мелкий сдвиг от того,
+       что текст под полем подрос, — не беда, а борьба с ним дёргала бы
+       страницу под рукой. Следим треть секунды: на телефоне прокрутка к
+       полю случается и через кадр после возврата фокуса. */
+    const undo = () => {
+      const dx = Math.abs((window.scrollX || 0) - x);
+      const dy = Math.abs((window.scrollY || 0) - y);
+      try { if (dx > 24 || dy > 24) window.scrollTo(x, y); } catch { /* jsdom и старые движки — не беда */ }
+    };
+    fn();
+    undo();
+    requestAnimationFrame(undo);
+    [60, 150, 300].forEach((ms) => setTimeout(undo, ms));
+  };
   /* Прокрутка поля (владелец, 2026-09-18): пока поле в фокусе, его высота
      ограничена и включается собственная прокрутка; подложка и меню
      участника сдвигаются вместе с текстом. */
@@ -278,23 +300,26 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   };
   const apply = (next, caret) => {
     setText(next);
-    setTimeout(() => {
+    setTimeout(() => keepScroll(() => {
       inp.current?.focus({ preventScroll: true });
       inp.current?.setSelectionRange(caret, caret);
       place(next, caret);
-    }, 0);
+    }), 0);
   };
   const onChange = (e) => { const v = e.target.value; setText(v); place(v, e.target.selectionStart ?? v.length); };
   const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
   const startEdit = () => {
     const el = inp.current;
     if (!el || editing) return;
+    const keep = keepScroll;
     /* readOnly снимается на узле сразу: iOS решает, открывать ли
        клавиатуру, в момент focus(), а он должен случиться внутри жеста. */
-    el.readOnly = false;
-    el.focus({ preventScroll: true });
-    setEditing(true); setFocus(true);
-    place(text, el.selectionStart ?? text.length);
+    keep(() => {
+      el.readOnly = false;
+      el.focus({ preventScroll: true });
+      setEditing(true); setFocus(true);
+      place(text, el.selectionStart ?? text.length);
+    });
   };
   /* Правку заканчивает только нажатие вне поля (onBlur). */
   /* Подстановка: пункт несёт `suffix` (что после), `insert` (вставить у
@@ -410,7 +435,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const rewrite = (next) => {
     const caret = Math.min(inp.current?.selectionStart ?? next.length, next.length);
     setText(next); onCommit(next);
-    setTimeout(() => { inp.current?.focus({ preventScroll: true }); inp.current?.setSelectionRange(caret, caret); place(next, caret); }, 0);
+    setTimeout(() => keepScroll(() => { inp.current?.focus({ preventScroll: true }); inp.current?.setSelectionRange(caret, caret); place(next, caret); }), 0);
   };
   const toggle = (role) => rewrite(toggleRole(text, whoRow, role));
   const fixHand = () => rewrite(setHand(text, whoRow, newHandName(usedHands())));
