@@ -427,11 +427,7 @@ function MindMap({ plan, layout = {}, onLayout }) {
     nodes.forEach((b) => {
       if (b.key === a.key) return;
       const hit = b.takes.find((k) => (g.varName && k.varName === g.varName) || (!k.varName && !g.varName && k.name && k.name === g.name));
-      /* Ресурс переходит ИЗ РУК В РУКИ (задачи делают разные люди) —
-         штрих-пунктир, цвет остаётся ресурсным (владелец, 2026-09-18). */
-      const hands = [whoKey(doerOf(a)), whoKey(doerOf(b))];
-      const cross = !!hands[0] && !!hands[1] && hands[0] !== hands[1];
-      if (hit) links.push({ from: a, to: b, text: portText(g), or: g.or, cross, color: g.varName ? handColor(g.varName) : ACC });
+      if (hit) links.push({ from: a, to: b, text: portText(g), or: g.or, color: g.varName ? handColor(g.varName) : ACC });
     });
   }));
   /* Кто с кем взаимодействует. Один человек — одна фигурка: ключ по
@@ -463,7 +459,28 @@ function MindMap({ plan, layout = {}, onLayout }) {
       if (from && to && from !== to && !talks.some((z) => z.from === from && z.to === to)) talks.push({ from, to, task: t.name });
     }));
   });
-  const laneY = height + 8;
+  /* Кто до кого достаёт НЕ НАПРЯМУЮ (владелец, 2026-09-18: «между
+     аналитиком и партнёром-фрилансером напрямую никакого ресурса не
+     проходит, он проходит через владельца; чтобы такие места были видны»):
+     работа доходит по цепочке передач через кого-то ещё. Такие дуги рисуем
+     штрих-пунктиром — это места, где двое зависят друг от друга, но не
+     разговаривают. */
+  const direct = new Set(talks.map((z) => `${z.from}>${z.to}`));
+  const next = new Map();
+  talks.forEach((z) => { if (!next.has(z.from)) next.set(z.from, []); next.get(z.from).push(z.to); });
+  const far = [];
+  people.forEach((a) => {
+    const seen = new Set();
+    const queue = [...(next.get(a.key) || [])];
+    while (queue.length) {
+      const k = queue.shift();
+      if (k === a.key || seen.has(k)) continue;
+      seen.add(k);
+      (next.get(k) || []).forEach((n) => { if (!seen.has(n)) queue.push(n); });
+    }
+    seen.forEach((b) => { if (!direct.has(`${a.key}>${b}`)) far.push({ from: a.key, to: b }); });
+  });
+  const laneY = height + 22;   // дуг стало больше — им нужно место над полосой
   const px = (i) => 40 + i * 170;
 
   const arrowColors = [...new Set(links.map((l) => l.color))];
@@ -507,8 +524,7 @@ function MindMap({ plan, layout = {}, onLayout }) {
           return (
             <g key={`l${i}`}>
               <path d={curve} fill="none" stroke={l.color}
-                strokeWidth="1.6" strokeDasharray={l.cross ? "7 3 1.5 3" : l.or ? "5 4" : undefined}
-                markerEnd={`url(#${arrowId(l.color)})`} />
+                strokeWidth="1.6" strokeDasharray={l.or ? "5 4" : undefined} markerEnd={`url(#${arrowId(l.color)})`} />
               {wrap(`${l.or ? "или · " : ""}${l.text}`, 34).map((s1, j, all) => (
                 <text key={j} x={upright ? mx + 8 : mx} y={my - 5 - (all.length - 1 - j) * 11}
                   textAnchor={upright ? "start" : "middle"} fill={C.text} fontSize="10">{s1}</text>))}
@@ -556,16 +572,18 @@ function MindMap({ plan, layout = {}, onLayout }) {
         {/* Кто с кем взаимодействует */}
         {people.length > 1 && (
           <g aria-label="взаимодействие людей">
-            <text x="12" y={laneY - 34} fill={C.muted} fontSize="10">кто с кем взаимодействует</text>
-            {talks.map((z, i) => {
+            <text x="12" y={laneY - 46} fill={C.muted} fontSize="10">кто с кем взаимодействует</text>
+            {[...talks.map((z) => ({ ...z, far: false })), ...far.map((z) => ({ ...z, far: true }))].map((z, i) => {
               const a = people.findIndex((p) => p.key === z.from);
               const b = people.findIndex((p) => p.key === z.to);
               if (a < 0 || b < 0) return null;
               const x1 = px(a) + 10, x2 = px(b) + 10;
-              const dy = 16 + (i % 3) * 8;
+              const dy = 16 + (i % 3) * 8 + (z.far ? 12 : 0);
               return (
-                <path key={`t${i}`} d={`M${x1},${laneY - 10} C${x1},${laneY - 10 - dy} ${x2},${laneY - 10 - dy} ${x2},${laneY - 10}`}
-                  fill="none" stroke={C.muted} strokeWidth="1.2" markerEnd="url(#pm-arrow2)" />);
+                <path key={`t${i}`} data-talk={z.far ? "через" : "напрямую"}
+                  d={`M${x1},${laneY - 10} C${x1},${laneY - 10 - dy} ${x2},${laneY - 10 - dy} ${x2},${laneY - 10}`}
+                  fill="none" stroke={C.muted} strokeWidth="1.2" strokeDasharray={z.far ? "7 3 1.5 3" : undefined}
+                  markerEnd="url(#pm-arrow2)" />);
             })}
             {people.map((p, i) => (
               <g key={p.key} aria-label={`человек ${p.name}`}>
@@ -612,7 +630,7 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
         <div style={{ fontSize: 10.5, color: C.muted }}>
           {mode === "timeline"
             ? "Прогноз по описанию: сколько идёт каждая задача и сколько ждать следующую попытку. Нажмите на полосу — задача раскроется целиком."
-            : "Что куда уходит: задачи и ресурсы между ними. Сплошная стрелка — выданный ресурс, взятый другой задачей (цвет — закреплённого имени); штрих-пунктир — тот же ресурс, но переходит от одного человека к другому; пунктир — «или», иной исход; серая дуга внизу — кто с кем взаимодействует. Стрелка всегда подходит к ближней стороне блока. Блоки тянутся за шапку: раскладка и масштаб помнятся на этом устройстве, «сброс» возвращает их на места."}
+            : "Что куда уходит: задачи и ресурсы между ними. Сплошная стрелка — выданный ресурс, взятый другой задачей (цвет — закреплённого имени); пунктир — «или», иной исход. Внизу — кто с кем взаимодействует: сплошная дуга, если передают друг другу напрямую, и штрих-пунктирная, если работа доходит через кого-то ещё. Стрелка всегда подходит к ближней стороне блока. Блоки тянутся за шапку: раскладка и масштаб помнятся на этом устройстве, «сброс» возвращает их на места."}
         </div>
         {mode === "timeline"
           ? <Timeline plan={plan} />

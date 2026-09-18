@@ -151,23 +151,28 @@ describe("кнопки под полем", () => {
     expect(back).toBeTruthy();
   });
 
-  it("переход ресурса из рук в руки — штрих-пунктир своего цвета (владелец, 2026-09-18)", () => {
+  it("связь через посредника — штрих-пунктирная дуга внизу; линии ресурсов сплошные (владелец, 2026-09-18)", () => {
     const area = screen.getAllByLabelText("текст процесса").pop();
     fireEvent.focus(area);
     fireEvent.change(area, { target: { value: [
-      "Задача: Приём", "Кто: Пользователи {wise oyster}", "Отдаёт: лиды 4", "",
-      "Задача: Разбор", "Кто: {wise oyster}", "Берёт: лиды 4", "Отдаёт: оплата 2", "",
-      "Задача: Счёт", "Кто: Клиенты", "Берёт: оплата 2",
+      "Задача: Приём", "Кто: Пользователи {wise oyster}", "Отдаёт: лиды 4", "Кому: Клиенты", "",
+      "Задача: Разбор", "Кто: Клиенты", "Берёт: лиды 4", "Отдаёт: оплата 2", "Кому: Партнёры", "",
+      "Задача: Счёт", "Кто: Партнёры", "Берёт: оплата 2",
     ].join("\n") } });
     fireEvent.blur(area);
     fireEvent.click(screen.getAllByRole("button", { name: "майнд-карта процесса" }).pop());
     const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
     const links = Array.from(dlg.querySelectorAll("path[marker-end][fill='none']"))
       .filter((l) => l.getAttribute("stroke-width") === "1.6");
-    const [lead, pay] = links;
-    expect(lead.getAttribute("stroke-dasharray")).toBeNull();            // один человек — сплошная
-    expect(pay.getAttribute("stroke-dasharray")).toBe("7 3 1.5 3");      // разные люди — штрих-пунктир
-    expect(pay.getAttribute("stroke")).toBe(lead.getAttribute("stroke")); // цвет остаётся ресурсным
+    // Линии ресурсов — сплошные, сколько бы людей ни участвовало.
+    links.forEach((l) => expect(l.getAttribute("stroke-dasharray")).toBeNull());
+    // Внизу: передают напрямую — сплошная дуга, через посредника — штрих-пунктир.
+    const near = Array.from(dlg.querySelectorAll("path[data-talk='напрямую']"));
+    const far = Array.from(dlg.querySelectorAll("path[data-talk='через']"));
+    expect(near.length).toBeGreaterThan(0);
+    near.forEach((l) => expect(l.getAttribute("stroke-dasharray")).toBeNull());
+    expect(far.length).toBe(1);                                          // wise oyster → Партнёры, через Клиентов
+    expect(far[0].getAttribute("stroke-dasharray")).toBe("7 3 1.5 3");
     // Должность видна у человечка, хотя в строке задачи названа только рука.
     const doer = dlg.querySelector("g[aria-label='исполнитель wise oyster']");
     expect(Array.from(doer.querySelectorAll("text")).map((t) => t.textContent)).toEqual(["wise oyster", "Пользователи"]);
