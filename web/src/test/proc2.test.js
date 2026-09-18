@@ -57,7 +57,7 @@ describe("знак «=», хвост операции и ресурсы без �
     expect(afterNum.filter((i) => i.kind === "знак").map((i) => i.name)).toEqual(["%", "*", "/", "+", "-"]);
     expect(afterNum.some((i) => i.name === "=" || /диапазон/.test(i.note || ""))).toBe(false);
     const afterOp = suggest(hintAt("Отдаёт: оффер 5 % ", 18, model), model);
-    expect(afterOp.find((i) => i.info).note).toMatch(/процент от чего/);
+    expect(afterOp.find((i) => i.info).note).toMatch(/процент от чего: введите число или выберите «@ресурс»/);
     expect(afterOp.some((i) => i.kind === "знак" || i.kind === "дальше")).toBe(false);
     expect(afterOp.some((i) => i.kind === "ресурс")).toBe(true);
     // Закреплённый ресурс в операции — его количество.
@@ -86,8 +86,9 @@ describe("переменные ресурсов: плашка и переиме�
   it("плашка ресурса — имя и количество, переменная — своей плашкой; ссылка «(X)» — только плашка переменной", () => {
     const rows = paintOf("Кто: Владелец\nОтдаёт: оффер 2 (переменная: lead)\nБерёт: (lead)", model, {});
     const give = rows[1].spans.filter((k) => k.kind !== "mark");
-    expect(give.map((k) => [k.kind, k.start, k.end])).toEqual([["trait", 8, 15], ["var", 16, 34]]);
-    expect(give[1]).toMatchObject({ varName: "lead", ref: false, inner: { start: 29, end: 33 }, itemSpan: { start: 8, end: 34 } });
+    // Имя и количество — разными плашками (владелец, 2026-09-18).
+    expect(give.map((k) => [k.kind, k.start, k.end])).toEqual([["trait", 8, 13], ["qty", 14, 15], ["var", 16, 34]]);
+    expect(give[2]).toMatchObject({ varName: "lead", ref: false, inner: { start: 29, end: 33 }, itemSpan: { start: 8, end: 34 } });
     const take = rows[2].spans.filter((k) => k.kind !== "mark");
     expect(take.map((k) => k.kind)).toEqual(["var"]);
     expect(take[0]).toMatchObject({ varName: "lead", ref: true, itemSpan: { start: 7, end: 13 } });
@@ -233,7 +234,8 @@ describe("раскраска, подсказки, правки", () => {
     expect(r1.spans.map((k) => [k.kind, cut(r1, k)])).toEqual([["mark", "Кто:"], ["role", "Партнёр-фрилансер"], ["roles", "✎"], ["hand", "(рука A)"]]);
     expect(r1.note).toBe("Партнёр");
     const r2 = paint.find((r) => r.row === 2);
-    expect(r2.spans.filter((k) => k.kind === "trait").map((k) => [cut(r2, k), k.side, k.state, k.letter])).toEqual([["оплата 2", "give", "ok", "A"], ["оплата 3", "give", "ok", "B"]]);
+    expect(r2.spans.filter((k) => k.kind === "trait").map((k) => [cut(r2, k), k.side, k.state, k.letter])).toEqual([["оплата", "give", "ok", "A"], ["оплата", "give", "ok", "B"]]);
+    expect(r2.spans.filter((k) => k.kind === "qty").map((k) => cut(r2, k))).toEqual(["2", "3"]);
     expect(r2.brackets.map((b) => [b.side, cut(r2, b)])).toEqual([["give", "оплата 2, оплата 3"]]);
     expect(paint.find((r) => r.row === 3).spans[1]).toMatchObject({ kind: "asset", state: "ok" });
   });

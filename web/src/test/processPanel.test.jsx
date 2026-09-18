@@ -154,7 +154,8 @@ describe("подсказки ведут по строкам", () => {
     write(area, TEXT);
     const back = container.querySelector("[data-proc-backdrop]");
     expect(Array.from(back.querySelectorAll("[data-kind]")).map((e) => `${e.dataset.kind}:${e.textContent}`))
-      .toEqual(["mark:Задача:", "task:лид", "mark:Кто:", "asset:Пользователи", "mark:Берёт:", "trait:заявки 2", "mark:Отдаёт:", "trait:заявки 50% A"]);
+      .toEqual(["mark:Задача:", "task:лид", "mark:Кто:", "asset:Пользователи", "mark:Берёт:", "trait:заявки", "qty:2",
+        "mark:Отдаёт:", "trait:заявки", "qty:50% A"]);
     expect(Array.from(back.querySelectorAll("[data-bracket]")).map((e) => e.dataset.bracket)).toEqual(["take", "give"]);
     expect(area.style.color).toBe("transparent");
     expect(screen.getByText(/задача 1:/)).toHaveTextContent("лид");
@@ -238,8 +239,9 @@ describe("роли, статусы, функции", () => {
     pickOp(/^знак = — ровно$/);
     expect(area.value.split("\n")[2]).toBe("Берёт: заявки =");
     // После знака — просьба ввести число или выбрать из списка; только операнды.
-    expect(within(menu).getByText(/введите число или выберите из списка/)).toBeInTheDocument();
+    expect(within(menu).getByText(/введите число или выберите «@ресурс»/)).toBeInTheDocument();
     expect(names().every((n) => /^буква|^ресурс|^закреплённый/.test(n))).toBe(true);
+    expect(names()[0]).toMatch(/^ресурс @/);   // «собака» первой (владелец, 2026-09-18)
     fireEvent.focus(op);
     fireEvent.change(op, { target: { value: "=2 +" } });
     expect(area.value.split("\n")[2]).toBe("Берёт: заявки =2 +");
@@ -250,7 +252,7 @@ describe("роли, статусы, функции", () => {
     await waitFor(() => expect(container.querySelector("[data-proc-backdrop] [data-op='50% A']")).not.toBeNull());
     const ops = Array.from(container.querySelectorAll("[data-proc-backdrop] [data-op]"));
     expect(ops).toHaveLength(1);
-    expect(ops[0].closest("[data-kind=trait]").textContent).toBe("заявки 50% A");   // строка «Отдаёт:» без курсора
+    expect(ops[0].closest("[data-kind=qty]").textContent).toBe("50% A");   // выражение — своей плашкой, строка без курсора
     expect(ops[0].children[0].style.color).toBe("transparent");
   });
 

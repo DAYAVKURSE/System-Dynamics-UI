@@ -55,6 +55,12 @@ function spanStyle(k) {
   }
   if (k.kind === "hand") return plate(handColor(k.hand));
   if (k.kind === "var") return k.state && k.state !== "ok" ? plate(BAD) : plate(handColor(k.varName || ""));
+  /* Количество/операция — свой квадратик: фон панели в рамке цвета стороны. */
+  if (k.kind === "qty") {
+    const st = { ...plate(C.panel2, C.text, SIDE[k.side] || ACC), borderRadius: 4 };
+    if (k.exprError) st.boxShadow = `${st.boxShadow}, 0 0 0 6px ${BAD}`;
+    return st;
+  }
   if (k.kind === "person") return k.known ? plate("#FFD9A0") : plate(BAD);
   let st;
   if (bad) st = plate(BAD);
@@ -110,8 +116,9 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
       const wrap = (k.kind === "hand" && k.brace) ? [1, 1] : (k.kind === "person" && k.at) ? [1, 0] : null;
       const inner = wrap ? raw.slice(wrap[0], raw.length - wrap[1]) : raw;
       const vr = k.kind === "var" && k.inner ? { a: k.inner.start - k.start, b: k.inner.end - k.start } : null;
-      const op = k.kind === "trait" && k.tail && !SIMPLE_TAIL.test(k.tail) && row !== caretRow && k.tailSpan
-        && k.tailSpan.start >= k.start && k.tailSpan.end <= k.end ? { a: k.tailSpan.start - k.start, b: k.tailSpan.end - k.start } : null;
+      // Сложная операция на строке без курсора — значком «ƒ» той же ширины.
+      const op = k.kind === "qty" && k.tail && !SIMPLE_TAIL.test(k.tail) && row !== caretRow
+        ? { a: 0, b: raw.length } : null;
       out.push(<span key={`${key}m${j}`} data-kind={k.kind} data-side={k.side || undefined}
         data-mark={bad ? k.state : (k.exprError ? "expr" : undefined)}
         title={k.exprError || (k.kind === "roles" ? k.roles.map((r) => ROLE_WORD[r]).join(", ") : k.kind === "hand" ? `переменная сотрудника: ${k.hand}` : k.kind === "var" ? `закреплённый ресурс: ${k.varName}` : k.kind === "person" ? (k.known ? "именно этот сотрудник" : "нет такого сотрудника") : bad ? k.state : undefined)}

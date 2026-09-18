@@ -471,9 +471,15 @@ export function paintOf(text = "", model = {}, proc = {}) {
             /* Плашка ресурса — имя и количество; переменная в скобках —
                своей плашкой цветом имени (2026-09-18), ссылка «(X)» — только она. */
             const st = itemState(it, proc, model);
-            if (it.name) put(r, { start: it.span.start, end: Math.max(it.nameSpan.end, it.tailSpan?.end ?? 0, it.span.start) },
+            /* Имя ресурса — своя плашка, выражение количества — своя
+               (владелец, 2026-09-18: «выражение должно быть в отдельном
+               квадратике»). */
+            if (it.name) put(r, it.nameSpan,
               { kind: "trait", side, state: st, name: it.name, letter: it.letter, exprError: it.exprError || "",
                 nameSpan: it.nameSpan, tailSpan: it.tailSpan, tail: it.tail || "", itemSpan: it.span, varName: it.var || "" });
+            if (it.name && it.tail && it.tailSpan && it.tailSpan.end > it.tailSpan.start) put(r, it.tailSpan,
+              { kind: "qty", side, state: st, name: it.name, tail: it.tail, exprError: it.exprError || "", itemSpan: it.span,
+                qty: it.qty, qtyHi: it.qtyHi });
             if (it.varSpan) put(r, it.varSpan, { kind: "var", side, state: it.ref ? st : "ok", varName: it.var, ref: !!it.ref, flag: !!it.flag,
               inner: it.varSpan.inner, itemSpan: it.span, letter: it.letter });
           });
@@ -690,10 +696,13 @@ export function suggest(hint, model = {}, proc = {}) {
     const q0 = String(hint.query || "");
     const tail = String(hint.tailText ?? q0);
     const assetOf = (t) => entities.find((e) => e.id === t.e)?.name || "";
+    /* Операнды — то, из чего берётся ЧИСЛО (владелец, 2026-09-18: «должно
+       стоять число либо собака»): «@ресурс» схемы, закреплённый ресурс
+       процесса, буква ресурса этой задачи. Знаков среди них нет. */
     const operands = () => {
-      (hint.prior || []).forEach((p) => items.push({ name: p.letter, kind: "буква", note: `${p.name} (${p.asset})`, suffix: "" }));
       traits.filter((t) => t.l).forEach((t) => items.push({ name: `@${t.l}`, kind: "ресурс", note: assetOf(t), suffix: "" }));
       (hint.ctx?.vars || []).forEach((v) => items.push({ name: v, kind: "закреплённый", note: "его количество", suffix: "" }));
+      (hint.prior || []).forEach((p) => items.push({ name: p.letter, kind: "буква", note: `${p.name} (${p.asset})`, suffix: "" }));
     };
     const further = () => {
       items.push({ name: "→", kind: "дальше", note: "и ещё ресурс — через запятую", insert: true, text: ",", suffix: " ", trimBefore: true });
@@ -711,7 +720,7 @@ export function suggest(hint, model = {}, proc = {}) {
       operands();
       further();
     } else if (/[=+\-*/%(]\s*$/.test(tail)) {
-      items.push({ name: "", kind: "", note: /%\s*$/.test(tail) ? "процент от чего: число, ресурс или буква" : "введите число или выберите из списка", info: true });
+      items.push({ name: "", kind: "", note: /%\s*$/.test(tail) ? "процент от чего: введите число или выберите «@ресурс»" : "введите число или выберите «@ресурс»", info: true });
       operands();
     } else {
       items.push(...[["%", "процент от…"], ["*", "умножить"], ["/", "разделить"], ["+", "прибавить"], ["-", "вычесть"]]
