@@ -73,7 +73,9 @@ describe("просмотр и правка (владелец, 2026-09-18)", () =
     fireEvent.doubleClick(area);
     expect(area).not.toHaveAttribute("readonly");
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
-    expect(container.querySelector("[data-role-buttons]")).toBeNull();
+    // В правке меню не пропадает — остаётся неактивным (владелец, 2026-09-18).
+    expect(container.querySelector("[data-role-buttons]")).not.toBeNull();
+    expect(container.querySelector("[data-proc-menu]").dataset.active).toBe("0");
     expect(screen.getByRole("dialog", { name: "подсказка процесса" })).toBeInTheDocument();
     // Enter — обычный перенос строки, правка продолжается, на новой строке — метки (владелец, 2026-09-18).
     fireEvent.click(area, { target: { selectionStart: TEXT.length } });
@@ -99,6 +101,10 @@ describe("просмотр и правка (владелец, 2026-09-18)", () =
     expect(menu2.style.opacity).toBe("0.55");
     fireEvent.mouseDown(menu2);
     expect(menu2.style.opacity).toBe("1");
+    // Прокрутка страницы — меню неактивно.
+    fireEvent.scroll(window);
+    expect(menu2.style.opacity).toBe("0.55");
+    fireEvent.mouseDown(menu2);
     fireEvent.click(within(menu2).getByRole("button", { name: "закрыть меню" }));
     expect(container.querySelector("[data-proc-menu]")).toBeNull();
     // Высота поля фиксированная: rows не зависит от текста.
@@ -206,6 +212,9 @@ describe("роли, статусы, функции", () => {
     const marks = Array.from(container.querySelectorAll("[data-proc-backdrop] [data-missing]")).map((e) => e.dataset.missing);
     expect(marks).toEqual(["value", "qty"]);
     expect(container.querySelector("[data-proc-backdrop] [data-missing=qty]").closest("[data-kind=trait]").textContent).toBe("заявки?");
+    // У «То:» и «Иначе:» значения нет по замыслу — «?» не ставится.
+    write(area, "Задача: лид\nЕсли: a\nТо:\nКто: Пользователи\nИначе:\nКто: Пользователи");
+    expect(container.querySelectorAll("[data-proc-backdrop] [data-missing]")).toHaveLength(0);
   });
 
   it("курсор на ресурсе открывает меню ресурса: поле операции, знак «=», просьба ввести число; в поле операция — значком (владелец, 2026-09-18)", async () => {

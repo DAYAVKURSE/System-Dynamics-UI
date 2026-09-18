@@ -131,7 +131,7 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
           <span style={spanStyle(k)}>{inner}</span>
           {wrap[1] ? <span style={{ color: "transparent" }}>{raw.slice(raw.length - wrap[1])}</span> : null}
         </>) : raw}</span>);
-      if (k.kind === "mark" && k.label !== "else" && !ln.slice(k.end).trim()) out.push(<Missing key={`${key}q${j}`} what="value" />);
+      if (k.kind === "mark" && k.label !== "else" && k.label !== "then" && !ln.slice(k.end).trim()) out.push(<Missing key={`${key}q${j}`} what="value" />);
       at = k.end;
     });
     if (to > at) out.push(<span key={`${key}r`}>{ln.slice(at, to)}</span>);
@@ -178,11 +178,21 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
      одинарное нажатие в любом другом месте выключает её. До этого поле
      только для чтения: без клавиатуры, подсказок и меню. */
   const [editing, setEditing] = useState(false);
+  const editingRef = useRef(false);
+  editingRef.current = editing;
   const lastTap = useRef(0);
   /* Плавающее меню живёт, пока его не закрыли крестиком или не начали
      правку (владелец, 2026-09-18): нажатие вне меню делает его
      полупрозрачным (неактивным), нажатие на нём — снова активным. */
   const [menuActive, setMenuActive] = useState(true);
+  /* В правке меню остаётся, но неактивно; прокрутка страницы тоже гасит
+     его (владелец, 2026-09-18). */
+  useEffect(() => { if (editing) setMenuActive(false); }, [editing]);
+  useEffect(() => {
+    const dim = () => setMenuActive(false);
+    window.addEventListener("scroll", dim, { passive: true });
+    return () => window.removeEventListener("scroll", dim);
+  }, []);
   const [pick, setPick] = useState(null);   // подсказка у курсора + at
   const [cursor, setCursor] = useState(0);
   const [caretRow, setCaretRow] = useState(-1);
@@ -203,7 +213,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     setPick({ ...h, at });
     setCursor(0);
     setCaretRow(v.slice(0, at).split("\n").length - 1);
-    setMenuActive(true);
+    setMenuActive(!editingRef.current);
   };
   const apply = (next, caret) => {
     setText(next);
@@ -267,7 +277,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   /* Меню сущностей — в просмотре (одинарное нажатие ставит курсор); в правке их нет, есть подсказки. */
   const rowKind = labelOf(rowLine)?.kind || "";
   /* «Кому:»/«От кого:» — то же меню, что у «Кто:», без ролей (владелец, 2026-09-18). */
-  const whoRow = !editing && caretRow >= 0 && ["who", "to", "from"].includes(rowKind) ? caretRow : -1;
+  const whoRow = caretRow >= 0 && ["who", "to", "from"].includes(rowKind) ? caretRow : -1;
   const isWho = whoRow >= 0 && rowKind === "who";
   const whoSpan = whoRow >= 0 ? paint.find((r) => r.row === whoRow)?.spans : null;
   const whoName = whoSpan?.find((k) => k.kind === "role" || k.kind === "asset")?.name || "";
@@ -317,7 +327,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
      знака — явная просьба ввести число или выбрать из списка. Текст —
      единственный источник: поле и список правят хвост после имени. */
   const rowStartOf = (row) => text.split("\n").slice(0, row).reduce((n, l) => n + l.length + 1, 0);
-  const resRow = !editing && caretRow >= 0 && ["take", "give", "or"].includes(labelOf(rowLine)?.kind) ? caretRow : -1;
+  const resRow = caretRow >= 0 && ["take", "give", "or"].includes(labelOf(rowLine)?.kind) ? caretRow : -1;
   const resStart = resRow >= 0 ? rowStartOf(resRow) : 0;
   const caretIn = pick ? pick.at - resStart : -1;
   const resSpans = resRow >= 0 ? (paint.find((r) => r.row === resRow)?.spans || []) : [];
