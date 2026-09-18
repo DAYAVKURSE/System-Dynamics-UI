@@ -394,6 +394,13 @@ describe("функция заводится и живёт", () => {
     fireEvent.blur(task);
     fireEvent.change(fn, { target: { value: "вёрстка" } });
     fireEvent.blur(fn);
+    // Каждая задача сворачивается своей стрелкой — и первая тоже
+    // (владелец, 2026-09-18: «первая задача не скрывается под спойлером»).
+    fireEvent.click(screen.getAllByRole("button", { name: "развернуть задачи" })[0]);
+    expect(screen.getAllByRole("button", { name: "свернуть задачи" }).length).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "свернуть задачи" }));
+    expect(screen.queryByRole("button", { name: "свернуть задачи" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "развернуть задачи" }).length).toBe(2);
     // Свернули функцию — задач не видно.
     fireEvent.click(screen.getAllByRole("button", { name: "свернуть функции" }).pop());
     expect(screen.queryByDisplayValue("проверить макет")).toBeNull();

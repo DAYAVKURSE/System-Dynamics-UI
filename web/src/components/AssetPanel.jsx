@@ -848,7 +848,11 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
       empty={mine.length ? null
         : "Функций пока нет. Функция обменивает одни ресурсы на другие: берёт одни, выдаёт другие."}>
       {groups.map((g) => {
-        const gOpen = open === g.id || g.list.some((x) => x.id === open);
+        /* Ключ «открыта функция» — не id записи: у ручной функции id цепочки
+           совпадает с id первой задачи, и та не сворачивалась (владелец,
+           2026-09-18). */
+        const gKey = `func:${g.id}`;
+        const gOpen = open === gKey || g.list.some((x) => x.id === open);
         const states = g.list.map((x) => funcState(x, { traits, factors }));
         const allReady = states.every((x) => x.kind === "ready");
         const first = g.list[0];
@@ -859,12 +863,12 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
         const allPorts = portsOf(f).map((p, i) => ({ id: p.id, letter: letterOf(i), name: traitName(p.trait) }));
         const info = new Map(evalPorts(portsOf(f), stockOf).map((r) => [r.id, r]));
         const st = funcState(f, { traits, factors });
-        const tOpen = open === f.id || (open === g.id && g.list.length === 1);
+        const tOpen = open === f.id || (open === gKey && g.list.length === 1);
         return (
           <Card key={f.id} title={f.name} titleLabel="задачи"
             onTitle={(v) => up(f.id, (x) => ({ ...x, name: v }))}
-            open={tOpen} onToggle={() => setOpen(tOpen ? g.id : f.id)}
-            onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(g.id); }}
+            open={tOpen} onToggle={() => setOpen(tOpen ? gKey : f.id)}
+            onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(gKey); }}
             accent={st.kind === "ready" ? OK : BAD}
             /* role="status" — чтобы смена состояния («готова» → «не принята»)
                прозвучала: без неё читалка молчит, и правка выглядит так,
@@ -1197,7 +1201,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
            других активах — строкой; «+ задача» и рынок услуг — у функции. */
         return (
           <Card key={g.id} title={gName} titleLabel="функции" onTitle={(v) => renameChain(g, v)}
-            open={gOpen} onToggle={() => setOpen(gOpen ? null : g.id)}
+            open={gOpen} onToggle={() => setOpen(gOpen ? null : gKey)}
             onDelete={() => { setFuncs((p) => p.filter((x) => !g.list.some((f) => f.id === x.id))); setOpen(null); }}
             accent={allReady ? OK : BAD}
             mark={<span role="status" className="flex items-center gap-2">
