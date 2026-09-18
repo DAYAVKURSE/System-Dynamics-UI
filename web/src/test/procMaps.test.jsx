@@ -99,6 +99,58 @@ describe("кнопки под полем", () => {
     expect(screen.queryByRole("dialog", { name: "Таймлайн процесса" })).toBeNull();
   });
 
+  it("задача на таймлайне раскрывается нажатием и показывает полный текст (владелец, 2026-09-18)", () => {
+    const area = screen.getAllByLabelText("текст процесса").pop();
+    fireEvent.focus(area);
+    fireEvent.change(area, { target: { value: [
+      "Задача: Первичная проверка заявки с посадочной страницы и из звонков",
+      "Критерий: заявка проверена по базе",
+      "Кто: Пользователи",
+      "Берёт: заявки с посадочной страницы и телефонных звонков 5",
+    ].join("\n") } });
+    fireEvent.blur(area);
+    fireEvent.click(screen.getAllByRole("button", { name: "таймлайн процесса" }).pop());
+    const dlg = screen.getByRole("dialog", { name: "Таймлайн процесса" });
+    const bar = within(dlg).getByRole("button", { name: /^задача Первичная/ });
+    expect(bar.getAttribute("aria-expanded")).toBe("false");
+    expect(dlg.querySelector("[aria-label$='целиком']")).toBeNull();
+    fireEvent.click(bar);
+    const card = dlg.querySelector("[aria-label$='целиком']");
+    expect(bar.getAttribute("aria-expanded")).toBe("true");
+    // Полное имя и все строки — без обрезки, с переносом.
+    expect(card.textContent).toContain("Первичная проверка заявки с посадочной страницы и из звонков");
+    expect(card.textContent).toContain("берёт: заявки с посадочной страницы и телефонных звонков 5");
+    expect(card.textContent).toContain("заявка проверена по базе");
+    expect(card.textContent).not.toContain("…");
+    expect(getComputedStyle(card).whiteSpace).toBe("normal");
+    fireEvent.click(bar);
+    expect(dlg.querySelector("[aria-label$='целиком']")).toBeNull();
+  });
+
+  it("у каждой связи майнд-карты есть наконечник своего цвета, к ближней стороне блока (владелец, 2026-09-18)", () => {
+    const area = screen.getAllByLabelText("текст процесса").pop();
+    fireEvent.focus(area);
+    fireEvent.change(area, { target: { value: [
+      "Задача: Приём", "Кто: Пользователи", "Берёт: заявки 5", "Отдаёт: лиды 4", "",
+      "Задача: Проверка", "Кто: Пользователи", "Берёт: лиды 4", "Отдаёт: оплата 2", "",
+      "Задача: Счёт", "Кто: Пользователи", "Берёт: оплата 2", "Отдаёт: заявки 1",
+    ].join("\n") } });
+    fireEvent.blur(area);
+    fireEvent.click(screen.getAllByRole("button", { name: "майнд-карта процесса" }).pop());
+    const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    const links = Array.from(dlg.querySelectorAll("path[marker-end]"));
+    expect(links.length).toBe(3);                       // заявки, лиды, оплата
+    links.forEach((l) => {
+      const id = l.getAttribute("marker-end").replace(/^url\(#|\)$/g, "");
+      const head = dlg.querySelector(`#${id} path`);
+      expect(head).not.toBeNull();
+      expect(head.getAttribute("fill")).toBe(l.getAttribute("stroke"));   // наконечник цветом линии
+    });
+    // Линия к задаче в том же столбце идёт по вертикали, а не в левый край.
+    const back = links.find((l) => /^M(\d+),(\d+) C\1,/.test(l.getAttribute("d")));
+    expect(back).toBeTruthy();
+  });
+
   it("майнд-карта показывает задачу с тем, что она берёт и отдаёт", () => {
     fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
     const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });

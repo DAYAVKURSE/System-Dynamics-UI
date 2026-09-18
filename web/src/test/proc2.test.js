@@ -339,6 +339,16 @@ describe("разбор", () => {
     expect(issuesOf({ text: "Задача: x\nКто: Дворник\nОтдаёт: оплата" }, model)[0]).toMatch(/нет такой должности или актива: Дворник/);
   });
 
+  it("в претензии видно, где она: строка и задача; безымянная «Кто:» названа отдельно (владелец, 2026-09-18)", () => {
+    const one = issuesOf({ text: "Задача: Разбор\nКто: Дворник\nОтдаёт: оплата" }, model)[0];
+    expect(one).toContain("Дворник (строка 2, задача «Разбор»)");
+    // «Кто:» без должности: называть нечего — говорим, где строка, и что руки/сотрудника мало.
+    const empty = issuesOf({ text: "Задача: Разбор\nКто: {Синий кот}\nОтдаёт: оплата" }, model);
+    expect(empty.join(" | ")).toContain("не названа должность или актив: строка 2, задача «Разбор»");
+    expect(empty.join(" | ")).not.toMatch(/должности или актива: (—|$)/);
+    expect(empty.join(" | ")).toContain("рука «{…}» и сотрудник «@…» её не заменяют");
+  });
+
   it("«Если … То:» и «Иначе:» — ветки задачи; название функции без метки после двух пустых строк", () => {
     const text = `Задача: a\nКто: Владелец\nОтдаёт: оффер (переменная: X)\n\n\nСозвон\nЕсли: X И !флаг C, То:\nКто: Владелец\nБерёт: X\nОтдаёт: оплата\nИначе:\nКто: Партнёр\nОтдаёт: оплата`;
     const { funcs, errors } = parseText(text, model, {});
@@ -463,7 +473,7 @@ describe("переменная сотрудника и конкретный со
     expect(paint[0].spans.find((k) => k.kind === "hand")).toMatchObject({ brace: true, hand: "space bear" });
     expect(paint[1].spans.find((k) => k.kind === "person")).toMatchObject({ at: true, known: true });
     expect(paint[2].spans.find((k) => k.kind === "person")).toMatchObject({ known: false });
-    expect(issuesOf({ text }, m)).toContain("нет такого сотрудника: Нет Такого");
+    expect(issuesOf({ text }, m).join(" | ")).toContain("нет такого сотрудника: Нет Такого (строка");
     // В функцию сотрудник уходит идентификатором.
     const f = procFuncs({ id: "p", status: "on", text: "Задача: a\nКто: Владелец @Иван Петров\nОтдаёт: оффер", hypo: { traits: [] }, missing: { rejected: [] } }, m)[0];
     expect(f.who[0]).toMatchObject({ person: "7" });

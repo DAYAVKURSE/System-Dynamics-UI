@@ -525,22 +525,38 @@ export function itemState(it, proc = {}, { traits = [] } = {}) {
 export function issuesOf(proc = {}, model = {}) {
   const { funcs, errors } = parseText(proc.text, model, proc);
   const out = errors.map((e) => `строка ${e.line}: ${e.message}`);
-  const unknownWho = [], unknownRes = [], noAsset = [], rejected = [], noAssetWho = [], unknownPerson = [];
+  const unknownWho = [], unknownRes = [], noAsset = [], rejected = [], noAssetWho = [], unknownPerson = [], noName = [];
+  /* У каждой претензии — место: строка и задача (владелец, 2026-09-18: «не
+     написано, какой должности нет»). Безымянная «Кто:» — отдельная
+     претензия: называть в ней нечего, поэтому говорим, где строка. */
   funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => {
-    b.who.forEach((w) => { const st = whoState(w, proc); if (st === "unknown") unknownWho.push(w.name); if (st === "noasset") noAssetWho.push(w.name); if (st === "rejected") rejected.push(w.name);
-      if (w.person && !w.personId) unknownPerson.push(w.person); });
+    const at = (x) => ({ name: x.name, row: x.row ?? null, task: t.name || "" });
+    b.who.forEach((w) => {
+      const st = whoState(w, proc);
+      if (st === "unknown") (String(w.name || "").trim() ? unknownWho : noName).push(at(w));
+      if (st === "noasset") noAssetWho.push(at(w));
+      if (st === "rejected") rejected.push(at(w));
+      if (w.person && !w.personId) unknownPerson.push({ ...at(w), name: w.person });
+    });
     b.steps.forEach((s) => [...s.items, ...s.or].forEach((it) => {
       const st = itemState(it, proc, model);
-      if (st === "unknown") unknownRes.push(it.name); if (st === "rejected") rejected.push(it.name); if (st === "noasset") noAsset.push(it.name);
+      const spot = { name: it.name, row: it.row ?? s.row ?? null, task: t.name || "" };
+      if (st === "unknown") unknownRes.push(spot); if (st === "rejected") rejected.push(spot); if (st === "noasset") noAsset.push(spot);
     }));
   })));
+  const place = (x) => {
+    const bits = [x.row != null ? `строка ${x.row + 1}` : "", x.task ? `задача «${x.task}»` : ""].filter(Boolean);
+    return bits.length ? ` (${bits.join(", ")})` : "";
+  };
+  const named = (l) => [...new Set(l.map((x) => `${x.name}${place(x)}`))].join(", ");
   const uniq = (l) => [...new Set(l)];
-  if (unknownWho.length) out.push(`нет такой должности или актива: ${uniq(unknownWho).join(", ")} — заведите в «Правах сотрудников» и назначьте активу`);
-  if (noAssetWho.length) out.push(`должность без актива: ${uniq(noAssetWho).join(", ")} — отметьте её во вкладке «Воркеры» актива`);
-  if (unknownPerson.length) out.push(`нет такого сотрудника: ${uniq(unknownPerson).join(", ")}`);
-  if (noAsset.length) out.push(`не понятно, чей ресурс: ${uniq(noAsset).join(", ")} — назовите «Кто:» с должностью актива или «Кому:»/«От кого:»`);
-  if (unknownRes.length) out.push(`сначала примите или отклоните: ${uniq(unknownRes).join(", ")}`);
-  if (rejected.length) out.push(`отклонено — исправьте или удалите: ${uniq(rejected).join(", ")}`);
+  if (unknownWho.length) out.push(`нет такой должности или актива: ${named(unknownWho)} — заведите в «Правах сотрудников» и назначьте активу`);
+  if (noName.length) out.push(`не названа должность или актив: ${uniq(noName.map((x) => place(x).slice(2, -1))).join("; ")} — после «Кто:» нужна должность или актив; рука «{…}» и сотрудник «@…» её не заменяют`);
+  if (noAssetWho.length) out.push(`должность без актива: ${named(noAssetWho)} — отметьте её во вкладке «Воркеры» актива`);
+  if (unknownPerson.length) out.push(`нет такого сотрудника: ${named(unknownPerson)}`);
+  if (noAsset.length) out.push(`не понятно, чей ресурс: ${named(noAsset)} — назовите «Кто:» с должностью актива или «Кому:»/«От кого:»`);
+  if (unknownRes.length) out.push(`сначала примите или отклоните: ${named(unknownRes)}`);
+  if (rejected.length) out.push(`отклонено — исправьте или удалите: ${named(rejected)}`);
   if (!funcs.some((f) => f.tasks.some((t) => t.branches.some((b) => b.steps.length)))) out.push("процесс пуст");
   return out;
 }

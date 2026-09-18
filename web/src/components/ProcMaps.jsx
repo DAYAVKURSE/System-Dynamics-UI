@@ -68,6 +68,20 @@ export function procPlan(text = "", model = {}, proc = {}) {
   return out;
 }
 
+/** Строки «берёт/отдаёт» задачи — одни и те же в обеих картах. */
+export function taskLines(t) {
+  const out = [];
+  const side = (p, kind) => {
+    const party = (p.party || []).map((x) => x.person || x.hand || x.name).filter(Boolean).join(", ");
+    const head = kind === "take" ? (p.or ? "или берёт" : "берёт") : (p.or ? "или отдаёт" : "отдаёт");
+    const tail = party ? (kind === "take" ? ` от ${party}` : ` → ${party}`) : "";
+    out.push({ kind, text: `${head}: ${portText(p)}${tail}` });
+  };
+  (t.takes || []).forEach((p) => side(p, "take"));
+  (t.gives || []).forEach((p) => side(p, "give"));
+  return out;
+}
+
 /** Подпись ресурса: имя, количество, закреплённое имя. */
 export function portText(p) {
   const base = p.name || p.of || (p.varName ? p.varName : "ресурс");
@@ -123,34 +137,66 @@ function Timeline({ plan }) {
     const w = Math.max(96, (t.hi / HOURS[u]) * PX);   // имя задачи должно читаться
     const gapW = (t.gapHi / HOURS[u]) * PX;
     at += t.hi + t.gapHi;
-    return { ...t, x, w, gapW };
+    return { ...t, x, w, gapW, lines: taskLines(t) };
   });
+  /* Нажатие раскрывает задачу целиком (владелец, 2026-09-18): в полосе имя
+     не помещается — её ширина означает срок, поэтому полный текст с
+     переносом показывается карточкой под полосой. */
+  const [open, setOpen] = useState({});
+  const toggle = (key) => setOpen((o) => ({ ...o, [key]: !o[key] }));
+  const cardH = (t) => 26 + (t.lines.length + t.who.length + (t.checks.length ? t.checks.length + 1 : 0) + 2) * 16;
   const width = Math.max(600, rows.length ? rows[rows.length - 1].x + rows[rows.length - 1].w + rows[rows.length - 1].gapW + 40 : 600);
+  const tall = Math.max(320, rows.length * 54 + 60 + rows.reduce((n, t) => n + (open[t.key] ? cardH(t) : 0), 0));
   const marks = [];
   for (let i = 0; i * HOURS[u] <= total + HOURS[u]; i += 1) marks.push(i);
+  const dur = (t) => `${inUnit(t.lo, u) === inUnit(t.hi, u) ? `${nm(inUnit(t.hi, u))} ${u}` : `${nm(inUnit(t.lo, u))}–${nm(inUnit(t.hi, u))} ${u}`}`
+    + `${t.gapHi > 0 ? ` · пауза ${nm(inUnit(t.gapHi, u))} ${u}` : ""}${t.par > 1 ? ` · по ${t.par} разом` : ""}`;
   return (
-    <Pannable label="таймлайн процесса" wide={width} tall={Math.max(320, rows.length * 44 + 60)}>
-      <div style={{ position: "relative", width, height: rows.length * 44 + 60, fontSize: 11 }}>
+    <Pannable label="таймлайн процесса" wide={width} tall={tall}>
+      <div style={{ position: "relative", width, minHeight: tall, fontSize: 11 }}>
         {marks.map((i) => (
           <div key={i} style={{ position: "absolute", left: i * PX + 8, top: 0, bottom: 0, borderLeft: `1px solid ${C.line}66` }}>
             <span style={{ position: "absolute", top: 2, left: 3, color: C.muted, fontSize: 10, whiteSpace: "nowrap" }}>{i} {u}</span>
           </div>))}
-        {rows.map((t, i) => (
-          <div key={t.key} style={{ position: "absolute", left: t.x + 8, top: 26 + i * 44, height: 34 }}>
-            <div aria-label={`задача ${t.name}`} title={`${t.func} · ${t.name}`}
-              style={{ width: t.w, height: 20, background: `${ACC}33`, border: `1px solid ${ACC}`, borderRadius: 5,
-                color: C.text, padding: "1px 6px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                boxSizing: "border-box", lineHeight: "17px" }}>
-              {t.name}</div>
-            <div style={{ color: C.muted, fontSize: 9.5, marginTop: 1, whiteSpace: "nowrap" }}>
-              {inUnit(t.lo, u) === inUnit(t.hi, u) ? `${nm(inUnit(t.hi, u))} ${u}` : `${nm(inUnit(t.lo, u))}–${nm(inUnit(t.hi, u))} ${u}`}
-              {t.gapHi > 0 ? ` · пауза ${nm(inUnit(t.gapHi, u))} ${u}` : ""}
-              {t.par > 1 ? ` · по ${t.par} разом` : ""}
-            </div>
-            {t.gapW > 1 && (
-              <div style={{ position: "absolute", left: t.w, top: 4, width: t.gapW, height: 12,
-                borderTop: `1px dashed ${C.line}`, borderBottom: `1px dashed ${C.line}` }} />)}
-          </div>))}
+        <div style={{ position: "relative", paddingTop: 26 }}>
+          {rows.map((t) => (
+            <div key={t.key} style={{ position: "relative", marginLeft: t.x + 8, marginBottom: 14, width: Math.max(t.w, 260) }}>
+              {/* Полоса — кнопка: жест на ней раскрывает задачу, а не двигает карту. */}
+              <button type="button" data-drag-handle="" aria-label={`задача ${t.name}`} aria-expanded={!!open[t.key]}
+                title={`${t.func} · ${t.name}`} onClick={() => toggle(t.key)}
+                style={{ width: t.w, height: 20, background: `${ACC}${open[t.key] ? "55" : "33"}`, border: `1px solid ${ACC}`,
+                  borderRadius: 5, color: C.text, padding: "1px 6px", whiteSpace: "nowrap", overflow: "hidden",
+                  textOverflow: "ellipsis", boxSizing: "border-box", lineHeight: "17px", textAlign: "left",
+                  font: "inherit", cursor: "pointer", display: "block" }}>
+                {t.name}</button>
+              <div style={{ color: C.muted, fontSize: 9.5, marginTop: 1, whiteSpace: "nowrap" }}>{dur(t)}</div>
+              {open[t.key] && (
+                <div aria-label={`задача ${t.name} целиком`}
+                  style={{ marginTop: 4, maxWidth: 320, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
+                    padding: "8px 10px", whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.35 }}>
+                  <div style={{ color: C.muted, fontSize: 9.5 }}>{t.func}</div>
+                  <div style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{t.name}</div>
+                  {t.cond && <div style={{ color: WARN, fontSize: 10 }}>{t.isElse ? "иначе" : `если ${t.cond}`}</div>}
+                  {t.who.map((w, j) => (
+                    <div key={`w${j}`} style={{ color: C.text, fontSize: 10.5, marginTop: 2 }}>
+                      кто: {w.person || w.hand || w.name || "не назван"}{w.asset ? ` · ${w.asset}` : ""}
+                      {w.roles.length ? ` · ${w.roles.join(", ")}` : ""}</div>))}
+                  {t.lines.map((r, j) => (
+                    <div key={`r${j}`} style={{ color: r.kind === "take" ? OK : WARN, fontSize: 10.5, marginTop: 2 }}>{r.text}</div>))}
+                  {!t.lines.length && <div style={{ color: C.muted, fontSize: 10.5, marginTop: 2 }}>ресурсы не названы</div>}
+                  {t.checks.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ color: C.muted, fontSize: 9.5 }}>критерии проверки</div>
+                      {t.checks.map((c, j) => (
+                        <div key={`c${j}`} style={{ color: C.text, fontSize: 10.5 }}>• {c}</div>))}
+                    </div>)}
+                  <div style={{ color: C.muted, fontSize: 10, marginTop: 4 }}>{dur(t)}</div>
+                </div>)}
+              {t.gapW > 1 && (
+                <div style={{ position: "absolute", left: t.w, top: 4, width: t.gapW, height: 12,
+                  borderTop: `1px dashed ${C.line}`, borderBottom: `1px dashed ${C.line}` }} />)}
+            </div>))}
+        </div>
         {!rows.length && <div style={{ padding: 16, color: C.muted }}>В процессе ещё нет задач.</div>}
       </div>
     </Pannable>);
@@ -196,14 +242,8 @@ function MindMap({ plan }) {
   };
   const withRows = plan.map((t) => {
     const rows = [];
-    const side = (p, kind) => {
-      const party = (p.party || []).map((x) => x.person || x.hand || x.name).filter(Boolean).join(", ");
-      const head = kind === "take" ? (p.or ? "или берёт" : "берёт") : (p.or ? "или отдаёт" : "отдаёт");
-      const tail = party ? (kind === "take" ? ` от ${party}` : ` → ${party}`) : "";
-      wrap(`${head}: ${portText(p)}${tail}`).forEach((s1, i) => rows.push({ c: kind === "take" ? OK : WARN, s: s1, sub: i > 0 }));
-    };
-    t.takes.forEach((p) => side(p, "take"));
-    t.gives.forEach((p) => side(p, "give"));
+    taskLines(t).forEach(({ kind, text }) => wrap(text).forEach((s1, i) => (
+      rows.push({ c: kind === "take" ? OK : WARN, s: s1, sub: i > 0 }))));
     const nameLines = wrap(t.name || "задача", 30);
     const condLines = t.cond ? wrap(t.isElse ? "иначе" : `если ${t.cond}`, 42) : [];
     const d = doerOf(t);
@@ -305,29 +345,49 @@ function MindMap({ plan }) {
   const laneY = height + 8;
   const px = (i) => 40 + i * 170;
 
+  const arrowColors = [...new Set(links.map((l) => l.color))];
+  const arrowId = (c) => `pm-arrow-${Math.max(0, arrowColors.indexOf(c))}`;
   /* Полоса людей тоже растёт под перенесённые имена. */
   const laneTall = 46 + Math.max(0, ...people.map((p) => (wrap(p.name, 20).length - 1) * 11 + wrap(p.post || "", 22).length * 10));
   return (
     <Pannable label="майнд-карта процесса" wide={width} tall={laneY + laneTall}>
       <svg width={width} height={laneY + laneTall} style={{ display: "block" }}
         onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
-        <defs><marker id="pm-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-          <path d="M0,0 L7,3 L0,6 z" fill={ACC} /></marker>
+        <defs>
+          {/* Наконечник — цветом своей линии, чтобы не выглядел чужим. */}
+          {arrowColors.map((c, i) => (
+            <marker key={c} id={`pm-arrow-${i}`} markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 z" fill={c} /></marker>))}
           <marker id="pm-arrow2" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
             <path d="M0,0 L6,3 L0,6 z" fill={C.muted} /></marker></defs>
 
         {/* Ресурсы между задачами */}
         {links.map((l, i) => {
           const a = at(l.from.key), b = at(l.to.key);
-          const x1 = a.x + W, y1 = a.y + a.h / 2, x2 = b.x, y2 = b.y + b.h / 2;
-          const mx = (x1 + x2) / 2;
+          /* Стрелка подходит к БЛИЖНЕЙ стороне блока (владелец, 2026-09-18:
+             «непонятно, почему у одних линий есть стрелки, у других нет»):
+             раньше линия всегда шла в левый край, и у задачи, стоящей левее
+             или прямо над источником, наконечник оказывался под самим блоком
+             — стрелка пропадала. Блоки в одном столбце связываются сверху
+             вниз, в разных — сбоку. */
+        const acx = a.x + W / 2, bcx = b.x + W / 2;
+          const upright = Math.abs(bcx - acx) < W * 0.6;
+          const down = b.y + b.h / 2 >= a.y + a.h / 2, back = bcx < acx;
+          const x1 = upright ? acx : back ? a.x : a.x + W;
+          const y1 = upright ? (down ? a.y + a.h : a.y) : a.y + a.h / 2;
+          const x2 = upright ? bcx : back ? b.x + W : b.x;
+          const y2 = upright ? (down ? b.y : b.y + b.h) : b.y + b.h / 2;
+          const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+          const curve = upright
+            ? `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`
+            : `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
           return (
             <g key={`l${i}`}>
-              <path d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} fill="none" stroke={l.color}
-                strokeWidth="1.6" strokeDasharray={l.or ? "5 4" : undefined} markerEnd="url(#pm-arrow)" />
+              <path d={curve} fill="none" stroke={l.color}
+                strokeWidth="1.6" strokeDasharray={l.or ? "5 4" : undefined} markerEnd={`url(#${arrowId(l.color)})`} />
               {wrap(`${l.or ? "или · " : ""}${l.text}`, 34).map((s1, j, all) => (
-                <text key={j} x={mx} y={(y1 + y2) / 2 - 5 - (all.length - 1 - j) * 11} textAnchor="middle"
-                  fill={C.text} fontSize="10">{s1}</text>))}
+                <text key={j} x={upright ? mx + 8 : mx} y={my - 5 - (all.length - 1 - j) * 11}
+                  textAnchor={upright ? "start" : "middle"} fill={C.text} fontSize="10">{s1}</text>))}
             </g>);
         })}
 
@@ -414,10 +474,11 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
           <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700 }}>{proc?.name || "процесс"}</span>
           <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="закрыть карту" onClick={onClose}>✕</button>
         </div>
+        {/* Что означают линии — словами, чтобы не гадать (владелец, 2026-09-18). */}
         <div style={{ fontSize: 10.5, color: C.muted }}>
           {mode === "timeline"
-            ? "Прогноз по описанию: сколько идёт каждая задача и сколько ждать следующую попытку."
-            : "Что куда уходит: задачи и ресурсы между ними. Стрелка — выданный ресурс, взятый следующей задачей."}
+            ? "Прогноз по описанию: сколько идёт каждая задача и сколько ждать следующую попытку. Нажмите на полосу — задача раскроется целиком."
+            : "Что куда уходит: задачи и ресурсы между ними. Сплошная стрелка — выданный ресурс, взятый другой задачей (цвет — закреплённого имени); пунктирная — «или», иной исход; серая дуга внизу — кто с кем взаимодействует. Стрелка всегда подходит к ближней стороне блока."}
         </div>
         {mode === "timeline" ? <Timeline plan={plan} /> : <MindMap plan={plan} />}
       </div>
