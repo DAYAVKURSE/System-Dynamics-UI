@@ -6,7 +6,7 @@ import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, 
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
   suggest, toggleRole, usesAsset, whoState, renameVar, setTaskTime, parseDur, parseEvery, parsePar,
-  durText, everyText, parText, TIME_UNITS, setTaskChecks } from "../lib/proc2.js";
+  durText, everyText, parText, TIME_UNITS, setTaskChecks, capFirstTyped } from "../lib/proc2.js";
 import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
 import { hasKind, toggleKind } from "../lib/traits.js";
 import ProcMaps from "./ProcMaps.jsx";
@@ -309,7 +309,19 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
       place(next, caret);
     }), 0);
   };
-  const onChange = (e) => { const v = e.target.value; setText(v); place(v, e.target.selectionStart ?? v.length); };
+  const onChange = (e) => {
+    const v = e.target.value;
+    const at = e.target.selectionStart ?? v.length;
+    /* Имя новой сущности начинается с большой буквы (владелец, 2026-09-18):
+       поднимаем только что введённый первый символ значения строки. */
+    const big = capFirstTyped(text, v, at);
+    if (big) {
+      setText(big);
+      setTimeout(() => { inp.current?.setSelectionRange(at, at); place(big, at); }, 0);
+      return;
+    }
+    setText(v); place(v, at);
+  };
   const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
   const startEdit = () => {
     const el = inp.current;

@@ -580,6 +580,30 @@ export function setTaskTime(text = "", taskRow, kind, value) {
   return lines.join("\n");
 }
 
+/**
+ * Первая буква нового имени — заглавная (владелец, 2026-09-18).
+ *
+ * Поднимаем ровно тот символ, который человек только что ввёл первым в
+ * пустое место: после метки строки («Задача:», «Кто:», «Берёт:»,
+ * «Критерий:»…) или после запятой в перечислении. Дальше по строке не
+ * трогаем: там могут быть и строчные слова, и уже набранное имя.
+ */
+export function capFirstTyped(before = "", after = "", at = 0) {
+  if (after.length !== before.length + 1 || at < 1) return null;
+  const ch = after[at - 1];
+  if (!/\p{Ll}/u.test(ch)) return null;                     // поднимаем только строчную букву
+  const lineStart = after.lastIndexOf("\n", at - 1) + 1;
+  const lab = labelOf(after.slice(lineStart));
+  const valueStart = lineStart + (lab ? lab.rest.start : 0);
+  if (at - 1 < valueStart) return null;                     // это сама метка, не значение
+  const pre = after.slice(valueStart, at - 1);
+  /* Первый символ значения или первый после запятой. В скобках имя
+     закреплённого ресурса — оно из одного слова латиницей, его не трогаем. */
+  if (/\([^)]*$/.test(pre)) return null;
+  if (!/^\s*$/.test(pre) && !/,\s*$/.test(pre)) return null;
+  return `${after.slice(0, at - 1)}${ch.toUpperCase()}${after.slice(at)}`;
+}
+
 /** Переписать критерии задачи: строки «Критерий: …» под её сроками. */
 export function setTaskChecks(text = "", taskRow, list = []) {
   const lines = String(text || "").split("\n");

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, peopleOfPosition, procFuncs,
-  parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
+  capFirstTyped, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -232,6 +232,24 @@ describe("критерии проверки задачи (владелец, 2026
     expect(setTaskChecks(T, 0, []).split("\n")).toEqual(["Задача: шаг", "Срок: 2 дн", "Кто: Владелец", "Отдаёт: оффер 1"]);
     // После названия задачи метка «Критерий:» есть в подсказках.
     expect(suggest(hintAt("Задача: шаг", 11, model), model).some((i) => i.name === "Критерий:")).toBe(true);
+  });
+});
+
+describe("имя новой сущности с большой буквы (владелец, 2026-09-18)", () => {
+  const typed = (before, ch, at) => capFirstTyped(before, `${before.slice(0, at - 1)}${ch}${before.slice(at - 1)}`, at);
+  it("поднимается первый символ значения и первый после запятой; остальное не трогаем", () => {
+    expect(capFirstTyped("Задача: ", "Задача: л", 9)).toBe("Задача: Л");
+    expect(capFirstTyped("Кто: ", "Кто: м", 6)).toBe("Кто: М");
+    expect(capFirstTyped("Берёт: заявки, ", "Берёт: заявки, о", 16)).toBe("Берёт: заявки, О");
+    expect(capFirstTyped("Задача: лид\nКритерий: ", "Задача: лид\nКритерий: е", 23)).toBe("Задача: лид\nКритерий: Е");
+    // Дальше по слову, в метке, в скобках и не-буквы — без изменений.
+    expect(capFirstTyped("Задача: л", "Задача: ли", 10)).toBeNull();
+    expect(capFirstTyped("Задача", "Задача:", 7)).toBeNull();
+    expect(capFirstTyped("Отдаёт: оффер (", "Отдаёт: оффер (л", 16)).toBeNull();
+    expect(capFirstTyped("Берёт: 5", "Берёт: 5 ", 9)).toBeNull();
+    // Вставка нескольких символов (вставка из буфера) не трогается.
+    expect(capFirstTyped("Задача: ", "Задача: лид", 11)).toBeNull();
+    expect(typed("Задача: ", "л", 9)).toBe("Задача: Л");
   });
 });
 
