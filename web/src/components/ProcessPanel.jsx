@@ -9,6 +9,7 @@ import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintA
   durText, everyText, parText, TIME_UNITS, setTaskChecks } from "../lib/proc2.js";
 import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
 import { hasKind, toggleKind } from "../lib/traits.js";
+import ProcMaps from "./ProcMaps.jsx";
 import { MATERIAL_KINDS, traitKind } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -164,11 +165,13 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
         return (
           <div key={i} style={{ position: "relative", minHeight: `${LINE_H}em` }}>
             {parts}{"​"}
-            {/* Пометка актива справа у «Кто:» (владелец, 2026-09-18). */}
+            {/* Актив у строки «Кто:»/«Кому:» — подсказка, а не часть текста:
+                мелко, полупрозрачно и чуть выше строки, чтобы не мешать
+                основному тексту (владелец, 2026-09-18). */}
             {r?.note && (
-              <span data-note={r.note} style={{ position: "absolute", right: 4 + (i === activeRow ? noteGap : 0), top: 0, color: C.muted,
-                fontSize: 10, lineHeight: `${LINE_H}em`, background: C.ink, padding: "0 5px", borderRadius: 4,
-                border: `1px solid ${C.line}`, whiteSpace: "nowrap", maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span data-note={r.note} style={{ position: "absolute", right: 4 + (i === activeRow ? noteGap : 0), top: "-0.45em", color: C.muted,
+                fontSize: 8.5, lineHeight: 1.4, opacity: 0.6, background: `${C.ink}b3`, padding: "0 4px", borderRadius: 3,
+                border: `1px solid ${C.line}66`, whiteSpace: "nowrap", maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.note}</span>)}
             {r?.error && (
               <span data-mark="error" style={{ position: "absolute", right: 0, top: 0, color: BAD,
@@ -264,7 +267,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
      проскроллилась в начало»). На телефоне focus/setSelectionRange у
      textarea прокручивают страницу к полю, и preventScroll помогает не
      везде: держим положение сами — до и сразу после правки. */
-  const keepScroll = (fn) => {
+  const keepScroll = (fn, ms = [60, 150, 300]) => {
     const x = window.scrollX || 0;
     const y = window.scrollY || 0;
     /* Возвращаем только заметный прыжок (> 24 px): мелкий сдвиг от того,
@@ -279,7 +282,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     fn();
     undo();
     requestAnimationFrame(undo);
-    [60, 150, 300].forEach((ms) => setTimeout(undo, ms));
+    ms.forEach((t) => setTimeout(undo, t));
   };
   /* Прокрутка поля (владелец, 2026-09-18): пока поле в фокусе, его высота
      ограничена и включается собственная прокрутка; подложка и меню
@@ -435,7 +438,11 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const rewrite = (next) => {
     const caret = Math.min(inp.current?.selectionStart ?? next.length, next.length);
     setText(next); onCommit(next);
-    setTimeout(() => keepScroll(() => { inp.current?.focus({ preventScroll: true }); inp.current?.setSelectionRange(caret, caret); place(next, caret); }), 0);
+    /* Правка из меню уезжает в модель: функции пересобираются, схема
+       перерисовывается — прыжок случается и через полсекунды (владелец,
+       2026-09-18: «кидает на схеме в самый низ при выборе сотрудника»). */
+    setTimeout(() => keepScroll(() => { inp.current?.focus({ preventScroll: true }); inp.current?.setSelectionRange(caret, caret); place(next, caret); },
+      [60, 150, 300, 500, 800]), 0);
   };
   const toggle = (role) => rewrite(toggleRole(text, whoRow, role));
   const fixHand = () => rewrite(setHand(text, whoRow, newHandName(usedHands())));
@@ -1014,6 +1021,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   const [openChip, setOpenChip] = useState(null);
   const [naming, setNaming] = useState(null);
   const [modal, setModal] = useState(null);   // {proc, mode:"export"|"import", text}
+  const [maps, setMaps] = useState(null);    // {proc, mode:"timeline"|"mind"}
   const [shownOwn, setShownOwn] = useState(false);
   const shown = shownProp ?? shownOwn;
   const toggle = () => (onToggle ? onToggle(!shown) : setShownOwn((v) => !v));
@@ -1164,6 +1172,16 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               <ProcText value={p.text} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands}
                 kinds={kinds} onTrait={(id, patch) => commit({ procs, traits: traits.map((t) => (t.id === id ? { ...t, ...patch } : t)) })} />
 
+              {/* Карты процесса — справа под полем (владелец, 2026-09-18). */}
+              <div className="flex items-center gap-2" style={{ marginTop: 6, justifyContent: "flex-end" }}>
+                <button type="button" aria-label="таймлайн процесса" title="таймлайн: когда идут задачи"
+                  onClick={() => setMaps({ proc: p, mode: "timeline" })}
+                  style={{ ...btn(false), fontSize: 14, padding: "2px 9px", lineHeight: 1.4 }}>▤</button>
+                <button type="button" aria-label="майнд-карта процесса" title="майнд-карта: что куда уходит"
+                  onClick={() => setMaps({ proc: p, mode: "mind" })}
+                  style={{ ...btn(false), fontSize: 14, padding: "2px 9px", lineHeight: 1.4 }}>⛭</button>
+              </div>
+
               <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
                 <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="выгрузить техпроцесс"
                   onClick={() => setModal({ proc: p, mode: "export", text: exportText(p.text) })}>Выгрузить</button>
@@ -1211,6 +1229,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
             </div>);
         })}
       </Section>)}
+      {maps && (<ProcMaps mode={maps.mode} proc={maps.proc} model={model} onClose={() => setMaps(null)} />)}
       {modal && (
         <TextModal title={modal.mode === "export" ? "выгрузка техпроцесса" : "загрузка техпроцесса"}
           value={modal.text} onClose={() => setModal(null)}
