@@ -101,6 +101,16 @@ export const everyText = (f = {}) => (Number(f.every) > 0
 export const parText = (f = {}) => `${Math.max(1, Math.round(num(f.par ?? 1)))}${Number(f.parAll) > 0 ? `, на актив ${Math.round(num(f.parAll))}` : ""}`;
 const nmNum = (v) => String(num(v)).replace(".", ",");
 
+/** Метка следующей значимой строки (пустые пропускаем). */
+function nextKind(rows, from) {
+  for (let i = from + 1; i < rows.length; i += 1) {
+    const t = String(rows[i] || "").trim();
+    if (!t) continue;
+    return labelOf(rows[i])?.kind || "";
+  }
+  return "";
+}
+
 /** Метка строки: {kind, label:{start,end}, rest:{text,start}} или null. */
 export function labelOf(line = "") {
   // До 14 букв: самая длинная метка — «Одновременно» (владелец, 2026-09-18).
@@ -278,7 +288,7 @@ export function parseText(text = "", model = {}, proc = {}) {
   const newFunc = (name, row) => { fn = { name, row, tasks: [], span: null }; funcs.push(fn); task = null; branch = null; return fn; };
   const newTask = (name, row) => {
     if (!fn) newFunc("", row);
-    task = { name, row, branches: [] }; fn.tasks.push(task);
+    task = { name, row, indent: 0, branches: [] }; fn.tasks.push(task);
     branch = { cond: null, who: [], steps: [], row }; task.branches.push(branch);
     lastStep = null; lastWho = null;
     return task;
@@ -298,10 +308,12 @@ export function parseText(text = "", model = {}, proc = {}) {
       if (lab.kind === "func") { group = { cond: null, isElse: false, row: -1, span: null }; pending = null; newFunc(rest.trim(), row); fn.span = { start: rs, end: rs + rest.trimEnd().length }; last = "func"; return; }
       if (lab.kind === "task") {
         if (pending) { group = { cond: pending.cond, isElse: false, row: pending.row, span: pending.span }; pending = null; }
+        const lead0 = line.length - line.trimStart().length;
         if (gap >= 2 && fn && fn.tasks.length && group.cond == null && !group.isElse) newFunc("", row);
         newTask(rest.trim(), row);
         if (group.cond != null) { task.cond = group.cond; task.condRow = group.row; task.condSpan = group.span; }
         if (group.isElse) { task.isElse = true; task.elseRow = group.row; }
+        task.indent = lead0;
         task.span = { start: rs, end: rs + rest.trimEnd().length }; last = "task"; return;
       }
       if (gap >= 2 && fn && fn.tasks.length && lab.kind !== "else" && lab.kind !== "then") newFunc("", row);
@@ -326,15 +338,27 @@ export function parseText(text = "", model = {}, proc = {}) {
         last = lab.kind; lastStep = null; lastWho = null; return;
       }
       if (lab.kind === "then") {
-        if (pending) { group = { cond: pending.cond, isElse: false, row: pending.row, span: pending.span, thenRow: row }; pending = null;
-          last = "then"; lastStep = null; lastWho = null; return; }
+        if (pending && nextKind(rows, row) === "task") {
+          group = { cond: pending.cond, isElse: false, row: pending.row, span: pending.span, thenRow: row }; pending = null;
+          last = "then"; lastStep = null; lastWho = null; return;
+        }
+        if (pending) {   // дальше идут строки задачи — это ветка внутри задачи
+          const b1 = ensureBranch(pending.row);
+          if (b1.who.length || b1.steps.length || b1.cond) { branch = { cond: pending.cond, who: [], steps: [], row: pending.row }; task.branches.push(branch); }
+          else b1.cond = pending.cond;
+          branch.condSpan = pending.span; branch.condRow = pending.row; branch.thenRow = row;
+          pending = null; last = "then"; lastStep = null; lastWho = null; return;
+        }
         if (!branch || branch.cond == null) { err(row, "«То:» без «Если:» перед ней"); return; }
         branch.thenRow = row;
         last = "then"; lastStep = null; lastWho = null; return;
       }
       /* «Если:» до всякой задачи или между задачами — придержим: решает
          следующая строка («То:»/«Задача:» — условие группы, иначе ветка). */
-      if (lab.kind === "if" && (!task || atStart)) {
+      /* «Если:» придерживаем всегда: чем оно окажется — условием НАД
+         задачами или веткой внутри задачи — решает следующая значимая
+         строка: «Задача:» или обычная (владелец, 2026-09-18). */
+      if (lab.kind === "if") {
         pending = { cond: rest.replace(/,?\s*то\s*:?\s*$/i, "").trim(), row, span: { start: rs, end: rs + rest.length } };
         last = "if"; lastStep = null; lastWho = null; return;
       }
@@ -349,9 +373,6 @@ export function parseText(text = "", model = {}, proc = {}) {
       const b = ensureBranch(row);
       if (lab.kind === "if") {
         const cond = rest.replace(/,?\s*то\s*:?\s*$/i, "").trim();
-        /* Между задачами условие относится к следующим задачам, а не к
-           предыдущей: придерживаем и ждём «То:» либо «Задача:». */
-        if (!task || atStart) { pending = { cond, row, span: { start: rs, end: rs + rest.length } }; last = "if"; lastStep = null; lastWho = null; return; }
         if (b.who.length || b.steps.length || b.cond) { branch = { cond, who: [], steps: [], row }; task.branches.push(branch); }
         else b.cond = cond;
         // Строка условия своя: ветка могла быть заведена строкой «Задача:».
@@ -359,7 +380,8 @@ export function parseText(text = "", model = {}, proc = {}) {
         last = "if"; lastStep = null; lastWho = null; return;
       }
       if (lab.kind === "else") {
-        if (group.cond != null || group.isElse) { group = { cond: null, isElse: true, row, span: null }; last = "else"; lastStep = null; lastWho = null; return; }
+        // «Иначе:» — пара к условию НАД задачами, если такое открыто или задачи ещё нет.
+        if (group.cond != null || group.isElse || !task || nextKind(rows, row) === "task") { group = { cond: null, isElse: true, row, span: null }; last = "else"; lastStep = null; lastWho = null; return; }
         if (!task) { err(row, "«Иначе:» без «Если:»"); return; }
         branch = { cond: null, isElse: true, who: [], steps: [], row }; task.branches.push(branch);
         last = "else"; lastStep = null; lastWho = null; return;
@@ -650,18 +672,41 @@ const STEP = "  ";
 export function indentText(text = "") {
   const lines = String(text || "").split("\n");
   let hasFunc = false;
-  let inBranch = false;   // идём внутри «То:»/«Иначе:»
-  return lines.map((raw) => {
+  let inBranch = false;    // строки ветки «То:»/«Иначе:» внутри задачи
+  let group = false;       // условие стоит НАД задачами
+  return lines.map((raw, i) => {
     const line = raw.replace(/^[ \t]+/, "");
     if (!line.trim()) { inBranch = false; return ""; }
     const kind = labelOf(line)?.kind || null;
-    if (kind === "func") { hasFunc = true; inBranch = false; return line; }
-    if (kind === "task") { inBranch = false; return `${hasFunc ? STEP : ""}${line}`; }
-    const base = hasFunc ? STEP.repeat(2) : STEP;
-    if (kind === "then" || kind === "else") { inBranch = true; return `${base}${line}`; }
-    if (kind === "if") { inBranch = false; return `${base}${line}`; }
-    return `${base}${inBranch ? STEP : ""}${line}`;
+    if (kind === "func") { hasFunc = true; inBranch = false; group = false; return line; }
+    const taskLead = hasFunc ? STEP.length : 0;    // уровень строки «Задача:»
+    const bodyLead = taskLead + STEP.length;       // уровень её строк
+    if (kind === "task") { inBranch = false; return `${" ".repeat(group ? bodyLead : taskLead)}${line}`; }
+    /* «Если:»/«То:»/«Иначе:» стоят у задач, если следом идёт «Задача:», и
+       внутри задачи, если следом её строки (владелец, 2026-09-18). Отступ
+       показывает, что получилось, — угадывать по нему не нужно. */
+    if (kind === "if" || kind === "then" || kind === "else") {
+      const over = outerCond(lines, i);
+      group = over;
+      inBranch = !over && (kind === "then" || kind === "else");
+      return `${" ".repeat(over ? taskLead : bodyLead)}${line}`;
+    }
+    const base = group ? bodyLead + STEP.length : bodyLead;
+    return `${" ".repeat(base + (inBranch ? STEP.length : 0))}${line}`;
   }).join("\n");
+}
+
+/* Условие «над задачами»: после него (пропуская «То:»/«Иначе:» и пустые
+   строки) идёт «Задача:». Иначе это ветка внутри задачи. */
+function outerCond(lines, at) {
+  for (let i = at + 1; i < lines.length; i += 1) {
+    const t = String(lines[i] || "").trim();
+    if (!t) continue;
+    const k = labelOf(lines[i])?.kind || "";
+    if (k === "then" || k === "else" || k === "if") continue;
+    return k === "task";
+  }
+  return false;
 }
 
 /** Переписать критерии задачи: строки «Критерий: …» под её сроками. */

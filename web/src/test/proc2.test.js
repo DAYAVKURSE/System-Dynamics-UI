@@ -269,6 +269,40 @@ describe("отступы по смыслу (владелец, 2026-09-18)", () =
   });
 });
 
+describe("условие внутри задачи и над задачами (владелец, 2026-09-18)", () => {
+  const OUTER = ["Функция: Ф", "", "Задача: A", "Кто: Владелец", "Отдаёт: оффер 1", "",
+    "Если: x > 0", "То:", "Задача: B", "Кто: Владелец", "Отдаёт: оффер 1",
+    "Иначе:", "Задача: C", "Кто: Владелец", "Отдаёт: оффер 1"].join("\n");
+  const INNER = ["Задача: A", "Кто: Владелец", "Отдаёт: оффер 1",
+    "Если: x > 0", "То:", "Кто: Владелец", "Отдаёт: оффер 2",
+    "Иначе:", "Кто: Владелец", "Отдаёт: оффер 3"].join("\n");
+
+  it("после условия «Задача:» — оно накрывает задачи; строки задачи — это ветка внутри неё", () => {
+    const a = parseText(OUTER, model, {});
+    expect(a.errors).toEqual([]);
+    expect(a.funcs[0].tasks.map((t) => [t.name, t.cond || null, !!t.isElse]))
+      .toEqual([["A", null, false], ["B", "x > 0", false], ["C", null, true]]);
+    const b = parseText(INNER, model, {});
+    expect(b.errors).toEqual([]);
+    expect(b.funcs[0].tasks).toHaveLength(1);
+    expect(b.funcs[0].tasks[0].branches.map((x) => [x.cond, !!x.isElse]))
+      .toEqual([[null, false], ["x > 0", false], [null, true]]);
+  });
+
+  it("отступ показывает, что получилось: условие над задачами — у задач, ветка — внутри задачи", () => {
+    expect(indentText(OUTER).split("\n").filter((l) => /Если|То:|Иначе|Задача/.test(l))).toEqual([
+      "  Задача: A", "  Если: x > 0", "  То:", "    Задача: B", "  Иначе:", "    Задача: C"]);
+    expect(indentText(INNER).split("\n")).toEqual([
+      "Задача: A", "  Кто: Владелец", "  Отдаёт: оффер 1",
+      "  Если: x > 0", "  То:", "    Кто: Владелец", "    Отдаёт: оффер 2",
+      "  Иначе:", "    Кто: Владелец", "    Отдаёт: оффер 3"]);
+    // Повторный проход и разбор выровненного текста ничего не ломают.
+    expect(indentText(indentText(OUTER))).toBe(indentText(OUTER));
+    expect(parseText(indentText(OUTER), model, {}).errors).toEqual([]);
+    expect(parseText(indentText(INNER), model, {}).errors).toEqual([]);
+  });
+});
+
 describe("разбор", () => {
   it("метки строк: функция, задача, кто, берёт/отдаёт (и множественное число), кому", () => {
     expect(labelOf("Кто: Владелец")).toMatchObject({ kind: "who", rest: { text: "Владелец", start: 5 } });
