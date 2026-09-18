@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { procPlan, schedulePlan, taskLines, whoText } from "../components/ProcMaps.jsx";
+import { postMap, procPlan, schedulePlan, taskLines, whoText } from "../components/ProcMaps.jsx";
 
 /* ТАЙМЛАЙН: что идёт одновременно (владелец, 2026-09-18: «в таймлайне должно
    быть видно параллельность, если задачи выполняются разными людьми и не
@@ -55,6 +55,17 @@ describe("кто и кому — должность, переменная в с�
     expect(whoText({ name: "Владелец", person: "Иван" })).toBe("Владелец (Иван)");
     expect(whoText({ hand: "Синий кот" })).toBe("(Синий кот)");
     expect(whoText({})).toBe("должность не названа");
+  });
+
+  it("должность видна, даже если в строке названа только рука (владелец, 2026-09-18)", () => {
+    const text = ["Задача: уточнить", "Кто: {wise oyster}", "Берёт: оффер 1", "",
+      "Задача: передать", "Кто: Владелец", "Отдаёт: оплата 1", "Кому: Партнёр-фрилансер {wise oyster}"].join("\n");
+    const plan = procPlan(text, model, {});
+    expect(plan[0].who[0]).toMatchObject({ name: "", hand: "wise oyster" });   // в строке должности нет
+    const postOf = postMap(plan);
+    expect(postOf({ hand: "wise oyster" })).toBe("Партнёр-фрилансер");          // но процесс её знает
+    expect(whoText(plan[0].who[0], postOf)).toBe("Партнёр-фрилансер (wise oyster)");
+    expect(whoText(plan[0].who[0])).toBe("(wise oyster)");                      // без справки — только рука
   });
 
   it("«кому отдаёт» — та же запись", () => {

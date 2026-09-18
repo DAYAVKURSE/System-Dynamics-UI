@@ -33,7 +33,11 @@ export function procPlan(text = "", model = {}, proc = {}) {
     let alt = false;   // есть ли у выхода «Или:» — иной исход
     t.branches.forEach((b) => {
       b.who.forEach((w) => who.push({
-        name: w.name || (w.hand ? w.hand : w.person || ""), asset: w.asset?.name || "",
+        /* `name` — ТОЛЬКО должность: подстановка сюда руки прятала должность
+           («wise oyster · wise oyster» вместо «wise oyster · Системный
+           аналитик», владелец 2026-09-18). Кто это на самом деле, собирает
+           `postMap` по всему процессу. */
+        name: w.name || "", asset: w.asset?.name || "",
         hand: w.hand || "", person: w.person || "",
         roles: ROLE_KINDS.filter((r) => w.roles?.[r]),
       }));
@@ -71,19 +75,34 @@ export function procPlan(text = "", model = {}, proc = {}) {
 const doerOf = (t) => t.who.find((w) => w.roles.includes("doer")) || t.who[0] || null;
 const keyOf = (w) => (w ? (w.person || w.hand || w.name || "") : "");
 
+export const whoKey = (x) => String(x?.hand || x?.person || x?.name || "").trim().toLowerCase();
+
+/** Должность участника, названная ГДЕ-НИБУДЬ в процессе: в одной строке её
+    могли не написать («Кто: {wise oyster}»), а карта всё равно должна знать,
+    что это системный аналитик (владелец, 2026-09-18). */
+export function postMap(plan = []) {
+  const by = new Map();
+  const add = (x) => { const k = whoKey(x); if (k && x?.name && !by.has(k)) by.set(k, x.name); };
+  plan.forEach((t) => {
+    (t.who || []).forEach(add);
+    [...(t.takes || []), ...(t.gives || [])].forEach((p) => (p.party || []).forEach(add));
+  });
+  return (x) => by.get(whoKey(x)) || "";
+}
+
 /** Кто это: ДОЛЖНОСТЬ, а закреплённое имя — в скобках (владелец, 2026-09-18). */
-export const whoText = (w) => {
-  const post = w?.name || "";
+export const whoText = (w, postOf) => {
+  const post = w?.name || (postOf ? postOf(w) : "") || "";
   const pin = w?.person || w?.hand || "";
   if (post && pin) return `${post} (${pin})`;
   return post || (pin ? `(${pin})` : "должность не названа");
 };
 
 /** Строки «берёт/отдаёт» задачи — одни и те же в обеих картах. */
-export function taskLines(t) {
+export function taskLines(t, postOf) {
   const out = [];
   const side = (p, kind) => {
-    const party = (p.party || []).map(whoText).filter(Boolean).join(", ");
+    const party = (p.party || []).map((x) => whoText(x, postOf)).filter(Boolean).join(", ");
     const head = kind === "take" ? (p.or ? "или берёт" : "берёт") : (p.or ? "или отдаёт" : "отдаёт");
     const tail = party ? (kind === "take" ? ` от ${party}` : ` → ${party}`) : "";
     out.push({ kind, text: `${head}: ${portText(p)}${tail}` });
@@ -207,6 +226,7 @@ export function schedulePlan(plan) {
 
 /** Таймлайн: полосы задач по времени, паузы между попытками. */
 function Timeline({ plan }) {
+  const postOf = postMap(plan);
   const timed = schedulePlan(plan);
   const total = timed.reduce((n, t) => Math.max(n, t.end + t.gapHi), 0) || 1;   // сколько идёт процесс целиком
   const u = unitOf(total);
@@ -216,7 +236,7 @@ function Timeline({ plan }) {
     x: (t.start / HOURS[u]) * PX,
     w: Math.max(96, (t.hi / HOURS[u]) * PX),   // имя задачи должно читаться
     gapW: (t.gapHi / HOURS[u]) * PX,
-    lines: taskLines(t),
+    lines: taskLines(t, postOf),
   }));
   /* Нажатие раскрывает задачу целиком (владелец, 2026-09-18): в полосе имя
      не помещается — её ширина означает срок, поэтому полный текст с
@@ -263,7 +283,7 @@ function Timeline({ plan }) {
                   <div style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{t.name}</div>
                   {t.cond && <div style={{ color: WARN, fontSize: 10 }}>{t.isElse ? "иначе" : `если ${t.cond}`}</div>}
                   {t.who.map((w, j) => (
-                    <div key={`w${j}`} style={{ color: C.text, fontSize: 10.5, marginTop: 2 }}>кто: {whoText(w)}</div>))}
+                    <div key={`w${j}`} style={{ color: C.text, fontSize: 10.5, marginTop: 2 }}>кто: {whoText(w, postOf)}</div>))}
                   {t.lines.map((r, j) => (
                     <div key={`r${j}`} style={{ color: r.kind === "take" ? OK : WARN, fontSize: 10.5, marginTop: 2 }}>{r.text}</div>))}
                   {!t.lines.length && <div style={{ color: C.muted, fontSize: 10.5, marginTop: 2 }}>ресурсы не названы</div>}
@@ -302,6 +322,7 @@ function people0(plan) {
 
 /** Майнд-карта: блоки задач, люди под ними, ресурсы и взаимодействия стрелками. */
 function MindMap({ plan, layout = {}, onLayout }) {
+  const postOf = postMap(plan);
   const W = 280, GAPX = 110, GAPY = 50;   // GAPY — поверх места под именем исполнителя
   /* Строки блока — что берёт и что отдаёт, с количеством, закреплённым
      именем и второй стороной. Пустых разделов нет (владелец, 2026-09-18). */
@@ -324,13 +345,15 @@ function MindMap({ plan, layout = {}, onLayout }) {
   };
   const withRows = plan.map((t) => {
     const rows = [];
-    taskLines(t).forEach(({ kind, text }) => wrap(text).forEach((s1, i) => (
+    taskLines(t, postOf).forEach(({ kind, text }) => wrap(text).forEach((s1, i) => (
       rows.push({ c: kind === "take" ? OK : WARN, s: s1, sub: i > 0 }))));
     const nameLines = wrap(t.name || "задача", 30);
     const condLines = t.cond ? wrap(t.isElse ? "иначе" : `если ${t.cond}`, 42) : [];
     const d = doerOf(t);
-    const doerLines = d ? wrap(d.person || d.hand || d.name || "не назван", 30) : [];
-    const doerSub = d && d.hand && d.name ? wrap(d.name, 32) : [];
+    const dName = d ? (d.person || d.hand || d.name || "не назван") : "";
+    const dPost = d ? (d.name || postOf(d)) : "";
+    const doerLines = d ? wrap(dName, 30) : [];
+    const doerSub = dPost && dPost !== dName ? wrap(dPost, 32) : [];
     const head = 24 + (nameLines.length - 1) * 14 + condLines.length * 13;
     const h = Math.max(72, head + rows.length * 15 + (t.checks.length ? 16 : 0) + 14);
     const below = 40 + (doerLines.length - 1) * 11 + doerSub.length * 11;   // человечек с именем под блоком
@@ -404,7 +427,11 @@ function MindMap({ plan, layout = {}, onLayout }) {
     nodes.forEach((b) => {
       if (b.key === a.key) return;
       const hit = b.takes.find((k) => (g.varName && k.varName === g.varName) || (!k.varName && !g.varName && k.name && k.name === g.name));
-      if (hit) links.push({ from: a, to: b, text: portText(g), or: g.or, color: g.varName ? handColor(g.varName) : ACC });
+      /* Ресурс переходит ИЗ РУК В РУКИ (задачи делают разные люди) —
+         штрих-пунктир, цвет остаётся ресурсным (владелец, 2026-09-18). */
+      const hands = [whoKey(doerOf(a)), whoKey(doerOf(b))];
+      const cross = !!hands[0] && !!hands[1] && hands[0] !== hands[1];
+      if (hit) links.push({ from: a, to: b, text: portText(g), or: g.or, cross, color: g.varName ? handColor(g.varName) : ACC });
     });
   }));
   /* Кто с кем взаимодействует. Один человек — одна фигурка: ключ по
@@ -415,8 +442,10 @@ function MindMap({ plan, layout = {}, onLayout }) {
     const key = String(x.hand || x.person || x.name || "").trim().toLowerCase();
     if (!key) return "";
     const was = people.find((p) => p.key === key);
-    if (!was) people.push({ key, name: x.person || x.hand || x.name, post: x.hand ? x.name : "" });
-    else if (!was.post && x.hand && x.name && x.name !== was.name) was.post = x.name;
+    const nm0 = x.person || x.hand || x.name;
+    const post = postOf(x);
+    if (!was) people.push({ key, name: nm0, post: post && post !== nm0 ? post : "" });
+    else if (!was.post && post && post !== was.name) was.post = post;
     return key;
   };
   nodes.forEach((t) => {
@@ -478,7 +507,8 @@ function MindMap({ plan, layout = {}, onLayout }) {
           return (
             <g key={`l${i}`}>
               <path d={curve} fill="none" stroke={l.color}
-                strokeWidth="1.6" strokeDasharray={l.or ? "5 4" : undefined} markerEnd={`url(#${arrowId(l.color)})`} />
+                strokeWidth="1.6" strokeDasharray={l.cross ? "7 3 1.5 3" : l.or ? "5 4" : undefined}
+                markerEnd={`url(#${arrowId(l.color)})`} />
               {wrap(`${l.or ? "или · " : ""}${l.text}`, 34).map((s1, j, all) => (
                 <text key={j} x={upright ? mx + 8 : mx} y={my - 5 - (all.length - 1 - j) * 11}
                   textAnchor={upright ? "start" : "middle"} fill={C.text} fontSize="10">{s1}</text>))}
@@ -582,7 +612,7 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
         <div style={{ fontSize: 10.5, color: C.muted }}>
           {mode === "timeline"
             ? "Прогноз по описанию: сколько идёт каждая задача и сколько ждать следующую попытку. Нажмите на полосу — задача раскроется целиком."
-            : "Что куда уходит: задачи и ресурсы между ними. Сплошная стрелка — выданный ресурс, взятый другой задачей (цвет — закреплённого имени); пунктирная — «или», иной исход; серая дуга внизу — кто с кем взаимодействует. Стрелка всегда подходит к ближней стороне блока. Блоки тянутся за шапку: раскладка и масштаб помнятся на этом устройстве, «сброс» возвращает их на места."}
+            : "Что куда уходит: задачи и ресурсы между ними. Сплошная стрелка — выданный ресурс, взятый другой задачей (цвет — закреплённого имени); штрих-пунктир — тот же ресурс, но переходит от одного человека к другому; пунктир — «или», иной исход; серая дуга внизу — кто с кем взаимодействует. Стрелка всегда подходит к ближней стороне блока. Блоки тянутся за шапку: раскладка и масштаб помнятся на этом устройстве, «сброс» возвращает их на места."}
         </div>
         {mode === "timeline"
           ? <Timeline plan={plan} />

@@ -151,6 +151,28 @@ describe("кнопки под полем", () => {
     expect(back).toBeTruthy();
   });
 
+  it("переход ресурса из рук в руки — штрих-пунктир своего цвета (владелец, 2026-09-18)", () => {
+    const area = screen.getAllByLabelText("текст процесса").pop();
+    fireEvent.focus(area);
+    fireEvent.change(area, { target: { value: [
+      "Задача: Приём", "Кто: Пользователи {wise oyster}", "Отдаёт: лиды 4", "",
+      "Задача: Разбор", "Кто: {wise oyster}", "Берёт: лиды 4", "Отдаёт: оплата 2", "",
+      "Задача: Счёт", "Кто: Клиенты", "Берёт: оплата 2",
+    ].join("\n") } });
+    fireEvent.blur(area);
+    fireEvent.click(screen.getAllByRole("button", { name: "майнд-карта процесса" }).pop());
+    const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    const links = Array.from(dlg.querySelectorAll("path[marker-end][fill='none']"))
+      .filter((l) => l.getAttribute("stroke-width") === "1.6");
+    const [lead, pay] = links;
+    expect(lead.getAttribute("stroke-dasharray")).toBeNull();            // один человек — сплошная
+    expect(pay.getAttribute("stroke-dasharray")).toBe("7 3 1.5 3");      // разные люди — штрих-пунктир
+    expect(pay.getAttribute("stroke")).toBe(lead.getAttribute("stroke")); // цвет остаётся ресурсным
+    // Должность видна у человечка, хотя в строке задачи названа только рука.
+    const doer = dlg.querySelector("g[aria-label='исполнитель wise oyster']");
+    expect(Array.from(doer.querySelectorAll("text")).map((t) => t.textContent)).toEqual(["wise oyster", "Пользователи"]);
+  });
+
   it("майнд-карта показывает задачу с тем, что она берёт и отдаёт", () => {
     fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
     const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
