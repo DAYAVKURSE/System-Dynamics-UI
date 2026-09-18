@@ -21,8 +21,10 @@ const addProc = () => {
   fireEvent.click(screen.getByRole("button", { name: "+ процесс" }));
   return screen.getByLabelText("текст процесса");
 };
+/* Правка включается двойным нажатием на текст (владелец, 2026-09-18). */
+const edit = (el) => { fireEvent.doubleClick(el); fireEvent.focus(el); };
 const type = (el, v, at = v.length) => {
-  fireEvent.focus(el);
+  edit(el);
   fireEvent.change(el, { target: { value: v, selectionStart: at } });
 };
 const write = (el, v) => { type(el, v); fireEvent.blur(el); };
@@ -51,6 +53,26 @@ const loadJson = (m) => {
   fireEvent.click(within(row).getByRole("button", { name: "Загрузить" }));
 };
 const TEXT = "Задача: лид\nКто: Пользователи\nБерёт: заявки 2\nОтдаёт: заявки 50% A";
+
+describe("правка по двойному нажатию", () => {
+  it("одинарное нажатие не включает правку: поле только для чтения, подсказки и меню не показываются; двойное — включает; нажатие вне поля — выключает", () => {
+    const area = addProc();
+    write(area, TEXT);
+    expect(area).toHaveAttribute("readonly");
+    fireEvent.focus(area);
+    fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
+    expect(screen.queryByRole("dialog", { name: "подсказка процесса" })).toBeNull();
+    expect(container.querySelector("[data-role-buttons]")).toBeNull();
+    expect(screen.getByText("двойное нажатие — правка")).toBeInTheDocument();
+    fireEvent.doubleClick(area);
+    expect(area).not.toHaveAttribute("readonly");
+    fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
+    expect(container.querySelector("[data-role-buttons]")).not.toBeNull();
+    fireEvent.blur(area);   // нажатие в другом месте
+    expect(area).toHaveAttribute("readonly");
+    expect(container.querySelector("[data-role-buttons]")).toBeNull();
+  });
+});
 
 describe("подсказки ведут по строкам", () => {
   it("метка → «Кто:» → актив (новая строка) → «Берёт:» → ресурс → сколько → новая строка → «Кому:»", async () => {
@@ -107,7 +129,7 @@ describe("роли, статусы, функции", () => {
   it("курсор в строке «Кто:» открывает меню столбиком: роли с названиями, «Закрепить сотрудника», «Выбрать сотрудника»", async () => {
     const area = addProc();
     write(area, TEXT);
-    fireEvent.focus(area);
+    edit(area);
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
     const menu = container.querySelector("[data-role-buttons]");
     expect(menu).not.toBeNull();
@@ -137,7 +159,7 @@ describe("роли, статусы, функции", () => {
   it("курсор на ресурсе открывает меню ресурса: поле операции, знак «=», просьба ввести число; в поле операция — значком (владелец, 2026-09-18)", async () => {
     const area = addProc();
     write(area, TEXT);
-    fireEvent.focus(area);
+    edit(area);
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("заявки 2") + 2 } });
     const menu = container.querySelector("[data-res-menu]");
     expect(menu).not.toBeNull();
@@ -168,7 +190,7 @@ describe("роли, статусы, функции", () => {
   it("«Закрепить ресурс» даёт переменную из одного слова; «Выбрать ресурс» ставит ссылку, и поле операции пропадает (владелец, 2026-09-18)", async () => {
     const area = addProc();
     write(area, TEXT);
-    fireEvent.focus(area);
+    edit(area);
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("заявки 50% A") + 2 } });
     const menu = () => container.querySelector("[data-res-menu]");
     expect(within(menu()).getAllByRole("button").map((b) => b.textContent).slice(0, 2)).toEqual(["📌Закрепить ресурс", "🔗Выбрать ресурс"]);

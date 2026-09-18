@@ -161,6 +161,11 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
 function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => new Set() }) {
   const [text, setText] = useState(value);
   const [focus, setFocus] = useState(false);
+  /* Правка — только по двойному нажатию на текст (владелец, 2026-09-18);
+     одинарное нажатие в любом другом месте выключает её. До этого поле
+     только для чтения: без клавиатуры, подсказок и меню. */
+  const [editing, setEditing] = useState(false);
+  const lastTap = useRef(0);
   const [pick, setPick] = useState(null);   // подсказка у курсора + at
   const [cursor, setCursor] = useState(0);
   const [caretRow, setCaretRow] = useState(-1);
@@ -191,7 +196,17 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     }, 0);
   };
   const onChange = (e) => { const v = e.target.value; setText(v); place(v, e.target.selectionStart ?? v.length); };
-  const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
+  const onMove = (e) => { if (editing) place(text, e.target.selectionStart ?? text.length); };
+  const startEdit = () => {
+    const el = inp.current;
+    if (!el || editing) return;
+    /* readOnly снимается на узле сразу: iOS решает, открывать ли
+       клавиатуру, в момент focus(), а он должен случиться внутри жеста. */
+    el.readOnly = false;
+    el.focus({ preventScroll: true });
+    setEditing(true); setFocus(true);
+    place(text, el.selectionStart ?? text.length);
+  };
   /* Подстановка: пункт несёт `suffix` (что после), `insert` (вставить у
      курсора, не заменяя набранное), `text` (что вставить вместо имени),
      `trimBefore` (убрать пробелы перед), `caretBack` (курсор внутрь). */
@@ -379,13 +394,20 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
             background: "transparent", color: "transparent", caretColor: C.text, display: "block",
             maxHeight: focus ? "45vh" : undefined, overflowY: focus ? "auto" : undefined }}
           onScroll={(e) => { const t = e.target.scrollTop; if (back.current) back.current.scrollTop = t; setScrollTop(t); }}
-          onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
+          onFocus={(e) => { if (!editing) return; setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
           onBlur={(e) => {
             /* Фокус ушёл в поле меню (операция, имя переменной) — меню не закрывать. */
             if (e.relatedTarget?.closest?.("[data-res-menu],[data-role-buttons]")) hold.current = true;
             if (hold.current) return;
-            setFocus(false); setPick(null); setCaretRow(-1); setScrollTop(0); if (text !== value) onCommit(text); }}
+            setEditing(false); setFocus(false); setPick(null); setCaretRow(-1); setScrollTop(0); if (text !== value) onCommit(text); }}
+          readOnly={!editing}
+          onMouseDown={(e) => { if (!editing && e.detail >= 2) { e.preventDefault(); startEdit(); } }}
+          onDoubleClick={() => { if (!editing) startEdit(); }}
+          onTouchEnd={(e) => { if (editing) return; const now = Date.now(); if (now - lastTap.current < 350) { e.preventDefault(); startEdit(); } lastTap.current = now; }}
           onChange={(e) => { opRef.current = null; onChange(e); }} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
+        {!editing && text && (
+          <div aria-hidden="true" style={{ position: "absolute", right: 8, top: 4, fontSize: 10, color: C.muted, pointerEvents: "none", zIndex: 2 }}>
+            двойное нажатие — правка</div>)}
         {res && (
           <div data-res-menu="" onMouseDown={(e) => { if (e.target.tagName === "INPUT") hold.current = true; else e.preventDefault(); }}
             aria-label={`меню ресурса ${resName}`}
