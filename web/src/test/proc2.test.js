@@ -45,6 +45,19 @@ describe("знак «=», хвост операции и ресурсы без �
     expect(take.find((i) => i.name === "или")).toBeUndefined();
   });
 
+  it("после «Или:» снова предлагается «Кому:» — и в списке «сколько», и в начале строки (владелец, 2026-09-18)", () => {
+    const T = "Задача: a\nКто: Владелец\nОтдаёт: оффер 1\nКому: Партнёр-фрилансер\nИли: оплата 2";
+    const qty = suggest(hintAt(T, T.length, model), model);
+    expect(qty.find((i) => i.note === "новая строка: Кому:")).toMatchObject({ name: "↵", text: "\nКому:" });
+    expect(qty.some((i) => i.note === "новая строка: От кого:")).toBe(false);
+    const labels = suggest(hintAt(`${T}\n`, T.length + 1, model), model).map((i) => `${i.name} ${i.note || ""}`.trim());
+    expect(labels[0]).toBe("Кому: куда");
+    // «Кому:» после «Или:» относится к тому же шагу.
+    const { funcs, errors } = parseText(`${T}\nКому: Владелец`, model, {});
+    expect(errors).toEqual([]);
+    expect(funcs[0].tasks[0].branches[0].steps[0].tos.map((x) => x.name)).toEqual(["Партнёр-фрилансер", "Владелец"]);
+  });
+
   it("в списке «сколько» есть знак «=» (ровно); раскраска несёт хвост операции", () => {
     // Хвост пуст — «=», операнды, «дальше»; после числа — знаки; после знака — только операнды (владелец, 2026-09-18).
     const empty = suggest(hintAt("Отдаёт: оффер ", 14, model), model);

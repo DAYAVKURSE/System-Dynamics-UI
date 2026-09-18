@@ -755,6 +755,7 @@ export function suggest(hint, model = {}, proc = {}) {
     const plural = c.whoRun >= 2;
     if (c.lastLab === "take" && !c.blankBefore) items.push(label("from", "откуда"), label(plural ? "gives" : "give"), label(plural ? "takes" : "take"), label("who"));
     else if (c.lastLab === "give" && !c.blankBefore) items.push(label("to", "куда"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
+    else if (c.lastLab === "or" && !c.blankBefore) items.push(label("to", "куда"), label("or", "ещё выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
     else if (c.lastLab === "to" && !c.blankBefore) items.push(label("to", "ещё кому"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
     else if (c.lastLab === "from" && !c.blankBefore) items.push(label("from", "ещё от кого"), label(plural ? "gives" : "give"), label(plural ? "takes" : "take"), label("who"));
     else if (["dur", "every", "par", "check"].includes(c.lastLab) && !c.blankBefore) items.push(label("who", "участник"), label("check", "что проверяем"), label("dur", "сколько идёт"), label("every", "когда следующая"), label("par", "одновременных"), label("take", "что берёт"), label("give", "что отдаёт"));
@@ -808,8 +809,11 @@ export function suggest(hint, model = {}, proc = {}) {
       items.push({ name: "→", kind: "дальше", note: "и ещё ресурс — через запятую", insert: true, text: ",", suffix: " ", trimBefore: true });
       if (hint.side === "give" || hint.side === "or") items.push({ name: "или", kind: "дальше", note: "иной выход — новая строка: Или:", insert: true,
         text: `\n${LABEL_TEXT.or}`, suffix: " ", trimBefore: true });
-      items.push({ name: "↵", kind: "дальше", note: hint.side === "give" ? "новая строка: Кому:" : "новая строка: От кого:", insert: true,
-        text: `\n${LABEL_TEXT[hint.side === "give" ? "to" : "from"]}`, suffix: " ", trimBefore: true });
+      /* «Или:» — иной выход того же шага, и получателя у него спрашивают
+         так же, как у «Отдаёт:» (владелец, 2026-09-18). */
+      const out = hint.side === "give" || hint.side === "or";
+      items.push({ name: "↵", kind: "дальше", note: out ? "новая строка: Кому:" : "новая строка: От кого:", insert: true,
+        text: `\n${LABEL_TEXT[out ? "to" : "from"]}`, suffix: " ", trimBefore: true });
       items.push({ name: "↵", kind: "дальше", note: "новая строка", insert: true, text: "\n", suffix: "", trimBefore: true });
     };
     if (q0.startsWith("@")) {
