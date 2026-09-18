@@ -637,73 +637,100 @@ export function fromV1(text = "", steps = []) {
 /* ─────── функции из текста ─────── */
 
 /**
- * Функции для расчёта и доски: по функции текста — запись `funcs` с
- * задачами. Порты функции — сводные по всем задачам (для прогноза), у
- * каждой задачи — свои шаги по порядку (для доски). Должности «Кто» —
- * в `posts` по ролям. Идентификаторы — из процесса и строки функции:
- * при пересборке функция остаётся той же.
+ * Функции для расчёта и доски: КАЖДАЯ ЗАДАЧА текста — своя функция
+ * (владелец, 2026-09-18: функция состоит из задач; берёт/отдаёт — в любом
+ * порядке). Задачи одной функции связаны `chain` {id, name, step, of}:
+ * форма функции и схема показывают их вместе, а прогноз и доска считают
+ * каждую как обычную функцию в активе её исполнителя — цепочка выходит
+ * сама, через ресурсы: следующая задача берёт то, что выдала предыдущая
+ * (ссылка на переменную — вход из актива, куда ту выдали). Порядок шагов
+ * — `steps` [{kind, ports}]: если первый шаг «берёт», взятое выдаётся при
+ * взятии задачи, если «отдаёт» — после проверки (`takesAt`). Участники —
+ * `who` (должность, актив, роли, рука); должности «Кто» — в `posts` по
+ * ролям; без ролей — любая. Ветка «Если» — первая, «Иначе» — в `alt`.
+ * Идентификаторы — из процесса, строки функции и номера задачи: при
+ * пересборке функции остаются теми же.
  */
 export function procFuncs(proc = {}, model = {}) {
   if (proc.status === "off") return [];
   const { funcs } = parseText(proc.text, model, proc);
   const traits = model.traits || [];
   const out = [];
+  // Где объявлены переменные: имя → {trait, asset, qty, qtyHi}.
+  const vars = new Map();
+  funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => b.steps.forEach((s) => {
+    if (s.kind !== "give") return;
+    [...s.items, ...s.or].forEach((it) => { if (it.var && !vars.has(nameKey(it.var))) vars.set(nameKey(it.var), { trait: it.trait?.id ?? null, asset: s.asset?.id ?? null, qty: it.qty, qtyHi: it.qtyHi ?? it.qty, flag: !!it.flag }); });
+  }))));
   funcs.forEach((f) => {
     const fid = `${proc.id}_${f.row + 1}`;
-    const takes = [], gives = [];
-    const posts = { setters: [], owners: [], reviewers: [] };
-    const tasks = [];
-    let asset = null;
-    let ok = true;
+    const fname = f.name || (f.tasks[0]?.name ? `процесс: ${f.tasks[0].name}` : "процесс");
     f.tasks.forEach((t, ti) => {
       const tid = `${fid}_t${ti + 1}`;
-      const branches = t.branches.map((b, bi) => {
+      const build = (b, bi) => {
+        let ok = true;
         const who = b.who.map((w) => {
           if (whoState(w, proc) !== "ok") ok = false;
-          if (!asset && w.asset) asset = w.asset;
           const any = !w.roles.setter && !w.roles.doer && !w.roles.checker;
           return { name: w.name, pos: w.pos?.id ?? null, asset: w.asset?.id ?? null, hand: w.hand,
             roles: any ? { setter: true, doer: true, checker: true, any: true } : { ...w.roles } };
         });
+        const posts = { setters: [], owners: [], reviewers: [] };
         who.forEach((w) => {
           if (!w.pos) return;
           if (w.roles.setter && !posts.setters.includes(w.pos)) posts.setters.push(w.pos);
           if (w.roles.doer && !posts.owners.includes(w.pos)) posts.owners.push(w.pos);
           if (w.roles.checker && !posts.reviewers.includes(w.pos)) posts.reviewers.push(w.pos);
         });
-        const letters = t.items.map((it) => it);
-        const steps = b.steps.map((s, si) => ({
-          kind: s.kind,
-          ports: [...s.items].map((it, j) => {
-            if (itemState(it, proc, model) !== "ok") ok = false;
-            const id = `p_${tid}_${bi}_${si}_${j}`;
-            const port = { id, trait: it.trait?.id ?? null, lo: it.qty, hi: it.qtyHi ?? it.qty, var: it.var, ref: it.ref,
-              asset: it.asset?.id ?? null, ...(it.expr ? { expr: toStored(it.expr, traits, letters.map((x, k) => `p_${tid}_${bi}_${si}_${k}`)) } : {}) };
-            return port;
-          }),
-          or: s.or.map((it, j) => ({ id: `p_${tid}_${bi}_${si}_or${j}`, trait: it.trait?.id ?? null, lo: it.qty, hi: it.qtyHi ?? it.qty, var: it.var, flag: it.flag })),
-          to: s.to?.asset?.id ?? null, from: s.from?.asset?.id ?? null,
-        }));
-        return { cond: b.cond || null, isElse: !!b.isElse, who, steps };
+        const doer = who.find((w) => w.roles.doer && w.asset) || who.find((w) => w.asset) || null;
+        const takes = [], gives = [], steps = [];
+        const letters = t.items.map((it, k) => `p_${tid}_${k}`);
+        b.steps.forEach((s, si) => {
+          const ids = [];
+          s.items.forEach((it) => {
+            const k = t.items.indexOf(it);
+            const id = `p_${tid}_${k}`;
+            let port;
+            if (it.ref) {
+              const d = vars.get(nameKey(it.var));
+              if (!d || !d.trait) { ok = false; return; }
+              port = { id, trait: d.trait, lo: d.qty, hi: d.qtyHi, from: d.asset, var: it.var };
+            } else {
+              if (itemState(it, proc, model) !== "ok") ok = false;
+              port = { id, trait: it.trait?.id ?? null, lo: it.qty, hi: it.qtyHi ?? it.qty,
+                ...(it.var ? { var: it.var } : {}), ...(s.kind === "give" && s.to?.asset ? { to: s.to.asset.id } : {}),
+                ...(s.kind === "take" && s.from?.asset ? { from: s.from.asset.id } : {}),
+                ...(it.expr ? { expr: toStored(it.expr, traits, letters) } : {}) };
+            }
+            (s.kind === "take" ? takes : gives).push(port);
+            ids.push(id);
+          });
+          const or = s.or.map((it) => { const k = t.items.indexOf(it); return { id: `p_${tid}_${k}`, trait: it.trait?.id ?? null, lo: it.qty, hi: it.qtyHi ?? it.qty, var: it.var, flag: !!it.flag }; });
+          steps.push({ kind: s.kind, ports: ids, ...(or.length ? { or } : {}) });
+        });
+        const e = doer?.asset ?? b.steps.find((s) => s.asset)?.asset?.id ?? null;
+        return { ok: ok && !!e, e, who, posts, takes, gives, steps, cond: b.cond || null, isElse: !!b.isElse, bi };
+      };
+      const main = build(t.branches[0], 0);
+      if (!main.ok) return;
+      const alt = t.branches.slice(1).map((b, i) => build(b, i + 1)).filter((x) => x.ok).map(({ ok, bi, ...rest }) => rest);   // eslint-disable-line no-unused-vars
+      out.push({
+        id: tid, e: main.e, name: t.name || `задача ${ti + 1}`, proc: proc.id,
+        chain: { id: fid, name: fname, step: ti + 1, of: f.tasks.length },
+        takes: main.takes, gives: main.gives, steps: main.steps, who: main.who, posts: main.posts,
+        ...(main.cond ? { cond: main.cond } : {}), ...(alt.length ? { alt } : {}),
+        dur: 1, durHi: 1, durUnit: "дн", accepted: true,
       });
-      tasks.push({ id: tid, name: t.name || `задача ${ti + 1}`, branches });
-      // Сводные порты — по ветке «то» (первой) каждой задачи.
-      const main = branches[0];
-      main?.steps.forEach((s) => s.ports.forEach((p) => {
-        if (!p.trait) return;
-        const list = s.kind === "take" ? takes : gives;
-        list.push({ id: p.id, trait: p.trait, lo: p.lo, hi: p.hi, ...(p.expr ? { expr: p.expr } : {}) });
-      }));
-    });
-    if (!ok || !asset) return;
-    out.push({
-      id: fid, e: asset.id, name: f.name || (f.tasks[0]?.name ? `процесс: ${f.tasks[0].name}` : "процесс"),
-      proc: proc.id, takes, gives, tasks, posts,
-      dur: 1, durHi: 1, durUnit: "дн", accepted: true,
     });
   });
   return out;
 }
+
+/** Когда выдаётся взятое: «start» — при взятии задачи (первый шаг «берёт»), «done» — после проверки. */
+export const takesAt = (f = {}) => {
+  const first = Array.isArray(f.steps) && f.steps.length ? f.steps[0].kind : ((f.takes || []).length ? "take" : "give");
+  return first === "take" ? "start" : "done";
+};
 
 /** Задействует ли процесс актив. */
 export const usesAsset = (proc = {}, model = {}, assetId) => {

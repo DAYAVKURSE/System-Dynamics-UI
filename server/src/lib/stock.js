@@ -16,6 +16,13 @@ const lastSub = (t) => {
   return s.length ? s[s.length - 1] : null;
 };
 const live = (t) => t.status === "done" && t.canceled !== true;
+/* Взятое уходит при взятии задачи, если первый шаг функции — «берёт»
+   (владелец, 2026-09-18); иначе — после проверки. Зеркало
+   `takesAtStart`/`inWork` из `web/src/lib/units.js`. */
+export const takesAtStart = (f = {}) => (Array.isArray(f.steps) && f.steps.length
+  ? f.steps[0].kind === "take" : (f.takes || []).length > 0);
+const inWork = (t) => t.canceled !== true && t.status !== "done" && t.status !== "wait"
+  && (t.taken || t.status === "progress" || t.status === "review");
 
 export function stockOf({ tasks = [], funcs = [], materials = [] } = {}) {
   const have = {};
@@ -34,6 +41,16 @@ export function stockOf({ tasks = [], funcs = [], materials = [] } = {}) {
     Object.entries(sb.takes || {}).forEach(([trait, v]) => {
       const p = (f.takes || []).find((x) => x.trait === trait);
       if (p && portSpends(p) && num(v) > 0) have[trait] = (have[trait] || 0) - num(v);
+    });
+  });
+  tasks.filter(inWork).forEach((t) => {
+    const f = funcs.find((x) => x.id === t.funcId);
+    if (!f || !takesAtStart(f)) return;
+    const sb = lastSub(t);
+    (f.takes || []).forEach((p) => {
+      if (!portSpends(p)) return;
+      const v = sb && sb.takes && sb.takes[p.trait] != null ? num(sb.takes[p.trait]) : num(p.lo);
+      if (v > 0) have[p.trait] = (have[p.trait] || 0) - v;
     });
   });
   Object.keys(have).forEach((k) => { have[k] = Math.max(0, have[k]); });

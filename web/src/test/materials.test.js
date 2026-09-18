@@ -106,7 +106,11 @@ describe("сколько есть", () => {
       done("b", { takes: { t1: 1 }, gives: { t2: 1 }, status: "review" }),   // не принята
       done("c", { takes: { t1: 1 }, gives: { t2: 1 }, canceled: true }),     // отменена
     ];
-    expect(stockOf({ traits: [], tasks, funcs: [F], materials })).toEqual({ t1: 3, t2: 1 });
+    // «b» на проверке: функция сначала берёт — взятое выдано при взятии (по сдаче, 1).
+    expect(stockOf({ traits: [], tasks, funcs: [F], materials })).toEqual({ t1: 2, t2: 1 });
+    // Сначала отдаёт — взятое уходит только после проверки; в работе без сдачи — план (`lo`).
+    expect(stockOf({ traits: [], tasks, funcs: [{ ...F, steps: [{ kind: "give", ports: [] }] }], materials })).toEqual({ t1: 3, t2: 1 });
+    expect(stockOf({ traits: [], tasks: [{ id: "d", funcId: "f1", status: "progress", taken: true, submissions: [] }], funcs: [F], materials })).toEqual({ t1: 4 });
   });
 
   it("нерасходуемый вход остаток не уменьшает; ниже нуля не бывает", () => {

@@ -72,7 +72,11 @@ describe("человек открывается окном, а не уходом
       expect(screen.getByRole("button", { name: "Схема" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     fireEvent.click(screen.getByRole("button", { name: /^Воркеры/ }));
-    // В списке сразу все люди схемы: воркер актива — выбор из них.
+    /* Сотрудники показываются по ДОЛЖНОСТЯМ АКТИВА (владелец, 2026-09-18):
+       сперва отмечается должность, и по ней в списке встаёт Иван. */
+    await waitFor(() =>
+      expect(screen.getByLabelText("должность актива «исполнитель»")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("должность актива «исполнитель»"));
     await waitFor(() =>
       expect(screen.getByLabelText("воркер актива: Иван")).toBeInTheDocument());
 

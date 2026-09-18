@@ -155,7 +155,8 @@ describe("владелец", () => {
     const ctx = await contextFor("100");
     expect(ctx).toContain("## Модель");
     expect(ctx).toContain("Актив «Продажи»");
-    expect(ctx).toContain("заявки — есть 12 шт");
+    // Задача Ивана в работе: функция сначала берёт — одна заявка уже выдана ей.
+    expect(ctx).toContain("заявки — есть 11 шт");
     expect(ctx).toContain("договоры (документы) — есть 0 шт");
     expect(ctx).toContain("«Обработать заявку»: берёт заявки 1–2 шт; даёт договоры 0–1 шт → в актив «Юристы»");
     expect(ctx).toContain("время одного выполнения 1–2 ч; повтор раз в 1 дн");

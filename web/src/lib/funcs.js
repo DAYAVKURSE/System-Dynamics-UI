@@ -734,6 +734,23 @@ export function dutyOf({ funcs = [], entities = [] } = {}, personId,
   }).filter(Boolean);
 }
 
+/**
+ * «НЕ МЕНЯТЬ РУКУ» (владелец, 2026-09-18): участник функции с «рукой»
+ * («(рука A)» в тексте процесса, `who[].hand`) — тот же человек во всех
+ * функциях того же процесса с той же рукой. Кто уже назначен на роль в
+ * другой задаче с этой рукой — тот и здесь; вернуть его id или null.
+ */
+export function handMate(f = {}, role, { tasks = [], funcs = [] } = {}) {
+  const roleKey = { setters: "setter", owners: "doer", reviewers: "checker" }[role] || role;
+  const taskKey = { setters: "setter", owners: "assignee", reviewers: "reviewer" }[role] || role;
+  const hands = (Array.isArray(f.who) ? f.who : []).filter((w) => w.hand && (w.roles?.[roleKey] || w.roles?.any)).map((w) => w.hand);
+  if (!hands.length || !f.proc) return null;
+  const same = new Set(funcs.filter((g) => g.id !== f.id && g.proc === f.proc
+    && (Array.isArray(g.who) ? g.who : []).some((w) => w.hand && hands.includes(w.hand))).map((g) => g.id));
+  const hit = tasks.find((t) => same.has(t.funcId) && t.canceled !== true && t[taskKey] != null && t[taskKey] !== "");
+  return hit ? String(hit[taskKey]) : null;
+}
+
 export const WORKER_KINDS = [
   { id: "setters", one: "постановщик", many: "постановщики", task: "постановщик" },
   { id: "owners", one: "исполнитель", many: "исполнители", task: "исполнитель" },

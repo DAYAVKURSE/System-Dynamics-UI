@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
-  rangeText, requiredGives, shortage } from "../lib/funcs.js";
+  rangeText, requiredGives, shortage, handMate } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
 import { pickByOrderOf, pickOrder } from "../lib/pickOrder.js";
 import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel } from "../lib/units.js";
@@ -641,7 +641,11 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
      это ответ, а не «значит, всех». */
   const pool=(k)=>{
     const ok=new Set(eligible(func,k,{crew:crewOf(asset||{}),rolesOf,people}).map(String));
-    return pickOrder(asset,people.filter(p=>ok.has(String(p.id))));
+    /* «Не менять руку»: эту руку в другой задаче процесса уже держит
+       человек — предлагается только он (`handMate` в lib/funcs.js). */
+    const mate=handMate(func,k,{tasks,funcs});
+    const list=people.filter(p=>ok.has(String(p.id))&&(!mate||String(p.id)===mate));
+    return pickOrder(asset,list);
   };
   /* Рейтинг рядом с именем — глазами сервера, если он ответил (`GET
      /ratings`): у позванного постановщика в модели только свои задачи, и

@@ -126,9 +126,8 @@ describe("роли, статусы, функции", () => {
     fireEvent.click(screen.getByRole("button", { name: "Принято" }));
     const m = dump();
     const f = m.funcs.find((x) => x.proc);
-    expect(f).toMatchObject({ e: "usr", name: "процесс: лид" });
-    expect(f.tasks).toHaveLength(1);
-    expect(f.tasks[0].branches[0].steps.map((s) => s.kind)).toEqual(["take", "give"]);
+    expect(f).toMatchObject({ e: "usr", name: "лид", chain: { name: "процесс: лид", step: 1, of: 1 } });
+    expect(f.steps.map((s) => s.kind)).toEqual(["take", "give"]);
     expect(f.takes[0]).toMatchObject({ lo: 2, hi: 2 });
     expect(f.gives[0]).toMatchObject({ lo: 1, hi: 1 });
     expect(m.traits.find((t) => t.e === "mkt" && t.l === "заявки")).toMatchObject({ hypo: true });

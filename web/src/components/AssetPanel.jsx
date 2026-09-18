@@ -806,19 +806,68 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
     setFuncs((p) => [...p, f]);
     setOpen(f.id);
   };
+  /* ─── функция = задачи (владелец, 2026-09-18) ───
+     Запись `funcs[]` — это ЗАДАЧА; задачи одной функции связаны `chain`
+     {id, name, step}. Здесь они показаны вместе: заголовок функции, её
+     задачи по порядку (каждая — прежняя форма функции), задачи в других
+     активах — строкой, «+ задача» — новая запись в той же цепочке. Рынок
+     услуг — один на функцию, у первой задачи. */
+  const groups = [];
+  mine.forEach((f) => {
+    const gid = f.chain?.id || f.id;
+    let g = groups.find((x) => x.id === gid);
+    if (!g) { g = { id: gid, name: f.chain?.name || f.name, chained: !!f.chain, list: [] }; groups.push(g); }
+    g.list.push(f);
+  });
+  groups.forEach((g) => g.list.sort((a, b) => (a.chain?.step || 0) - (b.chain?.step || 0)));
+  const ordered = groups.flatMap((g) => g.list.map((f, i) => ({ f, g, first: i === 0 })));
+  const elsewhere = (g) => funcs.filter((x) => x.chain?.id === g.id && x.e !== entityId)
+    .sort((a, b) => (a.chain?.step || 0) - (b.chain?.step || 0));
+  const chainSize = (g) => funcs.filter((x) => x.chain?.id === g.id).length || g.list.length;
+  const addTask = (g) => {
+    const base = g.list[0];
+    const n = chainSize(g);
+    const name = g.name || base.name;
+    const t = { ...newFunc(entityId, "новая задача"), chain: { id: g.id, name, step: n + 1, of: n + 1 } };
+    setFuncs((p) => p.map((x) => (x.id === base.id && !x.chain
+      ? { ...x, chain: { id: g.id, name, step: 1, of: 2 } } : x)).concat(t));
+    setOpen(t.id);
+  };
+  const renameChain = (g, name) => setFuncs((p) => p.map((x) => (x.chain?.id === g.id || (x.id === g.id && !x.chain)
+    ? { ...x, ...(x.chain ? { chain: { ...x.chain, name } } : { name }) } : x)));
 
   return (
     <Section title="функции актива" addLabel="+ функция" onAdd={add}
       empty={mine.length ? null
         : "Функций пока нет. Функция обменивает одни ресурсы на другие: берёт одни, выдаёт другие."}>
-      {mine.map((f) => {
+      {ordered.map(({ f, g, first }) => {
         const runs = runsOf ? runsOf(f.id) : [];
         // Буквы и результаты операций — для полей и рядов знаков.
         const allPorts = portsOf(f).map((p, i) => ({ id: p.id, letter: letterOf(i), name: traitName(p.trait) }));
         const info = new Map(evalPorts(portsOf(f), stockOf).map((r) => [r.id, r]));
         const st = funcState(f, { traits, factors });
+        const chained = g.chained || g.list.length > 1;
+        const head = first && chained && (
+          <div aria-label={`функция ${g.name || f.name}`} className="flex flex-wrap items-center gap-2"
+            style={{ marginTop: 8, padding: "6px 8px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8 }}>
+            <span style={S.lbl}>функция</span>
+            {f.proc
+              ? <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>{g.name || f.name}</span>
+              : <TxtField value={g.name || f.name} aria-label={`название функции ${g.name || f.name}`}
+                style={{ flex: 1, minWidth: 120, fontSize: 12.5, fontWeight: 600, padding: "3px 6px" }}
+                onCommit={(v) => renameChain(g, v)} />}
+            <span style={{ fontSize: 10.5, color: C.muted }}>задач: {chainSize(g)}</span>
+            {!f.proc && (
+              <button style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}
+                aria-label={`добавить задачу в функцию ${g.name || f.name}`} onClick={() => addTask(g)}>+ задача</button>)}
+            {elsewhere(g).map((x) => (
+              <div key={x.id} style={{ flexBasis: "100%", fontSize: 11, color: C.muted }}>
+                задача {x.chain.step}: {x.name} — в активе «{assetName(x.e)}»</div>))}
+          </div>);
         return (
-          <Card key={f.id} title={f.name} titleLabel="функции"
+          <React.Fragment key={f.id}>
+          {head}
+          <Card title={f.name} titleLabel={g.chained || g.list.length > 1 ? `задачи ${f.chain?.step || ""}` : "функции"}
             onTitle={(v) => up(f.id, (x) => ({ ...x, name: v }))}
             open={open === f.id} onToggle={() => setOpen(open === f.id ? null : f.id)}
             onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(null); }}
@@ -876,6 +925,25 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 style={{ minHeight: 52, lineHeight: 1.5 }}
                 onCommit={(v) => up(f.id, (x) => ({ ...x, about: v }))} />
             </Form>
+
+            {/* Порядок шагов: у задачи из процесса — как в тексте; у ручной —
+                переключатель «сначала отдаёт»: тогда взятое выдаётся после
+                проверки, а не при взятии задачи (владелец, 2026-09-18). */}
+            {f.proc && Array.isArray(f.steps) && !!f.steps.length && (
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6 }} aria-label="шаги задачи">
+                шаги: {f.steps.map((x) => (x.kind === "take" ? "берёт" : "отдаёт")).join(" → ")}
+                {Array.isArray(f.who) && f.who.length
+                  ? ` · кто: ${f.who.map((w) => `${w.name}${w.hand ? ` (рука ${w.hand})` : ""}`).join(", ")}` : ""}
+              </div>)}
+            {!f.proc && (
+              <label className="flex items-center gap-2" style={{ marginTop: 6, fontSize: 11, color: C.muted, cursor: "pointer" }}>
+                <input type="checkbox" aria-label="сначала отдаёт, потом берёт" checked={f.steps?.[0]?.kind === "give"}
+                  onChange={(e) => up(f.id, (x) => ({ ...x, steps: e.target.checked
+                    ? [{ kind: "give", ports: x.gives.map((p) => p.id) }, { kind: "take", ports: x.takes.map((p) => p.id) }]
+                    : undefined }))}
+                  style={{ accentColor: ACC }} />
+                сначала отдаёт, потом берёт — взятое выдаётся после проверки
+              </label>)}
 
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
               hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
@@ -1100,6 +1168,17 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 onToggle={(pid) => up(f.id, (x) => togglePost(x, k.id, pid))} />))}
             </Form>
 
+            {/* Ручная функция из одной задачи: вторая задача заводится отсюда
+                и связывает обе в цепочку. */}
+            {!f.proc && !chained && (
+              <Form title="задачи функции">
+                <button style={{ ...btn(false), fontSize: 12 }}
+                  aria-label={`добавить задачу в функцию ${g.name || f.name}`} onClick={() => addTask(g)}>+ задача</button>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+                  Сейчас функция — одна задача. Вторая задача встанет за ней: следующая берёт то, что выдала предыдущая.
+                </div>
+              </Form>)}
+
             {/* ─── рынок услуг ───
 
                 Функция — это уже готовое описание работы: что берёт, что
@@ -1110,7 +1189,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
 
                 Кнопки стоят, только когда рынок подключён (`onMarket`):
                 кнопка, которая никуда не ведёт, обещала бы то, чего нет. */}
-            {onMarket && (
+            {onMarket && first && (
               <Form title="рынок услуг">
                 <div className="flex flex-wrap gap-2">
                   <button style={{ ...btn(false), fontSize: 12 }}
@@ -1153,7 +1232,8 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   st.kind === "gaps" ? ` Проверка считает, что ${st.gaps[0]}.` : ""}`}
             </div>
             </Form>
-          </Card>);
+          </Card>
+          </React.Fragment>);
       })}
     </Section>);
 }

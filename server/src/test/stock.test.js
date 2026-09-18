@@ -17,7 +17,13 @@ describe("сколько есть — по материалам и сдачам"
       done("b", { takes: { t1: 1 }, gives: { t2: 1 }, status: "review" }),
       done("c", { takes: { t1: 1 }, gives: { t2: 1 }, canceled: true }),
     ];
-    expect(stockOf({ tasks, funcs: [F], materials })).toEqual({ t1: 3, t2: 1 });
+    // «b» на проверке: функция сначала берёт — взятое выдано при взятии (по сдаче, 1).
+    expect(stockOf({ tasks, funcs: [F], materials })).toEqual({ t1: 2, t2: 1 });
+    // У функции, что сначала отдаёт, взятое уходит только после проверки.
+    const giveFirst = { ...F, steps: [{ kind: "give", ports: [] }, { kind: "take", ports: [] }] };
+    expect(stockOf({ tasks, funcs: [giveFirst], materials })).toEqual({ t1: 3, t2: 1 });
+    // В работе без сдачи — списывается план (`lo`).
+    expect(stockOf({ tasks: [{ id: "d", funcId: "f1", status: "progress", taken: true, submissions: [] }], funcs: [F], materials })).toEqual({ t1: 4 });
   });
 
   it("нерасходуемый вход не уменьшает; ниже нуля не бывает; записанное число не читается", () => {

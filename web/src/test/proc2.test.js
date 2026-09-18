@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, procFuncs,
-  replaceName, setHand, suggest, toggleRole, usesAsset } from "../lib/proc2.js";
+  replaceName, setHand, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -138,16 +138,21 @@ describe("функции из текста и версии", () => {
   it("функция с задачами: порты сводные, шаги по порядку, должности в ролях; неизвестное — функции нет", () => {
     const proc = { id: "pr1", status: "on", text: importText(T), hypo: { traits: [] }, missing: { rejected: [] } };
     const fs = procFuncs(proc, model);
-    expect(fs).toHaveLength(1);
-    const f = fs[0];
-    expect(f).toMatchObject({ id: "pr1_1", e: "prt", name: "Передача лида", proc: "pr1" });
-    expect(f.tasks.map((t) => t.name)).toEqual(["передать оффер", "назначить время"]);
-    expect(f.tasks[0].branches[0].who[0]).toMatchObject({ pos: "r_prt", asset: "prt", hand: "A", roles: { setter: true, doer: true, checker: false } });
-    expect(f.tasks[0].branches[0].steps[0]).toMatchObject({ kind: "give", to: "own" });
-    // «Кто: Владелец» без ролей во второй задаче — любая роль: должность попадает во все три.
-    expect(f.posts).toEqual({ setters: ["r_prt", "r_owner"], owners: ["r_prt", "r_owner"], reviewers: ["r_owner"] });
-    expect(f.gives.map((p) => [p.trait, p.lo, p.hi])).toEqual([["t1", 1, 1], ["t2", 0.45, 0.55]]);
-    expect(f.takes).toEqual([]);   // ссылка на переменную — не порт схемы
+    // Каждая задача — своя функция в активе исполнителя, связанная цепочкой.
+    expect(fs.map((f) => [f.id, f.e, f.name, f.chain.step, f.chain.of, f.chain.name])).toEqual([
+      ["pr1_1_t1", "prt", "передать оффер", 1, 2, "Передача лида"], ["pr1_1_t2", "own", "назначить время", 2, 2, "Передача лида"]]);
+    const [a, b] = fs;
+    expect(a.who[0]).toMatchObject({ pos: "r_prt", asset: "prt", hand: "A", roles: { setter: true, doer: true, checker: false } });
+    expect(a.posts).toEqual({ setters: ["r_prt"], owners: ["r_prt"], reviewers: ["r_owner"] });
+    expect(a.steps).toEqual([{ kind: "give", ports: ["p_pr1_1_t1_0"] }]);
+    expect(a.gives[0]).toMatchObject({ trait: "t1", lo: 1, hi: 1, to: "own", var: "оффер A" });
+    expect(takesAt(a)).toBe("done");
+    // «Кто: Владелец» без ролей — любая роль; ссылка «(оффер A)» — вход ресурса из актива, куда его выдали.
+    expect(b.posts).toEqual({ setters: ["r_owner"], owners: ["r_owner"], reviewers: ["r_owner"] });
+    expect(b.takes[0]).toMatchObject({ trait: "t1", lo: 1, hi: 1, from: "own", var: "оффер A" });
+    expect(b.gives[0]).toMatchObject({ trait: "t2", lo: 0.45, hi: 0.55 });
+    expect(b.steps.map((s) => s.kind)).toEqual(["take", "give"]);
+    expect(takesAt(b)).toBe("start");
     expect(usesAsset(proc, model, "own")).toBe(true);
     expect(procFuncs({ ...proc, text: "Задача: x\nКто: Курьер\nОтдаёт: оплата" }, model)).toEqual([]);
   });
