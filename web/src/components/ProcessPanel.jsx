@@ -265,6 +265,20 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   /* Пока правят имя переменной, фокус уходит из поля в строку ввода — меню
      при этом не закрывается (`hold`), а после правки фокус возвращается. */
   const hold = useRef(false);
+  /* Касания (владелец, 2026-09-18: «на телефоне нет Tab — выбор по нажатию
+     на объект»): пока палец на окне подсказок или меню, потеря фокуса поля
+     не считается (`hold`), а короткое касание пункта подсказки выбирает
+     его само, без синтетического click, который на телефоне приходит уже
+     после закрытия клавиатуры. */
+  const touch = useRef(null);
+  const touchStart = (e) => { hold.current = true; const t = e.touches[0]; touch.current = t ? { x: t.clientX, y: t.clientY } : null; };
+  const touchEnd = (e, act) => {
+    const t = e.changedTouches[0];
+    const moved = touch.current && t && (Math.abs(t.clientX - touch.current.x) > 8 || Math.abs(t.clientY - touch.current.y) > 8);
+    touch.current = null;
+    if (act && !moved) { e.preventDefault(); act(); }
+    setTimeout(() => { hold.current = false; }, 400);
+  };
   const roleOn = (role) => rowLine.includes(ICON[role]);
   const rewrite = (next) => {
     const caret = Math.min(inp.current?.selectionStart ?? next.length, next.length);
@@ -442,15 +456,17 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
       {pick && editing && (
         <div role="dialog" aria-label="подсказка процесса"
           onMouseDown={(e) => { if (e.target.tagName !== "INPUT") e.preventDefault(); }}
+          onTouchStart={touchStart} onTouchEnd={(e) => touchEnd(e, null)} onTouchCancel={() => { touch.current = null; hold.current = false; }}
           style={{ marginTop: 4, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6 }}>
           <div style={{ padding: "5px 8px", fontSize: 10.5, color: C.muted, borderBottom: `1px solid ${C.line}` }}>
-            {header}<span style={{ opacity: 0.7 }}> · Tab — подставить · Enter — новая строка</span>
+            {header}<span style={{ opacity: 0.7 }}> · нажмите пункт · Enter — новая строка</span>
           </div>
           <div role="listbox" aria-label="подсказки процесса" style={{ maxHeight: 150, overflowY: "auto" }}>
             {items.filter((i) => !i.info).map((it, i) => (
               <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={i === cursor}
                 onClick={() => choose(it)}
-                style={{ padding: "5px 8px", fontSize: 12, cursor: "pointer",
+                onTouchEnd={(e) => { e.stopPropagation(); touchEnd(e, () => choose(it)); }}
+                style={{ padding: "7px 8px", fontSize: 12.5, cursor: "pointer", touchAction: "pan-y",
                   background: i === cursor ? `${C.line}88` : "transparent" }}>
                 <span style={{ color: C.muted }}>{it.kind} </span>{it.name}
                 {it.note && <span style={{ color: C.muted }}> — {it.note}</span>}
@@ -459,7 +475,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
               <div key={`info${i}`} style={{ padding: "4px 8px", fontSize: 11, color: C.muted }}>{it.note}</div>))}
             {!items.length && (
               <div style={{ padding: "4px 8px", fontSize: 11, color: C.muted }}>
-                {pick.query ? `«${pick.query}» — своё имя; после ввода нажмите Tab на «↵» или перейдите на новую строку` : "введите своё"}
+                {pick.query ? `«${pick.query}» — своё имя; дальше — Enter или пункт «↵»` : "введите своё"}
               </div>)}
           </div>
         </div>)}
@@ -468,6 +484,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
         <div data-proc-menu="" data-active={menuActive ? "1" : "0"}
           /* pointerdown — раньше mousedown и не гасится preventDefault шапки при перетаскивании. */
           onPointerDown={() => setMenuActive(true)}
+          onTouchStart={touchStart} onTouchEnd={(e) => touchEnd(e, null)} onTouchCancel={() => { touch.current = null; hold.current = false; }}
           onMouseDown={(e) => { setMenuActive(true); if (e.target.tagName === "INPUT") hold.current = true; else e.preventDefault(); }}
           style={{ position: "fixed", left: menuPos?.x ?? 8, top: menuPos?.y ?? 8, zIndex: 40, width: 210,
             opacity: menuActive ? 1 : 0.55, transition: "opacity .15s",
