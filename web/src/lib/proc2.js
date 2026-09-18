@@ -433,7 +433,8 @@ export function paintOf(text = "", model = {}, proc = {}) {
         if (b.condSpan) put(b.row, b.condSpan, { kind: "cond" });
         b.who.forEach((w) => {
           const st = whoState(w, proc);
-          put(w.row, w.span, { kind: w.anyWorker ? "asset" : "role", state: st, name: w.name });
+          // Пустое имя («Кто:» без значения) плашкой не красится — там стоит «?».
+          if (w.name) put(w.row, w.span, { kind: w.anyWorker ? "asset" : "role", state: st, name: w.name });
           w.marks.forEach((m) => put(w.row, m, { kind: m.kind === "hand" ? "hand" : m.kind === "person" ? "person" : "roles",
             roles: m.roles || (m.role ? [m.role] : []), hand: m.hand, person: m.person, brace: !!m.brace, at: !!m.at, known: m.kind !== "person" || !!w.personId }));
           if (w.asset && !w.anyWorker) rowOf(w.row).note = w.asset.name;
