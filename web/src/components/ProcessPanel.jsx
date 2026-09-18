@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
-import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs } from "../lib/process.js";
+import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, stripVarWord } from "../lib/process.js";
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
   suggest, toggleRole, usesAsset, whoState, renameVar } from "../lib/proc2.js";
@@ -765,7 +765,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
 
   const add = () => commit({ procs: [...procs, newProc()] });
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
-  const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text })) });
+  const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: stripVarWord(text) })) });
   const saveVersion = (p, note, text = p.text) => {
     const v = { id: `v${Date.now().toString(36)}${(p.versions || []).length.toString(36)}`, at: new Date().toISOString(), text, note };
     commit({ procs: patch(p.id, (x) => ({ ...x, versions: [...(x.versions || []), v] })) });

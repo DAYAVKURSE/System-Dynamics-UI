@@ -80,11 +80,17 @@ export const newProc = () => ({
 });
 
 /** Достраивает запись до нынешней; молчание прежних записей — «не принято». */
+/* «(переменная: X)» у ресурса → «(X)» (владелец, 2026-09-18: «вместо слова
+   „переменная“ большой пробел — убери»): язык читает обе записи одинаково,
+   а прозрачное слово оставляло пустое место в поле. Сотрудника
+   «(переменная: сотрудник …)» это не трогает — его читает importText. */
+export const stripVarWord = (text = "") =>
+  String(text || "").replace(/\(\s*переменная\s*:(?!\s*сотрудник(?:\s|\)))\s*([^()]*?)\s*\)/gi, "($1)");
 export const normalizeProc = (p = {}) => ({
   ...p,
   id: p.id ?? nextId("pr"),
   name: p.name == null ? "" : String(p.name),
-  text: p.text == null ? "" : String(p.text),
+  text: p.text == null ? "" : stripVarWord(String(p.text)),
   status: STATUSES.includes(p.status) ? p.status : "off",
   steps: Array.isArray(p.steps) ? p.steps : [],
   hypo: { entities: ids(p.hypo?.entities), traits: ids(p.hypo?.traits), roles: ids(p.hypo?.roles) },

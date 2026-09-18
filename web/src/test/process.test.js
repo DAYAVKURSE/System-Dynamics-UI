@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canAcceptProc, dropHypo, formatStep, hintAt, nameKey, newProc, normalizeProc,
   parseLine, parseProcess, procFuncs, procIssues, procLabel, procUsesAsset, replaceName,
   marksOf, paintOf, resolveProc, stateOf, stepsOf, suggestNames, syncProcFuncs, tokenize } from "../lib/process.js";
-import { splitQty } from "../lib/process.js";
+import { splitQty, stripVarWord } from "../lib/process.js";
 import { activeFuncs, liveModel, normalizeFunc } from "../lib/funcs.js";
 import { forecast } from "../lib/plan.js";
 import { chainOf } from "../lib/chain.js";
@@ -406,5 +406,13 @@ describe("splitQty: знак «=» и недописанная операция 
     expect(splitQty("заявки =50% A", [], 1)).toEqual({ name: "заявки", qty: 1, expr: "=50% A" });
     expect(splitQty("заявки 5 +")).toEqual({ name: "заявки", qty: 1, expr: "5 +" });
     expect(splitQty("заявки =")).toEqual({ name: "заявки", qty: 1, expr: "=" });
+  });
+});
+
+describe("stripVarWord: «(переменная: X)» → «(X)» (владелец, 2026-09-18)", () => {
+  it("у ресурса слово убирается при нормализации; «(переменная: сотрудник …)» остаётся", () => {
+    expect(stripVarWord("Отдаёт: заявки 2 (переменная: lead), оплата (Переменная:  deal )")).toBe("Отдаёт: заявки 2 (lead), оплата (deal)");
+    expect(stripVarWord("Кто: Менеджер (переменная: сотрудник space bear)")).toBe("Кто: Менеджер (переменная: сотрудник space bear)");
+    expect(normalizeProc({ text: "Берёт: (переменная: lead)" }).text).toBe("Берёт: (lead)");
   });
 });
