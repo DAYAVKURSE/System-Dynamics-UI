@@ -15,8 +15,40 @@
 
 import { parseText, setHand } from "./proc2.js";
 
-const HAND_COLORS = ["#F78CB2", "#B4F78C", "#8CD4F7", "#F7D68C", "#C98CF7", "#8CF7E0", "#F7A98C"];
-export const handColor = (h) => HAND_COLORS[(String(h || "A").toUpperCase().charCodeAt(0) - 65 + 7 * 26) % HAND_COLORS.length];
+const HAND_COLORS = ["#F78CB2", "#B4F78C", "#8CD4F7", "#F7D68C", "#C98CF7", "#8CF7E0", "#F7A98C", "#A0E0A0", "#E0C0FF"];
+/** Цвет руки — по имени: одно имя — один цвет везде. */
+export const handColor = (h) => {
+  const s = String(h || "a").toLowerCase();
+  let n = 0;
+  for (let i = 0; i < s.length; i += 1) n = (n * 31 + s.charCodeAt(i)) % 1000003;
+  return HAND_COLORS[n % HAND_COLORS.length];
+};
+
+/* Имена рук — два слова латиницей «в тему», как имена окружений в
+   GitHub Codespaces («space bear», «funny donut»): списки свои, слова
+   короткие и добрые. Имя не повторяется ни в одном процессе. */
+const ADJ = ["brave", "calm", "clever", "cosmic", "curious", "eager", "fancy", "funny", "gentle", "golden", "happy", "honest", "jolly", "kind",
+  "lucky", "merry", "mighty", "noble", "polite", "proud", "quick", "quiet", "rapid", "royal", "shiny", "silent", "smart", "solar", "space",
+  "steady", "sunny", "swift", "tidy", "vivid", "warm", "wise", "witty", "zesty", "amber", "coral", "ivory", "jade", "lunar", "misty", "olive"];
+const NOUN = ["bear", "donut", "falcon", "otter", "panda", "comet", "maple", "river", "harbor", "lantern", "meadow", "orbit", "pebble", "pixel",
+  "rocket", "saddle", "tulip", "walrus", "yeti", "zebra", "acorn", "badger", "canoe", "dolphin", "ember", "fjord", "garden", "heron", "island",
+  "jigsaw", "kettle", "lemur", "mango", "nebula", "oyster", "parrot", "quartz", "raven", "sparrow", "tundra", "violet", "wagon", "beacon", "cactus"];
+export const newHandName = (used = new Set()) => {
+  const has = (n) => used.has(n) || [...used].some((u) => String(u).toLowerCase() === n);
+  for (let i = 0; i < 200; i += 1) {
+    const n = `${ADJ[Math.floor(Math.random() * ADJ.length)]} ${NOUN[Math.floor(Math.random() * NOUN.length)]}`;
+    if (!has(n)) return n;
+  }
+  let k = 2;
+  while (has(`${ADJ[0]} ${NOUN[0]} ${k}`)) k += 1;
+  return `${ADJ[0]} ${NOUN[0]} ${k}`;
+};
+/** Все руки всех процессов — чтобы новое имя не повторило ни одно. */
+export const allHands = (procs = [], model = {}) => {
+  const set = new Set();
+  procs.forEach((proc) => parseText(proc.text, model, proc).funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => b.who.forEach((w) => { if (w.hand) set.add(String(w.hand).toLowerCase()); })))));
+  return set;
+};
 
 export const NW = 208, NH = 126;
 const PIN_GAP = 15, PIN_TOP = 18, PIN_MAX = 7;
@@ -25,7 +57,7 @@ const PIN_GAP = 15, PIN_TOP = 18, PIN_MAX = 7;
 export const handOfFunc = (f = {}) => {
   const who = Array.isArray(f.who) ? f.who : [];
   const w = who.find((x) => x.hand && (x.roles?.doer || x.roles?.any)) || who.find((x) => x.hand);
-  return w ? String(w.hand).toUpperCase() : null;
+  return w ? String(w.hand).toLowerCase() : null;
 };
 
 const stepOf = (f) => (f.chain?.step || 0);
@@ -87,16 +119,6 @@ function whoRows(proc, funcId, model) {
   if (!t) return [];
   return t.branches[0]?.who.map((w) => ({ row: w.row, hand: w.hand, doer: w.roles.doer || (!w.roles.setter && !w.roles.doer && !w.roles.checker) })) || [];
 }
-const usedHands = (proc, model) => {
-  const set = new Set();
-  parseText(proc.text, model, proc).funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => b.who.forEach((w) => { if (w.hand) set.add(String(w.hand).toUpperCase()); }))));
-  return set;
-};
-const freeHand = (proc, model) => {
-  const used = usedHands(proc, model);
-  for (const ch of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") if (!used.has(ch)) return ch;
-  return "A";
-};
 
 /** Снять руку с задачи: новый список процессов или null, если нечего снимать. */
 export function removeHand(procs = [], funcs = [], model = {}, funcId) {
@@ -116,7 +138,7 @@ export function applyHand(procs = [], funcs = [], model = {}, fromId, toId) {
   if (!a || !b || a.id === b.id || a.proc !== b.proc) return null;
   const proc = procs.find((p) => p.id === a.proc);
   if (!proc) return null;
-  const hand = handOfFunc(a) || handOfFunc(b) || freeHand(proc, model);
+  const hand = handOfFunc(a) || handOfFunc(b) || newHandName(allHands(procs, model));
   let text = proc.text;
   const put = (fid) => {
     const rows = whoRows({ ...proc, text }, fid, model);

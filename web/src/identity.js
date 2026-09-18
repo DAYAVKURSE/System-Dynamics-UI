@@ -90,6 +90,9 @@ export const addRole = (name, tabs) =>
 export const setRoleTabs = (id, tabs) =>
   json(`/api/org/roles/${encodeURIComponent(id)}/tabs`,
     { method: "PUT", body: JSON.stringify({ tabs }) });
+export const renameRole = (id, name) =>
+  json(`/api/org/roles/${encodeURIComponent(id)}/name`,
+    { method: "PUT", body: JSON.stringify({ name }) });
 export const removeRole = (id) =>
   json(`/api/org/roles/${encodeURIComponent(id)}`, { method: "DELETE" });
 /* Ролей у человека НЕСКОЛЬКО: он и дизайнер, и проверяющий. Список один

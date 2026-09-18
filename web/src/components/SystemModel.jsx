@@ -874,7 +874,7 @@ export default function SystemModel(){
   /* Процессы с пересборкой их функций — как в ProcessPanel.commit. */
   const commitProcs=(next)=>{
     setProcs(next);
-    setFuncs(p=>syncProcFuncs(p,next,{entities,traits,positions:roles},normalizeFunc,procFuncs2));
+    setFuncs(p=>syncProcFuncs(p,next,{entities,traits,positions:roles,people,rolesOf},normalizeFunc,procFuncs2));
   };
   /* Должности актива: одна должность — у одного актива (владелец,
      2026-09-18). Отметка переводит должность сюда, снимая её с другого. */
@@ -1584,8 +1584,8 @@ export default function SystemModel(){
           assetOk={assetOk} onWhy={(kind,id)=>setWhy({kind,id})}
           onOpenFunc={openFuncCard}
           /* Руки правятся через текст процесса — единственный источник. */
-          onHand={(a,b)=>{ const next=applyHand(procs,funcs,{entities,traits,positions:roles},a,b); if(next) commitProcs(next); }}
-          onUnhand={(id)=>{ const next=removeHand(procs,funcs,{entities,traits,positions:roles},id); if(next) commitProcs(next); }}/>
+          onHand={(a,b)=>{ const next=applyHand(procs,funcs,{entities,traits,positions:roles,people,rolesOf},a,b); if(next) commitProcs(next); }}
+          onUnhand={(id)=>{ const next=removeHand(procs,funcs,{entities,traits,positions:roles,people,rolesOf},id); if(next) commitProcs(next); }}/>
 
         {/* Под схемой три вкладки: чем схема собрана, куда она идёт и что
             по ней уже делали — «Деятельность»: слово «Timeline» называло
@@ -1614,7 +1614,7 @@ export default function SystemModel(){
             открывают нажатием, а до того он не заслоняет карточку актива.
             Выбранный на схеме актив подсвечивает процессы, где он занят. */}
         {under==="edit" && (
-          <ProcessPanel procs={procs} setProcs={setProcs}
+          <ProcessPanel procs={procs} setProcs={setProcs} people={people} rolesOf={rolesOf}
             selected={sel} shown={procsOpen} onToggle={setProcsOpen}
             onOpenAsset={id=>setSel(id)} onOpenTrait={openTraitCard}
             onOpenWorkers={openWorkersCard}

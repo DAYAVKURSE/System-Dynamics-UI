@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  addAgentUser, addForm, addRole, addUser, agentUserId, identify, listOrg, openRoles,
+  addAgentUser, addForm, addRole, addUser, agentUserId, identify, listOrg, openRoles, renameRole,
   registerUser, removeForm, removeRole, removeUser, renameAgentUser, setForm, setProfile,
   setRoleContract, setRoleForm, setRoleTabs, setUserRole, setUserRoles,
 } from "../lib/orgStore.js";
@@ -67,6 +67,18 @@ describe("владелец", () => {
     const guest = await identify("777", { name: "Чужой" });
     expect(guest.known).toBe(false);
     expect(guest.tabs).toEqual([]);
+  });
+});
+
+describe("переименование роли (владелец, 2026-09-18)", () => {
+  it("имя меняется на месте; занятое другой ролью — отказ; чужой id — null", async () => {
+    const role = await addRole({ name: "Дизайнер" });
+    await addRole({ name: "Аналитик" });
+    expect((await renameRole(role.id, "Верстальщик")).name).toBe("Верстальщик");
+    expect((await listOrg()).roles.find((r) => r.id === role.id).name).toBe("Верстальщик");
+    await expect(renameRole(role.id, "аналитик")).rejects.toThrow(/exists/);
+    await expect(renameRole(role.id, "  ")).rejects.toThrow(/required/);
+    expect(await renameRole("нет-такой", "x")).toBeNull();
   });
 });
 

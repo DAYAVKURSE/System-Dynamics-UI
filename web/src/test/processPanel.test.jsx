@@ -101,18 +101,34 @@ describe("подсказки ведут по строкам", () => {
 });
 
 describe("роли, статусы, функции", () => {
-  it("курсор в строке «Кто:» показывает кнопки ролей; нажатие ставит значок в текст", async () => {
+  it("курсор в строке «Кто:» открывает меню столбиком: роли с названиями, «Зафиксировать сотрудника», «Выбрать сотрудника»", async () => {
     const area = addProc();
     write(area, TEXT);
     fireEvent.focus(area);
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
-    const btns = container.querySelector("[data-role-buttons]");
-    expect(btns).not.toBeNull();
-    expect(within(btns).getAllByRole("button")).toHaveLength(3);
-    fireEvent.click(within(btns).getByRole("button", { name: "постановщик: Пользователи" }));
+    const menu = container.querySelector("[data-role-buttons]");
+    expect(menu).not.toBeNull();
+    expect(menu.style.flexDirection).toBe("column");
+    expect(within(menu).getAllByRole("button").map((b) => b.textContent)).toEqual(
+      ["✎постановщик", "⚙исполнитель", "✓проверяющий", "🔒Зафиксировать сотрудника", "👤Выбрать сотрудника"]);
+    fireEvent.click(within(menu).getByRole("button", { name: "постановщик: Пользователи" }));
     expect(area).toHaveValue("Задача: лид\nКто: Пользователи ✎\nБерёт: заявки 2\nОтдаёт: заявки 50% A");
     await waitFor(() => expect(container.querySelector("[data-kind=roles]").textContent).toBe("✎"));
-    expect(screen.getByLabelText("постановщик: Пользователи", { selector: "span" })).toBeInTheDocument();
+    // Фиксация — переменная из двух латинских слов в фигурных скобках; в поле видно только имя в плашке.
+    fireEvent.click(within(menu).getByRole("button", { name: "зафиксировать сотрудника: Пользователи" }));
+    const line = area.value.split("\n")[1];
+    expect(line).toMatch(/^Кто: Пользователи ✎ \{[a-z]+ [a-z]+\}$/);
+    const name = line.match(/\{([^}]+)\}/)[1];
+    await waitFor(() => expect(container.querySelector("[data-kind=hand]")).not.toBeNull());
+    const hand = container.querySelector("[data-kind=hand]");
+    expect(hand.textContent).toBe(`{${name}}`);
+    expect(hand.children[0].style.color).toBe("transparent");
+    // Список сотрудников: «автоматически», переменные процесса, люди должности.
+    fireEvent.click(within(menu).getByRole("button", { name: "выбрать сотрудника: Пользователи" }));
+    const list = screen.getByRole("listbox", { name: "сотрудники: Пользователи" });
+    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["автоматически", name]);
+    fireEvent.click(within(list).getByRole("option", { name: "автоматически" }));
+    expect(area.value.split("\n")[1]).toBe("Кто: Пользователи ✎");
   });
 
   it("«принято» собирает функцию с задачей в активе исполнителя; неизвестный ресурс принимается в актив «Кому»", () => {

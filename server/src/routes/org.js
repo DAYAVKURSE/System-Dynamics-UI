@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
-import {
+import { renameRole,
   addForm, addRole, addUser, identify, listOrg, openRoles, registerUser, removeForm,
   removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
   setUserRole, setUserRoles, TABS,
@@ -186,6 +186,17 @@ router.post("/roles", async (req, res, next) => {
     if (/required|already exists/.test(e.message)) {
       return res.status(400).json({ error: e.message });
     }
+    next(e);
+  }
+});
+
+router.put("/roles/:id/name", async (req, res, next) => {
+  try {
+    const role = await renameRole(req.params.id, req.body?.name);
+    if (!role) return res.status(404).json({ error: "not found" });
+    res.json(role);
+  } catch (e) {
+    if (/required|already exists/.test(e.message)) return res.status(400).json({ error: e.message });
     next(e);
   }
 });

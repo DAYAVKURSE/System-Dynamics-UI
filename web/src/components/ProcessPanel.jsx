@@ -4,8 +4,9 @@ import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
 import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs } from "../lib/process.js";
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
-  issuesOf, itemState, labelOf, paintOf, parseText, procFuncs, replaceName, suggest, toggleRole, usesAsset,
-  whoState } from "../lib/proc2.js";
+  issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
+  suggest, toggleRole, usesAsset, whoState } from "../lib/proc2.js";
+import { allHands, handColor, newHandName } from "../lib/hands.js";
 
 /* ════════════════════════════════════════════════════════════════
    ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС · раздел на «Управлении»
@@ -33,7 +34,6 @@ const STATUS_TONE = { off: null, hypo: WARN, on: OK };
 const DARK = "#0E1420";
 const PURPLE = "#C9A0FF";
 const ROLE_COLOR = { setter: WARN, doer: ACC, checker: OK };
-import { handColor } from "../lib/hands.js";
 const SIDE = { take: ACC, give: OK };
 const LINE_H = 1.9;
 
@@ -53,6 +53,7 @@ function spanStyle(k) {
     return one ? plate(ROLE_COLOR[one]) : plate(C.panel2, C.muted, C.line);
   }
   if (k.kind === "hand") return plate(handColor(k.hand));
+  if (k.kind === "person") return k.known ? plate("#FFD9A0") : plate(BAD);
   let st;
   if (bad) st = plate(BAD);
   else if (k.kind === "asset") st = plate(C.panel2, C.text, C.line);   // как блок на схеме
@@ -86,10 +87,20 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1 }) {
     spans.filter((k) => k.start >= from && k.end <= to).forEach((k, j) => {
       if (k.start > at) out.push(<span key={`${key}t${j}`}>{ln.slice(at, k.start)}</span>);
       const bad = k.state && k.state !== "ok";
+      const raw = ln.slice(k.start, k.end);
+      /* Рука «{имя}» и сотрудник «@Имя»: скобки и «@» остаются в тексте,
+         но не видны — в прямоугольнике только имя (владелец, 2026-09-18). */
+      const wrap = (k.kind === "hand" && k.brace) ? [1, 1] : (k.kind === "person" && k.at) ? [1, 0] : null;
+      const inner = wrap ? raw.slice(wrap[0], raw.length - wrap[1]) : raw;
       out.push(<span key={`${key}m${j}`} data-kind={k.kind} data-side={k.side || undefined}
         data-mark={bad ? k.state : (k.exprError ? "expr" : undefined)}
-        title={k.exprError || (k.kind === "roles" ? k.roles.map((r) => ROLE_WORD[r]).join(", ") : bad ? k.state : undefined)}
-        style={spanStyle(k)}>{ln.slice(k.start, k.end)}</span>);
+        title={k.exprError || (k.kind === "roles" ? k.roles.map((r) => ROLE_WORD[r]).join(", ") : k.kind === "hand" ? `переменная сотрудника: ${k.hand}` : k.kind === "person" ? (k.known ? "именно этот сотрудник" : "нет такого сотрудника") : bad ? k.state : undefined)}
+        style={wrap ? {} : spanStyle(k)}>
+        {wrap ? (<>
+          <span style={{ color: "transparent" }}>{raw.slice(0, wrap[0])}</span>
+          <span style={spanStyle(k)}>{inner}</span>
+          {wrap[1] ? <span style={{ color: "transparent" }}>{raw.slice(raw.length - wrap[1])}</span> : null}
+        </>) : raw}</span>);
       at = k.end;
     });
     if (to > at) out.push(<span key={`${key}r`}>{ln.slice(at, to)}</span>);
@@ -129,7 +140,7 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1 }) {
 }
 
 /* ─────── поле с подсказками ─────── */
-function ProcText({ value = "", model, proc, onCommit, label }) {
+function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => new Set() }) {
   const [text, setText] = useState(value);
   const [focus, setFocus] = useState(false);
   const [pick, setPick] = useState(null);   // подсказка у курсора + at
@@ -184,18 +195,42 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
       e.preventDefault(); choose(list[cursor]);
     }
   };
-  /* Кнопки ролей у выделенной должности: строка «Кто:», где стоит
-     курсор. Нажатие ставит или снимает значок в тексте. */
+  /* Меню у выделенной должности (владелец, 2026-09-18): строка «Кто:», где
+     стоит курсор. Столбиком: три роли с названиями, «Зафиксировать
+     сотрудника» (рука — переменная из двух слов) и «Выбрать сотрудника»
+     (автоматически / зафиксированные переменные / сотрудники должности).
+     Каждое нажатие правит текст — единственный источник. */
   const rowLine = caretRow >= 0 ? text.split("\n")[caretRow] || "" : "";
   const whoRow = focus && caretRow >= 0 && labelOf(rowLine)?.kind === "who" ? caretRow : -1;
-  const whoName = whoRow >= 0 ? (paint.find((r) => r.row === whoRow)?.spans.find((k) => k.kind === "role" || k.kind === "asset")?.name || "") : "";
+  const whoSpan = whoRow >= 0 ? paint.find((r) => r.row === whoRow)?.spans : null;
+  const whoName = whoSpan?.find((k) => k.kind === "role" || k.kind === "asset")?.name || "";
+  const whoHand = whoSpan?.find((k) => k.kind === "hand")?.hand || null;
+  const whoPerson = whoSpan?.find((k) => k.kind === "person")?.person || null;
+  const [pickPerson, setPickPerson] = useState(false);
+  const [renamingHand, setRenamingHand] = useState(false);
+  /* Пока правят имя переменной, фокус уходит из поля в строку ввода — меню
+     при этом не закрывается (`hold`), а после правки фокус возвращается. */
+  const hold = useRef(false);
   const roleOn = (role) => rowLine.includes(ICON[role]);
-  const toggle = (role) => {
-    const next = toggleRole(text, whoRow, role);
+  const rewrite = (next) => {
     const caret = Math.min(inp.current?.selectionStart ?? next.length, next.length);
     setText(next); onCommit(next);
     setTimeout(() => { inp.current?.focus(); inp.current?.setSelectionRange(caret, caret); place(next, caret); }, 0);
   };
+  const toggle = (role) => rewrite(toggleRole(text, whoRow, role));
+  const fixHand = () => rewrite(setHand(text, whoRow, newHandName(usedHands())));
+  const renameHand = (name) => {
+    const n = String(name || "").trim().toLowerCase();
+    hold.current = false;
+    setRenamingHand(false);
+    if (!n || n === whoHand) { setTimeout(() => inp.current?.focus(), 0); return; }
+    if ([...usedHands()].some((h) => h === n) && n !== whoHand) { setTimeout(() => inp.current?.focus(), 0); return; }
+    // Переименовать — во всех строках этого процесса, где стоит эта рука.
+    const re = new RegExp(`\\{\\s*${whoHand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\}`, "gi");
+    rewrite(text.replace(re, `{${n}}`));
+  };
+  const procHands = [...new Set(paint.flatMap((r) => r.spans.filter((k) => k.kind === "hand" && k.hand).map((k) => k.hand)))];
+  const persons = whoRow >= 0 ? peopleOfPosition(whoName, model) : [];
   const header = pick ? `${HINT[pick.kind] || ""}${pick.kind === "trait" && pick.asset ? ` — ресурсы «${pick.asset.name}»` : ""}${pick.kind === "qty" && pick.traitName ? ` — для «${pick.traitName}»` : ""}` : "";
   return (
     <div style={{ position: "relative" }}>
@@ -226,7 +261,7 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
           </div>
         </div>)}
       <div style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
-        <Backdrop text={text} paint={paint} style={field} activeRow={whoRow} noteGap={whoRow >= 0 ? 78 : 0} />
+        <Backdrop text={text} paint={paint} style={field} activeRow={whoRow} noteGap={whoRow >= 0 ? 190 : 0} />
         <style>{`textarea[data-proc-text]::placeholder{color:${NEU};opacity:1}`}</style>
         <textarea ref={inp} value={text} aria-label={label} data-proc-text=""
           rows={Math.max(4, text.split("\n").length + 1)}
@@ -235,19 +270,61 @@ function ProcText({ value = "", model, proc, onCommit, label }) {
             background: "transparent", color: "transparent", caretColor: C.text, display: "block" }}
           onScroll={(e) => { if (back.current) back.current.scrollTop = e.target.scrollTop; }}
           onFocus={(e) => { setFocus(true); place(text, e.target.selectionStart ?? text.length); }}
-          onBlur={() => { setFocus(false); setPick(null); setCaretRow(-1); if (text !== value) onCommit(text); }}
+          onBlur={() => { if (hold.current) return; setFocus(false); setPick(null); setCaretRow(-1); if (text !== value) onCommit(text); }}
           onChange={onChange} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
         {whoRow >= 0 && (
-          <div data-role-buttons="" onMouseDown={(e) => e.preventDefault()}
-            style={{ position: "absolute", right: 6, top: 7 + whoRow * LINE_H * 12, zIndex: 2, display: "flex", gap: 3,
-              height: LINE_H * 12, alignItems: "center" }}>
+          <div data-role-buttons="" onMouseDown={(e) => { if (e.target.tagName !== "INPUT") e.preventDefault(); }}
+            aria-label={`меню участника ${whoName}`}
+            style={{ position: "absolute", right: 6, top: 7 + whoRow * LINE_H * 12, zIndex: 3, display: "flex", flexDirection: "column", gap: 2,
+              width: 180, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 4, boxShadow: "0 6px 20px rgba(0,0,0,.35)" }}>
             {ROLE_KINDS.map((role) => (
-              <button key={role} type="button" aria-pressed={roleOn(role)}
-                aria-label={`${ROLE_WORD[role]}: ${whoName}`} title={ROLE_WORD[role]}
-                onClick={() => toggle(role)}
-                style={{ width: 22, height: 18, borderRadius: 4, fontSize: 11, lineHeight: "16px", padding: 0, cursor: "pointer",
-                  background: roleOn(role) ? ROLE_COLOR[role] : C.panel, color: roleOn(role) ? DARK : C.muted,
-                  border: `1px solid ${roleOn(role) ? ROLE_COLOR[role] : C.line}` }}>{ICON[role]}</button>))}
+              <button key={role} type="button" aria-pressed={roleOn(role)} aria-label={`${ROLE_WORD[role]}: ${whoName}`}
+                onClick={() => toggle(role)} className="flex items-center gap-2"
+                style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left",
+                  background: roleOn(role) ? ROLE_COLOR[role] : "transparent", color: roleOn(role) ? DARK : C.text,
+                  border: `1px solid ${roleOn(role) ? ROLE_COLOR[role] : C.line}` }}>
+                <span style={{ width: 16, textAlign: "center" }}>{ICON[role]}</span>{ROLE_WORD[role]}</button>))}
+            {whoHand ? (
+              <div style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+                <div className="flex items-center gap-2">
+                  <span style={{ width: 16, textAlign: "center" }}>🔒</span>
+                  {renamingHand ? (
+                    <input autoFocus defaultValue={whoHand} aria-label="имя переменной сотрудника"
+                      style={{ ...S.inp, flex: 1, fontSize: 11, padding: "1px 4px" }}
+                      onBlur={(e) => renameHand(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { hold.current = false; setRenamingHand(false); inp.current?.focus(); } }} />
+                  ) : (
+                    <button type="button" aria-label={`переименовать переменную ${whoHand}`} title="нажмите, чтобы переименовать"
+                      onClick={() => { hold.current = true; setRenamingHand(true); }}
+                      style={{ flex: 1, textAlign: "left", background: handColor(whoHand), color: DARK, border: "none", borderRadius: 4,
+                        padding: "1px 6px", fontSize: 11, cursor: "text" }}>{whoHand}</button>)}
+                  <button type="button" aria-label={`снять фиксацию: ${whoName}`} title="снять фиксацию" onClick={() => rewrite(setAuto(text, whoRow))}
+                    style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" aria-label={`зафиксировать сотрудника: ${whoName}`} onClick={fixHand} className="flex items-center gap-2"
+                style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left", background: "transparent",
+                  color: C.text, border: `1px solid ${C.line}` }}>
+                <span style={{ width: 16, textAlign: "center" }}>🔒</span>Зафиксировать сотрудника</button>)}
+            <button type="button" aria-expanded={pickPerson} aria-label={`выбрать сотрудника: ${whoName}`}
+              onClick={() => setPickPerson((v) => !v)} className="flex items-center gap-2"
+              style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left",
+                background: whoPerson ? "#FFD9A0" : "transparent", color: whoPerson ? DARK : C.text, border: `1px solid ${whoPerson ? "#FFD9A0" : C.line}` }}>
+              <span style={{ width: 16, textAlign: "center" }}>👤</span>{whoPerson ? whoPerson : "Выбрать сотрудника"}</button>
+            {pickPerson && (
+              <div role="listbox" aria-label={`сотрудники: ${whoName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 5 }}>
+                <div role="option" aria-selected={!whoHand && !whoPerson} onClick={() => { rewrite(setAuto(text, whoRow)); setPickPerson(false); }}
+                  style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer", background: !whoHand && !whoPerson ? `${C.line}88` : "transparent" }}>автоматически</div>
+                {procHands.map((h) => (
+                  <div key={h} role="option" aria-selected={whoHand === h} onClick={() => { rewrite(setHand(text, whoRow, h)); setPickPerson(false); }}
+                    style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer", background: whoHand === h ? `${C.line}88` : "transparent" }}>
+                    <span style={{ background: handColor(h), color: DARK, borderRadius: 4, padding: "0 5px" }}>{h}</span></div>))}
+                {persons.map((pp) => (
+                  <div key={pp.id} role="option" aria-selected={whoPerson === pp.name} onClick={() => { rewrite(setPerson(text, whoRow, pp.name)); setPickPerson(false); }}
+                    style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer", background: whoPerson === pp.name ? `${C.line}88` : "transparent" }}>{pp.name}</div>))}
+                {!persons.length && <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>сотрудников с этой должностью нет</div>}
+              </div>)}
           </div>)}
       </div>
     </div>);
@@ -398,7 +475,7 @@ function Versions({ proc, model, onSave }) {
 /* ═══════════════ раздел ═══════════════ */
 export default function ProcessPanel({ procs = [], setProcs, entities = [], setEntities,
   traits = [], setTraits, funcs = [], setFuncs, onDropFuncs,
-  positions = [], selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
+  positions = [], people = [], rolesOf, selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
   shown: shownProp, onToggle }) {
   const [openChip, setOpenChip] = useState(null);
   const [naming, setNaming] = useState(null);
@@ -406,14 +483,15 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   const [shownOwn, setShownOwn] = useState(false);
   const shown = shownProp ?? shownOwn;
   const toggle = () => (onToggle ? onToggle(!shown) : setShownOwn((v) => !v));
-  const model = { entities, traits, positions };
+  const model = { entities, traits, positions, people, rolesOf };
+  const usedHands = () => allHands(procs, model);
   const involved = procs.filter((p) => usesAsset(p, model, selected));
   const selName = entities.find((e) => e.id === selected)?.name || "";
 
   /* Одна дверь на все правки: функции процессов пересобираются по
      нынешним текстам (v2), задачи по функциям, которых больше нет, снимаются. */
   const commit = ({ procs: next, entities: e2 = entities, traits: t2 = traits, funcs: f2 = funcs }) => {
-    const m = { entities: e2, traits: t2, positions };
+    const m = { entities: e2, traits: t2, positions, people, rolesOf };
     const synced = syncProcFuncs(f2, next, m, normalizeFunc, procFuncs);
     setProcs(next);
     if (e2 !== entities) setEntities(e2);
@@ -523,7 +601,8 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 {w.asset && !w.anyWorker && <span style={{ fontSize: 10.5, color: C.muted }}>{w.asset.name}</span>}
                 {roles.map((r) => <span key={r} title={ROLE_WORD[r]} aria-label={`${ROLE_WORD[r]}: ${w.name}`}
                   style={{ fontSize: 10, background: ROLE_COLOR[r], color: DARK, borderRadius: 3, padding: "0 4px" }}>{ICON[r]}</span>)}
-                {w.hand && <span aria-label={`рука ${w.hand}: ${w.name}`} style={{ fontSize: 10, background: handColor(w.hand), color: DARK, borderRadius: 3, padding: "0 4px" }}>рука {w.hand}</span>}
+                {w.hand && <span aria-label={`переменная ${w.hand}: ${w.name}`} style={{ fontSize: 10, background: handColor(w.hand), color: DARK, borderRadius: 3, padding: "0 4px" }}>{w.hand}</span>}
+                {w.person && <span aria-label={`сотрудник ${w.person}: ${w.name}`} style={{ fontSize: 10, background: w.personId ? "#FFD9A0" : BAD, color: DARK, borderRadius: 3, padding: "0 4px" }}>{w.person}</span>}
               </span>);
           };
           return (
@@ -548,7 +627,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
               </div>
 
-              <ProcText value={p.text} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} />
+              <ProcText value={p.text} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands} />
 
               <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
                 <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="выгрузить техпроцесс"

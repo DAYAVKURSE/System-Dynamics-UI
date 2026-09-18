@@ -120,32 +120,56 @@ function takeParens(text, base) {
 
 const varOf = (g) => {
   const t = g.text.replace(/^переменная\s*:\s*/i, "").trim();
-  if (/^рука\s+/i.test(t) || /^сотрудник\s+/i.test(t)) return null;
+  if (/^рука\s+/i.test(t) || /^сотрудник\s*:?\s+/i.test(t)) return null;
   return t || null;
 };
+/* Рука — имя переменной сотрудника: «{space bear}» в поле (владелец,
+   2026-09-18: имя в цветном прямоугольнике, два слова), при выгрузке —
+   «(переменная: сотрудник space bear)»; прежняя запись «(рука A)» читается. */
 const handOf = (g) => {
-  const m = g.text.match(/^(?:переменная\s*:\s*)?(?:рука|сотрудник)\s+([A-Za-zА-Яа-я0-9]+)$/i);
-  return m ? m[1].toUpperCase() : null;
+  const m = g.text.match(/^(?:переменная\s*:\s*)?(?:рука|сотрудник)\s+([^)]+)$/i);
+  return m && !/^сотрудник\s*:/i.test(g.text) ? m[1].trim().toLowerCase() : null;
 };
+/* Конкретный сотрудник: «@Имя Фамилия» в поле, «(сотрудник: Имя)» при выгрузке. */
+const personOf = (g) => {
+  const m = g.text.match(/^сотрудник\s*:\s*(.+)$/i);
+  return m ? m[1].trim() : null;
+};
+const PERSON_RE = /@([^@{}()✎⚙✓,]+)/g;
+const BRACE_RE = /\{([^{}]*)\}/g;
 
 /** Участник: «Партнёр-фрилансер ✎ ⚙ (рука A)» или со словами в скобках. */
 function parseWho(rest, start, model) {
   const clean = rest.replace(/,\s*$/, "");
   const { name: noParen, groups } = takeParens(clean, start);
   const roles = { setter: false, doer: false, checker: false };
-  const marks = [];   // значки/слова ролей с их местом
-  let hand = null;
+  const marks = [];   // значки/слова ролей, рука, сотрудник — с их местом
+  let hand = null, person = null;
   groups.forEach((g) => {
+    const pn = personOf(g);
+    if (pn) { person = pn; marks.push({ ...g, kind: "person", person: pn }); return; }
     const h = handOf(g);
     if (h) { hand = h; marks.push({ ...g, kind: "hand", hand: h }); return; }
     const words = g.text.split(/[,\s]+/).map((w) => nameKey(w)).filter(Boolean);
     const rs = words.map((w) => ROLE_BY_WORD[w]).filter(Boolean);
     if (rs.length && rs.length === words.length) { rs.forEach((r) => { roles[r] = true; }); marks.push({ ...g, kind: "roles", roles: rs }); }
   });
-  // Значки вне скобок.
-  let name = noParen;
-  const iconRe = /[✎⚙✓]/g;
   let m;
+  // «{space bear}» — рука; «@Имя» — конкретный сотрудник.
+  BRACE_RE.lastIndex = 0;
+  while ((m = BRACE_RE.exec(clean))) {
+    const h = m[1].trim().toLowerCase();
+    if (h) { hand = h; marks.push({ text: m[0], start: start + m.index, end: start + m.index + m[0].length, kind: "hand", hand: h, brace: true }); }
+  }
+  const noBrace = clean.replace(BRACE_RE, (x) => " ".repeat(x.length));
+  PERSON_RE.lastIndex = 0;
+  while ((m = PERSON_RE.exec(noBrace))) {
+    const pn = m[1].trim();
+    if (pn) { person = pn; marks.push({ text: m[0], start: start + m.index, end: start + m.index + 1 + m[1].trimEnd().length, kind: "person", person: pn, at: true }); }
+  }
+  // Значки вне скобок.
+  let name = noParen.replace(BRACE_RE, " ").replace(PERSON_RE, " ");
+  const iconRe = /[✎⚙✓]/g;
   while ((m = iconRe.exec(clean))) {
     const r = ROLE_BY_WORD[m[0]];
     roles[r] = true;
@@ -156,7 +180,9 @@ function parseWho(rest, start, model) {
   const span = { start: start + Math.max(0, at), end: start + Math.max(0, at) + name.length };
   const pos = (model.positions || []).find((p) => nameKey(p.name) === nameKey(name)) || null;
   const asset = pos ? assetOfPosition(pos, model) : (model.entities || []).find((e) => nameKey(e.name) === nameKey(name)) || null;
-  return { name, span, roles, hand, marks, pos: pos ? { id: pos.id, name: pos.name } : null,
+  const people = model.people || [];
+  const who = person ? people.find((x) => nameKey(x.name) === nameKey(person)) || null : null;
+  return { name, span, roles, hand, person, personId: who ? String(who.id) : null, marks, pos: pos ? { id: pos.id, name: pos.name } : null,
     asset: asset ? { id: asset.id, name: asset.name } : null, anyWorker: !pos && !!asset };
 }
 
@@ -347,9 +373,10 @@ export function itemState(it, proc = {}, { traits = [] } = {}) {
 export function issuesOf(proc = {}, model = {}) {
   const { funcs, errors } = parseText(proc.text, model, proc);
   const out = errors.map((e) => `строка ${e.line}: ${e.message}`);
-  const unknownWho = [], unknownRes = [], noAsset = [], rejected = [], noAssetWho = [];
+  const unknownWho = [], unknownRes = [], noAsset = [], rejected = [], noAssetWho = [], unknownPerson = [];
   funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => {
-    b.who.forEach((w) => { const st = whoState(w, proc); if (st === "unknown") unknownWho.push(w.name); if (st === "noasset") noAssetWho.push(w.name); if (st === "rejected") rejected.push(w.name); });
+    b.who.forEach((w) => { const st = whoState(w, proc); if (st === "unknown") unknownWho.push(w.name); if (st === "noasset") noAssetWho.push(w.name); if (st === "rejected") rejected.push(w.name);
+      if (w.person && !w.personId) unknownPerson.push(w.person); });
     b.steps.forEach((s) => [...s.items, ...s.or].forEach((it) => {
       const st = itemState(it, proc, model);
       if (st === "unknown") unknownRes.push(it.name); if (st === "rejected") rejected.push(it.name); if (st === "noasset") noAsset.push(it.name);
@@ -358,6 +385,7 @@ export function issuesOf(proc = {}, model = {}) {
   const uniq = (l) => [...new Set(l)];
   if (unknownWho.length) out.push(`нет такой должности или актива: ${uniq(unknownWho).join(", ")} — заведите в «Правах сотрудников» и назначьте активу`);
   if (noAssetWho.length) out.push(`должность без актива: ${uniq(noAssetWho).join(", ")} — отметьте её во вкладке «Воркеры» актива`);
+  if (unknownPerson.length) out.push(`нет такого сотрудника: ${uniq(unknownPerson).join(", ")}`);
   if (noAsset.length) out.push(`не понятно, чей ресурс: ${uniq(noAsset).join(", ")} — назовите «Кто:» с должностью актива или «Кому:»/«От кого:»`);
   if (unknownRes.length) out.push(`сначала примите или отклоните: ${uniq(unknownRes).join(", ")}`);
   if (rejected.length) out.push(`отклонено — исправьте или удалите: ${uniq(rejected).join(", ")}`);
@@ -387,7 +415,8 @@ export function paintOf(text = "", model = {}, proc = {}) {
         b.who.forEach((w) => {
           const st = whoState(w, proc);
           put(w.row, w.span, { kind: w.anyWorker ? "asset" : "role", state: st, name: w.name });
-          w.marks.forEach((m) => put(w.row, m, { kind: m.kind === "hand" ? "hand" : "roles", roles: m.roles || (m.role ? [m.role] : []), hand: m.hand }));
+          w.marks.forEach((m) => put(w.row, m, { kind: m.kind === "hand" ? "hand" : m.kind === "person" ? "person" : "roles",
+            roles: m.roles || (m.role ? [m.role] : []), hand: m.hand, person: m.person, brace: !!m.brace, at: !!m.at, known: m.kind !== "person" || !!w.personId }));
           if (w.asset && !w.anyWorker) rowOf(w.row).note = w.asset.name;
         });
         b.steps.forEach((s) => {
@@ -413,8 +442,20 @@ export function paintOf(text = "", model = {}, proc = {}) {
 
 /* ─────── подсказки ─────── */
 
+/** Сотрудники должности (или воркеры актива): `people` с `roles`, `rolesOf(id)` — из модели. */
+export function peopleOfPosition(posName, model = {}) {
+  const { positions = [], people = [], entities = [] } = model;
+  const rolesOf = model.rolesOf || ((id) => people.find((p) => String(p.id) === String(id))?.roles || []);
+  const pos = positions.find((p) => nameKey(p.name) === nameKey(posName));
+  if (pos) return people.filter((p) => (rolesOf(p.id) || []).some((r) => String(r) === String(pos.id)));
+  const asset = entities.find((e) => nameKey(e.name) === nameKey(posName));
+  if (asset) { const crew = new Set((asset.crew || []).map(String)); return people.filter((p) => crew.has(String(p.id))); }
+  return [];
+}
+
 export const HINT = {
   label: "начало строки — выберите метку",
+  person: "сотрудник должности — именно он будет выполнять",
   who: "кто — должность (актив подставится сам) или актив (любой его воркер)",
   trait: "что — ресурс; после имени через пробел — сколько",
   qty: "сколько — число, диапазон 45-55, доля другого ресурса «50% A», «20% @ресурс»",
@@ -449,6 +490,12 @@ export function hintAt(text = "", at = 0, model = {}) {
   const restStart = lineStart + lab.rest.start;
   if (lab.kind === "func" || lab.kind === "task") return { kind: "name", start: restStart, query: rest.trim(), label: lab.kind, ctx };
   if (lab.kind === "who" || lab.kind === "to" || lab.kind === "from") {
+    // «@» в строке «Кто:» — сотрудник должности.
+    const atPos = lab.kind === "who" ? rest.lastIndexOf("@") : -1;
+    if (atPos >= 0 && !/[{}()]/.test(rest.slice(atPos))) {
+      const posName = rest.slice(0, atPos).replace(/[✎⚙✓]/g, " ").replace(/\{[^{}]*\}/g, " ").replace(/\([^)]*\)/g, " ").trim();
+      return { kind: "person", start: restStart + atPos, query: rest.slice(atPos + 1).trim(), posName, ctx };
+    }
     // Слово у курсора после последней запятой/скобки.
     const cut = Math.max(rest.lastIndexOf(","), rest.lastIndexOf("("), rest.lastIndexOf(")"));
     const sub = rest.slice(cut + 1);
@@ -548,6 +595,8 @@ export function suggest(hint, model = {}, proc = {}) {
       items.push({ name: p.name, kind: "должность", note: a ? a.name : "без актива", suffix: hint.kind === "who" ? "\n" : "\n", pos: p.id });
     });
     entities.forEach((e) => items.push({ name: e.name, kind: "актив", note: hint.kind === "who" ? "любой воркер" : "", suffix: "\n" }));
+  } else if (hint.kind === "person") {
+    peopleOfPosition(hint.posName, model).forEach((p) => items.push({ name: `@${p.name}`, kind: "сотрудник", suffix: "\n" }));
   } else if (hint.kind === "trait") {
     const a = hint.asset;
     const own = a ? traits.filter((t) => t.e === a.id) : [];
@@ -593,13 +642,22 @@ export function exportText(text = "") {
     if (!lab || lab.kind !== "who") return line;
     const rest = lab.rest.text;
     const icons = (rest.match(/[✎⚙✓]/g) || []).map((c) => ROLE_WORD[ROLE_BY_WORD[c]]);
-    if (!icons.length) return line;
+    if (!icons.length && !/[{@]/.test(rest)) return line;
+    if (!icons.length) {
+      // Без значков — только рука и сотрудник словами.
+      return `${line.slice(0, lab.rest.start)}${rest.replace(/\s*\{([^{}]*)\}/g, (m0, h) => ` (переменная: сотрудник ${h.trim()})`)
+        .replace(/\s*@([^@{}()✎⚙✓,]+)/g, (m0, n) => ` (сотрудник: ${n.trim()})`)}`;
+    }
     const cleaned = rest.replace(/\s*[✎⚙✓]/g, "");
-    const hand = cleaned.match(/\s*\((?:рука|переменная\s*:\s*сотрудник)\s+[^)]*\)/i);
-    const base = hand ? cleaned.replace(hand[0], "") : cleaned;
+    const hand = cleaned.match(/\s*\((?:рука|переменная\s*:\s*сотрудник)\s+[^)]*\)/i) || cleaned.match(/\s*\{[^{}]*\}/);
+    const person = cleaned.match(/\s*@[^@{}()✎⚙✓,]+/);
+    let base = hand ? cleaned.replace(hand[0], "") : cleaned;
+    base = person ? base.replace(person[0], "") : base;
     const trail = base.match(/,\s*$/) ? "," : "";
     const core = base.replace(/,\s*$/, "").trimEnd();
-    return `${line.slice(0, lab.rest.start)}${core} (${icons.join(", ")})${hand ? ` ${hand[0].trim()}` : ""}${trail}`;
+    const handWord = hand ? (hand[0].trim().startsWith("{") ? `(переменная: сотрудник ${hand[0].trim().slice(1, -1).trim()})` : hand[0].trim()) : "";
+    const personWord = person ? `(сотрудник: ${person[0].trim().slice(1).trim()})` : "";
+    return `${line.slice(0, lab.rest.start)}${core} (${icons.join(", ")})${handWord ? ` ${handWord}` : ""}${personWord ? ` ${personWord}` : ""}${trail}`;
   }).join("\n");
 }
 
@@ -613,8 +671,10 @@ export function importText(text = "") {
       const words = inner.split(/[,\s]+/).map((w) => nameKey(w)).filter(Boolean);
       const rs = words.map((w) => ROLE_BY_WORD[w]).filter(Boolean);
       if (rs.length && rs.length === words.length) return ` ${rs.map((r) => ICON[r]).join(" ")}`;
-      const h = inner.match(/^(?:переменная\s*:\s*)?(?:рука|сотрудник)\s+([A-Za-zА-Яа-я0-9]+)$/i);
-      if (h) return ` (рука ${h[1].toUpperCase()})`;
+      const pn = inner.match(/^сотрудник\s*:\s*(.+)$/i);
+      if (pn) return ` @${pn[1].trim()}`;
+      const h = inner.match(/^(?:переменная\s*:\s*)?(?:рука|сотрудник)\s+(.+)$/i);
+      if (h) return ` {${h[1].trim().toLowerCase()}}`;
       return m;
     });
     return `${line.slice(0, lab.rest.start)}${rest}`;
@@ -673,6 +733,7 @@ export function procFuncs(proc = {}, model = {}) {
           if (whoState(w, proc) !== "ok") ok = false;
           const any = !w.roles.setter && !w.roles.doer && !w.roles.checker;
           return { name: w.name, pos: w.pos?.id ?? null, asset: w.asset?.id ?? null, hand: w.hand,
+            ...(w.personId ? { person: w.personId } : {}),
             roles: any ? { setter: true, doer: true, checker: true, any: true } : { ...w.roles } };
         });
         const posts = { setters: [], owners: [], reviewers: [] };
@@ -782,18 +843,29 @@ export function toggleRole(text = "", row, role) {
   return lines.join("\n");
 }
 
-/** Поставить/снять «руку» участника. */
-export function setHand(text = "", row, hand) {
+const stripHand = (rest) => rest.replace(/\s*\((?:рука|переменная\s*:\s*сотрудник)\s+[^)]*\)/gi, "").replace(/\s*\{[^{}]*\}/g, "");
+const stripPerson = (rest) => rest.replace(/\s*\(сотрудник\s*:[^)]*\)/gi, "").replace(/\s*@[^@{}()✎⚙✓,]+/g, "");
+const rewriteWho = (text, row, make) => {
   const lines = String(text || "").split("\n");
   const line = lines[row] ?? "";
   const lab = labelOf(line);
   if (!lab || lab.kind !== "who") return text;
   const rest = lab.rest.text;
   const trail = rest.match(/,\s*$/) ? "," : "";
-  const core = rest.replace(/\s*\((?:рука|переменная\s*:\s*сотрудник)[^)]*\)/gi, "").replace(/,\s*$/, "").trimEnd();
-  lines[row] = `${line.slice(0, lab.rest.start)}${core}${hand ? ` (рука ${String(hand).toUpperCase()})` : ""}${trail}`;
+  const core = make(rest.replace(/,\s*$/, "")).replace(/\s+$/, "");
+  lines[row] = `${line.slice(0, lab.rest.start)}${core}${trail}`;
   return lines.join("\n");
+};
+/** Поставить/снять «руку» участника: «{имя}» после имени и значков (сотрудник при этом снимается). */
+export function setHand(text = "", row, hand) {
+  return rewriteWho(text, row, (rest) => `${stripPerson(stripHand(rest)).trimEnd()}${hand ? ` {${String(hand).trim().toLowerCase()}}` : ""}`);
 }
+/** Назначить/снять конкретного сотрудника: «@Имя» (рука при этом снимается). */
+export function setPerson(text = "", row, name) {
+  return rewriteWho(text, row, (rest) => `${stripHand(stripPerson(rest)).trimEnd()}${name ? ` @${String(name).trim()}` : ""}`);
+}
+/** «Автоматически»: ни руки, ни сотрудника. */
+export const setAuto = (text = "", row) => rewriteWho(text, row, (rest) => stripHand(stripPerson(rest)).trimEnd());
 
 /* ─────── разница версий по задачам ─────── */
 

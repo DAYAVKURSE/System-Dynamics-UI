@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { assetWorkers, funcExecutors, handMate, whyNotSet } from "./taskRules.js";
+import { assetWorkers, fixedPerson, funcExecutors, handMate, whyNotSet } from "./taskRules.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОБЩАЯ МОДЕЛЬ
@@ -673,6 +673,10 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false, rolesO
       }
       /* «Не менять руку»: в другой задаче процесса эту руку уже держит
          человек — здесь может быть только он. */
+      const fixed = id != null ? fixedPerson(model, task, k) : null;
+      if (fixed && fixed !== id) {
+        return { error: "fixed", why: `${word}: в техпроцессе на эту задачу назначен конкретный сотрудник.` };
+      }
       const mate = id != null ? handMate(model, task, k) : null;
       if (mate && mate !== id) {
         return { error: "hand", why: `${word}: «не менять руку» — в этом процессе это уже другой человек.` };

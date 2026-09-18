@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, TxtField } from "./ui.jsx";
-import {
+import { renameRole,
   ALL_TABS, addRole, listOrg, removeRole, removeUser, setRoleContract, setRoleTabs,
   setUserRoles,
 } from "../identity.js";
@@ -85,6 +85,7 @@ function Contract({ role, busy, onSet }) {
 }
 
 export default function PeoplePanel({ me, onPeople, onChanged }) {
+  const [renaming, setRenaming] = useState(null);   // какую роль переименовывают
   const [org, setOrg] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -256,7 +257,18 @@ export default function PeoplePanel({ me, onPeople, onChanged }) {
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
             borderRadius: 8, padding: 8, marginBottom: 6 }}>
             <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{r.name}</span>
+              {/* Название роли правится на месте (владелец, 2026-09-18): Enter
+                  или уход из поля записывает, пустое — не записывается. */}
+              {renaming === r.id ? (
+                <input autoFocus defaultValue={r.name} aria-label={`новое название роли «${r.name}»`}
+                  style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 700, padding: "3px 6px" }}
+                  onBlur={(e) => { const v = e.target.value.trim(); setRenaming(null); if (v && v !== r.name) act(() => renameRole(r.id, v)); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenaming(null); }} />
+              ) : (
+                <button type="button" aria-label={`переименовать роль «${r.name}»`} title="нажмите, чтобы переименовать"
+                  onClick={() => setRenaming(r.id)} disabled={busy}
+                  style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", padding: 0,
+                    color: C.text, fontSize: 12.5, fontWeight: 700, cursor: "text" }}>{r.name} <span style={{ color: C.muted, fontWeight: 400, fontSize: 11 }}>✎</span></button>)}
               <span style={{ fontSize: 10, color: C.muted }}>
                 участников: {org.users.filter((u) => (u.roles || []).includes(r.id)).length}</span>
               {r.builtin && <span style={{ fontSize: 9.5, color: C.muted }}>встроенная</span>}

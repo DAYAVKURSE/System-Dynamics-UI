@@ -778,6 +778,21 @@ export async function addRole({ name, tabs, contract }) {
   return role;
 }
 
+/** Переименовать роль (владелец, 2026-09-18): имя уникально без учёта регистра. */
+export async function renameRole(id, name) {
+  const clean = String(name || "").trim();
+  if (!clean) throw new Error("name is required");
+  const org = await readOrg();
+  const role = org.roles.find((r) => r.id === id);
+  if (!role) return null;
+  if (org.roles.some((r) => r.id !== id && r.name.toLowerCase() === clean.toLowerCase())) {
+    throw new Error("role already exists");
+  }
+  role.name = clean;
+  await writeOrg(org);
+  return role;
+}
+
 export async function setRoleTabs(id, tabs) {
   const org = await readOrg();
   const role = org.roles.find((r) => r.id === id);

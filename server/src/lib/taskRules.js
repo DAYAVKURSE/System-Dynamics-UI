@@ -182,12 +182,21 @@ export function handMate(model = {}, task = {}, role) {
   const f = (model.funcs || []).find((x) => x.id === task.funcId) || null;
   if (!f || !f.proc) return null;
   const roleKey = { assignee: "doer", reviewer: "checker", setter: "setter" }[role] || role;
-  const hands = (Array.isArray(f.who) ? f.who : []).filter((w) => w.hand && (w.roles?.[roleKey] || w.roles?.any)).map((w) => w.hand);
+  const low = (h) => String(h || "").toLowerCase();
+  const hands = (Array.isArray(f.who) ? f.who : []).filter((w) => w.hand && (w.roles?.[roleKey] || w.roles?.any)).map((w) => low(w.hand));
   if (!hands.length) return null;
   const same = new Set((model.funcs || []).filter((g) => g.id !== f.id && g.proc === f.proc
-    && (Array.isArray(g.who) ? g.who : []).some((w) => w.hand && hands.includes(w.hand))).map((g) => g.id));
+    && (Array.isArray(g.who) ? g.who : []).some((w) => w.hand && hands.includes(low(w.hand)))).map((g) => g.id));
   const hit = (model.tasks || []).find((t) => t.id !== task.id && same.has(t.funcId) && t.canceled !== true && t[role] != null && t[role] !== "");
   return hit ? String(hit[role]) : null;
+}
+
+/** Конкретный сотрудник на роль из текста процесса («@Имя», `who[].person`): id или null. */
+export function fixedPerson(model = {}, task = {}, role) {
+  const f = (model.funcs || []).find((x) => x.id === task.funcId) || null;
+  const roleKey = { assignee: "doer", reviewer: "checker", setter: "setter" }[role] || role;
+  const w = f && (Array.isArray(f.who) ? f.who : []).find((x) => x.person && (x.roles?.[roleKey] || x.roles?.any));
+  return w ? String(w.person) : null;
 }
 
 export function assetWorkers(model = {}, task = {}) {
