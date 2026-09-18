@@ -1619,7 +1619,7 @@ export default function SystemModel(){
             onOpenAsset={id=>setSel(id)} onOpenTrait={openTraitCard}
             onOpenWorkers={openWorkersCard}
             entities={entities} setEntities={setEntities}
-            traits={traits} setTraits={setTraits}
+            traits={traits} setTraits={setTraits} kinds={kinds}
             funcs={funcs} setFuncs={setFuncs}
             makeEntity={freshEntity}
             /* Должности — те же, что у функций в карточке актива; новая

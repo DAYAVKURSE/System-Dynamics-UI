@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, peopleOfPosition, procFuncs,
-  renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
+  parseDur, parseEvery, parsePar, setTaskTime, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -169,6 +169,40 @@ describe("«То:» своей строкой (владелец, 2026-09-18)", (
     expect(labels).toEqual(["Кто:", "Берёт:", "Отдаёт:"]);
     const item = suggest(hintAt("Задача: a\nЕсли: lead ", 21, model), model).find((i) => i.note === "новая строка: То:");
     expect(item).toMatchObject({ name: "↵", text: "\nТо:", suffix: "\n" });
+  });
+});
+
+describe("сроки задачи в тексте (владелец, 2026-09-18)", () => {
+  const T = "Задача: шаг\nСрок: 2-4 дн\nПопытка: через 3 ч\nОдновременно: 2, на актив 5\nКто: Владелец\nОтдаёт: оффер 1";
+  it("«Срок:», «Попытка:», «Одновременно:» читаются и уходят в функцию", () => {
+    const { funcs, errors } = parseText(T, model, {});
+    expect(errors).toEqual([]);
+    expect(funcs[0].tasks[0].time).toMatchObject({ dur: 2, durHi: 4, durUnit: "дн", every: 3, everyHi: 3, everyUnit: "ч", par: 2, parAll: 5 });
+    const f = procFuncs({ id: "p", text: T }, model)[0];
+    expect(f).toMatchObject({ dur: 2, durHi: 4, durUnit: "дн", every: 3, everyUnit: "ч", par: 2, parAll: 5 });
+    // Без строк — прежние умолчания функции.
+    expect(procFuncs({ id: "p", text: "Задача: a\nКто: Владелец\nОтдаёт: оффер 1" }, model)[0]).toMatchObject({ dur: 1, durUnit: "дн" });
+  });
+
+  it("разбор значений и ошибка непонятной строки", () => {
+    expect(parseDur("2-4 дн")).toEqual({ dur: 2, durHi: 4, durUnit: "дн" });
+    expect(parseEvery("сразу")).toEqual({ every: 0, everyHi: 0, everyUnit: "дн" });
+    expect(parseEvery("через 3 ч")).toEqual({ every: 3, everyHi: 3, everyUnit: "ч" });
+    expect(parsePar("2, на актив 5")).toEqual({ par: 2, parAll: 5 });
+    expect(parseDur("скоро")).toBeNull();
+    expect(parseText("Задача: a\nСрок: скоро", model, {}).errors[0].message).toMatch(/число и единица/);
+    expect(parseText("Срок: 2 дн", model, {}).errors[0].message).toMatch(/без задачи/);
+  });
+
+  it("setTaskTime ставит, меняет и убирает строку сразу под задачей", () => {
+    let t = "Задача: шаг\nКто: Владелец";
+    t = setTaskTime(t, 0, "dur", "2 дн");
+    expect(t).toBe("Задача: шаг\nСрок: 2 дн\nКто: Владелец");
+    t = setTaskTime(t, 0, "par", "3");
+    expect(t).toBe("Задача: шаг\nСрок: 2 дн\nОдновременно: 3\nКто: Владелец");
+    t = setTaskTime(t, 0, "dur", "4-6 ч");
+    expect(t.split("\n")[1]).toBe("Срок: 4-6 ч");
+    expect(setTaskTime(t, 0, "dur", null)).toBe("Задача: шаг\nОдновременно: 3\nКто: Владелец");
   });
 });
 

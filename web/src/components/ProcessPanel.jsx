@@ -5,8 +5,11 @@ import { normalizeFunc } from "../lib/funcs.js";
 import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, tidyProcText } from "../lib/process.js";
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
-  suggest, toggleRole, usesAsset, whoState, renameVar } from "../lib/proc2.js";
+  suggest, toggleRole, usesAsset, whoState, renameVar, setTaskTime, parseDur, parseEvery, parsePar,
+  durText, everyText, parText, TIME_UNITS } from "../lib/proc2.js";
 import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
+import { hasKind, toggleKind } from "../lib/traits.js";
+import { MATERIAL_KINDS, traitKind } from "../lib/units.js";
 
 /* ════════════════════════════════════════════════════════════════
    ТЕХНОЛОГИЧЕСКИЙ ПРОЦЕСС · раздел на «Управлении»
@@ -177,8 +180,59 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
     </div>);
 }
 
+/* ─────── части контекстных меню (владелец, 2026-09-18) ───────
+   Спойлер раздела: заголовок с текущим значением, внутри — поля. Вид тот
+   же, что у кнопок меню, чтобы меню читалось одним списком. */
+function Fold({ title, value, open, onToggle, children }) {
+  return (
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: 5 }}>
+      <button type="button" aria-expanded={open} aria-label={title} onClick={onToggle}
+        className="flex items-center gap-2"
+        style={{ width: "100%", background: "transparent", border: "none", color: C.text, cursor: "pointer",
+          padding: "3px 6px", fontSize: 11.5, textAlign: "left" }}>
+        <span style={{ width: 10, color: C.muted }}>{open ? "▾" : "▸"}</span>
+        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
+        {value != null && <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{value}</span>}
+      </button>
+      {open && <div style={{ padding: "2px 6px 6px" }}>{children}</div>}
+    </div>);
+}
+/** Небольшое числовое поле меню: правка по месту, запись при уходе. */
+function MiniNum({ value, label, onCommit, width = 54 }) {
+  const [draft, setDraft] = useState(String(value ?? ""));
+  useEffect(() => { setDraft(String(value ?? "")); }, [value]);
+  return (
+    <input value={draft} aria-label={label} inputMode="decimal"
+      style={{ ...S.inp, width, fontSize: 11.5, padding: "2px 5px" }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => onCommit(Number(String(draft).replace(",", ".")) || 0)}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />);
+}
+/** «От … до …» с единицей: одно число, пока «до» не больше. */
+function Range({ lo, hi, unit, label, onChange }) {
+  const [wide, setWide] = useState(Number(hi) > Number(lo));
+  useEffect(() => { setWide(Number(hi) > Number(lo)); }, [lo, hi]);
+  return (
+    <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
+      <MiniNum value={lo} label={`${label}: сколько`} onCommit={(v) => onChange(v, wide ? Math.max(v, Number(hi) || 0) : v, unit)} />
+      {wide && (<>
+        <span style={S.lbl}>до</span>
+        <MiniNum value={hi} label={`${label}: до`} onCommit={(v) => onChange(Number(lo) || 0, Math.max(Number(lo) || 0, v), unit)} />
+      </>)}
+      <select value={unit} aria-label={`${label}: единица`} onChange={(e) => onChange(Number(lo) || 0, Number(hi) || 0, e.target.value)}
+        style={{ ...S.inp, width: "auto", padding: "2px 4px", fontSize: 11.5 }}>
+        {TIME_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+      </select>
+      <label className="flex items-center gap-2" style={{ fontSize: 10.5, color: C.muted, cursor: "pointer" }}>
+        <input type="checkbox" aria-label={`${label}: вилка`} checked={wide} style={{ accentColor: ACC }}
+          onChange={(e) => { setWide(e.target.checked); onChange(Number(lo) || 0, e.target.checked ? Math.max(Number(lo) || 0, Number(hi) || 0) * (Number(hi) > Number(lo) ? 1 : 2) : Number(lo) || 0, unit); }} />
+        вилка
+      </label>
+    </div>);
+}
+
 /* ─────── поле с подсказками ─────── */
-function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => new Set() }) {
+function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => new Set(), kinds = [], onTrait }) {
   const [text, setText] = useState(value);
   const [focus, setFocus] = useState(false);
   /* Правка — только по двойному нажатию на текст (владелец, 2026-09-18);
@@ -283,6 +337,36 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const rowLine = caretRow >= 0 ? text.split("\n")[caretRow] || "" : "";
   /* Меню сущностей — в просмотре (одинарное нажатие ставит курсор); в правке их нет, есть подсказки. */
   const rowKind = labelOf(rowLine)?.kind || "";
+  /* Меню ЗАДАЧИ (владелец, 2026-09-18): курсор на «Задача:» или на строке
+     её сроков. Значения живут в тексте — «Срок:», «Попытка:»,
+     «Одновременно:» — и потому переживают пересборку функций. */
+  const taskRow = (() => {
+    if (caretRow < 0) return -1;
+    if (rowKind === "task") return caretRow;
+    if (!["dur", "every", "par"].includes(rowKind)) return -1;
+    const rows = text.split("\n");
+    for (let i = caretRow - 1; i >= 0; i -= 1) {
+      const k = labelOf(rows[i])?.kind;
+      if (k === "task") return i;
+      if (!["dur", "every", "par"].includes(k)) return -1;
+    }
+    return -1;
+  })();
+  const taskLine = taskRow >= 0 ? (text.split("\n")[taskRow] || "") : "";
+  const taskName = taskRow >= 0 ? (labelOf(taskLine)?.rest.text || "").trim() : "";
+  const taskTime = (() => {
+    if (taskRow < 0) return null;
+    const rows = text.split("\n");
+    const out = { dur: 1, durHi: 1, durUnit: "дн", every: 0, everyHi: 0, everyUnit: "дн", par: 1, parAll: 0 };
+    for (let i = taskRow + 1; i < rows.length; i += 1) {
+      const lab = labelOf(rows[i]);
+      if (!lab || !["dur", "every", "par"].includes(lab.kind)) break;
+      const v = lab.kind === "dur" ? parseDur(lab.rest.text) : lab.kind === "every" ? parseEvery(lab.rest.text) : parsePar(lab.rest.text);
+      if (v) Object.assign(out, v);
+    }
+    return out;
+  })();
+  const setTime = (kind, next) => rewrite(setTaskTime(text, taskRow, kind, next));
   /* «Кому:»/«От кого:» — то же меню, что у «Кто:», без ролей (владелец, 2026-09-18). */
   const whoRow = caretRow >= 0 && ["who", "to", "from"].includes(rowKind) ? caretRow : -1;
   const isWho = whoRow >= 0 && rowKind === "who";
@@ -345,11 +429,13 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const resRef = !!res && res.kind === "var";
   const resName = res ? (resRef ? `(${res.varName})` : res.name) : "";
   const resKey = res ? `${resRow}:${res.itemSpan.start}` : "";
+  const resTrait = res && !resRef && res.traitId ? (model.traits || []).find((t) => t.id === res.traitId) || null : null;
   /* Закрепить ресурс — переменная из одного слова; выбрать — ссылка на
      закреплённый ресурс этого процесса (владелец, 2026-09-18). */
   const procVars = [...new Set(paint.flatMap((r) => r.spans.filter((k) => k.kind === "var" && !k.ref && k.varName).map((k) => k.varName)))];
   const [pickVar, setPickVar] = useState(false);
   const [renamingVar, setRenamingVar] = useState(false);
+  const [fold, setFold] = useState("");   // какой раздел меню раскрыт
   const pinRes = () => {
     const at = resStart + (res.tail ? res.tailSpan.end : res.nameSpan.end);
     rewrite(`${text.slice(0, at)} (${newVarName(new Set([...procVars, ...usedHands()]))})${text.slice(at)}`);
@@ -426,14 +512,23 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     const y = Math.max(8, Math.min((window.innerHeight || 800) - 260, r.top + 7 + row * LINE_H * 12 - scrollTop));
     setMenuPos({ x, y });
   }, [menuKey]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const onDragStart = (e) => {
-    if (!menuPos) return;
-    e.preventDefault();
-    drag.current = { dx: e.clientX - menuPos.x, dy: e.clientY - menuPos.y };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+  /* Одно касание: меню сразу активно и едет за пальцем — без первого
+     «просто нажать» (владелец, 2026-09-18). Тянем и мышью (pointer), и
+     пальцем (touch): на части устройств pointermove после preventDefault
+     не приходит. */
+  const dragFrom = (x, y) => {
+    setMenuActive(true);
+    const cur = menuPos || (() => { const r = document.querySelector("[data-proc-menu]")?.getBoundingClientRect(); return r ? { x: r.left, y: r.top } : { x: 8, y: 8 }; })();
+    if (!menuPos) setMenuPos(cur);
+    drag.current = { dx: x - cur.x, dy: y - cur.y };
   };
-  const onDragMove = (e) => { if (drag.current) setMenuPos({ x: Math.max(0, e.clientX - drag.current.dx), y: Math.max(0, e.clientY - drag.current.dy) }); };
+  const dragTo = (x, y) => { if (drag.current) setMenuPos({ x: Math.max(0, x - drag.current.dx), y: Math.max(0, y - drag.current.dy) }); };
+  const onDragStart = (e) => { e.preventDefault(); dragFrom(e.clientX, e.clientY); e.currentTarget.setPointerCapture?.(e.pointerId); };
+  const onDragMove = (e) => dragTo(e.clientX, e.clientY);
   const onDragEnd = () => { drag.current = null; };
+  const onDragTouch = (e) => { const t = e.touches[0]; if (!t) return; hold.current = true; e.preventDefault(); dragFrom(t.clientX, t.clientY); };
+  const onDragTouchMove = (e) => { const t = e.touches[0]; if (!t || !drag.current) return; e.preventDefault(); dragTo(t.clientX, t.clientY); };
+  const onDragTouchEnd = () => { drag.current = null; setTimeout(() => { hold.current = false; }, 400); };
   const opPick = (it) => {
     if (it.kind === "дальше" || it.kind === "переменная" || it.kind === "закрепить") { choose(it, { ...tailHint, at: tailAt, start: tailAt }); return; }
     let next;
@@ -451,7 +546,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
       style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left", background: "transparent",
         color: C.text, border: `1px solid ${C.line}`, ...style }}>
       <span style={{ width: 16, textAlign: "center" }}>{icon}</span>{label.split(":")[0].replace(/^./, (c) => c.toUpperCase())}</button>);
-  const menuTitle = whoRow >= 0 ? `${rowKind === "to" ? "кому" : rowKind === "from" ? "от кого" : "участник"} «${whoName}»` : res ? (resRef ? `закреплённый ресурс «${res.varName}»` : `ресурс «${res.name}»`) : "";
+  const menuTitle = taskRow >= 0 ? `задача «${taskName || "без названия"}»` : whoRow >= 0 ? `${rowKind === "to" ? "кому" : rowKind === "from" ? "от кого" : "участник"} «${whoName}»` : res ? (resRef ? `закреплённый ресурс «${res.varName}»` : `ресурс «${res.name}»`) : "";
   return (
     <div style={{ position: "relative" }}>
       <div ref={wrap} style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
@@ -516,7 +611,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           </div>
         </div>)}
       {/* Плавающее меню сущности: участник или ресурс. */}
-      {(whoRow >= 0 || res) && (
+      {(whoRow >= 0 || res || taskRow >= 0) && (
         <div data-proc-menu="" data-active={menuActive ? "1" : "0"}
           /* pointerdown — раньше mousedown и не гасится preventDefault шапки при перетаскивании. */
           onPointerDown={() => setMenuActive(true)}
@@ -528,6 +623,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           <div className="flex items-center gap-1" style={{ padding: "1px 2px 4px" }}>
             <div aria-label="перетащить меню" title="перетащить"
               onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd}
+              onTouchStart={onDragTouch} onTouchMove={onDragTouchMove} onTouchEnd={onDragTouchEnd} onTouchCancel={onDragTouchEnd}
               className="flex items-center gap-2"
               style={{ flex: 1, minWidth: 0, cursor: "move", touchAction: "none", fontSize: 10.5, color: C.muted, userSelect: "none" }}>
               <span style={{ letterSpacing: -1 }}>⋮⋮</span>
@@ -537,7 +633,40 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
               onClick={() => { setCaretRow(-1); setPickVar(false); setPickPerson(false); }}
               style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 3px", fontSize: 13, lineHeight: 1 }}>✕</button>
           </div>
-          {whoRow >= 0 ? (
+          {taskRow >= 0 ? (
+          <div data-task-menu="" aria-label={`меню задачи ${taskName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Fold title="срок" open={fold === "dur"} onToggle={() => setFold(fold === "dur" ? "" : "dur")}
+              value={durText(taskTime)}>
+              <Range lo={taskTime.dur} hi={taskTime.durHi} unit={taskTime.durUnit} label="срок"
+                onChange={(lo, hi, u) => setTime("dur", `${nm(lo)}${hi > lo ? `-${nm(hi)}` : ""} ${u}`)} />
+            </Fold>
+            <Fold title="следующая попытка" open={fold === "every"} onToggle={() => setFold(fold === "every" ? "" : "every")}
+              value={everyText(taskTime)}>
+              <div className="flex items-center gap-2" style={{ marginBottom: 4 }}>
+                <select value={taskTime.every > 0 ? "every" : "flow"} aria-label="когда следующая попытка"
+                  onChange={(e) => setTime("every", e.target.value === "every" ? `через 1 ${taskTime.everyUnit || "дн"}` : "сразу")}
+                  style={{ ...S.inp, width: "auto", padding: "2px 4px", fontSize: 11.5 }}>
+                  <option value="flow">сразу</option>
+                  <option value="every">через…</option>
+                </select>
+              </div>
+              {taskTime.every > 0 && (
+                <Range lo={taskTime.every} hi={taskTime.everyHi} unit={taskTime.everyUnit} label="следующая попытка"
+                  onChange={(lo, hi, u) => setTime("every", `через ${nm(lo)}${hi > lo ? `-${nm(hi)}` : ""} ${u}`)} />)}
+            </Fold>
+            <Fold title="одновременные выполнения" open={fold === "par"} onToggle={() => setFold(fold === "par" ? "" : "par")}
+              value={parText(taskTime)}>
+              <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
+                <span style={{ ...S.lbl, flex: "1 1 100%" }}>на воркера</span>
+                <MiniNum value={taskTime.par} label="одновременных выполнений на воркера"
+                  onCommit={(v) => setTime("par", `${Math.max(1, Math.round(v) || 1)}${taskTime.parAll > 0 ? `, на актив ${Math.round(taskTime.parAll)}` : ""}`)} />
+                <span style={{ ...S.lbl, flex: "1 1 100%" }}>на актив (0 — без предела)</span>
+                <MiniNum value={taskTime.parAll} label="одновременных выполнений на актив"
+                  onCommit={(v) => setTime("par", `${Math.max(1, Math.round(taskTime.par) || 1)}${Math.round(v) > 0 ? `, на актив ${Math.round(v)}` : ""}`)} />
+              </div>
+            </Fold>
+          </div>
+          ) : whoRow >= 0 ? (
           <div data-role-buttons="" aria-label={`меню участника ${whoName}`}
             style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {isWho && ROLE_KINDS.map((role) => (
@@ -622,6 +751,38 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
                 {!procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).length && (
                   <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>закреплённых ресурсов в этом процессе нет — «Закрепить ресурс» у нужного</div>)}
               </div>)}
+            {/* Разделы ресурса — те же вопросы, что в карточке ресурса,
+                под спойлерами (владелец, 2026-09-18). */}
+            {!resRef && resTrait && onTrait && (<>
+              <Fold title="единица" open={fold === "unit"} onToggle={() => setFold(fold === "unit" ? "" : "unit")}
+                value={resTrait.unit || "—"}>
+                <input defaultValue={resTrait.unit || ""} aria-label={`единица ресурса ${res.name}`} placeholder="штука, час, рубль"
+                  style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "2px 5px" }}
+                  onBlur={(e) => onTrait(resTrait.id, { unit: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+              </Fold>
+              <Fold title="чем подтверждается" open={fold === "kind"} onToggle={() => setFold(fold === "kind" ? "" : "kind")}
+                value={MATERIAL_KINDS.find((k) => k.id === traitKind(resTrait))?.name}>
+                <div className="flex flex-wrap gap-2">
+                  {MATERIAL_KINDS.map((k) => (
+                    <button key={k.id} type="button" aria-pressed={traitKind(resTrait) === k.id}
+                      aria-label={`${k.name}: ${res.name}`} onClick={() => onTrait(resTrait.id, { kind: k.id })}
+                      style={{ ...btn(traitKind(resTrait) === k.id, traitKind(resTrait) === k.id ? ACC : null), fontSize: 11, padding: "2px 6px" }}>
+                      {k.name}</button>))}
+                </div>
+              </Fold>
+              <Fold title="чем считаем" open={fold === "ks"} onToggle={() => setFold(fold === "ks" ? "" : "ks")}
+                value={kinds.filter((x) => hasKind(resTrait, x.id)).map((x) => x.sign).join(" ") || "—"}>
+                <div className="flex flex-wrap gap-2">
+                  {!kinds.length && <span style={{ fontSize: 10.5, color: C.muted }}>классификаций пока нет</span>}
+                  {kinds.map((x) => (
+                    <button key={x.id} type="button" aria-pressed={hasKind(resTrait, x.id)} aria-label={`${x.name}: ${res.name}`}
+                      onClick={() => { const z = toggleKind(resTrait, x.id); onTrait(resTrait.id, { ks: z.ks, k: z.k }); }}
+                      style={{ ...btn(hasKind(resTrait, x.id), x.color), fontSize: 11, padding: "2px 6px" }}>
+                      {x.sign} {x.name}</button>))}
+                </div>
+              </Fold>
+            </>)}
             {!resRef && (<>
             <input value={opDraft} aria-label={`операция: ${res.name}`} placeholder="сколько / операция"
               style={{ ...S.inp, fontSize: 12, padding: "3px 6px", fontFamily: "ui-monospace, Menlo, monospace" }}
@@ -788,7 +949,7 @@ function Versions({ proc, model, onSave }) {
 
 /* ═══════════════ раздел ═══════════════ */
 export default function ProcessPanel({ procs = [], setProcs, entities = [], setEntities,
-  traits = [], setTraits, funcs = [], setFuncs, onDropFuncs,
+  traits = [], setTraits, funcs = [], setFuncs, onDropFuncs, kinds = [],
   positions = [], people = [], rolesOf, selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
   shown: shownProp, onToggle }) {
   const [openChip, setOpenChip] = useState(null);
@@ -941,7 +1102,8 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
               </div>
 
-              <ProcText value={p.text} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands} />
+              <ProcText value={p.text} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands}
+                kinds={kinds} onTrait={(id, patch) => commit({ procs, traits: traits.map((t) => (t.id === id ? { ...t, ...patch } : t)) })} />
 
               <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
                 <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="выгрузить техпроцесс"

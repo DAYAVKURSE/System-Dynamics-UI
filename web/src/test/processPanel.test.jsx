@@ -273,6 +273,47 @@ describe("роли, статусы, функции", () => {
     expect(area.value.split("\n")[4]).toBe("Кому: Рынок услуг");
   });
 
+  it("меню задачи: срок, следующая попытка, одновременные выполнения — строками текста (владелец, 2026-09-18)", () => {
+    const area = addProc();
+    write(area, TEXT);
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: 3 } });   // строка «Задача:»
+    const menu = () => container.querySelector("[data-task-menu]");
+    expect(menu()).not.toBeNull();
+    expect(within(menu()).getAllByRole("button").map((b) => b.getAttribute("aria-label")))
+      .toEqual(["срок", "следующая попытка", "одновременные выполнения"]);
+    fireEvent.click(within(menu()).getByRole("button", { name: "срок" }));
+    const lo = screen.getByLabelText("срок: сколько");
+    fireEvent.change(lo, { target: { value: "3" } });
+    fireEvent.blur(lo);
+    expect(area.value.split("\n")[1]).toBe("Срок: 3 дн");
+    fireEvent.click(within(menu()).getByRole("button", { name: "одновременные выполнения" }));
+    const par = screen.getByLabelText("одновременных выполнений на воркера");
+    fireEvent.change(par, { target: { value: "2" } });
+    fireEvent.blur(par);
+    expect(area.value.split("\n")[2]).toBe("Одновременно: 2");
+    // Значения живут в тексте, поэтому переживают пересборку функций.
+    expect(dump().procs[0].text.split("\n").slice(1, 3)).toEqual(["Срок: 3 дн", "Одновременно: 2"]);
+  });
+
+  it("меню ресурса: единица, чем подтверждается, чем считаем — под спойлерами (владелец, 2026-09-18)", () => {
+    const area = addProc();
+    write(area, TEXT);
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("заявки 2") + 2 } });
+    const menu = () => container.querySelector("[data-res-menu]");
+    expect(within(menu()).getByRole("button", { name: "единица" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(within(menu()).getByRole("button", { name: "единица" }));
+    const unit = screen.getByLabelText("единица ресурса заявки");
+    fireEvent.change(unit, { target: { value: "штука" } });
+    fireEvent.blur(unit);
+    fireEvent.click(within(menu()).getByRole("button", { name: "чем подтверждается" }));
+    fireEvent.click(within(menu()).getByRole("button", { name: "текст: заявки" }));
+    // Выгрузка в конце: она уводит на «Инструменты» и закрывает меню.
+    const t = dump().traits.find((x) => x.l === "заявки");
+    expect(t).toMatchObject({ unit: "штука", kind: "text" });
+  });
+
   it("«Закрепить ресурс» даёт переменную из одного слова; «Выбрать ресурс» ставит ссылку, и поле операции пропадает (владелец, 2026-09-18)", async () => {
     const area = addProc();
     write(area, TEXT);
