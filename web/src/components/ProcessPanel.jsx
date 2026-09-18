@@ -212,8 +212,9 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     setEditing(true); setFocus(true);
     place(text, el.selectionStart ?? text.length);
   };
-  /* Конец правки (Enter или одинарное нажатие на поле): поле снова только
-     для чтения, клавиатура закрывается (blur), курсор и меню — остаются. */
+  /* Конец правки по Enter (когда нечего подставить): поле снова только
+     для чтения, клавиатура закрывается (blur), курсор и меню — остаются.
+     Нажатие вне поля заканчивает правку через onBlur. */
   const endEdit = () => {
     const el = inp.current;
     if (!el) return;
@@ -433,15 +434,14 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
             // Меню не закрывается — становится неактивным; закрывает крестик или начало правки.
             setEditing(false); setFocus(false); setScrollTop(0); setMenuActive(false); if (text !== value) onCommit(text); }}
           readOnly={!editing}
-          onMouseDown={(e) => {
-            if (!editing && e.detail >= 2) { e.preventDefault(); startEdit(); }
-            else if (editing && e.detail === 1) endEdit();
-          }}
+          /* В правке одинарное нажатие и прокрутка внутри поля правку не
+             прерывают (владелец, 2026-09-18) — только нажатие вне поля
+             (потеря фокуса) или Enter, когда нечего подставить. */
+          onMouseDown={(e) => { if (!editing && e.detail >= 2) { e.preventDefault(); startEdit(); } }}
           onDoubleClick={() => { if (!editing) startEdit(); }}
           onTouchEnd={(e) => {
             const now = Date.now();
             if (!editing && now - lastTap.current < 350) { e.preventDefault(); startEdit(); }
-            else if (editing) endEdit();
             lastTap.current = now;
           }}
           onChange={(e) => { opRef.current = null; onChange(e); }} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />

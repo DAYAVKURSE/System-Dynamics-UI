@@ -57,7 +57,7 @@ const loadJson = (m) => {
 const TEXT = "Задача: лид\nКто: Пользователи\nБерёт: заявки 2\nОтдаёт: заявки 50% A";
 
 describe("просмотр и правка (владелец, 2026-09-18)", () => {
-  it("одинарное нажатие: поле только для чтения, меню сущности есть, подсказок нет; двойное: правка, подсказки под полем, меню нет; Enter или нажатие на поле — конец правки", () => {
+  it("одинарное нажатие: поле только для чтения, меню сущности есть, подсказок нет; двойное: правка, подсказки под полем, меню нет; Enter или нажатие вне поля — конец правки", () => {
     const area = addProc();
     write(area, TEXT);
     expect(area).toHaveAttribute("readonly");
@@ -82,7 +82,14 @@ describe("просмотр и правка (владелец, 2026-09-18)", () =
     expect(screen.queryByRole("dialog", { name: "подсказка процесса" })).toBeNull();
     fireEvent.doubleClick(area);
     expect(area).not.toHaveAttribute("readonly");
-    fireEvent.mouseDown(area, { detail: 1 });   // одинарное нажатие на поле
+    // Одинарное нажатие и прокрутка внутри поля правку не прерывают (владелец, 2026-09-18).
+    fireEvent.mouseDown(area, { detail: 1 });
+    fireEvent.click(area, { target: { selectionStart: 3 } });
+    fireEvent.scroll(area);
+    expect(area).not.toHaveAttribute("readonly");
+    expect(screen.getByRole("dialog", { name: "подсказка процесса" })).toBeInTheDocument();
+    // Нажатие вне поля (потеря фокуса) — конец правки.
+    fireEvent.blur(area);
     expect(area).toHaveAttribute("readonly");
     // Нажатие вне поля: меню остаётся, но неактивно (полупрозрачно); нажатие на нём — снова активно; крестик закрывает.
     fireEvent.click(area, { target: { selectionStart: TEXT.indexOf("Пользователи") + 3 } });
