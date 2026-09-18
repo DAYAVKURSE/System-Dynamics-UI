@@ -338,7 +338,13 @@ export function parseText(text = "", model = {}, proc = {}) {
     });
   }))));
   // Буквы и количества — по задаче (все ресурсы всех веток по порядку).
-  funcs.forEach((f) => f.tasks.forEach((t) => letterTask(t, model)));
+  /* Закреплённый ресурс в операции («50% lead») — его количество (владелец,
+     2026-09-18): сначала считаем всё без подстановки, потом собираем
+     количества объявлений и считаем ещё раз. */
+  funcs.forEach((f) => f.tasks.forEach((t) => letterTask(t, model, new Map())));
+  const varQty = new Map();
+  funcs.forEach((f) => f.tasks.forEach((t) => (t.items || []).forEach((it) => { if (it.var && !it.ref && it.qty != null) varQty.set(nameKey(it.var), it.qty); })));
+  if (varQty.size) funcs.forEach((f) => f.tasks.forEach((t) => letterTask(t, model, varQty)));
   // Обязательное: «Кто» без «Берёт»/«Отдаёт».
   funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => {
     if (b.who.length && !b.steps.length) err(b.who[0].row, "после «Кто:» нужно «Берёт:» или «Отдаёт:»");
@@ -351,7 +357,17 @@ const countItems = (branch) => (branch ? branch.steps.reduce((n, s) => n + s.ite
 /* Буквы A, B, C… всем ресурсам задачи по порядку; количества — операциями
    по этим буквам (`evalPorts`); ресурс ищется в активе, откуда берётся /
    куда отдаётся. */
-function letterTask(task, model) {
+/** Подставить в операцию количества закреплённых ресурсов по имени. */
+export function substVars(expr = "", varQty = new Map()) {
+  let out = String(expr || "");
+  if (!varQty.size) return out;
+  varQty.forEach((qty, name) => {
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`(^|[^\\p{L}\\p{N}_@{#])${esc}(?![\\p{L}\\p{N}_])`, "giu"), (m, pre) => `${pre}${qty}`);
+  });
+  return out;
+}
+function letterTask(task, model, varQty = new Map()) {
   const traits = model.traits || [];
   const stockOf = (id) => { const t = traits.find((x) => x.id === id); return t ? (Number(t.have) || 0) : undefined; };
   const all = [];
@@ -370,9 +386,10 @@ function letterTask(task, model) {
       });
     });
   });
-  const res = evalPorts(all.map((p, k) => ({ id: k, lo: p.qty, hi: p.qty, expr: p.expr ? toStored(p.expr, traits) : "" })), stockOf);
+  const res = evalPorts(all.map((p, k) => ({ id: k, lo: p.qty, hi: p.qty, expr: p.expr ? toStored(substVars(p.expr, varQty), traits) : "" })), stockOf);
   all.forEach((p, k) => {
     if (!p.expr) return;
+    delete p.exprError;   // второй проход (с закреплёнными) может снять ошибку первого
     if (res[k].error) p.exprError = res[k].error;
     else { p.qty = res[k].lo; p.qtyHi = res[k].hi; }
   });
@@ -470,6 +487,7 @@ export function paintOf(text = "", model = {}, proc = {}) {
             put(x.row, x.span, { kind: "asset", state: x.asset ? "ok" : "unknown", name: x.name });
             (x.marks || []).forEach((m) => put(x.row, m, { kind: m.kind, hand: m.hand, person: m.person, brace: !!m.brace, at: !!m.at,
               known: m.kind !== "person" || !!x.personId }));
+            if (x.asset && x.pos) rowOf(x.row).note = x.asset.name;   // пометка актива, как у «Кто:» (владелец, 2026-09-18)
           });
         });
       });
@@ -579,7 +597,7 @@ export function hintAt(text = "", at = 0, model = {}) {
     const sub = atPos >= 0 && atPos > cut ? atPos : cut + 1;
     const subStart = restStart + itemStart + lead + hit.tailAt + sub;
     return { kind: "qty", start: subStart, query: rest.slice(itemStart + lead + hit.tailAt + sub), traitName, ctx, prior, side, asset,
-      nameStart: restStart + itemStart + lead };
+      nameStart: restStart + itemStart + lead, tailText: q.slice(hit.tailAt) };
   }
   return { kind: "trait", start: restStart + itemStart + lead, query: q.trim(), side, asset, ctx, prior, nItems: parts.length };
 }
@@ -665,22 +683,40 @@ export function suggest(hint, model = {}, proc = {}) {
         : "актив пока не определён — показаны ресурсы всех активов", info: true });
     }
   } else if (hint.kind === "qty") {
+    /* Список по смыслу (владелец, 2026-09-18): пусто — «=», число, ресурсы,
+       закреплённые; после знака — только операнды (число, ресурс, буква,
+       закреплённый); после числа/операнда — знаки и «дальше». Без
+       «диапазона» и скобок в списке — их можно набрать руками. */
     const q0 = String(hint.query || "");
-    if (q0.startsWith("@")) {
-      const assetOf = (t) => entities.find((e) => e.id === t.e)?.name || "";
-      items = traits.filter((t) => t.l).map((t) => ({ name: `@${t.l}`, kind: "ресурс", note: assetOf(t), suffix: "" }));
-    } else {
-      items = (hint.prior || []).map((p) => ({ name: p.letter, kind: "буква", note: `${p.name} (${p.asset})`, suffix: "" }));
-      items.push(...[["=", "ровно"], ["%", "процент"], ["@", "ресурс схемы"], ["-", "диапазон: 45-55"], ["*", ""], ["/", ""], ["+", ""], ["(", ""], [")", ""]]
-        .map(([name, note]) => ({ name, kind: "знак", note, suffix: "", insert: true })));
-      items.push({ name: "(…)", kind: "закрепить", note: "имя в скобках — взять в другой задаче", insert: true, text: " ()", suffix: "", caretBack: 1 });
+    const tail = String(hint.tailText ?? q0);
+    const assetOf = (t) => entities.find((e) => e.id === t.e)?.name || "";
+    const operands = () => {
+      (hint.prior || []).forEach((p) => items.push({ name: p.letter, kind: "буква", note: `${p.name} (${p.asset})`, suffix: "" }));
+      traits.filter((t) => t.l).forEach((t) => items.push({ name: `@${t.l}`, kind: "ресурс", note: assetOf(t), suffix: "" }));
+      (hint.ctx?.vars || []).forEach((v) => items.push({ name: v, kind: "закреплённый", note: "его количество", suffix: "" }));
+    };
+    const further = () => {
       items.push({ name: "→", kind: "дальше", note: "и ещё ресурс — через запятую", insert: true, text: ",", suffix: " ", trimBefore: true });
-      /* «Или» (владелец, 2026-09-18): запятая — «и», а иной выход — строка «Или:». */
       if (hint.side === "give" || hint.side === "or") items.push({ name: "или", kind: "дальше", note: "иной выход — новая строка: Или:", insert: true,
         text: `\n${LABEL_TEXT.or}`, suffix: " ", trimBefore: true });
       items.push({ name: "↵", kind: "дальше", note: hint.side === "give" ? "новая строка: Кому:" : "новая строка: От кого:", insert: true,
         text: `\n${LABEL_TEXT[hint.side === "give" ? "to" : "from"]}`, suffix: " ", trimBefore: true });
       items.push({ name: "↵", kind: "дальше", note: "новая строка", insert: true, text: "\n", suffix: "", trimBefore: true });
+    };
+    if (q0.startsWith("@")) {
+      items = traits.filter((t) => t.l).map((t) => ({ name: `@${t.l}`, kind: "ресурс", note: assetOf(t), suffix: "" }));
+    } else if (!tail.trim()) {
+      items.push({ name: "=", kind: "знак", note: "ровно", suffix: "", insert: true });
+      items.push({ name: "", kind: "", note: "введите число, выберите ресурс или закреплённый ресурс", info: true });
+      operands();
+      further();
+    } else if (/[=+\-*/%(]\s*$/.test(tail)) {
+      items.push({ name: "", kind: "", note: /%\s*$/.test(tail) ? "процент от чего: число, ресурс или буква" : "введите число или выберите из списка", info: true });
+      operands();
+    } else {
+      items.push(...[["%", "процент от…"], ["*", "умножить"], ["/", "разделить"], ["+", "прибавить"], ["-", "вычесть"]]
+        .map(([name, note]) => ({ name, kind: "знак", note, suffix: "", insert: true })));
+      further();
     }
   } else if (hint.kind === "cond") {
     (hint.vars || []).forEach((v) => items.push({ name: v, kind: "переменная", suffix: " " }));
@@ -835,7 +871,7 @@ export function procFuncs(proc = {}, model = {}) {
                 ...(s.kind === "take" && s.from?.asset ? { from: s.from.asset.id } : {}),
                 ...(s.kind === "give" && s.to?.hand ? { toHand: s.to.hand } : {}), ...(s.kind === "give" && s.to?.person ? { toPerson: s.to.person } : {}),
                 ...(s.kind === "take" && s.from?.hand ? { fromHand: s.from.hand } : {}), ...(s.kind === "take" && s.from?.person ? { fromPerson: s.from.person } : {}),
-                ...(it.expr ? { expr: toStored(it.expr, traits, letters) } : {}) };
+                ...(it.expr ? { expr: toStored(substVars(it.expr, new Map([...vars].map(([k, d]) => [k, d.qty]))), traits, letters) } : {}) };
             }
             (s.kind === "take" ? takes : gives).push(port);
             ids.push(id);

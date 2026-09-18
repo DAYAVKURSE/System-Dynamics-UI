@@ -227,16 +227,22 @@ describe("роли, статусы, функции", () => {
     const op = screen.getByLabelText("операция: заявки");
     expect(op.value).toBe("2");
     const names = () => within(opList()).getAllByRole("option").map((o) => o.textContent);
+    // После числа — знаки и «дальше», без «=» и «диапазона».
+    expect(names().filter((n) => n.startsWith("знак"))).toEqual(["знак % — процент от…", "знак * — умножить", "знак / — разделить", "знак + — прибавить", "знак - — вычесть"]);
+    // Пустой хвост — «=» (ровно), число, ресурсы схемы, закреплённые.
+    fireEvent.focus(op);
+    fireEvent.change(op, { target: { value: "" } });
+    fireEvent.blur(op);
     expect(names()).toContain("знак = — ровно");
-    // Знак «=» — «ровно»: ставится из списка, без ручного ввода.
+    expect(names()).toContain("ресурс @заявки — Пользователи");
     pickOp(/^знак = — ровно$/);
-    expect(area.value.split("\n")[2]).toBe("Берёт: заявки =2");
-    // После знака — явная просьба: число или пункт из списка (буквы, @ресурс).
+    expect(area.value.split("\n")[2]).toBe("Берёт: заявки =");
+    // После знака — просьба ввести число или выбрать из списка; только операнды.
+    expect(within(menu).getByText(/введите число или выберите из списка/)).toBeInTheDocument();
+    expect(names().every((n) => /^буква|^ресурс|^закреплённый/.test(n))).toBe(true);
     fireEvent.focus(op);
     fireEvent.change(op, { target: { value: "=2 +" } });
     expect(area.value.split("\n")[2]).toBe("Берёт: заявки =2 +");
-    expect(within(menu).getByText(/введите число или выберите из списка/)).toBeInTheDocument();
-    expect(names().every((n) => /^буква|^знак [@(]/.test(n))).toBe(true);
     fireEvent.change(op, { target: { value: "50% A" } });
     fireEvent.blur(op);
     expect(area.value.split("\n")[2]).toBe("Берёт: заявки 50% A");

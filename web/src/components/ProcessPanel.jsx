@@ -396,8 +396,13 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const dangling = /[=+\-*/%(@]\s*$/.test(opDraft);
   const tailAt = res && !resRef ? resStart + (res.tail ? res.tailSpan.end : res.nameSpan.end) : 0;
   const tailHint = res && !resRef ? (res.tail ? hintAt(text, tailAt, model) : hintAt(`${text.slice(0, tailAt)} ${text.slice(tailAt)}`, tailAt + 1, model)) : null;
-  const opItems = (tailHint && tailHint.kind === "qty" ? suggest({ ...tailHint, query: /@[^\s]*$/.test(opDraft) ? opDraft.match(/@[^\s]*$/)[0] : "" }, model, proc) : [])
-    .filter((it) => !it.info && it.kind !== "переменная" && it.kind !== "закрепить" && (!dangling || /@\s*$/.test(opDraft) || it.kind === "буква" || it.name === "@" || it.name === "("));
+  /* Список меню — тот же `suggest` для «сколько», по черновику операции;
+     закреплённые ресурсы — всего процесса. */
+  const opAll = tailHint && tailHint.kind === "qty"
+    ? suggest({ ...tailHint, tailText: opDraft, query: /@[^\s]*$/.test(opDraft) ? opDraft.match(/@[^\s]*$/)[0] : "",
+      ctx: { ...(tailHint.ctx || {}), vars: [...new Set([...(tailHint.ctx?.vars || []), ...procVars])] } }, model, proc) : [];
+  const opItems = opAll.filter((it) => !it.info);
+  const opInfo = opAll.find((it) => it.info)?.note || "можно продолжить: знак или «дальше»";
   /* Плавающее меню (владелец, 2026-09-18): не привязано к полю, перетаскивается
      за шапку; появляется и исчезает вместе с курсором на сущности. Положение
      после перетаскивания помнится, пока открыт процесс. */
@@ -425,9 +430,10 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const opPick = (it) => {
     if (it.kind === "дальше" || it.kind === "переменная" || it.kind === "закрепить") { choose(it, { ...tailHint, at: tailAt, start: tailAt }); return; }
     let next;
+    const sp = opDraft && !/\s$/.test(opDraft) ? " " : "";
     if (it.name === "=") next = opDraft.startsWith("=") ? opDraft : `=${opDraft}`;
-    else if (it.kind === "ресурс") next = opDraft.replace(/@[^\s]*$/, "") + it.name;
-    else if (it.kind === "буква") next = opDraft && !/\s$/.test(opDraft) ? `${opDraft} ${it.name}` : `${opDraft}${it.name}`;
+    else if (it.kind === "ресурс") next = /@[^\s]*$/.test(opDraft) ? opDraft.replace(/@[^\s]*$/, it.name) : `${opDraft}${sp}${it.name}`;
+    else if (it.kind === "буква" || it.kind === "закреплённый") next = `${opDraft}${sp}${it.name}`;
     else next = `${opDraft}${it.name}`;
     setOpDraft(next); rewrite(putOp(next));
   };
@@ -616,14 +622,14 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
               onChange={(e) => opEdit(e.target.value)}
               onBlur={(e) => opDone(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }} />
-            <div style={{ fontSize: 10.5, color: dangling ? WARN : C.muted, lineHeight: 1.35 }}>
-              {dangling ? "введите число или выберите из списка ↓" : "число, диапазон 45-55, буква другого ресурса, «@ресурс»"}</div>
+            <div style={{ fontSize: 10.5, color: dangling || !opDraft.trim() ? WARN : C.muted, lineHeight: 1.35 }}>{opInfo}</div>
             <div role="listbox" aria-label={`операция: варианты`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 5 }}>
               {opItems.map((it) => (
                 <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={false} onClick={() => opPick(it)}
                   style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer" }}>
                   <span style={{ color: C.muted }}>{it.kind} </span>{it.name}{it.note && <span style={{ color: C.muted }}> — {it.note}</span>}</div>))}
               {!opItems.length && <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>введите число</div>}
+              {/* Подписи по смыслу: «ресурс» — со схемы, «закреплённый» — из этого процесса, «буква» — ресурс задачи. */}
             </div>
             </>)}
           </div>)}

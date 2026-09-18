@@ -46,9 +46,25 @@ describe("знак «=», хвост операции и ресурсы без �
   });
 
   it("в списке «сколько» есть знак «=» (ровно); раскраска несёт хвост операции", () => {
+    // Хвост пуст — «=», операнды, «дальше»; после числа — знаки; после знака — только операнды (владелец, 2026-09-18).
+    const empty = suggest(hintAt("Отдаёт: оффер ", 14, model), model);
+    expect(empty.find((i) => i.name === "=")).toMatchObject({ kind: "знак", note: "ровно" });
+    expect(empty.find((i) => i.info).note).toMatch(/число, выберите ресурс или закреплённый/);
+    expect(empty.filter((i) => i.kind === "ресурс").map((i) => i.name)).toContain("@оффер");
     const h = hintAt("Отдаёт: оффер 5", 15, model);
     expect(h.kind).toBe("qty");
-    expect(suggest(h, model).find((i) => i.name === "=")).toMatchObject({ kind: "знак", note: "ровно" });
+    const afterNum = suggest(h, model);
+    expect(afterNum.filter((i) => i.kind === "знак").map((i) => i.name)).toEqual(["%", "*", "/", "+", "-"]);
+    expect(afterNum.some((i) => i.name === "=" || /диапазон/.test(i.note || ""))).toBe(false);
+    const afterOp = suggest(hintAt("Отдаёт: оффер 5 % ", 18, model), model);
+    expect(afterOp.find((i) => i.info).note).toMatch(/процент от чего/);
+    expect(afterOp.some((i) => i.kind === "знак" || i.kind === "дальше")).toBe(false);
+    expect(afterOp.some((i) => i.kind === "ресурс")).toBe(true);
+    // Закреплённый ресурс в операции — его количество.
+    const T3 = "Задача: a\nКто: Владелец\nОтдаёт: оффер 4 (lead)\n\nЗадача: b\nКто: Владелец\nОтдаёт: оффер 50% lead";
+    const items = parseText(T3, model, {}).funcs[0].tasks[1].items;
+    expect(items[0]).toMatchObject({ qty: 2, expr: "50% lead" });
+    expect(items[0].exprError).toBeUndefined();
     const span = paintOf("Кто: Владелец\nОтдаёт: оффер 50% A", model, {})[1].spans.find((k) => k.kind === "trait");
     expect(span).toMatchObject({ name: "оффер", tail: "50% A" });
   });

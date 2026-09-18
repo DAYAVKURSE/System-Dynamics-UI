@@ -171,7 +171,7 @@ export const startsWithMark = (line = "") => TAKE.test(String(line).trim()) || G
    латинская буква). Хвост из одной буквы, которой в строке ещё нет
    («коробки B» при одном ресурсе), — часть имени: ресурс так назвали;
    кириллическая буква — всегда часть имени. */
-const TAIL_START = /^(?:[\d(@=]|[a-zA-Z](?![0-9a-zA-Zа-яА-ЯёЁ]))/;
+const TAIL_START = /^(?:[\d(@=%]|[a-zA-Z](?![0-9a-zA-Zа-яА-ЯёЁ]))/;
 const PLAIN_NUM = /^\d+(?:[.,]\d+)?$/;
 export const splitQty = (text, traits = [], nPrior = 0) => {
   const s = String(text || "").trim();
