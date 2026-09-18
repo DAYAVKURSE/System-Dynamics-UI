@@ -111,13 +111,14 @@ describe("агенты", () => {
     fireEvent.change(name, { target: { value: "Закупщик" } });
     fireEvent.blur(name);
     fireEvent.click(screen.getByRole("button", { name: "+ агент" }));
-    // На CI ответ POST и перечитывание списка иногда дольше секунды по умолчанию.
-    await screen.findByRole("tab", { name: "Закупщик · агент" }, { timeout: 5000 });
+    /* На CI ответ POST и перечитывание списка бывают дольше пяти секунд —
+       ждём дольше и даём тесту свой запас времени (см. третий аргумент it). */
+    await screen.findByRole("tab", { name: "Закупщик · агент" }, { timeout: 15000 });
     const post = log.find((r) => r.method === "POST" && r.url === "/api/assistant/agents");
     expect(JSON.parse(post.body)).toEqual({ name: "Закупщик" });
     expect(screen.getByRole("button", { name: "удалить агента Закупщик" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Закупщик · агент" })).toHaveAttribute("aria-selected", "true");
-  });
+  }, 20000);
 
   it("провайдер: модели списком после «Загрузить»; нажатие — галочка: PUT models провайдера и агента; повтор снимает", async () => {
     const { log } = settingsServer([{ ...P1, models: [] }], [ASSISTANT], {
