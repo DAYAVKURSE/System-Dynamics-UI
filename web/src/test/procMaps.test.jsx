@@ -108,4 +108,59 @@ describe("кнопки под полем", () => {
     // Двигать карту можно: у окна есть слой перетаскивания.
     expect(container.querySelector("[data-pannable]")).not.toBeNull();
   });
+
+  it("блок тянется один: карта под ним стоит на месте (владелец, 2026-09-18)", () => {
+    fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
+    const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    const node = within(dlg).getByLabelText("задача собрать");
+    const box = node.querySelector("rect");
+    const handle = node.querySelector("[data-drag-handle]");
+    const pane = dlg.querySelector("[data-pannable]");
+    const sheet = pane.firstChild;                       // слой, который двигает карту
+    const was = { x: box.getAttribute("x"), y: box.getAttribute("y") };
+    const paneWas = { left: sheet.style.left, top: sheet.style.top };
+
+    fireEvent.touchStart(handle, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(handle, { touches: [{ clientX: 160, clientY: 140 }] });
+    fireEvent.touchEnd(handle, {});
+
+    const moved = node.querySelector("rect");
+    expect(Number(moved.getAttribute("x"))).toBe(Number(was.x) + 60);
+    expect(Number(moved.getAttribute("y"))).toBe(Number(was.y) + 40);
+    expect(sheet.style.left).toBe(paneWas.left);          // карта не уехала следом
+    expect(sheet.style.top).toBe(paneWas.top);
+  });
+
+  it("длинный текст в блоке переносится, а не обрезается (владелец, 2026-09-18)", () => {
+    const area = screen.getAllByLabelText("текст процесса").pop();
+    fireEvent.focus(area);
+    fireEvent.change(area, { target: { value: [
+      "Задача: Передача лида отделу продаж после первичной проверки",
+      "Кто: Пользователи",
+      "Берёт: заявки с посадочной страницы и из телефонных звонков 5",
+    ].join("\n") } });
+    fireEvent.blur(area);
+    fireEvent.click(screen.getAllByRole("button", { name: "майнд-карта процесса" }).pop());
+    const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    const node = within(dlg).getByLabelText(/задача Передача лида/);
+    expect(node.textContent).not.toContain("…");                    // ничего не срезано
+    const name = "Передача лида отделу продаж после первичной проверки";
+    const shown = Array.from(node.querySelectorAll("text")).map((t) => t.textContent);
+    expect(shown.filter((s) => name.includes(s)).join(" ")).toBe(name);   // имя целиком, строками
+    expect(shown.join(" ")).toContain("посадочной страницы");
+    const box = node.querySelector("rect");
+    expect(Number(box.getAttribute("height"))).toBeGreaterThan(72);       // блок вырос под текст
+  });
+
+  it("карта двигается, если тянуть мимо блока", () => {
+    fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
+    const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    const pane = dlg.querySelector("[data-pannable]");
+    const sheet = pane.firstChild;
+    fireEvent.touchStart(pane, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(pane, { touches: [{ clientX: 130, clientY: 120 }] });
+    fireEvent.touchEnd(pane, {});
+    expect(sheet.style.left).toBe("30px");
+    expect(sheet.style.top).toBe("20px");
+  });
 });

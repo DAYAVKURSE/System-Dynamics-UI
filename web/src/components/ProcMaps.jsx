@@ -81,17 +81,21 @@ function Pannable({ label, children, wide = 1200, tall = 700 }) {
   const [at, setAt] = useState({ x: 0, y: 0 });
   const [k, setK] = useState(1);
   const drag = useRef(null);
+  /* Жест, начатый на ручке блока, карту не двигает (владелец, 2026-09-18:
+     «перемещение объекта и перемещение всей карты происходит одновременно»):
+     блок ловит его сам, а окно к нему не прикасается. */
+  const onHandle = (e) => !!(e.target?.closest?.("[data-drag-handle]"));
   const start = (x, y) => { drag.current = { x, y, ax: at.x, ay: at.y }; };
   const move = (x, y) => { if (drag.current) setAt({ x: drag.current.ax + (x - drag.current.x), y: drag.current.ay + (y - drag.current.y) }); };
   const stop = () => { drag.current = null; };
   return (
     <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
       <div aria-label={label} data-pannable=""
-        onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); start(e.clientX, e.clientY); }}
+        onPointerDown={(e) => { if (onHandle(e)) return; e.currentTarget.setPointerCapture?.(e.pointerId); start(e.clientX, e.clientY); }}
         onPointerMove={(e) => move(e.clientX, e.clientY)} onPointerUp={stop} onPointerCancel={stop}
-        onTouchStart={(e) => { const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }}
-        onTouchMove={(e) => { const t = e.touches[0]; if (t) { e.preventDefault(); move(t.clientX, t.clientY); } }}
-        onTouchEnd={stop}
+        onTouchStart={(e) => { if (onHandle(e)) return; const t = e.touches[0]; if (t) start(t.clientX, t.clientY); }}
+        onTouchMove={(e) => { if (!drag.current) return; const t = e.touches[0]; if (t) { e.preventDefault(); move(t.clientX, t.clientY); } }}
+        onTouchEnd={stop} onTouchCancel={stop}
         style={{ position: "absolute", inset: 0, overflow: "hidden", touchAction: "none",
           background: C.ink, border: `1px solid ${C.line}`, borderRadius: 8, cursor: drag.current ? "grabbing" : "grab" }}>
         <div style={{ position: "absolute", left: at.x, top: at.y, width: wide, height: tall,
@@ -170,20 +174,25 @@ const keyOf = (w) => (w ? (w.person || w.hand || w.name || "") : "");
 
 /** Майнд-карта: блоки задач, люди под ними, ресурсы и взаимодействия стрелками. */
 function MindMap({ plan }) {
-  const W = 280, GAPX = 110, GAPY = 90;
+  const W = 280, GAPX = 110, GAPY = 50;   // GAPY — поверх места под именем исполнителя
   /* Строки блока — что берёт и что отдаёт, с количеством, закреплённым
      именем и второй стороной. Пустых разделов нет (владелец, 2026-09-18). */
+  /* Перенос по словам: текст в блоке не обрезается многоточием, а
+     переносится (владелец, 2026-09-18), блок растёт под него. Слово длиннее
+     строки рвётся по месту — иначе оно вылезет за рамку. */
   const wrap = (s0, max = 40) => {
-    const words = String(s0).split(" ");
     const out = [];
     let cur = "";
-    words.forEach((w) => {
+    const put = () => { if (cur) { out.push(cur); cur = ""; } };
+    String(s0).split(" ").filter(Boolean).forEach((w0) => {
+      let w = w0;
+      while (w.length > max) { put(); out.push(`${w.slice(0, max - 1)}-`); w = w.slice(max - 1); }
       if (!cur) cur = w;
       else if (`${cur} ${w}`.length <= max) cur += ` ${w}`;
-      else { out.push(cur); cur = w; }
+      else { put(); cur = w; }
     });
-    if (cur) out.push(cur);
-    return out.slice(0, 2).map((x, i) => (i === 1 && out.length > 2 ? `${x}…` : x));
+    put();
+    return out;
   };
   const withRows = plan.map((t) => {
     const rows = [];
@@ -195,15 +204,24 @@ function MindMap({ plan }) {
     };
     t.takes.forEach((p) => side(p, "take"));
     t.gives.forEach((p) => side(p, "give"));
-    const head = 24 + (t.cond ? 14 : 0);
+    const nameLines = wrap(t.name || "задача", 30);
+    const condLines = t.cond ? wrap(t.isElse ? "иначе" : `если ${t.cond}`, 42) : [];
+    const d = doerOf(t);
+    const doerLines = d ? wrap(d.person || d.hand || d.name || "не назван", 30) : [];
+    const doerSub = d && d.hand && d.name ? wrap(d.name, 32) : [];
+    const head = 24 + (nameLines.length - 1) * 14 + condLines.length * 13;
     const h = Math.max(72, head + rows.length * 15 + (t.checks.length ? 16 : 0) + 14);
-    return { ...t, rows, head, h };
+    const below = 40 + (doerLines.length - 1) * 11 + doerSub.length * 11;   // человечек с именем под блоком
+    return { ...t, rows, nameLines, condLines, doerLines, doerSub, head, h, below };
   });
   let y0 = 24;
   const base = withRows.map((t, i) => {
     const col = i % 2;
     const node = { ...t, x: 20 + col * (W + GAPX), y: y0 };
-    if (col === 1 || i === withRows.length - 1) y0 += Math.max(t.h, withRows[i - 1]?.h || 0) + GAPY;
+    if (col === 1 || i === withRows.length - 1) {
+      const prev = withRows[i - 1];
+      y0 += Math.max(t.h + t.below, col === 1 && prev ? prev.h + prev.below : 0) + GAPY;
+    }
     return node;
   });
   /* Блоки двигаются перетаскиванием (владелец, 2026-09-18); положение
@@ -212,20 +230,40 @@ function MindMap({ plan }) {
   const drag = useRef(null);
   const nodes = base.map((n) => ({ ...n, x: moved[n.key]?.x ?? n.x, y: moved[n.key]?.y ?? n.y }));
   const at = (k) => nodes.find((n) => n.key === k);
+  /* Тянут блок — тянется только он: жест гасится, чтобы окно карты его не
+     подхватило (владелец, 2026-09-18). Положение считается от начала жеста,
+     поэтому пришедшее и касанием, и указателем движение даёт одно и то же. */
+  const grab = (key, x, y, n) => { drag.current = { key, x, y, ox: n.x, oy: n.y }; };
+  const drift = (x, y) => {
+    const d = drag.current;
+    if (!d) return;
+    setMoved((m) => ({ ...m, [d.key]: { x: Math.max(0, d.ox + (x - d.x)), y: Math.max(0, d.oy + (y - d.y)) } }));
+  };
   const down = (e, n) => {
     e.stopPropagation();
-    drag.current = { key: n.key, x: e.clientX, y: e.clientY, ox: n.x, oy: n.y };
+    grab(n.key, e.clientX, e.clientY, n);
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const move = (e) => {
     if (!drag.current) return;
     e.stopPropagation();
-    const d = drag.current;
-    setMoved((m) => ({ ...m, [d.key]: { x: Math.max(0, d.ox + (e.clientX - d.x)), y: Math.max(0, d.oy + (e.clientY - d.y)) } }));
+    drift(e.clientX, e.clientY);
+  };
+  const touchDown = (e, n) => {
+    const t = e.touches[0];
+    if (!t) return;
+    e.stopPropagation();
+    grab(n.key, t.clientX, t.clientY, n);
+  };
+  const touchMove = (e) => {
+    if (!drag.current) return;
+    e.stopPropagation();
+    const t = e.touches[0];
+    if (t) drift(t.clientX, t.clientY);
   };
   const up = () => { drag.current = null; };
   const width = Math.max(600, Math.max(...nodes.map((n) => n.x + W), 0) + 40, 40 + people0(plan).length * 170);
-  const height = Math.max(300, Math.max(...nodes.map((n) => n.y + n.h + 52), 0) + 20);
+  const height = Math.max(300, Math.max(...nodes.map((n) => n.y + n.h + n.below + 12), 0) + 20);
 
   /* Стрелки ресурсов: выданное одной задачей взято другой — по закреплённому
      имени или по имени ресурса. */
@@ -267,10 +305,11 @@ function MindMap({ plan }) {
   const laneY = height + 8;
   const px = (i) => 40 + i * 170;
 
-  const line = (txt, max = 30) => (String(txt).length > max ? `${String(txt).slice(0, max - 1)}…` : String(txt));
+  /* Полоса людей тоже растёт под перенесённые имена. */
+  const laneTall = 46 + Math.max(0, ...people.map((p) => (wrap(p.name, 20).length - 1) * 11 + wrap(p.post || "", 22).length * 10));
   return (
-    <Pannable label="майнд-карта процесса" wide={width} tall={laneY + 60}>
-      <svg width={width} height={laneY + 60} style={{ display: "block" }}
+    <Pannable label="майнд-карта процесса" wide={width} tall={laneY + laneTall}>
+      <svg width={width} height={laneY + laneTall} style={{ display: "block" }}
         onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         <defs><marker id="pm-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
           <path d="M0,0 L7,3 L0,6 z" fill={ACC} /></marker>
@@ -286,8 +325,9 @@ function MindMap({ plan }) {
             <g key={`l${i}`}>
               <path d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} fill="none" stroke={l.color}
                 strokeWidth="1.6" strokeDasharray={l.or ? "5 4" : undefined} markerEnd="url(#pm-arrow)" />
-              <text x={mx} y={(y1 + y2) / 2 - 5} textAnchor="middle" fill={C.text} fontSize="10">
-                {l.or ? "или · " : ""}{line(l.text, 34)}</text>
+              {wrap(`${l.or ? "или · " : ""}${l.text}`, 34).map((s1, j, all) => (
+                <text key={j} x={mx} y={(y1 + y2) / 2 - 5 - (all.length - 1 - j) * 11} textAnchor="middle"
+                  fill={C.text} fontSize="10">{s1}</text>))}
             </g>);
         })}
 
@@ -301,10 +341,15 @@ function MindMap({ plan }) {
               <rect x={t.x} y={t.y} width={W} height={t.h} rx="10" fill={C.panel2} stroke={C.line} />
               <rect x={t.x} y={t.y} width="5" height={t.h} rx="2" fill={col} />
               {/* Шапка — ручка для перетаскивания. */}
-              <rect x={t.x + 5} y={t.y} width={W - 5} height="26" rx="8" fill="transparent"
-                style={{ cursor: "grab", touchAction: "none" }} onPointerDown={(e) => down(e, t)} />
-              <text x={t.x + 14} y={t.y + 18} fill={C.text} fontSize="12" fontWeight="700" style={{ pointerEvents: "none" }}>{line(t.name, 28)}</text>
-              {t.cond && (<text x={t.x + 14} y={t.y + 34} fill={WARN} fontSize="9.5">{t.isElse ? "иначе" : `если ${line(t.cond, 26)}`}</text>)}
+              <rect x={t.x + 5} y={t.y} width={W - 5} height={26 + (t.nameLines.length - 1) * 14} rx="8" fill="transparent" data-drag-handle=""
+                style={{ cursor: "grab", touchAction: "none" }} onPointerDown={(e) => down(e, t)}
+                onTouchStart={(e) => touchDown(e, t)} onTouchMove={touchMove} onTouchEnd={up} onTouchCancel={up} />
+              {t.nameLines.map((s1, i) => (
+                <text key={`n${i}`} x={t.x + 14} y={t.y + 18 + i * 14} fill={C.text} fontSize="12" fontWeight="700"
+                  style={{ pointerEvents: "none" }}>{s1}</text>))}
+              {t.condLines.map((s1, i) => (
+                <text key={`c${i}`} x={t.x + 14} y={t.y + 18 + (t.nameLines.length - 1) * 14 + 14 + i * 12}
+                  fill={WARN} fontSize="9.5">{s1}</text>))}
               {rows.map((r, i) => (
                 <text key={i} x={t.x + (r.sub ? 24 : 14)} y={t.y + t.head + 14 + i * 15} fill={r.c} fontSize="10">{r.s}</text>))}
               {!rows.length && <text x={t.x + 14} y={t.y + t.head + 14} fill={C.muted} fontSize="10">ресурсы не названы</text>}
@@ -315,8 +360,11 @@ function MindMap({ plan }) {
                 <g aria-label={`исполнитель ${keyOf(d) || "не назван"}`}>
                   <circle cx={t.x + 18} cy={t.y + t.h + 16} r="7" fill={col} />
                   <path d={`M${t.x + 8},${t.y + t.h + 34} a10,10 0 0 1 20,0`} fill={col} opacity="0.75" />
-                  <text x={t.x + 34} y={t.y + t.h + 22} fill={C.text} fontSize="10.5">{line(d.person || d.hand || d.name || "не назван", 26)}</text>
-                  {d.hand && d.name && (<text x={t.x + 34} y={t.y + t.h + 33} fill={C.muted} fontSize="9">{line(d.name, 28)}</text>)}
+                  {t.doerLines.map((s1, i) => (
+                    <text key={`d${i}`} x={t.x + 34} y={t.y + t.h + 22 + i * 11} fill={C.text} fontSize="10.5">{s1}</text>))}
+                  {t.doerSub.map((s1, i) => (
+                    <text key={`ds${i}`} x={t.x + 34} y={t.y + t.h + 22 + t.doerLines.length * 11 + i * 11}
+                      fill={C.muted} fontSize="9">{s1}</text>))}
                 </g>)}
             </g>);
         })}
@@ -339,8 +387,11 @@ function MindMap({ plan }) {
               <g key={p.key} aria-label={`человек ${p.name}`}>
                 <circle cx={px(i) + 10} cy={laneY} r="8" fill={colorOf(p.key)} />
                 <path d={`M${px(i)},${laneY + 20} a10,10 0 0 1 20,0`} fill={colorOf(p.key)} opacity="0.75" />
-                <text x={px(i) + 24} y={laneY + 2} fill={C.text} fontSize="10.5">{line(p.name, 16)}</text>
-                {p.post && <text x={px(i) + 24} y={laneY + 14} fill={C.muted} fontSize="9">{line(p.post, 18)}</text>}
+                {wrap(p.name, 20).map((s1, j) => (
+                  <text key={`p${j}`} x={px(i) + 24} y={laneY + 2 + j * 11} fill={C.text} fontSize="10.5">{s1}</text>))}
+                {wrap(p.post || "", 22).map((s1, j) => (
+                  <text key={`q${j}`} x={px(i) + 24} y={laneY + 2 + wrap(p.name, 20).length * 11 + j * 10}
+                    fill={C.muted} fontSize="9">{s1}</text>))}
               </g>))}
           </g>)}
         {!nodes.length && <text x="16" y="30" fill={C.muted} fontSize="12">В процессе ещё нет задач.</text>}
