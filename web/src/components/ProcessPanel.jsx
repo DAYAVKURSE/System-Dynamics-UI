@@ -33,8 +33,7 @@ const STATUS_TONE = { off: null, hypo: WARN, on: OK };
 const DARK = "#0E1420";
 const PURPLE = "#C9A0FF";
 const ROLE_COLOR = { setter: WARN, doer: ACC, checker: OK };
-const HAND_COLORS = ["#F78CB2", "#B4F78C", "#8CD4F7", "#F7D68C", "#C98CF7", "#8CF7E0", "#F7A98C"];
-export const handColor = (h) => HAND_COLORS[(String(h || "A").toUpperCase().charCodeAt(0) - 65 + 7 * 26) % HAND_COLORS.length];
+import { handColor } from "../lib/hands.js";
 const SIDE = { take: ACC, give: OK };
 const LINE_H = 1.9;
 
