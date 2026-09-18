@@ -83,6 +83,17 @@ function Bracket({ side, children }) {
    операция на строках без курсора — значком «ƒ» той же ширины (владелец,
    2026-09-18: «в поле — значок, при нажатии видна вся операция»). */
 const SIMPLE_TAIL = /^=?\s*\d+(?:[.,]\d+)?(?:\s*-\s*\d+(?:[.,]\d+)?)?$/;
+/* Пропущенное значение — знак «?» (владелец, 2026-09-18): у ресурса без
+   количества, у метки без значения. Якорь нулевой ширины, чтобы подложка
+   не разъезжалась с текстом. */
+function Missing({ what }) {
+  return (
+    <span data-missing={what} title={what === "qty" ? "сколько — не указано (считается 1)" : "значение не указано"}
+      style={{ display: "inline-block", width: 0, position: "relative", verticalAlign: "text-bottom", height: "1em", overflow: "visible" }}>
+      <span aria-hidden="true" style={{ position: "absolute", left: 1, top: "-0.75em", fontSize: 9, lineHeight: "12px", width: 12, height: 12,
+        borderRadius: 6, background: WARN, color: DARK, textAlign: "center", fontWeight: 700 }}>?</span>
+    </span>);
+}
 function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = -1, backRef = null }) {
   const lines = String(text || "").split("\n");
   const byRow = new Map(paint.map((r) => [r.row, r]));
@@ -108,7 +119,7 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
           <span style={{ color: "transparent" }}>{raw.slice(0, vr.a)}</span>
           <span data-var={k.varName} style={spanStyle(k)}>{raw.slice(vr.a, vr.b)}</span>
           <span style={{ color: "transparent" }}>{raw.slice(vr.b)}</span>
-        </>) : op ? (<>
+        </>) : k.kind === "trait" && !k.tail && k.name ? (<>{raw}<Missing what="qty" /></>) : op ? (<>
           {raw.slice(0, op.a)}
           <span data-op={k.tail} title={`операция: ${k.tail}`} style={{ position: "relative", display: "inline-block" }}>
             <span style={{ color: "transparent" }}>{raw.slice(op.a, op.b)}</span>
@@ -119,6 +130,7 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
           <span style={spanStyle(k)}>{inner}</span>
           {wrap[1] ? <span style={{ color: "transparent" }}>{raw.slice(raw.length - wrap[1])}</span> : null}
         </>) : raw}</span>);
+      if (k.kind === "mark" && k.label !== "else" && !ln.slice(k.end).trim()) out.push(<Missing key={`${key}q${j}`} what="value" />);
       at = k.end;
     });
     if (to > at) out.push(<span key={`${key}r`}>{ln.slice(at, to)}</span>);

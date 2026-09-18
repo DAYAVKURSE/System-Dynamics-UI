@@ -121,6 +121,20 @@ describe("несколько «Кому:» (владелец, 2026-09-18)", () =
   });
 });
 
+describe("«Если:» — знаки сравнения (владелец, 2026-09-18)", () => {
+  it("после переменной предлагаются = > < ≥ ≤ ≠; после знака — просьба ввести число или переменную", () => {
+    const T2 = "Задача: a\nКто: Владелец\nОтдаёт: оффер 2 (lead)\n\nЗадача: b\nЕсли: lead ";
+    const items = suggest(hintAt(T2, T2.length, model), model);
+    expect(items.filter((i) => i.kind === "знак").map((i) => i.name)).toEqual(["=", ">", "<", "≥", "≤", "≠", "И", "ИЛИ", "!"]);
+    expect(items.find((i) => i.name === ">")).toMatchObject({ note: "больше", suffix: " ", insert: true });
+    const after = hintAt(`${T2}> `, T2.length + 2, model);
+    expect(after).toMatchObject({ kind: "cond", query: "", afterOp: true });
+    const items2 = suggest(after, model);
+    expect(items2.find((i) => i.info).note).toMatch(/число или выберите переменную/);
+    expect(items2.some((i) => i.kind === "знак")).toBe(false);
+  });
+});
+
 describe("разбор", () => {
   it("метки строк: функция, задача, кто, берёт/отдаёт (и множественное число), кому", () => {
     expect(labelOf("Кто: Владелец")).toMatchObject({ kind: "who", rest: { text: "Владелец", start: 5 } });

@@ -499,7 +499,7 @@ export const HINT = {
   qty: "сколько — число, диапазон 45-55, доля другого ресурса «50% A», «20% @ресурс»",
   to: "кому — должность или актив",
   from: "от кого — должность или актив",
-  cond: "условие — переменные и флаги: «время B И !флаг C», в конце «, То:»",
+  cond: "условие — переменные, флаги, сравнения: «время B > 5 И !флаг C», в конце «, То:»",
   name: "название",
 };
 
@@ -540,7 +540,8 @@ export function hintAt(text = "", at = 0, model = {}) {
     const lead = sub.length - sub.trimStart().length;
     return { kind: lab.kind === "who" ? "who" : lab.kind, start: restStart + cut + 1 + lead, query: sub.trim(), ctx, label: lab.kind };
   }
-  if (lab.kind === "if") return { kind: "cond", start: restStart + rest.length - (rest.match(/[^\s,И!()]*$/) || [""])[0].length, query: (rest.match(/[^\s,И!()]*$/) || [""])[0], ctx, vars: ctx.vars };
+  if (lab.kind === "if") return { kind: "cond", start: restStart + rest.length - (rest.match(/[^\s,И!()=<>≠≥≤]*$/) || [""])[0].length, query: (rest.match(/[^\s,И!()=<>≠≥≤]*$/) || [""])[0], ctx, vars: ctx.vars,
+    afterOp: /[=<>≠≥≤]\s*$/.test(rest) };
   if (lab.kind === "else") return { kind: "label", start: at, query: "", ctx };
   // take / give / or: ресурс у курсора.
   const parts = splitItems(rest, 0);
@@ -673,8 +674,15 @@ export function suggest(hint, model = {}, proc = {}) {
     }
   } else if (hint.kind === "cond") {
     (hint.vars || []).forEach((v) => items.push({ name: v, kind: "переменная", suffix: " " }));
-    items.push({ name: "И", kind: "знак", suffix: " ", insert: true, text: "И" }, { name: "ИЛИ", kind: "знак", suffix: " ", insert: true, text: "ИЛИ" },
-      { name: "!", kind: "знак", note: "не", suffix: "", insert: true, text: "!" }, { name: ", То:", kind: "дальше", suffix: "\n", insert: true, text: ", То:", trimBefore: true });
+    if (hint.afterOp) {
+      // После знака сравнения — число или переменная (владелец, 2026-09-18: «нет операторов равно, больше, меньше»).
+      items.push({ name: "", kind: "", note: "введите число или выберите переменную", info: true });
+    } else {
+      items.push(...[["=", "равно"], [">", "больше"], ["<", "меньше"], ["≥", "не меньше"], ["≤", "не больше"], ["≠", "не равно"]]
+        .map(([name, note]) => ({ name, kind: "знак", note, suffix: " ", insert: true, text: name, trimBefore: false })));
+      items.push({ name: "И", kind: "знак", suffix: " ", insert: true, text: "И" }, { name: "ИЛИ", kind: "знак", suffix: " ", insert: true, text: "ИЛИ" },
+        { name: "!", kind: "знак", note: "не", suffix: "", insert: true, text: "!" }, { name: ", То:", kind: "дальше", suffix: "\n", insert: true, text: ", То:", trimBefore: true });
+    }
   } else if (hint.kind === "name") {
     items.push({ name: "↵", kind: "дальше", note: hint.label === "func" ? "новая строка: Задача:" : "новая строка: Кто:", insert: true,
       text: `\n${LABEL_TEXT[hint.label === "func" ? "task" : "who"]}`, suffix: " ", trimBefore: true });

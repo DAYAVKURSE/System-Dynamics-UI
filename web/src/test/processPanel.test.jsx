@@ -189,6 +189,14 @@ describe("роли, статусы, функции", () => {
     expect(area.value.split("\n")[1]).toBe("Кто: Пользователи ✎");
   });
 
+  it("пропущенные значения помечены «?»: ресурс без количества, метка без значения (владелец, 2026-09-18)", () => {
+    const area = addProc();
+    write(area, "Задача: лид\nКто:\nБерёт: заявки\nОтдаёт: заявки 2");
+    const marks = Array.from(container.querySelectorAll("[data-proc-backdrop] [data-missing]")).map((e) => e.dataset.missing);
+    expect(marks).toEqual(["value", "qty"]);
+    expect(container.querySelector("[data-proc-backdrop] [data-missing=qty]").closest("[data-kind=trait]").textContent).toBe("заявки?");
+  });
+
   it("курсор на ресурсе открывает меню ресурса: поле операции, знак «=», просьба ввести число; в поле операция — значком (владелец, 2026-09-18)", async () => {
     const area = addProc();
     write(area, TEXT);
