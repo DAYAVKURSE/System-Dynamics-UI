@@ -68,11 +68,22 @@ export function procPlan(text = "", model = {}, proc = {}) {
   return out;
 }
 
+const doerOf = (t) => t.who.find((w) => w.roles.includes("doer")) || t.who[0] || null;
+const keyOf = (w) => (w ? (w.person || w.hand || w.name || "") : "");
+
+/** Кто это: ДОЛЖНОСТЬ, а закреплённое имя — в скобках (владелец, 2026-09-18). */
+export const whoText = (w) => {
+  const post = w?.name || "";
+  const pin = w?.person || w?.hand || "";
+  if (post && pin) return `${post} (${pin})`;
+  return post || (pin ? `(${pin})` : "должность не названа");
+};
+
 /** Строки «берёт/отдаёт» задачи — одни и те же в обеих картах. */
 export function taskLines(t) {
   const out = [];
   const side = (p, kind) => {
-    const party = (p.party || []).map((x) => x.person || x.hand || x.name).filter(Boolean).join(", ");
+    const party = (p.party || []).map(whoText).filter(Boolean).join(", ");
     const head = kind === "take" ? (p.or ? "или берёт" : "берёт") : (p.or ? "или отдаёт" : "отдаёт");
     const tail = party ? (kind === "take" ? ` от ${party}` : ` → ${party}`) : "";
     out.push({ kind, text: `${head}: ${portText(p)}${tail}` });
@@ -151,19 +162,62 @@ function Pannable({ label, children, wide = 1200, tall = 700, view, onView, onRe
     </div>);
 }
 
+/* ─── Что с чем идёт одновременно (владелец, 2026-09-18) ───
+
+   Раньше таймлайн просто складывал сроки в цепочку: каждая следующая задача
+   начиналась после предыдущей, даже если она не ждёт от неё ничего и делает
+   её другой человек. Это врало о сроке процесса.
+
+   Задача ждёт ДВУХ вещей: ресурса («Берёт:» того, что другая задача
+   «Отдаёт:» — по закреплённому имени или по имени ресурса) и своего
+   исполнителя (один человек не делает два дела разом). Всё остальное идёт
+   одновременно. Ветки одного условия — «Если:» и «Иначе:» — друг друга не
+   ждут даже у одного исполнителя: случится только одна из них. */
+function withGroups(plan) {
+  let gid = 0, open = false, cur = null;
+  return plan.map((t) => {
+    const branch = t.cond != null || t.isElse;
+    if (!branch) { open = false; cur = null; return { ...t, group: null, side: null }; }
+    if (!open || (t.cond != null && cur != null && t.cond !== cur)) { gid += 1; open = true; cur = t.cond ?? cur; }
+    if (t.cond != null) cur = t.cond;
+    return { ...t, group: gid, side: t.isElse ? "else" : "if" };
+  });
+}
+export function schedulePlan(plan) {
+  const rows = withGroups(plan);
+  const feeds = (p, t) => (p.gives || []).some((g) => (t.takes || []).some((k) => (
+    (g.varName && k.varName === g.varName) || (!g.varName && !k.varName && g.name && g.name === k.name))));
+  const alt = (a, b) => a.group != null && a.group === b.group && a.side !== b.side;
+  const sameDoer = (a, b) => { const x = keyOf(doerOf(a)), y = keyOf(doerOf(b)); return !!x && x === y; };
+  const start = [], end = [];
+  rows.forEach((t, i) => {
+    let s = 0;
+    rows.forEach((p, j) => {
+      if (j >= i) return;
+      if (feeds(p, t)) s = Math.max(s, end[j] + p.gapHi);          // ждём выданный ресурс
+      else if (sameDoer(p, t) && !alt(p, t)) s = Math.max(s, end[j]);   // тот же человек — по очереди
+    });
+    start[i] = s; end[i] = s + t.hi;
+  });
+  return rows.map((t, i) => ({
+    ...t, start: start[i], end: end[i],
+    along: rows.filter((o, j) => j !== i && start[j] < end[i] && start[i] < end[j]).map((o) => o.name),
+  }));
+}
+
 /** Таймлайн: полосы задач по времени, паузы между попытками. */
 function Timeline({ plan }) {
-  const total = plan.reduce((n, t) => n + t.hi + t.gapHi, 0) || 1;
+  const timed = schedulePlan(plan);
+  const total = timed.reduce((n, t) => Math.max(n, t.end + t.gapHi), 0) || 1;   // сколько идёт процесс целиком
   const u = unitOf(total);
   const PX = Math.min(90, Math.max(16, 900 / (total / HOURS[u] || 1)));   // пикселей на единицу
-  let at = 0;
-  const rows = plan.map((t) => {
-    const x = (at / HOURS[u]) * PX;
-    const w = Math.max(96, (t.hi / HOURS[u]) * PX);   // имя задачи должно читаться
-    const gapW = (t.gapHi / HOURS[u]) * PX;
-    at += t.hi + t.gapHi;
-    return { ...t, x, w, gapW, lines: taskLines(t) };
-  });
+  const rows = timed.map((t) => ({
+    ...t,
+    x: (t.start / HOURS[u]) * PX,
+    w: Math.max(96, (t.hi / HOURS[u]) * PX),   // имя задачи должно читаться
+    gapW: (t.gapHi / HOURS[u]) * PX,
+    lines: taskLines(t),
+  }));
   /* Нажатие раскрывает задачу целиком (владелец, 2026-09-18): в полосе имя
      не помещается — её ширина означает срок, поэтому полный текст с
      переносом показывается карточкой под полосой. */
@@ -176,6 +230,10 @@ function Timeline({ plan }) {
   for (let i = 0; i * HOURS[u] <= total + HOURS[u]; i += 1) marks.push(i);
   const dur = (t) => `${inUnit(t.lo, u) === inUnit(t.hi, u) ? `${nm(inUnit(t.hi, u))} ${u}` : `${nm(inUnit(t.lo, u))}–${nm(inUnit(t.hi, u))} ${u}`}`
     + `${t.gapHi > 0 ? ` · пауза ${nm(inUnit(t.gapHi, u))} ${u}` : ""}${t.par > 1 ? ` · по ${t.par} разом` : ""}`;
+  /* Видно, что идёт разом и что — ветка условия (владелец, 2026-09-18). */
+  const note = (t) => [t.start > 0 ? `с ${nm(inUnit(t.start, u))} ${u}` : "с начала",
+    t.along.length ? `разом с: ${t.along.join(", ")}` : "",
+    t.cond != null ? `ветка «если ${t.cond}»` : t.isElse ? "ветка «иначе»" : ""].filter(Boolean).join(" · ");
   return (
     <Pannable label="таймлайн процесса" wide={width} tall={tall}>
       <div style={{ position: "relative", width, minHeight: tall, fontSize: 11 }}>
@@ -194,7 +252,9 @@ function Timeline({ plan }) {
                   textOverflow: "ellipsis", boxSizing: "border-box", lineHeight: "17px", textAlign: "left",
                   font: "inherit", cursor: "pointer", display: "block" }}>
                 {t.name}</button>
-              <div style={{ color: C.muted, fontSize: 9.5, marginTop: 1, whiteSpace: "nowrap" }}>{dur(t)}</div>
+              <div style={{ color: C.muted, fontSize: 9.5, marginTop: 1, whiteSpace: "nowrap" }}>
+                {dur(t)}{t.along.length ? " · ∥ разом" : ""}
+                {t.cond != null ? ` · если ${t.cond}` : t.isElse ? " · иначе" : ""}</div>
               {open[t.key] && (
                 <div aria-label={`задача ${t.name} целиком`}
                   style={{ marginTop: 4, maxWidth: 320, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
@@ -203,9 +263,7 @@ function Timeline({ plan }) {
                   <div style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{t.name}</div>
                   {t.cond && <div style={{ color: WARN, fontSize: 10 }}>{t.isElse ? "иначе" : `если ${t.cond}`}</div>}
                   {t.who.map((w, j) => (
-                    <div key={`w${j}`} style={{ color: C.text, fontSize: 10.5, marginTop: 2 }}>
-                      кто: {w.person || w.hand || w.name || "не назван"}{w.asset ? ` · ${w.asset}` : ""}
-                      {w.roles.length ? ` · ${w.roles.join(", ")}` : ""}</div>))}
+                    <div key={`w${j}`} style={{ color: C.text, fontSize: 10.5, marginTop: 2 }}>кто: {whoText(w)}</div>))}
                   {t.lines.map((r, j) => (
                     <div key={`r${j}`} style={{ color: r.kind === "take" ? OK : WARN, fontSize: 10.5, marginTop: 2 }}>{r.text}</div>))}
                   {!t.lines.length && <div style={{ color: C.muted, fontSize: 10.5, marginTop: 2 }}>ресурсы не названы</div>}
@@ -216,6 +274,7 @@ function Timeline({ plan }) {
                         <div key={`c${j}`} style={{ color: C.text, fontSize: 10.5 }}>• {c}</div>))}
                     </div>)}
                   <div style={{ color: C.muted, fontSize: 10, marginTop: 4 }}>{dur(t)}</div>
+                  <div style={{ color: C.muted, fontSize: 10 }}>{note(t)}</div>
                 </div>)}
               {t.gapW > 1 && (
                 <div style={{ position: "absolute", left: t.w, top: 4, width: t.gapW, height: 12,
@@ -240,8 +299,6 @@ function people0(plan) {
 }
 
 /* Кто ведёт задачу: первый исполнитель, иначе первый участник. */
-const doerOf = (t) => t.who.find((w) => w.roles.includes("doer")) || t.who[0] || null;
-const keyOf = (w) => (w ? (w.person || w.hand || w.name || "") : "");
 
 /** Майнд-карта: блоки задач, люди под ними, ресурсы и взаимодействия стрелками. */
 function MindMap({ plan, layout = {}, onLayout }) {
