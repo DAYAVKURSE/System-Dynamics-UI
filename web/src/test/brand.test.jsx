@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import React from "react";
 
 /* ШАПКА (владелец, 2026-09-19).
 
@@ -92,12 +93,11 @@ describe("стрелки схемы", () => {
 
 export { straight };
 
-/* ЗНАК НА ФОРМЕ ПОСТАНОВКИ (владелец, 2026-09-19): «поставь этот логотип
-   слева от названия» — речь была про форму постановки задачи. */
-describe("знак на форме задачи", () => {
-  it("стоит слева от названия", async () => {
+/* Логотип — ТОЛЬКО в шапке (владелец, 2026-09-19: «нигде больше логотипа
+   не должно быть, кроме шапки»). */
+describe("логотип только в шапке", () => {
+  it("на форме постановки задачи знака нет", async () => {
     const { TaskSetup, newTask } = await import("../components/TasksBoard.jsx");
-    const React = (await import("react")).default;
     const FUNCS = [{ id: "f1", e: "e1", name: "Ф", dur: 1, durUnit: "ч",
       takes: [], gives: [], owners: ["1"] }];
     const Host = () => {
@@ -106,10 +106,8 @@ describe("знак на форме задачи", () => {
         entities={[{ id: "e1", name: "Актив" }]} traits={[]}
         setTasks={setTasks} people={[]} nameOf={(id) => id} />);
     };
-    render(<Host />);
-    const mark = screen.getByLabelText("знак задачи");
-    const title = screen.getByDisplayValue("Задача");
-    expect(mark.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(mark.closest("div")).toBe(title.closest("div"));
+    const { container } = render(<Host />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.queryByLabelText("знак задачи")).toBeNull();
   });
 });
