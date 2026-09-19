@@ -489,24 +489,45 @@ describe("описание процесса и меню функции (влад
     expect(screen.getByLabelText(/^описание процесса/).value).toBe("Передаём лид партнёру и ждём подтверждения");
   });
 
-  it("одинарное нажатие на «Функция:» открывает меню с ожидаемым результатом", async () => {
+  it("у каждой функции своё название, своё поле и свой ожидаемый результат", async () => {
     const area = addProc();
-    write(area, "Функция: Приём заявок\nЗадача: Принять\nКто: Пользователи\nБерёт: заявки 1");
-    // Просмотр: курсор на строку функции.
-    view(area);
-    fireEvent.click(area, { target: { selectionStart: area.value.indexOf("Приём") } });
-    const menu = container.querySelector("[data-func-menu]");
-    expect(menu).not.toBeNull();
-    expect(menu.textContent).not.toContain("критерии");   // критериев у функции нет
-    fireEvent.click(within(menu).getByRole("button", { name: /ожидаемый результат/ }));
-    fireEvent.change(within(menu).getByLabelText("ожидаемый результат функции"), { target: { value: "лид передан в продажи" } });
-    fireEvent.blur(within(menu).getByLabelText("ожидаемый результат функции"));
-    await waitFor(() => expect(screen.getByLabelText("текст процесса").value).toMatch(/Результат: лид передан в продажи/));
-    // Строка встала под «Функция:», до задачи.
-    const rows = screen.getByLabelText("текст процесса").value.split("\n").map((r) => r.trim());
-    expect(rows[0]).toBe("Функция: Приём заявок");
-    expect(rows[1]).toBe("Результат: лид передан в продажи");
-    expect(rows[2]).toBe("Задача: Принять");
+    write(area, "Задача: Принять\nКто: Пользователи\nБерёт: заявки 1");
+    // Имя функции правится в шапке, а не строкой в тексте.
+    const head = container.querySelector("[data-func-head]");
+    const name = head.querySelector("[data-func-name]");
+    expect(name.textContent).toBe("без названия");
+    fireEvent.click(name); fireEvent.click(name);
+    fireEvent.change(screen.getByLabelText("название функции процесса"), { target: { value: "Приём заявок" } });
+    fireEvent.blur(screen.getByLabelText("название функции процесса"));
+    await waitFor(() => expect(container.querySelector("[data-func-name]").textContent).toBe("Приём заявок"));
+
+    // Ожидаемый результат — поле под названием.
+    const res = screen.getByLabelText("ожидаемый результат функции «Приём заявок»");
+    fireEvent.change(res, { target: { value: "лид передан в продажи" } });
+    fireEvent.blur(res);
+    await waitFor(() => expect(screen.getAllByLabelText("текст процесса")[0].value).toMatch(/Результат: лид передан в продажи/));
+    // В поле функции своей строки «Функция:» нет — она в шапке.
+    expect(screen.getAllByLabelText("текст процесса")[0].value).not.toMatch(/Функция:/);
+
+    // «+ функция» добавляет вторую форму со своим полем.
+    fireEvent.click(screen.getByRole("button", { name: "добавить функцию процесса" }));
+    await waitFor(() => expect(screen.getAllByLabelText("текст процесса").length).toBe(2));
+    expect(container.querySelectorAll("[data-func-head]").length).toBe(2);
+  });
+
+  it("переменная одной функции видна в другой: подставляется как ссылка", async () => {
+    const area = addProc();
+    write(area, "Задача: Принять\nКто: Пользователи\nОтдаёт: заявки 1 (лид)");
+    fireEvent.click(screen.getByRole("button", { name: "добавить функцию процесса" }));
+    await waitFor(() => expect(screen.getAllByLabelText("текст процесса").length).toBe(2));
+    const second = screen.getAllByLabelText("текст процесса")[1];
+    write(second, "Задача: Звонок\nКто: Пользователи\nБерёт: лид");
+    // Ссылка на чужую переменную не считается новым ресурсом.
+    await waitFor(() => {
+      const back = container.querySelectorAll("[data-proc-backdrop]")[1];
+      const kinds = Array.from(back.querySelectorAll("[data-kind]")).map((n) => `${n.dataset.kind}:${n.textContent}`);
+      expect(kinds.join(" | ")).toMatch(/var:лид|trait:лид/);
+    });
   });
 });
 

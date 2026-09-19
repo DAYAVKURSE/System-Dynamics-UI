@@ -6,7 +6,7 @@ import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, 
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
   suggest, toggleRole, usesAsset, whoState, renameVar, setTaskTime, parseDur, parseEvery, parsePar,
-  durText, everyText, parText, TIME_UNITS, setTaskChecks, setFuncHead, capFirstTyped, indentText } from "../lib/proc2.js";
+  durText, everyText, parText, TIME_UNITS, setTaskChecks, setFuncHead, capFirstTyped, indentText, splitProc, joinProc, varsOf } from "../lib/proc2.js";
 import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
 import { hasKind, toggleKind } from "../lib/traits.js";
 import ProcMaps from "./ProcMaps.jsx";
@@ -235,7 +235,10 @@ function Range({ lo, hi, unit, label, onChange }) {
 }
 
 /* ─────── поле с подсказками ─────── */
-function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => new Set(), kinds = [], onTrait }) {
+function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands = () => new Set(), kinds = [], onTrait, outerVars = [] }) {
+  /* Разбор поля знает о закреплённых ресурсах соседних функций процесса:
+     поле видит только своё тело, а переменные общие (владелец, 2026-09-19). */
+  const proc = { ...proc0, outerVars };
   const [text, setText] = useState(value);
   const [focus, setFocus] = useState(false);
   /* Правка — только по двойному нажатию на текст (владелец, 2026-09-18);
@@ -555,7 +558,12 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const resTrait = res && !resRef && res.traitId ? (model.traits || []).find((t) => t.id === res.traitId) || null : null;
   /* Закрепить ресурс — переменная из одного слова; выбрать — ссылка на
      закреплённый ресурс этого процесса (владелец, 2026-09-18). */
-  const procVars = [...new Set(paint.flatMap((r) => r.spans.filter((k) => k.kind === "var" && !k.ref && k.varName).map((k) => k.varName)))];
+  /* Закреплённые ресурсы — свои и соседних функций процесса: поле у каждой
+     функции своё, а переменные общие (владелец, 2026-09-19). */
+  const procVars = [...new Set([
+    ...paint.flatMap((r) => r.spans.filter((k) => k.kind === "var" && !k.ref && k.varName).map((k) => k.varName)),
+    ...outerVars,
+  ])];
   const [pickVar, setPickVar] = useState(false);
   const [renamingVar, setRenamingVar] = useState(false);
   const [fold, setFold] = useState("");   // какой раздел меню раскрыт
@@ -1126,12 +1134,12 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const headTap = (id) => {
+  const headTap = (id, onSecond) => {
     if (tap.current) {
       clearTimeout(tap.current.timer);
       const first = tap.current.id;
       tap.current = null;
-      if (first === id) { setNaming(id); return; }
+      if (first === id) { onSecond(); return; }
     }
     tap.current = { id, timer: setTimeout(() => { tap.current = null; flip(id); }, 260) };
   };
@@ -1167,6 +1175,18 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   const add = () => commit({ procs: [...procs, newProc()] });
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
   const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: indentText(tidyProcText(text)) })) });
+  /* Части процесса — функции: своё поле у каждой (владелец, 2026-09-19).
+     Ожидаемый результат — первая строка «Результат:» тела функции. */
+  const headResult = (body) => {
+    const lab = labelOf(String(body || "").split("\n")[0] || "");
+    return lab?.kind === "result" ? lab.rest.text.trim() : "";
+  };
+  const setPart = (p, i, patchObj) => {
+    const parts = splitProc(p.text).map((s0, j) => (j === i ? { ...s0, ...patchObj } : s0));
+    setText(p, joinProc(parts));
+  };
+  const addPart = (p) => setText(p, joinProc([...splitProc(p.text), { name: "", body: "" }]));
+  const dropPart = (p, i) => setText(p, joinProc(splitProc(p.text).filter((s0, j) => j !== i)));
   /* Описание и прочие поля записи — без пересборки функций: текст не тронут. */
   const setProc = (p, patchObj) => setProcs(patch(p.id, (x) => ({ ...x, ...patchObj })));
   const saveVersion = (p, note, text = p.text) => {
@@ -1270,7 +1290,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               {/* Название — в самом верху формы и целиком: одинарное нажатие
                   сворачивает, двойное открывает правку (владелец, 2026-09-19). */}
               <div data-proc-head="" aria-label={`процесс «${label}»`} style={{ marginBottom: 6, cursor: "pointer" }}
-                onClick={(e) => { if (e.target.closest("button, input, textarea")) return; headTap(p.id); }}>
+                onClick={(e) => { if (e.target.closest("button, input, textarea")) return; headTap(p.id, () => setNaming(p.id)); }}>
                 <div className="flex items-start gap-2">
                   <button type="button" aria-expanded={!hid} aria-label={`свернуть процесс «${label}»`}
                     onClick={() => flip(p.id)}
@@ -1301,8 +1321,53 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 placeholder="описание"
                 onChange={(e) => setProc(p, { about: e.target.value })}
                 style={{ ...S.inp, width: "100%", fontSize: 11.5, lineHeight: 1.45, marginBottom: 6, resize: "vertical" }} />
-              <ProcText value={indentText(p.text)} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands}
-                kinds={kinds} onTrait={(id, patch) => commit({ procs, traits: traits.map((t) => (t.id === id ? { ...t, ...patch } : t)) })} />
+              {/* У каждой функции своё поле и своя форма (владелец,
+                  2026-09-19): текст режется по строкам «Функция:». */}
+              {splitProc(p.text).map((seg, fi, all) => {
+                const fKey = `${p.id}:f${fi}`;
+                const fHid = shut.has(fKey);
+                const fName = seg.name.trim() || "без названия";
+                const outer = all.flatMap((o, j) => (j === fi ? [] : varsOf(o.body, model, p)));
+                return (
+                  <div key={fKey} style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 8, marginBottom: 8 }}>
+                    <div data-func-head="" aria-label={`функция «${fName}»`} style={{ cursor: "pointer" }}
+                      onClick={(e) => { if (e.target.closest("button, input, textarea")) return; headTap(fKey, () => setNaming(fKey)); }}>
+                      <div className="flex items-start gap-2">
+                        <button type="button" aria-expanded={!fHid} aria-label={`свернуть функцию «${fName}»`}
+                          onClick={() => flip(fKey)}
+                          style={{ background: "transparent", border: "none", padding: 0, color: C.muted, cursor: "pointer",
+                            fontSize: 11, lineHeight: "17px" }}>{fHid ? "▸" : "▾"}</button>
+                        {naming === fKey ? (
+                          <input autoFocus aria-label="название функции процесса" defaultValue={seg.name}
+                            style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 700, padding: "2px 6px" }}
+                            onBlur={(e) => { setPart(p, fi, { name: e.target.value }); setNaming(null); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
+                        ) : (
+                          <span data-func-name="" title="двойное нажатие — переименовать"
+                            style={{ flex: 1, minWidth: 0, color: seg.name.trim() ? C.text : C.muted, fontSize: 12.5, fontWeight: 700,
+                              lineHeight: 1.3, whiteSpace: "normal", overflowWrap: "anywhere" }}>{fName}</span>)}
+                        {all.length > 1 && (
+                          <button type="button" aria-label={`удалить функцию «${fName}»`} title="удалить функцию"
+                            onClick={() => dropPart(p, fi)}
+                            style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 3px", fontSize: 12 }}>✕</button>)}
+                      </div>
+                    </div>
+                    {!fHid && (<>
+                      <div className="flex items-center gap-2" style={{ margin: "2px 0 4px" }}>
+                        <span style={S.lbl}>результат</span>
+                        <input defaultValue={headResult(seg.body)} aria-label={`ожидаемый результат функции «${fName}»`}
+                          style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 6px" }}
+                          onBlur={(e) => setPart(p, fi, { body: setFuncHead(seg.body, -1, { result: e.target.value.trim() }) })}
+                          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                      </div>
+                      <ProcText value={indentText(seg.body)} model={model} proc={p} label="текст процесса" outerVars={outer}
+                        onCommit={(t) => setPart(p, fi, { body: t })} usedHands={usedHands}
+                        kinds={kinds} onTrait={(id, patch) => commit({ procs, traits: traits.map((t) => (t.id === id ? { ...t, ...patch } : t)) })} />
+                    </>)}
+                  </div>);
+              })}
+              <button type="button" aria-label="добавить функцию процесса" onClick={() => addPart(p)}
+                style={{ ...btn(false), fontSize: 11, padding: "3px 8px", marginBottom: 6 }}>+ функция</button>
 
               {/* Карты процесса — справа под полем (владелец, 2026-09-18). */}
               <div className="flex items-center gap-2" style={{ marginTop: 6, justifyContent: "flex-end" }}>

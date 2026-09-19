@@ -449,10 +449,20 @@ export function parseText(text = "", model = {}, proc = {}) {
   });
   /* Переменные: имя в «Берёт:» без скобок, совпадающее с переменной,
      объявленной раньше («Берёт: время A»), — ссылка на неё. */
-  const vars = new Set();
+  /* Переменные соседних функций процесса (владелец, 2026-09-19: «переменные,
+     созданные в одной функции, могут использоваться также в другой»): у
+     каждой функции своё поле, и в одиночку оно их объявления не видит. */
+  const vars = new Set((proc.outerVars || []).map((v) => nameKey(v)));
   funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => b.steps.forEach((s) => {
     [...s.items, ...s.or].forEach((it) => {
-      if (s.kind === "take" && it.name && !it.var && vars.has(nameKey(it.name))) { it.var = it.name; it.name = ""; it.ref = true; }
+      if (s.kind === "take" && it.name && !it.var && vars.has(nameKey(it.name))) {
+        /* Имя без скобок, совпавшее с закреплённым ресурсом, — ссылка на
+           него; плашку рисуем по месту имени, иначе слово оставалось без
+           разметки (видно, когда переменная объявлена в соседней функции). */
+        it.var = it.name;
+        it.varSpan = { start: it.nameSpan.start, end: it.nameSpan.end, inner: { start: it.nameSpan.start, end: it.nameSpan.end } };
+        it.name = ""; it.ref = true;
+      }
       if (it.var && s.kind === "give") vars.add(nameKey(it.var));
     });
   }))));
@@ -739,6 +749,45 @@ function outerCond(lines, at) {
     return k === "task";
   }
   return false;
+}
+
+/* ─── Процесс по функциям (владелец, 2026-09-19) ───
+   У каждой функции своё поле ввода: текст процесса режется по строкам
+   «Функция:» и собирается обратно. Отступы при разборе на части снимаются,
+   а при сборке ставятся заново — поле показывает тело функции само по себе,
+   а в процессе оно снова лежит внутри неё. */
+export function splitProc(text = "") {
+  const parts = [];
+  let cur = null;
+  String(text || "").split("\n").forEach((raw) => {
+    const lab = labelOf(raw);
+    if (lab?.kind === "func") { cur = { name: lab.rest.text.trim(), body: [] }; parts.push(cur); return; }
+    if (!cur) { cur = { name: "", body: [] }; parts.push(cur); }
+    cur.body.push(raw.replace(/^[ \t]+/, ""));
+  });
+  if (!parts.length) parts.push({ name: "", body: [] });
+  return parts.map((p) => ({ name: p.name, body: p.body.join("\n").replace(/^\n+|\n+$/g, "") }));
+}
+export function joinProc(parts = []) {
+  const list = parts.length ? parts : [{ name: "", body: "" }];
+  const text = list.map((p) => {
+    const body = String(p.body || "").replace(/^\n+|\n+$/g, "");
+    /* Строка «Результат:» относится к функции — значит, у куска должна быть
+       строка «Функция:», даже если имя пустое и функция одна. */
+    const head = p.name || list.length > 1 || labelOf(body.split("\n")[0] || "")?.kind === "result";
+    return head ? `${LABEL_TEXT.func} ${String(p.name || "").trim()}\n${body}` : body;
+  }).join("\n\n");
+  return indentText(text);
+}
+/** Имена закреплённых ресурсов, объявленных в этом куске текста. */
+export function varsOf(text = "", model = {}, proc = {}) {
+  const { funcs } = parseText(text, model, proc);
+  const out = [];
+  funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => b.steps.forEach((s) => {
+    if (s.kind !== "give") return;
+    [...s.items, ...s.or].forEach((it) => { if (it.var && !it.ref && !out.includes(it.var)) out.push(it.var); });
+  }))));
+  return out;
 }
 
 /** Переписать ожидаемый результат функции: строка «Результат: …» сразу под
