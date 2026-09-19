@@ -510,7 +510,7 @@ describe("описание процесса и меню функции (влад
 });
 
 describe("заголовок процесса сворачивает карточку (владелец, 2026-09-19)", () => {
-  it("нажатие на заголовок прячет всё ниже; название и «удалить» не сворачивают", () => {
+  it("нажатие на заголовок прячет всё ниже; название и «удалить» не сворачивают", async () => {
     addProc();
     const head = container.querySelector("[data-proc-head]");
     const fold = within(head).getByRole("button", { name: /^свернуть процесс/ });
@@ -518,21 +518,24 @@ describe("заголовок процесса сворачивает карто�
     expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);
 
     fireEvent.click(head);                                   // пустое место заголовка
-    expect(fold).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => expect(fold).toHaveAttribute("aria-expanded", "false"));
     expect(screen.queryByLabelText("текст процесса")).toBeNull();
     expect(head).toBeInTheDocument();                        // заголовок остался
 
     fireEvent.click(head);                                   // развернули обратно
-    expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0));
 
-    // Двойное нажатие на заголовок — правка названия, карточка не сворачивается.
+    /* Двойное нажатие — правка названия. Сворачивание ждёт четверть секунды,
+       поэтому первое нажатие двойного карточку не трогает. */
     const name = head.querySelector("[data-proc-name]");
-    fireEvent.doubleClick(name);
+    fireEvent.click(name); fireEvent.click(name);
     expect(screen.getByLabelText("название процесса")).toBeInTheDocument();
+    expect(fold).toHaveAttribute("aria-expanded", "true");
     expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);
     // Длинное название видно целиком: перенос, а не обрезка.
     fireEvent.change(screen.getByLabelText("название процесса"), { target: { value: "Передача заказчика фриланс-партнёром и приём оффера" } });
     fireEvent.blur(screen.getByLabelText("название процесса"));
+    await waitFor(() => expect(head.querySelector("[data-proc-name]")).not.toBeNull());
     const shown = head.querySelector("[data-proc-name]");
     expect(shown.textContent).toBe("Передача заказчика фриланс-партнёром и приём оффера");
     expect(getComputedStyle(shown).whiteSpace).toBe("normal");

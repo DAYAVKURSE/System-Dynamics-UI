@@ -1139,11 +1139,25 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   /* Свёрнутые процессы (владелец, 2026-09-19: «процесс должен сворачиваться
      при нажатии на заголовок»): держим id свёрнутых — новый процесс открыт. */
   const [shut, setShut] = useState(() => new Set());
+  /* Заголовок: одно нажатие сворачивает, два — правят имя. Сворачиваем НЕ
+     сразу, а через четверть секунды: иначе первое нажатие двойного успевает
+     свернуть карточку, страница подпрыгивает, и второе нажатие уходит мимо
+     (видно на длинном списке процессов). */
+  const tap = useRef(null);
   const flip = (id) => setShut((was) => {
     const next = new Set(was);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+  const headTap = (id) => {
+    if (tap.current) {
+      clearTimeout(tap.current.timer);
+      const first = tap.current.id;
+      tap.current = null;
+      if (first === id) { setNaming(id); return; }
+    }
+    tap.current = { id, timer: setTimeout(() => { tap.current = null; flip(id); }, 260) };
+  };
   const [shownOwn, setShownOwn] = useState(false);
   const shown = shownProp ?? shownOwn;
   const toggle = () => (onToggle ? onToggle(!shown) : setShownOwn((v) => !v));
@@ -1279,8 +1293,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               {/* Название — в самом верху формы и целиком: одинарное нажатие
                   сворачивает, двойное открывает правку (владелец, 2026-09-19). */}
               <div data-proc-head="" aria-label={`процесс «${label}»`} style={{ marginBottom: 6, cursor: "pointer" }}
-                onClick={(e) => { if (e.target.closest("button, input, textarea")) return; flip(p.id); }}
-                onDoubleClick={(e) => { if (e.target.closest("button, input, textarea")) return; setNaming(p.id); }}>
+                onClick={(e) => { if (e.target.closest("button, input, textarea")) return; headTap(p.id); }}>
                 <div className="flex items-start gap-2">
                   <button type="button" aria-expanded={!hid} aria-label={`свернуть процесс «${label}»`}
                     onClick={() => flip(p.id)}
