@@ -835,10 +835,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
      (ей не дали своего), переименование функции переименовывает и её. */
   /* Шапка функции: у функции из процесса — из его текста (через
      `onFuncHead`), у ручной — в `chain` каждой её записи. */
-  const headOf = (g) => {
-    const c = g.list[0]?.chain || {};
-    return { result: c.result || "", checks: Array.isArray(c.checks) ? c.checks : [] };
-  };
+  const headOf = (g) => ({ result: g.list[0]?.chain?.result || "" });
   const setHead = (g, patch) => {
     const first = g.list[0];
     if (first?.proc && onFuncHead) { onFuncHead(first, patch); return; }
@@ -1238,28 +1235,14 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             </span>}
             /* Сводки у функции нет: перечисление чужих задач сбивало с толку
                (владелец, 2026-09-19: «задачи вообще не относятся к текущим»). */>
-            {/* Ожидаемый результат и критерии — у ФУНКЦИИ, сразу под её
-                названием (владелец, 2026-09-19). У функции из процесса они
-                живут в его тексте: правим текст, иначе пересборка сотрёт. */}
-            <Form title="что должно получиться">
-              <label style={{ ...S.lbl, display: "block" }} htmlFor={`res-${g.id}`}>ожидаемый результат</label>
-              <input id={`res-${g.id}`} defaultValue={headOf(g).result} aria-label={`ожидаемый результат функции ${gName}`}
+            {/* Ожидаемый результат — у ФУНКЦИИ, сразу под её названием
+                (владелец, 2026-09-19). У функции из процесса он живёт в его
+                тексте: правим текст, иначе пересборка сотрёт. */}
+            <Form title="ожидаемый результат">
+              <input defaultValue={headOf(g).result} aria-label={`ожидаемый результат функции ${gName}`}
                 style={{ ...S.inp, width: "100%", fontSize: 12 }}
                 onBlur={(e) => setHead(g, { result: e.target.value.trim() })}
                 onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
-              <div style={{ ...S.lbl, marginTop: 6 }} aria-hidden="true">критерии проверки</div>
-              {headOf(g).checks.map((c, i) => (
-                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 3 }}>
-                  <input defaultValue={c} aria-label={`критерий функции ${i + 1}`}
-                    style={{ ...S.inp, flex: 1, fontSize: 12 }}
-                    onBlur={(e) => setHead(g, { checks: headOf(g).checks.map((x, k) => (k === i ? e.target.value.trim() : x)).filter(Boolean) })}
-                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
-                  <button type="button" aria-label={`убрать критерий функции ${i + 1}`} title="убрать"
-                    onClick={() => setHead(g, { checks: headOf(g).checks.filter((x, k) => k !== i) })}
-                    style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
-                </div>))}
-              <button type="button" style={{ ...btn(false), fontSize: 12 }} aria-label={`добавить критерий функции ${gName}`}
-                onClick={() => setHead(g, { checks: [...headOf(g).checks, "новый критерий"] })}>+ критерий</button>
             </Form>
             {tasks}
             {/* Ручная функция из одной задачи: вторая задача заводится отсюда

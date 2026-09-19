@@ -489,7 +489,7 @@ describe("описание процесса и меню функции (влад
     expect(screen.getByLabelText(/^описание процесса/).value).toBe("Передаём лид партнёру и ждём подтверждения");
   });
 
-  it("одинарное нажатие на «Функция:» открывает меню с критериями и ожидаемым результатом", async () => {
+  it("одинарное нажатие на «Функция:» открывает меню с ожидаемым результатом", async () => {
     const area = addProc();
     write(area, "Функция: Приём заявок\nЗадача: Принять\nКто: Пользователи\nБерёт: заявки 1");
     // Просмотр: курсор на строку функции.
@@ -497,6 +497,7 @@ describe("описание процесса и меню функции (влад
     fireEvent.click(area, { target: { selectionStart: area.value.indexOf("Приём") } });
     const menu = container.querySelector("[data-func-menu]");
     expect(menu).not.toBeNull();
+    expect(menu.textContent).not.toContain("критерии");   // критериев у функции нет
     fireEvent.click(within(menu).getByRole("button", { name: /ожидаемый результат/ }));
     fireEvent.change(within(menu).getByLabelText("ожидаемый результат функции"), { target: { value: "лид передан в продажи" } });
     fireEvent.blur(within(menu).getByLabelText("ожидаемый результат функции"));

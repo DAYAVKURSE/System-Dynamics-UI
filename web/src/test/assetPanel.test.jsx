@@ -778,18 +778,18 @@ describe("операция у количества (владелец, 2026-09-15
 describe("шапка функции в карточке (владелец, 2026-09-19)", () => {
   const base = (over = {}) => ({
     id: "f1", e: "e1", name: "Принять", takes: [], gives: [], dur: 1, durHi: 1, durUnit: "дн", accepted: true,
-    chain: { id: "p1_1", name: "Приём заявок", step: 1, of: 1, checks: ["заявка в базе"], result: "лид передан в продажи" },
+    chain: { id: "p1_1", name: "Приём заявок", step: 1, of: 1, result: "лид передан в продажи" },
     ...over,
   });
   const show = (f, onFuncHead) => render(
     <Funcs entityId="e1" funcs={[f]} setFuncs={() => {}} traits={[]} entities={[{ id: "e1", name: "Актив" }]}
       open={`func:${f.chain.id}`} setOpen={() => {}} onFuncHead={onFuncHead} />);
 
-  it("ожидаемый результат и критерии стоят под названием функции", () => {
+  it("ожидаемый результат стоит под названием функции", () => {
     const { container: box } = show(base());
     const res = within(box).getByLabelText("ожидаемый результат функции Приём заявок");
     expect(res.value).toBe("лид передан в продажи");
-    expect(within(box).getByLabelText("критерий функции 1").value).toBe("заявка в базе");
+    expect(within(box).queryByLabelText("критерий функции 1")).toBeNull();   // критериев у функции нет
     // Поле стоит ниже названия функции и выше её задач.
     const title = within(box).getByDisplayValue("Приём заявок");
     expect(title.compareDocumentPosition(res) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -802,8 +802,6 @@ describe("шапка функции в карточке (владелец, 2026-
     fireEvent.change(res, { target: { value: "лид продан" } });
     fireEvent.blur(res);
     expect(log).toEqual([["f1", { result: "лид продан" }]]);
-    fireEvent.click(within(box).getByRole("button", { name: "добавить критерий функции Приём заявок" }));
-    expect(log[1][1].checks).toEqual(["заявка в базе", "новый критерий"]);
   });
 
   it("критерии задачи добавляются и в карточке; у задачи из процесса — в его текст", () => {

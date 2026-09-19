@@ -433,29 +433,21 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const funcRow = (() => {
     if (caretRow < 0) return -1;
     if (rowKind === "func") return caretRow;
-    if (!["check", "result"].includes(rowKind)) return -1;
+    if (rowKind !== "result") return -1;
     const rows = text.split("\n");
     for (let i = caretRow - 1; i >= 0; i -= 1) {
       const k = labelOf(rows[i])?.kind;
       if (k === "func") return i;
-      if (!["check", "result"].includes(k)) return -1;
+      if (k !== "result") return -1;
     }
     return -1;
   })();
   const funcName = funcRow >= 0 ? (labelOf(text.split("\n")[funcRow])?.rest.text || "").trim() : "";
   const funcHead = (() => {
-    const out = { checks: [], result: "" };
-    if (funcRow < 0) return out;
-    const rows = text.split("\n");
-    for (let i = funcRow + 1; i < rows.length; i += 1) {
-      const lab = labelOf(rows[i]);
-      if (!lab || !["check", "result"].includes(lab.kind)) break;
-      if (lab.kind === "check") out.checks.push(lab.rest.text.trim());
-      else out.result = lab.rest.text.trim();
-    }
-    return out;
+    if (funcRow < 0) return { result: "" };
+    const lab = labelOf(text.split("\n")[funcRow + 1] || "");
+    return { result: lab?.kind === "result" ? lab.rest.text.trim() : "" };
   })();
-  const setFuncChecks = (list) => rewrite(setFuncHead(text, funcRow, { checks: list }));
   const setFuncResult = (v) => rewrite(setFuncHead(text, funcRow, { result: v }));
   const taskLine = taskRow >= 0 ? (text.split("\n")[taskRow] || "") : "";
   const taskName = taskRow >= 0 ? (labelOf(taskLine)?.rest.text || "").trim() : "";
@@ -774,21 +766,6 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           </div>
           {funcRow >= 0 ? (
           <div data-func-menu="" aria-label={`меню функции ${funcName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-            <Fold title="критерии проверки" open={fold === "fchecks"} onToggle={() => setFold(fold === "fchecks" ? "" : "fchecks")}
-              value={funcHead.checks.length ? String(funcHead.checks.length) : "—"}>
-              {funcHead.checks.map((c, i) => (
-                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 3 }}>
-                  <input defaultValue={c} aria-label={`критерий функции ${i + 1}`}
-                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 5px" }}
-                    onBlur={(e) => { const v = e.target.value.trim(); setFuncChecks(funcHead.checks.map((x, k) => (k === i ? v : x)).filter(Boolean)); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
-                  <button type="button" aria-label={`убрать критерий функции ${i + 1}`} title="убрать"
-                    onClick={() => setFuncChecks(funcHead.checks.filter((x, k) => k !== i))}
-                    style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
-                </div>))}
-              <button type="button" aria-label="добавить критерий функции" onClick={() => setFuncChecks([...funcHead.checks, "новый критерий"])}
-                style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}>+ критерий</button>
-            </Fold>
             <Fold title="ожидаемый результат" open={fold === "fresult"} onToggle={() => setFold(fold === "fresult" ? "" : "fresult")}
               value={funcHead.result ? "есть" : "—"}>
               <input defaultValue={funcHead.result} aria-label="ожидаемый результат функции"
