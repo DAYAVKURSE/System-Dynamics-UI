@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SystemModel, { docFrom } from "../components/SystemModel.jsx";
 import { newTask } from "../components/TasksBoard.jsx";
 import { normalizeGoals } from "../lib/goals.js";
@@ -74,5 +74,36 @@ describe("«Загрузить» из выгрузки", () => {
     expect(out.kinds).toBe(cur.kinds);         // пустые классификации не принимаются
     expect(out.entities.map((e) => e.id)).toEqual(["a"]);
     expect(docFrom(null, cur).goals).toEqual([]);
+  });
+});
+
+describe("версии сценария на вкладке выгрузки (владелец, 2026-09-19)", () => {
+  const openTools = () => {
+    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    if (!container.querySelector("textarea")) fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+  };
+
+  it("после выбора сценария — кнопка с числом версий; версия раскрывается двумя формами", async () => {
+    openTools();
+    // Сохраняем схему дважды: две версии, во второй — новый актив.
+    fireEvent.change(screen.getByPlaceholderText("имя сценария"), { target: { value: "Моя схема" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await screen.findByText(/Сохранено/);
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ актив" }));
+    openTools();
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await screen.findByText(/Сохранено/);
+
+    const btn = await screen.findByRole("button", { name: "версии сценария" });
+    await waitFor(() => expect(btn.textContent).toMatch(/Версии \(2\)/));
+    fireEvent.click(btn);
+    fireEvent.click(await screen.findByRole("button", { name: "версия 2" }));
+    // Две формы: зелёная с плюсом и красная с минусом.
+    const plus = await screen.findByLabelText("добавлено или изменено");
+    const minus = screen.getByLabelText("убрано или заменено");
+    expect(plus.querySelector("legend").textContent).toBe("+");
+    expect(minus.querySelector("legend").textContent).toBe("−");
+    await waitFor(() => expect(plus.textContent).toMatch(/актив/));
   });
 });

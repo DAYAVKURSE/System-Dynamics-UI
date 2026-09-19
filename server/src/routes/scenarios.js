@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
-import { listScenarios, getScenario, saveScenario, deleteScenario, touchScenario }
+import { listScenarios, getScenario, saveScenario, deleteScenario, touchScenario, listVersions, getVersion }
   from "../lib/scenarioStore.js";
 
 const router = Router();
@@ -27,6 +27,27 @@ router.get("/:id", async (req, res, next) => {
 /* Отметка «эту схему открывали». Живёт рядом со сценарием, а не в браузере:
    память о последней открытой схеме должна переживать и чистку WebView, и
    переход на другое устройство. */
+/* Версии сценария: список и снимок (владелец, 2026-09-19). */
+router.get("/:id/versions", async (req, res, next) => {
+  try {
+    const list = await listVersions(req.telegramUserId, req.params.id);
+    if (!list) return res.status(404).json({ error: "not found" });
+    res.json(list);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get("/:id/versions/:v", async (req, res, next) => {
+  try {
+    const one = await getVersion(req.telegramUserId, req.params.id, req.params.v);
+    if (!one) return res.status(404).json({ error: "not found" });
+    res.json(one);
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post("/:id/open", async (req, res, next) => {
   try {
     const entry = await touchScenario(req.telegramUserId, req.params.id);

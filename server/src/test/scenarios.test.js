@@ -135,3 +135,28 @@ describe("какая схема открывалась последней", () =
     expect(res.status).toBe(404);
   });
 });
+
+describe("версии сценария (владелец, 2026-09-19)", () => {
+  it("каждое сохранение — версия; версия отдаётся снимком, удаление уносит и её", async () => {
+    const first = await request(app).post("/api/scenarios")
+      .send({ name: "Схема версий", data: { entities: [{ id: "e1", name: "Первый" }] } });
+    expect(first.status).toBe(201);
+    const id = first.body.id;
+    const second = await request(app).post("/api/scenarios")
+      .send({ id, name: "Схема версий", data: { entities: [{ id: "e1", name: "Второй" }] } });
+    expect(second.status).toBe(201);
+
+    const list = await request(app).get(`/api/scenarios/${id}/versions`);
+    expect(list.status).toBe(200);
+    expect(list.body.map((v) => v.v)).toEqual([1, 2]);
+
+    const v1 = await request(app).get(`/api/scenarios/${id}/versions/1`);
+    expect(v1.body.data.entities[0].name).toBe("Первый");
+    const v2 = await request(app).get(`/api/scenarios/${id}/versions/2`);
+    expect(v2.body.data.entities[0].name).toBe("Второй");
+    expect((await request(app).get(`/api/scenarios/${id}/versions/9`)).status).toBe(404);
+
+    await request(app).delete(`/api/scenarios/${id}`);
+    expect((await request(app).get(`/api/scenarios/${id}/versions`)).status).toBe(404);
+  });
+});

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from "react";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
-  forgetScenario, savedRoom } from "../storage.js";
+  forgetScenario, savedRoom, listScenarioVersions, getScenarioVersion } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addRole, removeRole, setUserRoles,
   takeTaskRemote, dropTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote,
@@ -11,6 +11,7 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
 import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
 import { FACTORS_ON } from "../lib/flags.js";
+import { diffDocs } from "../lib/scenarioDiff.js";
 import LooseCrew from "./LooseCrew.jsx";
 import { applyHand, handColor, handLinks, linkPath, pinsOf, removeHand } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
@@ -658,6 +659,77 @@ export function docFrom(data,cur){
     materials:normalizeMaterials(arr(d.materials,cur.materials)),
     procs:normalizeProcs(arr(d.procs,cur.procs)),
   };
+}
+
+/* ═══ ВЕРСИИ СЦЕНАРИЯ (владелец, 2026-09-19) ═══
+   Кнопка с числом версий после выбора сценария; внутри — список сохранений,
+   а у версии две формы: что добавилось и что убралось, как в техпроцессе. */
+function ScenarioDiff({ added, removed }) {
+  const box = (sign, list, color, label) => (
+    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: 8, padding: "4px 8px 8px", margin: 0, minWidth: 0 }}>
+      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sign}</legend>
+      {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
+      {list.map((l, i) => (
+        <div key={i} style={{ fontSize: 11.5, marginTop: i ? 4 : 0, overflowWrap: "anywhere" }}>{l}</div>))}
+    </fieldset>);
+  return (
+    <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{box("+", added, OK, "добавлено или изменено")}</div>
+      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{box("−", removed, BAD, "убрано или заменено")}</div>
+    </div>);
+}
+
+function ScenarioVersions({ id, when, stamp = "" }) {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState([]);
+  const [which, setWhich] = useState(null);
+  const [diff, setDiff] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setOpen(false); setWhich(null); setDiff(null);
+    if (!id) { setList([]); return; }
+    listScenarioVersions(id).then((v) => setList(Array.isArray(v) ? v : [])).catch(() => setList([]));
+    /* `stamp` — время последнего сохранения: без него список версий
+       оставался бы вчерашним до переоткрытия вкладки. */
+  }, [id, stamp]);
+  const show = async (v) => {
+    if (which === v.v) { setWhich(null); setDiff(null); return; }
+    setWhich(v.v); setDiff(null); setBusy(true);
+    try {
+      const i = list.findIndex((x) => x.v === v.v);
+      const [now, prev] = await Promise.all([
+        getScenarioVersion(id, v.v),
+        i > 0 ? getScenarioVersion(id, list[i - 1].v) : Promise.resolve(null),
+      ]);
+      setDiff(diffDocs(prev?.data || {}, now?.data || {}));
+    } catch { setDiff({ added: [], removed: [] }); }
+    setBusy(false);
+  };
+  if (!id) return null;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <button type="button" aria-expanded={open} aria-label="версии сценария"
+        onClick={() => setOpen((v) => !v)}
+        style={{ ...btn(false), width: "100%", fontSize: 11.5, textAlign: "center" }}>
+        {open ? "▾" : "▸"} Версии ({list.length})</button>
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          {!list.length && <div style={{ fontSize: 11, color: C.muted }}>Версий пока нет — сохраните схему.</div>}
+          {[...list].reverse().map((v) => (
+            <div key={v.v} style={{ borderTop: `1px solid ${C.line}`, padding: "6px 0" }}>
+              <button type="button" aria-expanded={which === v.v} aria-label={`версия ${v.v}`}
+                onClick={() => show(v)} className="flex items-center gap-2"
+                style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
+                <span style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{which === v.v ? "▾" : "▸"} №{v.v}</span>
+                <span style={{ flex: 1, fontSize: 11.5, color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {when(v.at)}</span>
+              </button>
+              {which === v.v && (busy
+                ? <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>смотрю…</div>
+                : diff && <ScenarioDiff added={diff.added} removed={diff.removed} />)}
+            </div>))}
+        </div>)}
+    </div>);
 }
 
 export default function SystemModel(){
@@ -1966,6 +2038,8 @@ export default function SystemModel(){
               <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
                 disabled={savedBusy} onClick={deleteFromDisk}>Удалить</button>
             </div>
+            <ScenarioVersions id={savedSel} when={whenText}
+              stamp={savedList.find(s=>s.id===savedSel)?.savedAt||""}/>
             {/* Предел — до отказа, а не вместо него: у диска сервера и облака
                 Telegram пределы разные, и подпись считает по тому, куда
                 пишется сейчас. */}
