@@ -110,9 +110,15 @@ describe("агенты", () => {
     const name = screen.getByPlaceholderText("имя нового агента");
     fireEvent.change(name, { target: { value: "Закупщик" } });
     fireEvent.blur(name);
+    /* Имя уходит наружу по расфокусу: жмём «+ агент» только когда оно уже
+       в поле. Иначе на медленном раннере нажатие успевало раньше правки, и
+       уезжал POST с пустым именем — тест падал по таймауту, ожидая вкладку,
+       которой не будет. */
+    await waitFor(() => expect(name.value).toBe("Закупщик"));
     fireEvent.click(screen.getByRole("button", { name: "+ агент" }));
-    /* На CI ответ POST и перечитывание списка бывают дольше пяти секунд —
-       ждём дольше и даём тесту свой запас времени (см. третий аргумент it). */
+    // Сперва — сам запрос: если он не ушёл, ждать вкладку бессмысленно.
+    await waitFor(() => expect(log.some((r) => r.method === "POST"
+      && r.url === "/api/assistant/agents")).toBe(true), { timeout: 15000 });
     await screen.findByRole("tab", { name: "Закупщик · агент" }, { timeout: 15000 });
     const post = log.find((r) => r.method === "POST" && r.url === "/api/assistant/agents");
     expect(JSON.parse(post.body)).toEqual({ name: "Закупщик" });
