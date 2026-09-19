@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, peopleOfPosition, procFuncs,
-  capFirstTyped, indentText, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
+  capFirstTyped, indentText, setFuncHead, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -484,5 +484,45 @@ describe("переменная сотрудника и конкретный со
     const h = hintAt("Кто: Владелец @Ив", "Кто: Владелец @Ив".length, m);
     expect(h).toMatchObject({ kind: "person", query: "Ив", posName: "Владелец" });
     expect(suggest(h, m, {}).map((i) => i.name)).toEqual(["@Иван Петров"]);
+  });
+});
+
+describe("шапка функции: критерии и ожидаемый результат (владелец, 2026-09-19)", () => {
+  const text = ["Функция: Приём заявок", "Критерий: заявка в базе", "Результат: лид передан в продажи",
+    "Задача: Принять", "Кто: Владелец", "Отдаёт: оффер 1", "Критерий: оффер отправлен"].join("\n");
+
+  it("«Критерий:» до задачи — у функции, после — у задачи; «Результат:» — у функции", () => {
+    const { funcs, errors } = parseText(text, model, {});
+    expect(errors).toEqual([]);
+    expect(funcs[0].checks.map((c) => c.text)).toEqual(["заявка в базе"]);
+    expect(funcs[0].result.text).toBe("лид передан в продажи");
+    expect(funcs[0].tasks[0].checks.map((c) => c.text)).toEqual(["оффер отправлен"]);
+  });
+
+  it("отступ ставит шапку на уровень задачи и не прыгает при повторе", () => {
+    expect(indentText(text)).toBe(["Функция: Приём заявок", "  Критерий: заявка в базе", "  Результат: лид передан в продажи",
+      "  Задача: Принять", "    Кто: Владелец", "    Отдаёт: оффер 1", "    Критерий: оффер отправлен"].join("\n"));
+    expect(indentText(indentText(text))).toBe(indentText(text));
+  });
+
+  it("«Результат:» без функции и под задачей — понятная ошибка", () => {
+    expect(parseText("Результат: что-то", model, {}).errors[0].message).toMatch(/без функции/);
+    const late = parseText("Функция: Ф\nЗадача: Т\nКто: Владелец\nРезультат: поздно", model, {});
+    expect(late.errors[0].message).toMatch(/под «Функция:»/);
+  });
+
+  it("setFuncHead переписывает шапку, не трогая задачи", () => {
+    const next = setFuncHead(text, 0, { checks: ["заявка в базе", "звонок сделан"], result: "лид продан" });
+    expect(next.split("\n")).toEqual(["Функция: Приём заявок", "Критерий: заявка в базе", "Критерий: звонок сделан",
+      "Результат: лид продан", "Задача: Принять", "Кто: Владелец", "Отдаёт: оффер 1", "Критерий: оффер отправлен"]);
+    // Пустой результат убирает строку, критерии остаются.
+    expect(setFuncHead(next, 0, { result: "" })).not.toMatch(/Результат:/);
+    expect(setFuncHead(next, 0, { result: "" })).toMatch(/Критерий: звонок сделан/);
+  });
+
+  it("функции из процесса несут шапку в `chain`", () => {
+    const fs = procFuncs({ id: "p", status: "on", text }, model);
+    expect(fs[0].chain).toMatchObject({ name: "Приём заявок", checks: ["заявка в базе"], result: "лид передан в продажи" });
+    expect(fs[0].checks).toEqual(["оффер отправлен"]);   // критерий задачи остался у задачи
   });
 });

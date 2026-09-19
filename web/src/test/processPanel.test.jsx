@@ -478,6 +478,37 @@ describe("версии, выгрузка и загрузка", () => {
   });
 });
 
+describe("описание процесса и меню функции (владелец, 2026-09-19)", () => {
+  it("описание вводится над полем процесса и остаётся в записи", () => {
+    addProc();
+    const about = screen.getByLabelText(/^описание процесса/);
+    const area = screen.getByLabelText("текст процесса");
+    // Описание стоит ВЫШЕ поля ввода.
+    expect(about.compareDocumentPosition(area) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.change(about, { target: { value: "Передаём лид партнёру и ждём подтверждения" } });
+    expect(screen.getByLabelText(/^описание процесса/).value).toBe("Передаём лид партнёру и ждём подтверждения");
+  });
+
+  it("одинарное нажатие на «Функция:» открывает меню с критериями и ожидаемым результатом", async () => {
+    const area = addProc();
+    write(area, "Функция: Приём заявок\nЗадача: Принять\nКто: Пользователи\nБерёт: заявки 1");
+    // Просмотр: курсор на строку функции.
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: area.value.indexOf("Приём") } });
+    const menu = container.querySelector("[data-func-menu]");
+    expect(menu).not.toBeNull();
+    fireEvent.click(within(menu).getByRole("button", { name: /ожидаемый результат/ }));
+    fireEvent.change(within(menu).getByLabelText("ожидаемый результат функции"), { target: { value: "лид передан в продажи" } });
+    fireEvent.blur(within(menu).getByLabelText("ожидаемый результат функции"));
+    await waitFor(() => expect(screen.getByLabelText("текст процесса").value).toMatch(/Результат: лид передан в продажи/));
+    // Строка встала под «Функция:», до задачи.
+    const rows = screen.getByLabelText("текст процесса").value.split("\n").map((r) => r.trim());
+    expect(rows[0]).toBe("Функция: Приём заявок");
+    expect(rows[1]).toBe("Результат: лид передан в продажи");
+    expect(rows[2]).toBe("Задача: Принять");
+  });
+});
+
 describe("заголовок процесса сворачивает карточку (владелец, 2026-09-19)", () => {
   it("нажатие на заголовок прячет всё ниже; название и «удалить» не сворачивают", () => {
     addProc();

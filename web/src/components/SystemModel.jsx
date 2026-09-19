@@ -14,7 +14,7 @@ import { FACTORS_ON } from "../lib/flags.js";
 import LooseCrew from "./LooseCrew.jsx";
 import { applyHand, handColor, handLinks, linkPath, pinsOf, removeHand } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
-import { procFuncs as procFuncs2, replaceName } from "../lib/proc2.js";
+import { procFuncs as procFuncs2, replaceName, setFuncHead } from "../lib/proc2.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
@@ -907,6 +907,16 @@ export default function SystemModel(){
     setProcs(next);
     setFuncs(p=>syncProcFuncs(p,next,{entities,traits,positions:roles,people,rolesOf},normalizeFunc,procFuncs2));
   };
+  /* Шапка функции из процесса — критерии и ожидаемый результат — живёт в
+     ТЕКСТЕ процесса (владелец, 2026-09-19). Правка из карточки функции
+     пишет туда же: иначе пересборка функций из текста её бы стёрла.
+     Строка «Функция:» зашита в id цепочки — «<процесс>_<строка+1>». */
+  const setFuncHeadIn=(f,patch)=>{
+    const proc=procs.find(p=>p.id===f.proc);
+    const row=Number(String(f.chain?.id||"").split("_").pop())-1;
+    if(!proc||!(row>=0)) return;
+    commitProcs(procs.map(p=>(p.id===proc.id?{...p,text:setFuncHead(p.text,row,patch)}:p)));
+  };
   /* Должности актива: одна должность — у одного актива (владелец,
      2026-09-18). Отметка переводит должность сюда, снимая её с другого. */
   const togglePost=(rid)=>{
@@ -1706,6 +1716,7 @@ export default function SystemModel(){
               onSetRoles={me.isOwner&&!me.solo
                 ?(pid,list)=>setUserRoles(pid,list).then(refreshOrg):undefined}
               focus={focus}
+              onFuncHead={setFuncHeadIn}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}
               onDeleteTrait={delTrait}

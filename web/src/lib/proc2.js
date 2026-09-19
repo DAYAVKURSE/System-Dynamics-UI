@@ -62,11 +62,12 @@ const LABELS = [
   ["to", ["кому", "куда"]], ["from", ["от кого", "откуда"]], ["or", ["или"]],
   ["if", ["если"]], ["then", ["то"]], ["else", ["иначе"]],
   ["dur", ["срок"]], ["every", ["попытка"]], ["par", ["одновременно"]], ["check", ["критерий"]],
+  ["result", ["результат"]],
 ];
 const LABEL_KIND = new Map(LABELS.flatMap(([k, ws]) => ws.map((w) => [w, k])));
 export const LABEL_TEXT = { func: "Функция:", task: "Задача:", who: "Кто:", take: "Берёт:", takes: "Берут:",
   give: "Отдаёт:", gives: "Отдают:", to: "Кому:", from: "От кого:", or: "Или:", if: "Если:", then: "То:", else: "Иначе:",
-  dur: "Срок:", every: "Попытка:", par: "Одновременно:", check: "Критерий:" };
+  dur: "Срок:", every: "Попытка:", par: "Одновременно:", check: "Критерий:", result: "Результат:" };
 
 /* ─────── сроки задачи в тексте (владелец, 2026-09-18) ───────
    «Срок: 2 дн» / «Срок: 2-4 дн», «Попытка: сразу» / «Попытка: через 3 дн»,
@@ -285,7 +286,7 @@ export function parseText(text = "", model = {}, proc = {}) {
   let group = { cond: null, isElse: false, row: -1, span: null };
   let pending = null;
   let fn = null, task = null, branch = null, last = null, lastStep = null, lastWho = null;
-  const newFunc = (name, row) => { fn = { name, row, tasks: [], span: null }; funcs.push(fn); task = null; branch = null; return fn; };
+  const newFunc = (name, row) => { fn = { name, row, tasks: [], span: null, checks: [], result: null }; funcs.push(fn); task = null; branch = null; return fn; };
   const newTask = (name, row) => {
     if (!fn) newFunc("", row);
     task = { name, row, indent: 0, branches: [] }; fn.tasks.push(task);
@@ -323,11 +324,23 @@ export function parseText(text = "", model = {}, proc = {}) {
       /* Сроки задачи — строками текста (владелец, 2026-09-18). */
       /* Критерий проверки — строка «Критерий: …», их может быть сколько угодно. */
       if (lab.kind === "check") {
-        if (!task) { err(row, "«Критерий:» без задачи"); return; }
         const t2 = rest.trim();
         if (!t2) { err(row, "«Критерий:» — напишите, что проверяем"); return; }
-        task.checks = [...(task.checks || []), { text: t2, row, span: { start: rs, end: rs + rest.trimEnd().length } }];
+        const at = { text: t2, row, span: { start: rs, end: rs + rest.trimEnd().length } };
+        /* До первой задачи критерий принадлежит ФУНКЦИИ (владелец,
+           2026-09-19: «для функций: критерии, ожидаемый результат»). */
+        if (task) task.checks = [...(task.checks || []), at];
+        else if (fn) fn.checks = [...(fn.checks || []), at];
+        else { err(row, "«Критерий:» без задачи"); return; }
         last = "check"; lastStep = null; lastWho = null; return;
+      }
+      if (lab.kind === "result") {
+        const t2 = rest.trim();
+        if (!fn) { err(row, "«Результат:» без функции"); return; }
+        if (!t2) { err(row, "«Результат:» — напишите, что должно получиться"); return; }
+        if (task) { err(row, "«Результат:» пишут под «Функция:», до её задач"); return; }
+        fn.result = { text: t2, row, span: { start: rs, end: rs + rest.trimEnd().length } };
+        last = "result"; lastStep = null; lastWho = null; return;
       }
       if (lab.kind === "dur" || lab.kind === "every" || lab.kind === "par") {
         if (!task) { err(row, `«${LABEL_TEXT[lab.kind]}» без задачи`); return; }
@@ -576,6 +589,8 @@ export function paintOf(text = "", model = {}, proc = {}) {
   lines.forEach((l, row) => { const lab = labelOf(l); if (lab) put(row, lab.label, { kind: "mark", label: lab.kind }); });
   funcs.forEach((f) => {
     if (f.span) put(f.row, f.span, { kind: "func", name: f.name });
+    (f.checks || []).forEach((c) => put(c.row, c.span, { kind: "check", state: "ok", name: c.text }));
+    if (f.result) put(f.result.row, f.result.span, { kind: "check", state: "ok", name: f.result.text });
     f.tasks.forEach((t) => {
       if (t.span) put(t.row, t.span, { kind: "task", name: t.name });
       if (t.condSpan && t.condRow != null) put(t.condRow, t.condSpan, { kind: "cond" });
@@ -689,15 +704,19 @@ export function indentText(text = "") {
   const lines = String(text || "").split("\n");
   let hasFunc = false;
   let inBranch = false;    // строки ветки «То:»/«Иначе:» внутри задачи
+  let inTask = false;      // идёт ли сейчас задача (а не «шапка» функции)
   let group = false;       // условие стоит НАД задачами
   return lines.map((raw, i) => {
     const line = raw.replace(/^[ \t]+/, "");
     if (!line.trim()) { inBranch = false; return ""; }
     const kind = labelOf(line)?.kind || null;
-    if (kind === "func") { hasFunc = true; inBranch = false; group = false; return line; }
+    if (kind === "func") { hasFunc = true; inBranch = false; group = false; inTask = false; return line; }
     const taskLead = hasFunc ? STEP.length : 0;    // уровень строки «Задача:»
     const bodyLead = taskLead + STEP.length;       // уровень её строк
-    if (kind === "task") { inBranch = false; return `${" ".repeat(group ? bodyLead : taskLead)}${line}`; }
+    if (kind === "task") { inBranch = false; inTask = true; return `${" ".repeat(group ? bodyLead : taskLead)}${line}`; }
+    /* Критерии и ожидаемый результат ФУНКЦИИ стоят до её задач — значит, на
+       уровне задачи, а не её строк (владелец, 2026-09-19). */
+    if (!inTask && (kind === "check" || kind === "result")) return `${" ".repeat(taskLead)}${line}`;
     /* «Если:»/«То:»/«Иначе:» стоят у задач, если следом идёт «Задача:», и
        внутри задачи, если следом её строки (владелец, 2026-09-18). Отступ
        показывает, что получилось, — угадывать по нему не нужно. */
@@ -723,6 +742,28 @@ function outerCond(lines, at) {
     return k === "task";
   }
   return false;
+}
+
+/** Переписать «шапку» функции: её критерии и ожидаемый результат — строками
+    сразу под «Функция:», до её задач (владелец, 2026-09-19). */
+export function setFuncHead(text = "", funcRow, { checks, result } = {}) {
+  const lines = String(text || "").split("\n");
+  let at = funcRow + 1;
+  const was = { checks: [], result: null };
+  while (at < lines.length) {
+    const lab = labelOf(lines[at]);
+    if (lab?.kind === "check") { was.checks.push(lab.rest.text.trim()); at += 1; continue; }
+    if (lab?.kind === "result") { was.result = lab.rest.text.trim(); at += 1; continue; }
+    if (!lines[at].trim()) break;
+    break;
+  }
+  const list = (checks === undefined ? was.checks : checks).map((x) => String(x).trim()).filter(Boolean);
+  const res = String(result === undefined ? was.result || "" : result).trim();
+  const head = [
+    ...list.map((x) => `${LABEL_TEXT.check} ${x}`),
+    ...(res ? [`${LABEL_TEXT.result} ${res}`] : []),
+  ];
+  return [...lines.slice(0, funcRow + 1), ...head, ...lines.slice(at)].join("\n");
 }
 
 /** Переписать критерии задачи: строки «Критерий: …» под её сроками. */
@@ -820,6 +861,7 @@ export function hintAt(text = "", at = 0, model = {}) {
   if (lab.kind === "else" || lab.kind === "then") return { kind: "label", start: at, query: "", ctx };
   if (lab.kind === "dur" || lab.kind === "every" || lab.kind === "par") return { kind: lab.kind, start: restStart, query: rest.trim(), ctx };
   if (lab.kind === "check") return { kind: "check", start: restStart, query: rest.trim(), ctx };
+  if (lab.kind === "result") return { kind: "result", start: restStart, query: rest.trim(), ctx };
   // take / give / or: ресурс у курсора.
   const parts = splitItems(rest, 0);
   const lastComma = rest.lastIndexOf(",");
@@ -995,10 +1037,17 @@ export function suggest(hint, model = {}, proc = {}) {
   } else if (hint.kind === "check") {
     items.push({ name: "", kind: "", note: "по чему проверяющий решит, что работа принята", info: true });
     items.push({ name: "↵", kind: "дальше", note: "ещё критерий", insert: true, text: `\n${LABEL_TEXT.check}`, suffix: " ", trimBefore: true });
+  } else if (hint.kind === "result") {
+    items.push({ name: "", kind: "", note: "что должно получиться у функции целиком", info: true });
   } else if (hint.kind === "par") {
     items.push({ name: "", kind: "", note: "сколько таких задач идёт у одного воркера одновременно", info: true });
     items.push({ name: ", на актив", kind: "дальше", note: "предел на весь актив", insert: true, text: ", на актив ", suffix: "" });
   } else if (hint.kind === "name") {
+    /* После имени функции — её критерии и ожидаемый результат (владелец,
+       2026-09-19), после имени задачи — участник, критерии и сроки. */
+    if (hint.label === "func") ["check", "result"].forEach((k) => items.push({ name: LABEL_TEXT[k], kind: "метка",
+      note: k === "check" ? "что проверяем у функции" : "что должно получиться",
+      insert: true, text: `\n${LABEL_TEXT[k]}`, suffix: " ", trimBefore: true }));
     if (hint.label === "task") ["who", "check", "dur", "every", "par"].forEach((k) => items.push({ name: LABEL_TEXT[k], kind: "метка",
       note: k === "who" ? "участник" : k === "check" ? "что проверяем" : k === "dur" ? "сколько идёт" : k === "every" ? "когда следующая" : "одновременных",
       insert: true, text: `\n${LABEL_TEXT[k]}`, suffix: " ", trimBefore: true }));
@@ -1170,7 +1219,8 @@ export function procFuncs(proc = {}, model = {}) {
       const alt = t.branches.slice(1).map((b, i) => build(b, i + 1)).filter((x) => x.ok).map(({ ok, bi, ...rest }) => rest);   // eslint-disable-line no-unused-vars
       out.push({
         id: tid, e: main.e, name: t.name || `задача ${ti + 1}`, proc: proc.id,
-        chain: { id: fid, name: fname, step: ti + 1, of: f.tasks.length },
+        chain: { id: fid, name: fname, step: ti + 1, of: f.tasks.length,
+          checks: (f.checks || []).map((c) => c.text), result: f.result?.text || "" },
         takes: main.takes, gives: main.gives, steps: main.steps, who: main.who, posts: main.posts,
         ...(main.cond || t.cond ? { cond: main.cond || t.cond } : {}), ...(t.isElse ? { condElse: true } : {}), ...(alt.length ? { alt } : {}),
         dur: 1, durHi: 1, durUnit: "дн", ...(t.time || {}), checks: (t.checks || []).map((c) => c.text), accepted: true,

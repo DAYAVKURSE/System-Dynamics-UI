@@ -567,7 +567,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
  * выбран ресурс одного актива, получателем назван другой — и что тогда
  * правда, не знал никто.
  */
-function Ports({ kind, title, hint, list, own, others, assetName, traitName,
+function Ports({ kind, title, list, own, others, assetName, traitName,
   runs, onAdd, onSet, onDel, letterBase = 0, allPorts = [], info = new Map() }) {
   const [pick, setPick] = useState("");
   const out = kind === "gives";
@@ -616,8 +616,6 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
         <span style={{ color: C.muted }}>· {list.length}</span>
       </div>
       <div style={{ padding: "7px 8px" }}>
-      {list.length === 0 && (
-        <div style={{ fontSize: 11, color: BAD, marginBottom: 6 }}>{hint}</div>)}
       {groups.map((g, gi) => (
         <div key={g[0].id}>
           {/* «И» между требованиями: разделитель стоит МЕЖДУ группами, а не
@@ -735,7 +733,7 @@ function Ports({ kind, title, hint, list, own, others, assetName, traitName,
 
 export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], workers,
   factors = [], people = [], nameOf, runsOf, open, setOpen, onWhy,
-  positions = [], rolesOf = () => [], onMarket }) {
+  positions = [], rolesOf = () => [], onMarket, onFuncHead }) {
   const mine = funcs.filter((f) => f.e === entityId);
   const own = traits.filter((t) => t.e === entityId);
   const others = traits.filter((t) => t.e !== entityId);
@@ -820,8 +818,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
     g.list.push(f);
   });
   groups.forEach((g) => g.list.sort((a, b) => (a.chain?.step || 0) - (b.chain?.step || 0)));
-  const elsewhere = (g) => funcs.filter((x) => x.chain?.id === g.id && x.e !== entityId)
-    .sort((a, b) => (a.chain?.step || 0) - (b.chain?.step || 0));
   const chainSize = (g) => funcs.filter((x) => x.chain?.id === g.id).length || g.list.length;
   const addTask = (g) => {
     const base = g.list[0];
@@ -837,6 +833,18 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
   /* Имя функции живёт в `chain.name`, у каждой задачи — своё `name`
      (владелец, 2026-09-18). Пока единственная задача носит имя функции
      (ей не дали своего), переименование функции переименовывает и её. */
+  /* Шапка функции: у функции из процесса — из его текста (через
+     `onFuncHead`), у ручной — в `chain` каждой её записи. */
+  const headOf = (g) => {
+    const c = g.list[0]?.chain || {};
+    return { result: c.result || "", checks: Array.isArray(c.checks) ? c.checks : [] };
+  };
+  const setHead = (g, patch) => {
+    const first = g.list[0];
+    if (first?.proc && onFuncHead) { onFuncHead(first, patch); return; }
+    setFuncs((p) => p.map((x) => (g.list.some((f) => f.id === x.id)
+      ? { ...x, chain: { ...(x.chain || { id: x.id, name: g.name || x.name, step: 1, of: 1 }), ...patch } } : x)));
+  };
   const renameChain = (g, name) => setFuncs((p) => p.map((x) => {
     if (!(x.chain?.id === g.id || (x.id === g.id && !x.chain))) return x;
     const same = g.list.length === 1 && x.name === (g.name || x.name);
@@ -966,7 +974,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               </label>)}
 
             <Ports kind="takes" title="берёт" list={f.takes} own={own} others={others}
-              hint="Функция ничего не берёт — значит и преобразовывать ей нечего."
               assetName={assetName} traitName={traitName} runs={runs}
               allPorts={allPorts} info={info}
               onAdd={(tid, group) => up(f.id, (x) => ({ ...x,
@@ -976,7 +983,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 ...x, takes: x.takes.filter((p) => p.id !== pid) }))} />
 
             <Ports kind="gives" title="выдаёт" list={f.gives} own={own} others={others}
-              hint="Функция ничего не выдаёт — значит она ничего не производит."
               assetName={assetName} traitName={traitName} runs={runs}
               allPorts={allPorts} info={info} letterBase={f.takes.length}
               onAdd={(tid) => up(f.id, (x) => ({ ...x, gives: [...x.gives, newGive(tid)] }))}
@@ -1231,10 +1237,31 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               <span style={{ fontSize: 10.5, color: allReady ? OK : BAD }}>{allReady ? "готова" : "не готова"}</span>
               {first.proc && <span style={{ fontSize: 10.5, color: C.muted }}>· из технологического процесса</span>}
             </span>}
-            summary={`задач: ${chainSize(g)} — ${[...g.list.map((f) => f.name || "без названия"), ...elsewhere(g).map((x) => `${x.name} (${assetName(x.e)})`)].join(", ")}`}>
-            {elsewhere(g).map((x) => (
-              <div key={x.id} style={{ fontSize: 11, color: C.muted, margin: "2px 0 4px" }}>
-                задача {x.chain.step}: {x.name} — в активе «{assetName(x.e)}»</div>))}
+            /* Сводки у функции нет: перечисление чужих задач сбивало с толку
+               (владелец, 2026-09-19: «задачи вообще не относятся к текущим»). */>
+            {/* Ожидаемый результат и критерии — у ФУНКЦИИ, сразу под её
+                названием (владелец, 2026-09-19). У функции из процесса они
+                живут в его тексте: правим текст, иначе пересборка сотрёт. */}
+            <Form title="что должно получиться">
+              <label style={{ ...S.lbl, display: "block" }} htmlFor={`res-${g.id}`}>ожидаемый результат</label>
+              <input id={`res-${g.id}`} defaultValue={headOf(g).result} aria-label={`ожидаемый результат функции ${gName}`}
+                style={{ ...S.inp, width: "100%", fontSize: 12 }}
+                onBlur={(e) => setHead(g, { result: e.target.value.trim() })}
+                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+              <div style={{ ...S.lbl, marginTop: 6 }} aria-hidden="true">критерии проверки</div>
+              {headOf(g).checks.map((c, i) => (
+                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 3 }}>
+                  <input defaultValue={c} aria-label={`критерий функции ${i + 1}`}
+                    style={{ ...S.inp, flex: 1, fontSize: 12 }}
+                    onBlur={(e) => setHead(g, { checks: headOf(g).checks.map((x, k) => (k === i ? e.target.value.trim() : x)).filter(Boolean) })}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                  <button type="button" aria-label={`убрать критерий функции ${i + 1}`} title="убрать"
+                    onClick={() => setHead(g, { checks: headOf(g).checks.filter((x, k) => k !== i) })}
+                    style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
+                </div>))}
+              <button type="button" style={{ ...btn(false), fontSize: 12 }} aria-label={`добавить критерий функции ${gName}`}
+                onClick={() => setHead(g, { checks: [...headOf(g).checks, "новый критерий"] })}>+ критерий</button>
+            </Form>
             {tasks}
             {/* Ручная функция из одной задачи: вторая задача заводится отсюда
                 и связывает обе в цепочку. */}

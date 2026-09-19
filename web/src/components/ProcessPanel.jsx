@@ -6,7 +6,7 @@ import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, 
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
   suggest, toggleRole, usesAsset, whoState, renameVar, setTaskTime, parseDur, parseEvery, parsePar,
-  durText, everyText, parText, TIME_UNITS, setTaskChecks, capFirstTyped, indentText } from "../lib/proc2.js";
+  durText, everyText, parText, TIME_UNITS, setTaskChecks, setFuncHead, capFirstTyped, indentText } from "../lib/proc2.js";
 import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
 import { hasKind, toggleKind } from "../lib/traits.js";
 import ProcMaps from "./ProcMaps.jsx";
@@ -428,6 +428,35 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
     }
     return -1;
   })();
+  /* Меню ФУНКЦИИ (владелец, 2026-09-19): курсор на «Функция:» или на её
+     шапке — строках «Критерий:»/«Результат:» до первой задачи. */
+  const funcRow = (() => {
+    if (caretRow < 0) return -1;
+    if (rowKind === "func") return caretRow;
+    if (!["check", "result"].includes(rowKind)) return -1;
+    const rows = text.split("\n");
+    for (let i = caretRow - 1; i >= 0; i -= 1) {
+      const k = labelOf(rows[i])?.kind;
+      if (k === "func") return i;
+      if (!["check", "result"].includes(k)) return -1;
+    }
+    return -1;
+  })();
+  const funcName = funcRow >= 0 ? (labelOf(text.split("\n")[funcRow])?.rest.text || "").trim() : "";
+  const funcHead = (() => {
+    const out = { checks: [], result: "" };
+    if (funcRow < 0) return out;
+    const rows = text.split("\n");
+    for (let i = funcRow + 1; i < rows.length; i += 1) {
+      const lab = labelOf(rows[i]);
+      if (!lab || !["check", "result"].includes(lab.kind)) break;
+      if (lab.kind === "check") out.checks.push(lab.rest.text.trim());
+      else out.result = lab.rest.text.trim();
+    }
+    return out;
+  })();
+  const setFuncChecks = (list) => rewrite(setFuncHead(text, funcRow, { checks: list }));
+  const setFuncResult = (v) => rewrite(setFuncHead(text, funcRow, { result: v }));
   const taskLine = taskRow >= 0 ? (text.split("\n")[taskRow] || "") : "";
   const taskName = taskRow >= 0 ? (labelOf(taskLine)?.rest.text || "").trim() : "";
   const taskTime = (() => {
@@ -606,15 +635,15 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
   const wrap = useRef(null);
   const [menuPos, setMenuPos] = useState(null);
   const drag = useRef(null);
-  const menuKey = taskRow >= 0 ? `task:${taskRow}` : whoRow >= 0 ? `who:${whoRow}` : res ? `res:${resKey}` : "";
+  const menuKey = funcRow >= 0 ? `func:${funcRow}` : taskRow >= 0 ? `task:${taskRow}` : whoRow >= 0 ? `who:${whoRow}` : res ? `res:${resKey}` : "";
   useEffect(() => {
     if (!menuKey || menuPos) return;
     /* Всплывает рядом со строкой, но всегда в видимой части экрана: если
        снизу не помещается — поднимается выше (владелец, 2026-09-18). */
     const r = wrap.current?.getBoundingClientRect?.() || { right: 0, top: 0, bottom: 0 };
-    const row = taskRow >= 0 ? taskRow : whoRow >= 0 ? whoRow : resRow;
+    const row = funcRow >= 0 ? funcRow : taskRow >= 0 ? taskRow : whoRow >= 0 ? whoRow : resRow;
     const W = 210;
-    const H = taskRow >= 0 ? 230 : 300;
+    const H = taskRow >= 0 || funcRow >= 0 ? 230 : 300;
     const vh = window.innerHeight || 800;
     const x = Math.max(8, Math.min((window.innerWidth || 400) - W - 8, r.right - W - 6));
     const want = r.top + 7 + Math.max(0, row) * LINE_H * 12 - scrollTop;
@@ -655,7 +684,8 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
       style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left", background: "transparent",
         color: C.text, border: `1px solid ${C.line}`, ...style }}>
       <span style={{ width: 16, textAlign: "center" }}>{icon}</span>{label.split(":")[0].replace(/^./, (c) => c.toUpperCase())}</button>);
-  const menuTitle = taskRow >= 0 ? `задача «${taskName || "без названия"}»` : whoRow >= 0 ? `${rowKind === "to" ? "кому" : rowKind === "from" ? "от кого" : "участник"} «${whoName}»` : res ? (resRef ? `закреплённый ресурс «${res.varName}»` : `ресурс «${res.name}»`) : "";
+  const menuTitle = funcRow >= 0 ? `функция «${funcName || "без названия"}»`
+    : taskRow >= 0 ? `задача «${taskName || "без названия"}»` : whoRow >= 0 ? `${rowKind === "to" ? "кому" : rowKind === "from" ? "от кого" : "участник"} «${whoName}»` : res ? (resRef ? `закреплённый ресурс «${res.varName}»` : `ресурс «${res.name}»`) : "";
   return (
     <div style={{ position: "relative" }}>
       <div ref={wrap} style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
@@ -720,7 +750,7 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
           </div>
         </div>)}
       {/* Плавающее меню сущности: участник или ресурс. */}
-      {(whoRow >= 0 || res || taskRow >= 0) && (
+      {(whoRow >= 0 || res || taskRow >= 0 || funcRow >= 0) && (
         <div data-proc-menu="" data-active={menuActive ? "1" : "0"}
           /* pointerdown — раньше mousedown и не гасится preventDefault шапки при перетаскивании. */
           onPointerDown={() => setMenuActive(true)}
@@ -742,7 +772,32 @@ function ProcText({ value = "", model, proc, onCommit, label, usedHands = () => 
               onClick={() => { setCaretRow(-1); setPickVar(false); setPickPerson(false); }}
               style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 3px", fontSize: 13, lineHeight: 1 }}>✕</button>
           </div>
-          {taskRow >= 0 ? (
+          {funcRow >= 0 ? (
+          <div data-func-menu="" aria-label={`меню функции ${funcName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Fold title="критерии проверки" open={fold === "fchecks"} onToggle={() => setFold(fold === "fchecks" ? "" : "fchecks")}
+              value={funcHead.checks.length ? String(funcHead.checks.length) : "—"}>
+              {funcHead.checks.map((c, i) => (
+                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 3 }}>
+                  <input defaultValue={c} aria-label={`критерий функции ${i + 1}`}
+                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 5px" }}
+                    onBlur={(e) => { const v = e.target.value.trim(); setFuncChecks(funcHead.checks.map((x, k) => (k === i ? v : x)).filter(Boolean)); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                  <button type="button" aria-label={`убрать критерий функции ${i + 1}`} title="убрать"
+                    onClick={() => setFuncChecks(funcHead.checks.filter((x, k) => k !== i))}
+                    style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
+                </div>))}
+              <button type="button" aria-label="добавить критерий функции" onClick={() => setFuncChecks([...funcHead.checks, "новый критерий"])}
+                style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}>+ критерий</button>
+            </Fold>
+            <Fold title="ожидаемый результат" open={fold === "fresult"} onToggle={() => setFold(fold === "fresult" ? "" : "fresult")}
+              value={funcHead.result ? "есть" : "—"}>
+              <input defaultValue={funcHead.result} aria-label="ожидаемый результат функции"
+                style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "2px 5px" }}
+                onBlur={(e) => setFuncResult(e.target.value.trim())}
+                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+            </Fold>
+          </div>
+          ) : taskRow >= 0 ? (
           <div data-task-menu="" aria-label={`меню задачи ${taskName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             <Fold title="критерии проверки" open={fold === "checks"} onToggle={() => setFold(fold === "checks" ? "" : "checks")}
               value={taskChecks.length ? String(taskChecks.length) : "—"}>
@@ -1121,6 +1176,8 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   const add = () => commit({ procs: [...procs, newProc()] });
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
   const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: indentText(tidyProcText(text)) })) });
+  /* Описание и прочие поля записи — без пересборки функций: текст не тронут. */
+  const setProc = (p, patchObj) => setProcs(patch(p.id, (x) => ({ ...x, ...patchObj })));
   const saveVersion = (p, note, text = p.text) => {
     const v = { id: `v${Date.now().toString(36)}${(p.versions || []).length.toString(36)}`, at: new Date().toISOString(), text, note };
     commit({ procs: patch(p.id, (x) => ({ ...x, versions: [...(x.versions || []), v] })) });
@@ -1247,6 +1304,11 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               </div>
 
               {!hid && (<>
+              {/* Описание — над полем ввода процесса (владелец, 2026-09-19). */}
+              <textarea value={p.about || ""} aria-label={`описание процесса «${label}»`} rows={2}
+                placeholder="описание"
+                onChange={(e) => setProc(p, { about: e.target.value })}
+                style={{ ...S.inp, width: "100%", fontSize: 11.5, lineHeight: 1.45, marginBottom: 6, resize: "vertical" }} />
               <ProcText value={indentText(p.text)} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands}
                 kinds={kinds} onTrait={(id, patch) => commit({ procs, traits: traits.map((t) => (t.id === id ? { ...t, ...patch } : t)) })} />
 

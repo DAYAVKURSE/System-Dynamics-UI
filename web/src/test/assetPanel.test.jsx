@@ -2,7 +2,7 @@ import { FACTORS_ON } from "../lib/flags.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
-import { Workers } from "../components/AssetPanel.jsx";
+import { Funcs, Workers } from "../components/AssetPanel.jsx";
 
 /* Карточка актива: воркеры, функции, ресурсы — три равноправные части,
    устроенные одинаково.
@@ -772,5 +772,43 @@ describe("операция у количества (владелец, 2026-09-15
     f = dump().funcs.find((x) => x.takes[0]?.id === inId);
     expect(f.gives[0].expr).toBeUndefined();
     expect(f.gives[0].lo).toBe(40);
+  });
+});
+
+describe("шапка функции в карточке (владелец, 2026-09-19)", () => {
+  const base = (over = {}) => ({
+    id: "f1", e: "e1", name: "Принять", takes: [], gives: [], dur: 1, durHi: 1, durUnit: "дн", accepted: true,
+    chain: { id: "p1_1", name: "Приём заявок", step: 1, of: 1, checks: ["заявка в базе"], result: "лид передан в продажи" },
+    ...over,
+  });
+  const show = (f, onFuncHead) => render(
+    <Funcs entityId="e1" funcs={[f]} setFuncs={() => {}} traits={[]} entities={[{ id: "e1", name: "Актив" }]}
+      open={`func:${f.chain.id}`} setOpen={() => {}} onFuncHead={onFuncHead} />);
+
+  it("ожидаемый результат и критерии стоят под названием функции", () => {
+    const { container: box } = show(base());
+    const res = within(box).getByLabelText("ожидаемый результат функции Приём заявок");
+    expect(res.value).toBe("лид передан в продажи");
+    expect(within(box).getByLabelText("критерий функции 1").value).toBe("заявка в базе");
+    // Поле стоит ниже названия функции и выше её задач.
+    const title = within(box).getByDisplayValue("Приём заявок");
+    expect(title.compareDocumentPosition(res) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("у функции из процесса правка уходит в текст процесса", () => {
+    const log = [];
+    const { container: box } = show(base({ proc: "p1" }), (f, patch) => log.push([f.id, patch]));
+    const res = within(box).getByLabelText("ожидаемый результат функции Приём заявок");
+    fireEvent.change(res, { target: { value: "лид продан" } });
+    fireEvent.blur(res);
+    expect(log).toEqual([["f1", { result: "лид продан" }]]);
+    fireEvent.click(within(box).getByRole("button", { name: "добавить критерий функции Приём заявок" }));
+    expect(log[1][1].checks).toEqual(["заявка в базе", "новый критерий"]);
+  });
+
+  it("в карточке функции больше нет сводки с чужими задачами", () => {
+    addFunc();
+    expect(screen.queryByText(/^задач: /)).toBeNull();
+    expect(screen.queryByText(/— в активе «/)).toBeNull();
   });
 });

@@ -95,6 +95,9 @@ export const normalizeProc = (p = {}) => ({
   ...p,
   id: p.id ?? nextId("pr"),
   name: p.name == null ? "" : String(p.name),
+  /* Описание процесса — своими словами, над полем ввода (владелец,
+     2026-09-19): зачем он нужен, чего от него ждут. */
+  about: p.about == null ? "" : String(p.about),
   text: p.text == null ? "" : tidyProcText(String(p.text)),
   status: STATUSES.includes(p.status) ? p.status : "off",
   steps: Array.isArray(p.steps) ? p.steps : [],
