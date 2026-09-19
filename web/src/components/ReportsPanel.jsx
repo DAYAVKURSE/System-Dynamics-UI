@@ -1010,7 +1010,10 @@ function Part({ n, title, hint, children, open: open0 = true }) {
 
 function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   traitName, funcName, nameOf, entities }) {
-  const [open, setOpen] = useState(depth < 1);
+  /* Раздел, который что-то прослеживает, открыт: его и заводили ради
+     движения (владелец, 2026-09-19 — «Проследить» показывает результат
+     сразу). Пустой — свёрнут: показывать нечего. */
+  const [open, setOpen] = useState(depth < 1 || !!node.trait);
   const [link, setLink] = useState(null);
   const [linkErr, setLinkErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1077,11 +1080,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
     const kid = { ...newSection(node.id, name), ...patch };
     setNodes((p) => [...p, kid]);
     setDraft({ trait: "", units: [], upto: "", qty: 1 });
-    /* Открываем сам раздел: нажали «Проследить» — значит хотят увидеть
-       движение, а не строку, которую надо ещё развернуть. Назад — кнопкой
-       «← все отчёты». */
+    /* Раздел открывается прямо здесь, в общем списке: уводить в отдельный
+       вид нельзя — кнопки «все отчёты» больше нет (владелец, 2026-09-19). */
     setOpen(true);
-    onFocus?.(kid.id);
   };
   /* Цепочки нет, а функции, берущие этот ресурс, у процесса, принятого
      гипотетически: расчёт их не считает, пока не включены гипотезы
@@ -1431,13 +1432,13 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
           прежде чем на неё ссылаться, её надо иметь. */}
       <Materials model={model} entities={entities} materials={materials}
         setMaterials={setMaterials} meId={meId} nameOf={nameOf} />
-      {/* Владелец (2026-09-19): «здесь нет проектов — это всё отчёты».
-          Посередине имя раздела, справа — кнопка. */}
+      {/* ОДНА форма на всё (владелец, 2026-09-19: «сделай, чтобы отчёты
+          были в одной форме»): имя посередине, «+ отчёт» справа, сами
+          отчёты — внутри. Кнопки «все отчёты» нет: они и так все здесь. */}
       <div style={{ ...S.card, marginBottom: 10 }}>
         <div className="flex items-center gap-2">
           <span style={{ flex: 1 }} />
-          {/* Нажатие на имя сворачивает форму — как и все формы вкладки
-              (владелец, 2026-09-19). */}
+          {/* Нажатие на имя сворачивает форму — как и все формы вкладки. */}
           <button type="button" aria-expanded={head} aria-label="отчёты"
             onClick={() => setHead((v) => !v)}
             style={{ background: "transparent", border: "none", padding: 0,
@@ -1445,33 +1446,28 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
             <span style={S.lbl}>отчёты {head ? "▾" : "▸"}</span>
           </button>
           <span style={{ flex: 1 }} />
+          {/* Новый отчёт встаёт СВЕРХУ: его только что завели, с ним и
+              работают (владелец, 2026-09-19). */}
           <button style={btn(true)}
-            onClick={() => setNodes((p) => [...p, newProject("новый отчёт")])}>+ отчёт</button>
+            onClick={() => setNodes((p) => [newProject("новый отчёт"), ...p])}>+ отчёт</button>
         </div>
-        {head && !!path.length && (
-          <div className="flex flex-wrap gap-2" style={{ marginTop: 8, alignItems: "center" }}>
-            <button style={{ ...btn(false), fontSize: 11 }}
-              onClick={() => onFocus?.(null)}>← все отчёты</button>
-            <span style={{ fontSize: 11, color: C.muted }}>
-              {path.map((n) => n.name || "без названия").join(" → ")}</span>
-          </div>)}
+
+        {head && (<>
+          {!nodes.length && (
+            <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, marginTop: 8 }}>
+              Отчётов пока нет.</div>)}
+
+          {focus && !path.length && (
+            <div style={{ fontSize: 11.5, color: WARN, lineHeight: 1.6, marginTop: 8 }}>
+              Такого отчёта в этой модели нет. Возможно, ссылка ведёт в другую
+              рабочую область или отчёт удалили.</div>)}
+
+          {shown.map((n) => (
+            <Node key={n.id} node={n} nodes={nodes} model={model}
+              doc={reportOf(model, n, nodes, { runsOf })}
+              focus={focus} onFocus={onFocus} setNodes={setNodes} traitName={traitName}
+              funcName={funcName} nameOf={nameOf} entities={entities} />))}
+        </>)}
       </div>
-
-      {!nodes.length && (
-        <div style={{ ...S.card, fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
-          Отчётов пока нет.
-        </div>)}
-
-      {focus && !path.length && (
-        <div style={{ ...S.card, fontSize: 11.5, color: WARN, lineHeight: 1.6 }}>
-          Такого отчёта в этой модели нет. Возможно, ссылка ведёт в другую
-          рабочую область или отчёт удалили.
-        </div>)}
-
-      {shown.map((n) => (
-        <Node key={n.id} node={n} nodes={nodes} model={model}
-          doc={reportOf(model, n, nodes, { runsOf })}
-          focus={focus} onFocus={onFocus} setNodes={setNodes} traitName={traitName}
-          funcName={funcName} nameOf={nameOf} entities={entities} />))}
     </div>);
 }

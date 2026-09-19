@@ -926,13 +926,6 @@ export default function SystemModel(){
     if(!proc||!(row>=0)) return;
     commitProcs(procs.map(p=>(p.id===proc.id?{...p,text:setFuncHead(p.text,row,patch)}:p)));
   };
-  /* Критерии задачи: у задачи из процесса — в его текст, у ручной — в
-     запись функции. Одна дверь на карточку функции и на форму постановки
-     (владелец, 2026-09-19: «нет критерия» на форме задачи). */
-  const setChecksOf=(f,list)=>{
-    if(f?.proc){ setTaskChecksIn(f,list); return; }
-    if(f) setFuncs(p=>p.map(x=>(x.id===f.id?{...x,checks:list}:x)));
-  };
   /* Критерии задачи из процесса — строками «Критерий:» в его тексте; правка
      из карточки задачи пишет туда же (владелец, 2026-09-19). */
   const setTaskChecksIn=(f,list)=>{
@@ -1645,9 +1638,6 @@ export default function SystemModel(){
       {tab==="review" && me.tabs.includes("review") && (
         <ReviewBoard tasks={tasks} traits={traitsLive} entities={entities} funcs={funcs}
           factors={factors} materials={materials} ratings={ratings}
-          /* Критерии правятся прямо на форме постановки: их устанавливают,
-             когда ставят задачу (владелец, 2026-09-19). */
-          onChecks={me.isOwner||me.solo?setChecksOf:undefined}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}

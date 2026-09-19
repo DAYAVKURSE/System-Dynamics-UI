@@ -209,12 +209,13 @@ describe("карта в форме", () => {
     expect(screen.getByRole("button", { name: "проследить: Заказ" })).toBeDisabled();
     fireEvent.change(pick, { target: { value: "t1" } });
     fireEvent.click(screen.getByRole("button", { name: "проследить: Заказ" }));
-    // Раздел назван ресурсом, открыт и несёт его движение.
+    // Раздел назван ресурсом, открыт и несёт его движение — прямо здесь,
+    // в общем списке: кнопки «все отчёты» больше нет (владелец, 2026-09-19).
     expect(screen.getByLabelText("название раздела").textContent).toBe("заявка");
     expect(screen.getByLabelText("с какого ресурса: заявка").value).toBe("t1");
     expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "← все отчёты" })).toBeNull();
     // У самого отчёта выбор снова пуст — под следующее прослеживание.
-    fireEvent.click(screen.getByRole("button", { name: "← все отчёты" }));
     expect(screen.getByLabelText("с какого ресурса: Заказ").value).toBe("");
   });
 
@@ -245,7 +246,6 @@ describe("карта в форме", () => {
        — что будет сделано» больше нет вовсе (владелец, 2026-09-19: «второй
        раздел убери полностью»). */
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
     expect(screen.getByText("2. Сроки и трудозатраты")).toBeInTheDocument();
     expect(screen.getByText("3. Задачи — что уже сделано")).toBeInTheDocument();
@@ -264,7 +264,6 @@ describe("карта в форме", () => {
 
   it("разделы сворачиваются нажатием на заголовок (владелец, 2026-09-19)", () => {
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     const head = screen.getByRole("button", { name: "2. Сроки и трудозатраты" });
     expect(screen.getByText("Займёт времени — вся цепочка")).toBeInTheDocument();
     fireEvent.click(head);
@@ -275,7 +274,6 @@ describe("карта в форме", () => {
 
   it("ссылок на шаги больше нет: раздела «Функции» нет вовсе (владелец, 2026-09-19)", () => {
     const { container } = render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(container.querySelector("#shag-rs1-f1")).toBeNull();
     expect(screen.queryByRole("button",
       { name: /ссылка на раздел отчёта/ })).toBeNull();
@@ -288,7 +286,6 @@ describe("карта в форме", () => {
     /* Отдельного списка нет: спрашивают «а макетов-то сколько реально
        вышло», то есть про конкретный ресурс — там ответ и стоит. */
     render(<Panel nodes={PICKED} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     /* Под своей задачей вещь стоит и так — это ответ на «что вышло из ЭТОЙ
        работы». Нажатие на ресурс отвечает на другой вопрос: «что по нему
        вышло вообще», и вещей становится больше. */
@@ -307,7 +304,6 @@ describe("карта в форме", () => {
     /* Одной строкой через точки её прочесть нельзя: непонятно, где кончается
        одно число и начинается другое, и что за величина названа. */
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     ["Займёт времени — вся цепочка", "Работы людей, человеко-часов", "Задач принято"]
       .forEach((t) => {
         expect(screen.getAllByText(t).length).toBeGreaterThan(0);
@@ -321,7 +317,6 @@ describe("карта в форме", () => {
        полосой не было ни одной даты, и сказать, на какое число попадает
        конец, было нельзя. */
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     const today = new Date().toLocaleDateString("ru-RU",
       { day: "2-digit", month: "2-digit" });
     expect(screen.getByText(new RegExp(`сегодня ${today}`))).toBeInTheDocument();
@@ -331,7 +326,6 @@ describe("карта в форме", () => {
 
   it("раздел спрашивает ресурс и звено, а не пару «функция + ресурс»", () => {
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     // У каждого раздела свои поля, и метка называет, чьи они.
     expect(screen.getByLabelText("с какого ресурса: Макеты")).toBeInTheDocument();
     expect(screen.getByLabelText("до какого звена: Макеты")).toBeInTheDocument();
@@ -342,7 +336,6 @@ describe("карта в форме", () => {
     /* Владелец: цепочка прослеживается до ресурса или до конца — «до
        вёрстки» не звено, а действие по дороге к нему. */
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     const sel = screen.getByLabelText("до какого звена: Макеты");
     expect(sel.querySelector("optgroup")).toBeNull();
     const names = [...sel.options].map((o) => o.textContent);
@@ -352,7 +345,6 @@ describe("карта в форме", () => {
 
   it("в звенья попадает только то, до чего цепочка доходит", () => {
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     const names = [...screen.getByLabelText("до какого звена: Макеты").options]
       .map((o) => o.textContent);
     expect(names).toContain("макет");
@@ -367,7 +359,6 @@ describe("карта в форме", () => {
 
   it("шаги остались в сроках, а раздела «Функции» нет", () => {
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     // Функция названа в сроках — там, где её время и часы.
     expect(screen.getAllByText("Собрать макет").length).toBeGreaterThan(0);
     expect(screen.queryByText("Выполнений ожидается")).toBeNull();
@@ -375,7 +366,6 @@ describe("карта в форме", () => {
 
   it("работа показана только по выбранным вещам", () => {
     render(<Panel nodes={PICKED} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getAllByText("Макет главной").length).toBeGreaterThan(0);
     // Числа прогноза и факта стоят рядом и названы полностью.
     expect(screen.getAllByText("Задач принято").length).toBeGreaterThan(0);
@@ -390,7 +380,6 @@ describe("карта в форме", () => {
        без автора и без номера, и сослаться на неё было нечем. Новые вещи
        рождаются только при сдаче выполненной задачи. */
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.queryByLabelText("файл ресурса: Макеты")).toBeNull();
     expect(screen.queryByText(/Загрузить сам ресурс/)).toBeNull();
     // На его месте — поле выбора единицы, рядом с самим ресурсом.
@@ -478,8 +467,7 @@ describe("карта в форме", () => {
     };
     try {
       render(<Panel nodes={NODES} />);
-      fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-      fireEvent.click(screen.getAllByRole("button", { name: "Скачать отчёт" })[1]);
+        fireEvent.click(screen.getAllByRole("button", { name: "Скачать отчёт" })[1]);
       expect(saved).toHaveLength(1);
       expect(saved[0].name).toMatch(/\.html$/);
     } finally {
@@ -494,7 +482,6 @@ describe("карта в форме", () => {
        любые — по одной, по нескольким или ни про одну. */
     render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
       ? { ...n, trait: "t2" } : n))} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getByText(/это ПРОГНОЗ/)).toBeInTheDocument();
 
     // Поле стоит рядом с самим ресурсом: вопрос один и тот же — «какой».
@@ -549,7 +536,6 @@ describe("карта в форме", () => {
        «сколько это займёт», сколько заведено разделов. Спорить с числом
        надо там, где оно задано, — в самой функции. */
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.queryByLabelText("прикинуть иначе: Собрать макет")).toBeNull();
     expect(screen.queryByLabelText("время Собрать макет от")).toBeNull();
   });
@@ -558,7 +544,6 @@ describe("карта в форме", () => {
     /* «Сколько» отдельно от «чего» заставляло держать связь в голове:
        поле стоит рядом с выбором ресурса, и это его количество. */
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     // Поле числовое по клавиатуре, но текстовое по разметке: значение строкой.
     expect(screen.getByLabelText("количество: Макеты")).toHaveValue("1");
     expect(screen.queryByLabelText("на сколько единиц: Макеты")).toBeNull();
@@ -566,7 +551,6 @@ describe("карта в форме", () => {
 
   it("оценка пересчитывается на заданное количество — по нажатию «Проследить»", () => {
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     const qty = screen.getByLabelText("количество: Макеты");
     fireEvent.change(qty, { target: { value: "3" } });
     fireEvent.blur(qty);
@@ -584,7 +568,6 @@ describe("карта в форме", () => {
        разными вещами. Пока этого не видно, список читается как повтор
        одной строки. */
     render(<Panel nodes={PICKED} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     // Что задача взяла — и что из неё вышло, прямо под ней. Вышедшее
     // названо дважды нарочно: у задачи и первым пунктом её шага.
     expect(screen.getByText(/взяла заявка №1/)).toBeInTheDocument();
@@ -603,7 +586,6 @@ describe("карта в форме", () => {
           { id: "p3", trait: "t1", lo: 1, hi: 1 }],
         gives: [{ id: "g2", trait: "t0", lo: 1, hi: 1 }] }] };
     render(<Panel nodes={NODES} model={stuck} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     // Звено на месте — и рядом сказано, почему оно не случится.
     expect(screen.getAllByText("Сверстать").length).toBeGreaterThan(0);
     expect(screen.getByText(/не выполнится: не хватает заявка/))
@@ -617,7 +599,6 @@ describe("карта в форме", () => {
        «передать заказ разработчикам» — работу над четырьмя чужими
        контактами — и справедливо не понимал, при чём тут его. */
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.queryByText(/Задач тут нет и не должно быть/)).toBeNull();
     expect(screen.queryByText("Макет главной")).toBeNull();
     expect(screen.queryByText("Второй заход")).toBeNull();
@@ -640,7 +621,6 @@ describe("карта в форме", () => {
           took: { t1: ["s0~t1"] } })) })),
     ] };
     render(<Panel nodes={PICKED} model={twins} />);
-    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getByText(/№1 из 2/)).toBeInTheDocument();
     expect(screen.getByText(/№2 из 2/)).toBeInTheDocument();
     // Само название в модели осталось нетронутым: номер живёт только в показе.
