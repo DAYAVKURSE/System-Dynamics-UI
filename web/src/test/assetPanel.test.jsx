@@ -806,9 +806,34 @@ describe("шапка функции в карточке (владелец, 2026-
     expect(log[1][1].checks).toEqual(["заявка в базе", "новый критерий"]);
   });
 
+  it("критерии задачи добавляются и в карточке; у задачи из процесса — в его текст", () => {
+    const log = [];
+    const f = base({ id: "t1", proc: "p1", taskRow: 3, checks: ["заявка в базе"] });
+    const { container: box } = render(
+      <Funcs entityId="e1" funcs={[f]} setFuncs={() => {}} traits={[]} entities={[{ id: "e1", name: "Актив" }]}
+        open={f.id} setOpen={() => {}} onTaskChecks={(x, list) => log.push([x.id, list])} />);
+    fireEvent.click(within(box).getByRole("button", { name: "добавить критерий" }));
+    expect(log).toEqual([["t1", ["заявка в базе", "новый критерий"]]]);
+    fireEvent.click(within(box).getByRole("button", { name: "убрать критерий 1" }));
+    expect(log[1]).toEqual(["t1", []]);
+  });
+
   it("в карточке функции больше нет сводки с чужими задачами", () => {
     addFunc();
     expect(screen.queryByText(/^задач: /)).toBeNull();
     expect(screen.queryByText(/— в активе «/)).toBeNull();
+  });
+
+  it("вкладка считает функции, а не задачи: функция из двух задач — одна", () => {
+    const two = [
+      base({ id: "t1", name: "Принять", chain: { id: "c1", name: "Приём", step: 1, of: 2 } }),
+      base({ id: "t2", name: "Проверить", chain: { id: "c1", name: "Приём", step: 2, of: 2 } }),
+    ];
+    const { container: box } = render(
+      <Funcs entityId="e1" funcs={two} setFuncs={() => {}} traits={[]} entities={[{ id: "e1", name: "Актив" }]}
+        open={null} setOpen={() => {}} />);
+    // На экране одна карточка функции с обеими задачами внутри.
+    expect(within(box).getAllByDisplayValue("Приём").length).toBe(1);
+    expect(new Set(two.map((f) => f.chain?.id || f.id)).size).toBe(1);   // так же считает и вкладка
   });
 });

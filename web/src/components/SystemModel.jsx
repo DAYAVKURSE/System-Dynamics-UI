@@ -14,7 +14,7 @@ import { FACTORS_ON } from "../lib/flags.js";
 import LooseCrew from "./LooseCrew.jsx";
 import { applyHand, handColor, handLinks, linkPath, pinsOf, removeHand } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
-import { procFuncs as procFuncs2, replaceName, setFuncHead } from "../lib/proc2.js";
+import { procFuncs as procFuncs2, replaceName, setFuncHead, setTaskChecks } from "../lib/proc2.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
   from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
@@ -566,7 +566,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
             </g>)}
             <text x={e.x+14} y={e.y+64} fontSize="10.5" fill={C.muted}>
               {countWorkers(e)} воркеров ·
-              {" "}{fs.length} функц. · {ts.length} ресурс.</text>
+              {" "}{new Set(fs.map(f=>f.chain?.id||f.id)).size} функц. · {ts.length} ресурс.</text>
             {ts.slice(0,2).map((t,i)=>{
               const v=valuesFor(t.id);
               return (<text key={t.id} x={e.x+14} y={e.y+84+i*17} fontSize="10.5"
@@ -916,6 +916,13 @@ export default function SystemModel(){
     const row=Number(String(f.chain?.id||"").split("_").pop())-1;
     if(!proc||!(row>=0)) return;
     commitProcs(procs.map(p=>(p.id===proc.id?{...p,text:setFuncHead(p.text,row,patch)}:p)));
+  };
+  /* Критерии задачи из процесса — строками «Критерий:» в его тексте; правка
+     из карточки задачи пишет туда же (владелец, 2026-09-19). */
+  const setTaskChecksIn=(f,list)=>{
+    const proc=procs.find(p=>p.id===f.proc);
+    if(!proc||!(f.taskRow>=0)) return;
+    commitProcs(procs.map(p=>(p.id===proc.id?{...p,text:setTaskChecks(p.text,f.taskRow,list)}:p)));
   };
   /* Должности актива: одна должность — у одного актива (владелец,
      2026-09-18). Отметка переводит должность сюда, снимая её с другого. */
@@ -1716,7 +1723,7 @@ export default function SystemModel(){
               onSetRoles={me.isOwner&&!me.solo
                 ?(pid,list)=>setUserRoles(pid,list).then(refreshOrg):undefined}
               focus={focus}
-              onFuncHead={setFuncHeadIn}
+              onFuncHead={setFuncHeadIn} onTaskChecks={setTaskChecksIn}
               onWhyFunc={id=>setWhy({kind:"func",id})}
               onWhyTrait={id=>setWhy({kind:"trait",id})}
               onDeleteTrait={delTrait}

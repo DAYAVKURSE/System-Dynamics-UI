@@ -525,9 +525,19 @@ describe("заголовок процесса сворачивает карто�
     fireEvent.click(head);                                   // развернули обратно
     expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);
 
-    // Название правят, а не сворачивают.
-    fireEvent.click(within(head).getByRole("button", { name: /^назвать процесс/ }));
+    // Двойное нажатие на заголовок — правка названия, карточка не сворачивается.
+    const name = head.querySelector("[data-proc-name]");
+    fireEvent.doubleClick(name);
     expect(screen.getByLabelText("название процесса")).toBeInTheDocument();
     expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);
+    // Длинное название видно целиком: перенос, а не обрезка.
+    fireEvent.change(screen.getByLabelText("название процесса"), { target: { value: "Передача заказчика фриланс-партнёром и приём оффера" } });
+    fireEvent.blur(screen.getByLabelText("название процесса"));
+    const shown = head.querySelector("[data-proc-name]");
+    expect(shown.textContent).toBe("Передача заказчика фриланс-партнёром и приём оффера");
+    expect(getComputedStyle(shown).whiteSpace).toBe("normal");
+    expect(getComputedStyle(shown).textOverflow).not.toBe("ellipsis");
+    // Слова «процесс» подписью в заголовке нет — только само название.
+    expect(head.querySelector("[data-proc-name]").textContent).toBe("Передача заказчика фриланс-партнёром и приём оффера");
   });
 });

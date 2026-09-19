@@ -1218,7 +1218,7 @@ export function procFuncs(proc = {}, model = {}) {
       if (!main.ok) return;
       const alt = t.branches.slice(1).map((b, i) => build(b, i + 1)).filter((x) => x.ok).map(({ ok, bi, ...rest }) => rest);   // eslint-disable-line no-unused-vars
       out.push({
-        id: tid, e: main.e, name: t.name || `задача ${ti + 1}`, proc: proc.id,
+        id: tid, e: main.e, name: t.name || `задача ${ti + 1}`, proc: proc.id, taskRow: t.row,
         chain: { id: fid, name: fname, step: ti + 1, of: f.tasks.length,
           checks: (f.checks || []).map((c) => c.text), result: f.result?.text || "" },
         takes: main.takes, gives: main.gives, steps: main.steps, who: main.who, posts: main.posts,

@@ -79,9 +79,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
     return (<div>
       {filterBar}
       <div style={S.card}>
-        {only === "all"
-          ? "Задач пока нет. Заведите их во вкладке «Задачи» — здесь они лягут во времени."
-          : "В этом состоянии задач нет."}
+        {only === "all" ? "Задач пока нет." : "В этом состоянии задач нет."}
       </div>
     </div>);
   }

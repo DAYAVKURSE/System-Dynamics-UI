@@ -1276,31 +1276,33 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
             <div key={p.id} data-lit={lit || undefined}
               style={{ background: C.panel2, border: `1px solid ${lit ? ACC : C.line}`, borderRadius: 8, padding: 8, marginBottom: 8,
                 borderLeft: `2px solid ${STATUS_TONE[p.status] || C.line}`, boxShadow: lit ? `0 0 0 1px ${ACC}55` : "none" }}>
-              {lit && <div style={{ fontSize: 10.5, color: ACC, marginBottom: 4 }}>задействует выбранный актив «{selName}»</div>}
-              {/* Заголовок целиком сворачивает процесс — кроме названия
-                  (его правят) и «удалить» (владелец, 2026-09-19). */}
-              <div className="flex items-center gap-2" data-proc-head="" style={{ marginBottom: 6, cursor: "pointer" }}
-                onClick={(e) => { if (e.target.closest("button, input, textarea")) return; flip(p.id); }}>
-                <button type="button" aria-expanded={!hid} aria-label={`свернуть процесс «${label}»`}
-                  onClick={() => flip(p.id)}
-                  style={{ ...S.lbl, background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
-                  {hid ? "▸" : "▾"} процесс</button>
-                {naming === p.id ? (
-                  <input autoFocus aria-label="название процесса" defaultValue={p.name} placeholder="название процесса"
-                    style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 600, padding: "3px 6px" }}
-                    onBlur={(e) => { rename(p, e.target.value); setNaming(null); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
-                ) : (
-                  <button type="button" aria-label={`назвать процесс «${label}»`} title="нажмите, чтобы назвать процесс" onClick={() => setNaming(p.id)}
-                    style={{ flex: "0 1 auto", minWidth: 0, maxWidth: "58%", textAlign: "left", background: "transparent", border: "none", padding: 0, color: p.name ? C.text : C.muted,
-                      fontSize: 12.5, fontWeight: 600, cursor: "text", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</button>)}
-                {/* Пустое место заголовка — тоже «свернуть»: имя больше не
-                    занимает всю строку, иначе сворачивать было бы негде. */}
-                <span aria-hidden="true" style={{ flex: 1, minWidth: 16, alignSelf: "stretch" }} />
-                <span style={{ fontSize: 10.5, color: STATUS_TONE[p.status] || C.muted, whiteSpace: "nowrap" }}>
-                  {PROC_STATUS.find(([id]) => id === p.status)?.[1].toLowerCase()}</span>
-                <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11, padding: "2px 6px" }}
-                  aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
+              {/* Название — в самом верху формы и целиком: одинарное нажатие
+                  сворачивает, двойное открывает правку (владелец, 2026-09-19). */}
+              <div data-proc-head="" aria-label={`процесс «${label}»`} style={{ marginBottom: 6, cursor: "pointer" }}
+                onClick={(e) => { if (e.target.closest("button, input, textarea")) return; flip(p.id); }}
+                onDoubleClick={(e) => { if (e.target.closest("button, input, textarea")) return; setNaming(p.id); }}>
+                <div className="flex items-start gap-2">
+                  <button type="button" aria-expanded={!hid} aria-label={`свернуть процесс «${label}»`}
+                    onClick={() => flip(p.id)}
+                    style={{ background: "transparent", border: "none", padding: 0, color: C.muted, cursor: "pointer",
+                      fontSize: 12, lineHeight: "18px" }}>{hid ? "▸" : "▾"}</button>
+                  {naming === p.id ? (
+                    <input autoFocus aria-label="название процесса" defaultValue={p.name} placeholder="название процесса"
+                      style={{ ...S.inp, flex: 1, fontSize: 13.5, fontWeight: 700, padding: "2px 6px" }}
+                      onBlur={(e) => { rename(p, e.target.value); setNaming(null); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
+                  ) : (
+                    <span data-proc-name="" title="двойное нажатие — переименовать"
+                      style={{ flex: 1, minWidth: 0, color: p.name ? C.text : C.muted, fontSize: 13.5, fontWeight: 700,
+                        lineHeight: 1.3, whiteSpace: "normal", overflowWrap: "anywhere" }}>{label}</span>)}
+                  <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11, padding: "2px 6px" }}
+                    aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
+                </div>
+                <div className="flex items-center gap-2" style={{ marginTop: 2 }}>
+                  <span style={{ fontSize: 10.5, color: STATUS_TONE[p.status] || C.muted }}>
+                    {PROC_STATUS.find(([id]) => id === p.status)?.[1].toLowerCase()}</span>
+                  {lit && <span style={{ fontSize: 10.5, color: ACC }}>· актив «{selName}»</span>}
+                </div>
               </div>
 
               {!hid && (<>

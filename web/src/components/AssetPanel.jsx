@@ -733,7 +733,7 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
 
 export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], workers,
   factors = [], people = [], nameOf, runsOf, open, setOpen, onWhy,
-  positions = [], rolesOf = () => [], onMarket, onFuncHead }) {
+  positions = [], rolesOf = () => [], onMarket, onFuncHead, onTaskChecks }) {
   const mine = funcs.filter((f) => f.e === entityId);
   const own = traits.filter((t) => t.e === entityId);
   const others = traits.filter((t) => t.e !== entityId);
@@ -845,6 +845,11 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
     setFuncs((p) => p.map((x) => (g.list.some((f) => f.id === x.id)
       ? { ...x, chain: { ...(x.chain || { id: x.id, name: g.name || x.name, step: 1, of: 1 }), ...patch } } : x)));
   };
+  /* Критерии задачи: у задачи из процесса — в его текст, у ручной — в запись. */
+  const setChecksOf = (f, list) => {
+    if (f.proc && onTaskChecks) { onTaskChecks(f, list); return; }
+    setFuncs((p) => p.map((x) => (x.id === f.id ? { ...x, checks: list } : x)));
+  };
   const renameChain = (g, name) => setFuncs((p) => p.map((x) => {
     if (!(x.chain?.id === g.id || (x.id === g.id && !x.chain))) return x;
     const same = g.list.length === 1 && x.name === (g.name || x.name);
@@ -925,26 +930,20 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 функция может быть понятна и по названию. Зато написанное
                 здесь едет в КАЖДУЮ её задачу, и постановщику не приходится
                 переписывать одно и то же в каждое выполнение. */}
-            {/* Критерии проверки (владелец, 2026-09-18): список с «+».
-                У задачи из техпроцесса они живут строками «Критерий:» в
-                тексте — там их и правят, иначе пересборка их потеряет. */}
+            {/* Критерии проверки задачи (владелец, 2026-09-18, правка
+                2026-09-19): добавляются и здесь. У задачи из техпроцесса они
+                живут строками «Критерий:» в тексте — туда и пишем. */}
             <Form title="критерии проверки">
-              {!(f.checks || []).length && (
-                <div style={{ fontSize: 11, color: C.muted, marginBottom: 5 }}>
-                  По чему проверяющий примет работу. Видит исполнитель и проверяющий.</div>)}
               {(f.checks || []).map((c, i) => (
                 <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 4 }}>
                   <TxtField value={c} aria-label={`критерий ${i + 1}`} style={{ flex: 1, fontSize: 12 }}
-                    onCommit={(v) => up(f.id, (x) => ({ ...x, checks: (x.checks || []).map((y, k) => (k === i ? v : y)).filter((y) => String(y).trim()) }))} />
+                    onCommit={(v) => setChecksOf(f, (f.checks || []).map((y, k) => (k === i ? v : y)).filter((y) => String(y).trim()))} />
                   <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11, padding: "2px 6px" }}
                     aria-label={`убрать критерий ${i + 1}`}
-                    onClick={() => up(f.id, (x) => ({ ...x, checks: (x.checks || []).filter((y, k) => k !== i) }))}>✕</button>
+                    onClick={() => setChecksOf(f, (f.checks || []).filter((y, k) => k !== i))}>✕</button>
                 </div>))}
-              {f.proc ? (
-                <div style={{ fontSize: 10.5, color: C.muted }}>Правятся в тексте техпроцесса: строка «Критерий: …».</div>
-              ) : (
-                <button style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="добавить критерий"
-                  onClick={() => up(f.id, (x) => ({ ...x, checks: [...(x.checks || []), "новый критерий"] }))}>+ критерий</button>)}
+              <button style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="добавить критерий"
+                onClick={() => setChecksOf(f, [...(f.checks || []), "новый критерий"])}>+ критерий</button>
             </Form>
 
             <Form title="описание — необязательно">
@@ -1641,7 +1640,11 @@ export default function AssetPanel(props) {
     else if (focus.kind === "trait") { setTab("traits"); setOpenTrait(focus.id); }
     else if (focus.kind === "workers") setTab("workers");
   }, [focus?.id, focus?.n, focus?.kind]);
-  const mineFuncs = props.funcs.filter((f) => f.e === props.entityId).length;
+  /* Счётчик вкладки — ФУНКЦИИ, а не задачи (владелец, 2026-09-19: «написано,
+     что функций две, хотя функция одна, но в ней две задачи»): записи одной
+     цепочки считаем за одну. */
+  const mineFuncs = new Set(props.funcs.filter((f) => f.e === props.entityId)
+    .map((f) => f.chain?.id || f.id)).size;
   const mineTraits = props.traits.filter((t) => t.e === props.entityId).length;
   const mineFactors = (props.factors || []).filter((x) => x.e === props.entityId).length;
   // Людей, а не назначений: один человек может быть всеми тремя сразу.
