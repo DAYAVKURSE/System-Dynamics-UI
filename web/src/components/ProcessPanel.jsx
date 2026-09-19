@@ -757,7 +757,9 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
           onTouchStart={touchStart} onTouchEnd={(e) => touchEnd(e, null)} onTouchCancel={() => { touch.current = null; hold.current = false; }}
           onMouseDown={(e) => { setMenuActive(true); if (e.target.tagName === "INPUT") hold.current = true; else e.preventDefault(); }}
           style={{ position: "fixed", left: menuPos?.x ?? 8, top: menuPos?.y ?? 8, zIndex: 40, width: 210,
-            opacity: menuActive ? 1 : 0.55, transition: "opacity .15s",
+            /* Меньше прозрачности у спящего меню (владелец, 2026-09-19):
+               сквозь него читался текст под ним, и меню терялось. */
+            opacity: menuActive ? 1 : 0.85, transition: "opacity .15s",
             background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 5, boxShadow: "0 6px 20px rgba(0,0,0,.35)" }}>
           <div className="flex items-center gap-1" style={{ padding: "1px 2px 4px" }}>
             <div aria-label="перетащить меню" title="перетащить"

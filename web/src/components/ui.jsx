@@ -96,12 +96,16 @@ export const ICON = {
   redo: "M15 7H8a5 5 0 0 0 0 10h6M15 7 11.5 3.5M15 7l3.5 3.5",
   save: "M5 4h11l3 3v13H5zM8 4v6h7V4M8 20v-6h8v6",
 };
-export function IconButton({ icon, label, title, onClick, disabled, on = false, size = 18 }) {
+/* Размер и прозрачность — владелец (2026-09-19): «в 1,5 раза меньше и на
+   30% прозрачнее»: значок стоит в стороне от работы и не должен спорить с
+   ней за внимание. */
+export function IconButton({ icon, label, title, onClick, disabled, on = false, size = 12,
+  dim = 0.7 }) {
   return (
     <button type="button" aria-label={label} title={title || label} onClick={onClick}
       disabled={disabled}
-      style={{ ...btn(on), padding: "5px 7px", lineHeight: 0,
-        opacity: disabled ? 0.4 : 1, cursor: disabled ? "default" : "pointer" }}>
+      style={{ ...btn(on), padding: "3px 5px", lineHeight: 0,
+        opacity: disabled ? dim * 0.5 : dim, cursor: disabled ? "default" : "pointer" }}>
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true"
         stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <path d={icon} />
@@ -112,6 +116,24 @@ export function IconButton({ icon, label, title, onClick, disabled, on = false, 
 /* Шрифт имени — сдержанный техничный гротеск; подключён в `index.html`,
    а список запасных оставляет имя читаемым и без загрузки. */
 export const BRAND_FONT = "Orbitron, 'Exo 2', 'Segoe UI', Inter, system-ui, sans-serif";
+
+/* ─────── ВКЛАДКА ───────
+
+   Владелец (2026-09-19): «сделай, чтобы они выглядели как вкладки, а не
+   как кнопки». Вкладка не обведена со всех сторон: у неё скруглён только
+   верх, а низ сливается с полосой под рядом — открытая вкладка эту полосу
+   разрывает и этим показывает, что страница ниже принадлежит ей. */
+export const TAB_LINE = { borderBottom: `1px solid ${C.line}` };
+export const tab = (on) => ({
+  background: on ? C.panel : "transparent",
+  border: `1px solid ${on ? C.line : "transparent"}`,
+  borderBottom: `1px solid ${on ? C.panel : C.line}`,
+  borderRadius: "8px 8px 0 0",
+  color: on ? ACC : C.muted,
+  fontWeight: on ? 600 : 400,
+  padding: "6px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap",
+  marginBottom: -1,
+});
 
 /* ─────── ПОЛЯ С ЧЕРНОВИКОМ ───────
    Значение уходит наружу по расфокусу или по Enter, поэтому пересчёт

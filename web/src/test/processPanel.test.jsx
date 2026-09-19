@@ -99,12 +99,12 @@ describe("просмотр и правка (владелец, 2026-09-18)", () =
     fireEvent.blur(area);
     const menu2 = container.querySelector("[data-proc-menu]");
     expect(menu2).not.toBeNull();
-    expect(menu2.style.opacity).toBe("0.55");
+    expect(menu2.style.opacity).toBe("0.85");
     fireEvent.mouseDown(menu2);
     expect(menu2.style.opacity).toBe("1");
     // Прокрутка страницы — меню неактивно.
     fireEvent.scroll(window);
-    expect(menu2.style.opacity).toBe("0.55");
+    expect(menu2.style.opacity).toBe("0.85");
     fireEvent.mouseDown(menu2);
     fireEvent.click(within(menu2).getByRole("button", { name: "закрыть меню" }));
     expect(container.querySelector("[data-proc-menu]")).toBeNull();

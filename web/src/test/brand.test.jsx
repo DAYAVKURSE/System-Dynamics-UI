@@ -20,19 +20,33 @@ describe("шапка", () => {
     expect(container.textContent).not.toMatch(/горизонт/i);
   });
 
-  it("отменить, вернуть и сохранить — значками над вкладками", () => {
-    const { container } = render(<SystemModel />);
+  it("отменить, вернуть и сохранить — значками у правого края, за вкладками", () => {
+    render(<SystemModel />);
     ["отменить", "вернуть", "сохранить"].forEach((name) => {
       const b = screen.getByRole("button", { name });
       // Значок, а не надпись: внутри только рисунок.
       expect(b.textContent).toBe("");
       expect(b.querySelector("svg")).toBeTruthy();
+      // Приглушены: значок не спорит за внимание с работой (владелец,
+      // 2026-09-19 — «на 30% прозрачнее»).
+      expect(Number(b.style.opacity)).toBeLessThanOrEqual(0.7);
     });
-    // Ряд значков стоит выше ряда вкладок.
+    /* Значки — ПОСЛЕ вкладок в строке шапки: они у правого края, вкладки
+       сразу за знаком. */
     const undo = screen.getByRole("button", { name: "отменить" });
     const tab = screen.getByRole("button", { name: "Схема" });
-    expect(undo.compareDocumentPosition(tab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(container).toBeTruthy();
+    expect(tab.compareDocumentPosition(undo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("вкладки стоят справа от знака и выглядят вкладками, а не кнопками", () => {
+    render(<SystemModel />);
+    const brand = screen.getByLabelText("Blocktree");
+    const tab = screen.getByRole("button", { name: "Схема" });
+    // Знак и вкладки — в одной строке, знак первым.
+    expect(brand.compareDocumentPosition(tab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(brand.closest("div").parentElement).toBe(tab.closest("div").parentElement);
+    // Верх скруглён, низ — нет: вкладка сливается с полосой под рядом.
+    expect(tab.style.borderRadius).toBe("8px 8px 0 0");
   });
 
   it("«сохранить» без имени сценария уводит туда, где его называют", () => {

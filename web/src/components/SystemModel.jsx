@@ -16,8 +16,8 @@ import LooseCrew from "./LooseCrew.jsx";
 import { handColor } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
 import { procFuncs as procFuncs2, replaceName, setFuncHead, setTaskChecks } from "../lib/proc2.js";
-import { Brand, C, OK, WARN, BAD, NEU, ACC, ICON, IconButton, NameField, S, btn, durText,
-  nm, NumField, TxtField } from "./ui.jsx";
+import { Brand, C, OK, WARN, BAD, NEU, ACC, ICON, IconButton, NameField, S, TAB_LINE,
+  tab as tabStyle, btn, durText, nm, NumField, TxtField } from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
   crewOf,
   normalizeAssets,
@@ -1469,6 +1469,15 @@ export default function SystemModel(){
      всему списку — иначе он приводил бы туда, куда не пускают. */
   const tabsShown=useMemo(()=>TAB_LIST.filter(([k])=>k===SELF_TAB[0]||k===MARKET_TAB[0]
     ||me.isOwner||me.solo||me.tabs.includes(k)),[me.isOwner,me.solo,me.tabs]);
+  /* Открытая вкладка всегда на виду: ряд уезжает за край экрана, и после
+     свайпа она оказывалась бы за его пределами. */
+  const tabsBox=useRef(null);
+  useEffect(()=>{
+    const el=tabsBox.current?.querySelector(`[data-tab="${tab}"]`);
+    if(el&&typeof el.scrollIntoView==="function"){
+      try{ el.scrollIntoView({block:"nearest",inline:"center"}); }catch{ /* не умеет — и не надо */ }
+    }
+  },[tab]);
   /* Свайп через весь экран меняет вкладку (владелец, 2026-09-19;
      `lib/swipe.js`). Одним пальцем: два — это щипок на карте. */
   const swipe=useRef(null);
@@ -1496,23 +1505,33 @@ export default function SystemModel(){
          движение от края уносило бы со страницы назад. */
       overscrollBehaviorX:"contain"}}
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-      {/* Шапка — имя приложения и знак; что внутри, говорят сами вкладки
-          (владелец, 2026-09-19). */}
-      <div className="flex items-center gap-3" style={{marginBottom:10}}>
-        <Brand/>
-      </div>
-
-      {/* Отменить · вернуть · сохранить — значками, над вкладками
-          (владелец, 2026-09-19). */}
-      <div className="flex items-center gap-2" style={{marginBottom:8}}>
-        <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
-          disabled={!hist.canUndo} onClick={hist.undo} icon={ICON.undo}/>
-        <IconButton label="вернуть" title="Вернуть отменённое (Ctrl+Shift+Z)"
-          disabled={!hist.canRedo} onClick={hist.redo} icon={ICON.redo}/>
-        {(me.solo||me.isOwner)&&(
-          <IconButton label="сохранить" title={saveName.trim()
-            ? `Сохранить сценарий «${saveName.trim()}»` : "Назвать сценарий и сохранить"}
-            disabled={savedBusy} onClick={saveNow} icon={ICON.save}/>)}
+      {/* Шапка — одной строкой (владелец, 2026-09-19): знак слева, вкладки
+          сразу за ним, значки — у правого края. Полоса под рядом и есть то,
+          что делает вкладки вкладками: открытая её разрывает. */}
+      <div className="flex items-center gap-2"
+        style={{marginBottom:10,alignItems:"flex-end",...TAB_LINE}}>
+        <div style={{flex:"0 0 auto",paddingBottom:6}}><Brand size={20}/></div>
+        {/* «Анкета» — всем: это единственное место, где человек говорит о
+            себе. «Отчёты» — владельцу: карту пишет он, а остальным сервер
+            её и не отдаёт — рисовать пустую карту с кнопками, которые
+            ничего не сохранят, значило бы обещать работу, которой не
+            будет. Наружу отчёт уходит ссылкой. */}
+        <div ref={tabsBox} className="flex gap-1"
+          style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"flex-end"}}>
+          {tabsShown.map(([k,t])=>(
+            <button key={k} data-tab={k} style={tabStyle(tab===k)}
+              onClick={()=>setTab(k)}>{t}</button>))}
+        </div>
+        <div className="flex items-center gap-1" style={{flex:"0 0 auto",paddingBottom:5}}>
+          <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
+            disabled={!hist.canUndo} onClick={hist.undo} icon={ICON.undo}/>
+          <IconButton label="вернуть" title="Вернуть отменённое (Ctrl+Shift+Z)"
+            disabled={!hist.canRedo} onClick={hist.redo} icon={ICON.redo}/>
+          {(me.solo||me.isOwner)&&(
+            <IconButton label="сохранить" title={saveName.trim()
+              ? `Сохранить сценарий «${saveName.trim()}»` : "Назвать сценарий и сохранить"}
+              disabled={savedBusy} onClick={saveNow} icon={ICON.save}/>)}
+        </div>
       </div>
 
       {recovery && (me.solo||me.isOwner) && (
@@ -1545,15 +1564,6 @@ export default function SystemModel(){
           вкладки. Сохраняй сценарий на диск во вкладке «Инструменты».
         </div>)}
 
-      <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-        {/* «Анкета» — всем: это единственное место, где человек говорит о
-            себе. «Отчёты» — владельцу: карту проектов пишет он, а
-            остальным сервер её и не отдаёт — рисовать пустую карту с
-            кнопками, которые ничего не сохранят, значило бы обещать
-            работу, которой не будет. Наружу отчёт уходит ссылкой. */}
-        {tabsShown.map(([k,t])=>(
-          <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
-      </div>
 
       {/* Незваный — не «ждите, пока позовут», а РЕГИСТРАЦИЯ: участником
           становятся, подписав договор роли, и делает это сам человек.
