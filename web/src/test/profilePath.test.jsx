@@ -239,7 +239,7 @@ describe("постановщик приходит из ролей функции
     fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[0]);
     expect(screen.getByText("Загружено.")).toBeInTheDocument();
 
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     fireEvent.click(screen.getByRole("button", { name: "Применить цель" }));

@@ -235,3 +235,38 @@ describe("вкладка «Анкета»", () => {
     expect(document.querySelector("[role=dialog]")).toBeNull();
   });
 });
+
+describe("формы анкеты — спойлеры (владелец, 2026-09-19)", () => {
+  it("нажатие на заголовок формы прячет её содержимое", () => {
+    render(<SystemModel />);
+    fireEvent.click(screen.getByRole("button", { name: "Анкета" }));
+    const fold = screen.getByRole("button", { name: /^мой рабочий график$/ });
+    expect(fold).toHaveAttribute("aria-expanded", "true");
+    const card = fold.parentElement;
+    expect(card.textContent).toMatch(/статус/i);
+    fireEvent.click(fold);
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    expect(card.textContent.toLowerCase()).not.toMatch(/статус/);
+    fireEvent.click(fold);
+    expect(card.textContent).toMatch(/статус/i);
+  });
+});
+
+describe("разделы схемы (владелец, 2026-09-19)", () => {
+  it("вкладка называется «Цели», под вкладками — чем раздел занят, формы «прогноз по функциям» нет", async () => {
+    render(<SystemModel />);
+    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    expect(screen.getByRole("button", { name: "Управление" })).toBeTruthy();
+    expect(screen.getByText("Что умеет делать система")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Деятельность" }));
+    expect(screen.getByText("Что делает в текущий момент")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Цели" }));
+    expect(screen.getByText("Что будет делать система")).toBeTruthy();
+    expect(screen.queryByText("прогноз по функциям")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Прогноз" })).toBeNull();
+    // Прогнозы под целями — на одной форме «прогноз»: внутри неё и нагрузка.
+    const form = screen.getAllByText("прогноз").map((n) => n.parentElement)
+      .find((n) => n.textContent.includes("нагрузка исполнителей"));
+    expect(form).toBeTruthy();
+  });
+});

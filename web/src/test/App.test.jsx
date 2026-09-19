@@ -18,7 +18,7 @@ describe("App", () => {
     expect(screen.getByText("Схема")).toBeInTheDocument();
     expect(screen.getByText("Инструменты")).toBeInTheDocument();
     // «Прогноз» — подвкладка под схемой, в главном ряду его нет.
-    expect(screen.queryByText("Прогноз")).toBeNull();
+    expect(screen.queryByText("Цели")).toBeNull();
   });
 
   it("по ссылке на звонок открывается окно звонка, а не вся модель", () => {

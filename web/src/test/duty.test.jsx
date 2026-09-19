@@ -64,9 +64,11 @@ describe("раздел в анкете", () => {
 
   it("выбрать себе работу нельзя — в разделе только отказ", () => {
     view();
-    const card = screen.getByText("мои выполняемые задачи").parentElement;
+    // Заголовок формы — кнопка спойлера (владелец, 2026-09-19), сама карточка выше.
+    const card = screen.getByText("мои выполняемые задачи").closest("div");
     const labels = [...card.querySelectorAll("button")]
-      .map((b) => b.getAttribute("aria-label"));
+      .map((b) => b.getAttribute("aria-label"))
+      .filter((l) => l !== "мои выполняемые задачи");
     expect(labels).toEqual(["отказаться: Звонок лиду", "вернуть: Приёмка"]);
   });
 

@@ -24,7 +24,7 @@ const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
 const assetTab = (name) => fireEvent.click(
   screen.getByRole("button", { name: new RegExp(`^${name}`) }));
 /* «Прогноз» — подвкладка под схемой: сначала схема, потом он. */
-const forecast = () => { tab("Схема"); tab("Прогноз"); expandCards(container); };
+const forecast = () => { tab("Схема"); tab("Цели"); expandCards(container); };
 const dump = () => {
   fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
   fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
@@ -43,7 +43,7 @@ describe("состав вкладок", () => {
     // же модель во времени, и ползунок месяца у них общий со схемой.
     expect(bar.slice(0, 5))
       .toEqual(["Задачи", "Проверка", "Схема", "Отчёты", "Инструменты"]);
-    expect(screen.queryByRole("button", { name: "Прогноз" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Цели" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Деятельность" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Цели" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Типы" })).toBeNull();
@@ -111,8 +111,22 @@ describe("цель", () => {
     expect(screen.queryByPlaceholderText("без цели")).toBeNull();
   });
 
+  it("название цели правится двойным нажатием (владелец, 2026-09-19)", () => {
+    tab("Схема"); tab("Цели");
+    const name = document.querySelector("[data-goal-name]");
+    expect(name.textContent).toMatch(/в неделю · через 3 мес/);   // без имени — цель словами
+    fireEvent.doubleClick(name);
+    const input = screen.getByLabelText("название цели");
+    fireEvent.change(input, { target: { value: "Выйти на десять клиентов" } });
+    fireEvent.blur(input);
+    const again = document.querySelector("[data-goal-name]");
+    expect(again.textContent).toMatch(/^Выйти на десять клиентов/);
+    // Сама цель словами осталась подписью — смысл не потерян.
+    expect(screen.getByText(/в неделю · через 3 мес/)).toBeTruthy();
+  });
+
   it("«Прогноз» показывает цели, а расчёт — по кнопке", () => {
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     expect(screen.getByText("цели")).toBeTruthy();
     expect(screen.getByRole("button", { name: "+ цель" })).toBeTruthy();
     // Свёрнутая цель называет себя целиком: «10 … в неделю · через 3 мес».
@@ -132,7 +146,7 @@ describe("цель", () => {
      ничего, и отдельным блоком «по каким дням идёт работа» читались как
      расписание задач, которым не являются. */
   it("график учитывается флажком, и без него время и дни гаснут, не пропадая", () => {
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     // В этой модели бюджет задан — флажок стоит, поле и дни на месте.
     expect(screen.getByLabelText("учитывать график").checked).toBe(true);
@@ -159,7 +173,7 @@ describe("цель", () => {
     /* «Какой ценой» спрашивал две разные вещи сразу: сколько времени
        человек готов тратить и во сколько других ресурсов это обойдётся.
        Второе он называл наугад, а модель тут же считала настоящее. */
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     expect(screen.getByText("в график работ")).toBeInTheDocument();
     expect(screen.getByText("рабочее время")).toBeInTheDocument();
@@ -172,7 +186,7 @@ describe("цель", () => {
   it("у числа времени есть единица, и она идёт в расчёт прогноза", () => {
     /* «2 в день» не читается вовсе: два часа или два дня — разные вещи, а
        поле молча считало часы. */
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     const unitField = screen.getByLabelText("единица времени");
     expect(unitField).toHaveValue("ч");
@@ -192,7 +206,7 @@ describe("цель", () => {
     /* Прежнее название «по каким дням идёт работа» обещало расписание
        задач. На деле дни — множитель бюджета времени, и стоять им у
        времени. */
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     expect(screen.queryByText("по каким дням идёт работа")).toBeNull();
     expect(screen.getByText("рабочие дни")).toBeInTheDocument();
@@ -203,7 +217,7 @@ describe("цель", () => {
     /* «Цель поправили — прежний прогноз уже не про неё, посчитайте заново»
        говорило то же, что и сама кнопка, которая в этот момент зовёт
        считать. */
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Спрогнозировать" }));
     // Правка цели возвращает кнопку к «Спрогнозировать» — и молча.
@@ -213,7 +227,7 @@ describe("цель", () => {
   });
 
   it("цель уезжает в модель отдельной частью документа", () => {
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     const m = dump();
     expect(Array.isArray(m.goals)).toBe(true);
     expect(m.goals.length).toBeGreaterThan(0);
@@ -221,7 +235,7 @@ describe("цель", () => {
   });
 
   it("ресурс без цели тоже показан — карточкой прогноза", () => {
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     // «заявки» — ресурс без планки: он в списке своего актива.
     expect(screen.getAllByText("заявки").length).toBeGreaterThan(0);
   });
@@ -261,7 +275,7 @@ describe("стрелка передачи ведёт к своей функци�
 
 describe("применение цели", () => {
   const openGoal = () => {
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
   };
 
@@ -390,14 +404,14 @@ describe("применение цели", () => {
 
 describe("цель как показатель и последовательность действий", () => {
   const openGoal = () => {
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть цель" })[0]);
   };
 
   it("цель показывает мерку: сколько нужно и сколько есть", () => {
     // Цель — не только намерение, но и показатель: ради этой цифры её и
     // ставили.
-    tab("Схема"); tab("Прогноз");
+    tab("Схема"); tab("Цели");
     expect(screen.getByText(/нужно 10 в неделю/)).toBeInTheDocument();
   });
 

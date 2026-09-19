@@ -18,6 +18,24 @@ export const S={
     fontFamily:"ui-monospace, Menlo, monospace"},
   card:{background:C.panel,border:`1px solid ${C.line}`,borderRadius:10,padding:12},
 };
+/* Карточка-спойлер: заголовок сворачивает содержимое нажатием (владелец,
+   2026-09-19: «в анкете все формы должны скрываться под спойлерами при
+   нажатии»). Открыта по умолчанию — свернуть решает человек. */
+export function FoldCard({ title, children, aria, open: open0 = true }) {
+  const [open, setOpen] = useState(open0);
+  return (
+    <div style={{ ...S.card, marginBottom: 10 }}>
+      <button type="button" aria-expanded={open} aria-label={aria || title}
+        onClick={() => setOpen((v) => !v)} className="flex items-center gap-2"
+        style={{ width: "100%", background: "transparent", border: "none", padding: 0,
+          cursor: "pointer", textAlign: "left" }}>
+        <span style={{ ...S.lbl, flex: 1 }}>{title}</span>
+        <span style={{ fontSize: 11, color: C.muted }}>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && children}
+    </div>);
+}
+
 /* Часы в понятное: 2 880 ч — это «4 мес», а не число, в котором надо
    считать нули. Меньше суток остаётся часами: «3 ч» понятнее «0,1 дн». */
 export function durText(h){

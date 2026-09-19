@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField } from "./ui.jsx";
+import { C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField, FoldCard } from "./ui.jsx";
 import PersonStats from "./PersonStats.jsx";
 import { getDuty, putProfile, refuseFuncRemote, listReminders as listRemindersRemote } from "../identity.js";
 import { FormAnswers } from "./FormsPanel.jsx";
@@ -107,8 +107,7 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
   const accept = () => { setEditing([]); setViewed(null); };
 
   return (
-    <div style={{ ...S.card, marginBottom: 10 }}>
-      <div style={S.lbl}>{mine ? "мой рабочий график" : "рабочий график"}</div>
+    <FoldCard title={mine ? "мой рабочий график" : "рабочий график"}>
 
       {/* ─── форма 1: статус ─── */}
       <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
@@ -251,7 +250,7 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
           color: msg && msg !== SCHEDULE_SAVED && msg !== SCHEDULE_SAVING ? WARN : C.muted }}>
           {msg || "Дни, часы и статус сохраняются сами, при каждом нажатии."}
         </div>)}
-    </div>);
+    </FoldCard>);
 }
 
 /* Что карточка графика говорит о своём сохранении. Слова вынесены, чтобы
@@ -364,8 +363,7 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
     g.items.push(d);
   });
   return (
-    <div style={{ ...S.card, marginBottom: 10 }}>
-      <div style={S.lbl}>{mine ? "мои выполняемые задачи" : "выполняемые задачи"}</div>
+    <FoldCard title={mine ? "мои выполняемые задачи" : "выполняемые задачи"}>
       <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, margin: "6px 0 8px" }}>
         {mine
           ? "Здесь то, в чём вас выбрали. Выбрать себе работу нельзя — только отказаться."
@@ -404,7 +402,7 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
         </div>))}
 
       {msg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{msg}</div>}
-    </div>);
+    </FoldCard>);
 }
 
 export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = NONE,
@@ -582,8 +580,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           прокрутки: анкета бывает на двадцать вопросов, и график с
           задачами не должны уезжать за ней. */}
       {!!forms.length && (
-        <div style={{ ...S.card, marginBottom: 10 }}>
-          <div style={S.lbl}>{mine ? "моя анкета" : "анкета"}</div>
+        <FoldCard title={mine ? "моя анкета" : "анкета"}>
           <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, margin: "6px 0 8px" }}>
             {mine
               ? "Пишете только вы и о себе. Видно тем, кто выбирает, кому поручить работу."
@@ -602,7 +599,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
                 <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>
                   {msg}</span>)}
             </div>)}
-        </div>)}
+        </FoldCard>)}
 
       {/* График и статус: видно всем, кто открыл воркера, а не только ему. */}
       <Schedule mine={mine} draft={draft} setDraft={change} msg={scMsg} />
@@ -617,12 +614,10 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           Про себя — без цифр: свои оценки человеку не показываются, только
           отзывы, адресованные ему (владелец: «Рейтинг и отзывы», и это
           отзывы, а не комментарии). Кто смотрит, карточке говорит `viewerId`. */}
-      <div style={{ ...S.card, marginBottom: 10 }}>
-        <div style={{ ...S.lbl, marginBottom: 8 }}>
-          {"рейтинг и отзывы"}</div>
+      <FoldCard title="рейтинг и отзывы">
         <PersonStats tasks={tasks} funcs={funcs} personId={id} traitName={traitName}
           published={published} viewerId={me?.id} ratings={ratings} />
-      </div>
+      </FoldCard>
     </div>);
 }
 
@@ -693,8 +688,7 @@ export function RemindersCard({ me, onSaved }) {
   };
   const label = WARN_CHOICES.find((w) => w.v === current)?.name || `за ${current} мин`;
   return (
-    <div style={{ ...S.card, marginBottom: 10 }}>
-      <div style={S.lbl}>напоминания</div>
+    <FoldCard title="напоминания">
       <div style={{ fontSize: 11.5, color: C.muted, margin: "6px 0 8px", lineHeight: 1.6 }}>
         Бот напоминает о задаче заранее и в момент начала, а постановщику — о
         задаче, которую пора поставить. Напоминание повторяется каждую минуту,
@@ -717,5 +711,5 @@ export function RemindersCard({ me, onSaved }) {
           : "Без сервера напоминаний нет: боту некуда слать, и выбирать здесь нечего."}
       </div>
       <ReminderList known={known} />
-    </div>);
+    </FoldCard>);
 }

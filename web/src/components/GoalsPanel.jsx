@@ -222,6 +222,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
   /* На чём построен показанный прогноз. Пусто — не считали; не совпадает с
      нынешним отпечатком — считали, но с тех пор цель поправили. */
   const [shown, setShown] = useState(null);
+  const [naming, setNaming] = useState(false);
   const [done, setDone] = useState([]);
   const fresh = shown != null && shown === stamp(goal);
   const plan = canPlan && fresh ? planGoal(model, goal, { runsOf }) : null;
@@ -238,17 +239,27 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
   return (
     <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
       padding: 9, marginBottom: 6 }}>
-      {/* Заголовок — сама цель словами. Названия у цели нет и не нужно:
-          «1 клиент в неделю через месяц» и есть её имя. */}
+      {/* Заголовок — имя цели, если его дали, иначе сама цель словами.
+          Имя правится двойным нажатием (владелец, 2026-09-19). */}
       <div className="flex items-center gap-2">
         <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
           aria-label={`${open ? "свернуть" : "развернуть"} цель`}
           onClick={onToggle}>{open ? "▾" : "▸"}</button>
-        <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, minWidth: 0 }}>
-          {ready ? goalText(goal, traitName) : "цель не задана: выберите ресурс и условие"}
-          {goal.appliedAt && (
-            <span style={{ color: OK, fontWeight: 400, fontSize: 11 }}> · применена</span>)}
-        </span>
+        {naming ? (
+          <input autoFocus aria-label="название цели" defaultValue={goal.name || ""}
+            placeholder={ready ? goalText(goal, traitName) : "название цели"}
+            style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 600, padding: "2px 6px" }}
+            onBlur={(e) => { onSet(goal.id, { name: e.target.value.trim() }); setNaming(false); }}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(false); }} />
+        ) : (
+          <span data-goal-name="" title="двойное нажатие — переименовать"
+            onDoubleClick={() => setNaming(true)}
+            style={{ flex: 1, fontSize: 12.5, fontWeight: 600, minWidth: 0, cursor: "text",
+              whiteSpace: "normal", overflowWrap: "anywhere" }}>
+            {goal.name || (ready ? goalText(goal, traitName) : "цель не задана: выберите ресурс и условие")}
+            {goal.appliedAt && (
+              <span style={{ color: OK, fontWeight: 400, fontSize: 11 }}> · применена</span>)}
+          </span>)}
         <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
           fontSize: 11, padding: "2px 6px" }} aria-label="удалить цель"
           onClick={() => onDel(goal.id)}>удалить</button>
@@ -257,6 +268,8 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
           Цель — это не только намерение, но и мерка: сколько ресурса есть
           сейчас против того, сколько нужно. Видно и в свёрнутом виде: ради
           этой цифры цель и ставили. */}
+      {goal.name && ready && (
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{goalText(goal, traitName)}</div>)}
       {ready && <Gauge goal={goal} traits={traits} traitName={traitName} />}
 
       {open && (<>

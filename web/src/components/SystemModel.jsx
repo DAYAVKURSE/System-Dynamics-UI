@@ -1727,8 +1727,14 @@ export default function SystemModel(){
           <button style={btn(under==="time")} onClick={()=>setUnder("time")}>
             Деятельность</button>
           <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
-            Прогноз</button>
+            Цели</button>
         </div>
+        {/* Одна строка под вкладками — чем этот раздел занят (владелец,
+            2026-09-19). */}
+        <div style={{fontSize:11.5,color:C.muted,margin:"-4px 0 10px"}}>
+          {under==="edit"?"Что умеет делать система"
+            :under==="time"?"Что делает в текущий момент"
+              :"Что будет делать система"}</div>
 
         {/* Процессы — первыми на «Управлении», под спойлером: раздел
             открывают нажатием, а до того он не заслоняет карточку актива.
@@ -1805,30 +1811,6 @@ export default function SystemModel(){
 
         {/* ═══ ПРОГНОЗ — вторая подвкладка ═══ */}
         {under==="sim" && (<div>
-        <div style={{...S.card,marginBottom:10}}>
-          <div style={S.lbl}>прогноз по функциям</div>
-          <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
-            Считается по применённым целям: функция сама по себе не
-            повторяется — она работа, и происходит тогда, когда её делают.
-            Цель говорит, сколько её выполнений нужно, «как часто может
-            повторяться» ставит потолок, а из
-            вилок — сколько ресурса при этом уходит и приходит. Поэтому
-            прогноз — лента, а не линия: <span style={{color:WARN}}>жёлтым</span>
-            {" "}её границы, <span style={{color:OK}}>зелёным</span> — факт по
-            принятым выполнениям. Пересчитывается сам при каждой правке.
-          </div>
-
-          {!funcs.length
-            ? <div style={{fontSize:11.5,color:WARN,marginTop:8,lineHeight:1.6}}>
-                Функций нет — считать нечего. Ресурсы останутся на своих
-                значениях: сами по себе они не меняются.
-              </div>
-            : !goals.some(g=>g.appliedAt)&&
-              <div style={{fontSize:11.5,color:WARN,marginTop:8,lineHeight:1.6}}>
-                Ни одна цель не применена — работать никто не просил. Поставьте цель ниже и примените её.
-              </div>}
-        </div>
-
         {/* Последовательность действий по применённым целям — общая, на
             всю модель. Внутри цели видно её собственную очередь, здесь —
             всё вместе: чем занята модель прямо сейчас и что за чем идёт. */}
@@ -1872,6 +1854,11 @@ export default function SystemModel(){
                прогнозе, который по ней и посчитан. */
             t.goalId!==id||t.status==="done"||(t.submissions||[]).length>0)))}/>
 
+        {/* Прогнозы под целями — на одной форме (владелец, 2026-09-19):
+            что будет с ресурсами и сколько это стоит по людям. Внутренние
+            формы остаются своими. */}
+        <div style={{...S.card,marginBottom:10}}>
+        <div style={S.lbl}>прогноз</div>
         {entities.map(en=>{
           const ts=traitsLive.filter(t=>t.e===en.id);
           if(!ts.length) return null;
@@ -1939,6 +1926,7 @@ export default function SystemModel(){
                   <span style={{flex:1}}>{personName(pid)}</span>
                   <span style={{color:h>160?BAD:h>120?WARN:OK}}>{nm(h)} ч/мес</span>
                 </div>))}
+        </div>
         </div>
         </div>)}
       </>)}

@@ -103,7 +103,7 @@ describe("вкладки по роли", () => {
     expect(tabNames(container)).toEqual(["Задачи", "Проверка", "Схема", "Инструменты"]);
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     expect(screen.getByRole("button", { name: "Управление" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Прогноз" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Цели" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Деятельность" })).toBeTruthy();
   });
 

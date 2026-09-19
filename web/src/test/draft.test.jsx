@@ -102,7 +102,7 @@ describe("автосохранение", () => {
   it("нетронутая модель черновика не создаёт", () => {
     render(<SystemModel />);
     scheme();
-    fireEvent.click(screen.getByRole("button", { name: "Прогноз" }));
+    fireEvent.click(screen.getByRole("button", { name: "Цели" }));
     tick(900);
     // Переключение вкладок — не работа, терять там нечего.
     expect(readDraft()).toBeNull();
