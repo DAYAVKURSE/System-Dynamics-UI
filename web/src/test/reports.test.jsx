@@ -212,7 +212,7 @@ describe("карта в форме", () => {
     // Раздел назван ресурсом, открыт и несёт его движение.
     expect(screen.getByLabelText("название раздела").textContent).toBe("заявка");
     expect(screen.getByLabelText("с какого ресурса: заявка").value).toBe("t1");
-    expect(screen.getByText(/Функции — что будет сделано/)).toBeInTheDocument();
+    expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
     // У самого отчёта выбор снова пуст — под следующее прослеживание.
     fireEvent.click(screen.getByRole("button", { name: "← все отчёты" }));
     expect(screen.getByLabelText("с какого ресурса: Заказ").value).toBe("");
@@ -239,51 +239,50 @@ describe("карта в форме", () => {
     expect(screen.queryByRole("button", { name: "+ раздел внутри" })).toBeNull();
   });
 
-  it("в отчёте пять разделов, у каждого своя тема и подпись, что внутри", () => {
+  it("в отчёте три раздела, у каждого своя тема и подпись, что внутри", () => {
     /* Владелец: «зачем мне в прогнозе ресурсов, сколько функция займёт
-       времени». Ресурсы — про ресурсы, сроки — про сроки, и у каждого
-       раздела под заголовком сказано, что в нём. */
+       времени». Ресурсы — про ресурсы, сроки — про сроки. Раздела «Функции
+       — что будет сделано» больше нет вовсе (владелец, 2026-09-19: «второй
+       раздел убери полностью»). */
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
-    expect(screen.getByText("2. Функции — что будет сделано")).toBeInTheDocument();
-    expect(screen.getByText("3. Сроки и трудозатраты")).toBeInTheDocument();
-    expect(screen.getByText("4. Задачи — что уже сделано")).toBeInTheDocument();
+    expect(screen.getByText("2. Сроки и трудозатраты")).toBeInTheDocument();
+    expect(screen.getByText("3. Задачи — что уже сделано")).toBeInTheDocument();
+    expect(screen.queryByText(/Функции — что будет сделано/)).toBeNull();
     // Факторов в модели нет — раздела про них нет: пустой раздел — не раздел.
-    expect(screen.queryByText(/5\. Факторы/)).toBeNull();
+    expect(screen.queryByText(/4\. Факторы/)).toBeNull();
     expect(screen.queryByText(/созданные ресурсы/)).toBeNull();
-    // Часы и сроки стоят в третьем разделе и ТОЛЬКО там.
+    // Часы и сроки стоят во втором разделе и ТОЛЬКО там.
     const part1 = screen.getByText("1. Ресурсы — что изменится").closest("section");
     expect(within(part1).queryByText(/человеко-часов/)).toBeNull();
     expect(within(part1).queryByText(/Займёт/)).toBeNull();
-    const part3 = screen.getByText("3. Сроки и трудозатраты").closest("section");
-    expect(within(part3).getByText("Займёт времени — вся цепочка")).toBeInTheDocument();
-    expect(within(part3).getByText("Работы людей, человеко-часов")).toBeInTheDocument();
-    // Функция названа и сказано, что берёт и даёт.
-    const part2 = screen.getByText("2. Функции — что будет сделано").closest("section");
-    expect(within(part2).getByText("Собрать макет")).toBeInTheDocument();
-    expect(within(part2).getByText("Берёт")).toBeInTheDocument();
-    expect(within(part2).getByText("Даёт")).toBeInTheDocument();
+    const part2 = screen.getByText("2. Сроки и трудозатраты").closest("section");
+    expect(within(part2).getByText("Займёт времени — вся цепочка")).toBeInTheDocument();
+    expect(within(part2).getByText("Работы людей, человеко-часов")).toBeInTheDocument();
   });
 
-  it("ссылка есть у РАЗДЕЛА ОТЧЁТА — функции, а не у части страницы",
-    async () => {
-      const copied = [];
-      Object.defineProperty(navigator, "clipboard", { configurable: true,
-        value: { writeText: async (v) => { copied.push(v); } } });
-      const { container } = render(<Panel nodes={NODES} />);
-      fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-      // Якорь у раздела постоянный: он считается из блока и функции, а не из
-      // порядкового номера, который меняется от любой правки модели.
-      expect(container.querySelector("#shag-rs1-f1")).toBeTruthy();
-      fireEvent.click(screen.getByRole("button",
-        { name: "ссылка на раздел отчёта: Собрать макет" }));
-      await waitFor(() => expect(copied).toHaveLength(1));
-      expect(copied[0]).toMatch(/\?report=rs1#shag-rs1-f1$/);
-      // На части страницы ссылок нет: часть — это способ разложить отчёт.
-      expect(screen.queryByRole("button",
-        { name: /ссылка на раздел отчёта: прогноз ресурсов/ })).toBeNull();
-    });
+  it("разделы сворачиваются нажатием на заголовок (владелец, 2026-09-19)", () => {
+    render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    const head = screen.getByRole("button", { name: "2. Сроки и трудозатраты" });
+    expect(screen.getByText("Займёт времени — вся цепочка")).toBeInTheDocument();
+    fireEvent.click(head);
+    expect(screen.queryByText("Займёт времени — вся цепочка")).toBeNull();
+    fireEvent.click(head);
+    expect(screen.getByText("Займёт времени — вся цепочка")).toBeInTheDocument();
+  });
+
+  it("ссылок на шаги больше нет: раздела «Функции» нет вовсе (владелец, 2026-09-19)", () => {
+    const { container } = render(<Panel nodes={NODES} />);
+    fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
+    expect(container.querySelector("#shag-rs1-f1")).toBeNull();
+    expect(screen.queryByRole("button",
+      { name: /ссылка на раздел отчёта/ })).toBeNull();
+    // Ссылка на сам отчёт при этом осталась.
+    expect(screen.getAllByRole("button", { name: "ссылка на этот блок" }).length)
+      .toBeGreaterThan(0);
+  });
 
   it("созданное открывается нажатием на свой ресурс в прогнозе", () => {
     /* Отдельного списка нет: спрашивают «а макетов-то сколько реально
@@ -309,8 +308,7 @@ describe("карта в форме", () => {
        одно число и начинается другое, и что за величина названа. */
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    ["Выполнений ожидается", "Берёт", "Даёт", "Займёт времени — вся цепочка",
-      "Работы людей, человеко-часов", "Задач принято"]
+    ["Займёт времени — вся цепочка", "Работы людей, человеко-часов", "Задач принято"]
       .forEach((t) => {
         expect(screen.getAllByText(t).length).toBeGreaterThan(0);
       });
@@ -367,12 +365,12 @@ describe("карта в форме", () => {
   const PICKED = NODES.map((n) => (n.id === "rs1"
     ? { ...n, units: ["s0~t1"] } : n));
 
-  it("шаги видно сразу, без единого нажатия", () => {
+  it("шаги остались в сроках, а раздела «Функции» нет", () => {
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
-    // Шаг посчитан по модели: сколько выполнений, когда и сколько работы.
+    // Функция названа в сроках — там, где её время и часы.
     expect(screen.getAllByText("Собрать макет").length).toBeGreaterThan(0);
-    expect(screen.getByText("Выполнений ожидается")).toBeInTheDocument();
+    expect(screen.queryByText("Выполнений ожидается")).toBeNull();
   });
 
   it("работа показана только по выбранным вещам", () => {
@@ -411,21 +409,20 @@ describe("карта в форме", () => {
     });
     // Те же две части и в том же порядке, что и на экране.
     expect(html).toContain("1. Ресурсы — что изменится");
-    expect(html).toContain("2. Функции — что будет сделано");
-    expect(html).toContain("3. Сроки и трудозатраты");
-    expect(html).toContain("4. Задачи — что уже сделано");
+    // Раздела «Функции — что будет сделано» нет и в файле (владелец, 2026-09-19).
+    expect(html).not.toContain("Функции — что будет сделано");
+    expect(html).toContain("2. Сроки и трудозатраты");
+    expect(html).toContain("3. Задачи — что уже сделано");
     expect(html).not.toContain("Созданные ресурсы");
     expect(html).toContain("Макет главной");
     expect(html).toContain("с ресурса «заявка»");
     // В файле сказано то же, что на экране: по каким именно вещам отчёт.
     expect(html).toContain("по единицам №1");
     // Оценка — списком «величина → значение», а не строкой через точки.
-    expect(html).toContain("Выполнений ожидается");
     expect(html).toContain("<td>сразу</td>");
     expect(html).toContain("по плану, ч");
     expect(html).toContain("по факту, ч");
-    // У раздела отчёта свой якорь — на функцию и ссылаются.
-    expect(html).toContain('id="shag-rs1-f1"');
+    expect(html).not.toContain('id="shag-rs1-f1"');
     // Файл самодостаточен: ни одной ссылки наружу, чтобы он не рассыпался.
     expect(html).not.toMatch(/<script/);
   });
@@ -567,15 +564,19 @@ describe("карта в форме", () => {
     expect(screen.queryByLabelText("на сколько единиц: Макеты")).toBeNull();
   });
 
-  it("оценка пересчитывается на заданное количество", () => {
+  it("оценка пересчитывается на заданное количество — по нажатию «Проследить»", () => {
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getByRole("button", { name: "развернуть Макеты" }));
     const qty = screen.getByLabelText("количество: Макеты");
     fireEvent.change(qty, { target: { value: "3" } });
     fireEvent.blur(qty);
+    /* Пока не нажали — ничего не пересчитано (владелец, 2026-09-19: «ресурс
+       начинает прослеживаться до нажатия кнопки „Проследить"»). */
+    expect(screen.getByText(/считано на 1 ×/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "проследить: Макеты" }));
     // Три заявки — три выполнения, а не одно, повторённое трижды.
-    expect(screen.getByText("Выполнений ожидается")).toBeInTheDocument();
-    expect(screen.getAllByText("3").length).toBeGreaterThan(0);
+    expect(screen.getByText(/считано на 3 ×/)).toBeInTheDocument();
+    expect(screen.getAllByText(/3 ×/).length).toBeGreaterThan(0);
   });
 
   it("видно, НАД ЧЕМ работала задача: этим выполнения и отличаются", () => {
@@ -727,18 +728,14 @@ describe("страница по ссылке", () => {
       // Те же разделы и в том же порядке, что и на экране владельца.
       // Вложенный раздел устроен так же — потому части и находятся дважды.
       expect(screen.getAllByText("1. Ресурсы — что изменится").length).toBe(2);
-      expect(screen.getAllByText("2. Функции — что будет сделано").length).toBe(2);
-      expect(screen.getAllByText("3. Сроки и трудозатраты").length).toBe(2);
-      expect(screen.getAllByText("4. Задачи — что уже сделано").length).toBe(2);
+      // Раздела «Функции — что будет сделано» нет и снаружи (владелец, 2026-09-19).
+      expect(screen.queryByText(/Функции — что будет сделано/)).toBeNull();
+      expect(screen.getAllByText("2. Сроки и трудозатраты").length).toBe(2);
+      expect(screen.getAllByText("3. Задачи — что уже сделано").length).toBe(2);
       expect(screen.queryByText(/созданные ресурсы/)).toBeNull();
-      expect(screen.getByText(/1. Собрать макет/)).toBeInTheDocument();
       // Оценка читается: каждая величина названа полностью и своей строкой.
-      expect(screen.getAllByText("Выполнений ожидается").length)
-        .toBeGreaterThan(0);
       expect(screen.getAllByText("Задач принято").length).toBeGreaterThan(0);
       expect(screen.getAllByText("1 из 2").length).toBeGreaterThan(0);
-      // У раздела отчёта свой якорь: снаружи ссылка ведёт туда же, что внутри.
-      expect(container.querySelector("#shag-rs1-f1")).toBeTruthy();
       expect(screen.getByText("Главная")).toBeInTheDocument();
       // Вещи открываются нажатием на свой ресурс, а не вторым списком.
       const rows = screen.getAllByLabelText("созданные единицы: макет");
@@ -790,5 +787,66 @@ describe("вкладка «Отчёты»", () => {
     expect(reportFromLocation("?report=rs1")).toBe("rs1");
     expect(reportFromLocation("")).toBeNull();
     expect(shareLink("abc", "https://x.test/")).toBe("https://x.test/?share=abc");
+  });
+});
+
+/* ОТЧЁТ ПО ЗАПРОСУ ВЛАДЕЛЬЦА (2026-09-19): «в первом сделай нормальный,
+   однородный график, который также будет показывать отрицательные
+   значения»; «в разделе „Ресурсы" должны быть чекбоксы слева от ресурсов,
+   чтобы можно было не отслеживать некоторые из них и исключить их из
+   отчёта; неактивные ресурсы должны становиться серыми»; «ресурс начинает
+   прослеживаться до нажатия кнопки „Проследить" — исправь это». */
+describe("первый раздел отчёта", () => {
+  const Panel2 = ({ nodes: n0 }) => {
+    const [nodes, setNodes] = React.useState(n0);
+    const [focus, setFocus] = React.useState(null);
+    return (<ReportsPanel nodes={nodes} setNodes={setNodes} model={MODEL}
+      entities={[{ id: "e1", name: "Мы" }]} nameOf={(id) => `человек ${id}`}
+      focus={focus} onFocus={setFocus} />);
+  };
+  const TRACED = [{ id: "rs1", parent: null, name: "Макеты", trait: "t1", upto: "" }];
+
+  it("график однородный: у всех строк одна шкала и общий ноль", () => {
+    const { container } = render(<Panel2 nodes={TRACED} />);
+    const part = screen.getByText("1. Ресурсы — что изменится").closest("section");
+    // Нулевая линия у всех строк на одном месте — значит шкала общая.
+    const zeros = [...part.querySelectorAll("div[role='img'] > div:first-child")]
+      .map((d) => d.style.left);
+    expect(zeros.length).toBeGreaterThan(1);
+    expect(new Set(zeros).size).toBe(1);
+    // Убыль рисуется слева от нуля: значения ниже нуля на шкале есть.
+    const zero = parseFloat(zeros[0]);
+    expect(zero).toBeGreaterThan(0);
+    expect(zero).toBeLessThan(100);
+    expect(container).toBeTruthy();
+  });
+
+  it("галочка убирает ресурс из отчёта и делает строку серой", () => {
+    render(<Panel2 nodes={TRACED} />);
+    const box = screen.getByLabelText("прослеживать заявка");
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(screen.getByLabelText("прослеживать заявка").checked).toBe(false);
+    expect(screen.getByText("не прослеживается")).toBeInTheDocument();
+  });
+
+  it("исключённый ресурс не идёт и в файл", () => {
+    const off = [{ ...TRACED[0], off: ["t1"] }];
+    const html = reportHtml(reportOf(MODEL, off[0], off, {}), {
+      traitName: (id) => MODEL.traits.find((t) => t.id === id)?.l || id,
+      funcName: (id) => id, personName: (id) => id, title: "Макеты",
+    });
+    expect(html).toContain("макет");
+    expect(html).not.toMatch(/<b>заявка<\/b>/);
+  });
+
+  it("до нажатия «Проследить» ничего не прослеживается", () => {
+    render(<Panel2 nodes={[{ id: "rp1", parent: null, name: "Заказ", trait: "", upto: "" }]} />);
+    fireEvent.change(screen.getByLabelText("с какого ресурса: Заказ"),
+      { target: { value: "t1" } });
+    // Выбор сделан, но отчёта ещё нет: кнопку не нажимали.
+    expect(screen.queryByText("1. Ресурсы — что изменится")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "проследить: Заказ" }));
+    expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
   });
 });

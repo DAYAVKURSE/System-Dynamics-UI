@@ -6,8 +6,8 @@ import { putReportFile, reportSrc, textHref } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { putShare } from "../identity.js";
 import {
-  childrenOf, dropNode, linkTo, newProject, newSection,
-  pathOf, rootsOf, shareLink, stepAnchor, stepLink, summaryOf,
+  childrenOf, dropNode, linkTo, newProject, newSection, pickedOf,
+  pathOf, rootsOf, shareLink, summaryOf,
 } from "../lib/reports.js";
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
   from "../lib/reportDoc.js";
@@ -99,14 +99,38 @@ const fmtDT = (v) => {
    значениях вылезали из формы; текст в потоке переносится и не вылезает
    никогда. Заодно это второе кодирование к цвету: пара «прогноз/факт»
    читается и без цвета — так требует правило про план и факт. */
-export function ChangeChart({ rows = [], traitName, madeOf, haveOf }) {
+export function ChangeChart({ rows = [], traitName, madeOf, haveOf, off, onToggle }) {
   const [open, setOpen] = useState("");
   if (!rows.length) return null;
+  const isOff = (id) => !!(off && off.has && off.has(String(id)));
+  const live = rows.filter((r) => !isOff(r.trait));
+  /* ОДНА шкала на все строки (владелец, 2026-09-19: «сделай нормальный,
+     однородный график, который также будет показывать отрицательные
+     значения»). Своя шкала у каждой строки — это не график, а набор полос:
+     «+3» и «+3000» выглядели одинаково. Ноль всегда на шкале, поэтому
+     убыль видно слева от него, а прибыль справа. */
+  const vals = live.flatMap((r) => [Math.min(r.lo, r.hi), Math.max(r.lo, r.hi),
+    ...(r.fact == null ? [] : [r.fact])]);
+  const rawMin = Math.min(0, ...vals);
+  const rawMax = Math.max(0, ...vals);
+  const pad = (rawMax - rawMin || 1) * 0.08;
+  const min = rawMin - pad;
+  const max = rawMax + pad;
+  const at = (v) => ((v - min) / (max - min || 1)) * 100;
+  const zero = at(0);
   const dot = (color, label) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
       fontSize: 10.5, color: C.muted }}>
       <span style={{ width: 9, height: 9, borderRadius: 2, background: color }} />
       {label}</span>);
+  const bar = (a, b, color, title, dim) => {
+    const left = Math.min(at(a), at(b));
+    const width = Math.abs(at(b) - at(a));
+    return (
+      <div title={title} style={{ position: "absolute", left: `${left}%`,
+        width: `${width}%`, minWidth: 2, top: 0, height: 9, borderRadius: 3,
+        background: color, opacity: dim ? 0.45 : 1 }} />);
+  };
   return (
     <div>
       <div className="flex flex-wrap gap-2"
@@ -116,28 +140,7 @@ export function ChangeChart({ rows = [], traitName, madeOf, haveOf }) {
       {rows.map((r) => {
         const lo = Math.min(r.lo, r.hi);
         const hi = Math.max(r.lo, r.hi);
-        const vals = [0, lo, hi, ...(r.fact == null ? [] : [r.fact])];
-        /* Поля по краям — чтобы нулевая линия не прижималась к самому краю:
-           «убавится на 1» иначе рисуется полосой во всю ширину, упирающейся
-           в невидимый ноль, и читается как рост. */
-        const raw = Math.max(...vals) - Math.min(...vals) || 1;
-        const min = Math.min(...vals) - raw * 0.08;
-        const max = Math.max(...vals) + raw * 0.08;
-        const span = max - min || 1;
-        const at = (v) => ((v - min) / span) * 100;
-        const zero = at(0);
-        /* Полоса растёт ОТ НУЛЯ: «убавится на 3» — это длина от нуля до −3,
-           а не невидимая точка. Верная часть вилки (до нижней границы) —
-           плотная, «а может и больше» (от нижней до верхней) — полупрозрачная:
-           обещано первое, возможно второе, и путать их нельзя. */
-        const bar = (a, b, color, title, dim) => {
-          const left = Math.min(at(a), at(b));
-          const width = Math.abs(at(b) - at(a));
-          return (
-            <div title={title} style={{ position: "absolute", left: `${left}%`,
-              width: `${width}%`, minWidth: 2, top: 0, height: 9, borderRadius: 3,
-              background: color, opacity: dim ? 0.45 : 1 }} />);
-        };
+        const gone = isOff(r.trait);
         const planText = lo === hi ? nm(hi) : `${nm(lo)} … ${nm(hi)}`;
         // Вещи этого ресурса, которые уже родились: их и открывают нажатием.
         const units = madeOf ? madeOf(r.trait) : [];
@@ -146,8 +149,8 @@ export function ChangeChart({ rows = [], traitName, madeOf, haveOf }) {
           + (r.fact == null ? ", факта нет" : `, факт ${nm(r.fact)}`);
         const head = (
           <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
-            <span style={{ fontSize: 11.5, flex: "1 1 110px" }}>
-              {traitName(r.trait)}</span>
+            <span style={{ fontSize: 11.5, flex: "1 1 110px",
+              color: gone ? C.muted : C.text }}>{traitName(r.trait)}</span>
             {/* Сколько есть сейчас — точка отсчёта: «+3» без неё не говорит,
                 много это или мало. */}
             {haveOf && (
@@ -155,58 +158,80 @@ export function ChangeChart({ rows = [], traitName, madeOf, haveOf }) {
                 сейчас{" "}
                 <b style={{ fontFamily: "ui-monospace, monospace" }}>{nm(haveOf(r.trait))}</b>
               </span>)}
-            <span style={{ fontSize: 10.5, color: WARN }}>
+            <span style={{ fontSize: 10.5, color: gone ? C.muted : WARN }}>
               прогноз{" "}
               <b style={{ fontFamily: "ui-monospace, monospace" }}>{planText}</b>
             </span>
-            <span style={{ fontSize: 10.5, color: r.fact == null ? C.muted : OK }}>
+            <span style={{ fontSize: 10.5, color: gone || r.fact == null ? C.muted : OK }}>
               {r.fact == null ? "факта нет" : (<>факт{" "}
                 <b style={{ fontFamily: "ui-monospace, monospace" }}>
                   {nm(r.fact)}</b></>)}
             </span>
-            {!!units.length && (
+            {!!units.length && !gone && (
               <span style={{ fontSize: 10.5, color: ACC }}>
                 {on ? "▾" : "▸"} {nm(units.length)} шт. — показать</span>)}
           </div>);
         return (
-          <div key={r.trait} style={{ marginBottom: 9 }}>
-            {/* Есть что открыть — строка нажимается; нечего — она просто
-                строка, и притворяться кнопкой ей незачем. */}
-            {units.length
-              ? (<div role="button" tabIndex={0} style={{ cursor: "pointer" }}
-                  aria-label={`созданные единицы: ${traitName(r.trait)}`}
-                  onClick={() => setOpen(on ? "" : r.trait)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault(); setOpen(on ? "" : r.trait);
-                    }
-                  }}>{head}</div>)
-              : head}
-            {/* Полоса прогноза и полоса факта — на одной шкале и с общим нулём. */}
-            <div style={{ position: "relative", height: r.fact == null ? 11 : 23,
-              marginTop: 3, overflow: "hidden" }}
-              role="img" aria-label={label}>
-              <div style={{ position: "absolute", left: `${zero}%`, top: 0, bottom: 0,
-                width: 1, background: C.line }} />
-              {lo !== 0 && bar(0, lo, WARN, `прогноз не меньше ${nm(lo)}`)}
-              {lo !== hi && bar(lo, hi, WARN, `прогноз до ${nm(hi)}`, true)}
-              {/* Ноль полосой не рисуется: обрубок в 2 пикселя у нулевой
-                  линии читался бы как «чуть-чуть», а вышло ровно ничего.
-                  Само число при этом стоит текстом выше. */}
-              {r.fact != null && r.fact !== 0 && (
-                <div style={{ position: "absolute", top: 14, left: 0, right: 0,
-                  height: 9 }}>
-                  {bar(0, r.fact, OK, `факт ${nm(r.fact)}`)}
-                </div>)}
+          <div key={r.trait} style={{ marginBottom: 9, opacity: gone ? 0.5 : 1 }}>
+            <div className="flex items-start gap-2">
+              {/* Галочка слева: ресурс можно не прослеживать, и в отчёт он
+                  тогда не идёт (владелец, 2026-09-19). */}
+              {onToggle && (
+                <input type="checkbox" checked={!gone}
+                  aria-label={`прослеживать ${traitName(r.trait)}`}
+                  onChange={() => onToggle(r.trait)}
+                  style={{ marginTop: 3, flex: "0 0 auto" }} />)}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {/* Есть что открыть — строка нажимается; нечего — она просто
+                    строка, и притворяться кнопкой ей незачем. */}
+                {units.length && !gone
+                  ? (<div role="button" tabIndex={0} style={{ cursor: "pointer" }}
+                      aria-label={`созданные единицы: ${traitName(r.trait)}`}
+                      onClick={() => setOpen(on ? "" : r.trait)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault(); setOpen(on ? "" : r.trait);
+                        }
+                      }}>{head}</div>)
+                  : head}
+                {/* Полоса прогноза и полоса факта — на общей шкале и с общим
+                    нулём: строки сравнимы между собой. */}
+                {gone
+                  ? (<div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>
+                      не прослеживается</div>)
+                  : (<div style={{ position: "relative", height: r.fact == null ? 11 : 23,
+                      marginTop: 3, overflow: "hidden" }}
+                      role="img" aria-label={label}>
+                      <div style={{ position: "absolute", left: `${zero}%`, top: 0, bottom: 0,
+                        width: 1, background: C.line }} />
+                      {lo !== 0 && bar(0, lo, WARN, `прогноз не меньше ${nm(lo)}`)}
+                      {lo !== hi && bar(lo, hi, WARN, `прогноз до ${nm(hi)}`, true)}
+                      {/* Ноль полосой не рисуется: обрубок в 2 пикселя у нулевой
+                          линии читался бы как «чуть-чуть», а вышло ровно ничего.
+                          Само число при этом стоит текстом выше. */}
+                      {r.fact != null && r.fact !== 0 && (
+                        <div style={{ position: "absolute", top: 14, left: 0, right: 0,
+                          height: 9 }}>
+                          {bar(0, r.fact, OK, `факт ${nm(r.fact)}`)}
+                        </div>)}
+                    </div>)}
+                {on && !gone && (
+                  <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 8,
+                    marginTop: 2 }}>
+                    {units.map((u) => (
+                      <MadeUnit key={u.id} u={u} traitName={traitName} />))}
+                  </div>)}
+              </div>
             </div>
-            {on && (
-              <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 8,
-                marginTop: 2 }}>
-                {units.map((u) => (
-                  <MadeUnit key={u.id} u={u} traitName={traitName} />))}
-              </div>)}
           </div>);
       })}
+      {/* Шкала под графиком: без неё длина полосы — число без единиц. */}
+      <div className="flex" style={{ position: "relative", height: 14, marginTop: 2,
+        fontSize: 9.5, color: C.muted, fontFamily: "ui-monospace, monospace" }}>
+        {rawMin < 0 && <span style={{ position: "absolute", left: 0 }}>{nm(rawMin)}</span>}
+        <span style={{ position: "absolute", left: `${zero}%`, transform: "translateX(-50%)" }}>0</span>
+        {rawMax > 0 && <span style={{ position: "absolute", right: 0 }}>{nm(rawMax)}</span>}
+      </div>
     </div>);
 }
 
@@ -249,7 +274,7 @@ const axisDate = (ms, longSpan) => {
     : { day: "2-digit", month: "2-digit" });
 };
 
-function Timeline({ steps = [], before = [] }) {
+function Timeline({ steps = [], before = [], traitName = (x) => x }) {
   const now = Date.now();
   const hrs = (v) => {
     if (!v) return null;
@@ -265,7 +290,12 @@ function Timeline({ steps = [], before = [] }) {
       stuck,
       from: stuck ? null : s.startHours,
       to: stuck ? null : s.startHours + Math.max(s.calendarHours, 0.01),
-      note: stuck ? "не выполнится"
+      /* Почему шаг не выполнится — здесь же: раздела «Функции», где это
+         было сказано, больше нет (владелец, 2026-09-19), а молча показать
+         полосу без срока значило бы оставить вопрос без ответа. */
+      note: stuck
+        ? `не выполнится: не хватает ${(s.short || []).map((x) => `${traitName(x.trait)}${
+          x.spentBy ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}`
         : `${nm(s.runs)} × ${timeText(s.calendarHours / Math.max(s.runs, 1))}` });
     s.tasks.forEach((t) => {
       const a = hrs(t.start);
@@ -499,50 +529,9 @@ const portLine = (list, traitName) => (list || [])
    потраченные часы задачи. Выполнений нет — сравнивать не с чем. */
 const perRun = (s) => (s.runs > 0 ? nm(Math.round((s.workHi / s.runs) * 10) / 10) : "—");
 
-/* ─── 2. функции ─── */
-function FuncRows({ steps = [], factors = [], nodeId, traitName }) {
-  if (!steps.length) {
-    return (
-      <div style={{ fontSize: 11, color: C.muted }}>
-        Функций нет: с этого ресурса цепочка никуда не ведёт — ни одна функция его не берёт.
-      </div>);
-  }
-  return steps.map((s, i) => {
-    const own = factors.find((x) => x.func === s.func);
-    return (
-      <div key={s.func} id={stepAnchor(nodeId, s.func)}
-        style={{ borderTop: i ? `1px solid ${C.line}` : "none", padding: "6px 0" }}>
-        <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
-          <span style={{ fontSize: 10.5, color: C.muted, minWidth: 18 }}>{i + 1}.</span>
-          <span style={{ fontSize: 12, flex: "1 1 120px", fontWeight: 600 }}>
-            {s.name}
-          </span>
-          <AnchorLink href={stepLink(nodeId, s.func)} label={s.name} />
-        </div>
-        <div style={{ marginLeft: 26 }}>
-          {s.short?.length ? (
-            <div style={{ fontSize: 10.5, color: WARN, lineHeight: 1.5 }}>
-              не выполнится: не хватает{" "}
-              {s.short.map((x) => `${traitName(x.trait)}${x.spentBy
-                ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
-            </div>
-          ) : (
-            <Facts rows={[
-              { label: "Берёт", value: portLine(s.takes, traitName) || "ничего" },
-              { label: "Даёт", value: portLine(s.gives, traitName) || "ничего" },
-              { label: "Выполнений ожидается", value: nm(s.runs), color: WARN },
-              own && own.factors.length
-                ? { label: "Зависит от факторов", color: ACC,
-                  value: own.factors.map((y) => `${y.name} ${y.chance}%`).join(", ") }
-                : null,
-            ]} />)}
-        </div>
-      </div>);
-  });
-}
 
 /* ─── 3. сроки и трудозатраты ─── */
-function Schedule({ steps = [], before = [], plan, actual }) {
+function Schedule({ steps = [], before = [], plan, actual, traitName = (x) => x }) {
   const live = steps.filter((s) => !s.short?.length);
   return (
     <div>
@@ -556,7 +545,7 @@ function Schedule({ steps = [], before = [], plan, actual }) {
       ]} />
       {/* Таймлайн — на календарной линейке: по ней и читают, когда что. */}
       <div style={{ marginTop: 8 }}>
-        <Timeline steps={steps} before={before} />
+        <Timeline steps={steps} before={before} traitName={traitName} />
       </div>
       {!!live.length && (
         <div style={{ marginTop: 6 }}>
@@ -878,11 +867,19 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
   });
   const pick = (id) => { setPicked((p) => (p === id ? "" : id)); setShown(false); };
   const cur = traits.find((t) => t.id === picked) || null;
+  /* Свёрнуты по умолчанию (владелец, 2026-09-19): к материалам приходят
+     редко, а места они занимают весь первый экран. */
+  const [shownAll, setShownAll] = useState(false);
   return (
     <div style={{ ...S.card, marginBottom: 10 }}>
-      <div className="flex items-center gap-2">
-        <span style={S.lbl}>материалы — единицы ресурсов</span>
-      </div>
+      <button type="button" aria-expanded={shownAll} aria-label="материалы — единицы ресурсов"
+        onClick={() => setShownAll((v) => !v)} className="flex items-center gap-2"
+        style={{ width: "100%", background: "transparent", border: "none", padding: 0,
+          cursor: "pointer", textAlign: "left" }}>
+        <span style={{ ...S.lbl, flex: 1 }}>материалы — единицы ресурсов</span>
+        <span style={{ fontSize: 11, color: C.muted }}>{shownAll ? "▾" : "▸"}</span>
+      </button>
+      {shownAll && (<>
       <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
         Все единицы ресурсов — из сдач и загруженные руками. Нажмите на актив, потом на ресурс.
       </div>
@@ -959,6 +956,7 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
           kind={traitKind(cur)}
           meId={meId} onClose={() => setAdding(false)}
           onAdd={(rows) => { setMaterials?.((p) => [...(p || []), ...rows]); setShown(true); }} />)}
+      </>)}
     </div>);
 }
 
@@ -987,15 +985,26 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
    задачи, — и всё это трижды. Читалось это так: «зачем мне в ресурсах,
    сколько функция займёт времени». Теперь у раздела своя тема, под
    заголовком сказано, что в нём, и одно и то же в двух местах не стоит. */
-function Part({ n, title, hint, children }) {
+/* Раздел сворачивается нажатием на заголовок (владелец, 2026-09-19: «все
+   формы на вкладке „Отчёты" должны уметь сворачиваться при нажатии»). */
+function Part({ n, title, hint, children, open: open0 = true }) {
+  const [open, setOpen] = useState(open0);
   return (
     <section style={{ marginTop: 12, borderTop: `1px solid ${C.line}`,
       paddingTop: 8 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700 }}>{n}. {title}</div>
-      {hint && (
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
-          {hint}</div>)}
-      <div style={{ marginTop: 6 }}>{children}</div>
+      <button type="button" aria-expanded={open} aria-label={`${n}. ${title}`}
+        onClick={() => setOpen((v) => !v)} className="flex items-center gap-2"
+        style={{ width: "100%", background: "transparent", border: "none", padding: 0,
+          cursor: "pointer", textAlign: "left", color: C.text }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{n}. {title}</span>
+        <span style={{ fontSize: 11, color: C.muted }}>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (<>
+        {hint && (
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+            {hint}</div>)}
+        <div style={{ marginTop: 6 }}>{children}</div>
+      </>)}
     </section>);
 }
 
@@ -1022,15 +1031,30 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
      же выборе. */
   // Единицы этого ресурса, которые уже родились из сдач: с ними работа
   // уже происходила, и о каждой можно спросить отдельно.
-  const units = node.trait ? unitsOfTrait(model, node.trait) : [];
-  const picked = Array.isArray(node.units) ? node.units.filter(Boolean) : [];
+  /* ─── выбор — ЧЕРНОВИК, пока не нажали «Проследить» ───
+
+     Владелец (2026-09-19): «ресурс начинает прослеживаться до нажатия
+     кнопки „Проследить" — исправь это». Выбор ресурса это ещё вопрос, а не
+     ответ: пока кнопку не нажали, отчёт не считается и на экране ничего не
+     меняется. */
+  const [draft, setDraft] = useState(() => ({ trait: node.trait || "",
+    units: pickedOf(node), upto: node.upto || "", qty: node.qty || 1 }));
+  const setD = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  const units = draft.trait ? unitsOfTrait(model, draft.trait) : [];
+  const picked = draft.units.filter(Boolean);
+  /* Ресурсы, которые решено не прослеживать: строка сереет, полосы нет, и
+     в отчёт он не идёт (владелец, 2026-09-19). */
+  const offSet = useMemo(() => new Set((node.off || []).map(String)), [node.off]);
+  const toggleTrait = (id) => up({ off: offSet.has(String(id))
+    ? (node.off || []).filter((x) => String(x) !== String(id))
+    : [...(node.off || []), String(id)] });
   // Все единицы модели: по ним видно, над чем работала каждая задача.
-  const full = chainOf(model, { from: node.trait });
+  const full = chainOf(model, { from: draft.trait });
   /* Звено — только РЕСУРС: прослеживают «до готового сайта», а «до вёрстки»
      — не звено, а действие по дороге к нему; так сказал владелец. Старая
      запись с функцией в `upto` читается как была (chainOf её понимает),
      но выбрать функцию заново нельзя. */
-  const uptoTraits = traits.filter((t) => t.id !== node.trait
+  const uptoTraits = traits.filter((t) => t.id !== draft.trait
     && (full.traits || []).includes(t.id));
 
   /* ─── «Проследить» ───
@@ -1042,12 +1066,17 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
      раздел, и в отчёте их может быть сколько угодно: один ресурс — один
      раздел. */
   const trace = () => {
-    if (!node.trait) return;
-    const name = `${traitName(node.trait)}${node.upto ? ` → ${traitName(node.upto)}` : ""}`;
-    const kid = { ...newSection(node.id, name), trait: node.trait, units: picked,
-      upto: node.upto, qty: picked.length || node.qty || 1 };
+    if (!draft.trait) return;
+    const patch = { trait: draft.trait, units: picked, upto: draft.upto,
+      qty: picked.length || draft.qty || 1 };
+    /* Раздел уже что-то прослеживает — нажатие перенастраивает ЕГО. У
+       отчёта, который пока ничего не прослеживает, появляется раздел: один
+       ресурс — один раздел, и в отчёте их может быть сколько угодно. */
+    if (node.trait) { up(patch); setOpen(true); return; }
+    const name = `${traitName(draft.trait)}${draft.upto ? ` → ${traitName(draft.upto)}` : ""}`;
+    const kid = { ...newSection(node.id, name), ...patch };
     setNodes((p) => [...p, kid]);
-    up({ trait: "", units: [], upto: "", qty: 1 });
+    setDraft({ trait: "", units: [], upto: "", qty: 1 });
     /* Открываем сам раздел: нажали «Проследить» — значит хотят увидеть
        движение, а не строку, которую надо ещё развернуть. Назад — кнопкой
        «← все отчёты». */
@@ -1133,8 +1162,8 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <select style={{ ...S.inp, flex: "1 1 130px", minWidth: 0, fontSize: 11.5,
             padding: "4px 6px" }}
             aria-label={`с какого ресурса: ${node.name || "без названия"}`}
-            value={node.trait}
-            onChange={(e) => up({ trait: e.target.value, upto: "", units: [] })}>
+            value={draft.trait}
+            onChange={(e) => setD({ trait: e.target.value, upto: "", units: [] })}>
             <option value="">— с какого ресурса —</option>
             {traits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
           </select>
@@ -1151,12 +1180,12 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <select style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: 11.5,
             padding: "4px 6px" }}
             aria-label={`какая единица: ${node.name || "без названия"}`}
-            value="" disabled={!node.trait || !units.length}
+            value="" disabled={!draft.trait || !units.length}
             onChange={(e) => (e.target.value
-              ? up({ units: [...new Set([...picked, e.target.value])] })
+              ? setD({ units: [...new Set([...picked, e.target.value])] })
               : null)}>
             <option value="">
-              {!node.trait ? "— сначала выберите ресурс —"
+              {!draft.trait ? "— сначала выберите ресурс —"
                 : !units.length ? "единиц пока нет — это прогноз"
                   : picked.length ? "+ добавить единицу" : "— какая именно единица —"}
             </option>
@@ -1170,34 +1199,34 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               человека держать связь в голове. Выбраны конкретные единицы —
               число берётся из них и руками не правится: две записи про одно
               и то же разъехались бы, и стало бы непонятно, какой верить. */}
-          <NumField value={picked.length || node.qty || 1}
+          <NumField value={picked.length || draft.qty || 1}
             style={{ flex: "0 1 72px", fontSize: 11.5, padding: "4px 6px",
               opacity: picked.length ? 0.6 : 1 }}
             readOnly={!!picked.length}
             aria-label={`количество: ${node.name || "без названия"}`}
             onCommit={(v) => (picked.length
-              ? null : up({ qty: Math.max(1, Number(v) || 1) }))} />
+              ? null : setD({ qty: Math.max(1, Number(v) || 1) }))} />
           <span style={{ fontSize: 10.5, color: C.muted }}>
             {picked.length ? "шт. — столько выбрано" : "шт."}</span>
           <select style={{ ...S.inp, flex: "1 1 130px", minWidth: 0, fontSize: 11.5,
             padding: "4px 6px" }}
             aria-label={`до какого звена: ${node.name || "без названия"}`}
-            value={node.upto} disabled={!node.trait}
-            onChange={(e) => up({ upto: e.target.value })}>
+            value={draft.upto} disabled={!draft.trait}
+            onChange={(e) => setD({ upto: e.target.value })}>
             <option value="">
-              {node.trait ? "до конца цепочки" : "— сначала выберите ресурс —"}</option>
+              {draft.trait ? "до конца цепочки" : "— сначала выберите ресурс —"}</option>
             {uptoTraits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
             {/* Старая запись со звеном-функцией: показываем, что стоит, —
                 молча заменить на «до конца» значило бы переписать выбор. */}
-            {!!node.upto && !uptoTraits.some((t) => t.id === node.upto)
-              && funcs.some((f) => f.id === node.upto) && (
-              <option value={node.upto}>{funcName(node.upto)} (функция — прежняя запись)</option>)}
+            {!!draft.upto && !uptoTraits.some((t) => t.id === draft.upto)
+              && funcs.some((f) => f.id === draft.upto) && (
+              <option value={draft.upto}>{funcName(draft.upto)} (функция — прежняя запись)</option>)}
           </select>
           <button style={{ ...btn(true, OK), fontSize: 11,
-            opacity: node.trait ? 1 : 0.45, cursor: node.trait ? "pointer" : "default" }}
-            disabled={!node.trait} onClick={trace}
+            opacity: draft.trait ? 1 : 0.45, cursor: draft.trait ? "pointer" : "default" }}
+            disabled={!draft.trait} onClick={trace}
             aria-label={`проследить: ${node.name || "без названия"}`}
-            title={node.trait ? "Отдельным разделом — движение этого ресурса"
+            title={draft.trait ? "Показать движение этого ресурса"
               : "Сначала выберите ресурс"}>Проследить</button>
         </div>
         {hypoBlocked && (
@@ -1222,7 +1251,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
                 <button key={id} style={{ ...btn(true, ACC), fontSize: 11,
                   padding: "3px 7px" }}
                   aria-label={`убрать единицу: ${u ? `№${u.no}` : id}`}
-                  onClick={() => up({ units: picked.filter((x) => x !== id) })}>
+                  onClick={() => setD({ units: picked.filter((x) => x !== id) })}>
                   {u ? `№${u.no} ${u.title || "без названия"}` : "единица удалена"}
                   {" ×"}</button>);
             })}
@@ -1294,7 +1323,8 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             {changes.length
               ? <ChangeChart rows={changes} traitName={traitName}
                   haveOf={(t) => Number(traits.find((x) => x.id === t)?.have) || 0}
-                  madeOf={(t) => doc.made.filter((u) => u.trait === t)} />
+                  madeOf={(t) => doc.made.filter((u) => u.trait === t)}
+                  off={offSet} onToggle={toggleTrait} />
               : <div style={{ fontSize: 11, color: C.muted }}>
                   Ресурсы по этой цепочке не меняются.</div>}
             {!!Object.keys(plan.hi.need || {}).length && (
@@ -1313,18 +1343,13 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               </div>)}
           </Part>
 
-          <Part n={2} title="Функции — что будет сделано"
-            hint="Цепочка функций по порядку: что берёт, что даёт, сколько раз.">
-            <FuncRows steps={doc.steps} factors={factors} nodeId={node.id}
+          <Part n={2} title="Сроки и трудозатраты"
+            hint="Когда что начнётся, сколько продлится и сколько часов потребует.">
+            <Schedule steps={doc.steps} before={doc.before} plan={plan} actual={actual}
               traitName={traitName} />
           </Part>
 
-          <Part n={3} title="Сроки и трудозатраты"
-            hint="Когда что начнётся, сколько продлится и сколько часов потребует.">
-            <Schedule steps={doc.steps} before={doc.before} plan={plan} actual={actual} />
-          </Part>
-
-          <Part n={4} title="Задачи — что уже сделано"
+          <Part n={3} title="Задачи — что уже сделано"
             hint="Заведённые задачи: кто, срок, состояние, часы и что вышло.">
             <TaskList steps={doc.steps} before={doc.before} actual={actual}
               traitName={traitName}
@@ -1332,7 +1357,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           </Part>
 
           {FACTORS_ON && !!factors.length && (
-            <Part n={5} title="Факторы — что влияет"
+            <Part n={4} title="Факторы — что влияет"
               hint="Что в этой цепочке случается само, без людей, и с какой вероятностью.">
               <FactorRows factors={factors} />
             </Part>)}
@@ -1383,6 +1408,8 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
   };
   const path = focus ? pathOf(nodes, focus) : [];
   const shown = focus && path.length ? [path[path.length - 1]] : rootsOf(nodes);
+  /* Шапка вкладки тоже сворачивается. */
+  const [head, setHead] = useState(true);
 
   /* Ссылка на шаг ведёт к якорю, а браузер ищет его в тот момент, когда
      разметки ещё нет: React рисует после. Поэтому к якорю едем сами, когда
@@ -1409,12 +1436,19 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
       <div style={{ ...S.card, marginBottom: 10 }}>
         <div className="flex items-center gap-2">
           <span style={{ flex: 1 }} />
-          <span style={S.lbl}>отчёты</span>
+          {/* Нажатие на имя сворачивает форму — как и все формы вкладки
+              (владелец, 2026-09-19). */}
+          <button type="button" aria-expanded={head} aria-label="отчёты"
+            onClick={() => setHead((v) => !v)}
+            style={{ background: "transparent", border: "none", padding: 0,
+              cursor: "pointer" }}>
+            <span style={S.lbl}>отчёты {head ? "▾" : "▸"}</span>
+          </button>
           <span style={{ flex: 1 }} />
           <button style={btn(true)}
             onClick={() => setNodes((p) => [...p, newProject("новый отчёт")])}>+ отчёт</button>
         </div>
-        {!!path.length && (
+        {head && !!path.length && (
           <div className="flex flex-wrap gap-2" style={{ marginTop: 8, alignItems: "center" }}>
             <button style={{ ...btn(false), fontSize: 11 }}
               onClick={() => onFocus?.(null)}>← все отчёты</button>

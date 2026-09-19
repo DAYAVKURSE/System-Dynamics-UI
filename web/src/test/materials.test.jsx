@@ -17,12 +17,22 @@ beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />
 
 const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
 const reports = () => tab("Отчёты");
-const openAsset = (name) => fireEvent.click(screen.getByRole("button", { name: `актив ${name}` }));
+const openAsset = (name) => {
+  openMaterials();
+  fireEvent.click(screen.getByRole("button", { name: `актив ${name}` }));
+};
 const pickTrait = (name) => fireEvent.click(screen.getByRole("button", { name: `ресурс ${name}` }));
 const view = () => fireEvent.click(screen.getByRole("button", { name: "Посмотреть" }));
 const openUpload = () => fireEvent.click(screen.getByRole("button", { name: "Загрузить единицу ресурса" }));
 const dialog = () => screen.getByRole("dialog");
-const materialsCard = () => screen.getByText("материалы — единицы ресурсов").closest("div").parentElement;
+/* Материалы свёрнуты по умолчанию (владелец, 2026-09-19) — тесты
+   открывают форму так же, как человек: нажатием на её имя. */
+const openMaterials = () => {
+  const head = screen.getByRole("button", { name: "материалы — единицы ресурсов" });
+  if (head.getAttribute("aria-expanded") !== "true") fireEvent.click(head);
+  return head.closest("div");
+};
+const materialsCard = () => openMaterials();
 const dump = () => {
   tab("Инструменты");
   if (!container.querySelector("textarea")) tab("Выгрузка");
@@ -53,7 +63,7 @@ describe("форма «Материалы»", () => {
   it("стоит перед проектами и показывает все активы; актив → ресурсы с «есть», ресурс → единицы", () => {
     reports();
     const card = materialsCard();
-    const projects = screen.getByText("отчёты");
+    const projects = screen.getByRole("button", { name: "отчёты" });
     // Материалы — выше отчётов: отчёт начинается с единицы.
     expect(card.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Все активы сразу — по ним и ходят.

@@ -121,11 +121,16 @@ export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } =
     ...Object.keys(plan.lo.delta || {}),
     ...Object.keys(actual.delta || {}),
   ])];
+  /* Ресурсы, которые решено не прослеживать (галочка в разделе «Ресурсы»,
+     владелец 2026-09-19): на экране строка сереет, а в файл и в снимок она
+     не идёт вовсе. */
+  const offTraits = new Set((Array.isArray(node.off) ? node.off : []).map(String));
   const changes = ids.map((id) => ({
     trait: id,
     lo: num(plan.lo.delta?.[id]),
     hi: num(plan.hi.delta?.[id]),
     fact: actual.any ? num(actual.delta?.[id]) : null,
+    off: offTraits.has(String(id)),
   })).sort((a, b) => Math.abs(b.hi) - Math.abs(a.hi));
 
   /* ─── шаг и его работа — одно место, а не два списка ───
@@ -500,40 +505,17 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   <p class="m">Сколько каждого ресурса прибавится или убавится по этой цепочке.
     Прогноз — вилка «от и до», факт — по принятым задачам. Считано на
     ${nm(plan.hi.qty)} × ${tn(node.trait)}${d.hypothetical ? " — единица не выбрана, прогноз для новой" : ""}.</p>
-  ${changes.length
-    ? changes.map((c) => barRow(c, tn, d.made.filter((u) => u.trait === c.trait))).join("")
-      + `<p class="m">У каждого ресурса своя шкала: доход в сотнях тысяч и договоры
-        в штуках на общей шкале несравнимы. Под ресурсом стоят сами вещи,
-        которые по нему вышли.</p>`
+  ${changes.filter((c) => !c.off).length
+    ? changes.filter((c) => !c.off)
+      .map((c) => barRow(c, tn, d.made.filter((u) => u.trait === c.trait))).join("")
+      + '<p class="m">Под ресурсом стоят сами вещи, которые по нему вышли.</p>' 
     : '<p class="m">Ресурсы по этой цепочке не меняются.</p>'}
   ${Object.keys(plan.hi.need || {}).length
     ? `<p class="w">Своего не хватит — нужно со стороны: ${esc(Object.entries(plan.hi.need)
       .map(([id, q]) => `${tnRaw(id, traitName)} ${nm(q)}`).join(", "))}</p>`
     : ""}
 
-  <h${h + 1}>2. Функции — что будет сделано</h${h + 1}>
-  <p class="m">Цепочка функций от выбранного ресурса до звена, по порядку.
-    У каждой — что берёт, что даёт и сколько раз выполнится.</p>
-  ${d.steps.length ? d.steps.map((s2, i2) => `
-    <h${Math.min(6, h + 2)} id="${esc(stepAnchor(node.id, s2.func))}">${
-      i2 + 1}. ${esc(s2.name)}</h${Math.min(6, h + 2)}>
-    ${(s2.short || []).length
-      ? `<p class="w">не выполнится: не хватает ${esc((s2.short || [])
-        .map((x) => `${tnRaw(x.trait, traitName)}${x.spentBy
-          ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", "))}</p>`
-      : factsHtml([
-        { label: "Берёт", value: portText(s2.takes, (x) => tnRaw(x, traitName)) || "ничего" },
-        { label: "Даёт", value: portText(s2.gives, (x) => tnRaw(x, traitName)) || "ничего" },
-        { label: "Выполнений ожидается", value: nm(s2.runs) },
-        (() => { const own = factors.find((x) => x.func === s2.func);
-          return own && own.factors.length
-            ? { label: "Зависит от факторов",
-              value: own.factors.map((y) => `${y.name} ${y.chance}%`).join(", ") }
-            : null; })(),
-      ])}`).join("")
-    : '<p class="m">Функций нет: с этого ресурса цепочка никуда не ведёт.</p>'}
-
-  <h${h + 1}>3. Сроки и трудозатраты</h${h + 1}>
+  <h${h + 1}>2. Сроки и трудозатраты</h${h + 1}>
   <p class="m">Когда какая функция начнётся и сколько продлится; сколько часов
     работы людей это потребует — по прогнозу и по факту.</p>
   ${factsHtml([
@@ -554,7 +536,7 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
       <td>${!s2.doneCount ? "—" : nm(Math.round(num(s2.factHours) * 10) / 10)}</td></tr>`).join("")}
   </table>` : ""}
 
-  <h${h + 1}>4. Задачи — что уже сделано</h${h + 1}>
+  <h${h + 1}>3. Задачи — что уже сделано</h${h + 1}>
   <p class="m">Задачи, заведённые по этой цепочке: кто делает, срок, состояние,
     часы по плану и по факту, что взято и что вышло.</p>
   ${factsHtml([
@@ -579,7 +561,7 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
         <td>${esc(linkText(t, traitName))}</td></tr>`).join("")}
     </table>`).join("")}
 
-  ${factors.length ? `<h${h + 1}>5. Факторы — что влияет</h${h + 1}>
+  ${factors.length ? `<h${h + 1}>4. Факторы — что влияет</h${h + 1}>
   <p class="m">Что в этой цепочке случается само, без людей, и с какой вероятностью.</p>
   <table><tr><th>функция</th><th>факторы</th></tr>
     ${factors.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.factors.length

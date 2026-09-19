@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import logoUrl from "../assets/logo.png";
 
 /* Общие примитивы интерфейса: палитра, стили и поля ввода.
    Вынесены сюда, чтобы схема (SystemModel) и доска задач (TasksBoard)
@@ -53,33 +54,16 @@ export const btn=(on,col)=>({background:on?(col||ACC)+"22":C.panel2,
 
 /* ─────── ЗНАК И ИМЯ ПРИЛОЖЕНИЯ ───────
 
-   Владелец (2026-09-19): «Сделай название приложения Blocktree сдержанным,
-   но футуристичным шрифтом и с логотипом, похожим на этот» — узел в
-   скруглённом квадрате, от которого расходятся связи с точками на концах.
+   Знак — картинка, присланная владельцем (2026-09-19): «имелось в виду
+   знак наверху, в шапке». Она обрезана по краю рисунка и переведена в
+   прозрачный фон инструментом для картинок — не перерисована.
 
-   Знак рисуется, а не кладётся картинкой: он живёт в одном цвете со
-   схемой, его не надо отдельно грузить, и на любом экране он остаётся
-   чётким. */
+   Логотип стоит ТОЛЬКО здесь: на формах его нет. */
 export function Brand({ size = 26, color = OK }) {
-  const dot = (x, y, r = 2.1) => <circle cx={x} cy={y} r={r} fill={color} />;
   return (
     <span className="flex items-center gap-2" aria-label="Blocktree">
-      <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true"
-        style={{ display: "block", flex: "0 0 auto" }}>
-        <rect x="6" y="6" width="36" height="36" rx="11" fill="none"
-          stroke={color} strokeWidth="1.6" strokeOpacity="0.9" />
-        <g stroke={color} strokeWidth="1.4" strokeLinecap="round">
-          <line x1="24" y1="24" x2="12" y2="24" />
-          <line x1="24" y1="24" x2="36" y2="24" />
-          <line x1="24" y1="24" x2="15" y2="12" />
-          <line x1="24" y1="24" x2="33" y2="15" />
-          <line x1="24" y1="24" x2="17" y2="33" />
-          <line x1="24" y1="24" x2="26" y2="37" />
-          <line x1="24" y1="24" x2="34" y2="31" />
-        </g>
-        <circle cx="24" cy="24" r="3.2" fill="none" stroke={color} strokeWidth="1.6" />
-        {dot(12, 24)}{dot(36, 24)}{dot(15, 12)}{dot(33, 15)}{dot(17, 33)}{dot(26, 37)}{dot(34, 31)}
-      </svg>
+      <img src={logoUrl} alt="" aria-hidden="true" width={size} height={size}
+        style={{ display: "block", flex: "0 0 auto" }} />
       <span style={{ fontFamily: BRAND_FONT, fontSize: Math.round(size * 0.72),
         fontWeight: 500, letterSpacing: "0.06em", color }}>Blocktree</span>
     </span>);

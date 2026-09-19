@@ -16,8 +16,9 @@ describe("шапка", () => {
     expect(screen.getByLabelText("Blocktree")).toBeInTheDocument();
     expect(screen.getByText("Blocktree")).toBeInTheDocument();
     expect(screen.queryByText(/Активы: воркеры/)).toBeNull();
-    // Знак — рисованный, рядом с именем.
-    expect(screen.getByLabelText("Blocktree").querySelector("svg")).toBeTruthy();
+    /* Знак — картинка, присланная владельцем (2026-09-19), рядом с именем.
+       Логотип стоит только здесь. */
+    expect(screen.getByLabelText("Blocktree").querySelector("img")).toBeTruthy();
     expect(container.textContent).not.toMatch(/горизонт/i);
   });
 

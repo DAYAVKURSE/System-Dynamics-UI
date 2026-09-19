@@ -200,32 +200,7 @@ function Block({ block, depth = 0 }) {
             Нажмите на ресурс — откроются сами вещи, которые по нему вышли.</div>)}
       </Part>
 
-      <Part n={2} title="Функции — что будет сделано"
-        hint="Цепочка функций по порядку и сколько раз каждая выполнится.">
-        {!plan.steps.length && (
-          <div style={{ fontSize: 11, color: C.muted }}>Функций нет: цепочка пуста.</div>)}
-        {plan.steps.map((s2, i) => (
-          <div key={`${s2.name}-${i}`} id={s2.anchor || undefined}
-            style={{ borderTop: i ? `1px solid ${C.line}` : "none", padding: "5px 0" }}>
-            <div style={{ fontSize: 12, fontWeight: 600 }}>
-              {i + 1}. {s2.name}</div>
-            {/* Шаг, который не выполнится, остаётся в снимке — но со словами
-                вместо чисел: обещать заказчику работу, которая не начнётся,
-                нельзя, а молчать о ней ещё хуже. */}
-            {(s2.short || []).length ? (
-              <div style={{ fontSize: 10.5, color: WARN, lineHeight: 1.5 }}>
-                не выполнится: не хватает{" "}
-                {s2.short.map((x) => `${x.trait}${x.spentBy
-                  ? ` (израсходовал шаг «${x.spentBy}»)` : ""}`).join(", ")}
-              </div>
-            ) : (
-              <Facts rows={[
-                { label: "Выполнений ожидается", value: nm(s2.runs), color: WARN },
-              ]} />)}
-          </div>))}
-      </Part>
-
-      <Part n={3} title="Сроки и трудозатраты"
+      <Part n={2} title="Сроки и трудозатраты"
         hint="Сколько продлится вся цепочка и сколько часов работы людей потребует — по прогнозу и по факту.">
         <Facts rows={[
           { label: "Займёт времени — вся цепочка", color: WARN,
@@ -246,7 +221,7 @@ function Block({ block, depth = 0 }) {
           </div>))}
       </Part>
 
-      <Part n={4} title="Задачи — что уже сделано"
+      <Part n={3} title="Задачи — что уже сделано"
         hint="Задачи по этой цепочке: срок, состояние, часы по факту и что вышло.">
         <Facts rows={[
           { label: "Задач принято", color: act.done ? OK : C.muted,
