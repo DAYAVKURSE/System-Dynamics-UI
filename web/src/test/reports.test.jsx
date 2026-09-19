@@ -5,7 +5,7 @@ import ReportsPanel from "../components/ReportsPanel.jsx";
 import ShareView, { shareFromLocation } from "../components/ShareView.jsx";
 import SystemModel, { TAB_LIST } from "../components/SystemModel.jsx";
 import {
-  childrenOf, dropNode, newProject, newSection, normalizeReports,
+  childrenOf, dropNode, newProject, newSection, normalizeReport, normalizeReports,
   pathOf, reportFromLocation, rootsOf, shareLink, subtree, summaryOf,
 } from "../lib/reports.js";
 import { deliverReport, reportHtml, reportOf } from "../lib/reportDoc.js";
@@ -66,7 +66,7 @@ describe("запись карты", () => {
   it("чужая запись достраивается, а не ломается", () => {
     expect(normalizeReports([{ id: "x" }])[0])
       .toEqual({ id: "x", parent: null, name: "", trait: "", units: [],
-        file: null, upto: "", qty: 1 });
+        file: null, upto: "", qty: 1, off: [] });
     // Прежняя запись с одной единицей читается как список из одного.
     expect(normalizeReports([{ id: "x", unit: "s1~t2" }])[0])
       .toMatchObject({ units: ["s1~t2"], qty: 1 });
@@ -848,5 +848,15 @@ describe("первый раздел отчёта", () => {
     expect(screen.queryByText("1. Ресурсы — что изменится")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "проследить: Заказ" }));
     expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
+  });
+});
+
+/* Галочки ресурсов — часть записи отчёта: без этого выбор терялся бы при
+   первом же сохранении сценария (владелец, 2026-09-19). */
+describe("исключённые ресурсы живут в записи", () => {
+  it("normalizeReport хранит `off` и чистит его от мусора", () => {
+    expect(normalizeReport({ id: "r", off: ["t1", "t1", "", null, "t2"] }).off)
+      .toEqual(["t1", "t2"]);
+    expect(normalizeReport({ id: "r" }).off).toEqual([]);
   });
 });
