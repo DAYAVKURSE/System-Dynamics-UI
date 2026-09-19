@@ -45,9 +45,15 @@ export function procPlan(text = "", model = {}, proc = {}) {
       b.steps.forEach((s) => {
         const side = s.kind === "take" ? "take" : "give";
         const others = (s.kind === "take" ? s.froms : s.tos) || [];
-        const party = others.map((x) => ({ name: x.name, hand: x.hand || "", person: x.person || "" }));
+        const named = (x) => ({ name: x.name, hand: x.hand || "", person: x.person || "" });
+        /* «Кому:» после «Или:» — получатель ВАРИАНТА, а не основного
+           ресурса (владелец, 2026-09-19). Своего получателя у варианта нет
+           — читается общий. */
+        const mainParty = others.filter((x) => !x.alt).map(named);
+        const altParty = others.filter((x) => x.alt).map(named);
         if (s.or.length) alt = true;
         [...s.items.map((it) => ({ it, or: false })), ...s.or.map((it) => ({ it, or: true }))].forEach(({ it, or }) => {
+          const party = or ? (altParty.length ? altParty : mainParty) : mainParty;
           const port = {
             name: it.ref ? "" : it.name, varName: it.var || "", ref: !!it.ref,
             qty: it.qty, qtyHi: it.qtyHi, expr: it.expr || "", or,

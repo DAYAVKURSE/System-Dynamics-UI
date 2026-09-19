@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import Timeline from "../components/Timeline.jsx";
 import { barOf, timelineHtml } from "../lib/timelineDoc.js";
 
 /* Полоса задачи на оси времени. Задача без начала и без сдач полосы не
@@ -144,5 +147,57 @@ describe("таймлайн сохраняется файлом", () => {
       { now: Date.parse("2026-09-05T00:00:00Z") });
     expect(out).toContain("&lt;b&gt;жирный&lt;/b&gt; &amp; &lt;script&gt;");
     expect(out).not.toMatch(/<script/);
+  });
+});
+
+/* ФИЛЬТРЫ ТАЙМЛАЙНА (владелец, 2026-09-19): «сделай выбор статуса задачи из
+   выпадающего списка, а не из кучи кнопок; актуализируй статусы; подпись
+   внизу, что такое полоса и чёрточки, убери полностью; сделай
+   дополнительный выбор фильтрации по технологическим процессам». */
+describe("фильтры таймлайна", () => {
+  const FUNCS = [
+    { id: "f1", e: "e1", name: "Из процесса", dur: 1, durUnit: "ч", proc: "p1",
+      takes: [], gives: [] },
+    { id: "f2", e: "e1", name: "Своими руками", dur: 1, durUnit: "ч", takes: [], gives: [] },
+  ];
+  const TASKS = [
+    { id: "a", funcId: "f1", title: "Из процесса", status: "backlog",
+      start: "2030-01-01T10:00", submissions: [], reviews: [], comments: [] },
+    { id: "b", funcId: "f2", title: "Без процесса", status: "progress",
+      start: "2030-01-02T10:00", submissions: [], reviews: [], comments: [] },
+    { id: "c", funcId: "f1", title: "Отменённая", status: "backlog", canceled: true,
+      start: "2030-01-03T10:00", submissions: [], reviews: [], comments: [] },
+  ];
+  const show = () => render(<Timeline tasks={TASKS} funcs={FUNCS} traits={[]}
+    entities={[{ id: "e1", name: "Актив" }]} procs={[{ id: "p1", name: "Приём лидов" }]}
+    nameOf={(id) => id} meId="1" />);
+
+  it("статус выбирается списком, и в нём есть «Отменена»", () => {
+    show();
+    const sel = screen.getByLabelText("статус задач");
+    expect(sel.tagName.toLowerCase()).toBe("select");
+    const names = [...sel.querySelectorAll("option")].map((o) => o.textContent);
+    expect(names[0]).toBe("все статусы");
+    expect(names).toContain("Отменена");
+    expect(names).toContain("В работе");
+    // Кучи кнопок со статусами больше нет.
+    expect(screen.queryByRole("button", { name: "В работе" })).toBeNull();
+  });
+
+  it("процесс — второй список, и в нём только те, по которым есть работа", () => {
+    show();
+    const sel = screen.getByLabelText("технологический процесс");
+    const names = [...sel.querySelectorAll("option")].map((o) => o.textContent);
+    expect(names).toEqual(["все процессы", "Приём лидов", "вне процессов"]);
+    fireEvent.change(sel, { target: { value: "p1" } });
+    expect(screen.queryByText("Без процесса")).toBeNull();
+    fireEvent.change(sel, { target: { value: "none" } });
+    expect(screen.getByText("Без процесса")).toBeInTheDocument();
+  });
+
+  it("подписи про полосу и чёрточки внизу нет", () => {
+    const { container } = show();
+    expect(container.textContent).not.toMatch(/Полоса — время задачи/);
+    expect(container.textContent).not.toMatch(/чёрточки/);
   });
 });

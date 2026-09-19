@@ -296,7 +296,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
   published, onComment, onDropComment, onSetup, onDelete, factors = [], materials = [],
-  ratings = null }) {
+  ratings = null, onChecks }) {
   const [openId, setOpenId] = useState(null);
   /* Единицы считаются один раз на всю вкладку: карточек много, а список
      у них общий — по нему ищут и взятое, и выданное. */
@@ -442,7 +442,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                      владельца (ROADMAP v1.2), и запертые выпадающие списки
                      у него делали бы «Поставить» недостижимой навсегда. */
                   canAssign={canAssign || String(roleOf(setup, "setter") || "") === String(meId)}
-                  nameOf={nameOf} setTasks={setTasks} onSetup={onSetup}
+                  nameOf={nameOf} setTasks={setTasks} onSetup={onSetup} onChecks={onChecks}
                   published={published} meId={meId}
                   onClose={() => setSetupId(null)} />)}
               {/* «Удалить» — ВНУТРИ раскрытой формы, а не в строке списка:

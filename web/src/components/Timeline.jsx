@@ -45,34 +45,57 @@ export { barOf };
    целиком, со скрытыми словами всех проверяющих, и файл без зрителя
    унёс бы их наружу. */
 export default function Timeline({ tasks, funcs = [], traits = [], entities = [], nameOf,
-  meId = null }) {
+  procs = [], meId = null }) {
   const [openId, setOpenId] = useState(null);
   const [only, setOnly] = useState("all");
+  /* Фильтр по техпроцессу (владелец, 2026-09-19): в модели их несколько, и
+     смотреть работу обычно нужно по одному. */
+  const [proc, setProc] = useState("all");
   const funcById = useMemo(() =>
     Object.fromEntries((funcs || []).map((f) => [f.id, f])), [funcs]);
   const traitName = (id) => traits.find((x) => x.id === id)?.l || "(ресурс удалён)";
 
+  /* «Отменена» — не статус, а пометка на задаче, но искать её надо так же,
+     как статус: для человека это такое же состояние работы. */
+  const stateOf = (t) => (t?.canceled === true ? "canceled" : t?.status);
   const all = useMemo(() => (tasks || [])
-    .filter((t) => only === "all" || t.status === only)
+    .filter((t) => only === "all" || stateOf(t) === only)
+    .filter((t) => proc === "all"
+      || (proc === "none" ? !funcById[t.funcId]?.proc : funcById[t.funcId]?.proc === proc))
     .map((t) => ({ t, func: funcById[t.funcId], bar: barOf(t, funcById[t.funcId]) })),
-  [tasks, funcById, only]);
+  [tasks, funcById, only, proc]);
   const rows = useMemo(() => all.filter((r) => r.bar)
     .sort((a, b) => a.bar.from - b.bar.from), [all]);
   const undated = useMemo(() => all.filter((r) => !r.bar), [all]);
 
+  /* Процессы, по которым есть работа: пустых в списке нет — выбирать
+     нечего. «Вне процессов» — задачи функций, заведённых руками. */
+  const procList = useMemo(() => {
+    const used = new Set((tasks || []).map((t) => funcById[t.funcId]?.proc).filter(Boolean));
+    return (procs || []).filter((p) => used.has(p.id));
+  }, [tasks, funcById, procs]);
+  const loose = useMemo(() => (tasks || []).some((t) => !funcById[t.funcId]?.proc),
+    [tasks, funcById]);
   const filterBar = (
     <div style={{ ...S.card, marginBottom: 10 }}>
       <div style={S.lbl}>timeline · вся работа во времени</div>
+      {/* Выпадающими списками, а не кучей кнопок (владелец, 2026-09-19). */}
       <div className="flex flex-wrap gap-2" style={{ margin: "6px 0 0" }}>
-        <button style={btn(only === "all")} onClick={() => setOnly("all")}>все</button>
-        {STATUSES.map((s) => (
-          <button key={s.id} style={btn(only === s.id, s.color)}
-            onClick={() => setOnly(s.id)}>{s.name}</button>))}
+        <select aria-label="статус задач" value={only} onChange={(e) => setOnly(e.target.value)}
+          style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: 12 }}>
+          <option value="all">все статусы</option>
+          {STATUSES.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+          <option value="canceled">Отменена</option>
+        </select>
+        <select aria-label="технологический процесс" value={proc}
+          onChange={(e) => setProc(e.target.value)}
+          style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: 12 }}>
+          <option value="all">все процессы</option>
+          {procList.map((p) => (
+            <option key={p.id} value={p.id}>{p.name || "процесс без названия"}</option>))}
+          {loose && <option value="none">вне процессов</option>}
+        </select>
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-        Полоса — время задачи, чёрточки — сдачи, пунктир — сегодня.
-      </div>
-
     </div>);
 
   if (!rows.length && !undated.length) {

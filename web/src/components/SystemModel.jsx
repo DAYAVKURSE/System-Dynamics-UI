@@ -926,6 +926,13 @@ export default function SystemModel(){
     if(!proc||!(row>=0)) return;
     commitProcs(procs.map(p=>(p.id===proc.id?{...p,text:setFuncHead(p.text,row,patch)}:p)));
   };
+  /* Критерии задачи: у задачи из процесса — в его текст, у ручной — в
+     запись функции. Одна дверь на карточку функции и на форму постановки
+     (владелец, 2026-09-19: «нет критерия» на форме задачи). */
+  const setChecksOf=(f,list)=>{
+    if(f?.proc){ setTaskChecksIn(f,list); return; }
+    if(f) setFuncs(p=>p.map(x=>(x.id===f.id?{...x,checks:list}:x)));
+  };
   /* Критерии задачи из процесса — строками «Критерий:» в его тексте; правка
      из карточки задачи пишет туда же (владелец, 2026-09-19). */
   const setTaskChecksIn=(f,list)=>{
@@ -1500,7 +1507,7 @@ export default function SystemModel(){
           сразу за ним, значки — у правого края. Полоса под рядом и есть то,
           что делает вкладки вкладками: открытая её разрывает. */}
       <div className="flex items-center gap-2"
-        style={{marginBottom:10,alignItems:"flex-end",...TAB_LINE}}>
+        style={{alignItems:"flex-end",...TAB_LINE}}>
         <div style={{flex:"0 0 auto",paddingBottom:6}}><Brand size={20}/></div>
         {/* «Анкета» — всем: это единственное место, где человек говорит о
             себе. «Отчёты» — владельцу: карту пишет он, а остальным сервер
@@ -1513,16 +1520,19 @@ export default function SystemModel(){
             <button key={k} data-tab={k} style={tabStyle(tab===k)}
               onClick={()=>goTab(k)}>{t}</button>))}
         </div>
-        <div className="flex items-center gap-1" style={{flex:"0 0 auto",paddingBottom:5}}>
-          <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
-            disabled={!hist.canUndo} onClick={hist.undo} icon={ICON.undo}/>
-          <IconButton label="вернуть" title="Вернуть отменённое (Ctrl+Shift+Z)"
-            disabled={!hist.canRedo} onClick={hist.redo} icon={ICON.redo}/>
-          {(me.solo||me.isOwner)&&(
-            <IconButton label="сохранить" title={saveName.trim()
-              ? `Сохранить сценарий «${saveName.trim()}»` : "Назвать сценарий и сохранить"}
-              disabled={savedBusy} onClick={saveNow} icon={ICON.save}/>)}
-        </div>
+      </div>
+
+      {/* Значки — ПОД линией шапки, у правого края (владелец, 2026-09-19). */}
+      <div className="flex items-center gap-1"
+        style={{justifyContent:"flex-end",marginBottom:8}}>
+        <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
+          disabled={!hist.canUndo} onClick={hist.undo} icon={ICON.undo}/>
+        <IconButton label="вернуть" title="Вернуть отменённое (Ctrl+Shift+Z)"
+          disabled={!hist.canRedo} onClick={hist.redo} icon={ICON.redo}/>
+        {(me.solo||me.isOwner)&&(
+          <IconButton label="сохранить" title={saveName.trim()
+            ? `Сохранить сценарий «${saveName.trim()}»` : "Назвать сценарий и сохранить"}
+            disabled={savedBusy} onClick={saveNow} icon={ICON.save}/>)}
       </div>
 
       {/* Страница вкладки: въезжает с той стороны, откуда пришли. */}
@@ -1635,6 +1645,9 @@ export default function SystemModel(){
       {tab==="review" && me.tabs.includes("review") && (
         <ReviewBoard tasks={tasks} traits={traitsLive} entities={entities} funcs={funcs}
           factors={factors} materials={materials} ratings={ratings}
+          /* Критерии правятся прямо на форме постановки: их устанавливают,
+             когда ставят задачу (владелец, 2026-09-19). */
+          onChecks={me.isOwner||me.solo?setChecksOf:undefined}
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}
@@ -1768,7 +1781,7 @@ export default function SystemModel(){
 
         {under==="time" && (
           <Timeline tasks={myTasks} funcs={liveFuncs} traits={traitsLive} entities={entities}
-            nameOf={personName} meId={me.id}/>)}
+            procs={procs} nameOf={personName} meId={me.id}/>)}
 
         {under==="edit" && selE && (
           <div style={{...S.card,marginTop:10}}>

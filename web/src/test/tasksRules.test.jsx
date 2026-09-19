@@ -883,3 +883,32 @@ describe("отзыв задачи из бэклога", () => {
     expect(screen.queryByRole("button", { name: "отозвать задачу Лежит" })).toBeNull();
   });
 });
+
+/* КРИТЕРИИ СТАВЯТ НА ФОРМЕ ПОСТАНОВКИ (владелец, 2026-09-19: «нет
+   критерия» — на форме их не было видно и добавить было негде). */
+describe("критерии на форме постановки", () => {
+  const F = [{ ...FUNCS[0], checks: ["есть ссылка"] }];
+  const Setup = ({ onChecks }) => {
+    const [tasks, setTasks] = React.useState([
+      { ...newTask({ funcId: "f1", title: "Задача" }), end: "2030-01-01T10:00" }]);
+    return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={F} entities={ENTITIES}
+      traits={TRAITS} setTasks={setTasks} people={PEOPLE} canAssign nameOf={(id) => id}
+      onChecks={onChecks} />);
+  };
+
+  it("критерии видны и правятся прямо здесь", () => {
+    const log = [];
+    render(<Setup onChecks={(f, list) => log.push([f.id, list])} />);
+    expect(screen.getByLabelText("критерий 1").value).toBe("есть ссылка");
+    fireEvent.click(screen.getByRole("button", { name: "добавить критерий" }));
+    expect(log).toEqual([["f1", ["есть ссылка", "новый критерий"]]]);
+    fireEvent.click(screen.getByRole("button", { name: "убрать критерий 1" }));
+    expect(log[1]).toEqual(["f1", []]);
+  });
+
+  it("без права правки — только список, и сказано, когда его нет", () => {
+    render(<Setup />);
+    expect(screen.getByText("есть ссылка")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "добавить критерий" })).toBeNull();
+  });
+});

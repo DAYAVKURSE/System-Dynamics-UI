@@ -412,14 +412,25 @@ export function parseText(text = "", model = {}, proc = {}) {
         /* Получатель/отправитель — как участник (владелец, 2026-09-18):
            «{рука}» и «@сотрудник» читаются, роли на этих строках не в счёт. */
         const w = parseWho(rest, rs, model);
+        /* «Кому:» сразу после «Или:» — получатель ЭТОГО варианта, а не ещё
+           один получатель основного (владелец, 2026-09-19: «у тебя два раза
+           повторяется один и тот же текст»). Строка остаётся в `tos`, чтобы
+           её по-прежнему красили и проверяли, но помечена `alt`: порт по ней
+           не заводится. */
         const side = { name: w.name, span: w.span, row, pos: w.pos, asset: w.asset, hand: w.hand, person: w.person, personId: w.personId,
+          alt: last === "or" || last === `${lab.kind}-alt`,
           marks: w.marks.filter((m) => m.kind === "hand" || m.kind === "person") };
         /* Строк «Кому:»/«От кого:» может быть несколько (владелец, 2026-09-18):
            `tos`/`froms` — все, `to`/`from` — первая (для прежнего кода). */
         const list = lab.kind === "to" ? lastStep.tos : lastStep.froms;
         list.push(side);
-        if (!lastStep[lab.kind]) lastStep[lab.kind] = side;
-        last = lab.kind; return;
+        if (!lastStep[lab.kind] && !side.alt) lastStep[lab.kind] = side;
+        if (side.alt && lastStep.or.length) {
+          const alt = lastStep.or[lastStep.or.length - 1];
+          if (!alt[lab.kind]) alt[lab.kind] = side;
+        }
+        /* Вторая «Кому:» подряд после «Или:» — тоже про вариант. */
+        last = side.alt ? `${lab.kind}-alt` : lab.kind; return;
       }
       if (lab.kind === "or") {
         if (!lastStep) { err(row, "«Или:» без «Отдаёт:» перед ней"); return; }
@@ -1239,8 +1250,10 @@ export function procFuncs(proc = {}, model = {}) {
             }
             (s.kind === "take" ? takes : gives).push(port);
             ids.push(id);
-            /* Ещё получатели/отправители — тот же ресурс каждому, порт на каждого. */
-            const more = (s.kind === "give" ? s.tos || [] : s.froms || []).slice(1);
+            /* Ещё получатели/отправители — тот же ресурс каждому, порт на
+               каждого. Получатели ВАРИАНТА («Или:») сюда не идут: это другой
+               ресурс, и порт по ним заводить нечего. */
+            const more = (s.kind === "give" ? s.tos || [] : s.froms || []).filter((x) => !x.alt).slice(1);
             more.forEach((x, j) => {
               if (!x.asset) return;
               const pid = `${id}_${j + 1}`;

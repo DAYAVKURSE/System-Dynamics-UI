@@ -641,7 +641,7 @@ function FuncCard({func,entities,traitName,showChecks=true}){
 export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=[],
   setTasks,onClose,people=[],canAssign=true,nameOf,rolesOf=(id)=>
     (people.find(p=>String(p.id)===String(id))?.roles||[]),
-  published,meId,onSetup,ratings=null}){
+  published,meId,onSetup,onChecks,ratings=null}){
   const up=(f,v)=>upMany({[f]:v});
   // Несколько полей сразу: два up() подряд затирали бы друг друга, потому что
   // оба считают от одного и того же прежнего состояния.
@@ -785,13 +785,32 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
         style={{minHeight:70,margin:"4px 0 8px",lineHeight:1.5}}
         onCommit={v=>commitOne("body",v)}/>
 
-      {/* Критерии задачи — следом за описанием. */}
-      {!!(func?.checks||[]).length&&(
+      {/* Критерии задачи — следом за описанием, и здесь же их ставят
+          (владелец, 2026-09-19): по ним работу потом и принимают. */}
+      {!!func&&(
         <div aria-label="критерии проверки" style={{marginBottom:8}}>
           <div style={S.lbl}>критерии проверки</div>
-          <ul style={{margin:"3px 0 0",paddingLeft:18,fontSize:12,lineHeight:1.5}}>
-            {func.checks.map((c,i)=>(<li key={`${i}:${c}`}>{c}</li>))}
-          </ul>
+          {(func.checks||[]).map((c,i)=>(
+            <div key={`${i}:${c}`} className="flex items-center gap-2" style={{marginTop:4}}>
+              {onChecks
+                ? (<>
+                  <TxtField value={c} aria-label={`критерий ${i+1}`}
+                    style={{flex:1,fontSize:12}}
+                    onCommit={v=>onChecks(func,(func.checks||[])
+                      .map((y,k)=>(k===i?v:y)).filter(y=>String(y).trim()))}/>
+                  <button style={{...btn(false),color:BAD,borderColor:"#5A2436",
+                    fontSize:11,padding:"2px 6px"}} aria-label={`убрать критерий ${i+1}`}
+                    onClick={()=>onChecks(func,(func.checks||[]).filter((y,k)=>k!==i))}>✕</button>
+                </>)
+                : <span style={{fontSize:12,lineHeight:1.5}}>{c}</span>}
+            </div>))}
+          {onChecks
+            ? (<button style={{...btn(false),fontSize:11,padding:"3px 8px",marginTop:4}}
+              aria-label="добавить критерий"
+              onClick={()=>onChecks(func,[...(func.checks||[]),"новый критерий"])}>
+              + критерий</button>)
+            : !(func.checks||[]).length&&(
+              <div style={{fontSize:11,color:C.muted,marginTop:3}}>критериев нет</div>)}
         </div>)}
 
       <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
