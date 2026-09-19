@@ -477,3 +477,26 @@ describe("версии, выгрузка и загрузка", () => {
     expect(screen.getByLabelText("текст процесса").value).toBe(indentText("Задача: x\nКто: Пользователи ✓\nОтдаёт: заявки"));
   });
 });
+
+describe("заголовок процесса сворачивает карточку (владелец, 2026-09-19)", () => {
+  it("нажатие на заголовок прячет всё ниже; название и «удалить» не сворачивают", () => {
+    addProc();
+    const head = container.querySelector("[data-proc-head]");
+    const fold = within(head).getByRole("button", { name: /^свернуть процесс/ });
+    expect(fold).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);
+
+    fireEvent.click(head);                                   // пустое место заголовка
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("текст процесса")).toBeNull();
+    expect(head).toBeInTheDocument();                        // заголовок остался
+
+    fireEvent.click(head);                                   // развернули обратно
+    expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);
+
+    // Название правят, а не сворачивают.
+    fireEvent.click(within(head).getByRole("button", { name: /^назвать процесс/ }));
+    expect(screen.getByLabelText("название процесса")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);
+  });
+});

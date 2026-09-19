@@ -1081,6 +1081,14 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   const [naming, setNaming] = useState(null);
   const [modal, setModal] = useState(null);   // {proc, mode:"export"|"import", text}
   const [maps, setMaps] = useState(null);    // {proc, mode:"timeline"|"mind"}
+  /* Свёрнутые процессы (владелец, 2026-09-19: «процесс должен сворачиваться
+     при нажатии на заголовок»): держим id свёрнутых — новый процесс открыт. */
+  const [shut, setShut] = useState(() => new Set());
+  const flip = (id) => setShut((was) => {
+    const next = new Set(was);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const [shownOwn, setShownOwn] = useState(false);
   const shown = shownProp ?? shownOwn;
   const toggle = () => (onToggle ? onToggle(!shown) : setShownOwn((v) => !v));
@@ -1173,6 +1181,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
           const can = issues.length === 0;
           const label = procLabel(p);
           const lit = !!selected && usesAsset(p, model, selected);
+          const hid = shut.has(p.id);   // свёрнут: виден один заголовок
           const key = (...parts) => `${p.id}:${parts.join(":")}`;
           const traitChip = (it, k) => {
             const st = itemState(it, p, model);
@@ -1211,8 +1220,14 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               style={{ background: C.panel2, border: `1px solid ${lit ? ACC : C.line}`, borderRadius: 8, padding: 8, marginBottom: 8,
                 borderLeft: `2px solid ${STATUS_TONE[p.status] || C.line}`, boxShadow: lit ? `0 0 0 1px ${ACC}55` : "none" }}>
               {lit && <div style={{ fontSize: 10.5, color: ACC, marginBottom: 4 }}>задействует выбранный актив «{selName}»</div>}
-              <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
-                <span style={S.lbl}>процесс</span>
+              {/* Заголовок целиком сворачивает процесс — кроме названия
+                  (его правят) и «удалить» (владелец, 2026-09-19). */}
+              <div className="flex items-center gap-2" data-proc-head="" style={{ marginBottom: 6, cursor: "pointer" }}
+                onClick={(e) => { if (e.target.closest("button, input, textarea")) return; flip(p.id); }}>
+                <button type="button" aria-expanded={!hid} aria-label={`свернуть процесс «${label}»`}
+                  onClick={() => flip(p.id)}
+                  style={{ ...S.lbl, background: "transparent", border: "none", padding: 0, cursor: "pointer" }}>
+                  {hid ? "▸" : "▾"} процесс</button>
                 {naming === p.id ? (
                   <input autoFocus aria-label="название процесса" defaultValue={p.name} placeholder="название процесса"
                     style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 600, padding: "3px 6px" }}
@@ -1220,14 +1235,18 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                     onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
                 ) : (
                   <button type="button" aria-label={`назвать процесс «${label}»`} title="нажмите, чтобы назвать процесс" onClick={() => setNaming(p.id)}
-                    style={{ flex: 1, minWidth: 0, textAlign: "left", background: "transparent", border: "none", padding: 0, color: p.name ? C.text : C.muted,
+                    style={{ flex: "0 1 auto", minWidth: 0, maxWidth: "58%", textAlign: "left", background: "transparent", border: "none", padding: 0, color: p.name ? C.text : C.muted,
                       fontSize: 12.5, fontWeight: 600, cursor: "text", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</button>)}
+                {/* Пустое место заголовка — тоже «свернуть»: имя больше не
+                    занимает всю строку, иначе сворачивать было бы негде. */}
+                <span aria-hidden="true" style={{ flex: 1, minWidth: 16, alignSelf: "stretch" }} />
                 <span style={{ fontSize: 10.5, color: STATUS_TONE[p.status] || C.muted, whiteSpace: "nowrap" }}>
                   {PROC_STATUS.find(([id]) => id === p.status)?.[1].toLowerCase()}</span>
                 <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11, padding: "2px 6px" }}
                   aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
               </div>
 
+              {!hid && (<>
               <ProcText value={indentText(p.text)} model={model} proc={p} label="текст процесса" onCommit={(t) => setText(p, t)} usedHands={usedHands}
                 kinds={kinds} onTrait={(id, patch) => commit({ procs, traits: traits.map((t) => (t.id === id ? { ...t, ...patch } : t)) })} />
 
@@ -1285,6 +1304,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 })}
               </div>
               <Versions proc={p} model={model} onSave={(note) => saveVersion(p, note)} />
+              </>)}
             </div>);
         })}
       </Section>)}
