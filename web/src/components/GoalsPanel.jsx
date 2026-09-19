@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField } from "./ui.jsx";
 import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, budgetHours, copyGoal, newGoal,
-  checkGoal, exprText, exprsOf, goalState, goalText, ifDone, planGoal, plannable, rateOf }
+  checkGoal, exprText, exprsOf, goalState, goalText, planGoal, plannable, rateOf }
   from "../lib/goals.js";
 import ExprField from "./ExprField.jsx";
 import { DUR_UNITS } from "../lib/funcs.js";
@@ -223,7 +223,6 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
      нынешним отпечатком — считали, но с тех пор цель поправили. */
   const [shown, setShown] = useState(null);
   const [naming, setNaming] = useState(false);
-  const [done, setDone] = useState([]);
   const fresh = shown != null && shown === stamp(goal);
   const plan = canPlan && fresh ? planGoal(model, goal, { runsOf }) : null;
   const up = (patch) => { setShown(null); onSet(goal.id, patch); };
@@ -443,11 +442,10 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
       {/* ─── ЧТО ИЗ ЭТОГО СЛЕДУЕТ ─── */}
       {plan && <Verdict plan={plan} unit={unit} traits={traits} />}
       {plan && (
-        <Actions plan={plan} model={model} goal={goal} traitName={traitName}
-          done={done} onDone={setDone} />)}
+        <Actions plan={plan} />)}
       <Apply goal={goal} plan={plan} ready={canPlan} fresh={fresh}
         condition={ready && !canPlan}
-        onPredict={() => { setShown(stamp(goal)); setDone([]); }}
+        onPredict={() => setShown(stamp(goal))}
         onApply={() => onApply(goal, plan)} />
       </>)}
     </div>);
@@ -611,37 +609,17 @@ function Apply({ goal, plan, ready, fresh, condition, onPredict, onApply }) {
    — «посчитает» или «цель поправили». */
 
 /**
- * Последовательность действий — и что будет, если их выполнить.
- *
- * Не список дел вперемешку, а очередь: функция не начинается раньше, чем
- * созреют её входы, и порядок здесь именно этот. Номер у шага — не
- * украшение: он и есть ответ на вопрос «с чего начать».
- *
- * Галочка у шага говорит «это мы сделаем». Отметил — и сразу видно, докуда
- * дойдёт целевой ресурс: не прогноз во времени, а прямой ответ на вопрос
- * «хватит ли этого». Человек сам выбирает, во что верит, а приложение
- * считает следствие.
+ * Последовательность действий плана: что за чем и сколько раз.
  */
-function Actions({ plan, model, goal, traitName, done, onDone }) {
+function Actions({ plan }) {
   const rows = actionsOf(plan);
   if (!rows.length) return null;
-  const res = ifDone(model, goal, plan, done);
-  /* Кто из шагов вообще выдаёт целевой ресурс: без этого «прибавится на 0»
-     звучит как «работа впустую», хотя она кормит следующий шаг. */
-  const gives = rows.filter((st) => (model.funcs || [])
-    .find((f) => f.id === st.func)?.gives.some((g) => g.trait === goal.trait))
-    .map((st) => st.name || "без названия");
-  const toggle = (id) => onDone(done.includes(id)
-    ? done.filter((x) => x !== id) : [...done, id]);
   return (
     <div style={{ marginTop: 10 }}>
       <div style={S.lbl}>последовательность действий</div>
       {rows.map((st) => (
         <div key={st.func} className="flex items-center gap-2"
           style={{ fontSize: 11.5, padding: "4px 0", borderTop: `1px solid ${C.line}` }}>
-          <input type="checkbox" checked={done.includes(st.func)}
-            aria-label={`выполнить: ${st.name || "без названия"}`}
-            onChange={() => toggle(st.func)} style={{ accentColor: OK }} />
           <span style={{ color: ACC, minWidth: 16 }}>{st.no}.</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             {st.name || "без названия"}
@@ -651,20 +629,6 @@ function Actions({ plan, model, goal, traitName, done, onDone }) {
           <span style={{ color: C.muted, whiteSpace: "nowrap" }}>
             {st.startHours > 0 ? `с ${durText(st.startHours)}` : "сразу"}</span>
         </div>))}
-      <div style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.6,
-        color: done.length ? (res.enough ? OK : WARN) : C.muted }}>
-        {!done.length
-          ? "Отметьте, что из этого будет сделано, — и увидите, докуда дойдёт цель."
-          : res.add <= 0
-            /* Шаг может не давать целевой ресурс вовсе: он кормит другой
-               шаг. Сказать про такой «прибавится на 0» — значит выдать
-               промежуточную работу за бесполезную. */
-            ? `Отмеченное не даёт «${traitName(goal.trait)}» напрямую — это промежуточная работа. Цель выдаёт ${gives.map((x) => `«${x}»`).join(", ") || "другой шаг"}.`
-            : `Если выполнить отмеченное: ${traitName(goal.trait)} ${res.rate.hours
-              ? `прибавится на ${nm(Math.round(res.add * 10) / 10)} за круг`
-              : `станет ${nm(Math.round(res.after * 10) / 10)} из ${nm(res.want)}`}. `
-              + (res.enough ? "Цели хватает." : "До цели не дотягивает.")}
-      </div>
     </div>);
 }
 

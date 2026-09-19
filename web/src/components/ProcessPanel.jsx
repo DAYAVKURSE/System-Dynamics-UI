@@ -1354,7 +1354,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                     </div>
                     {!fHid && (<>
                       <div className="flex items-center gap-2" style={{ margin: "2px 0 4px" }}>
-                        <span style={S.lbl}>результат</span>
+                        <span style={S.lbl}>ожидаемый результат</span>
                         <input defaultValue={headResult(seg.body)} aria-label={`ожидаемый результат функции «${fName}»`}
                           style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 6px" }}
                           onBlur={(e) => setPart(p, fi, { body: setFuncHead(seg.body, -1, { result: e.target.value.trim() }) })}

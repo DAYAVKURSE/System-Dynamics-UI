@@ -13,7 +13,7 @@ import RegisterPanel from "./RegisterPanel.jsx";
 import { FACTORS_ON } from "../lib/flags.js";
 import { diffDocs } from "../lib/scenarioDiff.js";
 import LooseCrew from "./LooseCrew.jsx";
-import { applyHand, handColor, handLinks, linkPath, pinsOf, removeHand } from "../lib/hands.js";
+import { handColor } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
 import { procFuncs as procFuncs2, replaceName, setFuncHead, setTaskChecks } from "../lib/proc2.js";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
@@ -208,13 +208,9 @@ const BOX_FALLBACK={w:1000,h:600};
 export const fitZoom=(w,h,cw,ch)=>Math.min(w/cw,h/ch);
 
 const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves,sel,valuesFor,
-  onSelectEntity,onMoveEntity,assetOk,onWhy,onOpenFunc,onHand,onUnhand},ref){
+  onSelectEntity,onMoveEntity,assetOk,onWhy,onOpenFunc},ref){
   const DRAG_MIN=4;
   const drag=useRef(null);
-  /* Точка «руки» ведётся отдельно от блока: `handDrag` — откуда тянут,
-     `rubber` — конец резинки в координатах листа (для отрисовки). */
-  const handDrag=useRef(null);
-  const [rubber,setRubber]=useState(null);
   const box=useRef(null);
   const svgRef=useRef(null);
   /* Пальцем схема перехватывает жесты только ПОСЛЕ одиночного нажатия по
@@ -400,15 +396,6 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
     // ненадёжно держит pointer capture внутри <svg>.
     const move=(ev)=>{
       if(pinch.current) return;
-      const h=handDrag.current;
-      if(h){
-        const dx=ev.clientX-h.sx, dy=ev.clientY-h.sy;
-        if(!h.moved&&Math.hypot(dx,dy)<DRAG_MIN) return;
-        h.moved=true;
-        const z=cam.current.z;
-        setRubber({from:h.from,x:h.ox+dx/z,y:h.oy+dy/z});
-        return;
-      }
       const p=pan.current;
       if(p){ panBy(ev.clientX-p.sx,ev.clientY-p.sy); p.sx=ev.clientX; p.sy=ev.clientY; return; }
       const d=drag.current; if(!d) return;
@@ -421,22 +408,12 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
       setDragPos({id:d.id,x:d.x,y:d.y});
     };
     const up=(ev)=>{
-      const h=handDrag.current;
-      if(h){
-        handDrag.current=null; setRubber(null);
-        if(!h.moved){ if(h.hand&&onUnhand) onUnhand(h.from); return; }
-        const el=document.elementFromPoint(ev.clientX,ev.clientY);
-        const pin=el&&el.closest&&el.closest("[data-pin]");
-        const to=pin&&pin.getAttribute("data-pin");
-        if(to&&to!==h.from&&onHand) onHand(h.from,to);
-        return;
-      }
       if(pan.current){ pan.current=null; bump(n=>n+1); }
       const d=drag.current; if(!d) return;
       drag.current=null; setDragPos(null);
       if(d.moved){ if(onMoveEntity) onMoveEntity(d.id,d.x,d.y); } else onSelectEntity(d.id);
     };
-    const noScroll=(ev)=>{ if(drag.current||pan.current||handDrag.current) ev.preventDefault(); };
+    const noScroll=(ev)=>{ if(drag.current||pan.current) ev.preventDefault(); };
     window.addEventListener("pointermove",move);
     window.addEventListener("pointerup",up);
     window.addEventListener("pointercancel",up);
@@ -447,17 +424,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
       window.removeEventListener("pointercancel",up);
       window.removeEventListener("touchmove",noScroll);
     };
-  },[onMoveEntity,onSelectEntity,onHand,onUnhand,CW,CH]);   // eslint-disable-line react-hooks/exhaustive-deps
-  /* Пины и линии рук — по нынешним положениям блоков (`ents`). */
-  const pins=pinsOf(funcs,ents);
-  const pinOf=(id)=>pins.find(p=>p.func===id);
-  const links=handLinks(funcs).map((l,i)=>({...l,a:pinOf(l.a),b:pinOf(l.b),lane:i%4})).filter(l=>l.a&&l.b);
-  const pinDown=(ev,p)=>{
-    ev.stopPropagation();
-    if(ev.pointerType==="mouse"&&ev.button!==0) return;
-    handDrag.current={from:p.func,hand:p.hand,sx:ev.clientX,sy:ev.clientY,ox:p.x,oy:p.y,moved:false};
-  };
-
+  },[onMoveEntity,onSelectEntity,CW,CH]);   // eslint-disable-line react-hooks/exhaustive-deps
   const anchor=(a,b)=>{const ax=a.x+NW/2,ay=a.y+NH/2,bx=b.x+NW/2,by=b.y+NH/2;
     const dx=bx-ax,dy=by-ay;
     const s=Math.min(dx===0?1e9:NW/2/Math.abs(dx),dy===0?1e9:NH/2/Math.abs(dy));
@@ -575,25 +542,6 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
                 {(t.l.length>14?t.l.slice(0,13)+"…":t.l)}: {nm(v.lo)}–{nm(v.hi)}</text>);})}
           </g>);})}
 
-        {/* «Не менять руку» (владелец, 2026-09-18): точки задач процессов
-            справа от блоков; задачи с одной рукой соединены линией со
-            скруглениями, точки на ней одного цвета. Нажатие на точку с
-            рукой снимает руку, перетаскивание на другую точку — связывает.
-            Слой над блоками, иначе блок перехватил бы указатель. */}
-        {links.map((l,i)=>(
-          <path key={`h${i}`} data-hand-link={l.hand} d={linkPath(l.a,l.b,l.lane)} fill="none"
-            stroke={handColor(l.hand)} strokeWidth="1.8" strokeLinecap="round" style={{pointerEvents:"none"}}/>))}
-        {rubber&&pinOf(rubber.from)&&(
-          <line x1={pinOf(rubber.from).x} y1={pinOf(rubber.from).y} x2={rubber.x} y2={rubber.y}
-            stroke={handColor(pinOf(rubber.from).hand||"A")} strokeWidth="1.6" strokeDasharray="4 3" style={{pointerEvents:"none"}}/>)}
-        {pins.map(p=>(
-          <g key={p.func} data-pin={p.func} data-hand={p.hand||undefined} onPointerDown={ev=>pinDown(ev,p)}
-            style={{cursor:onHand?"grab":"default",touchAction:live?"none":"pan-y"}}>
-            <title>{p.name}{p.hand?` · рука ${p.hand} — нажмите, чтобы снять; тяните к другой точке, чтобы связать`:" — тяните к другой точке, чтобы связать одной рукой"}</title>
-            <circle cx={p.x} cy={p.y} r="9" fill="transparent"/>
-            <circle cx={p.x} cy={p.y} r="4.5" fill={p.hand?handColor(p.hand):C.panel}
-              stroke={p.hand?handColor(p.hand):C.line} strokeWidth="1.5"/>
-          </g>))}
       </svg>
     </div>);
 });
@@ -1704,8 +1652,7 @@ export default function SystemModel(){
           assetOk={assetOk} onWhy={(kind,id)=>setWhy({kind,id})}
           onOpenFunc={openFuncCard}
           /* Руки правятся через текст процесса — единственный источник. */
-          onHand={(a,b)=>{ const next=applyHand(procs,funcs,{entities,traits,positions:roles,people,rolesOf},a,b); if(next) commitProcs(next); }}
-          onUnhand={(id)=>{ const next=removeHand(procs,funcs,{entities,traits,positions:roles,people,rolesOf},id); if(next) commitProcs(next); }}/>
+          />
 
         {/* Под схемой три вкладки: чем схема собрана, куда она идёт и что
             по ней уже делали — «Деятельность»: слово «Timeline» называло
