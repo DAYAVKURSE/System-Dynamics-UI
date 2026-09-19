@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import { CubeMark, C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
@@ -751,8 +751,12 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
       </div>
 
       <div style={S.lbl}>название</div>
-      <TxtField value={task.title} style={{marginBottom:8,fontWeight:600}}
-        onCommit={v=>commitOne("title",v)}/>
+      {/* Знак — слева от названия (владелец, 2026-09-19). */}
+      <div className="flex items-center gap-2" style={{marginBottom:8}}>
+        <CubeMark size={22} label="знак задачи"/>
+        <TxtField value={task.title} style={{fontWeight:600}}
+          onCommit={v=>commitOne("title",v)}/>
+      </div>
 
       {/* Когда по обе стороны один и тот же человек, передавать нечего, и
           нажатие остаётся ритуалом: он и так знает, что сам себе поставил и

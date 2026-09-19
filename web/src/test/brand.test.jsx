@@ -69,3 +69,25 @@ describe("стрелки схемы", () => {
     });
   });
 });
+
+/* ЗНАК НА ФОРМЕ ПОСТАНОВКИ (владелец, 2026-09-19): «поставь этот логотип
+   слева от названия» — речь была про форму постановки задачи. */
+describe("знак на форме задачи", () => {
+  it("стоит слева от названия", async () => {
+    const { TaskSetup, newTask } = await import("../components/TasksBoard.jsx");
+    const React = (await import("react")).default;
+    const FUNCS = [{ id: "f1", e: "e1", name: "Ф", dur: 1, durUnit: "ч",
+      takes: [], gives: [], owners: ["1"] }];
+    const Host = () => {
+      const [tasks, setTasks] = React.useState([newTask({ funcId: "f1", title: "Задача" })]);
+      return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={FUNCS}
+        entities={[{ id: "e1", name: "Актив" }]} traits={[]}
+        setTasks={setTasks} people={[]} nameOf={(id) => id} />);
+    };
+    render(<Host />);
+    const mark = screen.getByLabelText("знак задачи");
+    const title = screen.getByDisplayValue("Задача");
+    expect(mark.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mark.closest("div")).toBe(title.closest("div"));
+  });
+});
