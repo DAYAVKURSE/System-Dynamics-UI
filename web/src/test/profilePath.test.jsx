@@ -167,8 +167,11 @@ describe("«за сколько предупреждать» — у каждог
          исполнителю не напоминает: начинать в ней пока нечего. */
       const { schedules } = server({ me: IVAN, users: people(),
         workspace: { entities: [], traits: [], funcs: [], tasks: [
+          /* Исполнителя в ней ещё нет — её и предстоит поставить: с
+             исполнителем она встала бы в бэклог сама (владелец,
+             2026-09-19). */
           { ...newTask({ funcId: null, title: "Поставить" }), id: "s1",
-            status: "wait", setter: "2", assignee: "2", end: "2030-01-01T10:00" },
+            status: "wait", setter: "2", end: "2030-01-01T10:00" },
           { ...newTask({ funcId: null, title: "Работать" }), id: "w1",
             status: "backlog", assignee: "2", start: "2030-01-01T10:00" }] } });
       await fresh();

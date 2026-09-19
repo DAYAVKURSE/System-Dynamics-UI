@@ -155,3 +155,30 @@ describe("удаление комментария", () => {
     expect(await store.dropComment("100", "t1", "нет", { isOwner: true })).toEqual({ error: "not found" });
   });
 });
+
+/* КОГО В ЗАДАЧЕ МОЖНО НЕ НАЗЫВАТЬ (владелец, 2026-09-19): постановщика
+   заменяет исполнитель, проверяющего — постановщик, и передавать работу в
+   этом месте некому. Правило одно с доской (`selfReview` в
+   `web/src/components/TasksBoard.jsx`) — иначе бот и доска показывали бы
+   разное про одну и ту же задачу. */
+describe("подразумеваемые роли", () => {
+  it("проверяющего не назвали — сдача принимается сама", async () => {
+    await store.writeModel({ tasks: [{ ...task("n1", "progress"), reviewer: null }] });
+    const { task: t } = await store.submitTask("200", "n1", { hours: 1 });
+    expect(t.status).toBe("done");
+  });
+
+  it("принимает постановщик, когда проверяющего нет", async () => {
+    await store.writeModel({ tasks: [{ ...task("n2", "review"), reviewer: "" }] });
+    const bad = await store.reviewTask("300", "n2", { accept: true, mark: 5, comment: "нет" });
+    expect(bad.error).toBe("not yours");
+    const ok = await store.reviewTask("100", "n2", { accept: true, mark: 5, comment: "принято" });
+    expect(ok.error).toBeUndefined();
+    expect(ok.task.status).toBe("done");
+  });
+
+  it("задача без постановщика видна исполнителю как своя", async () => {
+    const model = { tasks: [{ ...task("n3"), setter: null }] };
+    expect(store.tasksFor(model, "200").map((t) => t.id)).toEqual(["n3"]);
+  });
+});

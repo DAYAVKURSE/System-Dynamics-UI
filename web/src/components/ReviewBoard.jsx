@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
-import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, whyNotSet }
+import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { reportSrc } from "../storage.js";
@@ -137,7 +137,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.6 }}>
               {f ? funcLabel(f, entities) : "задача без функции"}
-              {" · поставил: "}{nameOf ? nameOf(t.setter) : (t.setter || "не назначен")}
+              {" · поставил: "}{nameOf ? nameOf(roleOf(t, "setter")) : (roleOf(t, "setter") || "не назначен")}
               {" · исполнитель: "}{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}
             </div>
             {/* Описание функции — то, что за работа вообще; содержимое
@@ -331,7 +331,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
 
   // Владельцу видно всё, что вообще ждёт проверки; остальным — только их.
   const mine = useMemo(() => tasks.filter((t) =>
-    isOwner || String(t.reviewer || "") === String(meId)), [tasks, meId, isOwner]);
+    isOwner || String(roleOf(t, "reviewer") || "") === String(meId)), [tasks, meId, isOwner]);
   const waiting = mine.filter((t) => t.status === "review");
   /* Готовые — своим разделом: с доски задач их убрали, и смотрят их
      здесь, у того, кто их принимал. */
@@ -347,7 +347,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
      видно всё непоставленное (в задаче из цели постановщик ещё не назван),
      остальным — то, где постановщик они. */
   const toSet = useMemo(() => tasks.filter((t) => t.status === "wait"
-    && (isOwner || String(t.setter || "") === String(meId))), [tasks, meId, isOwner]);
+    && (isOwner || String(roleOf(t, "setter") || "") === String(meId))), [tasks, meId, isOwner]);
   const setup = toSet.find((t) => t.id === setupId) || null;
 
   return (
@@ -402,7 +402,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                      Форма постановки — для постановщика, а не для
                      владельца (ROADMAP v1.2), и запертые выпадающие списки
                      у него делали бы «Поставить» недостижимой навсегда. */
-                  canAssign={canAssign || String(setup.setter || "") === String(meId)}
+                  canAssign={canAssign || String(roleOf(setup, "setter") || "") === String(meId)}
                   nameOf={nameOf} setTasks={setTasks} onSetup={onSetup}
                   published={published} meId={meId}
                   onClose={() => setSetupId(null)} />)}

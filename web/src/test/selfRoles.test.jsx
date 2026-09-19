@@ -59,7 +59,11 @@ describe("кто с кем совпал", () => {
     // Двое неназначенных — это не «один и тот же человек», а пустота.
     expect(selfSet(task({ setter: null, assignee: null }))).toBe(false);
     expect(selfReview(task({ assignee: "2", reviewer: "2" }))).toBe(true);
-    expect(selfReview(task({ assignee: null, reviewer: null }))).toBe(false);
+    /* Проверяющего не назвали — принимать не у кого: сдача принимается
+       сама (владелец, 2026-09-19). Постановщика не назвали — постановщик
+       сам исполнитель, и задача ставится сама. */
+    expect(selfReview(task({ assignee: "2", reviewer: null }))).toBe(true);
+    expect(selfSet(task({ setter: null, assignee: "2" }))).toBe(true);
   });
 
   it("число и строка — один и тот же человек", () => {
@@ -85,9 +89,10 @@ describe("что происходит само", () => {
     const noEnd = task({ setter: "1", assignee: "1", reviewer: "2",
       status: "wait", end: null });
     expect(autoStatus(noEnd, opts)).toBe("wait");
-    // Проверяющего нет — задача не поставлена, и ставить её нечего.
+    // Проверяющего нет — и это не нехватка: принимает постановщик, а
+    // задача ставится как обычно (владелец, 2026-09-19).
     expect(autoStatus(task({ setter: "1", assignee: "1", status: "wait",
-      reviewer: null }), opts)).toBe("wait");
+      reviewer: null }), opts)).toBe("backlog");
   });
 
   it("срок прошёл — задача сама уходит в «Дедлайн», и взятая, и лежащая", () => {
@@ -212,7 +217,7 @@ describe("на доске", () => {
         canAssign nameOf={(id) => id} />);
     };
     render(<List />);
-    expect(screen.getByText(/Один человек во всех ролях/)).toBeInTheDocument();
+    expect(screen.getByText(/Ставится и принимается сама/)).toBeInTheDocument();
   });
 });
 

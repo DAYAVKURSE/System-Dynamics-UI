@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assetWorkers, funcExecutors, heldBy, shortage, taskGaps, whyNotSet }
+import { assetWorkers, funcExecutors, heldBy, roleOf, shortage, taskGaps, whyNotSet }
   from "../lib/taskRules.js";
 
 /* Правило «можно ли поставить задачу» повторено с фронтенда
@@ -18,10 +18,21 @@ const full = (over) => ({ id: "tk", funcId: "f1", status: "wait", setter: "1",
   assignee: "2", reviewer: "3", end: "2030-03-01T11:00", ...over });
 
 describe("незаполненность — словами и в порядке формы", () => {
-  it("три роли и срок обязательны; содержимое — нет", () => {
-    expect(taskGaps({})).toEqual(["постановщик", "исполнитель", "проверяющий", "срок"]);
+  it("обязательны исполнитель и срок; постановщик, проверяющий и содержимое — нет", () => {
+    /* Владелец, 2026-09-19: «если не выбран постановщик, значит,
+       постановщиком является исполнитель… Если выбран только постановщик и
+       исполнитель, значит, постановщик является проверяющим». */
+    expect(taskGaps({})).toEqual(["исполнитель", "срок"]);
     expect(taskGaps(full({ body: "" }))).toEqual([]);
+    expect(taskGaps(full({ setter: null, reviewer: null }))).toEqual([]);
     expect(taskGaps(full({ assignee: null, end: "" }))).toEqual(["исполнитель", "срок"]);
+  });
+
+  it("кого не назвали, того подразумевает сама задача", () => {
+    expect(roleOf({ assignee: "2" }, "setter")).toBe("2");
+    expect(roleOf({ assignee: "2" }, "reviewer")).toBe("2");
+    expect(roleOf({ setter: "1", assignee: "2" }, "reviewer")).toBe("1");
+    expect(roleOf({ setter: "1", assignee: "2", reviewer: "3" }, "reviewer")).toBe("3");
   });
 
   it("незаполненной задаче сперва называют незаполненное, а не ресурсы", () => {

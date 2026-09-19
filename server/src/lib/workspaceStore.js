@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { assetWorkers, fixedPerson, funcExecutors, handMate, whyNotSet } from "./taskRules.js";
+import { assetWorkers, fixedPerson, funcExecutors, handMate, roleOf, whyNotSet } from "./taskRules.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОБЩАЯ МОДЕЛЬ
@@ -120,8 +120,10 @@ export const tasksFor = (model, userId) => {
   // Три роли, и все три дают право видеть задачу: постановщик написал, что
   // сделать, исполнитель это делает, проверяющий принимает. Спрятать задачу
   // от того, кто её поставил, значило бы отобрать у него собственную работу.
-  return (model.tasks || []).filter((t) => String(t.setter || "") === id
-    || String(t.assignee || "") === id || String(t.reviewer || "") === id);
+  /* Подразумеваемая роль — тоже роль: у задачи без постановщика им
+     считается исполнитель, без проверяющего — постановщик (`roleOf`). */
+  return (model.tasks || []).filter((t) => String(roleOf(t, "setter") || "") === id
+    || String(t.assignee || "") === id || String(roleOf(t, "reviewer") || "") === id);
 };
 
 /**
@@ -534,7 +536,8 @@ export const submitTask = (userId, taskId, submission) => withModel(async (model
     text: String(submission?.text || ""),
     file: submission?.file || null,
     setterRating: setterRatingOf(submission?.setterRating, {
-      self: task.setter != null && String(task.setter) === String(task.assignee) }),
+      self: task.setter == null || task.setter === ""
+        || String(task.setter) === String(task.assignee) }),
   }];
   /* Сдал — не значит принято: задача уходит на проверку, как и в интерфейсе.
 
@@ -542,8 +545,8 @@ export const submitTask = (userId, taskId, submission) => withModel(async (model
      не у кого, и задача уходит в готовые сразу. Правило то же, что в
      интерфейсе (`selfReview` в `TasksBoard.jsx`): разойдись они — доска и
      бот показывали бы разное про одну и ту же задачу. */
-  const selfReview = task.reviewer != null
-    && String(task.reviewer) === String(task.assignee);
+  const selfReview = task.reviewer == null || task.reviewer === ""
+    || String(task.reviewer) === String(task.assignee);
   task.status = selfReview ? "done" : "review";
   await writeModel(model);
   return { task };
@@ -553,7 +556,7 @@ export const submitTask = (userId, taskId, submission) => withModel(async (model
 export const reviewTask = (userId, taskId, { accept, comment, mark, hidden }) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
-  if (String(task.reviewer || "") !== String(userId)) return { error: "not yours" };
+  if (String(roleOf(task, "reviewer") || "") !== String(userId)) return { error: "not yours" };
   // Возврат — в бэклог, а не «в работу»: задачу надо переставить заново,
   // прочитав, что именно доработать. Текст доработки — обязателен.
   if (!String(comment || "").trim()) return { error: "comment required" };

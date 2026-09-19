@@ -312,10 +312,11 @@ describe("рядом с именем в постановке", () => {
         nameOf={nameOf} meId="1" published={["d~work~3"]} />);
     };
     render(<Setup />);
-    const names = (label) => [...screen.getByLabelText(label).options].map((o) => o.textContent);
-    // Постановщик — словом из ролей функции, без выбора и без рейтинга:
-    // выбирать себя незачем, а свой рейтинг человеку и так не показывают.
-    expect(screen.getByLabelText("постановщик").textContent).toBe("Владелец");
-    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван · 5 · в срок 100% · 1 работа"]);
+    /* Людей на форме постановки не выбирают (владелец, 2026-09-19) — и
+       рейтингов там больше нет: их смотрят в карточке человека. */
+    ["постановщик", "исполнитель", "проверяющий"].forEach((role) => {
+      expect(screen.queryByLabelText(role)).toBeNull();
+    });
+    expect(screen.queryByText(/в срок 100%/)).toBeNull();
   });
 });

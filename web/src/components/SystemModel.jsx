@@ -30,7 +30,8 @@ import { pickByOrderOf } from "../lib/pickOrder.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
-import TasksBoard, { autoFlow, runsOfFunc } from "./TasksBoard.jsx";
+import TasksBoard, { autoFlow, roleOf, runsOfFunc } from "./TasksBoard.jsx";
+import { swipeFrom, swipeStep, tabAfter } from "../lib/swipe.js";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
@@ -1042,7 +1043,7 @@ export default function SystemModel(){
       .filter(t=>mine(t.assignee)&&t.status!=="wait"&&t.canceled!==true)
       .map(t=>({...t,kind:"task",start:t.start||null,repeat:"once",end:null,warn}));
     const setup=tasks
-      .filter(t=>mine(t.setter)&&t.status==="wait"&&t.canceled!==true)
+      .filter(t=>mine(roleOf(t,"setter"))&&t.status==="wait"&&t.canceled!==true)
       .map(t=>({...t,kind:"setup",start:null,repeat:"once",end:t.end||"",warn}));
     return [...work,...setup];
   },[tasks,warn,me.id]);
@@ -1444,9 +1445,37 @@ export default function SystemModel(){
   const assetOk=useCallback((id)=>checkAsset(id,{funcs,traits,entities}).ok,
     [funcs,traits,entities]);
 
+  /* Ряд вкладок, какой человек видит: свайп ходит по нему же, а не по
+     всему списку — иначе он приводил бы туда, куда не пускают. */
+  const tabsShown=useMemo(()=>TAB_LIST.filter(([k])=>k===SELF_TAB[0]||k===MARKET_TAB[0]
+    ||me.isOwner||me.solo||me.tabs.includes(k)),[me.isOwner,me.solo,me.tabs]);
+  /* Свайп через весь экран меняет вкладку (владелец, 2026-09-19;
+     `lib/swipe.js`). Одним пальцем: два — это щипок на карте. */
+  const swipe=useRef(null);
+  const onTouchStart=(e)=>{
+    const t=e.touches.length===1?e.touches[0]:null;
+    swipe.current=t&&swipeFrom(e.target)?{x:t.clientX,y:t.clientY}:null;
+  };
+  const onTouchMove=(e)=>{ if(e.touches.length>1) swipe.current=null; };
+  const onTouchEnd=(e)=>{
+    const from=swipe.current;
+    swipe.current=null;
+    const t=e.changedTouches&&e.changedTouches[0];
+    if(!from||!t) return;
+    const step=swipeStep({dx:t.clientX-from.x,dy:t.clientY-from.y,
+      width:typeof window==="undefined"?0:window.innerWidth});
+    if(!step) return;
+    const next=tabAfter(tabsShown.map(([k])=>k),tab,step);
+    if(next!==tab) setTab(next);
+  };
+
   return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
-      fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif"}}>
+      fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif",
+      /* Свайп вбок принадлежит вкладкам, а не истории браузера: иначе
+         движение от края уносило бы со страницы назад. */
+      overscrollBehaviorX:"contain"}}
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <div className="flex items-start justify-between gap-3" style={{marginBottom:10}}>
         <div><div style={{fontSize:19,fontWeight:700}}>Активы: воркеры, функции, ресурсы</div></div>
         <div className="flex items-center gap-2"
@@ -1499,9 +1528,7 @@ export default function SystemModel(){
             остальным сервер её и не отдаёт — рисовать пустую карту с
             кнопками, которые ничего не сохранят, значило бы обещать
             работу, которой не будет. Наружу отчёт уходит ссылкой. */}
-        {TAB_LIST.filter(([k])=>k===SELF_TAB[0]||k===MARKET_TAB[0]
-          ||me.isOwner||me.solo||me.tabs.includes(k))
-          .map(([k,t])=>(
+        {tabsShown.map(([k,t])=>(
           <button key={k} style={btn(tab===k)} onClick={()=>setTab(k)}>{t}</button>))}
       </div>
 

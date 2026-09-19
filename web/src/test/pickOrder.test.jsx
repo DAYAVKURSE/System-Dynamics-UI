@@ -95,46 +95,34 @@ describe("форма постановки", () => {
   const names = (label) => Array.from(screen.getByLabelText(label).options)
     .map((o) => o.textContent.split(" · ")[0]);
 
-  it("порядок учитывается: первый в списке подставлен в пустое поле и ушёл на сервер", async () => {
+  it("порядок учитывается: первым подставлен тот, кто выше в списке воркеров", async () => {
     const onSetup = vi.fn(async () => ({}));
     render(<Setup entity={asset()} onSetup={onSetup} />);
-    await waitFor(() => expect(screen.getByLabelText("исполнитель").value).toBe("2"));
-    expect(screen.getByLabelText("проверяющий").value).toBe("4");
-    expect(names("исполнитель")).toEqual(["— не назначен —", "Яна", "Антон"]);
-    expect(names("проверяющий")).toEqual(["— не назначен —", "Борис", "Антон"]);
-    // Подстановка — та же правка, что выбор рукой: у позванного
-    // постановщика она должна дойти до сервера.
-    expect(onSetup).toHaveBeenCalledWith(expect.objectContaining({ funcId: "f1" }),
-      { assignee: "2", reviewer: "4" });
-    expect(screen.getByText(/первым предложен тот, кто выше в списке воркеров/))
-      .toBeInTheDocument();
+    // Ролей на форме не выбирают — подстановка уходит на сервер сама.
+    await waitFor(() => expect(onSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ funcId: "f1" }), { assignee: "2", reviewer: "4" }));
+    expect(screen.queryByLabelText("исполнитель")).toBeNull();
   });
 
   it("уже назначенного не трогает: подставляется только в пустое", async () => {
     const onSetup = vi.fn(async () => ({}));
     render(<Setup entity={asset()} onSetup={onSetup}
       task={newTask({ funcId: "f1", setter: "1", assignee: "3" })} />);
-    await waitFor(() => expect(screen.getByLabelText("проверяющий").value).toBe("4"));
-    expect(screen.getByLabelText("исполнитель").value).toBe("3");
-    expect(onSetup).toHaveBeenCalledWith(expect.anything(), { reviewer: "4" });
+    await waitFor(() => expect(onSetup).toHaveBeenCalledWith(expect.anything(), { reviewer: "4" }));
   });
 
   it("поставленную задачу форма не переигрывает", () => {
     const onSetup = vi.fn(async () => ({}));
     render(<Setup entity={asset()} onSetup={onSetup}
       task={{ ...newTask({ funcId: "f1", setter: "1" }), status: "backlog" }} />);
-    expect(screen.getByLabelText("исполнитель").value).toBe("");
     expect(onSetup).not.toHaveBeenCalled();
   });
 
-  it("порядок выключен: поля пусты, список по алфавиту", () => {
+  it("порядок выключен: подставляется первый по алфавиту", async () => {
     const onSetup = vi.fn(async () => ({}));
     render(<Setup entity={asset({ pickByOrder: false })} onSetup={onSetup} />);
-    expect(screen.getByLabelText("исполнитель").value).toBe("");
-    expect(screen.getByLabelText("проверяющий").value).toBe("");
-    expect(names("исполнитель")).toEqual(["— не назначен —", "Антон", "Яна"]);
-    expect(names("проверяющий")).toEqual(["— не назначен —", "Антон", "Борис"]);
-    expect(onSetup).not.toHaveBeenCalled();
-    expect(screen.getByText(/кроме исключённых, — по алфавиту/)).toBeInTheDocument();
+    // По алфавиту первым идёт Антон — он и в исполнителях, и в проверяющих.
+    await waitFor(() => expect(onSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ funcId: "f1" }), { assignee: "3", reviewer: "3" }));
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import TasksBoard, { BOARD, STATUSES, TaskSetup, autoFlow, autoStatus, defaultEnd,
   isSet, newTask, nowLocal, taskGaps } from "../components/TasksBoard.jsx";
@@ -133,15 +133,15 @@ describe("постановка задачи и доска исполнителя
     expect(BOARD[0].states).toEqual(["backlog", "deferred"]);
   });
 
-  it("непоставленную задачу не поставить, и сказано, чего не хватает", () => {
+  it("непоставленную задачу не поставить, и сказано, чего не хватает", async () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
     const put = screen.getByRole("button", { name: "Поставить" });
     expect(put).toBeDisabled();
-    // Постановщик приходит из ролей функции сам; не хватает остальных.
-    expect(put).toHaveAttribute("title",
-      expect.stringContaining("Не хватает: исполнитель"));
-    expect(screen.getByText(/не хватает исполнитель, проверяющий, срок/))
-      .toBeInTheDocument();
+    /* Постановщик приходит из ролей функции, исполнитель и проверяющий
+       подставляются сами (выбирать их на форме негде) — остаётся срок. */
+    await waitFor(() => expect(put).toHaveAttribute("title",
+      expect.stringContaining("Не хватает: срок")));
+    expect(screen.getByText(/не хватает срок/)).toBeInTheDocument();
   });
 
   it("срок — такое же обязательное поле постановки, как роли", () => {
@@ -197,11 +197,11 @@ describe("задача ждёт ресурсов", () => {
     expect(screen.getByRole("button", { name: "Поставить" })).not.toBeDisabled();
   });
 
-  it("незаполненной задаче сперва называют незаполненное, а не ресурсы", () => {
+  it("незаполненной задаче сперва называют незаполненное, а не ресурсы", async () => {
     // Пока задача не описана, разговор о ресурсах преждевременный.
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} traits={poor} />);
-    expect(screen.getByRole("button", { name: "Поставить" }))
-      .toHaveAttribute("title", expect.stringContaining("Не хватает: исполнитель"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Поставить" }))
+      .toHaveAttribute("title", expect.stringContaining("Не хватает: срок")));
   });
 });
 

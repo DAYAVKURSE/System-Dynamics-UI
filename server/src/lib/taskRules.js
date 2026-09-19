@@ -20,13 +20,20 @@ import { withStock } from "./stock.js";
 const num = (v) => Number(v) || 0;
 
 /* ─────── незаполненность ───────
-   Три роли обязательны и срок обязателен — без них некому работать и не
-   к чему успеть. Содержимое НЕ обязательно: что за работа, уже сказано
-   описанием функции. Порядок слов — как в форме. */
-const ROLES = [["setter", "постановщик"], ["assignee", "исполнитель"],
-  ["reviewer", "проверяющий"]];
+   Обязателен ИСПОЛНИТЕЛЬ и срок — без них некому работать и не к чему
+   успеть. Постановщик и проверяющий не обязательны (владелец,
+   2026-09-19): кого не назвали, того подразумевает сама задача —
+   постановщика заменяет исполнитель, проверяющего — постановщик, и
+   передавать работу в этом месте некому. Содержимое НЕ обязательно: что
+   за работа, уже сказано описанием функции. */
+export const roleOf = (task = {}, role) => {
+  const val = (f) => (task[f] == null || task[f] === "" ? null : task[f]);
+  if (role === "assignee") return val("assignee");
+  if (role === "setter") return val("setter") ?? val("assignee");
+  return val("reviewer") ?? val("setter") ?? val("assignee");
+};
 export function taskGaps(task = {}) {
-  const gaps = ROLES.filter(([f]) => task[f] == null || task[f] === "").map(([, w]) => w);
+  const gaps = task.assignee == null || task.assignee === "" ? ["исполнитель"] : [];
   if (!task.end) gaps.push("срок");
   return gaps;
 }

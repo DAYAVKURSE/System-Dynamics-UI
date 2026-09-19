@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
-import TasksBoard, { TaskSetup, newTask, runsOfFunc, runTitle, twinNo } from "../components/TasksBoard.jsx";
+import TasksBoard, { TaskSetup, newTask, runsOfFunc, runTitle, roleOf, selfReview, selfSet, taskGaps, twinNo } from "../components/TasksBoard.jsx";
 import ReviewBoard from "../components/ReviewBoard.jsx";
 import { scheduleOf } from "../lib/plan.js";
 import React from "react";
@@ -248,70 +248,39 @@ describe("сдача записывает факт выполнения", () => 
 });
 
 describe("назначения берутся из воркеров актива", () => {
-  it("у каждой роли свой список — из воркеров этого актива", () => {
+  it("роли на форме не выбираются — их назначают функция и процесс (владелец, 2026-09-19)", () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
-    const names = (label) => [...screen.getByLabelText(label).options]
-      .map((o) => o.textContent);
-    // Владелец — постановщик функции, и он приходит в задачу словом, а не
-    // выбором: назначен на схеме, здесь не меняется. Иван — исполнитель,
-    // Пётр — проверяющий; рядом с именем — краткая статистика: постановщик
-    // выбирает не вслепую, а видя, как человек работает.
-    expect(screen.getByLabelText("постановщик").textContent).toBe("1");
-    expect(screen.queryByRole("combobox", { name: "постановщик" })).toBeNull();
-    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван · без оценок · 0 работ"]);
-    expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр · без оценок · 0 работ"]);
+    ["постановщик", "исполнитель", "проверяющий"].forEach((role) => {
+      expect(screen.queryByLabelText(role)).toBeNull();
+      expect(screen.queryByRole("combobox", { name: role })).toBeNull();
+    });
   });
 
-  it("роли стоят на функции: у актива без ролей списки не пусты", () => {
-    /* Новые модели держат роли на функции, а на активе — только общий
-       список воркеров. Раньше список брался из ролей актива, которых
-       больше нет, и оба выпадающих списка были пусты даже у владельца. */
-    const entities = [{ id: "usr", name: "Пользователи", crew: ["2", "3", "4"] }];
-    const people = [...PEOPLE, { id: "4", name: "Ольга" }];
-    render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })} tasks={[]}
-      funcs={FUNCS} traits={TRAITS} entities={entities} people={people}
-      canAssign nameOf={(id) => id} setTasks={() => {}} />);
-    const names = (label) => [...screen.getByLabelText(label).options]
-      .map((o) => o.textContent.split(" · ")[0]);
-    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван"]);
-    expect(names("проверяющий")).toEqual(["— не назначен —", "Пётр"]);
+  it("исполнитель и проверяющий подставляются сами — по ролям функции", async () => {
+    const seen = [];
+    const Host = () => {
+      const [tasks, setTasks] = React.useState([newTask({ funcId: "f1", title: "Задача A" })]);
+      seen.push(tasks[0]);
+      return (<TaskSetup task={tasks[0]} tasks={tasks} funcs={FUNCS} traits={TRAITS}
+        entities={ALPHA} people={PEOPLE} canAssign nameOf={(id) => id} setTasks={setTasks} />);
+    };
+    render(<Host />);
+    await waitFor(() => {
+      const last = seen[seen.length - 1];
+      expect(last.assignee).toBe("2");   // Иван — исполнитель функции
+      expect(last.reviewer).toBe("3");   // Пётр — проверяющий
+    });
   });
 
-  it("исполнитель — по РОЛИ, кроме исключённых; некого — так и сказано", () => {
-    /* У функции названа роль, а взять работу может любой воркер с ней,
-       если ему её не закрыли исключением. */
-    const entities = [{ id: "usr", name: "Пользователи", crew: ["2", "4"] }];
-    const people = [{ id: "2", name: "Иван", roles: ["designer"] },
-      { id: "4", name: "Ольга", roles: ["designer", "editor"] },
-      { id: "3", name: "Пётр", roles: ["editor"] }];
-    const byPost = [{ ...FUNCS[0], setters: [], owners: [], reviewers: [],
-      posts: { owners: ["designer"], reviewers: ["editor"] }, except: ["4"] }];
-    const names = (label) => [...screen.getByLabelText(label).options]
-      .map((o) => o.textContent.split(" · ")[0]);
-    const { unmount } = render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })}
-      tasks={[]} funcs={byPost} traits={TRAITS} entities={entities} people={people}
-      canAssign nameOf={(id) => id} setTasks={() => {}} />);
-    // Ольга — дизайнер, но функция ей закрыта исключением.
-    expect(names("исполнитель")).toEqual(["— не назначен —", "Иван"]);
-    expect(names("проверяющий")).toEqual(["— не назначен —"]);   // редактора в активе нет
-    unmount();
-
-    // Роль у функции не выбрана и людей прежде не записывали — назначать некого.
-    const empty = [{ ...FUNCS[0], setters: [], owners: [], reviewers: [], posts: {} }];
-    render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })} tasks={[]}
-      funcs={empty} traits={TRAITS} entities={entities} people={people}
-      canAssign nameOf={(id) => id} setTasks={() => {}} />);
-    expect(names("исполнитель")).toEqual(["— не назначен —"]);
-    expect(screen.getByText(/Некого назначить/)).toBeInTheDocument();
-  });
-  it("все три роли обязательны — сказано, чего не хватает", () => {
+  it("все три роли обязательны — сказано, чего не хватает", async () => {
+    /* Постановщик приходит из ролей функции, исполнитель и проверяющий
+       подставляются сами (выбирать их на форме больше негде), поэтому
+       остаётся срок. */
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
-    // Постановщик подставился из ролей функции; двух остальных ещё нет.
-    expect(screen.getByText(/не хватает исполнитель, проверяющий/))
-      .toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/не хватает срок/)).toBeInTheDocument());
   });
 
-  it("без постановщика у функции задачу не поставить — и сказано, где его назначить", () => {
+  it("без постановщика задача всё равно ставится: им становится исполнитель (владелец, 2026-09-19)", () => {
     const [f] = FUNCS;
     const Host = () => {
       const [tasks, setTasks] = React.useState([newTask({ funcId: "f1", title: "Задача A" })]);
@@ -320,11 +289,11 @@ describe("назначения берутся из воркеров актива
         nameOf={(id) => id} />);
     };
     render(<Host />);
-    expect(screen.getByLabelText("постановщик").textContent).toBe("не назначен");
-    expect(screen.getByText(/назначьте постановщика в ролях функции на схеме/))
-      .toBeInTheDocument();
-    expect(screen.getByText(/не хватает постановщик, исполнитель, проверяющий/))
-      .toBeInTheDocument();
+    // Постановщика у функции нет, и это не нехватка: спрашивают только
+    // исполнителя и срок.
+    expect(screen.queryByText(/не хватает постановщик/)).toBeNull();
+    expect(taskGaps({ assignee: "2", end: "2030-01-01T10:00" })).toEqual([]);
+    expect(taskGaps({ end: "2030-01-01T10:00" })).toEqual(["исполнитель"]);
   });
 
   it("описание функции видно в задаче — и постановщику, и исполнителю", () => {
@@ -374,7 +343,7 @@ describe("назначения берутся из воркеров актива
 
   it("содержимое пишет постановщик, а не машина", () => {
     render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
-    expect(screen.getByText(/Пишет постановщик/)).toBeInTheDocument();
+    expect(screen.getByText("описание задачи")).toBeInTheDocument();
   });
 });
 
@@ -396,7 +365,7 @@ describe("очередь постановки", () => {
     render(<Review tasks={[waiting]} />);
     expect(screen.getByText("ждут постановки")).toBeInTheDocument();
     expect(screen.getByText("Задача из цели")).toBeInTheDocument();
-    expect(screen.getAllByText(/Не хватает: постановщик/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Не хватает: исполнитель/).length).toBeGreaterThan(0);
   });
 
   it("форма постановки открывается здесь же, и задача уходит в бэклог", () => {
@@ -454,12 +423,14 @@ describe("очередь постановки", () => {
         onSetup={onSetup} nameOf={(id) => id} onAccept={() => {}} onReturn={() => {}} />);
     };
 
-    it("исполнителя и проверяющего выбирает постановщик задачи, а не только владелец", () => {
-      render(<Invited tasks={[mine]} onSetup={() => Promise.resolve()} />);
+    it("исполнитель и проверяющий у позванного постановщика подставляются сами", async () => {
+      const sent = [];
+      render(<Invited tasks={[mine]} onSetup={async (t, patch) => { sent.push(patch); }} />);
       fireEvent.click(screen.getByText("Задача из цели"));
-      expect(screen.getByLabelText("исполнитель")).not.toBeDisabled();
-      expect(screen.getByLabelText("проверяющий")).not.toBeDisabled();
-      expect(screen.queryByText(/решает постановщик задачи или владелец/)).toBeNull();
+      // Выбирать их на форме нечем — они приходят из ролей функции.
+      expect(screen.queryByLabelText("исполнитель")).toBeNull();
+      await waitFor(() => expect(sent.length).toBeGreaterThan(0));
+      expect(sent[0]).toMatchObject({ assignee: "2" });
     });
 
     it("каждая правка уходит на сервер, а «Поставить» ждёт его ответа", async () => {
@@ -470,16 +441,11 @@ describe("очередь постановки", () => {
       });
       render(<Invited tasks={[{ ...mine, reviewer: "3" }]} onSetup={onSetup} />);
       fireEvent.click(screen.getByText("Задача из цели"));
-      // Первая правка — не рукой: пустого исполнителя подставил порядок
-      // списка воркеров, и на сервер она идёт тем же путём.
+      // Первая правка — не рукой: пустого исполнителя подставили роли
+      // функции, и на сервер она идёт тем же путём.
       await waitFor(() => expect(sent).toEqual([{ assignee: "2" }]));
-      // Снятое рукой не подставляется снова: пусто — тоже ответ.
-      fireEvent.change(screen.getByLabelText("исполнитель"), { target: { value: "" } });
-      expect(sent[1]).toEqual({ assignee: null });
-      fireEvent.change(screen.getByLabelText("исполнитель"), { target: { value: "2" } });
-      expect(sent[2]).toEqual({ assignee: "2" });
       fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
-      expect(sent[3]).toEqual({ status: "backlog" });
+      expect(sent[1]).toEqual({ status: "backlog" });
       // Ушла из очереди только после ответа сервера — он и есть правда.
       await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
     });
@@ -558,16 +524,20 @@ describe("возврат с проверки", () => {
 });
 
 describe("поля задачи в порядке постановки", () => {
-  it("сперва название и люди, потом сроки, содержимое — перед «Поставить»", () => {
-    const { container } = render(<Setup task={newTask({ funcId: "f1", title: "Задача A" })} />);
+  it("порядок полей: название, функция, описание, критерии, сроки (владелец, 2026-09-19)", () => {
+    const funcs = [{ ...FUNCS[0], checks: ["позвонили в тот же день"] }];
+    const { container } = render(<TaskSetup task={newTask({ funcId: "f1", title: "Задача A" })}
+      tasks={[]} funcs={funcs} traits={TRAITS} entities={ALPHA} people={PEOPLE}
+      canAssign nameOf={(id) => id} setTasks={() => {}} />);
     const labels = [...container.querySelectorAll("div")]
       .map((d) => d.textContent)
-      .filter((x) => ["название", "исполнитель", "проверяющий", "начать",
-        "содержимое задачи — необязательно", "что сказали в задаче"].includes(x));
-    expect(labels.indexOf("название")).toBeLessThan(labels.indexOf("исполнитель"));
-    expect(labels.indexOf("исполнитель")).toBeLessThan(labels.indexOf("начать"));
-    expect(labels.indexOf("начать"))
-      .toBeLessThan(labels.indexOf("содержимое задачи — необязательно"));
+      .filter((x) => ["название", "функция, которую выполняет задача", "описание задачи",
+        "критерии проверки", "начать", "что сказали в задаче"].includes(x));
+    const at = (x) => labels.indexOf(x);
+    expect(at("название")).toBeLessThan(at("функция, которую выполняет задача"));
+    expect(at("функция, которую выполняет задача")).toBeLessThan(at("описание задачи"));
+    expect(at("описание задачи")).toBeLessThan(at("критерии проверки"));
+    expect(at("критерии проверки")).toBeLessThan(at("начать"));
     // Сказанное в задаче — ровно один раз, и только чтение: слова к
     // постановке пишет исполнитель при сдаче, а не постановщик.
     expect(labels.filter((x) => x === "что сказали в задаче")).toHaveLength(1);
@@ -728,17 +698,13 @@ describe("«Инструменты» и роли", () => {
     await fresh();
     fireEvent.click(await screen.findByRole("button", { name: "Проверка" }));
     fireEvent.click(await screen.findByText("Поставить меня"));
-    // Имена — из среза сервера: список организации позванному не отдаётся.
-    await waitFor(() => expect([...screen.getByLabelText("исполнитель").options]
-      .map((o) => o.textContent)).toContain("Иван · без оценок · 0 работ"));
-    // Пустые роли заполнил порядок списка воркеров — и эта подстановка ушла
-    // на сервер так же, как ручной выбор: иначе форма показывала бы имя,
-    // которого в модели нет.
+    /* Роли на форме не выбирают (владелец, 2026-09-19): пустые заполняют
+       роли функции — и подстановка уходит на сервер так же, как уходил
+       ручной выбор. */
+    expect(screen.queryByLabelText("исполнитель")).toBeNull();
     await waitFor(() => expect(posts).toEqual([{ assignee: "6", reviewer: "3" }]));
-    fireEvent.change(screen.getByLabelText("исполнитель"), { target: { value: "2" } });
-    await waitFor(() => expect(posts[1]).toEqual({ assignee: "2" }));
     fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
-    await waitFor(() => expect(posts[2]).toEqual({ status: "backlog" }));
+    await waitFor(() => expect(posts[1]).toEqual({ status: "backlog" }));
     await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
     // Модель целиком позванный не пишет — и постановка её не выгружает.
     expect(global.fetch.mock.calls.some(([u, o]) => String(u).endsWith("/api/workspace")
@@ -752,5 +718,52 @@ describe("«Инструменты» и роли", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
     expect(screen.queryByRole("button", { name: "Выгрузка" })).toBeNull();
+  });
+});
+
+/* КОГО В ЗАДАЧЕ МОЖНО НЕ НАЗЫВАТЬ (владелец, 2026-09-19).
+
+   «Если не выбран постановщик, значит, постановщиком является
+   исполнитель, и задача ставится автоматически… Если не выбран
+   постановщик и проверяющий, значит, исполнитель является и
+   постановщиком, и проверяющим… Если выбран только постановщик и
+   исполнитель, значит, постановщик является проверяющим, и задача
+   проверяется автоматически.» */
+describe("подразумеваемые роли", () => {
+  const base = { ...newTask({ funcId: "f1", title: "Задача A" }),
+    end: "2030-01-01T10:00" };
+
+  it("спрашивают только исполнителя и срок", () => {
+    expect(taskGaps({ ...base, assignee: "2" })).toEqual([]);
+    expect(taskGaps({ ...base })).toEqual(["исполнитель"]);
+    expect(taskGaps({ assignee: "2" })).toEqual(["срок"]);
+  });
+
+  it("нет постановщика — им считается исполнитель, и задача ставится сама", () => {
+    const t = { ...base, assignee: "2", reviewer: "3" };
+    expect(roleOf(t, "setter")).toBe("2");
+    expect(selfSet(t)).toBe(true);
+    expect(selfReview(t)).toBe(false);
+  });
+
+  it("нет постановщика и проверяющего — исполнитель во всех трёх ролях", () => {
+    const t = { ...base, assignee: "2" };
+    expect(roleOf(t, "setter")).toBe("2");
+    expect(roleOf(t, "reviewer")).toBe("2");
+    expect(selfSet(t)).toBe(true);
+    expect(selfReview(t)).toBe(true);
+  });
+
+  it("есть постановщик, нет проверяющего — проверяет он, и сдача принимается сама", () => {
+    const t = { ...base, setter: "1", assignee: "2" };
+    expect(roleOf(t, "reviewer")).toBe("1");
+    expect(selfSet(t)).toBe(false);
+    expect(selfReview(t)).toBe(true);
+  });
+
+  it("названы все трое — всё по-прежнему: и ставят, и принимают руками", () => {
+    const t = { ...base, setter: "1", assignee: "2", reviewer: "3" };
+    expect(selfSet(t)).toBe(false);
+    expect(selfReview(t)).toBe(false);
   });
 });

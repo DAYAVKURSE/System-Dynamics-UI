@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson } from "../lib/funcs.js";
-import { MARK_MAX, MARK_MIN, shortStat, visibleStats } from "../lib/workers.js";
+import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
 import { pickByOrderOf, pickOrder } from "../lib/pickOrder.js";
 import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel } from "../lib/units.js";
 import { inputCount, inputUnits } from "../lib/taskUnits.js";
@@ -259,17 +259,33 @@ export function defaultEnd(func,start){
 /** Кто в задаче за какую роль: у задачи по одному человеку на роль. */
 export const TASK_ROLE={setters:"setter",owners:"assignee",reviewers:"reviewer"};
 
+/* ─────── кого задача берёт из ролей ───────
+
+   Обязателен только ИСПОЛНИТЕЛЬ (и срок): постановщик и проверяющий —
+   не обязательны (владелец, 2026-09-19). Кого не назвали, тот
+   подразумевается, и передавать работу в этом месте некому:
+
+   · нет постановщика — постановщик сам исполнитель, задача ставится сама;
+   · нет постановщика и проверяющего — исполнитель во всех трёх ролях:
+     задача ставится и принимается сама;
+   · есть постановщик, нет проверяющего — проверяет постановщик, и сдача
+     принимается сама. */
+export const roleOf=(task,role)=>{
+  const val=(f)=>(task?.[f]==null||task[f]===""?null:task[f]);
+  if(role==="assignee") return val("assignee");
+  if(role==="setter") return val("setter")??val("assignee");
+  return val("reviewer")??val("setter")??val("assignee");
+};
+
 /**
  * Чего задаче не хватает, чтобы её можно было начать.
  *
- * Три роли обязательны и срок обязателен — без них некому работать и не к
- * чему успеть. Содержимое НЕ обязательно: что это за работа, уже сказано
- * описанием функции, и требовать переписывать его в каждую задачу значило
- * бы просить второй раз то, что уже есть. Постановщику есть что добавить —
- * добавит; нечего — задача ставится и так.
+ * Исполнитель обязателен и срок обязателен — без них некому работать и не
+ * к чему успеть. Содержимое НЕ обязательно: что это за работа, уже сказано
+ * описанием функции.
  */
 export function taskGaps(task){
-  const gaps=WORKER_KINDS.filter(k=>!task[TASK_ROLE[k.id]]).map(k=>k.task);
+  const gaps=task?.assignee==null||task.assignee===""?["исполнитель"]:[];
   if(!task?.end) gaps.push("срок");
   return gaps;
 }
@@ -297,8 +313,11 @@ export const isSet=(task)=>taskGaps(task).length===0;
    избавляет от нажатия, а не от работы: пустое «что сделать» — это
    по-прежнему работа, которую никто не поставил. */
 const same=(a,b)=>a!=null&&b!=null&&String(a)===String(b);
-export const selfSet=(t)=>same(t?.setter,t?.assignee);
-export const selfReview=(t)=>same(t?.assignee,t?.reviewer);
+export const selfSet=(t)=>same(roleOf(t,"setter"),roleOf(t,"assignee"));
+/* Проверяющего не назвали — проверять отдельно нечего: сдача принимается
+   сама, даже если подразумевается постановщик (владелец, 2026-09-19). */
+export const selfReview=(t)=>t?.reviewer==null||t.reviewer===""
+  ||same(roleOf(t,"assignee"),t.reviewer);
 
 /**
  * Ниже какого статуса задача не опускается сама по себе.
@@ -509,7 +528,7 @@ export const canSet=(task,funcs,traits,tasks,factors)=>
 /* ─────── карточка функции задачи ───────
    Одинаково нужна и постановщику, и исполнителю: что за функция, что она
    берёт и выдаёт, сколько на неё заложено. */
-function FuncCard({func,entities,traitName}){
+function FuncCard({func,entities,traitName,showChecks=true}){
   if(!func){
     return (
       <div style={{fontSize:11,color:WARN,margin:"6px 0 8px",lineHeight:1.5}}>
@@ -530,28 +549,31 @@ function FuncCard({func,entities,traitName}){
       {/* Критерии проверки (владелец, 2026-09-18): по чему проверяющий
           примет работу. Исполнитель видит их до сдачи, проверяющий — при
           проверке; оба смотрят на один список. */}
-      {!!(func.checks||[]).length&&(
+      {showChecks&&!!(func.checks||[]).length&&(
         <div aria-label="критерии проверки" style={{marginTop:6}}>
           <div style={S.lbl}>критерии проверки</div>
           <ul style={{margin:"3px 0 0",paddingLeft:18,color:C.text}}>
             {func.checks.map((c,i)=>(<li key={`${i}:${c}`} style={{marginBottom:2}}>{c}</li>))}
           </ul>
         </div>)}
-      <div style={{color:C.muted,marginTop:4}}>
-        берёт: {func.takes.length
-          ? func.takes.map(p=>`${traitName(p.trait)} ${rangeText(p)}`
-            +(p.spend===false?" (не расходует)":"")).join(", ")
-          : "ничего"}
-      </div>
-      <div style={{color:C.muted}}>
-        выдаёт: {func.gives.length
-          ? func.gives.map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")
-          : "ничего"}
-      </div>
+      {/* «Берёт» и «выдаёт» — только когда есть что (владелец, 2026-09-19):
+          строка «ничего» ничего не говорила. */}
+      {!!func.takes.length&&(
+        <div style={{color:C.muted,marginTop:4}}>
+          берёт: {func.takes.map(p=>`${traitName(p.trait)} ${rangeText(p)}`
+            +(p.spend===false?" (не расходует)":"")).join(", ")}
+        </div>)}
+      {!!func.gives.length&&(
+        <div style={{color:C.muted}}>
+          выдаёт: {func.gives.map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")}
+        </div>)}
+      {!!String(func.chain?.result||"").trim()&&(
+        <div style={{color:C.muted,marginTop:4}}>
+          ожидаемый результат: <span style={{color:C.text}}>{func.chain.result}</span>
+        </div>)}
       <div style={{color:C.muted,marginTop:4}}>
         на одно выполнение заложено <b style={{color:WARN}}>
-          {nm(func.dur)} {func.durUnit}</b>. Сколько ушло на самом деле —
-        записывается при сдаче.
+          {nm(func.dur)} {func.durUnit}</b>.
       </div>
     </div>);
 }
@@ -657,16 +679,6 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
     const list=people.filter(p=>ok.has(String(p.id))&&(!mate||String(p.id)===mate));
     return pickOrder(asset,list);
   };
-  /* Рейтинг рядом с именем — глазами сервера, если он ответил (`GET
-     /ratings`): у позванного постановщика в модели только свои задачи, и
-     по ним человек, которого проверяли в чужих, выходил «без оценок».
-     Средняя и число оценок — оттуда; про себя сервер цифр не даёт, и здесь
-     их тоже нет; «в срок» и число работ — по тому, что видно. */
-  const statOf=(p)=>{
-    const s=visibleStats({tasks,funcs,published},p.id,meId);
-    const r=ratings?.others?.[String(p.id)];
-    return r&&!s.self?{...s,mark:r.mark??null,marks:r.count??0}:s;
-  };
   /* Порядок списка воркеров ВЛИЯЕТ на выбор (`pickByOrderOf`): пустое поле
      исполнителя и проверяющего при открытии формы получает первого
      подходящего — того, кто выше в списке актива. Только пустое и только у
@@ -682,7 +694,11 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
   const poolKey=ROLES_PICK.map(k=>pool(k.id).map(p=>p.id).join(",")).join("|");
   useEffect(()=>{
     if(picked.current===task.id) return;
-    if(!canAssign||task.status!=="wait"||!pickByOrderOf(asset)) return;
+    /* Выбирать исполнителя и проверяющего на форме больше негде (владелец,
+       2026-09-19: «они выбираются в техпроцессах и функциях»), поэтому
+       подстановка идёт всегда, а `pickByOrderOf` решает только ПОРЯДОК:
+       по списку актива или по алфавиту. */
+    if(!canAssign||task.status!=="wait") return;
     const patch={};
     let any=false;
     ROLES_PICK.forEach(k=>{
@@ -711,61 +727,37 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
       <TxtField value={task.title} style={{marginBottom:8,fontWeight:600}}
         onCommit={v=>commitOne("title",v)}/>
 
-      <div className="flex flex-wrap gap-2" style={{marginBottom:4}}>
-        {/* Постановщик — словом: он назначен на схеме, ролями функции. */}
-        <div style={{flex:"1 1 150px"}}>
-          <div style={S.lbl}>постановщик</div>
-          <div aria-label="постановщик" style={{fontSize:12.5,fontWeight:600,
-            padding:"6px 0",lineHeight:1.4,color:setterName?C.text:WARN}}>
-            {setterName||"не назначен"}</div>
-          <div style={{fontSize:10,color:C.muted,lineHeight:1.4}}>
-            {setterName
-              ? "назначен в ролях функции на схеме; здесь не меняется"
-              : "назначьте постановщика в ролях функции на схеме — здесь он не выбирается"}
-          </div>
-        </div>
-        {WORKER_KINDS.filter(k=>k.id!=="setters").map(k=>(
-          <div key={k.id} style={{flex:"1 1 150px"}}>
-            <div style={S.lbl}>{k.task}</div>
-            <select style={S.inp} value={task[TASK_ROLE[k.id]]||""} disabled={!canAssign}
-              aria-label={k.task}
-              onChange={e=>commitOne(TASK_ROLE[k.id],e.target.value||null)}>
-              <option value="">— не назначен —</option>
-              {/* Рейтинг стоит рядом с именем: постановщик выбирает человека,
-                  а не гадает, кого из них уже проверяли и как. Рейтинг — из
-                  опубликованных оценок; про себя — «свой рейтинг скрыт». */}
-              {pool(k.id).map(p=>(
-                <option key={p.id} value={p.id}>
-                  {p.name} · {shortStat(statOf(p))}
-                </option>))}
-            </select>
-          </div>))}
-      </div>
-      <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-        {canAssign
-          ? (pickByOrderOf(asset)
-            ? "Предлагаются воркеры с должностью этой роли, кроме исключённых; первым предложен тот, кто выше в списке воркеров."
-            : "Предлагаются воркеры с должностью этой роли, кроме исключённых, — по алфавиту.")
-          : "Кого назначить, решает постановщик задачи или владелец."}
-        {!pool("owners").length&&asset
-          &&" Некого назначить: у функции не выбрана должность исполнителя или ни у кого из воркеров её нет."}
-      </div>
-
       {/* Когда по обе стороны один и тот же человек, передавать нечего, и
           нажатие остаётся ритуалом: он и так знает, что сам себе поставил и
           сам у себя принял. Сказать об этом надо здесь — там, где людей и
           выбирают, а не там, где человек потом удивится статусу. */}
-      {(selfSet(task)||selfReview(task))&&(
+      {/* Пока исполнителя нет, и говорить нечего: ролей в задаче ещё не
+          назначено. */}
+      {!!task.assignee&&(selfSet(task)||selfReview(task))&&(
         <div style={{fontSize:10.5,color:ACC,marginBottom:8,lineHeight:1.5}}>
           {selfSet(task)&&selfReview(task)
-            ? "Один человек во всех ролях: задача встаёт в бэклог сама и после сдачи считается готовой."
-            : selfSet(task)
-              ? "Постановщик и исполнитель — один человек: задача ставится сама и сразу идёт в бэклог."
-              : "Исполнитель и проверяющий — один человек: сдача принимается сама, задача уходит в готовые."}
+            ? "Ставится и принимается сама."
+            : selfSet(task) ? "Ставится сама." : "Принимается сама."}
         </div>)}
 
       <div style={S.lbl}>функция, которую выполняет задача</div>
-      <FuncCard func={func} entities={entities} traitName={traitName}/>
+      <FuncCard func={func} entities={entities} traitName={traitName} showChecks={false}/>
+
+      {/* Описание задачи: по умолчанию — то, что сказано у самой задачи или
+          в техпроцессе (владелец, 2026-09-19). */}
+      <div style={S.lbl}>описание задачи</div>
+      <TxtField area value={task.body||String(func?.about||"")}
+        style={{minHeight:70,margin:"4px 0 8px",lineHeight:1.5}}
+        onCommit={v=>commitOne("body",v)}/>
+
+      {/* Критерии задачи — следом за описанием. */}
+      {!!(func?.checks||[]).length&&(
+        <div aria-label="критерии проверки" style={{marginBottom:8}}>
+          <div style={S.lbl}>критерии проверки</div>
+          <ul style={{margin:"3px 0 0",paddingLeft:18,fontSize:12,lineHeight:1.5}}>
+            {func.checks.map((c,i)=>(<li key={`${i}:${c}`}>{c}</li>))}
+          </ul>
+        </div>)}
 
       <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
         <div style={{flex:"1 1 170px"}}>
@@ -795,25 +787,10 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
         Напоминание пришлёт бот; «за сколько» исполнитель выбирает сам.
       </div>
 
-      {/* Содержимое пишет постановщик: это его работа, а не догадка
-          исполнителя и не текст, сочинённый машиной. */}
-      <div style={S.lbl}>содержимое задачи — необязательно</div>
-      <TxtField area value={task.body}
-        placeholder="что добавить к описанию функции — если есть что"
-        style={{minHeight:70,margin:"4px 0",lineHeight:1.5}}
-        onCommit={v=>commitOne("body",v)}/>
-      <div style={{fontSize:10.5,color:C.muted,lineHeight:1.5,marginBottom:8}}>
-        Пишет постановщик{task.setter?`: ${nameOf?nameOf(task.setter):task.setter}`:""}.
-        Заполнять не обязательно: что это за работа, уже сказано описанием
-        функции — здесь только то, что относится к этому выполнению.
-      </div>
-
       {task.status==="wait"?(<>
         {!!gaps.length&&(
           <div style={{fontSize:11,color:WARN,marginBottom:8,lineHeight:1.5}}>
-            Задача поставлена не до конца: не хватает {gaps.join(", ")}. Все три
-            роли обязательны, и срок тоже: без него нечему сорваться и нечего
-            успевать.
+            Задача поставлена не до конца: не хватает {gaps.join(", ")}.
           </div>)}
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
           {/* Недоступную кнопку видно, что она недоступна: зелёная и живая
@@ -1254,7 +1231,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 
       <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>{task.title}</div>
       <div style={{fontSize:10.5,color:C.muted,lineHeight:1.6,marginBottom:8}}>
-        поставил: {who(task.setter)} · проверяет: {who(task.reviewer)}
+        поставил: {who(roleOf(task,"setter"))} · проверяет: {who(roleOf(task,"reviewer"))}
         {task.end?` · срок ${fmtDT(task.end)}`:" · срок не назначен"}
       </div>
 
@@ -1462,7 +1439,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                         <HiddenSwitch hidden={rating.hidden} whoElse="постановщик"
                           onChange={h=>setRating(p=>({...p,hidden:h}))}/>
                         <div style={{fontSize:10,color:C.muted,marginTop:5,lineHeight:1.5}}>
-                          Оценка — про постановщика: {who(task.setter)}. Публикуется
+                          Оценка — про постановщика: {who(roleOf(task,"setter"))}. Публикуется
                           без вашего имени и только когда её нельзя вычислить — не
                           меньше двух оценок от разных людей.
                         </div>
