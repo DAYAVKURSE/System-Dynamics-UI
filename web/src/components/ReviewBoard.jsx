@@ -319,6 +319,31 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
   /* Строка «удалить» внутри раскрытой карточки: удаляют, глядя на задачу.
      Неначатую — тот, кто ставит; начатую (ждёт проверки, готова) — только
      владелец, и подпись говорит, что уйдёт вместе с ней. */
+  /* ─── отозвать из бэклога ───
+
+     Владелец (2026-09-19): «на вкладке проверки должна быть возможность
+     отозвать те задачи, которые в бэклоге, для редактирования». Задача
+     возвращается в «ждут постановки» с пометкой `held`: без неё
+     поставленная сама собой задача тут же уехала бы обратно в бэклог, и
+     переставить её было бы нечем. Взятую в работу не отзывают — сперва
+     «Отменить» на доске: отобрать работу у того, кто её делает, отзыв не
+     вправе. */
+  const recallable = (t) => ["backlog", "deferred"].includes(t.status)
+    && t.taken !== true && !(t.submissions || []).length;
+  const recall = (t) => {
+    const patch = { status: "wait", held: true, taken: false };
+    setTasks?.((p) => p.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
+    if (typeof onSetup === "function") Promise.resolve(onSetup(t, patch)).catch(() => {});
+    setSetupId(t.id);
+  };
+  const recallRow = (t) => (recallable(t) ? (
+    <div className="flex gap-2" style={{ alignItems: "center", marginTop: 8 }}>
+      <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
+        задача лежит в бэклоге — её можно отозвать и переставить</span>
+      <button style={{ ...btn(false), padding: "2px 8px", fontSize: 10.5 }}
+        aria-label={`отозвать задачу ${t.title}`}
+        onClick={(e) => { e.stopPropagation(); recall(t); }}>Отозвать</button>
+    </div>) : null);
   const killRow = (t, style = { marginTop: 8 }) => (canKill(t, { isOwner }) ? (
     <div className="flex gap-2" style={{ alignItems: "center", ...style }}>
       <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
@@ -451,7 +476,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
               hidden={hidden} setHidden={setHidden} meId={meId}
               funcs={funcs} traits={traits} entities={entities}
               nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-              extra={killRow(t)} />))}
+              extra={<>{recallRow(t)}{killRow(t)}</>} />))}
         </React.Fragment>))}
 
       {/* ─── готовые ───

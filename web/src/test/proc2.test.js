@@ -527,3 +527,23 @@ describe("ожидаемый результат функции (владелец
     expect(fs[0].checks).toEqual(["оффер отправлен"]);
   });
 });
+
+/* БЕЗ «КТО:» ЗАДАЧИ НЕ БЫВАЕТ (владелец, 2026-09-19): «если должность не
+   указана, то сама задача не должна быть создана в поле тех процесса». */
+describe("задача без должности", () => {
+  const model = { entities: [{ id: "e1", name: "Мы" }], traits: [{ id: "t1", e: "e1", l: "заявки" }],
+    positions: [{ id: "r1", name: "Оператор" }] };
+  const withWho = "Задача: принять\nКто: Оператор\nОтдаёт: заявки 1";
+  const noWho = "Задача: принять\nОтдаёт: заявки 1";
+
+  it("с «Кто:» функция есть, без «Кто:» — нет", () => {
+    const m = { ...model, entities: [{ id: "e1", name: "Мы", posts: ["r1"] }] };
+    expect(procFuncs({ id: "p", text: withWho }, m).length).toBe(1);
+    expect(procFuncs({ id: "p", text: noWho }, m).length).toBe(0);
+  });
+
+  it("и сказано, где должность не названа", () => {
+    const out = issuesOf({ id: "p", text: noWho }, model);
+    expect(out.some((x) => /не названа должность — задача не заведётся/.test(x))).toBe(true);
+  });
+});

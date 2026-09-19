@@ -114,16 +114,21 @@ const P=(trait,lo,hi)=>({id:`p_${trait}`,trait,lo,hi});
 /* Стартовые функции приводим к нынешней записи здесь же: иначе первая
    отмена правки дописала бы недостающие поля, документ перестал бы совпадать
    с исходным, и черновик решил бы, что есть несохранённые изменения. */
+/* Должность исполнителя названа у каждой стартовой функции: без неё
+   задача не заводится вовсе (владелец, 2026-09-19), и стартовая схема
+   отвечала бы на «Применить цель» пустотой. «Исполнитель» — встроенная
+   должность, она есть в любой рабочей области. */
+const DOER={owners:["executor"],setters:[],reviewers:[]};
 const FUNCS0=normalizeFuncs([
   {id:"f_req",e:"usr",name:"Сбор заявок",
     takes:[P("dem",2,4)],gives:[P("req",1,1)],
-    dur:2,durUnit:"ч",owners:[],reviewers:[],x:0,y:0},
+    dur:2,durUnit:"ч",owners:[],reviewers:[],posts:DOER,x:0,y:0},
   {id:"f_hdl",e:"vm",name:"Обработка заявки",
     takes:[P("req",1,1)],gives:[P("hdl",1,1),P("act",0,1)],
-    dur:4,durUnit:"ч",owners:[],reviewers:[],x:0,y:0},
+    dur:4,durUnit:"ч",owners:[],reviewers:[],posts:DOER,x:0,y:0},
   {id:"f_dem",e:"mkt",name:"Сарафанное радио",
     takes:[P("hdl",1,1)],gives:[P("dem",1,3)],
-    dur:1,durUnit:"дн",owners:[],reviewers:[],x:0,y:0},
+    dur:1,durUnit:"дн",owners:[],reviewers:[],posts:DOER,x:0,y:0},
 ]);
 
 /* ─────── график: лента гипотезы и линия факта ───────

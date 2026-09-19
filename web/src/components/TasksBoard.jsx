@@ -278,20 +278,35 @@ export const roleOf=(task,role)=>{
 };
 
 /**
+ * Названа ли ДОЛЖНОСТЬ исполнителя у функции.
+ *
+ * Владелец (2026-09-19): «если не указан ни постановщик, ни исполнитель,
+ * ни проверяющий — значит, та должность, которая указана, им и будет».
+ * Работу поручают должности («Кто:» в техпроцессе → `posts.owners`), а
+ * человека с этой должностью назначают потом; спрашивать имя там, где
+ * должность уже названа, — спрашивать второй раз то, что сказано.
+ * Прежние схемы называли людей списком (`owners`) — он читается так же.
+ */
+export const doerNamed=(f)=>!!((f?.posts?.owners||[]).filter(Boolean).length
+  ||(f?.owners||[]).filter(x=>x!=null&&x!=="").length);
+
+/**
  * Чего задаче не хватает, чтобы её можно было начать.
  *
  * Исполнитель обязателен и срок обязателен — без них некому работать и не
- * к чему успеть. Содержимое НЕ обязательно: что это за работа, уже сказано
- * описанием функции.
+ * к чему успеть. Исполнитель считается названным и тогда, когда названа
+ * его должность у функции (`doerNamed`). Содержимое НЕ обязательно: что
+ * это за работа, уже сказано описанием функции.
  */
-export function taskGaps(task){
-  const gaps=task?.assignee==null||task.assignee===""?["исполнитель"]:[];
+export function taskGaps(task,func=null){
+  const gaps=(task?.assignee==null||task.assignee==="")&&!doerNamed(func)
+    ?["исполнитель"]:[];
   if(!task?.end) gaps.push("срок");
   return gaps;
 }
 
 /** Поставлена ли задача до конца — от этого зависит, можно ли её двигать. */
-export const isSet=(task)=>taskGaps(task).length===0;
+export const isSet=(task,func=null)=>taskGaps(task,func).length===0;
 
 /* ─────── когда человек в задаче один ───────
 
@@ -313,7 +328,11 @@ export const isSet=(task)=>taskGaps(task).length===0;
    избавляет от нажатия, а не от работы: пустое «что сделать» — это
    по-прежнему работа, которую никто не поставил. */
 const same=(a,b)=>a!=null&&b!=null&&String(a)===String(b);
-export const selfSet=(t)=>same(roleOf(t,"setter"),roleOf(t,"assignee"));
+/* Не названо ни одного человека — значит и постановщик, и исполнитель это
+   та самая должность, которую назвала функция: передавать работу в этом
+   месте некому, и задача ставится сама (владелец, 2026-09-19). */
+export const selfSet=(t)=>(roleOf(t,"setter")==null&&roleOf(t,"assignee")==null)
+  ||same(roleOf(t,"setter"),roleOf(t,"assignee"));
 /* Проверяющего не назвали — проверять отдельно нечего: сдача принимается
    сама, даже если подразумевается постановщик (владелец, 2026-09-19). */
 export const selfReview=(t)=>t?.reviewer==null||t.reviewer===""
@@ -326,8 +345,12 @@ export const selfReview=(t)=>t?.reviewer==null||t.reviewer===""
  * «ожидает постановки» бессмысленно — она тут же поставится снова.
  */
 export function floorStatus(task,{funcs=[],traits=[],tasks=[],factors=[]}={}){
-  if(!selfSet(task)||!isSet(task)) return "wait";
+  /* Отозванная ждёт правки и сама обратно не уходит (владелец,
+     2026-09-19): её вернули, чтобы переставить, а не чтобы она тут же
+     встала в бэклог снова. */
+  if(task?.held) return "wait";
   const f=funcs.find(x=>x.id===task.funcId);
+  if(!selfSet(task)||!isSet(task,f)) return "wait";
   return f&&shortage(f,traits,heldBy(tasks,f),factors).length?"wait":"backlog";
 }
 
@@ -511,7 +534,8 @@ export const lackOf=(task,funcs=[],traits=[],tasks=[],factors=[])=>{
 
 /** Почему задачу нельзя поставить — словами, а не пустой кнопкой. */
 export function whyNotSet(task,funcs=[],traits=[],tasks=[],factors=[]){
-  if(!isSet(task)) return `Не хватает: ${taskGaps(task).join(", ")}`;
+  const f=funcs.find(x=>x.id===task?.funcId)||null;
+  if(!isSet(task,f)) return `Не хватает: ${taskGaps(task,f).join(", ")}`;
   const miss=lackOf(task,funcs,traits,tasks,factors);
   if(!miss.length) return "";
   return "Не хватает ресурсов: "
@@ -635,10 +659,13 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
   /* «Поставить»: владелец меняет статус у себя — модель его; остальные
      ждут сервера и берут задачу из ответа, а отказ показывают словами. */
   const putTask=()=>{
-    if(typeof onSetup!=="function"){ up("status","backlog"); return; }
+    /* Поставили — значит отзыв отработан: снимаем пометку, иначе задача
+       осталась бы в «ждут постановки» навсегда. */
+    const put={status:"backlog",held:false};
+    if(typeof onSetup!=="function"){ upMany(put); return; }
     setSetupErr(""); setPutting(true);
-    Promise.resolve(onSetup(task,{status:"backlog"}))
-      .then(srv=>upMany(srv&&typeof srv==="object"?srv:{status:"backlog"}))
+    Promise.resolve(onSetup(task,put))
+      .then(srv=>upMany(srv&&typeof srv==="object"?srv:put))
       .catch(e=>setSetupErr(e?.message||"не поставилась"))
       .finally(()=>setPutting(false));
   };
@@ -712,7 +739,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
     picked.current=task.id;
     if(Object.keys(patch).length) commit(patch);
   },[task.id,poolKey]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const gaps=taskGaps(task);
+  const gaps=taskGaps(task,func);
   const why=whyNotSet(task,funcs,traits,tasks,factors);
 
   return (

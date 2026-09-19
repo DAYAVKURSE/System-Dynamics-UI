@@ -643,11 +643,27 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false, rolesO
   withModel(async (model) => {
     const task = (model.tasks || []).find((t) => t.id === taskId);
     if (!task) return { error: "not found" };
-    if (!isOwner && String(task.setter || "") !== String(userId)) return { error: "not yours" };
-    if (task.status !== "wait") {
-      return { error: "already set", why: "Задача уже поставлена — постановка закрыта." };
-    }
+    if (!isOwner && String(roleOf(task, "setter") || "") !== String(userId)) return { error: "not yours" };
     const f = fields && typeof fields === "object" ? fields : {};
+    /* ОТЗЫВ ИЗ БЭКЛОГА (владелец, 2026-09-19): «должна быть возможность
+       отозвать те задачи, которые в бэклоге, для редактирования». Задача
+       возвращается в «ждут постановки» с пометкой `held` — без неё она
+       тут же встала бы обратно сама. Взятую в работу и сданную не
+       отзывают: отобрать работу у того, кто её делает, отзыв не вправе. */
+    if (task.status !== "wait") {
+      const canRecall = f.status === "wait" && ["backlog", "deferred"].includes(task.status)
+        && task.taken !== true && !(task.submissions || []).length;
+      if (!canRecall) {
+        return { error: "already set", why: "Задача уже поставлена — постановка закрыта." };
+      }
+      task.status = "wait";
+      task.held = true;
+      task.taken = false;
+      task.deferredAt = null;
+      task.deferredUntil = null;
+      await writeModel(model);
+      return { task };
+    }
     const patch = {};
     if ("title" in f) patch.title = String(f.title ?? "");
     if ("body" in f) patch.body = String(f.body ?? "");
@@ -694,6 +710,7 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false, rolesO
       const why = whyNotSet(task, model);
       if (why) return { error: "not set", why };
       task.status = "backlog";
+      task.held = false;
       task.taken = false;
       task.deferredAt = null;
       task.deferredUntil = null;

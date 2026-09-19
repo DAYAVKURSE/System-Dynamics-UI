@@ -32,8 +32,16 @@ export const roleOf = (task = {}, role) => {
   if (role === "setter") return val("setter") ?? val("assignee");
   return val("reviewer") ?? val("setter") ?? val("assignee");
 };
-export function taskGaps(task = {}) {
-  const gaps = task.assignee == null || task.assignee === "" ? ["исполнитель"] : [];
+/* Должность исполнителя у функции («Кто:» в техпроцессе → `posts.owners`;
+   прежние схемы называли людей списком `owners`). Названа должность —
+   исполнитель назван: работу поручают ей, а человека назначают потом
+   (владелец, 2026-09-19). */
+export const doerNamed = (f) => !!((f?.posts?.owners || []).filter(Boolean).length
+  || (Array.isArray(f?.owners) ? f.owners : []).filter((x) => x != null && x !== "").length);
+
+export function taskGaps(task = {}, func = null) {
+  const gaps = (task.assignee == null || task.assignee === "") && !doerNamed(func)
+    ? ["исполнитель"] : [];
   if (!task.end) gaps.push("срок");
   return gaps;
 }
@@ -132,9 +140,9 @@ const nm = (v) => String(Math.round(num(v) * 100) / 100);
  * сервер не должен отказывать словами, которых форма не показывала.
  */
 export function whyNotSet(task = {}, model = {}) {
-  const gaps = taskGaps(task);
-  if (gaps.length) return `Не хватает: ${gaps.join(", ")}`;
   const f = (model.funcs || []).find((x) => x.id === task.funcId);
+  const gaps = taskGaps(task, f);
+  if (gaps.length) return `Не хватает: ${gaps.join(", ")}`;
   /* «Есть» — по материалам и сдачам, а не по числу в ресурсе: то же, что
      видит постановщик в форме (`withStock` на клиенте). */
   const miss = shortage(f, withStock(model), heldBy(model.tasks || [], f), model.factors || []);

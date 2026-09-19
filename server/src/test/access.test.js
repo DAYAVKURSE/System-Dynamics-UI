@@ -786,7 +786,9 @@ describe("постановка через сервер", () => {
   });
 
   it("без исполнителя — отказ словами, теми же, что в форме", async () => {
-    await saveSetupModel();
+    /* «Не хватает исполнителя» — только когда у функции не названа и
+       должность: названа — работа поручена ей (владелец, 2026-09-19). */
+    await saveSetupModel({ funcs: [{ ...SETUP_MODEL.funcs[0], owners: [], posts: {} }] });
     await inviteAll();
     const res = await setup("w1", 500, { reviewer: "300", status: "backlog" });
     expect(res.status).toBe(400);

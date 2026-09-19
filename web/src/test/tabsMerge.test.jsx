@@ -348,10 +348,14 @@ describe("применение цели", () => {
     const m = dump();
     expect(m.tasks.length).toBeGreaterThan(before);
     expect(m.goals[0].appliedAt).toBeTruthy();
-    // Задачи знают, откуда они взялись, и ждут постановки.
+    /* Задачи знают, откуда они взялись. Людей в них не назвали, а
+       должность исполнителя у функции названа — значит ставить их не у
+       кого, и они встают сами (владелец, 2026-09-19): в бэклог, если
+       ресурсов хватает, и в «ждут постановки», если нет. */
     const made = m.tasks.filter((t) => t.goalId === m.goals[0].id);
     expect(made.length).toBeGreaterThan(0);
-    expect(made[0]).toMatchObject({ status: "wait", funcId: expect.any(String) });
+    expect(made[0].funcId).toEqual(expect.any(String));
+    expect(["wait", "backlog", "deferred"]).toContain(made[0].status);
     expect(made[0].start).toBeTruthy();
     expect(made[0].end).toBeTruthy();
 

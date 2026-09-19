@@ -182,3 +182,39 @@ describe("подразумеваемые роли", () => {
     expect(store.tasksFor(model, "200").map((t) => t.id)).toEqual(["n3"]);
   });
 });
+
+/* ОТЗЫВ ИЗ БЭКЛОГА (владелец, 2026-09-19): «на вкладке проверки должна
+   быть возможность отозвать те задачи, которые в бэклоге, для
+   редактирования». Правило одно с доской — иначе окно и сервер говорили
+   бы о задаче разное. */
+describe("отзыв задачи", () => {
+  const lying = (over = {}) => ({ id: "r1", funcId: "f1", title: "Лежит", status: "backlog",
+    setter: "100", assignee: "200", reviewer: "300", end: "2030-03-01T11:00",
+    submissions: [], reviews: [], comments: [], ...over });
+
+  it("из бэклога — в «ждут постановки», с пометкой «отозвана»", async () => {
+    await store.writeModel({ tasks: [lying()], funcs: [], entities: [] });
+    const { task } = await store.setupTask("100", "r1", { status: "wait" }, { isOwner: true });
+    expect(task).toMatchObject({ status: "wait", held: true, taken: false });
+  });
+
+  it("взятую в работу и сданную не отзывают", async () => {
+    await store.writeModel({ tasks: [lying({ taken: true })], funcs: [], entities: [] });
+    expect((await store.setupTask("100", "r1", { status: "wait" }, { isOwner: true })).error)
+      .toBe("already set");
+    await store.writeModel({ tasks: [lying({ submissions: [{ id: "s", hours: 1 }] })],
+      funcs: [], entities: [] });
+    expect((await store.setupTask("100", "r1", { status: "wait" }, { isOwner: true })).error)
+      .toBe("already set");
+  });
+
+  it("поставили заново — пометка снимается", async () => {
+    await store.writeModel({
+      entities: [{ id: "e1", crew: ["200"] }],
+      funcs: [{ id: "f1", e: "e1", name: "Ф", takes: [], gives: [], owners: ["200"] }],
+      tasks: [lying({ status: "wait", held: true })],
+    });
+    const { task } = await store.setupTask("100", "r1", { status: "backlog" }, { isOwner: true });
+    expect(task).toMatchObject({ status: "backlog", held: false });
+  });
+});

@@ -546,12 +546,15 @@ export function itemState(it, proc = {}, { traits = [] } = {}) {
 export function issuesOf(proc = {}, model = {}) {
   const { funcs, errors } = parseText(proc.text, model, proc);
   const out = errors.map((e) => `строка ${e.line}: ${e.message}`);
-  const unknownWho = [], unknownRes = [], noAsset = [], rejected = [], noAssetWho = [], unknownPerson = [], noName = [];
+  const unknownWho = [], unknownRes = [], noAsset = [], rejected = [], noAssetWho = [], unknownPerson = [], noName = [], noWho = [];
   /* У каждой претензии — место: строка и задача (владелец, 2026-09-18: «не
      написано, какой должности нет»). Безымянная «Кто:» — отдельная
      претензия: называть в ней нечего, поэтому говорим, где строка. */
   funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => {
     const at = (x) => ({ name: x.name, row: x.row ?? null, task: t.name || "" });
+    /* Ни одной «Кто:» — задача не заведётся вовсе, и сказать об этом надо
+       здесь, а не оставлять человека гадать, почему её нет на доске. */
+    if (!b.who.length && b.steps.length) noWho.push({ name: t.name || "", row: t.row ?? null, task: t.name || "" });
     b.who.forEach((w) => {
       const st = whoState(w, proc);
       if (st === "unknown") (String(w.name || "").trim() ? unknownWho : noName).push(at(w));
@@ -573,6 +576,7 @@ export function issuesOf(proc = {}, model = {}) {
   const uniq = (l) => [...new Set(l)];
   if (unknownWho.length) out.push(`нет такой должности или актива: ${named(unknownWho)} — заведите в «Правах сотрудников» и назначьте активу`);
   if (noName.length) out.push(`не названа должность или актив: ${uniq(noName.map((x) => place(x).slice(2, -1))).join("; ")} — после «Кто:» нужна должность или актив; рука «{…}» и сотрудник «@…» её не заменяют`);
+  if (noWho.length) out.push(`не названа должность — задача не заведётся: ${uniq(noWho.map((x) => place(x).slice(2, -1))).join("; ")} — добавьте «Кто:»`);
   if (noAssetWho.length) out.push(`должность без актива: ${named(noAssetWho)} — отметьте её во вкладке «Воркеры» актива`);
   if (unknownPerson.length) out.push(`нет такого сотрудника: ${named(unknownPerson)}`);
   if (noAsset.length) out.push(`не понятно, чей ресурс: ${named(noAsset)} — назовите «Кто:» с должностью актива или «Кому:»/«От кого:»`);
@@ -1252,7 +1256,11 @@ export function procFuncs(proc = {}, model = {}) {
           steps.push({ kind: s.kind, ports: ids, ...(or.length ? { or } : {}) });
         });
         const e = doer?.asset ?? b.steps.find((s) => s.asset)?.asset?.id ?? null;
-        return { ok: ok && !!e, e, who, posts, takes, gives, steps, cond: b.cond || null, isElse: !!b.isElse, bi };
+        /* Без «Кто:» задачи не бывает (владелец, 2026-09-19: «если
+           должность не указана, то сама задача не должна быть создана»):
+           поручить работу некому, и задача, которую никто не возьмёт, —
+           не работа. Претензию про это пишет `issuesOf`. */
+        return { ok: ok && !!e && who.length > 0, e, who, posts, takes, gives, steps, cond: b.cond || null, isElse: !!b.isElse, bi };
       };
       const main = build(t.branches[0], 0);
       if (!main.ok) return;

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
-import TasksBoard, { TaskSetup, newTask, runsOfFunc, runTitle, roleOf, selfReview, selfSet, taskGaps, twinNo } from "../components/TasksBoard.jsx";
+import TasksBoard, { TaskSetup, autoStatus, doerNamed, floorStatus, newTask, runsOfFunc,
+  runTitle, roleOf, selfReview, selfSet, taskGaps, twinNo } from "../components/TasksBoard.jsx";
 import ReviewBoard from "../components/ReviewBoard.jsx";
 import { scheduleOf } from "../lib/plan.js";
 import React from "react";
@@ -362,10 +363,14 @@ describe("очередь постановки", () => {
   };
 
   it("непоставленные задачи ждут здесь, и сказано, чего им не хватает", () => {
-    render(<Review tasks={[waiting]} />);
+    /* У функции названа должность исполнителя — про исполнителя не
+       спрашивают (владелец, 2026-09-19); не хватает срока. */
+    render(<Review tasks={[{ ...waiting, end: null }]} />);
     expect(screen.getByText("ждут постановки")).toBeInTheDocument();
     expect(screen.getByText("Задача из цели")).toBeInTheDocument();
-    expect(screen.getAllByText(/Не хватает: исполнитель/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Не хватает: срок/).length).toBeGreaterThan(0);
+    // А про исполнителя претензии нет: работа поручена должности.
+    expect(screen.queryByText(/Не хватает: исполнитель/)).toBeNull();
   });
 
   it("форма постановки открывается здесь же, и задача уходит в бэклог", () => {
@@ -445,7 +450,7 @@ describe("очередь постановки", () => {
       // функции, и на сервер она идёт тем же путём.
       await waitFor(() => expect(sent).toEqual([{ assignee: "2" }]));
       fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
-      expect(sent[1]).toEqual({ status: "backlog" });
+      expect(sent[1]).toEqual({ status: "backlog", held: false });
       // Ушла из очереди только после ответа сервера — он и есть правда.
       await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
     });
@@ -704,7 +709,7 @@ describe("«Инструменты» и роли", () => {
     expect(screen.queryByLabelText("исполнитель")).toBeNull();
     await waitFor(() => expect(posts).toEqual([{ assignee: "6", reviewer: "3" }]));
     fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
-    await waitFor(() => expect(posts[1]).toEqual({ status: "backlog" }));
+    await waitFor(() => expect(posts[1]).toEqual({ status: "backlog", held: false }));
     await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
     // Модель целиком позванный не пишет — и постановка её не выгружает.
     expect(global.fetch.mock.calls.some(([u, o]) => String(u).endsWith("/api/workspace")
@@ -813,5 +818,68 @@ describe("разделы «Проверки»", () => {
     expect(box("вторая")).toBeTruthy();
     expect(box("первая")).not.toBe(box("вторая"));
     expect(box("первая").style.border).toContain("1px solid");
+  });
+});
+
+/* ДОЛЖНОСТЬ ВМЕСТО ЧЕЛОВЕКА И ОТЗЫВ ИЗ БЭКЛОГА (владелец, 2026-09-19).
+
+   «Не хватает: исполнитель» — такого не может быть, если не указан ни
+   постановщик, ни исполнитель, ни проверяющий: значит, та должность,
+   которая указана, им и будет. Если должность не указана — сама задача не
+   должна быть создана. «На вкладке проверки должна быть возможность
+   отозвать те задачи, которые в бэклоге, для редактирования». */
+describe("должность вместо человека", () => {
+  const WITH_POST = { ...FUNCS[0], owners: [], posts: { owners: ["designer"] } };
+  const NO_POST = { ...FUNCS[0], owners: [], posts: {} };
+  const T = { ...newTask({ funcId: "f1", title: "Задача" }), end: "2030-01-01T10:00" };
+
+  it("названа должность — про исполнителя не спрашивают", () => {
+    expect(doerNamed(WITH_POST)).toBe(true);
+    expect(doerNamed(NO_POST)).toBe(false);
+    expect(taskGaps(T, WITH_POST)).toEqual([]);
+    expect(taskGaps(T, NO_POST)).toEqual(["исполнитель"]);
+    // Прежние схемы называли людей списком — читается так же.
+    expect(taskGaps(T, { ...NO_POST, owners: ["2"] })).toEqual([]);
+  });
+
+  it("людей не назвали — задача ставится и принимается сама", () => {
+    expect(selfSet(T)).toBe(true);
+    expect(selfReview(T)).toBe(true);
+    expect(floorStatus(T, { funcs: [WITH_POST], traits: TRAITS })).toBe("backlog");
+    // Должности нет — поставить нечем, задача ждёт.
+    expect(floorStatus(T, { funcs: [NO_POST], traits: TRAITS })).toBe("wait");
+  });
+
+  it("отозванная из бэклога ждёт правки и сама обратно не уходит", () => {
+    const held = { ...T, status: "wait", held: true };
+    expect(floorStatus(held, { funcs: [WITH_POST], traits: TRAITS })).toBe("wait");
+    expect(autoStatus(held, { funcs: [WITH_POST], traits: TRAITS })).toBe("wait");
+  });
+});
+
+describe("отзыв задачи из бэклога", () => {
+  const Review = ({ tasks: t0, onSetup }) => {
+    const [tasks, setTasks] = React.useState(t0);
+    return (<ReviewBoard tasks={tasks} setTasks={setTasks} funcs={FUNCS} traits={TRAITS}
+      entities={ENTITIES} people={PEOPLE} meId="1" isOwner onSetup={onSetup}
+      nameOf={(id) => id} onAccept={() => {}} onReturn={() => {}} />);
+  };
+  const lying = { ...newTask({ funcId: "f1", title: "Лежит" }), status: "backlog",
+    end: "2030-01-01T10:00", setter: "1", assignee: "2", reviewer: "3" };
+
+  it("кнопка возвращает задачу в «ждут постановки» и сообщает об этом серверу", () => {
+    const sent = [];
+    render(<Review tasks={[lying]} onSetup={(t, patch) => { sent.push(patch); return patch; }} />);
+    fireEvent.click(screen.getByText("Лежит"));
+    fireEvent.click(screen.getByRole("button", { name: "отозвать задачу Лежит" }));
+    expect(sent).toEqual([{ status: "wait", held: true, taken: false }]);
+    expect(screen.getByText("ждут постановки")).toBeInTheDocument();
+    expect(screen.queryByText("в бэклоге")).toBeNull();
+  });
+
+  it("взятую в работу не отзывают — сперва «Отменить» на доске", () => {
+    render(<Review tasks={[{ ...lying, taken: true, status: "progress" }]} />);
+    fireEvent.click(screen.getByText("Лежит"));
+    expect(screen.queryByRole("button", { name: "отозвать задачу Лежит" })).toBeNull();
   });
 });

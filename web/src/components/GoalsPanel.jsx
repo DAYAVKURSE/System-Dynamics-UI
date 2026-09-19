@@ -5,7 +5,7 @@ import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, budgetHours, copyGoal, newGoal,
   from "../lib/goals.js";
 import ExprField from "./ExprField.jsx";
 import { DUR_UNITS } from "../lib/funcs.js";
-import { newTask, nowLocal, runTitle } from "./TasksBoard.jsx";
+import { doerNamed, newTask, nowLocal, runTitle } from "./TasksBoard.jsx";
 
 const num = (v) => Number(v) || 0;
 
@@ -717,6 +717,8 @@ function Schedule({ plan }) {
 export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onTasks,
   onDropGoal }) {
   const [open, setOpen] = useState(null);
+  /* Функции, которым не назвали должность: по ним задачи не завелись. */
+  const [noPost, setNoPost] = useState([]);
   const set = (id, patch) => setGoals((p) => p.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   /* Удаление цели — это не только строка из списка. Цель влияла на прогноз
      (её выполнения шли в расчёт) и завела работу; уходит цель — уходит и
@@ -738,9 +740,19 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
      сроком применения и своей работой. Прежняя остаётся как была. */
   const apply = (goal, plan) => {
     const fresh = goal.appliedAt ? copyGoal(goal) : goal;
+    /* Функция без названной должности задачи НЕ заводит (владелец,
+       2026-09-19): «если должность не указана, то сама задача не должна
+       быть создана». Поручать работу некому, и задача, которую всё равно
+       никто не возьмёт, — не работа, а строка в списке. Кого не завели —
+       сказано словами, молча пропускать нельзя. */
+    const funcs = model?.funcs || [];
+    const named = (id) => doerNamed(funcs.find((f) => f.id === id));
+    const rows = plan.schedule || [];
+    setNoPost([...new Set(rows.filter((r) => !named(r.func))
+      .map((r) => funcs.find((f) => f.id === r.func)?.name || "без названия"))]);
     /* Номер выполнения считает `scheduleOf`, а называет его `runTitle`:
        четыре выполнения одной функции — четыре разные задачи. */
-    const tasks = (plan.schedule || []).map((r) => ({
+    const tasks = rows.filter((r) => named(r.func)).map((r) => ({
       ...newTask({ funcId: r.func, title: runTitle(r),
         start: nowLocal(r.start), end: nowLocal(r.end) }),
       goalId: fresh.id,
@@ -776,6 +788,11 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
       {!goals.length && (
         <div style={{ fontSize: 11.5, color: C.muted }}>
           {traits.length ? "Целей пока нет." : "Сначала заведите ресурсы — цель ставится по ресурсу."}
+        </div>)}
+      {!!noPost.length && (
+        <div style={{ fontSize: 11, color: WARN, marginBottom: 8, lineHeight: 1.5 }}>
+          Без должности задачи не заводятся: {noPost.join(", ")} — назовите
+          «Кто:» у функции.
         </div>)}
       {goals.map((g) => (
         <Goal key={g.id} goal={g} traits={traits} model={model} runsOf={runsOf}
