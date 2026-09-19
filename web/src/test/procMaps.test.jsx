@@ -178,6 +178,36 @@ describe("кнопки под полем", () => {
     expect(Array.from(doer.querySelectorAll("text")).map((t) => t.textContent)).toEqual(["wise oyster", "Пользователи"]);
   });
 
+  it("задачи лежат на полупрозрачной плашке своей функции (владелец, 2026-09-19)", () => {
+    const area = screen.getAllByLabelText("текст процесса").pop();
+    fireEvent.focus(area);
+    fireEvent.change(area, { target: { value: [
+      "Функция: Приём заявок", "Задача: Принять", "Кто: Пользователи", "Отдаёт: лиды 4", "",
+      "Задача: Проверить", "Кто: Пользователи", "Берёт: лиды 4", "", "",
+      "Функция: Продажа", "Задача: Позвонить", "Кто: Клиенты", "Берёт: лиды 4",
+    ].join("\n") } });
+    fireEvent.blur(area);
+    fireEvent.click(screen.getAllByRole("button", { name: "майнд-карта процесса" }).pop());
+    const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    const plates = Array.from(dlg.querySelectorAll("g[data-func]"));
+    expect(plates.map((g) => g.getAttribute("aria-label"))).toEqual(["функция Приём заявок", "функция Продажа"]);
+    // Плашка полупрозрачная и без тяжёлой рамки.
+    const first = plates[0].querySelector("rect");
+    expect(Number(first.getAttribute("fill-opacity"))).toBeLessThan(0.2);
+    expect(Number(first.getAttribute("stroke-opacity"))).toBeLessThan(0.5);
+    // Задача лежит внутри плашки своей функции.
+    const box = (r) => ({ x: Number(r.getAttribute("x")), y: Number(r.getAttribute("y")),
+      w: Number(r.getAttribute("width")), h: Number(r.getAttribute("height")) });
+    const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+    const plate = box(first);
+    ["задача Принять", "задача Проверить"].forEach((name) => {
+      expect(inside(box(within(dlg).getByLabelText(name).querySelector("rect")), plate)).toBe(true);
+    });
+    const other = box(plates[1].querySelector("rect"));
+    expect(inside(box(within(dlg).getByLabelText("задача Позвонить").querySelector("rect")), other)).toBe(true);
+    expect(inside(box(within(dlg).getByLabelText("задача Позвонить").querySelector("rect")), plate)).toBe(false);
+  });
+
   it("майнд-карта показывает задачу с тем, что она берёт и отдаёт", () => {
     fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
     const dlg = screen.getByRole("dialog", { name: "Майнд-карта процесса" });

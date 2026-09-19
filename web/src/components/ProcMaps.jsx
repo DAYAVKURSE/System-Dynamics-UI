@@ -427,15 +427,29 @@ function MindMap({ plan, layout = {}, onLayout }) {
     const below = 40 + (doerLines.length - 1) * 11 + doerSub.length * 11;   // человечек с именем под блоком
     return { ...t, rows, nameLines, condLines, doerLines, doerSub, head, h, below };
   });
+  /* Задачи лежат НА ПЛАШКЕ СВОЕЙ ФУНКЦИИ (владелец, 2026-09-19): задачи
+     одной функции кладём вместе, а под ними рисуем полупрозрачную подложку с
+     её именем. Плашка считается по нынешним местам блоков, поэтому она едет
+     и растягивается вслед за перетаскиванием, а не живёт отдельной жизнью. */
+  const PAD = 14, TOP = 22;
+  const funcs = [];
+  withRows.forEach((t) => {
+    const was = funcs.find((f) => f.name === t.func);
+    if (was) was.tasks.push(t); else funcs.push({ name: t.func, tasks: [t] });
+  });
   let y0 = 24;
-  const base = withRows.map((t, i) => {
-    const col = i % 2;
-    const node = { ...t, x: 20 + col * (W + GAPX), y: y0 };
-    if (col === 1 || i === withRows.length - 1) {
-      const prev = withRows[i - 1];
-      y0 += Math.max(t.h + t.below, col === 1 && prev ? prev.h + prev.below : 0) + GAPY;
-    }
-    return node;
+  const base = [];
+  funcs.forEach((f, gi) => {
+    let top = y0 + TOP;
+    f.tasks.forEach((t, i) => {
+      const col = i % 2;
+      base.push({ ...t, gi, x: 20 + PAD + col * (W + GAPX), y: top });
+      if (col === 1 || i === f.tasks.length - 1) {
+        const prev = f.tasks[i - 1];
+        top += Math.max(t.h + t.below, col === 1 && prev ? prev.h + prev.below : 0) + GAPY;
+      }
+    });
+    y0 = top - GAPY + PAD + 18;   // после плашки — воздух до следующей функции
   });
   /* Блоки двигаются перетаскиванием (владелец, 2026-09-18); положение
      помнится и после закрытия окна — по имени задачи. */
@@ -486,8 +500,19 @@ function MindMap({ plan, layout = {}, onLayout }) {
     if (t) drift(t.clientX, t.clientY);
   };
   const up = () => { if (!drag.current) return; drag.current = null; keep(moved); };
+  const plates = funcs.map((f, gi) => {
+    const ns = nodes.filter((n) => n.gi === gi);
+    if (!ns.length) return null;
+    const x = Math.min(...ns.map((n) => n.x)) - PAD;
+    const y = Math.min(...ns.map((n) => n.y)) - TOP;
+    return { name: f.name, x, y,
+      w: Math.max(...ns.map((n) => n.x + W)) + PAD - x,
+      h: Math.max(...ns.map((n) => n.y + n.h + n.below)) + PAD - y };
+  }).filter(Boolean);
   const width = Math.max(600, Math.max(...nodes.map((n) => n.x + W), 0) + 40, 40 + people0(plan).length * 170);
-  const height = Math.max(300, Math.max(...nodes.map((n) => n.y + n.h + n.below + 12), 0) + 20);
+  const height = Math.max(300,
+    Math.max(...nodes.map((n) => n.y + n.h + n.below + 12), 0) + 20,
+    Math.max(...plates.map((f) => f.y + f.h), 0) + 16);   // полоса людей не залезает на плашку
 
   /* Стрелки ресурсов: выданное одной задачей взято другой — по закреплённому
      имени или по имени ресурса. */
@@ -569,6 +594,14 @@ function MindMap({ plan, layout = {}, onLayout }) {
               <path d="M0,0 L7,3 L0,6 z" fill={c} /></marker>))}
           <marker id="pm-arrow2" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
             <path d="M0,0 L6,3 L0,6 z" fill={C.muted} /></marker></defs>
+
+        {/* Плашка функции — под её задачами: тонкая и полупрозрачная. */}
+        {plates.map((f, i) => (
+          <g key={`f${i}`} aria-label={`функция ${f.name}`} data-func="">
+            <rect x={f.x} y={f.y} width={f.w} height={f.h} rx="14" fill={ACC} fillOpacity="0.05"
+              stroke={ACC} strokeOpacity="0.28" />
+            <text x={f.x + 14} y={f.y + 15} fill={C.muted} fontSize="10" letterSpacing="0.6">{f.name}</text>
+          </g>))}
 
         {/* Ресурсы между задачами */}
         {links.map((l, i) => {
