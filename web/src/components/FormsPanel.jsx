@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { C, BAD, WARN, S, btn, TxtField } from "./ui.jsx";
+import { C, BAD, WARN, NameField, S, btn, TxtField } from "./ui.jsx";
 import { addForm, removeForm, setForm, setRoleForm } from "../identity.js";
 import { parseNumbered } from "../lib/formText.js";
 
@@ -56,7 +56,7 @@ function FormCard({ form, busy, act }) {
     <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
       borderRadius: 8, padding: 8, marginBottom: 6 }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
-        <TxtField value={form.name} aria-label={`название анкеты «${form.name}»`}
+        <NameField value={form.name} aria-label={`название анкеты «${form.name}»`}
           style={{ flex: "1 1 160px", fontWeight: 700, fontSize: 12.5 }}
           onCommit={retitle} />
         <span style={{ fontSize: 10, color: C.muted }}>вопросов: {qs.length}</span>

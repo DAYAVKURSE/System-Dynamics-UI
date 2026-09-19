@@ -2,6 +2,7 @@ import { FACTORS_ON } from "../lib/flags.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import { nameSpan, rename, renameEl } from "./helpers/name.js";
 import { Funcs, Workers } from "../components/AssetPanel.jsx";
 
 /* Карточка актива: воркеры, функции, ресурсы — три равноправные части,
@@ -248,7 +249,7 @@ describe("новое в форме функции", () => {
     expect(dump().funcs.pop().accepted).toBe(true);
 
     assetTab("Ресурсы");
-    const card = screen.getByDisplayValue(name).closest("div");
+    const card = nameSpan(name).closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
     const after = dump().funcs.pop();
     expect(after.accepted).toBe(false);
@@ -265,8 +266,8 @@ describe("новое в форме функции", () => {
     addPort("gives");
     fireEvent.click(btnAccept());
     const title = screen.getAllByLabelText("название функции").pop();
-    fireEvent.focus(title);
-    fireEvent.blur(title);
+    fireEvent.doubleClick(title);
+    fireEvent.blur(screen.getAllByLabelText("название функции").pop());
     expect(within(myCard()).getByText("готова")).toBeInTheDocument();
     expect(dump().funcs.pop().accepted).toBe(true);
   });
@@ -385,15 +386,11 @@ describe("функция заводится и живёт", () => {
 
   it("задачи прячутся под спойлером функции; у функции и у задачи — свои имена (владелец, 2026-09-18)", () => {
     addFunc();
-    const fn = screen.getAllByLabelText("название функции").pop();
     fireEvent.click(screen.getAllByRole("button", { name: /^добавить задачу в функцию/ }).pop());
     // Две задачи в одной функции — обе внутри, каждая со своим полем имени.
     expect(screen.getAllByLabelText("название задачи").length).toBe(2);
-    const task = screen.getAllByLabelText("название задачи").pop();
-    fireEvent.change(task, { target: { value: "проверить макет" } });
-    fireEvent.blur(task);
-    fireEvent.change(fn, { target: { value: "вёрстка" } });
-    fireEvent.blur(fn);
+    renameEl(screen.getAllByLabelText("название задачи").pop(), "проверить макет");
+    renameEl(screen.getAllByLabelText("название функции").pop(), "вёрстка");
     // Каждая задача сворачивается своей стрелкой — и первая тоже
     // (владелец, 2026-09-18: «первая задача не скрывается под спойлером»).
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть задачи" })[0]);
@@ -403,16 +400,14 @@ describe("функция заводится и живёт", () => {
     expect(screen.getAllByRole("button", { name: "развернуть задачи" }).length).toBe(2);
     // Свернули функцию — задач не видно.
     fireEvent.click(screen.getAllByRole("button", { name: "свернуть функции" }).pop());
-    expect(screen.queryByDisplayValue("проверить макет")).toBeNull();
+    expect(nameSpan("проверить макет")).toBeFalsy();
     const rec = dump().funcs.filter((f) => f.chain?.name === "вёрстка");
     expect(rec.map((f) => f.name)).toContain("проверить макет");
   });
 
   it("название правится и переживает выгрузку", () => {
     addFunc();
-    const box = screen.getAllByLabelText("название функции").pop();
-    fireEvent.change(box, { target: { value: "вёрстка страницы" } });
-    fireEvent.blur(box);
+    renameEl(screen.getAllByLabelText("название функции").pop(), "вёрстка страницы");
     expect(dump().funcs.pop().name).toBe("вёрстка страницы");
   });
 });
@@ -539,7 +534,7 @@ describe("ресурс — такая же карточка", () => {
     scheme();
     assetTab("Ресурсы");
     // «заявки» — ресурс «Пользователей», его берёт функция другого актива.
-    const card = screen.getByDisplayValue("заявки").closest("div");
+    const card = nameSpan("заявки").closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
 
     const m = dump();
@@ -565,11 +560,11 @@ describe("модель переживает то, что должна", () => {
     const was = dump().funcs.length;
     scheme();
     assetTab("Функции");
-    const card = screen.getByDisplayValue("Сбор заявок").closest("div");
+    const card = nameSpan("Сбор заявок").closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
     expect(dump().funcs.length).toBe(was - 1);
     scheme();
-    fireEvent.click(screen.getByRole("button", { name: /↶ отменить/ }));
+    fireEvent.click(screen.getByRole("button", { name: "отменить" }));
     expect(dump().funcs.length).toBe(was);
   });
 
@@ -613,9 +608,7 @@ describe("модель переживает то, что должна", () => {
 
   it("сохранённый и загруженный сценарий приносит функции обратно", async () => {
     addFunc();
-    const box = screen.getAllByLabelText("название функции").pop();
-    fireEvent.change(box, { target: { value: "вёрстка" } });
-    fireEvent.blur(box);
+    renameEl(screen.getAllByLabelText("название функции").pop(), "вёрстка");
 
     openExport();
     const nameBox = container.querySelector('input[placeholder="имя сценария"]');
@@ -627,9 +620,9 @@ describe("модель переживает то, что должна", () => {
     // Стираем функцию и грузим сценарий обратно.
     scheme();
     assetTab("Функции");
-    const card = screen.getByDisplayValue("вёрстка").closest("div");
+    const card = nameSpan("вёрстка").closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
-    expect(screen.queryByDisplayValue("вёрстка")).toBeNull();
+    expect(nameSpan("вёрстка")).toBeFalsy();
 
     openExport();
     const load = [...container.querySelectorAll("button")]
@@ -639,7 +632,7 @@ describe("модель переживает то, что должна", () => {
 
     scheme();
     assetTab("Функции");
-    expect(screen.getByDisplayValue("вёрстка")).toBeInTheDocument();
+    expect(nameSpan("вёрстка")).toBeTruthy();
   });
 });
 
@@ -656,7 +649,7 @@ describe("ресурс и фактор принимает человек — к�
     fireEvent.change(box, { target: { value: name } });
     fireEvent.blur(box);
     fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
-    return screen.getByDisplayValue(name).closest("div").parentElement;
+    return nameSpan(name).closest("div").parentElement;
   };
   const addFactor = (name) => {
     scheme();
@@ -665,7 +658,7 @@ describe("ресурс и фактор принимает человек — к�
     fireEvent.change(box, { target: { value: name } });
     fireEvent.blur(box);
     fireEvent.click(screen.getByRole("button", { name: "+ фактор" }));
-    return screen.getByDisplayValue(name).closest("div").parentElement;
+    return nameSpan(name).closest("div").parentElement;
   };
 
   it("новый ресурс красный и подписан «не принят»; «Принять» делает его зелёным «ресурс»", () => {
@@ -697,7 +690,7 @@ describe("ресурс и фактор принимает человек — к�
     loadJson({ ...m, traits: m.traits.map((t) => ({ id: t.id, e: t.e, k: t.k, l: t.l, unit: t.unit })) });
     scheme();
     assetTab("Ресурсы");
-    expect(screen.getByDisplayValue("заявки")).toBeInTheDocument();
+    expect(nameSpan("заявки")).toBeTruthy();
     expect(screen.getAllByText("не принят").length).toBeGreaterThan(0);
   });
 
@@ -791,7 +784,7 @@ describe("шапка функции в карточке (владелец, 2026-
     expect(res.value).toBe("лид передан в продажи");
     expect(within(box).queryByLabelText("критерий функции 1")).toBeNull();   // критериев у функции нет
     // Поле стоит ниже названия функции и выше её задач.
-    const title = within(box).getByDisplayValue("Приём заявок");
+    const title = within(box).getByLabelText("название функции");
     expect(title.compareDocumentPosition(res) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -831,7 +824,7 @@ describe("шапка функции в карточке (владелец, 2026-
       <Funcs entityId="e1" funcs={two} setFuncs={() => {}} traits={[]} entities={[{ id: "e1", name: "Актив" }]}
         open={null} setOpen={() => {}} />);
     // На экране одна карточка функции с обеими задачами внутри.
-    expect(within(box).getAllByDisplayValue("Приём").length).toBe(1);
+    expect(within(box).getAllByLabelText("название функции").length).toBe(1);
     expect(new Set(two.map((f) => f.chain?.id || f.id)).size).toBe(1);   // так же считает и вкладка
   });
 });

@@ -199,13 +199,43 @@ describe("карта в форме", () => {
       focus={focus} onFocus={setFocus} />);
   };
 
-  it("проект заводится кнопкой, а разделы размечаются сами", () => {
+  /* «ПРОСЛЕДИТЬ» (владелец, 2026-09-19): «нужно добавить кнопку
+     „Проследить", по нажатию которой будет создаваться раздел отчёта с
+     прослеживаемым движением ресурсов». */
+  it("«Проследить» уносит выбор в свой раздел, а отчёт освобождается под следующий", () => {
+    render(<Panel nodes={[{ id: "rp1", parent: null, name: "Заказ", trait: "", upto: "" }]} />);
+    const pick = screen.getByLabelText("с какого ресурса: Заказ");
+    // Пока ресурс не выбран, прослеживать нечего — кнопка не нажимается.
+    expect(screen.getByRole("button", { name: "проследить: Заказ" })).toBeDisabled();
+    fireEvent.change(pick, { target: { value: "t1" } });
+    fireEvent.click(screen.getByRole("button", { name: "проследить: Заказ" }));
+    // Раздел назван ресурсом, открыт и несёт его движение.
+    expect(screen.getByLabelText("название раздела").textContent).toBe("заявка");
+    expect(screen.getByLabelText("с какого ресурса: заявка").value).toBe("t1");
+    expect(screen.getByText(/Функции — что будет сделано/)).toBeInTheDocument();
+    // У самого отчёта выбор снова пуст — под следующее прослеживание.
+    fireEvent.click(screen.getByRole("button", { name: "← все отчёты" }));
+    expect(screen.getByLabelText("с какого ресурса: Заказ").value).toBe("");
+  });
+
+  it("название отчёта правится двойным нажатием, а не в поле", () => {
+    render(<Panel nodes={[{ id: "rp1", parent: null, name: "Заказ", trait: "", upto: "" }]} />);
+    const label = screen.getByLabelText("название отчёта");
+    expect(label.tagName.toLowerCase()).toBe("span");
+    fireEvent.doubleClick(label);
+    const input = screen.getByLabelText("название отчёта");
+    fireEvent.change(input, { target: { value: "Сайт" } });
+    fireEvent.blur(input);
+    expect(screen.getByLabelText("название отчёта").textContent).toBe("Сайт");
+  });
+
+  it("отчёт заводится кнопкой, а разделы размечаются сами", () => {
     /* Кнопки «+ раздел внутри» больше нет: раздел — это шаг цепочки, и
        размечать его руками не за что. Заводят только проект, всё
        остальное считается по модели. */
     render(<Panel />);
-    fireEvent.click(screen.getByRole("button", { name: "+ проект" }));
-    expect(screen.getByLabelText("название проекта")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "+ отчёт" }));
+    expect(screen.getByLabelText("название отчёта")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "+ раздел внутри" })).toBeNull();
   });
 
@@ -619,7 +649,7 @@ describe("карта в форме", () => {
   it("удаление блока уносит вложенные разделы", () => {
     render(<Panel nodes={NODES} />);
     fireEvent.click(screen.getAllByRole("button", { name: "удалить" })[0]);
-    expect(screen.getByText(/Проектов пока нет/)).toBeInTheDocument();
+    expect(screen.getByText(/Отчётов пока нет/)).toBeInTheDocument();
   });
 
   it("ссылка наружу — это снимок на сервере, а не адрес приложения", async () => {
@@ -749,11 +779,11 @@ describe("вкладка «Отчёты»", () => {
     expect(TAB_LIST.map(([k]) => k)).toContain("reports");
   });
 
-  it("открывается и предлагает завести проект", () => {
+  it("открывается и предлагает завести отчёт", () => {
     render(<SystemModel />);
     fireEvent.click(screen.getByRole("button", { name: "Отчёты" }));
-    expect(screen.getByText(/Проектов пока нет/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ проект" })).toBeInTheDocument();
+    expect(screen.getByText(/Отчётов пока нет/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ отчёт" })).toBeInTheDocument();
   });
 
   it("внутренняя ссылка на блок читается из адреса", () => {

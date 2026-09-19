@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import { nameSpan, rename } from "./helpers/name.js";
 
 // Карточки прогноза свёрнуты: имя и график. Рычаги, гипотезы и задачи
 // разворачиваются нажатием на заголовок, поэтому тесты сначала раскрывают всё.
@@ -22,7 +23,7 @@ beforeEach(() => { ({ container } = render(<SystemModel />)); });
 const undoBtn = () => screen.getByRole("button", { name: /отменить/ });
 /* «Вернуть» есть и на проверке («Вернуть в бэклог») — берём кнопку шапки
    со стрелкой, а не любое слово «вернуть». */
-const redoBtn = () => screen.getByRole("button", { name: /↷ вернуть/ });
+const redoBtn = () => screen.getByRole("button", { name: "вернуть" });
 const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
 const addEntity = () => fireEvent.click(screen.getByRole("button", { name: "+ актив" }));
 
@@ -71,7 +72,7 @@ describe("отмена правки значения", () => {
   it("возвращает прежнее название актива и снова его убирает", () => {
     scheme();
     selectEntity("Пользователи");
-    commit(screen.getByDisplayValue("Пользователи"), "Клиенты");
+    rename("название актива", "Клиенты");
     expect(entityNames()).toContain("Клиенты");
 
     fireEvent.click(undoBtn());
@@ -84,8 +85,8 @@ describe("отмена правки значения", () => {
   it("повторная запись того же значения шагом не считается", () => {
     scheme();
     selectEntity("Пользователи");
-    commit(screen.getByDisplayValue("Пользователи"), "Клиенты");
-    commit(screen.getByDisplayValue("Клиенты"), "Клиенты");
+    rename("название актива", "Клиенты");
+    rename("название актива", "Клиенты");
 
     // Один шаг — значит после одной отмены отменять уже нечего.
     fireEvent.click(undoBtn());
@@ -96,16 +97,18 @@ describe("отмена правки значения", () => {
 describe("отмена структурных правок", () => {
   it("возвращает удалённый актив вместе с его ресурсами и передачами", () => {
     scheme();
-    const arrowsBefore = container.querySelectorAll("svg line").length;
+    /* Передача — дуга (владелец, 2026-09-19), и считать её надо по метке:
+       линий на схеме хватает и без стрелок. */
+    const arrowsBefore = container.querySelectorAll("[data-move]").length;
     selectEntity("Виртуальный менеджер");
     fireEvent.click(screen.getByRole("button", { name: "Удалить актив" }));
     expect(entityNames()).not.toContain("Виртуальный менеджер");
     // Передачи в удалённый актив исчезают вместе с ним.
-    expect(container.querySelectorAll("svg line").length).toBeLessThan(arrowsBefore);
+    expect(container.querySelectorAll("[data-move]").length).toBeLessThan(arrowsBefore);
 
     fireEvent.click(undoBtn());
     expect(entityNames()).toContain("Виртуальный менеджер");
-    expect(container.querySelectorAll("svg line").length).toBe(arrowsBefore);
+    expect(container.querySelectorAll("[data-move]").length).toBe(arrowsBefore);
   });
 
   it("убирает добавленный актив", () => {
@@ -173,7 +176,8 @@ describe("клавиши", () => {
   it("в поле ввода Ctrl+Z остаётся браузерным — набранный текст важнее", () => {
     scheme();
     addEntity();
-    const field = screen.getByDisplayValue("Новый актив");
+    fireEvent.doubleClick(screen.getByLabelText("название актива"));
+    const field = screen.getByLabelText("название актива");
     fireEvent.keyDown(field, { key: "z", ctrlKey: true });
     expect(entityNames()).toContain("Новый актив");
   });
@@ -185,15 +189,15 @@ describe("отмена в работе с функциями", () => {
     // потерять её отменяемым движением нельзя.
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     selectEntity("Пользователи");
-    const name = () => screen.queryByDisplayValue("Сбор заявок");
+    const name = () => nameSpan("Сбор заявок") || null;
     expect(name()).toBeInTheDocument();
 
     const card = name().closest("div");
     fireEvent.click(within(card).getByRole("button", { name: "удалить" }));
-    expect(name()).toBeNull();
+    expect(name()).toBeFalsy();
 
     fireEvent.click(undoBtn());
-    expect(screen.getByDisplayValue("Сбор заявок")).toBeInTheDocument();
+    expect(nameSpan("Сбор заявок")).toBeTruthy();
   });
 
   it("отмена возвращает прежний диапазон входа — и прогноз вместе с ним", () => {

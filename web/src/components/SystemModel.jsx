@@ -16,8 +16,8 @@ import LooseCrew from "./LooseCrew.jsx";
 import { handColor } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
 import { procFuncs as procFuncs2, replaceName, setFuncHead, setTaskChecks } from "../lib/proc2.js";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, durText, nm, NumField, TxtField }
-  from "./ui.jsx";
+import { Brand, C, OK, WARN, BAD, NEU, ACC, ICON, IconButton, NameField, S, btn, durText,
+  nm, NumField, TxtField } from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
   crewOf,
   normalizeAssets,
@@ -484,7 +484,14 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
              поровну: одной полосы им мало — на косой линии соседние
              таблички наехали бы друг на друга углами. */
           const t=(at+1)/(same.length+1);
-          const mx=x1+dx*t+ox,my=y1+dy*t+oy;
+          /* Стрелка — мягкая дуга, а не ломаная (владелец, 2026-09-19):
+             концы остаются у самих блоков, а в стороны разводит изгиб.
+             Точка на дуге считается по той же квадратичной кривой, что её
+             и рисует, — иначе табличка сползала бы с линии. */
+          const cx=x1+dx/2+ox*2,cy=y1+dy/2+oy*2;
+          const arc=`M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+          const bez=(p0,pc,p1)=>(1-t)*(1-t)*p0+2*(1-t)*t*pc+t*t*p1;
+          const mx=bez(x1,cx,x2),my=bez(y1,cy,y2);
           const txt=`${w.name}: ${nm(w.lo)}–${nm(w.hi)}/мес`;
           const fn=funcs.find(f=>f.id===w.func);
           /* Стрелку рисует функция — значит по стрелке до неё и надо
@@ -494,13 +501,12 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
             onPointerDown={ev=>ev.stopPropagation()}
             onClick={ev=>{ev.stopPropagation(); if(onOpenFunc) onOpenFunc(w.func);}}>
             <title>{fn?`${fn.name||"без названия"} — открыть функцию`:txt}</title>
-            {/* Широкая прозрачная линия под тонкой: попасть пальцем в
+            {/* Широкая прозрачная дуга под тонкой: попасть пальцем в
                 полуторапиксельную черту невозможно. */}
-            <line x1={x1+ox} y1={y1+oy} x2={x2+ox} y2={y2+oy} stroke="transparent"
-              strokeWidth="16"/>
-            <line x1={x1+ox} y1={y1+oy} x2={x2+ox} y2={y2+oy} stroke={ACC}
+            <path d={arc} fill="none" stroke="transparent" strokeWidth="16"/>
+            <path data-move="" d={arc} fill="none" stroke={ACC}
               strokeWidth="1.6" strokeDasharray="4 3" markerEnd="url(#aw)"
-              style={{pointerEvents:"none"}}/>
+              strokeLinecap="round" style={{pointerEvents:"none"}}/>
             <rect x={mx-70} y={my-11} width="140" height="22" rx="6" fill={C.panel}
               stroke={ACC} strokeWidth="1"/>
             <text x={mx} y={my+3.5} textAnchor="middle" fontSize="9" fill={ACC}
@@ -739,7 +745,9 @@ export default function SystemModel(){
      не идёт. */
   const [published,setPublished]=useState([]);
   const [ratings,setRatings]=useState(null);
-  const [horizon,setHorizon]=useState(24);
+  /* Горизонт расчёта — 24 месяца: поле убрано из шапки (владелец,
+     2026-09-19), а прогнозу без глубины считать нечего. */
+  const horizon=24;
   const schemeRef=useRef(null);   // камера схемы: «−»/«+» зовут её напрямую
   // Заготовка заказа/услуги из настроек функции — до открытия рынка.
   const [marketDraft,setMarketDraft]=useState(null);
@@ -1182,6 +1190,13 @@ export default function SystemModel(){
     }catch(e){ setSavedMsg(e.message||"Не удалось сохранить."); }
     setSavedBusy(false);
   };
+  /* Значок «сохранить» в шапке: сохраняет туда же, куда и кнопка во
+     вкладке «Инструменты». Имени у сценария ещё нет — там его и называют,
+     поэтому значок открывает то место, а не выдумывает имя за человека. */
+  const saveNow=()=>{
+    if(!saveName.trim()){ setTab("tools"); setTool("export"); return; }
+    saveToDisk();
+  };
   const openScenario=useCallback(async(id,{guard}={})=>{
     const s=await getScenario(id);
     if(!s) throw new Error("Сценарий не найден.");
@@ -1476,20 +1491,23 @@ export default function SystemModel(){
          движение от края уносило бы со страницы назад. */
       overscrollBehaviorX:"contain"}}
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-      <div className="flex items-start justify-between gap-3" style={{marginBottom:10}}>
-        <div><div style={{fontSize:19,fontWeight:700}}>Активы: воркеры, функции, ресурсы</div></div>
-        <div className="flex items-center gap-2"
-          style={{flexWrap:"wrap",justifyContent:"flex-end"}}>
-          <button style={{...btn(false),opacity:hist.canUndo?1:0.45}}
-            disabled={!hist.canUndo} onClick={hist.undo}
-            title="Отменить последнее изменение модели (Ctrl+Z)">↶ отменить</button>
-          <button style={{...btn(false),opacity:hist.canRedo?1:0.45}}
-            disabled={!hist.canRedo} onClick={hist.redo}
-            title="Вернуть отменённое (Ctrl+Shift+Z)">↷ вернуть</button>
-          <span style={S.lbl}>горизонт</span>
-          <NumField value={horizon} style={{width:58}}
-            onCommit={v=>setHorizon(Math.max(3,Math.min(120,v||24)))}/>
-          <span style={{fontSize:11,color:C.muted}}>мес</span></div>
+      {/* Шапка — имя приложения и знак; что внутри, говорят сами вкладки
+          (владелец, 2026-09-19). */}
+      <div className="flex items-center gap-3" style={{marginBottom:10}}>
+        <Brand/>
+      </div>
+
+      {/* Отменить · вернуть · сохранить — значками, над вкладками
+          (владелец, 2026-09-19). */}
+      <div className="flex items-center gap-2" style={{marginBottom:8}}>
+        <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
+          disabled={!hist.canUndo} onClick={hist.undo} icon={ICON.undo}/>
+        <IconButton label="вернуть" title="Вернуть отменённое (Ctrl+Shift+Z)"
+          disabled={!hist.canRedo} onClick={hist.redo} icon={ICON.redo}/>
+        {(me.solo||me.isOwner)&&(
+          <IconButton label="сохранить" title={saveName.trim()
+            ? `Сохранить сценарий «${saveName.trim()}»` : "Назвать сценарий и сохранить"}
+            disabled={savedBusy} onClick={saveNow} icon={ICON.save}/>)}
       </div>
 
       {recovery && (me.solo||me.isOwner) && (
@@ -1751,9 +1769,12 @@ export default function SystemModel(){
               <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
                 onClick={()=>delEntity(selE.id)}>Удалить актив</button>
             </div>
-            <TxtField value={selE.name} aria-label="название актива"
-              style={{fontSize:15,fontWeight:700,marginBottom:6}}
-              onCommit={v=>setEntities(p=>p.map(e=>e.id===selE.id?{...e,name:v}:e))}/>
+            {/* Название — двойным нажатием (владелец, 2026-09-19). */}
+            <div style={{marginBottom:6}}>
+              <NameField value={selE.name} aria-label="название актива"
+                style={{fontSize:15,fontWeight:700,display:"block"}}
+                onCommit={v=>setEntities(p=>p.map(e=>e.id===selE.id?{...e,name:v}:e))}/>
+            </div>
             <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
               {FACTORS_ON ? "Актив — это воркеры, функции, факторы и ресурсы." : "Актив — это воркеры, функции и ресурсы."} Они и есть вкладки ниже.
             </div>

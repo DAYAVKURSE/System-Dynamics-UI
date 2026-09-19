@@ -150,14 +150,18 @@ describe("анкеты в «Ролях»", () => {
   it("анкета переименовывается и удаляется", async () => {
     const calls = ownerServer();
     render(<PeoplePanel />);
-    const name = await screen.findByLabelText("название анкеты «Общая»");
+    /* Название анкеты — надпись: правка открывается двойным нажатием
+       (владелец, 2026-09-19). */
+    const label = await screen.findByLabelText("название анкеты «Общая»");
+    const card = label.closest("div").parentElement;
+    fireEvent.doubleClick(label);
+    const name = screen.getByLabelText("название анкеты «Общая»");
     fireEvent.change(name, { target: { value: "Общие вопросы" } });
     fireEvent.blur(name);
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]).toMatchObject({ url: "/api/org/forms/common", method: "PUT",
       body: { name: "Общие вопросы" } });
 
-    const card = name.closest("div").parentElement;
     fireEvent.click(within(card).getByRole("button", { name: "Удалить анкету" }));
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1]).toMatchObject({ url: "/api/org/forms/common", method: "DELETE" });

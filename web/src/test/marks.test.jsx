@@ -26,7 +26,7 @@ const asks = () => [...container.querySelectorAll("svg text")].filter((t) => t.t
 describe("подпись на схеме", () => {
   it("у каждого актива под названием написано, что это актив", () => {
     scheme();
-    const svg = container.querySelector("svg");
+    const svg = container.querySelector("[data-scheme-box] svg");
     const marks = [...svg.querySelectorAll("text")].filter((t) => t.textContent === "актив");
     expect(marks.length).toBeGreaterThan(0);
   });
@@ -67,15 +67,16 @@ describe("подпись на схеме", () => {
      Имя выбранного актива — единственное поле ввода с жирным начертанием. */
   const blocks = () => [...container.querySelectorAll("svg > g")]
     .filter((g) => g.querySelector('rect[width="208"]'));
-  const nameBox = () => [...container.querySelectorAll("input")]
-    .find((i) => i.style.fontWeight === "700");
+  /* Имя выбранного актива — надпись, а не поле: правится двойным
+     нажатием (владелец, 2026-09-19). */
+  const nameBox = () => screen.getByLabelText("название актива");
 
   it("тап по блоку выбирает актив — иначе проверка ниже ничего не стоит", () => {
     scheme();
-    const other = blocks().find((g) => g.querySelector("text").textContent !== nameBox().value);
+    const other = blocks().find((g) => g.querySelector("text").textContent !== nameBox().textContent);
     fireEvent.pointerDown(other, { clientX: 1, clientY: 1 });
     fireEvent.pointerUp(window, { clientX: 1, clientY: 1 });
-    expect(nameBox().value).toBe(other.querySelector("text").textContent);
+    expect(nameBox().textContent).toBe(other.querySelector("text").textContent);
   });
 
   it("тап по «?» открывает объяснение и НЕ перескакивает выбор на чужой блок", () => {
@@ -84,7 +85,7 @@ describe("подпись на схеме", () => {
     const other = blocks().find((g) => g.querySelector("text").textContent !== "Новый актив");
     fireEvent.pointerDown(other, { clientX: 1, clientY: 1 });
     fireEvent.pointerUp(window, { clientX: 1, clientY: 1 });
-    const mine = nameBox().value;
+    const mine = nameBox().textContent;
     // «?» чужого блока: у своего выбор не изменился бы и без защиты.
     const ask = asks().map((t) => t.parentElement)
       .find((g) => g.parentElement.querySelector("text").textContent !== mine);
@@ -96,7 +97,7 @@ describe("подпись на схеме", () => {
 
     expect(dialog()).toBeTruthy();
     fireEvent.click(screen.getByLabelText("закрыть"));
-    expect(nameBox().value).toBe(mine);
+    expect(nameBox().textContent).toBe(mine);
   });
 });
 
@@ -126,7 +127,7 @@ describe("подпись у ресурса", () => {
     fireEvent.pointerDown(mkt, { clientX: 1, clientY: 1 });
     fireEvent.pointerUp(window, { clientX: 1, clientY: 1 });
     assetTab("Ресурсы");
-    expect(screen.getByDisplayValue("спрос")).toBeInTheDocument();
+    expect(screen.getByText("спрос")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /почему «ресурс»/ })).toBeNull();
   });
 });

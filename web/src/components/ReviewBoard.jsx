@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
 import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
@@ -336,7 +336,17 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
   /* Готовые — своим разделом: с доски задач их убрали, и смотрят их
      здесь, у того, кто их принимал. */
   const done = mine.filter((t) => t.status === "done");
-  const rest = mine.filter((t) => !["review", "wait", "done"].includes(t.status));
+  /* Остальная работа — не общей кучей, а по состояниям (владелец,
+     2026-09-19): «должно показываться, какие задачи в бэклоге, какие в
+     работе, по каким дедлайн, какие готовые». Тот, кто ставит и
+     принимает, видит по этим разделам, где работа стоит, а где идёт. */
+  const REST = [
+    { id: "backlog", title: "в бэклоге", states: ["backlog", "deferred"], color: NEU },
+    { id: "progress", title: "в работе", states: ["progress"], color: ACC },
+    { id: "deadline", title: "дедлайн", states: ["deadline"], color: BAD },
+  ];
+  const restGroups = REST.map((g) => ({ ...g,
+    rows: mine.filter((t) => g.states.includes(t.status)) }));
 
   /* ─── очередь постановки ───
      Постановка и приём — работа одного и того же человека: не того, кто
@@ -381,10 +391,14 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
           const why = whyNotSet(t, funcs, traits, tasks, factors);
           const on = setupId === t.id;
           return (
-            <div key={t.id}>
+            /* Каждая задача — своей формой, а не строкой за полоской
+               (владелец, 2026-09-19): полоска разделяла задачи, но не
+               показывала, где одна кончается и начинается другая. */
+            <div key={t.id} style={{ background: C.panel2,
+              border: `1px solid ${on ? ACC : C.line}`, borderRadius: 8,
+              padding: 8, marginTop: 8 }}>
               <div className="flex flex-wrap gap-2"
-                style={{ alignItems: "center", padding: "7px 0",
-                  borderTop: `1px solid ${C.line}`, cursor: "pointer" }}
+                style={{ alignItems: "center", cursor: "pointer" }}
                 onClick={() => setSetupId(on ? null : t.id)}>
                 <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
                   {t.title}</span>
@@ -425,17 +439,20 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
         extra={killRow(t)} />)}
 
-      {!!rest.length && (
-        <>
-          <div style={{ ...S.lbl, margin: "12px 0 6px" }}>остальные задачи под вашей проверкой</div>
-          {rest.map((t) => (
+      {restGroups.filter((g) => g.rows.length).map((g) => (
+        <React.Fragment key={g.id}>
+          <div className="flex items-center gap-2" style={{ margin: "12px 0 6px" }}>
+            <span style={S.lbl}>{g.title}</span>
+            <span style={{ fontSize: 10.5, color: g.color }}>{g.rows.length}</span>
+          </div>
+          {g.rows.map((t) => (
             <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
               note={note} setNote={setNote} mark={mark} setMark={setMark}
               hidden={hidden} setHidden={setHidden} meId={meId}
               funcs={funcs} traits={traits} entities={entities}
               nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
               extra={killRow(t)} />))}
-        </>)}
+        </React.Fragment>))}
 
       {/* ─── готовые ───
           С доски задач их убрали: доска отвечает на «что мне делать».

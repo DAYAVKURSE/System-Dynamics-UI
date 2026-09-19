@@ -72,8 +72,11 @@ describe("полоски на блоках", () => {
 
 /* Камера: viewBox svg. Окно в тестах не измеряется (0×0) — берётся
    запасной размер 1000×600, и масштаб = 1000 / ширина viewBox. */
+/* Схема — не единственный svg на странице: в шапке стоит знак приложения
+   (владелец, 2026-09-19). Спрашиваем именно лист схемы. */
+const schemeSvg = () => container.querySelector("[data-scheme-box] svg");
 const vb = () => {
-  const [x, y, w, h] = container.querySelector("svg").getAttribute("viewBox").split(" ").map(Number);
+  const [x, y, w, h] = schemeSvg().getAttribute("viewBox").split(" ").map(Number);
   return { x, y, w, h };
 };
 const zoomOf = () => 1000 / vb().w;
@@ -115,7 +118,7 @@ describe("окно и лист", () => {
     const box = container.querySelector("[data-scheme-box]");
     expect(box.style.height).toContain("520px");
     expect(box.style.overflow).toBe("hidden");
-    expect(container.querySelector("svg").getAttribute("width")).toBe("100%");
+    expect(schemeSvg().getAttribute("width")).toBe("100%");
     expect(fits()).toBe(true);
   });
 
@@ -125,7 +128,8 @@ describe("окно и лист", () => {
     await waitFor(() => expect(zoomOf()).toBeGreaterThan(z0 * 1.2));
     for (let i = 0; i < 8; i += 1) fireEvent.click(screen.getByRole("button", { name: "уменьшить" }));
     await waitFor(() => expect(fits()).toBe(true));
-    expect(zoomOf()).toBeCloseTo(z0, 5);
+    // Масштаб едет плавно: ждём, пока он доедет, а не ловим его на ходу.
+    await waitFor(() => expect(zoomOf()).toBeCloseTo(z0, 5));
   });
 
   it("один палец по пустому месту прокручивает лист, а не страницу", async () => {
@@ -133,7 +137,7 @@ describe("окно и лист", () => {
     // Пока лист уже окна, он стоит по центру и прокручивать нечего: ждём,
     // когда масштаб перевалит за 1 и лист станет шире окна.
     await waitFor(() => expect(zoomOf()).toBeGreaterThan(1));
-    const svg = container.querySelector("svg");
+    const svg = schemeSvg();
     const x0 = vb().x;
     fireEvent.pointerDown(svg, { clientX: 300, clientY: 200, button: 0 });
     fireEvent.pointerMove(window, { clientX: 200, clientY: 200 });

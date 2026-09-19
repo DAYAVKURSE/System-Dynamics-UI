@@ -53,8 +53,8 @@ describe("форма «Материалы»", () => {
   it("стоит перед проектами и показывает все активы; актив → ресурсы с «есть», ресурс → единицы", () => {
     reports();
     const card = materialsCard();
-    const projects = screen.getByText("отчёты — карта проектов");
-    // Материалы — выше карты проектов: проект начинается с единицы.
+    const projects = screen.getByText("отчёты");
+    // Материалы — выше отчётов: отчёт начинается с единицы.
     expect(card.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Все активы сразу — по ним и ходят.
     ["Рынок услуг", "Пользователи", "Виртуальный менеджер"].forEach((n) => {

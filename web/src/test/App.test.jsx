@@ -13,7 +13,8 @@ afterEach(() => { setUrl(""); });
 describe("App", () => {
   it("рендерит схему жизнеспособности без ошибок", () => {
     render(<App />);
-    expect(screen.getByText(/Активы: воркеры, функции, ресурсы/i)).toBeInTheDocument();
+    // Шапка — имя приложения (владелец, 2026-09-19).
+    expect(screen.getByLabelText("Blocktree")).toBeInTheDocument();
     expect(screen.getByText("Задачи")).toBeInTheDocument();
     expect(screen.getByText("Схема")).toBeInTheDocument();
     expect(screen.getByText("Инструменты")).toBeInTheDocument();
@@ -26,7 +27,7 @@ describe("App", () => {
     // «Подключиться»: параметры Telegram — во фрагменте.
     setUrl("#tgWebAppData=user%3D%7B%7D&tgWebAppStartParam=call_abc123");
     render(<App />);
-    expect(screen.queryByText(/Активы: воркеры, функции, ресурсы/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Blocktree")).not.toBeInTheDocument();
     expect(screen.queryByText("Инструменты")).not.toBeInTheDocument();
     expect(screen.queryByText("Схема")).not.toBeInTheDocument();
     // Именно кнопка входа, а не любое слово «звонок» на странице: их там
@@ -41,6 +42,7 @@ describe("App", () => {
     // задачи берутся из целей, а не заводятся под функцией руками.
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     fireEvent.click(screen.getByRole("button", { name: /^Функции/ }));
-    expect(screen.getAllByDisplayValue(/Сбор заявок/).length).toBeGreaterThan(0);
+    // Название функции — надпись, а не поле: правят его двойным нажатием.
+    expect(screen.getAllByText(/Сбор заявок/).length).toBeGreaterThan(0);
   });
 });

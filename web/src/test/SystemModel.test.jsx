@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import { nameSpan, renameEl } from "./helpers/name.js";
 
 /* Тесты на редактирование модели: активы (добавление, перетаскивание,
    удаление), переименование ресурсов и классификации ресурсов. */
@@ -34,12 +35,12 @@ beforeEach(() => {
 describe("активы на схеме", () => {
   it("добавляются кнопкой «+ актив»", () => {
     openTab("Схема");
-    expect(screen.queryByDisplayValue("Новый актив")).toBeNull();
+    expect(nameSpan("Новый актив")).toBeFalsy();
 
     fireEvent.click(screen.getByRole("button", { name: "+ актив" }));
 
     // Новый актив выбран, его имя доступно для правки, и он есть на схеме.
-    expect(screen.getByDisplayValue("Новый актив")).toBeInTheDocument();
+    expect(nameSpan("Новый актив")).toBeTruthy();
     expect(entityGroup(container, "Новый актив")).toBeTruthy();
   });
 
@@ -74,19 +75,19 @@ describe("активы на схеме", () => {
 
     expect(Number(entityRect(container, "Рынок услуг").getAttribute("x"))).toBe(x0);
     // выбор открыл панель этого актива
-    expect(screen.getByDisplayValue("Рынок услуг")).toBeInTheDocument();
+    expect(nameSpan("Рынок услуг")).toBeTruthy();
   });
 
   it("удаляются вместе со своими ресурсами", () => {
     openTab("Схема");
     // «Пользователи» выбраны по умолчанию, у них есть ресурс с этим названием
     assetTab("Ресурсы");
-    expect(screen.getByDisplayValue("активные пользователи")).toBeInTheDocument();
+    expect(nameSpan("активные пользователи")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Удалить актив/ }));
 
     expect(() => entityGroup(container, "Пользователи")).toThrow();
-    expect(screen.queryByDisplayValue("активные пользователи")).toBeNull();
+    expect(nameSpan("активные пользователи")).toBeFalsy();
   });
 });
 
@@ -95,11 +96,10 @@ describe("переименование ресурса", () => {
     openTab("Схема");
     assetTab("Ресурсы");
     // Ресурсы актива — карточки на его вкладке «Ресурсы».
-    const field = screen.getByDisplayValue("активные пользователи");
-    typeAndCommit(field, "ядро аудитории");
+    renameEl(nameSpan("активные пользователи"), "ядро аудитории");
 
-    expect(screen.getByDisplayValue("ядро аудитории")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue("активные пользователи")).toBeNull();
+    expect(nameSpan("ядро аудитории")).toBeTruthy();
+    expect(nameSpan("активные пользователи")).toBeFalsy();
   });
 
   it("заводится кнопкой своей классификации и сразу принадлежит активу", () => {
@@ -108,7 +108,7 @@ describe("переименование ресурса", () => {
     const box = screen.getByPlaceholderText("текст нового ресурса");
     typeAndCommit(box, "новый запас");
     fireEvent.click(screen.getAllByRole("button", { name: /^\+ ◆ ресурс$/ })[0]);
-    expect(screen.getByDisplayValue("новый запас")).toBeInTheDocument();
+    expect(nameSpan("новый запас")).toBeTruthy();
   });
 });
 
@@ -190,10 +190,10 @@ describe("классификации ресурсов", () => {
     // Приложение не упало: актив из загруженной модели на схеме, и выбор
     // перешёл на него (прежний актив в новой модели отсутствует).
     expect(entityGroup(container, "Актив")).toBeTruthy();
-    expect(screen.getByDisplayValue("Актив")).toBeInTheDocument();
+    expect(nameSpan("Актив")).toBeTruthy();
     // Ресурс с неизвестной классификацией показан с заглушкой вместо значка.
     assetTab("Ресурсы");
-    expect(screen.getByDisplayValue("ресурс")).toBeInTheDocument();
+    expect(nameSpan("ресурс")).toBeTruthy();
     expect(screen.getAllByText(/\? без типа/).length).toBeGreaterThan(0);
   });
 });

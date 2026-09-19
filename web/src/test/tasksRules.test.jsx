@@ -767,3 +767,51 @@ describe("подразумеваемые роли", () => {
     expect(selfReview(t)).toBe(false);
   });
 });
+
+/* ВКЛАДКА «ПРОВЕРКА» — ПО СОСТОЯНИЯМ И ОТДЕЛЬНЫМИ ФОРМАМИ.
+
+   Владелец (2026-09-19): «должно показываться: какие задачи в бэклоге,
+   какие в работе, по каким дедлайн, какие готовые»; «все задачи должны
+   быть разделены по формам… у них должны быть отдельные формы внутри». */
+describe("разделы «Проверки»", () => {
+  const T = (over) => ({ ...newTask({ funcId: "f1", title: over.title }),
+    end: "2030-01-01T10:00", assignee: "2", reviewer: "3", setter: "1", ...over });
+  const Review = ({ tasks: t0 }) => {
+    const [tasks, setTasks] = React.useState(t0);
+    return (<ReviewBoard tasks={tasks} setTasks={setTasks} funcs={FUNCS} traits={TRAITS}
+      entities={ENTITIES} people={PEOPLE} meId="1" isOwner
+      nameOf={(id) => id} onAccept={() => {}} onReturn={() => {}} />);
+  };
+
+  it("бэклог, работа, дедлайн и готовые — своими разделами", () => {
+    render(<Review tasks={[
+      T({ title: "лежит", status: "backlog" }),
+      T({ title: "делается", status: "progress" }),
+      T({ title: "горит", status: "deadline" }),
+      T({ title: "сделана", status: "done" }),
+    ]} />);
+    ["в бэклоге", "в работе", "дедлайн", "готовые"].forEach((s) => {
+      expect(screen.getByText(s)).toBeInTheDocument();
+    });
+    ["лежит", "делается", "горит", "сделана"].forEach((s) => {
+      expect(screen.getByText(s)).toBeInTheDocument();
+    });
+    // Общей кучи «остальные задачи» больше нет.
+    expect(screen.queryByText(/остальные задачи/)).toBeNull();
+  });
+
+  it("ждущие постановки стоят отдельными формами, а не за полоской", () => {
+    const { container } = render(<Review tasks={[
+      { ...T({ title: "первая" }), assignee: null, status: "wait" },
+      { ...T({ title: "вторая" }), assignee: null, status: "wait" },
+    ]} />);
+    /* У каждой — своя рамка со скруглением, и рамка эта СВОЯ: прежде
+       задачи шли строками, разделёнными одной полоской сверху. */
+    const box = (title) => [...container.querySelectorAll("div")]
+      .filter((d) => d.textContent.startsWith(title) && d.style.borderRadius).pop();
+    expect(box("первая")).toBeTruthy();
+    expect(box("вторая")).toBeTruthy();
+    expect(box("первая")).not.toBe(box("вторая"));
+    expect(box("первая").style.border).toContain("1px solid");
+  });
+});

@@ -1,12 +1,12 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useMemo, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, NameField, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc, textHref } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { putShare } from "../identity.js";
 import {
-  childrenOf, dropNode, linkTo, newProject,
+  childrenOf, dropNode, linkTo, newProject, newSection,
   pathOf, rootsOf, shareLink, stepAnchor, stepLink, summaryOf,
 } from "../lib/reports.js";
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
@@ -1033,6 +1033,36 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   const uptoTraits = traits.filter((t) => t.id !== node.trait
     && (full.traits || []).includes(t.id));
 
+  /* ─── «Проследить» ───
+
+     Владелец (2026-09-19): «нужно добавить кнопку „Проследить", по нажатию
+     которой будет создаваться раздел отчёта с прослеживаемым движением
+     ресурсов». Выбор ресурса сам по себе ничего не создаёт — он остаётся
+     вопросом, пока на него не нажали; нажатие уносит выбор в отдельный
+     раздел, и в отчёте их может быть сколько угодно: один ресурс — один
+     раздел. */
+  const trace = () => {
+    if (!node.trait) return;
+    const name = `${traitName(node.trait)}${node.upto ? ` → ${traitName(node.upto)}` : ""}`;
+    const kid = { ...newSection(node.id, name), trait: node.trait, units: picked,
+      upto: node.upto, qty: picked.length || node.qty || 1 };
+    setNodes((p) => [...p, kid]);
+    up({ trait: "", units: [], upto: "", qty: 1 });
+    /* Открываем сам раздел: нажали «Проследить» — значит хотят увидеть
+       движение, а не строку, которую надо ещё развернуть. Назад — кнопкой
+       «← все отчёты». */
+    setOpen(true);
+    onFocus?.(kid.id);
+  };
+  /* Цепочки нет, а функции, берущие этот ресурс, у процесса, принятого
+     гипотетически: расчёт их не считает, пока не включены гипотезы
+     (`activeFuncs` в lib/funcs.js). Молчать об этом нельзя — пустой отчёт
+     читается как «движения нет», хотя движение описано. */
+  const hypoBlocked = !!node.trait && !(plan.hi.steps || []).length
+    && funcs.some((f) => f.proc && (f.takes || []).some((x) => x.trait === node.trait)
+      && (model.procs || []).find((pr) => pr.id === f.proc)?.status === "hypo")
+    && model.hypoOn !== true;
+
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const download = async () => {
@@ -1076,11 +1106,13 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
         <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
           aria-label={`${open ? "свернуть" : "развернуть"} ${node.name || "блок"}`}
           onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button>
-        <TxtField value={node.name} aria-label={root ? "название проекта" : "название раздела"}
-          style={{ flex: 1, padding: "4px 6px", fontSize: root ? 13 : 12.5,
-            fontWeight: root ? 700 : 600 }}
+        {/* Имя правится двойным нажатием, как у техпроцессов; слова
+            «проект» в шапке больше нет (владелец, 2026-09-19). */}
+        <NameField value={node.name} aria-label={root ? "название отчёта" : "название раздела"}
+          placeholder={root ? "без названия" : "раздел без названия"}
+          style={{ fontSize: root ? 13 : 12.5, fontWeight: root ? 700 : 600 }}
           onCommit={(v) => up({ name: v })} />
-        <span style={{ fontSize: 10, color: C.muted }}>{root ? "проект" : "раздел"}</span>
+        {!root && <span style={{ fontSize: 10, color: C.muted }}>раздел</span>}
       </div>
 
       {/* «Шаг» и «задача» — не одно и то же, и коротких слов тут мало:
@@ -1161,7 +1193,19 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               && funcs.some((f) => f.id === node.upto) && (
               <option value={node.upto}>{funcName(node.upto)} (функция — прежняя запись)</option>)}
           </select>
+          <button style={{ ...btn(true, OK), fontSize: 11,
+            opacity: node.trait ? 1 : 0.45, cursor: node.trait ? "pointer" : "default" }}
+            disabled={!node.trait} onClick={trace}
+            aria-label={`проследить: ${node.name || "без названия"}`}
+            title={node.trait ? "Отдельным разделом — движение этого ресурса"
+              : "Сначала выберите ресурс"}>Проследить</button>
         </div>
+        {hypoBlocked && (
+          <div style={{ fontSize: 11, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
+            Движение не считается: функции, которые берут «{traitName(node.trait)}»,
+            принадлежат процессу, принятому гипотетически. Включите «считать
+            гипотезы» на «Схеме».
+          </div>)}
 
         {/* ─── выбранные единицы ───
 
@@ -1360,20 +1404,20 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
           прежде чем на неё ссылаться, её надо иметь. */}
       <Materials model={model} entities={entities} materials={materials}
         setMaterials={setMaterials} meId={meId} nameOf={nameOf} />
+      {/* Владелец (2026-09-19): «здесь нет проектов — это всё отчёты».
+          Посередине имя раздела, справа — кнопка. */}
       <div style={{ ...S.card, marginBottom: 10 }}>
         <div className="flex items-center gap-2">
-          <span style={S.lbl}>отчёты — карта проектов</span>
+          <span style={{ flex: 1 }} />
+          <span style={S.lbl}>отчёты</span>
           <span style={{ flex: 1 }} />
           <button style={btn(true)}
-            onClick={() => setNodes((p) => [...p, newProject()])}>+ проект</button>
-        </div>
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-          В проекте называют ресурс, с которого начинается работа, и звено, до которого её прослеживать. Остальное считается по модели.
+            onClick={() => setNodes((p) => [...p, newProject("новый отчёт")])}>+ отчёт</button>
         </div>
         {!!path.length && (
           <div className="flex flex-wrap gap-2" style={{ marginTop: 8, alignItems: "center" }}>
             <button style={{ ...btn(false), fontSize: 11 }}
-              onClick={() => onFocus?.(null)}>← вся карта</button>
+              onClick={() => onFocus?.(null)}>← все отчёты</button>
             <span style={{ fontSize: 11, color: C.muted }}>
               {path.map((n) => n.name || "без названия").join(" → ")}</span>
           </div>)}
@@ -1381,13 +1425,13 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
 
       {!nodes.length && (
         <div style={{ ...S.card, fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
-          Проектов пока нет. Проект — заказ или направление работы.
+          Отчётов пока нет.
         </div>)}
 
       {focus && !path.length && (
         <div style={{ ...S.card, fontSize: 11.5, color: WARN, lineHeight: 1.6 }}>
-          Такого блока в этой модели нет. Возможно, ссылка ведёт в другую
-          рабочую область или блок удалили.
+          Такого отчёта в этой модели нет. Возможно, ссылка ведёт в другую
+          рабочую область или отчёт удалили.
         </div>)}
 
       {shown.map((n) => (

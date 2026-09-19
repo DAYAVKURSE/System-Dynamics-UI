@@ -1,6 +1,6 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useState } from "react";
-import { C, OK, BAD, ACC, WARN, S, btn, nm, TxtField } from "./ui.jsx";
+import { C, OK, BAD, ACC, WARN, NameField, S, btn, nm, TxtField } from "./ui.jsx";
 import ExprField from "./ExprField.jsx";
 import { evalPorts, letterOf } from "../lib/expr.js";
 import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWorkers,
@@ -75,8 +75,9 @@ export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle
         <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
           onClick={onToggle} aria-label={open ? `свернуть ${titleLabel}` : `развернуть ${titleLabel}`}>
           {open ? "▾" : "▸"}</button>
-        <TxtField value={title} onCommit={onTitle}
-          style={{ flex: 1, padding: "4px 6px", fontSize: 12.5, fontWeight: 600 }}
+        {/* Название формы правится двойным нажатием (владелец, 2026-09-19). */}
+        <NameField value={title} onCommit={onTitle}
+          style={{ fontSize: 12.5, fontWeight: 600 }}
           aria-label={`название ${titleLabel}`} />
         <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
           fontSize: 11, padding: "2px 6px" }} onClick={onDelete}>удалить</button>
@@ -1329,8 +1330,8 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
             borderRadius: 8, padding: 8, marginTop: 6,
             borderLeft: `2px solid ${taken ? OK : BAD}` }}>
             <div className="flex items-center gap-2">
-              <TxtField value={x.name} aria-label="название фактора"
-                style={{ flex: "1 1 140px", padding: "5px 7px", fontSize: 12.5 }}
+              <NameField value={x.name} aria-label="название фактора"
+                style={{ flex: "1 1 140px", fontSize: 12.5 }}
                 onCommit={(v) => up(x.id, { name: v })} />
               <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
                 {used(x.id) ? `функций: ${used(x.id)}` : "не используется"}</span>

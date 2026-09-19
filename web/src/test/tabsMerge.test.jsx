@@ -268,7 +268,7 @@ describe("стрелка передачи ведёт к своей функци�
 
     // Открылась карточка именно этой функции — со своими входами и выходами.
     // Карточка функции и внутри неё карточка её единственной задачи.
-    expect(screen.getAllByDisplayValue("Сбор заявок").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Сбор заявок").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("выдать ресурс")).toBeInTheDocument();
   });
 });
