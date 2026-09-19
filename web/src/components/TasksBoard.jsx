@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { CubeMark, C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+/* Знак, присланный владельцем (2026-09-19): сама его картинка, обрезанная
+   и с прозрачным фоном, — не перерисованная. */
+import logoUrl from "../assets/logo.png";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
@@ -753,7 +756,8 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
       <div style={S.lbl}>название</div>
       {/* Знак — слева от названия (владелец, 2026-09-19). */}
       <div className="flex items-center gap-2" style={{marginBottom:8}}>
-        <CubeMark size={22} label="знак задачи"/>
+        <img src={logoUrl} alt="знак задачи" aria-label="знак задачи" width="24" height="24"
+          style={{display:"block",flex:"0 0 auto"}}/>
         <TxtField value={task.title} style={{fontWeight:600}}
           onCommit={v=>commitOne("title",v)}/>
       </div>

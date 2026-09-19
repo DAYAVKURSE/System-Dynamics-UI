@@ -32,6 +32,7 @@ import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { autoFlow, roleOf, runsOfFunc } from "./TasksBoard.jsx";
 import { swipeFrom, swipeStep, tabAfter } from "../lib/swipe.js";
+import { elbow } from "../lib/paths.js";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
@@ -431,10 +432,6 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
       window.removeEventListener("touchmove",noScroll);
     };
   },[onMoveEntity,onSelectEntity,CW,CH]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const anchor=(a,b)=>{const ax=a.x+NW/2,ay=a.y+NH/2,bx=b.x+NW/2,by=b.y+NH/2;
-    const dx=bx-ax,dy=by-ay;
-    const s=Math.min(dx===0?1e9:NW/2/Math.abs(dx),dy===0?1e9:NH/2/Math.abs(dy));
-    return [ax+dx*s,ay+dy*s];};
   const ent=(id)=>ents.find(e=>e.id===id);
 
   return (
@@ -463,40 +460,18 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
             (одни отдают заявки, другие возвращают пользователей), и по одной
             линии такие передачи прятали бы друг друга: видно было бы только
             ту, что нарисована последней. */}
-        {moves.map((w,i)=>{
+        {moves.map((w)=>{
           const a=ent(w.from),b=ent(w.to); if(!a||!b) return null;
-          const [x1,y1]=anchor(a,b),[x2,y2]=anchor(b,a);
-          const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1;
-          // Полоса своя у каждой пары «откуда → куда»: обратная передача
-          // уходит на другую сторону линии, а не ложится поверх.
-          /* Своя полоса у каждой передачи. Сторону задавать не нужно: у
-             встречной передачи линия направлена в другую сторону, и её
-             перпендикуляр сам смотрит на другую сторону. Умножать это ещё
-             и на «кто из активов раньше по алфавиту» значило бы отменить
-             один поворот другим — обе таблички легли бы в одно место. */
+          /* Своя полоса у каждой передачи между одной парой активов:
+             обратная и соседние не ложатся поверх. Смещается средняя
+             линия колена, а не вся стрелка. */
           const same=moves.filter(v=>v.from===w.from&&v.to===w.to);
           const at=same.indexOf(w);
-          /* Полосы разведены на высоту таблички: подпись лежит НА своей
-             линии, а не сбоку от неё, и соседние подписи не наезжают друг
-             на друга. Прежде табличку отодвигали от линии, чтобы развести
-             подписи, — и получалось, что подпись висит сама по себе, и к
-             какой стрелке она относится, приходилось угадывать. */
-          const off=14+at*26;
-          const ox=(-dy/len)*off,oy=(dx/len)*off;
-          /* На своей же линии: табличка непрозрачная и закрывает отрезок
-             под собой — так видно, что она именно на этой стрелке. Когда
-             передач между теми же активами несколько, они делят линию
-             поровну: одной полосы им мало — на косой линии соседние
-             таблички наехали бы друг на друга углами. */
-          const t=(at+1)/(same.length+1);
-          /* Стрелка — мягкая дуга, а не ломаная (владелец, 2026-09-19):
-             концы остаются у самих блоков, а в стороны разводит изгиб.
-             Точка на дуге считается по той же квадратичной кривой, что её
-             и рисует, — иначе табличка сползала бы с линии. */
-          const cx=x1+dx/2+ox*2,cy=y1+dy/2+oy*2;
-          const arc=`M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
-          const bez=(p0,pc,p1)=>(1-t)*(1-t)*p0+2*(1-t)*t*pc+t*t*p1;
-          const mx=bez(x1,cx,x2),my=bez(y1,cy,y2);
+          /* Строго вертикально и горизонтально, со скруглёнными углами
+             (владелец, 2026-09-19): косая линия идёт «примерно туда», а
+             колено говорит точно — вниз, потом вправо. */
+          const { d: arc, mid }=elbow(a,b,{w:NW,h:NH,lane:(at-(same.length-1)/2)*26,r:14});
+          const [mx,my]=mid;
           const txt=`${w.name}: ${nm(w.lo)}–${nm(w.hi)}/мес`;
           const fn=funcs.find(f=>f.id===w.func);
           /* Стрелку рисует функция — значит по стрелке до неё и надо
@@ -506,12 +481,12 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
             onPointerDown={ev=>ev.stopPropagation()}
             onClick={ev=>{ev.stopPropagation(); if(onOpenFunc) onOpenFunc(w.func);}}>
             <title>{fn?`${fn.name||"без названия"} — открыть функцию`:txt}</title>
-            {/* Широкая прозрачная дуга под тонкой: попасть пальцем в
+            {/* Широкая прозрачная линия под тонкой: попасть пальцем в
                 полуторапиксельную черту невозможно. */}
             <path d={arc} fill="none" stroke="transparent" strokeWidth="16"/>
             <path data-move="" d={arc} fill="none" stroke={ACC}
               strokeWidth="1.6" strokeDasharray="4 3" markerEnd="url(#aw)"
-              strokeLinecap="round" style={{pointerEvents:"none"}}/>
+              strokeLinecap="round" strokeLinejoin="round" style={{pointerEvents:"none"}}/>
             <rect x={mx-70} y={my-11} width="140" height="22" rx="6" fill={C.panel}
               stroke={ACC} strokeWidth="1"/>
             <text x={mx} y={my+3.5} textAnchor="middle" fontSize="9" fill={ACC}
@@ -1470,14 +1445,31 @@ export default function SystemModel(){
   const tabsShown=useMemo(()=>TAB_LIST.filter(([k])=>k===SELF_TAB[0]||k===MARKET_TAB[0]
     ||me.isOwner||me.solo||me.tabs.includes(k)),[me.isOwner,me.solo,me.tabs]);
   /* Открытая вкладка всегда на виду: ряд уезжает за край экрана, и после
-     свайпа она оказывалась бы за его пределами. */
+     свайпа она оказывалась бы за его пределами. Едет плавно — видно, куда
+     ушли (владелец, 2026-09-19: «смена вкладки должна происходить с
+     анимацией передвижения вкладки»). */
   const tabsBox=useRef(null);
   useEffect(()=>{
     const el=tabsBox.current?.querySelector(`[data-tab="${tab}"]`);
     if(el&&typeof el.scrollIntoView==="function"){
-      try{ el.scrollIntoView({block:"nearest",inline:"center"}); }catch{ /* не умеет — и не надо */ }
+      try{ el.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }
+      catch{ /* не умеет — и не надо */ }
     }
   },[tab]);
+  /* Страница вкладки въезжает с той стороны, откуда пришли: без этого
+     смена вкладки — мгновенная подмена, и непонятно, вперёд ты ушёл или
+     назад. Сдвиг ставится без перехода, а возврат к нулю — с ним. */
+  const [slide,setSlide]=useState(0);
+  const goTab=(next)=>{
+    if(next===tab) return;
+    const keys=tabsShown.map(([k])=>k);
+    const dir=keys.indexOf(next)>keys.indexOf(tab)?1:-1;
+    setTab(next);
+    setSlide(dir*26);
+    const back=()=>setSlide(0);
+    if(typeof requestAnimationFrame==="function") requestAnimationFrame(()=>requestAnimationFrame(back));
+    else back();
+  };
   /* Свайп через весь экран меняет вкладку (владелец, 2026-09-19;
      `lib/swipe.js`). Одним пальцем: два — это щипок на карте. */
   const swipe=useRef(null);
@@ -1494,8 +1486,7 @@ export default function SystemModel(){
     const step=swipeStep({dx:t.clientX-from.x,dy:t.clientY-from.y,
       width:typeof window==="undefined"?0:window.innerWidth});
     if(!step) return;
-    const next=tabAfter(tabsShown.map(([k])=>k),tab,step);
-    if(next!==tab) setTab(next);
+    goTab(tabAfter(tabsShown.map(([k])=>k),tab,step));
   };
 
   return (
@@ -1520,7 +1511,7 @@ export default function SystemModel(){
           style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"flex-end"}}>
           {tabsShown.map(([k,t])=>(
             <button key={k} data-tab={k} style={tabStyle(tab===k)}
-              onClick={()=>setTab(k)}>{t}</button>))}
+              onClick={()=>goTab(k)}>{t}</button>))}
         </div>
         <div className="flex items-center gap-1" style={{flex:"0 0 auto",paddingBottom:5}}>
           <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
@@ -1534,6 +1525,9 @@ export default function SystemModel(){
         </div>
       </div>
 
+      {/* Страница вкладки: въезжает с той стороны, откуда пришли. */}
+      <div style={{transform:`translateX(${slide}px)`,opacity:slide?0.4:1,
+        transition:slide?"none":"transform .22s ease-out, opacity .22s ease-out"}}>
       {recovery && (me.solo||me.isOwner) && (
         <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
           <div style={{fontSize:12.5,lineHeight:1.6,marginBottom:8}}>
@@ -2074,6 +2068,6 @@ export default function SystemModel(){
           {why.kind==="asset"?WHY_ASSET:why.kind==="func"?WHY_FUNC:WHY_TRAIT}
         </Modal>)}
 
-
+      </div>
     </div>);
 }

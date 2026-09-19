@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { orthPath } from "../lib/paths.js";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
 import { parseText, ROLE_KINDS } from "../lib/proc2.js";
 import { hoursRange, everyRange } from "../lib/funcs.js";
@@ -620,12 +621,15 @@ function MindMap({ plan, layout = {}, onLayout }) {
           const x2 = upright ? bcx : back ? b.x + W : b.x;
           const y2 = upright ? (down ? b.y : b.y + b.h) : b.y + b.h / 2;
           const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-          const curve = upright
-            ? `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`
-            : `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+          /* Строго по вертикали и горизонтали, со скруглёнными углами
+             (владелец, 2026-09-19): косая линия идёт «примерно туда», а
+             колено говорит точно — вниз, потом вбок. */
+          const curve = orthPath(upright
+            ? [[x1, y1], [x1, my], [x2, my], [x2, y2]]
+            : [[x1, y1], [mx, y1], [mx, y2], [x2, y2]], 12);
           return (
             <g key={`l${i}`}>
-              <path d={curve} fill="none" stroke={l.color}
+              <path d={curve} fill="none" stroke={l.color} strokeLinejoin="round"
                 strokeWidth="1.6" strokeDasharray={l.or ? "5 4" : undefined} markerEnd={`url(#${arrowId(l.color)})`} />
               {wrap(`${l.or ? "или · " : ""}${l.text}`, 34).map((s1, j, all) => (
                 <text key={j} x={upright ? mx + 8 : mx} y={my - 5 - (all.length - 1 - j) * 11}
@@ -683,8 +687,11 @@ function MindMap({ plan, layout = {}, onLayout }) {
               const dy = 16 + (i % 3) * 8 + (z.far ? 12 : 0);
               return (
                 <path key={`t${i}`} data-talk={z.far ? "через" : "напрямую"}
-                  d={`M${x1},${laneY - 10} C${x1},${laneY - 10 - dy} ${x2},${laneY - 10 - dy} ${x2},${laneY - 10}`}
-                  fill="none" stroke={C.muted} strokeWidth="1.2" strokeDasharray={z.far ? "7 3 1.5 3" : undefined}
+                  /* Тоже коленом, со скруглением (владелец, 2026-09-19). */
+                  d={orthPath([[x1, laneY - 10], [x1, laneY - 10 - dy],
+                    [x2, laneY - 10 - dy], [x2, laneY - 10]], 8)}
+                  fill="none" stroke={C.muted} strokeWidth="1.2" strokeLinejoin="round"
+                  strokeDasharray={z.far ? "7 3 1.5 3" : undefined}
                   markerEnd="url(#pm-arrow2)" />);
             })}
             {people.map((p, i) => (

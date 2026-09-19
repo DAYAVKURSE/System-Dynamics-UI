@@ -56,19 +56,41 @@ describe("шапка", () => {
   });
 });
 
+/* Владелец (2026-09-19): «на схеме должны быть стрелки строго вертикальные
+   и горизонтальные с закруглениями». */
+const straight = (d) => {
+  /* Разбираем путь на команды и проверяем каждый ПРЯМОЙ отрезок: он либо
+     вертикальный, либо горизонтальный. Углы — «Q», их и не проверяем. */
+  const cmds = d.match(/[MLQ][^MLQ]*/g) || [];
+  let cur = null;
+  return cmds.every((c) => {
+    const nums = (c.slice(1).match(/-?\d+(\.\d+)?/g) || []).map(Number);
+    const pts = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) pts.push([nums[i], nums[i + 1]]);
+    const end = pts[pts.length - 1];
+    if (c[0] === "M" || !cur) { cur = end; return true; }
+    const ok = c[0] === "Q" || Math.abs(end[0] - cur[0]) < 0.6 || Math.abs(end[1] - cur[1]) < 0.6;
+    cur = end;
+    return ok;
+  });
+};
+
 describe("стрелки схемы", () => {
-  it("передача — мягкая дуга, а не прямая", () => {
+  it("передача — колено: строго по вертикали и горизонтали, углы скруглены", () => {
     const { container } = render(<SystemModel />);
     fireEvent.click(screen.getByRole("button", { name: "Схема" }));
     const moves = [...container.querySelectorAll("[data-move]")];
     expect(moves.length).toBeGreaterThan(0);
     moves.forEach((p) => {
       expect(p.tagName.toLowerCase()).toBe("path");
-      // Квадратичная кривая: у прямой линии никакого «Q» нет.
-      expect(p.getAttribute("d")).toMatch(/^M[\d.,-]+ Q[\d.,-]+ [\d.,-]+$/);
+      const d = p.getAttribute("d");
+      expect(d.startsWith("M")).toBe(true);
+      expect(straight(d)).toBe(true);
     });
   });
 });
+
+export { straight };
 
 /* ЗНАК НА ФОРМЕ ПОСТАНОВКИ (владелец, 2026-09-19): «поставь этот логотип
    слева от названия» — речь была про форму постановки задачи. */

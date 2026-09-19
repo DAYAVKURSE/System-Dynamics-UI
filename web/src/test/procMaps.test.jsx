@@ -146,8 +146,10 @@ describe("кнопки под полем", () => {
       expect(head).not.toBeNull();
       expect(head.getAttribute("fill")).toBe(l.getAttribute("stroke"));   // наконечник цветом линии
     });
-    // Линия к задаче в том же столбце идёт по вертикали, а не в левый край.
-    const back = links.find((l) => /^M(\d+),(\d+) C\1,/.test(l.getAttribute("d")));
+    /* Линия к задаче в том же столбце идёт по вертикали, а не в левый край:
+       путь начинается вертикальным отрезком от той же вертикали (владелец,
+       2026-09-19: линии строго вертикальные и горизонтальные). */
+    const back = links.find((l) => /^M([\d.]+),[\d.]+ L\1,/.test(l.getAttribute("d")));
     expect(back).toBeTruthy();
   });
 
