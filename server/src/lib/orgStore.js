@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { getReport } from "./reportStore.js";
+import { docxToHtml } from "./docx.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЛЮДИ И РОЛИ
@@ -205,6 +207,9 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
   const active = mine.filter((r) => roleActive(org, user || {}, r));
   const role = active[0] || mine[0] || null;
   const offered = user ? pendingAgreementFor(org, user) : null;
+  const wantId = user?.wants ? String(user.wants) : "";
+  const wantRole = wantId ? org.roles.find((r) => r.id === wantId) : null;
+  const wants = wantId ? { id: wantId, name: wantRole?.name || wantId } : null;
   return {
     id, isOwner,
     known: isOwner || !!user,
@@ -235,6 +240,10 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
     /* Предложенное соглашение — договор, который ждёт подписи ЭТОГО
        человека: приложение ведёт его заполнять и подписывать. */
     agreement: offered,
+    /* Заявка ждёт владельца: человек, которого в систему заранее не
+       добавляли, выбрал роль и подписал её договор — но доступа у него
+       нет, пока владелец не добавит его на «Участниках». */
+    waiting: wants ? { id: wants.id, name: wants.name } : null,
   };
 }
 
@@ -601,6 +610,9 @@ export async function setUserRoles(id, roles) {
   const unknown = want.find((r) => !org.roles.some((x) => x.id === r));
   if (unknown) throw new Error("unknown role");
   user.roles = want;
+  /* Заявку снимает сам факт выдачи роли: владелец решил, и ждать больше
+     нечего. */
+  if (user.wants && want.length) delete user.wants;
   await writeOrg(org);
   return user;
 }
@@ -624,21 +636,32 @@ export async function setRoleContract(id, file) {
  */
 export async function openRoles() {
   const org = await readOrg();
+  /* Анкета роли — рядом с её договором: человек заполняет то, о чём
+     спрашивают именно в этой роли, ещё при вступлении. */
   return org.roles.map((r) => ({ id: r.id, name: r.name,
-    tabs: normTabs(r.tabs), contract: fileRef(r.contract) }));
+    tabs: normTabs(r.tabs), contract: fileRef(r.contract),
+    form: (org.forms || []).find((f) => f.id === r.form) || null }));
 }
 
 /**
- * Регистрация: человек подписал договор роли — и роль у него есть.
+ * Регистрация: человек выбрал роль, подписал её договор, ответил на её
+ * анкету.
  *
- * Акцепт здесь — сам подписанный экземпляр: без него роль не выдаётся, и
- * решать «пускать ли» отдельным нажатием владельцу не нужно. Роль, у
- * которой шаблона договора нет, подписывать нечем — она выдаётся сразу.
+ * Дальше пути два, и решает их то, звали ли человека (владелец,
+ * 2026-09-20):
+ *
+ *  — УЖЕ ДОБАВЛЕН. Роль ему назначил владелец, и подпись — последнее, чего
+ *    не хватало: роль выдаётся сразу. Подписывать он может только ту роль,
+ *    на которую его позвали, — её одну ему и показывают.
+ *
+ *  — НЕ ДОБАВЛЕН. Роль он выбрал сам, и одного его желания мало: договор и
+ *    анкета ложатся к нему в заявку (`wants`), роли он не получает, и
+ *    доступа тоже. Добавляет его владелец на «Участниках».
  *
  * Повторная регистрация в ту же роль заменяет подписанный экземпляр:
  * договор перезаключают, а не заводят вторую запись о том же.
  */
-export async function registerUser(userId, profile = {}, { roleId, file } = {}) {
+export async function registerUser(userId, profile = {}, { roleId, file, answers } = {}) {
   const org = await readOrg();
   const id = String(userId);
   const role = org.roles.find((r) => r.id === roleId);
@@ -647,19 +670,55 @@ export async function registerUser(userId, profile = {}, { roleId, file } = {}) 
   if (role.contract && !signed) throw new Error("contract is required");
 
   let user = org.users.find((u) => u.id === id);
+  const known = !!user;
   if (!user) {
     user = { id, name: profile.name || id, username: profile.username || "",
       roles: [], contracts: {}, addedAt: new Date().toISOString(), addedBy: null };
     org.users.push(user);
   }
   if (profile.name && user.name !== profile.name) user.name = profile.name;
-  user.roles = roleIds([...(user.roles || []), role.id]);
   user.contracts = { ...(user.contracts || {}),
     [role.id]: { ...(signed || {}), at: new Date().toISOString() } };
-  // Приготовленная роль дождалась договора — ждать больше нечего.
-  if (String(user.pending || "") === role.id) delete user.pending;
+  if (answers && typeof answers === "object") {
+    user.answers = { ...answersOf(user), ...answersOf({ answers }) };
+  }
+  if (known) {
+    user.roles = roleIds([...(user.roles || []), role.id]);
+    // Приготовленная роль дождалась договора — ждать больше нечего.
+    if (String(user.pending || "") === role.id) delete user.pending;
+    delete user.wants;
+  } else {
+    // Незваный ждёт владельца: роль ему выдаёт не подпись, а человек.
+    user.roles = roleIds(user.roles);
+    user.wants = role.id;
+  }
   await writeOrg(org);
   return user;
+}
+
+/* ─────── подписанный договор глазами владельца ───────
+
+   Файл лежит в каталоге того, кто его принёс (`lib/reportStore.js`), и
+   ссылка на него — ключ к нему: скачивается он по ней. А ЧИТАЕТСЯ договор
+   тем же окном, что и при правке документа, — значит, нужен HTML. Word
+   разбирается на месте (`lib/docx.js`); всё остальное открывается как
+   файл по своей ссылке. */
+const REPORT_URL = /^\/api\/reports\/([a-f0-9]{32})\/([A-Za-z0-9-]{6,64})$/;
+export async function contractHtml(userId, roleId) {
+  const org = await readOrg();
+  const user = org.users.find((u) => u.id === String(userId));
+  const f = (user?.contracts || {})[String(roleId)];
+  if (!f?.url) throw new Error("not found");
+  const name = String(f.name || "договор");
+  const m = REPORT_URL.exec(String(f.url));
+  const file = m ? await getReport(m[1], m[2]) : null;
+  if (m && !file) throw new Error("not found");
+  const word = /\.docx?$/i.test(name) || /word|officedocument/i.test(String(f.type || ""));
+  if (file && word) {
+    try { return { name, html: await docxToHtml(file.bytes) }; }
+    catch { /* не Word внутри — отдадим файлом */ }
+  }
+  return { name, url: String(f.url), type: String(f.type || file?.type || "") };
 }
 
 /**

@@ -103,21 +103,44 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
   });
 
-  it("написано и приложено — на месте кнопок загрузки оценка постановки и «Сдать»", async () => {
+  /* ПЛАШКА ФУНКЦИИ НА ФОРМЕ ЗАДАЧИ (владелец, 2026-09-20): выход подписан
+     «ожидается», а над ним стоит «Описание задачи». */
+  it("в плашке задачи описание стоит над «ожидается», и «выдаёт» там нет", () => {
+    render(<Board tasks={[task({ body: "собрать заявки за неделю" })]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    const plate = [...document.querySelectorAll("div")]
+      .find((d) => d.textContent.startsWith("Сбор заявок"));
+    expect(plate.textContent).toMatch(/Описание задачи: собрать заявки за неделю/);
+    expect(plate.textContent).toMatch(/ожидается:/);
+    expect(plate.textContent).not.toMatch(/выдаёт:/);
+    const at = (w) => plate.textContent.indexOf(w);
+    expect(at("Описание задачи:")).toBeLessThan(at("ожидается:"));
+  });
+
+  it("описания у задачи нет — так и сказано", () => {
+    render(<Board tasks={[task()]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    const plate = [...document.querySelectorAll("div")]
+      .find((d) => d.textContent.startsWith("Сбор заявок"));
+    expect(plate.textContent).toMatch(/Описание задачи: не назначено/);
+  });
+
+  it("написано и приложено — ниже форм ресурсов оценка постановки и «Сдать»", async () => {
     render(<Board tasks={[task()]} />);
     open();
     await attachResult("результат 1: заявки");
     commit(screen.getByLabelText("отчёт о работе"), "сделал");
     expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(2);
-    expect(screen.queryByText(/Заменить файл/)).toBeNull();
-    // Что приложено — видно; к вещам можно вернуться и снова уйти к оценке.
-    expect(screen.getByText(/приложено: заявки — результат.txt/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "изменить вещи" }));
+    /* Формы ресурсов остаются на месте до самой сдачи (владелец,
+       2026-09-20): прежде они подменялись строкой «приложено: … изменить
+       вещи», и поле пропадало из-под руки прямо во время набора. */
+    expect(screen.queryByText(/приложено:/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "изменить вещи" })).toBeNull();
+    expect(screen.getByText("сдаваемые ресурсы")).toBeInTheDocument();
     openUnitForm();
     expect(screen.getByText("Заменить файл")).toBeInTheDocument();
-    expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "К оценке и сдаче" }));
+    // И оценка со «Сдать» никуда не делись.
     expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
   });
 

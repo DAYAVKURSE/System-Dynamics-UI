@@ -558,7 +558,7 @@ export const canSet=(task,funcs,traits,tasks,factors)=>
    нет. Ожидаемый результат с 2026-09-20 в ней есть — владелец: «на плашке
    функции, на форме постановки задачи, должен быть написан „Ожидаемый
    результат" под остальными полями». */
-function FuncCard({func,entities,traitName,bare=false}){
+function FuncCard({func,entities,traitName,bare=false,about=""}){
   /* Каждая строка плашки названа: без подписи число «1 дн.» читалось как
      что угодно (владелец, 2026-09-20: «в следующем не написано, что это;
      должно быть написано „Срок:", в последнем — „Ожидаемый результат:"»). */
@@ -588,9 +588,20 @@ function FuncCard({func,entities,traitName,bare=false}){
           берёт: {uniqPorts(func.takes).map(p=>`${traitName(p.trait)} ${rangeText(p)}`
             +(p.spend===false?" (не расходует)":"")).join(", ")}
         </div>)}
+      {/* Описание задачи — над «ожидается» (владелец, 2026-09-20). Слова
+          постановщика об этом выполнении; на форме постановки его нет —
+          там оно правится своим полем. */}
+      {!bare&&(
+        <div style={{color:C.muted,marginTop:4}}>
+          Описание задачи: {String(about||"").trim()
+            ? <span style={{color:C.text,whiteSpace:"pre-wrap"}}>{about}</span>
+            : <span>не назначено</span>}
+        </div>)}
+      {/* «Ожидается», а не «выдаёт» (владелец, 2026-09-20): число — это то,
+          чего от работы ждут, а не то, что она уже отдала. */}
       {!!func.gives.length&&(
-        <div style={{color:C.muted}}>
-          выдаёт: {uniqPorts(func.gives).map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")}
+        <div style={{color:C.muted,marginTop:4}}>
+          ожидается: {uniqPorts(func.gives).map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")}
         </div>)}
       {/* «Срок:» — тем же словом, что и в тексте процесса. Хвост «на одно
           выполнение» обязателен: у задачи свои «Начать» и «Закончить» на
@@ -963,7 +974,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
   /* Человек уже написал отчёт и приложил обязательное, но хочет вернуться
      к вещам — заменить или приложить необязательную. Кнопки загрузки тогда
      показываются снова на месте оценки. */
-  const [moreThings,setMoreThings]=useState(false);
 
   const func=funcs.find(f=>f.id===task.funcId)||null;
   const subs=task.submissions||[];
@@ -978,7 +988,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 
   const reset=()=>{
     setHanding(false); setDraftText(""); setTook({}); setGiveUnits({});
-    setGiveErr({}); setGiveBusy(""); setRating(NO_RATING); setMoreThings(false);
+    setGiveErr({}); setGiveBusy(""); setRating(NO_RATING);
     setProof(null); setProofErr(""); setProofBusy(false);
   };
   const startHanding=()=>{
@@ -995,7 +1005,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     setTook({});
     setGiveUnits({}); setGiveErr({}); setGiveBusy(""); setOpenGive(""); setOpenUnit("");
     setProof(null); setProofErr(""); setProofBusy(false);
-    setRating(NO_RATING); setMoreThings(false);
+    setRating(NO_RATING);
     setHanding(true);
   };
   /* Себе оценку постановки не ставят: постановщик, равный исполнителю,
@@ -1049,8 +1059,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     try{
       const saved=await putReportFile(f);
       putUnit(trait,i,{kind:"file",file:saved});
-      // Вернулись «к вещам», приложили — и обратно к оценке.
-      setMoreThings(false);
     }catch(e){
       setGiveErr(p=>({...p,[`${trait}~${i}`]:e.message||"не удалось сохранить файл"}));
     }
@@ -1061,7 +1069,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     setProofErr("");
     if(!f) return;
     setProofBusy(true);
-    try{ setProof(await putReportFile(f)); setMoreThings(false); }
+    try{ setProof(await putReportFile(f)); }
     catch(e){ setProofErr(e.message||"не удалось сохранить файл"); }
     setProofBusy(false);
   };
@@ -1084,7 +1092,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
   const missing=func?missingGives(func,filledAll,qty.gives):[];
   const written=!!String(draftText||"").trim();
   const ready=written&&!missing.length&&(!needsProof||!!proof);
-  const showThings=!ready||moreThings;
   const submit=()=>{
     /* Сдал — не значит принято. Задача уходит на проверку: «Готово» ставит
        тот, кто отчёт принял. Иначе фактом в расчёте стало бы то, что
@@ -1323,20 +1330,11 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         <div>срок: {task.end?fmtDT(task.end):"не назначен"}</div>
       </div>
 
-      {/* Описание задачи — слова постановщика ОБ ЭТОМ выполнении; своего
-          нет — написанное у этой задачи в техпроцессе (владелец,
-          2026-09-20: описание у задачи, а не у функции). Здесь оно только
-          читается. Пусто — не поломка: добавить было нечего. */}
-      {!!String(task.body||"").trim()&&(<>
-        <div style={S.lbl}>что нужно сделать</div>
-        <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-          padding:9,margin:"5px 0 8px",fontSize:12,lineHeight:1.6,
-          whiteSpace:"pre-wrap"}}>
-          {task.body}
-        </div></>)}
-
+      {/* Описание задачи стоит В ПЛАШКЕ, над «ожидается» (владелец,
+          2026-09-20), а не отдельным блоком над ней. */}
       <div style={S.lbl}>выполняемая функция</div>
-      <FuncCard func={func} entities={entities} traitName={traitName}/>
+      <FuncCard func={func} entities={entities} traitName={traitName}
+        about={task.body}/>
 
       {/* Сами вещи на входе — всегда, а не только при сдаче: работают с
           определённой заявкой, а не с числом «заявок 4», и скачать её
@@ -1440,101 +1438,69 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                 <div style={{margin:"5px 0 8px"}}>
                   {uniqPorts(func.takes).map(p=>qtyRow("takes",p))}
                 </div></>}
-              {/* ─── вещи или оценка: одно место на двоих ───
-                  Пока отчёт не написан или не хватает обязательной вещи —
-                  кнопки загрузки. Когда всё на месте — на этом же месте
-                  оценка постановки и «Сдать». */}
-              {showThings
-                ? <>
-                    {!!func.gives.length&&<>
-                      <div style={S.lbl}>сдаваемые ресурсы</div>
-                      <div style={{margin:"5px 0 8px"}}>
-                        {uniqPorts(func.gives).map(p=>giveForm(p))}
-                        {needsProof&&proofRow()}
-                      </div></>}
-                    {!func.gives.length&&(
-                      <div style={{fontSize:10.5,color:C.muted,marginBottom:8}}>
-                        Функция ничего не выдаёт — прикладывать нечего.</div>)}
-                    {/* Чего не хватает — словами, а не неактивной кнопкой. */}
-                    {!ready&&(
-                      <div style={{fontSize:10.5,color:WARN,marginTop:2,lineHeight:1.5}}>
-                        {!!missing.length&&(<div>
-                          Не приложено:{" "}
-                          {missing.map(p=>traitName(p.trait)).join(", ")}.</div>)}
-                        {needsProof&&!proof&&(<div>
-                          Нет подтверждения.</div>)}
-                        {!written&&(<div>
-                          Отчёт не написан.</div>)}
-                      </div>)}
-                    <div className="flex flex-wrap gap-2" style={{alignItems:"center",
-                      marginTop:6}}>
-                      <span style={{flex:1}}/>
-                      <button style={btn(false)} onClick={reset}>Отмена</button>
-                      {ready&&(<button style={btn(true,ACC)}
-                        onClick={()=>setMoreThings(false)}>К оценке и сдаче</button>)}
-                    </div>
-                  </>
-                : <>
-                    {/* Что приложено — коротко, с дорогой назад к вещам. */}
-                    <div className="flex flex-wrap gap-2" style={{alignItems:"center",
-                      marginBottom:8}}>
-                      <span style={{fontSize:10.5,color:C.muted}}>
-                        {func.gives.some(p=>slots(p.trait)>0)
-                          ?`приложено: ${func.gives.filter(p=>slots(p.trait)>0)
-                            .map(p=>{
-                              const one=slots(p.trait)===1&&unitsFor(p.trait)[0]?.file?.name;
-                              return `${traitName(p.trait)} — ${one
-                                ||`${nm(filledOf(p.trait))} из ${nm(slots(p.trait))}`}`;
-                            }).join(", ")}`
-                          :"вещей не приложено — функция этого не требует"}</span>
-                      {!!func.gives.length&&(
-                        <button style={{...btn(false),fontSize:10.5,padding:"2px 7px"}}
-                          onClick={()=>setMoreThings(true)}>изменить вещи</button>)}
-                    </div>
+              {/* ─── сдаваемые ресурсы ───
+                  Формы стоят на месте до самой сдачи: прежде они
+                  подменялись строкой «приложено: … изменить вещи», и поле,
+                  в которое человек печатал, пропадало у него под руками
+                  (владелец, 2026-09-20). */}
+              {!!func.gives.length&&<>
+                <div style={S.lbl}>сдаваемые ресурсы</div>
+                <div style={{margin:"5px 0 8px"}}>
+                  {uniqPorts(func.gives).map(p=>giveForm(p))}
+                  {needsProof&&proofRow()}
+                </div></>}
+              {/* Чего не хватает — словами, а не неактивной кнопкой. */}
+              {!ready&&(
+                <div style={{fontSize:10.5,color:WARN,marginTop:2,lineHeight:1.5}}>
+                  {!!missing.length&&(<div>
+                    Не приложено:{" "}
+                    {missing.map(p=>traitName(p.trait)).join(", ")}.</div>)}
+                  {needsProof&&!proof&&(<div>
+                    Нет подтверждения.</div>)}
+                  {!written&&(<div>
+                    Отчёт не написан.</div>)}
+                </div>)}
 
-                    {/* ─── оценка постановки ───
-                        Обе стороны отвечают за свою половину работы:
-                        проверяющий оценивает выполнение, исполнитель —
-                        постановку. Оценка про постановщика, публикуется без
-                        имени и только когда её нельзя вычислить; можно не
-                        ставить. */}
-                    {ratesSetter&&(
-                      <div style={{background:C.ink,border:`1px solid ${C.line}`,
-                        borderRadius:6,padding:7,marginBottom:8}}>
-                        <div style={S.lbl}>оценка постановки задачи — можно не ставить</div>
-                        <div className="flex flex-wrap gap-2" style={{margin:"5px 0 6px",
-                          alignItems:"center"}}>
-                          {Array.from({length:MARK_MAX-MARK_MIN+1},(_,i)=>MARK_MIN+i)
-                            .map(v=>(
-                              <button key={v} aria-label={`оценка постановки ${v}`}
-                                style={{...btn(rating.mark===v,rating.mark===v?OK:null),
-                                  minWidth:38}}
-                                onClick={()=>setRating(p=>({...p,mark:p.mark===v?null:v}))}>
-                                {v}</button>))}
-                          <span style={{fontSize:10.5,color:C.muted}}>
-                            {rating.mark==null?"без оценки":"ещё раз — снять"}</span>
-                        </div>
-                        <TxtField area value={rating.comment}
-                          placeholder="что в постановке было ясно, а чего не хватало"
-                          aria-label="отзыв о постановке"
-                          style={{minHeight:44,marginBottom:6,lineHeight:1.5}}
-                          onCommit={v=>setRating(p=>({...p,comment:v}))}/>
-                        <HiddenSwitch hidden={rating.hidden} whoElse="постановщик"
-                          onChange={h=>setRating(p=>({...p,hidden:h}))}/>
-                        <div style={{fontSize:10,color:C.muted,marginTop:5,lineHeight:1.5}}>
-                          Оценка — про постановщика: {who(roleOf(task,"setter"))}. Публикуется
-                          без вашего имени и только когда её нельзя вычислить — не
-                          меньше двух оценок от разных людей.
-                        </div>
-                      </div>)}
+                  {/* ─── оценка постановки ───
+                      Обе стороны отвечают за свою половину работы:
+                      проверяющий оценивает выполнение, исполнитель —
+                      постановку. Оценка про постановщика, публикуется без
+                      имени и только когда её нельзя вычислить; можно не
+                      ставить. */}
+                  {ready&&ratesSetter&&(
+                    <div style={{background:C.ink,border:`1px solid ${C.line}`,
+                      borderRadius:6,padding:7,marginBottom:8}}>
+                      <div style={S.lbl}>оценка постановки задачи</div>
+                      <div className="flex flex-wrap gap-2" style={{margin:"5px 0 6px",
+                        alignItems:"center"}}>
+                        {Array.from({length:MARK_MAX-MARK_MIN+1},(_,i)=>MARK_MIN+i)
+                          .map(v=>(
+                            <button key={v} aria-label={`оценка постановки ${v}`}
+                              style={{...btn(rating.mark===v,rating.mark===v?OK:null),
+                                minWidth:38}}
+                              onClick={()=>setRating(p=>({...p,mark:p.mark===v?null:v}))}>
+                              {v}</button>))}
+                        <span style={{fontSize:10.5,color:C.muted}}>
+                          {rating.mark==null?"без оценки":"ещё раз — снять"}</span>
+                      </div>
+                      <TxtField area value={rating.comment}
+                        placeholder="что в постановке было ясно, а чего не хватало"
+                        aria-label="отзыв о постановке"
+                        style={{minHeight:44,marginBottom:6,lineHeight:1.5}}
+                        onCommit={v=>setRating(p=>({...p,comment:v}))}/>
+                      <HiddenSwitch hidden={rating.hidden} whoElse="постановщик"
+                        onChange={h=>setRating(p=>({...p,hidden:h}))}/>
+                    </div>)}
 
-                    <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-                      <span style={{flex:1}}/>
-                      <button style={btn(false)} onClick={reset}>Отмена</button>
-                      <button style={btn(true,OK)} disabled={!!giveBusy}
-                        onClick={submit}>Сдать</button>
-                    </div>
-                  </>}
+
+              {/* Чего не хватает — словами, а не неактивной кнопкой: «Сдать»
+                  появляется, когда сдавать есть что. */}
+              <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+                <span style={{flex:1}}/>
+                <button style={btn(false)} onClick={reset}>Отмена</button>
+                {ready&&(<button style={btn(true,OK)} disabled={!!giveBusy}
+                  onClick={submit}>Сдать</button>)}
+              </div>
             </div>}
       </div>
 

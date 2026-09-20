@@ -3,31 +3,38 @@ import { C, OK, WARN, BAD, ACC, S, btn } from "./ui.jsx";
 import { agreementHtml, openRoles, registerRemote, signAgreement } from "../identity.js";
 import { reportSrc } from "../storage.js";
 import { DocViewer, PlaceholderFields, dayText } from "./ContractsPanel.jsx";
+import { FormAnswers } from "./FormsPanel.jsx";
 import SignaturePad from "./SignaturePad.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    РЕГИСТРАЦИЯ · участником становятся, подписав договор
 
-   Прежде человека добавлял владелец: пересылал боту сообщение и выбирал
-   роль. Человек при этом ничего не подписывал — его просто впускали, и
-   на вопрос «на каких условиях он тут работает» ответа не было.
+   Экран СВОЙ, а не карточка поверх вкладки: договор роли не часть «Рынка
+   услуг», а рисовался он именно там — панель стояла выше содержимого
+   вкладок и показывалась на той, что открыта (владелец, 2026-09-20).
+   Отсюда же и «Назад»: с выбранной роли — обратно к выбору, а тому, у
+   кого доступ уже есть, — обратно в приложение.
 
-   Теперь акцепт — ДОГОВОР. Он у роли: под каждую свой. Последовательность
-   одна и вся на одном экране:
+   Путей два, и решает их то, звали ли человека:
 
-     1. выбрать роль — что человек будет здесь делать;
-     2. прочитать её договор — он скачивается по ссылке;
-     3. прислать подписанный экземпляр;
-     4. дальше система сама: видит договор, понимает, какая роль, и
-        выдаёт её. Ждать чужого нажатия не нужно.
+     — ПОЗВАЛИ (`pending`). Роль ему назначил владелец, и показывают ему
+       ТОЛЬКО её договор — выбирать не из чего. Нет у роли договора —
+       подписывать нечего, и роль выдана сразу.
 
-   Роль, которой владелец не приложил договор, подписывать нечем — она
-   выдаётся сразу, и об этом сказано словами: молчание читалось бы как
-   «договор есть, просто не показали».
-
-   Приготовленная роль (`pending`) — когда владелец уже позвал человека:
-   она выбрана заранее, и остаётся подписать.
+     — НЕ ЗВАЛИ. Роль он выбирает сам, подписывает её договор, отвечает на
+       её анкету — и ждёт: доступ ему открывает владелец на «Участниках».
    ════════════════════════════════════════════════════════════════ */
+
+/* «Назад» и заголовок одной строкой: кнопка слева от названия шага. */
+function Head({ title, onBack }) {
+  return (
+    <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+      {onBack && (
+        <button type="button" style={{ ...btn(false), padding: "2px 8px" }}
+          aria-label="назад" onClick={onBack}>← Назад</button>)}
+      <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{title}</span>
+    </div>);
+}
 
 /* ════════════════════════════════════════════════════════════════
    ДОГОВОР ОТ ВЛАДЕЛЬЦА · заполнить, подписать, отправить
@@ -41,7 +48,7 @@ import SignaturePad from "./SignaturePad.jsx";
    даты и подписал; человек видит документ с заполненным, дописывает
    пустое, ставит свою подпись — и договор готов, роль действует.
    ════════════════════════════════════════════════════════════════ */
-export function AgreementSign({ me, onDone }) {
+export function AgreementSign({ me, onBack, onDone }) {
   const a = me.agreement;
   const [values, setValues] = useState(() => Object.fromEntries(
     (a.placeholders || []).filter((p) => !p.value).map((p) => [p.key, a.userValues?.[p.key] || ""])));
@@ -70,12 +77,10 @@ export function AgreementSign({ me, onDone }) {
   const step = { ...S.lbl, marginTop: 10 };
   return (
     <div style={{ ...S.card, marginBottom: 10 }} aria-label="договор к подписи">
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
-        Вам отправили договор «{a.docName}» — роль «{a.roleName}»
-      </div>
+      <Head onBack={onBack}
+        title={`Договор «${a.docName}» — роль «${a.roleName}»`} />
       <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
-        Сумма {a.sum} · действует с {dayText(a.start)} по {dayText(a.end)}. Заполните оставшиеся
-        поля, прочитайте договор, поставьте подпись и отправьте — роль откроется сразу.
+        Сумма {a.sum} · действует с {dayText(a.start)} по {dayText(a.end)}
       </div>
       <div style={step}>1 · заполнить</div>
       {!empty.length && (
@@ -97,7 +102,7 @@ export function AgreementSign({ me, onDone }) {
           {busy ? "Отправляю…" : "Подписать и отправить"}</button>
         <span style={{ fontSize: 10.5, color: C.muted }}>
           {left.length ? `заполните: ${left.map((p) => p.desc || p.key).join(", ")}`
-            : !sig ? "поставьте подпись" : "договор уйдёт владельцу, роль откроется сразу"}</span>
+            : !sig ? "поставьте подпись" : ""}</span>
       </div>
       {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: 8 }}>{msg}</div>}
       {open && html && (
@@ -108,10 +113,11 @@ export function AgreementSign({ me, onDone }) {
     </div>);
 }
 
-export default function RegisterPanel({ me, onDone }) {
+export default function RegisterPanel({ me, onBack, onDone }) {
   const [roles, setRoles] = useState(null);
   const [pick, setPick] = useState(me?.pending || "");
   const [file, setFile] = useState(null);
+  const [answers, setAnswers] = useState(() => ({ ...(me?.profile?.answers || {}) }));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -124,7 +130,10 @@ export default function RegisterPanel({ me, onDone }) {
   // Позвали в роль — она и выбрана: подписывать надо именно её.
   useEffect(() => { if (me?.pending) setPick(me.pending); }, [me?.pending]);
 
-  const cur = (roles || []).find((r) => r.id === pick) || null;
+  /* Позванному роль уже назначена: выбора нет, и роль подменить нельзя —
+     ему показывают договор ТОЙ роли, на которую его позвали. */
+  const invited = !!me?.pending;
+  const cur = (roles || []).find((r) => r.id === (invited ? me.pending : pick)) || null;
   const needs = !!cur?.contract;
   const ready = !!cur && (!needs || !!file);
 
@@ -132,7 +141,7 @@ export default function RegisterPanel({ me, onDone }) {
     if (!ready || busy) return;
     setBusy(true); setMsg("");
     try {
-      const r = await registerRemote(cur.id, file);
+      const r = await registerRemote(cur.id, file, answers);
       onDone?.(r?.me || null);
     } catch (e) { setMsg(e.message || "не удалось отправить"); }
     setBusy(false);
@@ -140,32 +149,57 @@ export default function RegisterPanel({ me, onDone }) {
 
   const step = { ...S.lbl, marginTop: 10 };
   // Договор от владельца — свой путь: заполнить, подписать, отправить.
-  if (me?.agreement) return <AgreementSign me={me} onDone={onDone} />;
+  if (me?.agreement) return <AgreementSign me={me} onBack={onBack} onDone={onDone} />;
+
+  /* Заявка подана — дальше решает владелец. Своего действия у человека
+     здесь нет, и формы тоже: показывать её значило бы звать подписать
+     второй раз то, что уже подписано. */
+  if (me?.waiting) {
+    return (
+      <div style={{ ...S.card, marginBottom: 10 }} aria-label="заявка отправлена">
+        <Head title="Заявка отправлена" onBack={onBack} />
+        <div style={{ fontSize: 11.5, color: WARN, lineHeight: 1.6 }}>
+          Роль «{me.waiting.name}» · ждёт владельца.
+        </div>
+      </div>);
+  }
+
+  /* «Назад» с выбранной роли — к выбору роли; у позванного выбора нет, и
+     назад ему только туда, откуда пришёл (если есть куда). */
+  const back = !invited && pick
+    ? () => { setPick(""); setFile(null); setMsg(""); }
+    : onBack;
+
   return (
-    <div style={{ ...S.card, marginBottom: 10 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
-        {me?.pending ? "Вас позвали — осталось подписать договор" : "Вступить в модель"}
-      </div>
+    <div style={{ ...S.card, marginBottom: 10 }} aria-label="регистрация">
+      <Head onBack={back}
+        title={invited ? "Вас позвали — осталось подписать договор" : "Вступить в модель"} />
       {/* ─── 1. роль ─── */}
-      <div style={step}>1 · какая роль</div>
-      {roles === null && (
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Загружаю…</div>)}
-      {roles !== null && !roles.length && (
+      {!invited && (<>
+        <div style={step}>1 · какая роль</div>
+        {roles === null && (
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Загружаю…</div>)}
+        {roles !== null && !roles.length && (
+          <div style={{ fontSize: 11.5, color: WARN, marginTop: 4, lineHeight: 1.6 }}>
+            Ролей ещё нет.
+          </div>)}
+        <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+          {(roles || []).map((r) => (
+            <button key={r.id} aria-pressed={pick === r.id}
+              aria-label={`роль: ${r.name}`}
+              style={{ ...btn(pick === r.id, pick === r.id ? ACC : null), fontSize: 12 }}
+              onClick={() => { setPick(r.id); setFile(null); setMsg(""); }}>
+              {r.name}</button>))}
+        </div>
+      </>)}
+      {invited && roles !== null && !cur && (
         <div style={{ fontSize: 11.5, color: WARN, marginTop: 4, lineHeight: 1.6 }}>
-          Ролей ещё нет.
+          Роли, на которую вас позвали, больше нет.
         </div>)}
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
-        {(roles || []).map((r) => (
-          <button key={r.id} aria-pressed={pick === r.id}
-            aria-label={`роль: ${r.name}`}
-            style={{ ...btn(pick === r.id, pick === r.id ? ACC : null), fontSize: 12 }}
-            onClick={() => { setPick(r.id); setFile(null); setMsg(""); }}>
-            {r.name}</button>))}
-      </div>
 
       {/* ─── 2. договор ─── */}
       {cur && (<>
-        <div style={step}>2 · договор</div>
+        <div style={step}>{invited ? "1 · договор" : "2 · договор"}</div>
         {needs ? (
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
             <a href={reportSrc(cur.contract)} target="_blank" rel="noreferrer"
@@ -173,8 +207,6 @@ export default function RegisterPanel({ me, onDone }) {
               aria-label={`скачать договор роли «${cur.name}»`}
               style={{ fontSize: 12, color: ACC }}>
               📄 {cur.contract.name || "договор"}</a>
-            <span style={{ fontSize: 10.5, color: C.muted }}>
-              скачайте, прочитайте и подпишите</span>
           </div>
         ) : (
           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
@@ -183,7 +215,7 @@ export default function RegisterPanel({ me, onDone }) {
 
         {/* ─── 3. подписанный экземпляр ─── */}
         {needs && (<>
-          <div style={step}>3 · подписанный экземпляр</div>
+          <div style={step}>{invited ? "2 · подписанный экземпляр" : "3 · подписанный экземпляр"}</div>
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
             <label style={{ ...btn(false), fontSize: 12, cursor: busy ? "default" : "pointer",
               opacity: busy ? 0.6 : 1, borderColor: file ? undefined : "#5A2436" }}>
@@ -196,7 +228,15 @@ export default function RegisterPanel({ me, onDone }) {
           </div>
         </>)}
 
-        {/* ─── 4. отправка ─── */}
+        {/* ─── 4. анкета роли ─── */}
+        {!!(cur.form?.questions || []).length && (<>
+          <div style={step}>анкета</div>
+          <div style={{ marginTop: 4 }}>
+            <FormAnswers forms={[cur.form]} answers={answers} mine onChange={setAnswers} />
+          </div>
+        </>)}
+
+        {/* ─── 5. отправка ─── */}
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 12 }}>
           <button style={{ ...btn(true, OK), opacity: ready && !busy ? 1 : 0.5 }}
             disabled={!ready || busy} onClick={send}>

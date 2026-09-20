@@ -919,15 +919,17 @@ describe("критерии на форме постановки", () => {
   /* У КАЖДОЙ СТРОКИ ПЛАШКИ — ПОДПИСЬ (владелец, 2026-09-20): «у тебя
      написано „берёт:", „выдаёт:"; в следующем не написано, что это —
      должно быть написано „Срок:", в последнем: „Ожидаемый результат:"».
-     Ожидаемый результат стоит под остальными полями. */
-  it("плашка функции — берёт, выдаёт, срок и ожидаемый результат, каждое с подписью", () => {
+     Ожидаемый результат стоит под остальными полями. Выход подписан
+     «ожидается:» (владелец, 2026-09-20): это то, чего от работы ждут. */
+  it("плашка функции — берёт, ожидается, срок и ожидаемый результат, каждое с подписью", () => {
     const f = [{ ...FUNCS[0], about: "описание функции", checks: ["есть ссылка"],
       chain: { id: "c1", name: "Ц", step: 1, of: 1, result: "лид передан" } }];
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
       .find((d) => d.textContent.startsWith("Сбор заявок"));
     expect(plate.textContent).toMatch(/берёт:/);
-    expect(plate.textContent).toMatch(/выдаёт:/);
+    expect(plate.textContent).toMatch(/ожидается:/);
+    expect(plate.textContent).not.toMatch(/выдаёт:/);
     expect(plate.textContent).toMatch(/Срок: 2 ч на одно выполнение/);
     expect(plate.textContent).toMatch(/Ожидаемый результат: лид передан/);
     /* Описания функции на плашке НЕТ (владелец, 2026-09-20: «убери описание
@@ -999,7 +1001,7 @@ describe("критерии на форме постановки", () => {
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
       .find((d) => d.textContent.startsWith("Сбор заявок"));
-    expect(plate.textContent).toMatch(/выдаёт: заявки ровно 1(?!, заявки)/);
+    expect(plate.textContent).toMatch(/ожидается: заявки ровно 1(?!, заявки)/);
     expect(plate.textContent.match(/заявки ровно 1/g)).toHaveLength(1);
   });
 });

@@ -5,14 +5,16 @@ import RegisterPanel from "../components/RegisterPanel.jsx";
 
 /* РЕГИСТРАЦИЯ: участником становятся, подписав договор роли.
 
-   Прежде человека впускал владелец, и на вопрос «на каких условиях он тут
-   работает» ответа не было. Теперь акцепт — сам договор: человек выбирает
-   роль, читает её договор, присылает подписанный экземпляр — и роль
-   выдаётся сама, без чужого нажатия. */
+   Путей два (владелец, 2026-09-20). ПОЗВАННОМУ роль назначил владелец: ему
+   показывают договор ТОЛЬКО этой роли, и выбора нет. НЕЗВАНЫЙ выбирает
+   роль сам, подписывает её договор и отвечает на её анкету — а доступ ему
+   открывает владелец на «Участниках». */
 
 const ROLES = [
   { id: "exec", name: "исполнитель",
-    contract: { name: "договор-исполнителя.pdf", url: "/api/reports/o/1" } },
+    contract: { name: "договор-исполнителя.pdf", url: "/api/reports/o/1" },
+    form: { id: "f1", name: "анкета исполнителя",
+      questions: [{ id: "q1", text: "чем занимались раньше" }] } },
   { id: "guest", name: "гость", contract: null },
 ];
 
@@ -68,7 +70,7 @@ describe("регистрация по договору", () => {
     await waitFor(() => expect(done[0]).toMatchObject({ known: true, tabs: ["tasks"] }));
   });
 
-  it("у роли без договора подписывать нечего — вступают сразу", async () => {
+  it("у роли без договора подписывать нечего — прикладывать тоже", async () => {
     const sent = [];
     global.fetch = fetchMock({ sent });
     render(<RegisterPanel me={{ known: false }} />);
@@ -81,12 +83,51 @@ describe("регистрация по договору", () => {
     expect(sent[0]).toEqual({ roleId: "guest" });
   });
 
-  it("позванному роль выбрана заранее — остаётся подписать", async () => {
+  it("позванному показывают договор только его роли — выбора нет", async () => {
     global.fetch = fetchMock({ sent: [] });
     render(<RegisterPanel me={{ known: true, pending: "exec" }} />);
-    await waitFor(() => expect(screen.getByLabelText("роль: исполнитель"))
-      .toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(
+      screen.getByLabelText("скачать договор роли «исполнитель»")).toBeTruthy());
     expect(screen.getByText(/Вас позвали/)).toBeTruthy();
+    // Ни своей роли выбрать заново, ни чужую: списка ролей у него нет.
+    expect(screen.queryByLabelText("роль: исполнитель")).toBeNull();
+    expect(screen.queryByLabelText("роль: гость")).toBeNull();
+  });
+
+  it("«Назад» с выбранной роли возвращает к выбору роли", async () => {
+    global.fetch = fetchMock({ sent: [] });
+    render(<RegisterPanel me={{ known: false }} />);
+    await waitFor(() => expect(screen.getByLabelText("роль: исполнитель")).toBeTruthy());
+    // Пока роль не выбрана, назад идти некуда.
+    expect(screen.queryByLabelText("назад")).toBeNull();
+    fireEvent.click(screen.getByLabelText("роль: исполнитель"));
+    expect(screen.getByLabelText("подписанный договор")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("назад"));
+    expect(screen.queryByLabelText("подписанный договор")).toBeNull();
+    expect(screen.getByLabelText("роль: исполнитель")).toBeTruthy();
+  });
+
+  it("анкета роли заполняется при вступлении и уезжает вместе с договором", async () => {
+    const sent = [];
+    global.fetch = fetchMock({ sent });
+    render(<RegisterPanel me={{ known: false }} />);
+    await waitFor(() => expect(screen.getByLabelText("роль: исполнитель")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("роль: исполнитель"));
+    const field = screen.getByLabelText("чем занимались раньше");
+    fireEvent.change(field, { target: { value: "курьером" } });
+    fireEvent.blur(field);
+    attach();
+    fireEvent.click(screen.getByRole("button", { name: "Вступить" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].answers).toEqual({ q1: "курьером" });
+  });
+
+  it("заявка подана — ждут владельца, и подписывать второй раз нечего", async () => {
+    global.fetch = fetchMock({ sent: [] });
+    render(<RegisterPanel me={{ known: true, waiting: { id: "exec", name: "исполнитель" } }} />);
+    expect(screen.getByText(/Заявка отправлена/)).toBeTruthy();
+    expect(screen.getByText(/ждёт владельца/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Вступить" })).toBeNull();
   });
 
   it("отказ сервера показан словами, а не молчанием", async () => {

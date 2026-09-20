@@ -6,8 +6,9 @@ import { renameRole,
 } from "../identity.js";
 import { putReportFile, reportSrc } from "../storage.js";
 import { FormsSection, RoleFormPick } from "./FormsPanel.jsx";
-import { DocsSection, InviteModal, dayText } from "./ContractsPanel.jsx";
-import { setRoleDoc } from "../identity.js";
+import { DocViewer, DocsSection, InviteModal, dayText } from "./ContractsPanel.jsx";
+import { agreementHtml, contractHtml, setRoleDoc } from "../identity.js";
+import Modal from "./Modal.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    РОЛИ · панель владельца: участники, роли, анкеты
@@ -39,6 +40,12 @@ const TAB_NAMES = {
   tasks: "Задачи", review: "Проверка", scheme: "Схема",
   reports: "Отчёты", tools: "Инструменты",
 };
+
+/* Не Word — показываем сам файл тем же окном: картинку картинкой,
+   остальное — страницей внутри окна. */
+const fileHtml = (url, type) => (/^image\//.test(String(type || ""))
+  ? `<img src="${url}" alt="" style="max-width:100%">`
+  : `<iframe src="${url}" title="договор" style="width:100%;height:78vh;border:0"></iframe>`);
 
 /**
  * Договор роли: что человек подписывает, вступая в неё.
@@ -91,6 +98,9 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
   const [busy, setBusy] = useState(false);
   const [newRole, setNewRole] = useState("");
   const [invite, setInvite] = useState(null);   // роль, в которую зовём
+  const [add, setAdd] = useState(null);         // {user, role} — кого добавляем
+  const [shown, setShown] = useState("");       // раскрытый договор в списке
+  const [doc, setDoc] = useState(null);         // {title, html} — окно просмотра
 
   const load = async () => {
     try {
@@ -135,6 +145,36 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
       {n != null && <span style={{ fontSize: 10.5, color: C.muted }}>{n}</span>}
     </div>);
 
+  /* ─── договор в списке участника ───
+
+     Кнопка, а не ссылка с подписью «файл»: что договор — файл, и так
+     видно (владелец, 2026-09-20). Нажатие раскрывает «Скачать» и
+     «Посмотреть»; скачивание идёт по ссылке на сам файл, а просмотр
+     открывает то же окно, что и правка документа, только без правки. */
+  const openDoc = async (title, load) => {
+    setMsg("");
+    try {
+      const r = await load();
+      setDoc({ title, html: r.html || fileHtml(r.url, r.type) });
+    } catch (e) { setMsg(e.message || "не удалось открыть договор"); }
+  };
+  const docRow = (key, { label, tone, url, name, view }) => (
+    <div key={key} style={{ flexBasis: "100%" }}>
+      <button type="button" aria-label={`договор ${label}`}
+        onClick={() => setShown(shown === key ? "" : key)}
+        style={{ background: "transparent", border: "none", padding: 0, textAlign: "left",
+          color: tone || C.text, fontSize: 10.5, cursor: "pointer" }}>{label}</button>
+      {shown === key && (
+        <div className="flex flex-wrap gap-2" style={{ margin: "4px 0 6px" }}>
+          <a href={url} download={name || "договор"} aria-label={`скачать договор ${label}`}
+            style={{ ...btn(false), fontSize: 10.5, padding: "2px 8px",
+              textDecoration: "none" }}>Скачать</a>
+          <button type="button" aria-label={`посмотреть договор ${label}`}
+            style={{ ...btn(false), fontSize: 10.5, padding: "2px 8px" }}
+            onClick={view}>Посмотреть</button>
+        </div>)}
+    </div>);
+
   const userRow = (u) => {
     const owner = u.id === org.ownerId;
     return (
@@ -166,14 +206,20 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                 {org.roles.map((r) => {
                   const has = (u.roles || []).includes(r.id);
                   const signed = (u.contracts || {})[r.id];
+                  /* ЖЁЛТАЯ роль — договор по ней подписан, а роли нет:
+                     человек пришёл сам, и впустить его решает владелец
+                     (владелец, 2026-09-20). Нажатие спрашивает, а не
+                     впускает молча. */
+                  const asks = !!signed && !has;
                   return (
                     <button key={r.id} aria-pressed={has} disabled={busy}
                       aria-label={`роль «${r.name}»: ${u.name}`}
-                      style={{ ...btn(has, has ? OK : undefined), fontSize: 11,
-                        padding: "2px 7px" }}
-                      onClick={() => act(() => setUserRoles(u.id, has
-                        ? (u.roles || []).filter((x) => x !== r.id)
-                        : [...(u.roles || []), r.id]))}>
+                      style={{ ...btn(has || asks, has ? OK : asks ? WARN : undefined),
+                        fontSize: 11, padding: "2px 7px" }}
+                      onClick={() => (asks ? setAdd({ user: u, role: r })
+                        : act(() => setUserRoles(u.id, has
+                          ? (u.roles || []).filter((x) => x !== r.id)
+                          : [...(u.roles || []), r.id])))}>
                       {r.name}{has && signed ? " ✓" : ""}</button>);
                 })}
                 {!!u.pending && (
@@ -190,29 +236,22 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                 <div style={{ flexBasis: "100%" }} aria-label={`договоры: ${u.name}`}>
                   {u.agreements.map((a) => {
                     const on = (u.active || []).includes(a.roleId);
-                    return (
-                      <div key={a.id} className="flex flex-wrap gap-2"
-                        style={{ fontSize: 10.5, color: on ? C.text : WARN, alignItems: "center" }}>
-                        <span>{roleName(a.roleId) || a.roleId} · {a.docName || "договор"}</span>
-                        <span>с {dayText(a.start)}</span>
-                        <span>по {dayText(a.end)}</span>
-                        <span>сумма {a.sum}</span>
-                        {a.file?.url && (
-                          <a href={a.file.url} download={a.file.name} style={{ color: ACC }}>файл</a>)}
-                        {!on && <span>· не действует</span>}
-                      </div>);
+                    const label = `${roleName(a.roleId) || a.roleId} · ${a.docName || "договор"}`
+                      + ` · с ${dayText(a.start)} по ${dayText(a.end)} · сумма ${a.sum}`
+                      + (on ? "" : " · не действует");
+                    return docRow(`a:${a.id}`, { label, tone: on ? C.text : WARN,
+                      url: a.file?.url, name: a.file?.name,
+                      view: () => openDoc(label, () => agreementHtml(a.id)) });
                   })}
                 </div>)}
               {!!Object.keys(u.contracts || {}).filter((rid) => !(u.agreements || []).some((a) => a.roleId === rid)).length && (
-                <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
-                  alignItems: "center" }}>
-                  <span style={{ fontSize: 10, color: C.muted }}>договоры:</span>
-                  {Object.entries(u.contracts || {}).filter(([rid]) => !(u.agreements || []).some((a) => a.roleId === rid)).map(([rid, f]) => (
-                    <a key={rid} href={reportSrc(f)} target="_blank" rel="noreferrer"
-                      download={f?.name || "договор"}
-                      aria-label={`договор «${roleName(rid) || rid}»: ${u.name}`}
-                      style={{ fontSize: 10.5, color: ACC }}>
-                      {roleName(rid) || rid} — {f?.name || "файл"}</a>))}
+                <div style={{ flexBasis: "100%" }} aria-label={`подписанные договоры: ${u.name}`}>
+                  {Object.entries(u.contracts || {}).filter(([rid]) => !(u.agreements || []).some((a) => a.roleId === rid)).map(([rid, f]) => {
+                    const label = `${roleName(rid) || rid}${f?.name ? ` · ${f.name}` : ""}`;
+                    return docRow(`${u.id}:${rid}`, { label, tone: ACC,
+                      url: reportSrc(f), name: f?.name,
+                      view: () => openDoc(label, () => contractHtml(u.id, rid)) });
+                  })}
                 </div>)}
             </>}
       </div>);
@@ -316,6 +355,29 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
       {invite && (
         <InviteModal role={invite} doc={(org.docs || []).find((d) => d.id === invite.doc) || null}
           me={me} onClose={() => setInvite(null)} onDone={() => load()} />)}
+
+      {/* Нажали жёлтую роль — спрашиваем: добавить или отменить. Впустить
+          человека молча одним нажатием нельзя (владелец, 2026-09-20). */}
+      {add && (
+        <Modal title={`${add.user.name} · роль «${add.role.name}»`}
+          onClose={() => setAdd(null)}>
+          <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+            <button type="button" style={btn(true, OK)} disabled={busy}
+              aria-label={`добавить участника: ${add.user.name}`}
+              onClick={() => {
+                const u = add.user, r = add.role;
+                setAdd(null);
+                act(() => setUserRoles(u.id, [...(u.roles || []), r.id]));
+              }}>Добавить участника</button>
+            <button type="button" style={btn(false)}
+              onClick={() => setAdd(null)}>Отменить</button>
+          </div>
+        </Modal>)}
+
+      {/* Просмотр договора — то же окно, что и правка документа, без правки. */}
+      {doc && (
+        <DocViewer title={doc.title} html={doc.html} editable={false}
+          onClose={() => setDoc(null)} />)}
       {msg && <div style={{ fontSize: 11.5, color: WARN, marginTop: 6 }}>{msg}</div>}
     </div>);
 }

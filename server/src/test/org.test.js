@@ -537,7 +537,7 @@ const SIGNED = { name: "подписан.pdf", type: "application/pdf", size: 12
   url: "/api/reports/u/2" };
 
 describe("договор роли", () => {
-  it("подписанный договор выдаёт роль сам, без чужого нажатия", async () => {
+  it("незваный подписал договор — это заявка, а не роль", async () => {
     await identify("100", { name: "Владелец" });
     const role = await addRole({ name: "Курьер", tabs: ["tasks"] });
     await setRoleContract(role.id, DOC);
@@ -547,12 +547,20 @@ describe("договор роли", () => {
 
     await registerUser("700", { name: "Новый" }, { roleId: role.id, file: SIGNED });
     const me = await identify("700", { name: "Новый" });
-    expect(me.known).toBe(true);
-    expect(me.roles.map((r) => r.id)).toEqual([role.id]);
-    expect(me.tabs).toEqual(["tasks"]);
+    // Роли и доступа нет: впустить решает владелец (владелец, 2026-09-20).
+    expect(me.roles).toEqual([]);
+    expect(me.tabs).toEqual([]);
+    expect(me.waiting).toEqual({ id: role.id, name: "Курьер" });
     const user = (await listOrg()).users.find((u) => u.id === "700");
     expect(user.contracts[role.id].name).toBe("подписан.pdf");
     expect(user.contracts[role.id].at).toBeTruthy();
+
+    // Владелец добавил — заявки больше нет, вкладки открылись.
+    await setUserRoles("700", [role.id]);
+    const done = await identify("700", {});
+    expect(done.waiting).toBe(null);
+    expect(done.roles.map((r) => r.id)).toEqual([role.id]);
+    expect(done.tabs).toEqual(["tasks"]);
   });
 
   it("без подписанного экземпляра роль не выдаётся", async () => {
@@ -564,11 +572,13 @@ describe("договор роли", () => {
     expect((await identify("701", {})).known).toBe(false);
   });
 
-  it("роль без договора подписывать нечем — она выдаётся сразу", async () => {
+  it("роль без договора подписывать нечем — но владельца всё равно ждут", async () => {
     await identify("100", { name: "Владелец" });
     const role = await addRole({ name: "Гость", tabs: ["tasks"] });
     await registerUser("702", { name: "Гость" }, { roleId: role.id });
-    expect((await identify("702", {})).roles.map((r) => r.id)).toEqual([role.id]);
+    const me = await identify("702", {});
+    expect(me.roles).toEqual([]);
+    expect(me.waiting.id).toBe(role.id);
   });
 
   it("вторая роль добавляется к первой, а не заменяет её", async () => {
@@ -578,6 +588,9 @@ describe("договор роли", () => {
     await setRoleContract(a.id, DOC);
     await setRoleContract(b.id, DOC);
     await registerUser("703", { name: "Оба" }, { roleId: a.id, file: SIGNED });
+    // Первую роль открыл владелец; дальше человек уже участник, и вторую
+    // ему выдаёт сама подпись.
+    await setUserRoles("703", [a.id]);
     await registerUser("703", { name: "Оба" }, { roleId: b.id, file: SIGNED });
     const me = await identify("703", {});
     expect(me.roles.map((r) => r.id)).toEqual([a.id, b.id]);

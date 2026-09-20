@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { DiffForms } from "../components/ContractsPanel.jsx";
+import { WARN } from "../components/ui.jsx";
 import { changeForms } from "../lib/docdiff.js";
 
 /* ДОГОВОРЫ: документы с версиями, «права сотрудников», приглашение с
@@ -41,7 +42,11 @@ const ORG = {
   users: [{ id: "1", name: "Владелец", roles: [] },
     { id: "5", name: "Пётр", roles: ["executor"], active: [],
       agreements: [{ id: "agr1", roleId: "executor", sum: "50000", start: "2026-01-01", end: "2026-06-30",
-        docName: "Договор подряда", file: { url: "/api/reports/s/f9", name: "подписан.docx" } }] }],
+        docName: "Договор подряда", file: { url: "/api/reports/s/f9", name: "подписан.docx" } }] },
+    /* Пришёл сам: договор подписан, роли нет — ждёт владельца. */
+    { id: "7", name: "Новичок", roles: [], wants: "executor", agreements: [],
+      contracts: { executor: { name: "подписан.pdf", type: "application/pdf",
+        url: "/api/reports/s/f7" } } }],
   forms: [], docs: [DOC],
 };
 const ME = { id: "1", isOwner: true, known: true };
@@ -102,6 +107,53 @@ describe("роли и договоры участников", () => {
     expect(list.textContent).toContain("по 30.06.2026");
     expect(list.textContent).toContain("сумма 50000");
     expect(list.textContent).toContain("не действует");
+  });
+});
+
+/* Цвета в jsdom возвращаются как rgb(): сравнивать нужно с тем же. */
+const rgb = (hex) => {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  return `rgb(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)})`;
+};
+
+describe("заявка на участие и договоры участника", () => {
+  it("роль с подписанным договором — жёлтая, и нажатие спрашивает, добавлять ли", async () => {
+    const calls = ownerServer();
+    render(<PeoplePanel me={ME} />);
+    const role = await screen.findByLabelText("роль «исполнитель»: Новичок");
+    expect(role.style.color).toBe(rgb(WARN));
+    // Нажатие не впускает молча: сперва вопрос.
+    fireEvent.click(role);
+    expect(calls).toHaveLength(0);
+    const ask = await screen.findByRole("dialog", { name: /Новичок/ });
+    fireEvent.click(within(ask).getByRole("button", { name: "Отменить" }));
+    expect(screen.queryByRole("dialog", { name: /Новичок/ })).toBeNull();
+    expect(calls).toHaveLength(0);
+
+    fireEvent.click(screen.getByLabelText("роль «исполнитель»: Новичок"));
+    fireEvent.click(await screen.findByLabelText("добавить участника: Новичок"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toMatchObject({ url: "/api/org/users/7/roles", method: "PUT",
+      body: { roles: ["executor"] } });
+  });
+
+  it("договор в списке — кнопка: «Скачать» и «Посмотреть», и слова «файл» нет", async () => {
+    ownerServer();
+    render(<PeoplePanel me={ME} />);
+    const list = await screen.findByLabelText("подписанные договоры: Новичок");
+    expect(list.textContent).not.toContain("файл");
+    // Пока не нажали — ни скачивания, ни просмотра.
+    expect(screen.queryByLabelText(/скачать договор исполнитель/)).toBeNull();
+    fireEvent.click(screen.getByLabelText("договор исполнитель · подписан.pdf"));
+    expect(screen.getByLabelText("скачать договор исполнитель · подписан.pdf"))
+      .toHaveAttribute("href", "/api/reports/s/f7");
+
+    // Просмотр — то же окно, что и правка документа, но без правки.
+    fireEvent.click(screen.getByLabelText("посмотреть договор исполнитель · подписан.pdf"));
+    const win = await screen.findByRole("dialog", { name: /документ/ });
+    expect(within(win).getByLabelText("текст документа"))
+      .toHaveAttribute("contenteditable", "false");
+    expect(within(win).queryByLabelText("сохранить документ")).toBeNull();
   });
 });
 

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { renameRole,
-  addForm, addRole, addUser, identify, listOrg, openRoles, registerUser, removeForm,
+  addForm, addRole, addUser, contractHtml, identify, listOrg, openRoles, registerUser, removeForm,
   removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
   setUserRole, setUserRoles, TABS,
 } from "../lib/orgStore.js";
@@ -63,7 +63,7 @@ const MAX_CONTRACT_BYTES = Math.min(MAX_REPORT_BYTES, 8 * 1024 * 1024);
 
 router.post("/register", async (req, res, next) => {
   try {
-    const { roleId, file } = req.body || {};
+    const { roleId, file, answers } = req.body || {};
     let saved = null;
     if (file && file.data) {
       /* Файл приезжает строкой base64 (или data:-ссылкой): тело здесь
@@ -79,7 +79,7 @@ router.post("/register", async (req, res, next) => {
         name: file.name, type: file.type, bytes, kind: "contract" });
     }
     const user = await registerUser(req.telegramUserId, req.telegramProfile || {},
-      { roleId, file: saved });
+      { roleId, file: saved, answers });
     const me = await identify(req.telegramUserId, req.telegramProfile || {});
     res.json({ me, user: { id: user.id, roles: user.roles } });
   } catch (e) {
@@ -143,6 +143,16 @@ router.put("/users/:id/role", async (req, res, next) => {
     res.json(user);
   } catch (e) {
     if (/unknown role/.test(e.message)) return res.status(400).json({ error: e.message });
+    next(e);
+  }
+});
+
+/* Подписанный договор участника — текстом для окна просмотра: Word
+   разбирается на месте, остальное открывается по своей ссылке. */
+router.get("/users/:id/contracts/:roleId/html", async (req, res, next) => {
+  try { res.json(await contractHtml(req.params.id, req.params.roleId)); }
+  catch (e) {
+    if (/not found/.test(e.message)) return res.status(404).json({ error: "not found" });
     next(e);
   }
 });

@@ -897,20 +897,29 @@ describe("регистрация по договору", () => {
     expect((await request(app).get("/api/org").set(as(777))).status).toBe(403);
   });
 
-  it("подписанный договор сам выдаёт роль и открывает вкладки", async () => {
+  it("незваный подписал договор — заявка владельцу, доступ даёт он", async () => {
     await request(app).put("/api/org/roles/executor/contract").set(as(100))
       .send({ contract: CONTRACT });
     const res = await request(app).post("/api/org/register").set(as(777, "Новый"))
       .send({ roleId: "executor",
         file: { name: "подписан.pdf", type: "application/pdf", data: SIGNED } });
     expect(res.status).toBe(200);
-    expect(res.body.me.known).toBe(true);
-    expect(res.body.me.tabs).toEqual(["tasks"]);
-    // Теперь он в списке владельца — с приложенным договором.
+    // Роли и вкладок нет: впустить решает владелец (владелец, 2026-09-20).
+    expect(res.body.me.tabs).toEqual([]);
+    expect(res.body.me.waiting.id).toBe("executor");
+    // Но он уже в списке владельца — с приложенным договором.
     const org = await request(app).get("/api/org").set(as(100));
     const user = org.body.users.find((u) => u.id === "777");
-    expect(user.roles).toEqual(["executor"]);
+    expect(user.roles).toEqual([]);
+    expect(user.wants).toBe("executor");
     expect(user.contracts.executor.name).toBe("подписан.pdf");
+
+    // Владелец добавил участника — заявка снята, вкладки открылись.
+    await request(app).put("/api/org/users/777/roles").set(as(100))
+      .send({ roles: ["executor"] });
+    const me = await request(app).get("/api/org/me").set(as(777));
+    expect(me.body.waiting).toBe(null);
+    expect(me.body.tabs).toEqual(["tasks"]);
   });
 
   it("без договора роль не выдаётся, и сказано почему", async () => {

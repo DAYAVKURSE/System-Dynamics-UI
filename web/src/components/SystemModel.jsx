@@ -750,6 +750,9 @@ export default function SystemModel(){
   // Спойлер процессов на «Управлении»: закрыт при открытии, помнится в сеансе.
   const [procsOpen,setProcsOpen]=useState(false);
   const [me,setMe]=useState(SOLO);
+  /* Регистрацию отложили: у кого доступ уже есть, тот уходит из неё
+     «Назад» в приложение, а вернуться может кнопкой в шапке. */
+  const [regAway,setRegAway]=useState(false);
   const [openCards,setOpenCards]=useState(()=>new Set());
   const [openCall,setOpenCall]=useState(()=>callFromLocation());
   const [people,setPeople]=useState([]);
@@ -1493,6 +1496,29 @@ export default function SystemModel(){
     goTab(tabAfter(tabsShown.map(([k])=>k),tab,step));
   };
 
+  /* ═══ РЕГИСТРАЦИЯ — СВОЙ ЭКРАН ═══
+
+     Договор роли не часть вкладки. Панель стояла ВЫШЕ содержимого вкладок
+     и потому показывалась на той, что открыта, — «почему-то он
+     отображается на вкладке «Рынок услуг»» (владелец, 2026-09-20). Теперь
+     она занимает экран целиком, и у неё есть «Назад»: тому, у кого доступ
+     уже есть, — обратно в приложение, а вернуться он может кнопкой в
+     шапке. Кому идти некуда (незваный, позванный без ролей, ждущий
+     владельца), тому и «Назад» показывать незачем. */
+  const needReg=!me.solo&&(!me.known||!!me.pending||!!me.agreement||!!me.waiting);
+  const canSkip=!!me.isOwner||(me.tabs||[]).length>0;
+  const onRegDone=m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); };
+  if(needReg&&!(regAway&&canSkip)) return (
+    <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
+      fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif"}}>
+      <div className="flex items-center gap-2"
+        style={{alignItems:"flex-end",...TAB_LINE,marginBottom:10}}>
+        <div style={{flex:"0 0 auto",paddingBottom:6}}><Brand size={20}/></div>
+      </div>
+      <RegisterPanel me={me} onDone={onRegDone}
+        onBack={canSkip?()=>setRegAway(true):undefined}/>
+    </div>);
+
   return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
       fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif",
@@ -1532,6 +1558,14 @@ export default function SystemModel(){
             disabled={savedBusy} onClick={saveNow} icon={ICON.save}/>)}
       </div>
 
+      {/* Ушли из регистрации «Назад» — путь обратно остаётся на виду. */}
+      {needReg&&(
+        <div className="flex" style={{marginBottom:8}}>
+          <button style={btn(true,ACC)} aria-label="вернуться к регистрации"
+            onClick={()=>setRegAway(false)}>
+            {me.agreement?"Подписать договор":"Регистрация"}</button>
+        </div>)}
+
       {/* Страница вкладки: въезжает с той стороны, откуда пришли. В покое
           transform снят вовсе, а не «translateX(0)»: любой transform на
           обёртке делает её опорой для position:fixed потомков, и плавающие
@@ -1570,19 +1604,7 @@ export default function SystemModel(){
         </div>)}
 
 
-      {/* Незваный — не «ждите, пока позовут», а РЕГИСТРАЦИЯ: участником
-          становятся, подписав договор роли, и делает это сам человек.
-          Позванному (`pending`) там же остаётся подписать приготовленную
-          роль. */}
-      {!me.known && !me.solo && (
-        <RegisterPanel me={me} onDone={m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); }}/>)}
-
-      {/* Договор от владельца ждёт подписи — и у того, кто уже участвует:
-          новую роль тоже выдают договором (владелец, 2026-09-14). */}
-      {me.known && !me.solo && (!!me.pending || !!me.agreement) && (
-        <RegisterPanel me={me} onDone={m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); }}/>)}
-
-      {me.known && !me.pending && !me.agreement && !me.tabs.length && (
+      {me.known && !me.pending && !me.agreement && !me.waiting && !me.tabs.length && (
         <div style={{...S.card,marginBottom:10,fontSize:11.5,color:C.muted,
           lineHeight:1.6}}>
           {(me.inactive||[]).length
