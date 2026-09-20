@@ -4,7 +4,7 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   forgetScenario, savedRoom, listScenarioVersions, getScenarioVersion } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addRole, removeRole, setUserRoles,
-  takeTaskRemote, dropTaskRemote, submitTaskRemote, messageTaskRemote, seeChatRemote,
+  takeTaskRemote, dropTaskRemote, submitTaskRemote, messageTaskRemote, markTaskRemote, seeChatRemote,
   getRatings, resetIdentity,
   setupTaskRemote }
   from "../identity.js";
@@ -971,15 +971,20 @@ export default function SystemModel(){
      первым в формах выбора: у выбирающего бывают причины, которых в цифрах
      нет. Роли при этом всегда сортируются по рейтингу — там вопрос «кому
      поручить», и первым должен стоять тот, кто лучше справлялся. */
-  const orderWorker=(pid,delta)=>{
+  /* Порядок воркеров задаётся перетаскиванием за полоски (владелец,
+     2026-09-20): человека ставят НА МЕСТО того, над кем его отпустили, —
+     так же, как разделы отчётов. */
+  const orderWorker=(pid,overId)=>{
     setEntities(p=>p.map(e=>{
       if(e.id!==sel) return e;
-      const list=crewOf(e);
-      const i=list.findIndex(x=>String(x)===String(pid));
-      const j=i+delta;
-      if(i<0||j<0||j>=list.length) return e;
-      [list[i],list[j]]=[list[j],list[i]];
-      return {...e,crew:list};
+      const list=crewOf(e).map(String);
+      const i=list.indexOf(String(pid));
+      const j=list.indexOf(String(overId));
+      if(i<0||j<0||i===j) return e;
+      const next=[...list];
+      next.splice(i,1);
+      next.splice(j,0,String(pid));
+      return {...e,crew:next};
     }));
   };
   /* Влияет ли этот порядок на выбор — тоже свойство актива: у одного актива
@@ -1335,10 +1340,13 @@ export default function SystemModel(){
      отдельным списком `reviews`, а не в комментарии: комментарий может
      оставить кто угодно и когда угодно, а решение — это ровно приём или
      возврат, с оценкой и автором. */
-  const decide=useCallback((task,accept,note,mark,hidden=false)=>{
+  /* Решение проверяющего — приём или возврат. Оценка человеку к нему
+     больше не привязана: она своя, кнопкой «Поставить оценку» (владелец,
+     2026-09-20). */
+  const decide=useCallback((task,accept,note)=>{
     const at=new Date().toISOString();
     const review={id:"rv"+Date.now().toString(36),at,by:me.id??null,
-      accept:!!accept,mark:Number(mark)||null,comment:String(note||""),hidden:!!hidden};
+      accept:!!accept,mark:null,comment:String(note||""),hidden:false};
     setTasks(p=>p.map(t=>t.id===task.id?{...t,
       status:accept?"done":"backlog",
       // Возвращённая задача снова лежит и ждёт: её берут в работу заново,
@@ -1351,7 +1359,7 @@ export default function SystemModel(){
         {id:"m"+Date.now().toString(36),text:note,at,by:me.id??null}]
         :(t.chat||[]),
     }:t));
-    reviewTaskRemote(task.id,{accept,comment:note,mark:review.mark,hidden:!!hidden}).then(pullNow,()=>{});
+    reviewTaskRemote(task.id,{accept,comment:note}).then(pullNow,()=>{});
   },[setTasks,me.id,pullNow]);
   const toggleCard=useCallback((id)=>setOpenCards(p=>{
     const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n;
@@ -1666,6 +1674,7 @@ export default function SystemModel(){
              putWorkspace; POST'ить их ещё раз значило бы записать дважды. */
           onSay={(t,text)=>{ if(!me.isOwner) messageTaskRemote(t.id,text).then(pullNow,()=>{}); }}
           onSeen={(t)=>{ if(!me.isOwner) seeChatRemote(t.id).then(()=>{},()=>{}); }}
+          onRate={(t,m)=>{ if(!me.isOwner) markTaskRemote(t.id,m).then(pullNow,()=>{}); }}
           onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).then(pullNow,()=>{}); }}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
@@ -1677,14 +1686,16 @@ export default function SystemModel(){
           published={published}
           onSay={(t,text)=>{ if(!me.isOwner) messageTaskRemote(t.id,text).then(pullNow,()=>{}); }}
           onSeen={(t)=>{ if(!me.isOwner) seeChatRemote(t.id).then(()=>{},()=>{}); }}
+          onRate={(t,m)=>{ if(!me.isOwner) markTaskRemote(t.id,m).then(pullNow,()=>{}); }}
           /* Постановка у владельца уезжает в составе модели через
              putWorkspace; у позванного постановщика модель не пишется —
              каждая правка формы и «Поставить» идут своей операцией, и
              форма ждёт ответа сервера, а не меняет статус у себя. */
           onSetup={me.isOwner?undefined
             :(t,patch)=>setupTaskRemote(t.id,patch).then(r=>{ pullNow(); return r; })}
-          onAccept={(t,note,mark,hidden)=>decide(t,true,note,mark,hidden)}
-          onReturn={(t,note,mark,hidden)=>decide(t,false,note,mark,hidden)}/>)}
+          onAccept={(t,note)=>decide(t,true,note)}
+          onReturn={(t,note)=>decide(t,false,note)}
+          onRate={(t,m)=>{ if(!me.isOwner) markTaskRemote(t.id,m).then(pullNow,()=>{}); }}/>)}
 
       {/* ═══ СХЕМА ═══ */}
       {tab==="scheme" && me.tabs.includes("scheme") && (<>

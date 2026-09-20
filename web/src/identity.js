@@ -201,6 +201,12 @@ export const messageTaskRemote = (id, text) =>
    считаться одинаково на всех устройствах. */
 export const seeChatRemote = (id) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/chat/seen`, { method: "POST" });
+/* Оценка человеку в задаче: пять звёзд, отзыв и его видимость. Своя
+   операция, как у сдачи и приёма: модель целиком пишет владелец, а
+   оценить должен уметь тот, кто в задаче работал. */
+export const markTaskRemote = (id, { to, mark, text, pub }) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(id)}/mark`,
+    { method: "POST", body: JSON.stringify({ to, mark, text, pub }) });
 /* Поручения — то, в чём человека выбрали, по всем активам сразу.
    Отдельным запросом, потому что модель позванный не видит: список
    собирает сервер по своим правилам, а не интерфейс по срезу. */

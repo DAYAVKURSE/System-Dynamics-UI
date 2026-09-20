@@ -474,9 +474,19 @@ describe("исключения у воркера", () => {
     { id: "f9", e: "b", name: "Чужая", posts: { owners: ["designer"] }, except: [], takes: [], gives: [] },
   ];
   const rolesOf = (id) => PEOPLE.find((p) => String(p.id) === String(id))?.roles || [];
-  const show = (over = {}) => render(<Workers workers={{ crew: ["2", "3"] }} people={PEOPLE}
-    funcs={FUNCS} entityId="a" positions={POSITIONS} rolesOf={rolesOf}
-    nameOf={(id) => PEOPLE.find((p) => p.id === id)?.name || id} onToggleFunc={() => {}} {...over} />);
+  /* Форма воркера свёрнута по умолчанию (владелец, 2026-09-20): роли и
+     исключения — внутри, и для проверки её раскрывают. */
+  const show = (over = {}) => {
+    const out = render(<Workers workers={{ crew: ["2", "3"] }} people={PEOPLE}
+      funcs={FUNCS} entityId="a" positions={POSITIONS} rolesOf={rolesOf}
+      nameOf={(id) => PEOPLE.find((p) => p.id === id)?.name || id}
+      onToggleFunc={() => {}} {...over} />);
+    PEOPLE.forEach((p) => {
+      const open = screen.queryByLabelText(`развернуть воркера: ${p.name}`);
+      if (open) fireEvent.click(open);
+    });
+    return out;
+  };
 
   it("в строке — только то, к чему допускает роль; чужой актив не предлагается", () => {
     show();

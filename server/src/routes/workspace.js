@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify, listOrg } from "../lib/orgStore.js";
-import { addMessage, deferTask, dropTask, dutyFor, peopleOf, readModel, seeChat,
+import { addMessage, deferTask, dropTask, dutyFor, peopleOf, rateTask, readModel, seeChat,
   refuseFunc, reviewTask, setupTask, submitTask, takeTask, taskViewFor, viewFor,
   withModel, writeModel } from "../lib/workspaceStore.js";
 import { publishStep, viewRatingsFor } from "../lib/ratings.js";
@@ -188,6 +188,20 @@ router.post("/tasks/:id/chat", async (req, res, next) => {
     if (r.error === "not yours") return res.status(403).json({ error: r.error });
     if (r.error) return res.status(400).json({ error: r.error });
     res.status(201).json({ message: r.message, task: seen(req, r.task) });
+  } catch (e) { next(e); }
+});
+
+/* Оценка человеку: исполнитель — постановщику, проверяющий —
+   исполнителю. Себе не ставят; вторая оценка тому же человеку заменяет
+   первую. */
+router.post("/tasks/:id/mark", async (req, res, next) => {
+  try {
+    const r = await rateTask(req.telegramUserId, req.params.id, req.body || {},
+      { isOwner: req.me.isOwner });
+    if (r.error === "not found") return res.status(404).json({ error: r.error });
+    if (r.error === "not yours") return res.status(403).json({ error: r.error });
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.status(201).json({ mark: r.mark, task: seen(req, r.task) });
   } catch (e) { next(e); }
 });
 

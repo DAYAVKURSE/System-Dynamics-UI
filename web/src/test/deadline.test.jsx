@@ -288,51 +288,46 @@ describe("список воркеров: кого ставить", () => {
   const namesIn = (el) => [...el.querySelectorAll("button")]
     .map((b) => b.textContent).filter((t) => /Иван|Пётр/.test(t));
 
-  it("в строке пять вещей и в этом порядке: роли, имя, сроки, рейтинг, работы",
-    () => {
-      /* Свалить это в одну серую строку через точки значило бы заставить
-         искать нужное число глазами. */
-      mount();
-      const row = within(crewCard()).getByText("Иван").closest("button");
-      // Только конечные ячейки: внешняя обёртка содержит весь текст сразу.
-      const parts = [...row.querySelectorAll("span")]
-        .filter((x) => !x.querySelector("span"))
-        .map((x) => x.textContent).filter(Boolean);
-      const at = (t) => parts.findIndex((x) => x.includes(t));
-      expect(at("Дизайнер")).toBeGreaterThanOrEqual(0);
-      expect(at("Дизайнер")).toBeLessThan(at("Иван"));
-      expect(at("Иван")).toBeLessThan(at("в срок"));
-      expect(at("в срок")).toBeLessThan(at("рейтинг"));
-      expect(at("рейтинг")).toBeLessThan(at("сдано"));
-      expect(row.textContent).toMatch(/рейтинг 5/);
-      expect(row.textContent).toMatch(/1 сдано/);
-    });
-
-  it("себя в списке человек видит без рейтинга — «свой рейтинг скрыт»", () => {
-    /* Рейтинг работает на того, кто поручает, а не на самолюбие: Иван
-       (id 2) смотрит на список — его строка без цифры, чужая — с ней. */
-    mount({ me: { id: "2" } });
-    const mine = within(crewCard()).getByText("Иван").closest("button");
-    expect(mine.textContent).toMatch(/свой рейтинг скрыт/);
-    expect(mine.textContent).not.toMatch(/рейтинг 5/);
-    const other = within(crewCard()).getByText("Пётр").closest("button");
-    expect(other.textContent).toMatch(/рейтинг 3/);
-  });
-
-  it("неопубликованная оценка в рейтинг не идёт", () => {
-    // Оценка есть, но её ещё нельзя показать без имени — значит, её нет.
-    mount({ published: [] });
+  /* СВЁРНУТАЯ ФОРМА ВОРКЕРА — ТРИ ВЕЩИ (владелец, 2026-09-20): роль, имя
+     и статус. Сроки, оценки и «сдано» ушли в «Рейтинг» внутри раскрытой. */
+  it("в свёрнутой строке — роль, имя и статус, и больше ничего", () => {
+    mount();
     const row = within(crewCard()).getByText("Иван").closest("button");
-    expect(row.textContent).toMatch(/без оценок/);
+    expect(row.textContent).toMatch(/Дизайнер/);
+    expect(row.textContent).not.toMatch(/в срок/);
+    expect(row.textContent).not.toMatch(/рейтинг/);
+    expect(row.textContent).not.toMatch(/сдано/);
   });
 
   it("чего нет — сказано словом, а не нулём", () => {
-    // Ноль читается как «оценили на ноль», а человека ещё не оценивали.
     mount({ tasks: [], rolesOf: () => [], roleName: () => "" });
     const row = within(crewCard()).getByText("Иван").closest("button");
     expect(row.textContent).toMatch(/без роли/);
-    expect(row.textContent).toMatch(/без оценок/);
-    expect(row.textContent).toMatch(/сроков нет/);
+  });
+
+  /* РЕЙТИНГ — В РАСКРЫТОЙ ФОРМЕ: общая оценка, сколько сдано и публичные
+     отзывы. Приватных тут нет — их видят только двое. */
+  it("рейтинг раскрывается: оценка, сданные работы и публичные отзывы", () => {
+    const rated = [{ id: "a", funcId: "f1", assignee: "2", status: "done",
+      end: "2026-01-02T09:00:00Z",
+      submissions: [{ at: "2026-01-01T09:00:00Z", hours: 2, takes: {}, gives: {} }],
+      marks: [{ id: "m1", by: "9", to: "2", mark: 4, text: "быстро", pub: true },
+        { id: "m2", by: "8", to: "2", mark: 2, text: "втайне", pub: false }] }];
+    mount({ tasks: rated });
+    fireEvent.click(screen.getByLabelText("развернуть воркера: Иван"));
+    const box = screen.getByLabelText("рейтинг: Иван");
+    expect(box.textContent).toMatch(/3 · оценок 2/);
+    expect(box.textContent).toMatch(/сдано работ: 1/);
+    expect(box.textContent).toMatch(/быстро/);
+    expect(box.textContent).not.toMatch(/втайне/);
+  });
+
+  it("никого не оценили — так и сказано", () => {
+    mount({ tasks: [] });
+    fireEvent.click(screen.getByLabelText("развернуть воркера: Иван"));
+    const box = screen.getByLabelText("рейтинг: Иван");
+    expect(box.textContent).toMatch(/без оценок/);
+    expect(box.textContent).toMatch(/отзывов нет/);
   });
 
   it("статус видно прямо в списке: можно ли поручить сейчас", () => {
@@ -361,12 +356,23 @@ describe("список воркеров: кого ставить", () => {
     expect(screen.getByLabelText("воркер актива: Иван")).not.toBeChecked();
   });
 
-  it("порядок воркеров — тот, что записан, и его можно менять", () => {
+  /* ПОРЯДОК ЗАДАЮТ ПОЛОСКАМИ (владелец, 2026-09-20): кнопок «вверх» и
+     «вниз» больше нет, человека ставят на место того, над кем отпустили. */
+  it("порядок воркеров — тот, что записан, и меняется перетаскиванием", () => {
     const moves = [];
-    mount({ onOrder: (p, d) => moves.push([p, d]) });
+    mount({ onOrder: (pid, over) => moves.push([pid, over]) });
     expect(namesIn(crewCard())[0]).toMatch(/Пётр/);
-    fireEvent.click(screen.getByRole("button", { name: "ниже: Пётр" }));
-    expect(moves).toEqual([["3", 1]]);
+    expect(screen.queryByRole("button", { name: "ниже: Пётр" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "выше: Иван" })).toBeNull();
+
+    const grip = screen.getByLabelText("переставить Пётр");
+    const row = screen.getByLabelText("переставить Иван").closest("[data-worker]");
+    // Ведём Петра на место Ивана: сосед узнаётся по узлу под пальцем.
+    document.elementFromPoint = () => row;
+    fireEvent.pointerDown(grip, { clientY: 0 });
+    fireEvent.pointerMove(grip, { clientY: 30 });
+    expect(moves).toEqual([["3", "2"]]);
+    fireEvent.pointerUp(grip, { clientY: 30 });
   });
 
   it("прежние роли актива читаются как членство: люди не пропадают", () => {

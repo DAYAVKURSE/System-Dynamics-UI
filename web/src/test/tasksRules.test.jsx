@@ -505,30 +505,23 @@ describe("возврат с проверки", () => {
     const back = screen.getByRole("button", { name: "Вернуть в бэклог" });
     expect(back).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
+    fireEvent.change(screen.getByLabelText("что доработать"),
       { target: { value: "переделать" } });
     expect(screen.getByRole("button", { name: "Вернуть в бэклог" })).not.toBeDisabled();
   });
 
-  it("принять без оценки и без слов нельзя", () => {
-    // Оценка без слов не говорит, что исправить; слова без оценки не
-    // складываются в историю. Приём — это и то и другое сразу.
+  /* ПРИНЯТЬ МОЖНО МОЛЧА (владелец, 2026-09-20): оценка человеку — своя
+     кнопка «Поставить оценку», и приём работы ею больше не держится. */
+  it("принять можно без оценки и без слов", () => {
     const got = [];
     render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
       entities={ENTITIES} meId="3" isOwner={false}
-      onAccept={(t, note, mark) => got.push([note, mark])} onReturn={() => {}} />);
+      onAccept={(t, note) => got.push(note)} onReturn={() => {}} />);
     fireEvent.click(screen.getByText("Задача A"));
-    const take = () => screen.getByRole("button", { name: "Принять" });
-    expect(take()).toBeDisabled();
-
-    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
-      { target: { value: "сделано" } });
-    expect(take()).toBeDisabled();
-
-    fireEvent.click(screen.getByRole("button", { name: "оценка 4" }));
-    expect(take()).not.toBeDisabled();
-    fireEvent.click(take());
-    expect(got).toEqual([["сделано", 4]]);
+    const take = screen.getByRole("button", { name: "Принять" });
+    expect(take).not.toBeDisabled();
+    fireEvent.click(take);
+    expect(got).toEqual([""]);
   });
 
   it("сказано, сдана работа в срок или после него", () => {

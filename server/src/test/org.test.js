@@ -8,7 +8,7 @@ import {
   setRoleContract, setRoleForm, setRoleTabs, setUserRole, setUserRoles,
 } from "../lib/orgStore.js";
 import {
-  readModel, reviewTask, submitTask, tasksFor, viewFor, writeModel,
+  rateTask, readModel, reviewTask, submitTask, tasksFor, viewFor, writeModel,
 } from "../lib/workspaceStore.js";
 
 /* Кто ты, что тебе видно и что ты можешь изменить. */
@@ -300,18 +300,31 @@ describe("что можно изменить", () => {
   it("вернуть без текста доработки нельзя — исполнителю нечего исправлять", async () => {
     await seed();
     expect((await reviewTask("300", "tk1", { accept: false })).error).toBe("comment required");
-    // Принять молча тоже нельзя: без слов непонятно, за что оценка.
-    expect((await reviewTask("300", "tk1", { accept: true, mark: 5 })).error)
-      .toBe("comment required");
   });
 
-  it("принять без оценки нельзя — она часть истории исполнителя", async () => {
+  /* ПРИНЯТЬ МОЖНО МОЛЧА (владелец, 2026-09-20): оценка человеку —
+     отдельное дело, своей кнопкой «Поставить оценку», и держать ею приём
+     работы больше не надо. */
+  it("принять можно без оценки и без слов", async () => {
     await seed();
-    expect((await reviewTask("300", "tk1", { accept: true, comment: "ок" })).error)
-      .toBe("mark required");
-    // И оценка вне шкалы (она десятибалльная) — не оценка.
-    expect((await reviewTask("300", "tk1", { accept: true, comment: "ок", mark: 11 })).error)
-      .toBe("mark required");
+    const r = await reviewTask("300", "tk1", { accept: true });
+    expect(r.error).toBeUndefined();
+    expect(r.task.status).toBe("done");
+  });
+
+  it("оценку ставят человеку, а не задаче: пять звёзд, отзыв и его видимость", async () => {
+    await seed();
+    // Себе не ставят, чужому в задаче — тоже.
+    expect((await rateTask("200", "tk1", { to: "200", mark: 5 })).error).toBe("not yourself");
+    expect((await rateTask("200", "tk1", { to: "999", mark: 5 })).error).toBe("bad addressee");
+    expect((await rateTask("200", "tk1", { to: "300", mark: 9 })).error).toBe("mark required");
+
+    const r = await rateTask("200", "tk1", { to: "300", mark: 4, text: "быстро", pub: true });
+    expect(r.mark).toMatchObject({ by: "200", to: "300", mark: 4, text: "быстро", pub: true });
+    // Вторая оценка тому же человеку заменяет первую, а не встаёт рядом.
+    const again = await rateTask("200", "tk1", { to: "300", mark: 2, pub: false });
+    expect(again.task.marks).toHaveLength(1);
+    expect(again.task.marks[0]).toMatchObject({ mark: 2, pub: false });
   });
 
   it("решение проверяющего ложится в историю задачи: кто, когда, сколько и за что", async () => {

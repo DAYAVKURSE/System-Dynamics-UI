@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, TxtField, ScrollRail } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, Stars, TxtField, ScrollRail } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson, uniqPorts } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
@@ -952,6 +952,58 @@ export function ChatButton({task,meId,onOpen,style}){
     </button>);
 }
 
+/* ─────── ОЦЕНКА ЧЕЛОВЕКУ ───────
+
+   Оценка — не про задачу, а про ЧЕЛОВЕКА в ней (владелец, 2026-09-20):
+   исполнитель оценивает постановщика, проверяющий — исполнителя. Пять
+   звёзд, отзыв словами и одно решение: публичный он или приватный.
+   Публичный виден всем, приватный — только тому, кому оставлен, и тому,
+   кто оставил. Себе оценку не ставят, и кнопка тогда не нажимается. */
+export const newMark=({to,mark,text,pub},by)=>({
+  id:uid("mk"),at:new Date().toISOString(),
+  by:by==null?null:String(by),to:to==null?null:String(to),
+  mark:Math.round(Number(mark))||null,text:String(text||"").trim(),pub:!!pub});
+
+/** Оценка, которую этот человек уже поставил тому. */
+export const markOf=(task,by,to)=>(task?.marks||[]).find(m=>(
+  String(m.by)===String(by)&&String(m.to)===String(to)))||null;
+
+export function RateButton({task,meId,to,onOpen,style}){
+  const can=to!=null&&to!==""&&meId!=null&&String(to)!==String(meId);
+  return (
+    <button type="button" disabled={!can}
+      aria-label={`поставить оценку: ${task.title}`}
+      style={{...btn(false),opacity:can?1:0.5,...style}}
+      onClick={e=>{e.stopPropagation(); if(can) onOpen?.(task);}}>
+      Поставить оценку</button>);
+}
+
+/** Окно оценки: звёзды, отзыв и его видимость. */
+export function RateModal({task,whom,mine,onSend,onClose}){
+  const [mark,setMark]=useState(mine?.mark||0);
+  const [text,setText]=useState(mine?.text||"");
+  const [pub,setPub]=useState(mine?!!mine.pub:true);
+  const radio=(on,name,pick)=>(
+    <label className="flex items-center gap-2" style={{fontSize:12,cursor:"pointer"}}>
+      <input type="radio" checked={on} aria-label={name} onChange={pick}
+        style={{accentColor:ACC}}/>{name}</label>);
+  return (
+    <Modal title={`Оценка · ${whom}`} onClose={onClose}>
+      <Stars value={mark} onPick={setMark}/>
+      <div style={{...S.lbl,marginTop:10}}>Оставьте отзыв</div>
+      <TxtField area value={text} aria-label="отзыв"
+        style={{minHeight:54,marginTop:4,lineHeight:1.5}} onCommit={setText}/>
+      <div className="flex flex-wrap gap-3" style={{marginTop:8,alignItems:"center"}}>
+        {radio(pub,"Публичный",()=>setPub(true))}
+        {radio(!pub,"Приватный",()=>setPub(false))}
+      </div>
+      <div className="flex gap-2" style={{marginTop:10}}>
+        <button style={{...btn(true,OK),opacity:mark?1:0.5}} disabled={!mark}
+          onClick={()=>{ onSend?.({mark,text,pub}); onClose?.(); }}>Отправить</button>
+      </div>
+    </Modal>);
+}
+
 /** Само обсуждение — окном, как разговор в мессенджере. */
 export function Discussion({task,meId,nameOf,onSend,onClose}){
   const mayWrite=chatOpen(task);
@@ -1028,7 +1080,6 @@ export function Discussion({task,meId,nameOf,onSend,onClose}){
 /* Пустая оценка постановки. Публично по умолчанию: оценка — ответ о
    работе, и прятать его — решение, а не привычка; скрытость человек
    выбирает осознанно. */
-const NO_RATING={mark:null,comment:"",hidden:false};
 
 /**
  * Один переключатель на отметку и слова: «скрыто» или «публично».
@@ -1058,14 +1109,13 @@ export function HiddenSwitch({hidden,onChange,whoElse}){
 }
 
 export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials=[],setTasks,
-  onClose,nameOf,meId,isOwner=true,onSay,onSeen,onSubmit,onTake}){
+  onClose,nameOf,meId,isOwner=true,onSay,onSeen,onSubmit,onTake,onRate}){
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
   const [draftText,setDraftText]=useState("");
   /* Оценка постановки — как исполнителю поставили задачу. Отдельно от
      отчёта: отчёт про работу, это — про постановщика. */
-  const [rating,setRating]=useState(NO_RATING);
   const [hours,setHours]=useState(0);
   const [qty,setQty]=useState({takes:{},gives:{}});
   const [took,setTook]=useState({});
@@ -1101,6 +1151,14 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
      нажать на задачу, которая в бэклоге, у неё есть кнопка „Сдать" —
      вместо неё должна быть „Взять в работу"»). Условие то же, что у
      кнопки на карточке в колонке. */
+  /* Оценка человеку — окном: звёзды, отзыв и его видимость. */
+  const [rating,setRating]=useState(false);
+  const rate=(to,{mark,text,pub})=>{
+    const row=newMark({to,mark,text,pub},meId);
+    upMany({marks:[...(task.marks||[]).filter(m=>!(String(m.by)===String(meId)
+      &&String(m.to)===String(to))),row]});
+    onRate?.(task,{to,mark,text,pub});
+  };
   /* Обсуждение: открыли — непрочитанного больше нет, и метка уезжает на
      сервер, чтобы считалось одинаково на всех устройствах. */
   const [chat,setChat]=useState(false);
@@ -1129,7 +1187,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 
   const reset=()=>{
     setHanding(false); setDraftText(""); setTook({}); setGiveUnits({});
-    setGiveErr({}); setGiveBusy(""); setRating(NO_RATING);
+    setGiveErr({}); setGiveBusy("");
     setProof(null); setProofErr(""); setProofBusy(false);
   };
   const startHanding=()=>{
@@ -1146,12 +1204,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     setTook({});
     setGiveUnits({}); setGiveErr({}); setGiveBusy(""); setOpenGive(""); setOpenUnit("");
     setProof(null); setProofErr(""); setProofBusy(false);
-    setRating(NO_RATING);
     setHanding(true);
   };
   /* Себе оценку постановки не ставят: постановщик, равный исполнителю,
      оценивал бы сам себя. Блока в форме тогда нет вовсе. */
-  const ratesSetter=!selfSet(task);
 
   /* Приложить вышедшую вещь. Ресурс назван явно: одна сдача выдаёт и макет,
      и смету, и класть их в одно поле значило бы потерять, что где. */
@@ -1257,7 +1313,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     }).filter(([,v])=>v.length));
     const submission=newSubmission({hours,takes:qty.takes,gives:qty.gives,
       took,units,proof,text:draftText,file:null,
-      setterRating:ratesSetter?rating:null});
+      setterRating:null});
     upMany({submissions:[...subs,submission],
       status:selfReview(task)?"done":"review"});
     /* Сдача должна пережить закрытие окна: модель целиком пишет владелец,
@@ -1477,6 +1533,17 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       <div style={S.lbl}>выполняемая задача</div>
       <FuncCard func={func} entities={entities} traitName={traitName}
         about={task.body}/>
+      {/* Оценка — постановщику: исполнитель говорит, как ему поставили
+          работу (владелец, 2026-09-20). Себе не ставят. */}
+      <div className="flex gap-2" style={{marginBottom:8}}>
+        <RateButton task={task} meId={meId} to={roleOf(task,"setter")}
+          onOpen={()=>setRating(true)}/>
+      </div>
+      {rating&&(
+        <RateModal task={task} whom={who(roleOf(task,"setter"))}
+          mine={markOf(task,meId,roleOf(task,"setter"))}
+          onSend={(m)=>rate(roleOf(task,"setter"),m)}
+          onClose={()=>setRating(false)}/>)}
 
       {/* Сами вещи на входе — всегда, а не только при сдаче: работают с
           определённой заявкой, а не с числом «заявок 4», и скачать её
@@ -1596,38 +1663,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                     Отчёт не написан.</div>)}
                 </div>)}
 
-                  {/* ─── оценка постановки ───
-                      Обе стороны отвечают за свою половину работы:
-                      проверяющий оценивает выполнение, исполнитель —
-                      постановку. Оценка про постановщика, публикуется без
-                      имени и только когда её нельзя вычислить; можно не
-                      ставить. */}
-                  {ready&&ratesSetter&&(
-                    <div style={{background:C.ink,border:`1px solid ${C.line}`,
-                      borderRadius:6,padding:7,marginBottom:8}}>
-                      <div style={S.lbl}>оценка постановки задачи</div>
-                      <div className="flex flex-wrap gap-2" style={{margin:"5px 0 6px",
-                        alignItems:"center"}}>
-                        {Array.from({length:MARK_MAX-MARK_MIN+1},(_,i)=>MARK_MIN+i)
-                          .map(v=>(
-                            <button key={v} aria-label={`оценка постановки ${v}`}
-                              style={{...btn(rating.mark===v,rating.mark===v?OK:null),
-                                minWidth:38}}
-                              onClick={()=>setRating(p=>({...p,mark:p.mark===v?null:v}))}>
-                              {v}</button>))}
-                        <span style={{fontSize:10.5,color:C.muted}}>
-                          {rating.mark==null?"без оценки":"ещё раз — снять"}</span>
-                      </div>
-                      <TxtField area value={rating.comment}
-                        placeholder="что в постановке было ясно, а чего не хватало"
-                        aria-label="отзыв о постановке"
-                        style={{minHeight:44,marginBottom:6,lineHeight:1.5}}
-                        onCommit={v=>setRating(p=>({...p,comment:v}))}/>
-                      <HiddenSwitch hidden={rating.hidden} whoElse="постановщик"
-                        onChange={h=>setRating(p=>({...p,hidden:h}))}/>
-                    </div>)}
-
-
               {/* Чего не хватает — словами, а не неактивной кнопкой: «Сдать»
                   появляется, когда сдавать есть что. */}
               <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
@@ -1659,7 +1694,7 @@ export const TASK_PEOPLE=[["setter","постановщик"],["assignee","ис�
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],factors=[],tasks,setTasks,
-  openId,setOpenId,nameOf,onTake,onDrop,meId,canAssign=true,onSay,onSeen,onSubmit}){
+  openId,setOpenId,nameOf,onTake,onDrop,meId,canAssign=true,onSay,onSeen,onSubmit,onRate}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
   /* Двигать задачи по доске нельзя, и стрелок здесь нет. У исполнителя два
@@ -1856,7 +1891,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
           <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
             entities={entities} meId={meId} isOwner={canAssign}
             onSay={onSay} onSeen={onSeen} onSubmit={onSubmit}
-            onTake={take}
+            onTake={take} onRate={onRate}
             nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>
         </div>)}
     </div>);

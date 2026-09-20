@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
-import { ChatButton, Discussion, HiddenSwitch, STATUSES, TaskSetup, funcLabel, lackOf,
-  newMessage, roleOf, whyNotSet }
+import { ChatButton, Discussion, RateButton, RateModal, STATUSES, TaskSetup, funcLabel,
+  lackOf, markOf, newMark, newMessage, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
-import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
+import { inTime, lastSubmission } from "../lib/workers.js";
 import { leftInUnit, timeLeft } from "../lib/funcs.js";
 import { unitsOf } from "../lib/units.js";
 import { givenUnits, tookUnits } from "../lib/taskUnits.js";
@@ -146,8 +146,9 @@ function Delete({ t, can, killId, setKillId, onKill, isOwner = false }) {
 /* Карточка вынесена из компонента намеренно: объявленная внутри рендера,
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
    на каждой букве. */
-function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden, setHidden,
-  funcs, traits, entities, nameOf, meId, onAccept, onReturn, onChat, extra = null, units = [] }) {
+function Card({ t, dim, openId, setOpenId, note, setNote,
+  funcs, traits, entities, nameOf, meId, onAccept, onReturn, onChat, onRate,
+  extra = null, units = [] }) {
     const on = openId === t.id;
     const sub = lastOf(t);
     const unitName = (id) => traits.find((x) => x.id === id)?.unit || "ед.";
@@ -235,44 +236,31 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                 })()}
               </div>))}
 
+            {/* Оценка — исполнителю, своей кнопкой и своим окном
+                (владелец, 2026-09-20). Приём работы ею больше не держится:
+                принять можно молча, вернуть — с текстом доработки. */}
+            <div className="flex flex-wrap gap-2" style={{ marginBottom: 8 }}>
+              <RateButton task={t} meId={meId} to={t.assignee} onOpen={onRate} />
+            </div>
+
             {t.status === "review" && (
               <>
-                {/* Оценка обязательна и при приёме, и при возврате: она —
-                    часть истории человека, а не украшение. */}
-                <div style={S.lbl}>оценка за работу</div>
-                <div className="flex flex-wrap gap-2" style={{ margin: "5px 0 7px" }}>
-                  {Array.from({ length: MARK_MAX - MARK_MIN + 1 }, (_, i) => MARK_MIN + i)
-                    .map((v) => (
-                      <button key={v} aria-label={`оценка ${v}`}
-                        style={{ ...btn(mark === v, mark === v ? OK : null), minWidth: 38 }}
-                        onClick={() => setMark(v)}>{v}</button>))}
-                  {sub && inTime(t, sub) != null && (
-                    <span style={{ fontSize: 10.5, alignSelf: "center",
-                      color: inTime(t, sub) ? OK : BAD }}>
-                      {inTime(t, sub) ? "сдано в срок" : "сдано после срока"}</span>)}
-                </div>
-                <input value={note} placeholder="за что такая оценка — обязательно"
-                  aria-label="отзыв к оценке"
+                {sub && inTime(t, sub) != null && (
+                  <div style={{ fontSize: 10.5, marginBottom: 6,
+                    color: inTime(t, sub) ? OK : BAD }}>
+                    {inTime(t, sub) ? "сдано в срок" : "сдано после срока"}</div>)}
+                <input value={note} placeholder="что доработать — при возврате обязательно"
+                  aria-label="что доработать"
                   onChange={(e) => setNote(e.target.value)}
                   style={{ ...S.inp, marginBottom: 6 }} />
-                {/* Один переключатель на отметку и слова: скрытую отметку
-                    видит только автор (в средние она входит), скрытые слова
-                    — автор и исполнитель, которому они адресованы. */}
-                <div style={{ marginBottom: 6 }}>
-                  <HiddenSwitch hidden={hidden} onChange={setHidden} whoElse="исполнитель" />
-                </div>
                 <div className="flex flex-wrap gap-2">
                   <button style={btn(true, OK)}
-                    disabled={!mark || !note.trim()}
-                    title={mark && note.trim() ? "" : "Поставьте оценку и напишите, за что"}
-                    onClick={() => { onAccept(t, note, mark, hidden); setNote(""); setMark(0);
-                      setHidden(false); setOpenId(null); }}>
+                    onClick={() => { onAccept(t, note); setNote(""); setOpenId(null); }}>
                     Принять</button>
                   <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
                     disabled={!note.trim()}
                     title={note.trim() ? "" : "Напишите, что доработать"}
-                    onClick={() => { onReturn(t, note, mark, hidden); setNote(""); setMark(0);
-                      setHidden(false); setOpenId(null); }}>
+                    onClick={() => { onReturn(t, note); setNote(""); setOpenId(null); }}>
                     Вернуть в бэклог</button>
                 </div>
               </>)}
@@ -283,7 +271,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
-  published, onSay, onSeen, onSetup, onDelete, factors = [], materials = [],
+  published, onSay, onSeen, onRate, onSetup, onDelete, factors = [], materials = [],
   ratings = null }) {
   const [openId, setOpenId] = useState(null);
   /* ─── обсуждение ───
@@ -299,6 +287,20 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
     setTasks?.((p) => p.map((x) => (x.id === t.id ? { ...x, seenBy: mark_(x) } : x)));
     onSeen?.(t);
   };
+  /* Оценка — окном: звёзды, отзыв и его видимость. Проверяющий оценивает
+     исполнителя; себе не ставят, и кнопка тогда не нажимается. */
+  const [rateId, setRateId] = useState(null);
+  const rateTask = tasks.find((t) => t.id === rateId) || null;
+  const openRate = (t) => setRateId(t.id);
+  const rate = (t, { mark, text, pub }) => {
+    const to = t.assignee;
+    const row = newMark({ to, mark, text, pub }, meId);
+    setTasks?.((p) => p.map((x) => (x.id === t.id
+      ? { ...x, marks: [...(x.marks || []).filter((m) => !(String(m.by) === String(meId)
+        && String(m.to) === String(to))), row] }
+      : x)));
+    onRate?.(t, { to, mark, text, pub });
+  };
   const say = (t, text) => {
     const m = newMessage(text, meId);
     setTasks?.((p) => p.map((x) => (x.id === t.id
@@ -311,10 +313,8 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
      у них общий — по нему ищут и взятое, и выданное. */
   const units = useMemo(() => unitsOf({ tasks, funcs, materials }), [tasks, funcs, materials]);
   const [note, setNote] = useState("");
-  const [mark, setMark] = useState(0);
   // Скрыто ли решение — отметка и слова разом. Публично по умолчанию:
   // приём — это ответ о работе, и прятать его — решение, а не привычка.
-  const [hidden, setHidden] = useState(false);
   const [setupId, setSetupId] = useState(null);
   /* Какую задачу спросили удалить. Удаляет тот же, кто ставит: владелец
      или постановщик — решать, нужна ли работа, его дело. */
@@ -466,11 +466,10 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>
           Ничего не ждёт проверки.</div>)}
       {waiting.map((t) => <Card key={t.id} t={t} openId={openId} setOpenId={setOpenId}
-        note={note} setNote={setNote} mark={mark} setMark={setMark}
-        hidden={hidden} setHidden={setHidden} meId={meId}
+        note={note} setNote={setNote} meId={meId}
         funcs={funcs} traits={traits} entities={entities}
         nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-        onChat={openChat} extra={killRow(t)} />)}
+        onChat={openChat} onRate={openRate} extra={killRow(t)} />)}
 
       {restGroups.filter((g) => g.rows.length).map((g) => (
         <React.Fragment key={g.id}>
@@ -480,11 +479,10 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
           </div>
           {g.rows.map((t) => (
             <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
-              note={note} setNote={setNote} mark={mark} setMark={setMark}
-              hidden={hidden} setHidden={setHidden} meId={meId}
+        note={note} setNote={setNote} meId={meId}
               funcs={funcs} traits={traits} entities={entities}
               nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-              onChat={openChat} extra={<>{recallRow(t)}{killRow(t)}</>} />))}
+              onChat={openChat} onRate={openRate} extra={<>{recallRow(t)}{killRow(t)}</>} />))}
         </React.Fragment>))}
 
       {/* ─── готовые ───
@@ -497,11 +495,10 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
             <span style={{ fontSize: 10.5, color: OK }}>{done.length}</span>
           </div>
           {done.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
-            note={note} setNote={setNote} mark={mark} setMark={setMark}
-            hidden={hidden} setHidden={setHidden} meId={meId}
+        note={note} setNote={setNote} meId={meId}
             funcs={funcs} traits={traits} entities={entities}
             nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-            onChat={openChat} extra={killRow(t)} />)}
+            onChat={openChat} onRate={openRate} extra={killRow(t)} />)}
         </>)}
 
       {/* Обсуждение — окном поверх вкладки: разговор один на задачу, и
@@ -509,5 +506,11 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
       {chatTask && (
         <Discussion task={chatTask} meId={meId} nameOf={nameOf}
           onSend={(text) => say(chatTask, text)} onClose={() => setChatId(null)} />)}
+
+      {rateTask && (
+        <RateModal task={rateTask}
+          whom={nameOf ? nameOf(rateTask.assignee) : String(rateTask.assignee ?? "")}
+          mine={markOf(rateTask, meId, rateTask.assignee)}
+          onSend={(m) => rate(rateTask, m)} onClose={() => setRateId(null)} />)}
     </div>);
 }

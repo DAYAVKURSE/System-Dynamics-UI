@@ -60,6 +60,8 @@ describe("должности актива в блоке воркеров", () =>
     const onSetRoles = vi.fn(async () => {});
     mount({ onTogglePost: vi.fn(), onSetRoles, workers: { crew: ["2"] } });
     expect(screen.queryByRole("combobox")).toBeNull();
+    // Форма воркера свёрнута по умолчанию — роли внутри (владелец, 2026-09-20).
+    fireEvent.click(screen.getByLabelText("развернуть воркера: Иван"));
     fireEvent.click(screen.getByLabelText("роль «аналитик»: Иван"));
     expect(onSetRoles).toHaveBeenCalledWith("2", ["p1", "p2"]);
   });

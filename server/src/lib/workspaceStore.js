@@ -139,6 +139,8 @@ export const tasksFor = (model, userId) => {
  * · Оценка постановки в сдаче — только тому, кто её поставил: она про
  *   постановщика и доходит до него по правилам публикации (средние — как
  *   у всех, скрытые слова — сразу, через `commentsFor`), а не из сдачи.
+ * · Приватная оценка человеку (`marks`) — только тому, кто её поставил, и
+ *   тому, кому она оставлена. Публичную видят все, кто видит задачу.
  * · Обсуждение задачи (`chat`) видно ВСЕМ, кому видна сама задача
  *   (владелец, 2026-09-20): это общий разговор постановщика, исполнителя
  *   и проверяющего, а не переписка по углам.
@@ -160,6 +162,7 @@ export function taskViewFor(task, userId) {
     }),
     submissions: (task.submissions || []).map((sb) => (
       mine(task.assignee) || !sb.setterRating ? sb : { ...sb, setterRating: null })),
+    marks: (task.marks || []).filter((m) => m.pub || mine(m.by) || mine(m.to)),
   };
 }
 
@@ -558,13 +561,13 @@ export const reviewTask = (userId, taskId, { accept, comment, mark, hidden }) =>
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   if (String(roleOf(task, "reviewer") || "") !== String(userId)) return { error: "not yours" };
-  // Возврат — в бэклог, а не «в работу»: задачу надо переставить заново,
-  // прочитав, что именно доработать. Текст доработки — обязателен.
-  if (!String(comment || "").trim()) return { error: "comment required" };
-  // Принять молча нельзя: оценка и слова — часть истории исполнителя, из
-  // которой потом растёт его рейтинг. Оценка вне шкалы — не оценка.
+  /* Возврат — в бэклог, а не «в работу»: задачу надо переставить заново,
+     прочитав, что именно доработать. Текст доработки — обязателен.
+     ПРИНЯТЬ можно молча: оценка человеку — отдельное дело, своей кнопкой
+     «Поставить оценку» (владелец, 2026-09-20), и держать ею приём работы
+     больше не надо. */
+  if (!accept && !String(comment || "").trim()) return { error: "comment required" };
   const value = Number(mark);
-  if (accept && !(value >= 1 && value <= 10)) return { error: "mark required" };
   task.status = accept ? "done" : "backlog";
   // Возвращённая задача снова лежит и ждёт: её берут в работу заново, как
   // и в интерфейсе, — иначе она вернулась бы уже взятой.
@@ -750,6 +753,41 @@ export const addMessage = (userId, taskId, { text } = {},
   task.seenBy = { ...(task.seenBy || {}), [me]: message.at };
   await writeModel(model);
   return { task, message };
+});
+
+/* ─────── ОЦЕНКА ЧЕЛОВЕКУ ───────
+
+   Оценка — не про задачу, а про ЧЕЛОВЕКА в ней: исполнитель оценивает
+   постановщика, проверяющий — исполнителя (владелец, 2026-09-20). Пять
+   звёзд, отзыв словами и одно решение: публичный он или приватный.
+
+   Публичный виден всем, кто видит задачу; приватный — только тому, кому
+   он оставлен, и тому, кто оставил. Себе оценку не ставят: это была бы
+   не оценка, а объявление о себе.
+
+   Одна оценка от человека человеку на задачу: вторая ЗАМЕНЯЕТ первую —
+   передумал, а не сказал дважды. */
+export const rateTask = (userId, taskId, { to, mark, text, pub } = {},
+  { isOwner = false } = {}) => withModel(async (model) => {
+  const task = (model.tasks || []).find((t) => t.id === taskId);
+  if (!task) return { error: "not found" };
+  const me = String(userId);
+  const people = participants(task);
+  if (!isOwner && !people.includes(me)) return { error: "not yours" };
+  const whom = String(to ?? "");
+  if (!whom || !people.includes(whom)) return { error: "bad addressee" };
+  if (whom === me) return { error: "not yourself" };
+  const value = Number(mark);
+  if (!(value >= 1 && value <= 5)) return { error: "mark required" };
+  const row = {
+    id: "mk" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    at: new Date().toISOString(), by: me, to: whom,
+    mark: Math.round(value), text: String(text || "").trim(), pub: !!pub,
+  };
+  task.marks = [...(task.marks || []).filter((m) => !(String(m.by) === me
+    && String(m.to) === whom)), row];
+  await writeModel(model);
+  return { task, mark: row };
 });
 
 /** Обсуждение открыли — непрочитанного в нём для этого человека больше нет. */

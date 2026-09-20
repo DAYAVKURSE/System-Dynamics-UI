@@ -23,33 +23,122 @@ export const OK="#3DDC97",WARN="#FFB13D",BAD="#FF5C7A",NEU="#5A6B85",ACC="#7CE0F
    Вещь без файла (текст, код) уходит сообщением: скачивать там нечего, а
    забрать надо. */
 export function Download({url,text,name,label="Скачать",style,...rest}){
-  const [state,setState]=useState("");   // "", "идёт", "готово", ошибка
-  /* Вне Telegram (браузер, рабочий стол) обычная ссылка со скачиванием
-     работает — и она честнее: файл ложится туда, куда человек скажет.
-     Файл без сервера (`data:`) отправлять некуда и незачем. */
-  const plain=!getTelegram()||!String(url||"").startsWith("/api/");
-  if(plain){
-    const href=url||(text!=null?`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`:"");
-    return (
-      <a href={href} target="_blank" rel="noreferrer" download={name||true}
-        style={{...btn(false),textDecoration:"none",...style}} {...rest}>{label}</a>);
-  }
-  const go=async()=>{
-    if(state==="идёт") return;
+  const [state,setState]=useState("");   // "", "идёт", куда ушло, ошибка
+  const href=url||(text!=null
+    ?`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`:"");
+  /* В обычном браузере ссылка работает сама — и это честнее всего: файл
+     ложится туда, куда человек скажет. В Telegram она не делает НИЧЕГО
+     (владелец, 2026-09-20: «по-прежнему не работает»), поэтому нажатие
+     перехватывается: файл уходит в чат с ботом, а если бот не смог —
+     открывается внешним окном, где его сохраняют штатно. */
+  const go=async(e)=>{
+    const tg=getTelegram();
+    if(!tg||!href) return;
+    e.preventDefault();
+    e.stopPropagation();
     setState("идёт");
     try{
-      const r=await deliverFile({url,text,name});
+      const r=await deliverFile({url:href,name});
       setState(r?.sent==="link"?"ссылка в чате":"в чате с ботом");
-    }catch(e){ setState(e.message||"не удалось отправить"); }
+      return;
+    }catch(err){
+      const abs=href.startsWith("/")?`${window.location.origin}${href}`:href;
+      if(!href.startsWith("data:")){
+        try{
+          if(tg.openLink) tg.openLink(abs); else window.open(abs,"_blank","noopener");
+          setState("открыл в браузере");
+          return;
+        }catch{ /* и так не вышло — скажем словами */ }
+      }
+      setState(err.message||"не удалось отправить");
+    }
   };
-  const bad=state&&!["идёт","в чате с ботом","ссылка в чате"].includes(state);
+  const bad=state&&!["идёт","в чате с ботом","ссылка в чате","открыл в браузере"]
+    .includes(state);
   return (
     <span className="flex items-center gap-2" style={{alignItems:"center"}}>
-      <button type="button" style={{...btn(false),...style}} disabled={state==="идёт"}
-        onClick={e=>{e.stopPropagation();go();}} {...rest}>
-        {state==="идёт"?"Отправляю…":label}</button>
+      <a href={href} target="_blank" rel="noreferrer" download={name||true}
+        onClick={go} style={{...btn(false),textDecoration:"none",...style}} {...rest}>
+        {state==="идёт"?"Отправляю…":label}</a>
       {state&&state!=="идёт"&&(
         <span style={{fontSize:10,color:bad?BAD:OK}}>{state}</span>)}
+    </span>);
+}
+
+/* ─────── ПЕРЕТАСКИВАНИЕ СТРОК ЗА ТРИ ПОЛОСКИ ───────
+
+   Строка ИДЁТ ЗА ПАЛЬЦЕМ (владелец, 2026-09-20: «пользователь должен
+   видеть полную анимацию движения выбранной строки»): пока её ведут, она
+   сдвинута ровно на столько, на сколько уехал палец, приподнята тенью и
+   лежит поверх соседей. Прошли над соседом — списки меняются местами, и
+   отсчёт начинается заново от нового места: иначе строка «убегала» бы от
+   пальца на высоту соседа.
+
+   Один механизм на все списки, где порядок задаёт человек: разделы
+   отчётов, воркеры актива. Сосед узнаётся по атрибуту `attr` на его
+   корневом узле. */
+export function useRowDrag({attr,id,onOver}){
+  const [dy,setDy]=useState(0);
+  const from=useRef(null);
+  const down=(e)=>{
+    from.current=e.clientY;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
+  const move=(e)=>{
+    if(from.current==null) return;
+    setDy(e.clientY-from.current);
+    const under=typeof document.elementFromPoint==="function"
+      ?document.elementFromPoint(e.clientX,e.clientY):null;
+    const over=under?.closest?.(`[${attr}]`)?.getAttribute(attr);
+    if(over&&String(over)!==String(id)){
+      onOver?.(over);
+      from.current=e.clientY;
+      setDy(0);
+    }
+  };
+  const up=(e)=>{
+    from.current=null;
+    setDy(0);
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+  return {
+    bind:{onPointerDown:down,onPointerMove:move,onPointerUp:up,onPointerCancel:up},
+    style:dy
+      ?{transform:`translateY(${dy}px)`,transition:"none",position:"relative",
+        zIndex:5,boxShadow:"0 8px 20px #000a",opacity:0.96}
+      :{transition:"transform .18s ease-out"},
+  };
+}
+
+/* ─────── ЗВЁЗДЫ ───────
+
+   Оценка от одного до пяти (владелец, 2026-09-20): ряд серых звёзд, и
+   нажатие зажигает жёлтым все до нажатой включительно. Без нажатия
+   оценки нет — ноль звёзд это «не оценил», а не «ноль». */
+export function Stars({value=0,onPick,label="оценка"}){
+  return (
+    <div className="flex gap-1" role="radiogroup" aria-label={label}
+      style={{alignItems:"center"}}>
+      {[1,2,3,4,5].map(n=>(
+        <button key={n} type="button" role="radio" aria-checked={n===Number(value)}
+          aria-label={`оценка ${n}`} disabled={!onPick}
+          onClick={()=>onPick?.(n)}
+          style={{background:"none",border:"none",padding:"0 1px",lineHeight:1,
+            fontSize:24,cursor:onPick?"pointer":"default",
+            color:n<=Number(value)?WARN:NEU}}>★</button>))}
+    </div>);
+}
+
+/** Три полоски: за них строку и тянут. */
+export function Grip({label,bind,style}){
+  return (
+    <span data-drag="" role="button" tabIndex={0} aria-label={label} {...bind}
+      style={{display:"inline-flex",flexDirection:"column",justifyContent:"center",
+        gap:2,padding:"3px 2px",cursor:"grab",touchAction:"none",flex:"0 0 auto",
+        ...style}}>
+      {[0,1,2].map(i=>(
+        <span key={i} style={{width:12,height:2,borderRadius:1,background:C.muted}}/>))}
     </span>);
 }
 

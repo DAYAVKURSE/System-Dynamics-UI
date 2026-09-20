@@ -168,9 +168,11 @@ describe("кнопки под полем", () => {
       .filter((l) => l.getAttribute("stroke-width") === "1.6");
     // Линии ресурсов — сплошные, сколько бы людей ни участвовало.
     links.forEach((l) => expect(l.getAttribute("stroke-dasharray")).toBeNull());
-    // Внизу: передают напрямую — сплошная дуга, через посредника — штрих-пунктир.
-    const near = Array.from(dlg.querySelectorAll("path[data-talk='напрямую']"));
-    const far = Array.from(dlg.querySelectorAll("path[data-talk='через']"));
+    /* Взаимодействие сотрудников — СВОЯ форма под картой, и люди на ней
+       стоят по кругу (владелец, 2026-09-20): передают напрямую — сплошная
+       линия, через посредника — штрих-пунктир. */
+    const near = Array.from(dlg.querySelectorAll("line[data-talk='напрямую']"));
+    const far = Array.from(dlg.querySelectorAll("line[data-talk='через']"));
     expect(near.length).toBeGreaterThan(0);
     near.forEach((l) => expect(l.getAttribute("stroke-dasharray")).toBeNull());
     expect(far.length).toBe(1);                                          // wise oyster → Партнёры, через Клиентов

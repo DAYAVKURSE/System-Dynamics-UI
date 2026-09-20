@@ -30,12 +30,12 @@ const nameOf = (id) => PEOPLE.find((p) => p.id === String(id))?.name || String(i
 const task = (over = {}) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
   setter: "1", assignee: "2", reviewer: "3", status: "progress", ...over });
 
-function Board({ tasks: t0, meId = "2", onSubmit, onSay, funcs = FUNCS }) {
+function Board({ tasks: t0, meId = "2", onSubmit, onSay, onRate, funcs = FUNCS }) {
   const [tasks, setTasks] = React.useState(t0);
   const [openId, setOpenId] = React.useState(null);
   return (<TasksBoard funcs={funcs} entities={ENTITIES} traits={TRAITS}
     tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
-    nameOf={nameOf} meId={meId} onSubmit={onSubmit} onSay={onSay} />);
+    nameOf={nameOf} meId={meId} onSubmit={onSubmit} onSay={onSay} onRate={onRate} />);
 }
 
 /* Результат работы прикладывается файлом: без него сдачи нет. */
@@ -159,12 +159,14 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     expect(plate.textContent).toMatch(/Описание задачи: не назначено/);
   });
 
-  it("написано и приложено — ниже форм ресурсов оценка постановки и «Сдать»", async () => {
+  it("написано и приложено — ниже форм ресурсов «Сдать»", async () => {
     render(<Board tasks={[task()]} />);
     open();
     await attachResult("результат 1: заявки");
     commit(screen.getByLabelText("отчёт о работе"), "сделал");
-    expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
+    /* Оценки постановки в форме сдачи больше нет: оценка человеку — своя
+       кнопка «Поставить оценку» (владелец, 2026-09-20). */
+    expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(2);
     /* Формы ресурсов остаются на месте до самой сдачи (владелец,
        2026-09-20): прежде они подменялись строкой «приложено: … изменить
@@ -174,8 +176,8 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     expect(screen.getByText("сдаваемые ресурсы")).toBeInTheDocument();
     openUnitForm();
     expect(screen.getByText("Заменить файл")).toBeInTheDocument();
-    // И оценка со «Сдать» никуда не делись.
-    expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
+    // И «Сдать» никуда не делась.
+    expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(2);
   });
 
   it("необязательная вещь — тоже кнопкой, но сдачу не держит", () => {
@@ -198,84 +200,62 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
   });
 });
 
-describe("оценка постановки при сдаче", () => {
-  it("исполнитель оценивает постановку, и оценка уходит в сдачу", async () => {
+/* ОЦЕНКА — ПРО ЧЕЛОВЕКА, А НЕ ПРО ЗАДАЧУ (владелец, 2026-09-20): пять
+   звёзд, отзыв и одно решение — публичный он или приватный. Исполнитель
+   оценивает постановщика, проверяющий — исполнителя; себе не ставят. */
+describe("оценка человеку", () => {
+  const openRate = () => {
+    fireEvent.click(screen.getByText("Задача A"));
+    fireEvent.click(screen.getByRole("button", { name: "поставить оценку: Задача A" }));
+  };
+
+  it("звёзды загораются до нажатой, отзыв и видимость уходят наружу", () => {
     const got = [];
-    render(<Board tasks={[task()]} onSubmit={(t, sb) => got.push(sb)} />);
-    await openHanding();
-    expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "оценка постановки 4" }));
-    commit(screen.getByLabelText("отзыв о постановке"), "срок был тесный");
-    hand();
-    expect(got).toHaveLength(1);
-    expect(got[0].setterRating).toEqual({ mark: 4, comment: "срок был тесный", hidden: false });
-    // Сама сдача при этом на месте — оценка её не подменяет; отчёт — словами,
-    // файла «вообще» нет.
-    expect(got[0].units.t2[0].file).toBeTruthy();
-    expect(got[0].text).toBe("сделал");
-    expect(got[0].file).toBeNull();
+    render(<Board tasks={[task()]} onRate={(t, m) => got.push(m)} />);
+    openRate();
+    // Пока звезду не нажали, отправлять нечего.
+    expect(screen.getByRole("button", { name: "Отправить" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "оценка 4" }));
+    const stars = screen.getAllByRole("radio");
+    expect(stars.slice(0, 4).every((b) => b.getAttribute("aria-checked") === "false"
+      || b.getAttribute("aria-label") === "оценка 4")).toBe(true);
+    commit(screen.getByLabelText("отзыв"), "ставил понятно");
+    fireEvent.click(screen.getByLabelText("Приватный"));
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    // Исполнитель (meId 2) оценивает постановщика (1).
+    expect(got).toEqual([{ to: "1", mark: 4, text: "ставил понятно", pub: false }]);
   });
 
-  it("можно не ставить: без отметки и слов оценки нет — null, а не нули", async () => {
+  it("публичный — по умолчанию", () => {
     const got = [];
-    render(<Board tasks={[task()]} onSubmit={(t, sb) => got.push(sb)} />);
-    await openHanding();
-    hand();
-    expect(got[0].setterRating).toBeNull();
+    render(<Board tasks={[task()]} onRate={(t, m) => got.push(m)} />);
+    openRate();
+    fireEvent.click(screen.getByRole("radio", { name: "оценка 5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    expect(got[0]).toMatchObject({ mark: 5, pub: true });
   });
 
-  it("публично — по умолчанию; «скрыто» — один переключатель на отметку и слова", async () => {
-    const got = [];
-    render(<Board tasks={[task()]} onSubmit={(t, sb) => got.push(sb)} />);
-    await openHanding();
-    expect(screen.getByRole("button", { name: "публично" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/Публично: после публикации видят все/)).toBeInTheDocument();
-    // Переключатель один: отдельного «скрыть отметку» / «скрыть слова» нет.
-    expect(screen.getAllByRole("button", { name: "скрыто" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "публично" })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "скрыто" }));
-    // Сказано, что именно скрывается: и отметка, и слова — и кому видно.
-    expect(screen.getByText(/отметку видите только вы .* слова — вы и постановщик/))
-      .toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
-    commit(screen.getByLabelText("отзыв о постановке"), "лично");
-    hand();
-    expect(got[0].setterRating).toEqual({ mark: 5, comment: "лично", hidden: true });
+  it("себе оценку не ставят — кнопка не нажимается", () => {
+    render(<Board tasks={[task({ setter: "2" })]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByRole("button", { name: "поставить оценку: Задача A" }))
+      .toBeDisabled();
   });
 
-  it("отметку можно снять повторным нажатием", async () => {
+  it("оценка проверяющего — исполнителю, тем же окном", () => {
     const got = [];
-    render(<Board tasks={[task()]} onSubmit={(t, sb) => got.push(sb)} />);
-    await openHanding();
-    fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
-    fireEvent.click(screen.getByRole("button", { name: "оценка постановки 5" }));
-    commit(screen.getByLabelText("отзыв о постановке"), "только слова");
-    hand();
-    expect(got[0].setterRating).toEqual({ mark: null, comment: "только слова", hidden: false });
-  });
-
-  it("себе постановку не оценивают: постановщик и исполнитель — один человек", async () => {
-    const got = [];
-    render(<Board tasks={[task({ setter: "2" })]} onSubmit={(t, sb) => got.push(sb)} />);
-    await openHanding();
-    expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
-    hand();
-    expect(got[0].setterRating).toBeNull();
-  });
-
-  it("newSubmission: пустая оценка не хранится нулями, скрытость — одним признаком", () => {
-    expect(newSubmission({ setterRating: { mark: null, comment: "  ", hidden: true } })
-      .setterRating).toBeNull();
-    expect(newSubmission({ setterRating: { mark: 3, comment: "", hidden: false } })
-      .setterRating).toEqual({ mark: 3, comment: "", hidden: false });
-    expect(newSubmission({ setterRating: { mark: 3, comment: "лично", hidden: true } })
-      .setterRating).toEqual({ mark: 3, comment: "лично", hidden: true });
+    render(<ReviewBoard tasks={[task({ status: "review" })]} funcs={FUNCS} traits={TRAITS}
+      entities={ENTITIES} meId="3" isOwner={false} nameOf={nameOf}
+      setTasks={() => {}} onAccept={() => {}} onReturn={() => {}}
+      onRate={(t, m) => got.push(m)} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    fireEvent.click(screen.getByRole("button", { name: "поставить оценку: Задача A" }));
+    fireEvent.click(screen.getByRole("radio", { name: "оценка 3" }));
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    expect(got).toEqual([{ to: "2", mark: 3, text: "", pub: true }]);
   });
 });
 
-/* ОБСУЖДЕНИЕ ЗАДАЧИ (владелец, 2026-09-20): один общий разговор
-   постановщика, исполнителя и проверяющего — окном, как в мессенджере.
-   Комментариев с адресатом и скрытостью больше нет вовсе. */
 describe("обсуждение задачи", () => {
   const talked = () => task({ chat: [
     { id: "m1", text: "когда начнёшь?", at: "2026-01-01T10:00:00Z", by: "1" },
@@ -339,49 +319,33 @@ describe("обсуждение задачи", () => {
 
 describe("решение проверяющего", () => {
   const reviewTask = task({ status: "review",
-    submissions: [{ id: "s1", at: "2026-01-01T00:00:00Z", hours: 3, takes: {}, gives: {},
-      setterRating: { mark: 2, comment: "постановка была никакая", hidden: false } }] });
+    submissions: [{ id: "s1", at: "2026-01-01T00:00:00Z", hours: 3, takes: {}, gives: {} }] });
+  const board = (got) => render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
+    entities={ENTITIES} meId="3" isOwner={false} nameOf={nameOf} setTasks={() => {}}
+    onAccept={(t, note) => got.push(["accept", note])}
+    onReturn={(t, note) => got.push(["return", note])} />);
 
-  it("решение можно сделать скрытым — один переключатель на отметку и слова, признак уходит с решением", () => {
+  /* ПРИНЯТЬ МОЖНО МОЛЧА (владелец, 2026-09-20): оценка человеку — своя
+     кнопка, и держать ею приём работы больше не надо. */
+  it("принять можно без оценки и без слов", () => {
     const got = [];
-    render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
-      entities={ENTITIES} meId="3" isOwner={false} nameOf={nameOf}
-      onAccept={(t, note, mark, hidden) => got.push([note, mark, hidden])}
-      onReturn={() => {}} />);
+    board(got);
     fireEvent.click(screen.getByText("Задача A"));
-    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
-      { target: { value: "сделано" } });
-    fireEvent.click(screen.getByRole("button", { name: "оценка 4" }));
-    fireEvent.click(screen.getByRole("button", { name: "скрыто" }));
-    expect(screen.getByText(/отметку видите только вы .* слова — вы и исполнитель/))
-      .toBeInTheDocument();
+    expect(screen.queryByLabelText("отзыв к оценке")).toBeNull();
+    expect(screen.queryByRole("button", { name: "оценка 4" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Принять" }));
-    expect(got).toEqual([["сделано", 4, true]]);
+    expect(got).toEqual([["accept", ""]]);
   });
 
-  it("публично — по умолчанию и у проверяющего", () => {
+  it("вернуть — только с текстом доработки", () => {
     const got = [];
-    render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
-      entities={ENTITIES} meId="3" isOwner={false} nameOf={nameOf}
-      onAccept={(t, note, mark, hidden) => got.push([note, mark, hidden])}
-      onReturn={() => {}} />);
+    board(got);
     fireEvent.click(screen.getByText("Задача A"));
-    expect(screen.getByRole("button", { name: "публично" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
-      { target: { value: "сделано" } });
-    fireEvent.click(screen.getByRole("button", { name: "оценка 5" }));
-    fireEvent.click(screen.getByRole("button", { name: "Принять" }));
-    expect(got).toEqual([["сделано", 5, false]]);
-  });
-
-  it("оценка постановки из сдачи проверяющему не показывается", () => {
-    /* Она про постановщика и доходит до него по правилам публикации, а не
-       через третьего. */
-    render(<ReviewBoard tasks={[reviewTask]} funcs={FUNCS} traits={TRAITS}
-      entities={ENTITIES} meId="3" isOwner={false} nameOf={nameOf}
-      onAccept={() => {}} onReturn={() => {}} />);
-    fireEvent.click(screen.getByText("Задача A"));
-    expect(screen.queryByText(/постановка была никакая/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Вернуть в бэклог" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("что доработать"),
+      { target: { value: "нет цифр" } });
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть в бэклог" }));
+    expect(got).toEqual([["return", "нет цифр"]]);
   });
 });
 

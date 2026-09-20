@@ -1,6 +1,6 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useState } from "react";
-import { C, OK, BAD, ACC, WARN, NameField, S, btn, nm, TxtField } from "./ui.jsx";
+import { C, OK, BAD, ACC, WARN, Grip, NameField, S, Stars, btn, nm, TxtField, useRowDrag } from "./ui.jsx";
 import ExprField from "./ExprField.jsx";
 import { evalPorts, letterOf } from "../lib/expr.js";
 import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWorkers,
@@ -15,7 +15,7 @@ import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWo
 import { MATERIAL_KINDS, traitKind } from "../lib/units.js";
 import { Mark } from "./Modal.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
-import { scheduleOfPerson, statusOf, visibleStats, liveStatus } from "../lib/workers.js";
+import { ratingOf, scheduleOfPerson, statusOf, visibleStats, liveStatus } from "../lib/workers.js";
 import { hasKind, kindIdsOf, toggleKind } from "../lib/traits.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -319,22 +319,103 @@ function WorkerLine({ pid, name, stat, person, roleNames }) {
       {chip(roleNames || "без роли", ACC)}
       {/* 2. имя */}
       <span style={{ fontSize: 12.5, color: C.text }}>{name}</span>
-      {/* 3. статистика — как он держит сроки */}
-      {chip(stat.onTime == null ? "сроков нет"
-        : `в срок ${Math.round(stat.onTime * 100)}%`,
-      stat.onTime == null ? C.muted : stat.onTime >= 0.8 ? OK : WARN)}
-      {/* 4. рейтинг — средняя ОПУБЛИКОВАННАЯ оценка за принятые работы */}
-      {chip(stat.self ? "свой рейтинг скрыт"
-        : stat.mark == null ? "без оценок"
-          : `рейтинг ${Math.round(stat.mark * 10) / 10}`,
-      stat.self || stat.mark == null ? C.muted
-        : stat.mark >= 4 ? OK : stat.mark >= 3 ? WARN : BAD)}
-      {/* 5. сколько работ сдано и принято */}
-      {chip(`${stat.done} сдано`)}
+      {/* Свёрнутая строка говорит ровно три вещи (владелец, 2026-09-20):
+          роль, имя и статус. Сроки, оценки и «сдано» ушли в «Рейтинг»
+          внутри раскрытой формы. */}
       {/* Статус стоит здесь же: он отвечает «можно ли поручить прямо
           сейчас», и узнавать это, открыв карточку, поздно. */}
       {chip(`· ${st.name}`, statusColor(live))}
     </span>);
+}
+
+/* ─────── ФОРМА ВОРКЕРА ───────
+
+   Свёрнута по умолчанию и говорит ровно то, что нужно, чтобы выбрать
+   человека (владелец, 2026-09-20): три полоски, отметка, имя, роль и
+   статус. Полосками её и переставляют — так же, как разделы отчётов.
+
+   Раскрытая показывает роли, исключения и РЕЙТИНГ: общую оценку, сколько
+   работ сдано и публичные отзывы. Приватные отзывы сюда не попадают — их
+   видят только двое. */
+function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, roles,
+  onSetRoles, act, reachable, off, onToggleFunc, onToggleCrew, onOpenPerson, onOrder,
+  emptyWhy }) {
+  const [open, setOpen] = useState(false);
+  const drag = useRowDrag({ attr: "data-worker", id: pid,
+    onOver: (over) => onOrder?.(pid, over) });
+  const r = ratingOf(tasks, pid);
+  return (
+    <div data-worker={pid} className="flex flex-wrap gap-2"
+      style={{ background: C.panel2, border: `1px solid ${C.line}`,
+        borderRadius: 8, padding: 8, marginBottom: 6,
+        opacity: on ? 1 : 0.55, alignItems: "center", ...drag.style }}>
+      {/* Три полоски — слева от отметки: за них воркера и переставляют. */}
+      <Grip label={`переставить ${name}`} bind={drag.bind} />
+      <input type="checkbox" checked={on}
+        aria-label={`воркер актива: ${name}`}
+        onChange={() => onToggleCrew && onToggleCrew(pid)}
+        style={{ accentColor: ACC }} />
+      <button style={{ background: "none", border: "none", padding: 0,
+        flex: "1 1 150px", textAlign: "left", cursor: "pointer",
+        color: C.text, minWidth: 0 }}
+        onClick={() => onOpenPerson && onOpenPerson(pid)}
+        title="график, статус, анкета и рейтинг — окном, не уходя со схемы">
+        <WorkerLine pid={pid} name={name} person={person} roleNames={roleNames} />
+      </button>
+      <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
+        aria-label={`${open ? "свернуть" : "развернуть"} воркера: ${name}`}
+        onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button>
+
+      {open && (<>
+        {/* Отметки, а не выпадающий список: ролей у человека несколько, и
+            выбор одной молча снимал бы остальные. */}
+        {onSetRoles && positions.length > 0 && (
+          <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
+            alignItems: "center", paddingLeft: 22 }}>
+            <span style={{ fontSize: 10.5, color: C.muted }}>роли:</span>
+            {positions.map((p) => {
+              const has = roles.some((x) => String(x) === p.id);
+              return (
+                <button key={p.id} aria-pressed={has}
+                  aria-label={`роль «${p.name}»: ${name}`}
+                  style={{ ...btn(has, has ? ACC : null), fontSize: 11, padding: "2px 7px" }}
+                  onClick={() => act(() => onSetRoles(pid, has
+                    ? roles.filter((x) => String(x) !== p.id)
+                    : [...roles, p.id]))}>
+                  {p.name}</button>);
+            })}
+          </div>)}
+        {on && (
+          <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
+            alignItems: "center", paddingLeft: 22 }}>
+            <span style={{ fontSize: 10.5, color: C.muted }}>исключения:</span>
+            {!reachable.length && (
+              <span style={{ fontSize: 10.5, color: C.muted }}>{emptyWhy}</span>)}
+            {reachable.map((f) => (
+              <button key={f.id} aria-pressed={off(f)}
+                aria-label={`исключение «${f.name || "без названия"}»: ${name}`}
+                style={{ ...btn(off(f), BAD), fontSize: 11, padding: "2px 7px" }}
+                onClick={() => onToggleFunc && onToggleFunc(pid, f.id)}>
+                {off(f) ? "✕ " : ""}{f.name || "без названия"}</button>))}
+          </div>)}
+        <div style={{ flexBasis: "100%", paddingLeft: 22 }} aria-label={`рейтинг: ${name}`}>
+          <div style={S.lbl}>рейтинг</div>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 3 }}>
+            <Stars value={r.mark == null ? 0 : Math.round(r.mark)} />
+            <span style={{ fontSize: 11.5, color: r.mark == null ? C.muted : C.text }}>
+              {r.mark == null ? "без оценок" : `${r.mark} · оценок ${r.count}`}</span>
+            <span style={{ fontSize: 11.5, color: C.muted }}>сдано работ: {r.done}</span>
+          </div>
+          {!r.pub.length && (
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>отзывов нет</div>)}
+          {r.pub.map((m) => (
+            <div key={m.id} style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5,
+              whiteSpace: "pre-wrap" }}>
+              <span style={{ color: WARN }}>{"★".repeat(Number(m.mark) || 0)}</span>{" "}
+              {m.text}</div>))}
+        </div>
+      </>)}
+    </div>);
 }
 
 export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
@@ -442,76 +523,16 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
               поломкой, а не правилом. */}
           {[...crew, ...people.filter((p) => (onTogglePost ? fits(p.id) : (rolesOf(p.id) || []).length))
             .map((p) => p.id).filter((id) => !inCrew(id))]
-            .map((pid, i) => {
-              const on = inCrew(pid);
-              return (
-                /* Каждый воркер — своей формой, а не строкой под чертой: у
-                   строки под именем висят ещё роли и исключения, и черта
-                   не говорила, где кончается один человек и начинается
-                   следующий (владелец, 2026-09-13). */
-                <div key={pid} className="flex flex-wrap gap-2"
-                  style={{ background: C.panel2, border: `1px solid ${C.line}`,
-                    borderRadius: 8, padding: 8, marginBottom: 6,
-                    opacity: on ? 1 : 0.55, alignItems: "center" }}>
-                  <input type="checkbox" checked={on}
-                    aria-label={`воркер актива: ${name(pid)}`}
-                    onChange={() => onToggleCrew && onToggleCrew(pid)}
-                    style={{ accentColor: ACC }} />
-                  <button style={{ background: "none", border: "none", padding: 0,
-                    flex: "1 1 150px", textAlign: "left", cursor: "pointer",
-                    color: C.text, minWidth: 0 }}
-                    onClick={() => onOpenPerson && onOpenPerson(pid)}
-                    title="график, статус, анкета и рейтинг — окном, не уходя со схемы">
-                    <WorkerLine pid={pid} name={name(pid)} stat={stat(pid)}
-                      person={personOf(pid)}
-                      roleNames={(rolesOf(pid) || []).map(roleName).filter(Boolean).join(", ")} />
-                  </button>
-                  {/* Отметки, а не выпадающий список: ролей у человека
-                      несколько, и выбор одной молча снимал бы остальные. */}
-                  {onSetRoles && positions.length > 0 && (
-                    <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
-                      alignItems: "center", paddingLeft: 22 }}>
-                      <span style={{ fontSize: 10.5, color: C.muted }}>роли:</span>
-                      {positions.map((p) => {
-                        const has = (rolesOf(pid) || []).some((r) => String(r) === p.id);
-                        return (
-                          <button key={p.id} aria-pressed={has}
-                            aria-label={`роль «${p.name}»: ${name(pid)}`}
-                            style={{ ...btn(has, has ? ACC : null), fontSize: 11,
-                              padding: "2px 7px" }}
-                            onClick={() => act(() => onSetRoles(pid, has
-                              ? (rolesOf(pid) || []).filter((r) => String(r) !== p.id)
-                              : [...(rolesOf(pid) || []), p.id]))}>
-                            {p.name}</button>);
-                      })}
-                    </div>)}
-                  {on && (<>
-                    <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
-                      aria-label={`выше: ${name(pid)}`} disabled={i === 0}
-                      onClick={() => onOrder && onOrder(pid, -1)}>↑</button>
-                    <button style={{ ...btn(false), fontSize: 11, padding: "1px 6px" }}
-                      aria-label={`ниже: ${name(pid)}`}
-                      disabled={i >= crew.length - 1}
-                      onClick={() => onOrder && onOrder(pid, 1)}>↓</button>
-                  </>)}
-                  {on && (
-                    <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
-                      alignItems: "center", paddingLeft: 22 }}>
-                      <span style={{ fontSize: 10.5, color: C.muted }}>исключения:</span>
-                      {!reachable(pid).length && (
-                        <span style={{ fontSize: 10.5, color: C.muted }}>
-                          {own.length
-                            ? "по его ролям ему пока ничего не поручено"
-                            : "функций у актива ещё нет"}</span>)}
-                      {reachable(pid).map((f) => (
-                        <button key={f.id} aria-pressed={off(pid, f)}
-                          aria-label={`исключение «${f.name || "без названия"}»: ${name(pid)}`}
-                          style={{ ...btn(off(pid, f), BAD), fontSize: 11, padding: "2px 7px" }}
-                          onClick={() => onToggleFunc && onToggleFunc(pid, f.id)}>
-                          {off(pid, f) ? "✕ " : ""}{f.name || "без названия"}</button>))}
-                    </div>)}
-                </div>);
-            })}
+            .map((pid) => (
+              <WorkerRow key={pid} pid={pid} on={inCrew(pid)} name={name(pid)}
+                person={personOf(pid)} tasks={tasks} meId={me?.id}
+                roleNames={(rolesOf(pid) || []).map(roleName).filter(Boolean).join(", ")}
+                positions={positions} roles={rolesOf(pid) || []} onSetRoles={onSetRoles}
+                act={act} reachable={reachable(pid)} off={(f) => off(pid, f)}
+                onToggleFunc={onToggleFunc} onToggleCrew={onToggleCrew}
+                onOpenPerson={onOpenPerson} onOrder={onOrder}
+                emptyWhy={own.length ? "по его ролям ему пока ничего не поручено"
+                  : "функций у актива ещё нет"} />))}
           <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
             Здесь все, кого вообще добавили на эту схему. Отмеченные — воркеры
             этого актива. Кто что делает, решает ДОЛЖНОСТЬ: она выбирается у

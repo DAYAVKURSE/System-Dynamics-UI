@@ -463,6 +463,34 @@ export function visibleStats(model = {}, personId, viewerId) {
  * когда опубликованы. `others` — чужие опубликованные публичные, по людям.
  * Ни там, ни там нет автора: отзыв к оценке анонимен, как и оценка.
  */
+/* ─────── РЕЙТИНГ ЧЕЛОВЕКА ПО ОЦЕНКАМ В ЗАДАЧАХ ───────
+
+   Оценку ставят человеку в задаче: исполнитель — постановщику,
+   проверяющий — исполнителю (владелец, 2026-09-20). Здесь они
+   складываются в то, что показывают у воркера: общая оценка, сколько
+   работ сдано и публичные отзывы.
+
+   Считается по тем оценкам, что ВИДНЫ смотрящему: приватные до чужих
+   глаз не доходят вовсе (`taskViewFor` на сервере), и в среднее у них не
+   попадают. */
+export function ratingOf(tasks = [], personId) {
+  const who = String(personId ?? "");
+  let sum = 0;
+  let n = 0;
+  let done = 0;
+  const pub = [];
+  tasks.forEach((t) => {
+    if (String(t.assignee ?? "") === who && t.status === "done") done += 1;
+    (t.marks || []).forEach((m) => {
+      if (String(m.to ?? "") !== who) return;
+      const v = Number(m.mark);
+      if (v >= 1 && v <= 5) { sum += v; n += 1; }
+      if (m.pub && String(m.text || "").trim()) pub.push({ ...m, task: t.id, title: t.title });
+    });
+  });
+  return { mark: n ? Math.round((sum / n) * 10) / 10 : null, count: n, done, pub };
+}
+
 export function commentsFor(model = {}, { viewer } = {}) {
   const { tasks = [], published } = model;
   const pub = pubSet(published);

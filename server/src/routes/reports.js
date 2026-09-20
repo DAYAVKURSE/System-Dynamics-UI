@@ -136,13 +136,29 @@ router.post("/deliver", telegramUser, member, async (req, res, next) => {
         `${name ? `${name}\n\n` : ""}${words.slice(0, 3500)}`);
       return res.json({ sent: "text" });
     }
-    const m = FILE_URL.exec(String(url || ""));
-    if (!m) return res.status(400).json({ error: "bad url" });
-    const file = await getReport(m[1], m[2]);
+    /* Файл без сервера живёт инлайном (`data:`) — байты приезжают прямо в
+       запросе. Иначе — ссылка на диск: она и есть ключ к файлу. */
+    const raw = String(url || "");
+    let file = null;
+    if (raw.startsWith("data:")) {
+      const body = raw.slice(raw.indexOf(",") + 1);
+      const bytes = /;base64,/i.test(raw)
+        ? Buffer.from(body, "base64")
+        : Buffer.from(decodeURIComponent(body), "utf8");
+      if (!bytes.length) return res.status(400).json({ error: "empty file" });
+      if (bytes.length > MAX_REPORT_BYTES) return res.status(413).json({ error: "file too large" });
+      const type = raw.slice(5, raw.indexOf(raw.includes(";") ? ";" : ","));
+      file = { bytes, name: String(name || "файл"), type: type || "application/octet-stream" };
+    } else {
+      const m = FILE_URL.exec(raw);
+      if (!m) return res.status(400).json({ error: "bad url" });
+      file = await getReport(m[1], m[2]);
+    }
     if (!file) return res.status(404).json({ error: "not found" });
     const title = String(name || file.name || "файл");
     if (file.bytes.length > MAX_BOT_DOCUMENT_BYTES) {
-      const base = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+      // Ссылкой отдаётся только файл с диска: у инлайнового ссылки нет.
+      const base = raw.startsWith("data:") ? "" : (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
       if (!base) {
         return res.status(409).json({
           error: `${title} — ${Math.round(file.bytes.length / 1024 / 1024)} МБ, больше, чем бот`

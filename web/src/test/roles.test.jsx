@@ -283,12 +283,8 @@ describe("кому какие задачи видны", () => {
     fireEvent.click(screen.getByRole("button", { name: "Проверка" }));
     await waitFor(() => expect(screen.getByText("Моя задача")).toBeTruthy());
     fireEvent.click(screen.getByText("Моя задача"));
-    // Принять без оценки и без слов нельзя: и то и другое идёт в историю
-    // исполнителя, а история из пустот не складывается.
-    expect(screen.getByRole("button", { name: "Принять" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "оценка 5" }));
-    fireEvent.change(screen.getByLabelText("отзыв к оценке"),
-      { target: { value: "сделано как надо" } });
+    // Принять можно молча: оценка человеку — своя кнопка (владелец,
+    // 2026-09-20), и держать ею приём работы больше не надо.
     fireEvent.click(screen.getByRole("button", { name: "Принять" }));
     // Задача ушла из ожидающих проверки — решение принято.
     await waitFor(() => expect(screen.getByText(/Ничего не ждёт проверки/)).toBeTruthy());

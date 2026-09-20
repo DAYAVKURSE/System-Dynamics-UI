@@ -81,6 +81,9 @@ export function procPlan(text = "", model = {}, proc = {}) {
 
 const doerOf = (t) => t.who.find((w) => w.roles.includes("doer")) || t.who[0] || null;
 const keyOf = (w) => (w ? (w.person || w.hand || w.name || "") : "");
+/* Цвет человека — по его ключу: один и тот же на карте и в форме
+   взаимодействия, иначе одного человека читали бы за двоих. */
+const colorOf = (k) => handColor(String(k || "").toLowerCase());
 
 export const whoKey = (x) => String(x?.hand || x?.person || x?.name || "").trim().toLowerCase();
 
@@ -395,6 +398,147 @@ function people0(plan) {
 
 /* Кто ведёт задачу: первый исполнитель, иначе первый участник. */
 
+/* ─────── КТО С КЕМ ВЗАИМОДЕЙСТВУЕТ ───────
+
+   Своя форма под картой (владелец, 2026-09-20): движение ресурсов — одно,
+   взаимодействие людей — другое, и мешать их в одном полотне незачем.
+   Здесь считается, кто кому передаёт напрямую и кто до кого достаёт
+   только через кого-то ещё. */
+export function crewGraph(nodes, { doerOf, postOf }) {
+  /* Один человек — одна фигурка: ключ по закреплённому имени или по
+     сотруднику, иначе по должности; регистр и пробелы не различаем. */
+  const people = [];
+  const addPerson = (x) => {
+    const key = String(x.hand || x.person || x.name || "").trim().toLowerCase();
+    if (!key) return "";
+    const was = people.find((p) => p.key === key);
+    const nm0 = x.person || x.hand || x.name;
+    const post = postOf(x);
+    if (!was) people.push({ key, name: nm0, post: post && post !== nm0 ? post : "" });
+    else if (!was.post && post && post !== was.name) was.post = post;
+    return key;
+  };
+  nodes.forEach((t) => {
+    const d = doerOf(t);
+    if (d) addPerson(d);
+    [...t.takes, ...t.gives].forEach((p) => (p.party || []).forEach(addPerson));
+  });
+  const pkey = (x) => String(x?.hand || x?.person || x?.name || "").trim().toLowerCase();
+  const talks = [];
+  nodes.forEach((t) => {
+    const from = pkey(doerOf(t));
+    t.gives.forEach((p) => (p.party || []).forEach((x) => {
+      const to = pkey(x);
+      if (from && to && from !== to && !talks.some((z) => z.from === from && z.to === to)) talks.push({ from, to, task: t.name });
+    }));
+  });
+  /* Кто до кого достаёт НЕ НАПРЯМУЮ (владелец, 2026-09-18: «между
+     аналитиком и партнёром-фрилансером напрямую никакого ресурса не
+     проходит, он проходит через владельца; чтобы такие места были видны»):
+     работа доходит по цепочке передач через кого-то ещё. Такие дуги рисуем
+     штрих-пунктиром — это места, где двое зависят друг от друга, но не
+     разговаривают. */
+  const direct = new Set(talks.map((z) => `${z.from}>${z.to}`));
+  const next = new Map();
+  talks.forEach((z) => { if (!next.has(z.from)) next.set(z.from, []); next.get(z.from).push(z.to); });
+  const far = [];
+  people.forEach((a) => {
+    const seen = new Set();
+    const queue = [...(next.get(a.key) || [])];
+    while (queue.length) {
+      const k = queue.shift();
+      if (k === a.key || seen.has(k)) continue;
+      seen.add(k);
+      (next.get(k) || []).forEach((n) => { if (!seen.has(n)) queue.push(n); });
+    }
+    seen.forEach((b) => { if (!direct.has(`${a.key}>${b}`)) far.push({ from: a.key, to: b }); });
+  });
+  return { people, talks, far };
+}
+
+/** Взаимодействие сотрудников: фигурки по кругу, связи — дугами. */
+export function CrewMap({ plan }) {
+  const nodes = Array.isArray(plan) ? plan : (plan?.nodes || []);
+  const postOf = postMap(nodes);
+  const { people, talks, far } = crewGraph(nodes, { doerOf, postOf });
+  /* Перенос по словам — свой: имена и должности тут короткие. */
+  const wrap = (s0, max = 16) => {
+    const out = [];
+    let cur = "";
+    String(s0 || "").split(" ").filter(Boolean).forEach((w) => {
+      if (!cur) cur = w;
+      else if ((`${cur} ${w}`).length <= max) cur = `${cur} ${w}`;
+      else { out.push(cur); cur = w; }
+    });
+    if (cur) out.push(cur);
+    return out;
+  };
+  if (people.length < 2) {
+    return (
+      <div style={{ fontSize: 11, color: C.muted }}>
+        В процессе назван один человек или ни одного.</div>);
+  }
+  /* ПО КРУГУ, а не в строку (владелец, 2026-09-20): в строке связи
+     наслаивались друг на друга, и кто с кем работает, приходилось
+     угадывать. На круге каждая пара соединяется прямой. */
+  const n = people.length;
+  const r = Math.max(90, Math.min(190, 26 * n + 60));
+  const pad = 96;
+  const size = (r + pad) * 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const at = (i) => {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), a };
+  };
+  const spot = (k) => at(people.findIndex((p) => p.key === k));
+  return (
+    <Pannable label="взаимодействие сотрудников" wide={size} tall={size}>
+      <svg width={size} height={size} style={{ display: "block" }}>
+        <defs>
+          <marker id="cm-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 z" fill={C.muted} /></marker>
+        </defs>
+        {[...talks.map((z) => ({ ...z, far: false })), ...far.map((z) => ({ ...z, far: true }))]
+          .map((z, i) => {
+            const a = spot(z.from);
+            const b = spot(z.to);
+            if (!a || !b || a.x == null || b.x == null) return null;
+            // Наконечник не должен уткнуться в фигурку: линию укорачиваем.
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const k = 14 / len;
+            return (
+              <line key={`t${i}`} data-talk={z.far ? "через" : "напрямую"}
+                x1={a.x + dx * k} y1={a.y + dy * k}
+                x2={b.x - dx * k} y2={b.y - dy * k}
+                stroke={C.muted} strokeWidth="1.2"
+                strokeDasharray={z.far ? "7 3 1.5 3" : undefined}
+                markerEnd="url(#cm-arrow)" />);
+          })}
+        {people.map((p, i) => {
+          const s = at(i);
+          const right = Math.cos(s.a) >= -0.2;
+          const name = wrap(p.name, 16);
+          return (
+            <g key={p.key} aria-label={`человек ${p.name}`}>
+              <circle cx={s.x} cy={s.y - 4} r="8" fill={colorOf(p.key)} />
+              <path d={`M${s.x - 10},${s.y + 16} a10,10 0 0 1 20,0`}
+                fill={colorOf(p.key)} opacity="0.75" />
+              {name.map((s1, j) => (
+                <text key={`p${j}`} x={s.x} y={s.y + 32 + j * 11} textAnchor="middle"
+                  fill={C.text} fontSize="10.5">{s1}</text>))}
+              {wrap(p.post || "", 18).map((s1, j) => (
+                <text key={`q${j}`} x={s.x} y={s.y + 32 + name.length * 11 + j * 10}
+                  textAnchor="middle" fill={C.muted} fontSize="9">{s1}</text>))}
+              {right ? null : null}
+            </g>);
+        })}
+      </svg>
+    </Pannable>);
+}
+
 /** Майнд-карта: блоки задач, люди под ними, ресурсы и взаимодействия стрелками. */
 function MindMap({ plan, layout = {}, onLayout }) {
   const postOf = postMap(plan);
@@ -531,68 +675,14 @@ function MindMap({ plan, layout = {}, onLayout }) {
       if (hit) links.push({ from: a, to: b, text: portText(g), or: g.or, color: g.varName ? handColor(g.varName) : ACC });
     });
   }));
-  /* Кто с кем взаимодействует. Один человек — одна фигурка: ключ по
-     закреплённому имени или по сотруднику, иначе по должности; регистр и
-     пробелы не различаем. */
-  const people = [];
-  const addPerson = (x) => {
-    const key = String(x.hand || x.person || x.name || "").trim().toLowerCase();
-    if (!key) return "";
-    const was = people.find((p) => p.key === key);
-    const nm0 = x.person || x.hand || x.name;
-    const post = postOf(x);
-    if (!was) people.push({ key, name: nm0, post: post && post !== nm0 ? post : "" });
-    else if (!was.post && post && post !== was.name) was.post = post;
-    return key;
-  };
-  nodes.forEach((t) => {
-    const d = doerOf(t);
-    if (d) addPerson(d);
-    [...t.takes, ...t.gives].forEach((p) => (p.party || []).forEach(addPerson));
-  });
-  const colorOf = (k) => handColor(String(k || "").toLowerCase());
-  const pkey = (x) => String(x?.hand || x?.person || x?.name || "").trim().toLowerCase();
-  const talks = [];
-  nodes.forEach((t) => {
-    const from = pkey(doerOf(t));
-    t.gives.forEach((p) => (p.party || []).forEach((x) => {
-      const to = pkey(x);
-      if (from && to && from !== to && !talks.some((z) => z.from === from && z.to === to)) talks.push({ from, to, task: t.name });
-    }));
-  });
-  /* Кто до кого достаёт НЕ НАПРЯМУЮ (владелец, 2026-09-18: «между
-     аналитиком и партнёром-фрилансером напрямую никакого ресурса не
-     проходит, он проходит через владельца; чтобы такие места были видны»):
-     работа доходит по цепочке передач через кого-то ещё. Такие дуги рисуем
-     штрих-пунктиром — это места, где двое зависят друг от друга, но не
-     разговаривают. */
-  const direct = new Set(talks.map((z) => `${z.from}>${z.to}`));
-  const next = new Map();
-  talks.forEach((z) => { if (!next.has(z.from)) next.set(z.from, []); next.get(z.from).push(z.to); });
-  const far = [];
-  people.forEach((a) => {
-    const seen = new Set();
-    const queue = [...(next.get(a.key) || [])];
-    while (queue.length) {
-      const k = queue.shift();
-      if (k === a.key || seen.has(k)) continue;
-      seen.add(k);
-      (next.get(k) || []).forEach((n) => { if (!seen.has(n)) queue.push(n); });
-    }
-    seen.forEach((b) => { if (!direct.has(`${a.key}>${b}`)) far.push({ from: a.key, to: b }); });
-  });
-  const laneY = height + 22;   // дуг стало больше — им нужно место над полосой
-  const px = (i) => 40 + i * 170;
 
   const arrowColors = [...new Set(links.map((l) => l.color))];
   const arrowId = (c) => `pm-arrow-${Math.max(0, arrowColors.indexOf(c))}`;
-  /* Полоса людей тоже растёт под перенесённые имена. */
-  const laneTall = 46 + Math.max(0, ...people.map((p) => (wrap(p.name, 20).length - 1) * 11 + wrap(p.post || "", 22).length * 10));
   return (
-    <Pannable label="майнд-карта процесса" wide={width} tall={laneY + laneTall}
+    <Pannable label="майнд-карта процесса" wide={width} tall={height + 24}
       view={layout.view} onView={(v) => onLayout?.({ view: v })}
       onReset={() => { setMoved({}); onLayout?.({ moved: {} }); }}>
-      <svg width={width} height={laneY + laneTall} style={{ display: "block" }}
+      <svg width={width} height={height + 24} style={{ display: "block" }}
         onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         <defs>
           {/* Наконечник — цветом своей линии, чтобы не выглядел чужим. */}
@@ -637,9 +727,22 @@ function MindMap({ plan, layout = {}, onLayout }) {
             <g key={`l${i}`}>
               <path d={curve} fill="none" stroke={l.color} strokeLinejoin="round"
                 strokeWidth="1.6" strokeDasharray={l.or ? "5 4" : undefined} markerEnd={`url(#${arrowId(l.color)})`} />
-              {wrap(`${l.or ? "или · " : ""}${l.text}`, 34).map((s1, j, all) => (
-                <text key={j} x={upright ? mx + 8 : mx} y={my - 5 - (all.length - 1 - j) * 11}
-                  textAnchor={upright ? "start" : "middle"} fill={C.text} fontSize="10">{s1}</text>))}
+              {/* Подпись стрелки — НА ПЛАШКЕ (владелец, 2026-09-20): без
+                  подложки слова тонули в линиях и блоках. */}
+              {(() => {
+                const lines = wrap(`${l.or ? "или · " : ""}${l.text}`, 34);
+                const wide = Math.max(...lines.map((s1) => s1.length)) * 5.6 + 12;
+                const tall = lines.length * 11 + 6;
+                const lx = upright ? mx + 8 : mx - wide / 2;
+                const ly = my - 5 - (lines.length - 1) * 11 - 11;
+                return (<>
+                  <rect x={lx - 5} y={ly} width={wide} height={tall} rx="6"
+                    fill={C.panel} stroke={l.color} strokeOpacity="0.5" />
+                  {lines.map((s1, j) => (
+                    <text key={j} x={lx + 1} y={ly + 13 + j * 11}
+                      fill={C.text} fontSize="10">{s1}</text>))}
+                </>);
+              })()}
             </g>);
         })}
 
@@ -681,36 +784,6 @@ function MindMap({ plan, layout = {}, onLayout }) {
             </g>);
         })}
 
-        {/* Кто с кем взаимодействует */}
-        {people.length > 1 && (
-          <g aria-label="взаимодействие людей">
-            <text x="12" y={laneY - 46} fill={C.muted} fontSize="10">кто с кем взаимодействует</text>
-            {[...talks.map((z) => ({ ...z, far: false })), ...far.map((z) => ({ ...z, far: true }))].map((z, i) => {
-              const a = people.findIndex((p) => p.key === z.from);
-              const b = people.findIndex((p) => p.key === z.to);
-              if (a < 0 || b < 0) return null;
-              const x1 = px(a) + 10, x2 = px(b) + 10;
-              const dy = 16 + (i % 3) * 8 + (z.far ? 12 : 0);
-              return (
-                <path key={`t${i}`} data-talk={z.far ? "через" : "напрямую"}
-                  /* Тоже коленом, со скруглением (владелец, 2026-09-19). */
-                  d={orthPath([[x1, laneY - 10], [x1, laneY - 10 - dy],
-                    [x2, laneY - 10 - dy], [x2, laneY - 10]], 8)}
-                  fill="none" stroke={C.muted} strokeWidth="1.2" strokeLinejoin="round"
-                  strokeDasharray={z.far ? "7 3 1.5 3" : undefined}
-                  markerEnd="url(#pm-arrow2)" />);
-            })}
-            {people.map((p, i) => (
-              <g key={p.key} aria-label={`человек ${p.name}`}>
-                <circle cx={px(i) + 10} cy={laneY} r="8" fill={colorOf(p.key)} />
-                <path d={`M${px(i)},${laneY + 20} a10,10 0 0 1 20,0`} fill={colorOf(p.key)} opacity="0.75" />
-                {wrap(p.name, 20).map((s1, j) => (
-                  <text key={`p${j}`} x={px(i) + 24} y={laneY + 2 + j * 11} fill={C.text} fontSize="10.5">{s1}</text>))}
-                {wrap(p.post || "", 22).map((s1, j) => (
-                  <text key={`q${j}`} x={px(i) + 24} y={laneY + 2 + wrap(p.name, 20).length * 11 + j * 10}
-                    fill={C.muted} fontSize="9">{s1}</text>))}
-              </g>))}
-          </g>)}
         {!nodes.length && <text x="16" y="30" fill={C.muted} fontSize="12">В процессе ещё нет задач.</text>}
       </svg>
     </Pannable>);
@@ -741,15 +814,22 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
           <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700 }}>{proc?.name || "процесс"}</span>
           <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="закрыть карту" onClick={onClose}>✕</button>
         </div>
-        {/* Что означают линии — словами, чтобы не гадать (владелец, 2026-09-18). */}
-        <div style={{ fontSize: 10.5, color: C.muted }}>
-          {mode === "timeline"
-            ? "Прогноз по описанию: сколько идёт каждая задача и сколько ждать следующую попытку. Нажмите на полосу — задача раскроется целиком."
-            : "Что куда уходит: задачи и ресурсы между ними. Сплошная стрелка — выданный ресурс, взятый другой задачей (цвет — закреплённого имени); пунктир — «или», иной исход. Внизу — кто с кем взаимодействует: сплошная дуга, если передают друг другу напрямую, и штрих-пунктирная, если работа доходит через кого-то ещё. Стрелка всегда подходит к ближней стороне блока. Блоки тянутся за шапку: раскладка и масштаб помнятся на этом устройстве, «сброс» возвращает их на места."}
-        </div>
+        {/* Две формы одна под другой (владелец, 2026-09-20): движение
+            ресурсов — одно, взаимодействие сотрудников — другое. */}
         {mode === "timeline"
           ? <Timeline plan={plan} />
-          : <MindMap plan={plan} layout={layout} onLayout={putLayout} />}
+          : (
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto",
+              display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={S.lbl}>движение ресурсов</div>
+                <MindMap plan={plan} layout={layout} onLayout={putLayout} />
+              </div>
+              <div>
+                <div style={S.lbl}>взаимодействие сотрудников</div>
+                <CrewMap plan={plan} />
+              </div>
+            </div>)}
       </div>
     </div>);
 }
