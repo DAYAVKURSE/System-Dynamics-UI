@@ -1,4 +1,9 @@
 import { getTelegram, getInitData } from "./telegram.js";
+import { actingAs } from "./identity.js";
+
+/* Под чужой страницей — и здесь: «Войти под его именем» меняет не одну
+   вкладку, а всё приложение (см. identity.js). */
+const actHeader = () => (actingAs() ? { "X-Act-As": actingAs() } : {});
 
 /* ════════════════════════════════════════════════════════════════
    Хранилище сценариев модели.
@@ -296,6 +301,7 @@ export async function putReportFile(file, { kind = "", meeting = "" } = {}) {
         // и к встрече, а не только к файлу (routes/reports.js).
         ...(meeting ? { "X-Report-Meeting": String(meeting) } : {}),
         "X-Telegram-Init-Data": getInitData(),
+        ...actHeader(),
       },
       body: file,
     });
@@ -322,7 +328,8 @@ export const reportSrc = (f) => (f ? (f.url || f.data || "") : "");
 export async function deliverFile({ url, text, name } = {}) {
   const r = await fetch("/api/reports/deliver", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": getInitData() },
+    headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": getInitData(),
+      ...actHeader() },
     body: JSON.stringify({ url, text, name }),
   });
   const out = await r.json().catch(() => ({}));
@@ -340,6 +347,7 @@ export const textHref = (text) => `data:text/plain;charset=utf-8,${encodeURIComp
 const apiHeaders = () => ({
   "Content-Type": "application/json",
   "X-Telegram-Init-Data": getInitData(),
+  ...actHeader(),
 });
 
 async function serverJson(url, opts) {

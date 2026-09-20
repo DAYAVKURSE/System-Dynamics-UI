@@ -6,8 +6,11 @@ import { peopleOf as workPeopleOf, readModel, viewFor as workViewFor }
   from "../lib/workspaceStore.js";
 import {
   BadInput, acceptBrief, addChat, addDelivery, addOffer, addOrder, addService, peopleOf,
-  removeOrder, removeService, setBrief, updateOrder, updateService, viewFor,
+  readMarket, removeOrder, removeService, setBrief, updateOrder, updateService, viewFor,
 } from "../lib/marketStore.js";
+import { worksNow } from "../lib/workTime.js";
+import { readSchedule } from "../lib/scheduleStore.js";
+import { sendMessage } from "../lib/telegram.js";
 
 /* ════════════════════════════════════════════════════════════════
    РЫНОК УСЛУГ · маршруты
@@ -108,9 +111,71 @@ router.get("/people/:id", async (req, res, next) => {
 });
 
 /* ─── заказы ─── */
+/* ─── АВТОМАТИЧЕСКИЙ ПРИЁМ (владелец, 2026-09-20) ───
+
+   У услуги есть отметка «Принять автоматически в рабочее время». Заказ,
+   выбравший такую услугу, не ждёт переписки: отклик создаётся сам и сам
+   принимается (владелец: «отклик создаётся сам и сам принимается»), —
+   внешне всё как обычно, и чат у сторон остаётся, просто шаги уже
+   сделаны. Условия берутся из самой услуги: что она берёт, что выдаёт и
+   за сколько дней там уже написано.
+
+   ВНЕ рабочего времени исполнителя автоматический приём не работает
+   (владелец): заказ идёт обычным путём и ждёт отклика. Графика нет вовсе
+   — тоже обычный путь: обещать за человека, который не сказал, когда
+   работает, нельзя.
+
+   Ошибка на любом шаге не роняет заказ: он уже оставлен, и остаться без
+   заказа из-за того, что не получилось принять его автоматически, — хуже,
+   чем остаться без автоматического приёма. */
+const autoAccept = async (order, me) => {
+  const svcId = order.serviceId;
+  if (!svcId) return null;
+  const market = await readMarket();
+  const svc = (market.services || []).find((x) => x.id === String(svcId));
+  if (!svc || svc.auto !== true) return null;
+  if (String(svc.by) === String(me.id)) return null;      // свой же заказ
+  const org = await listOrg();
+  const worker = (org.users || []).find((u) => String(u.id) === String(svc.by));
+  if (!worker) return null;
+  const tz = (await readSchedule(svc.by))?.tzOffset ?? 0;
+  if (!worksNow(worker, Date.now(), tz)) return null;
+
+  const offer = await addOffer(svc.by, order.id,
+    { text: `Принято автоматически по услуге «${svc.name}».`, serviceId: svc.id });
+  await setBrief(svc.by, order.id, offer.id, {
+    gives: order.resources || [], gets: (svc.gives || [])[0] || null,
+    days: svc.days, note: svc.text || "" });
+  // Принимает ЗАКАЗЧИК: своё предложение принимать не у кого.
+  const deal = await acceptBrief(order.by, order.id, offer.id);
+  return { svc, offer: deal.offer, task: deal.task };
+};
+
+/* Исполнителю — сообщение о задаче прямо сейчас: заказ принят за него, и
+   узнать об этом он должен не из доски, когда откроет её. */
+const tellWorker = async (svcBy, order, task) => {
+  const chat = (await readSchedule(svcBy))?.chatId || svcBy;
+  const lines = [`Заказ принят автоматически: ${order.name}`];
+  if (task?.end) lines.push(`Срок: ${String(task.end).replace("T", " ").slice(0, 16)}`);
+  if (order.text) lines.push("", order.text);
+  lines.push("", "Задача уже в вашем бэклоге.");
+  await sendMessage(chat, lines.join("\n"));
+};
+
 router.post("/orders", async (req, res, next) => {
-  try { res.status(201).json(await addOrder(req.me.id, req.body || {})); }
-  catch (e) { fail(res, e, next); }
+  try {
+    const order = await addOrder(req.me.id, req.body || {});
+    let deal = null;
+    try { deal = await autoAccept(order, req.me); }
+    catch (e) { console.error(`[market] автоприём заказа ${order.id}: ${e.message}`); }
+    if (deal) {
+      try { await tellWorker(deal.svc.by, order, deal.task); }
+      catch (e) { console.error(`[market] не сказал об автоприёме: ${e.message}`); }
+    }
+    return res.status(201).json(deal
+      ? { ...(await viewFor(req.me.id)).orders.find((o) => o.id === order.id), auto: true }
+      : order);
+  } catch (e) { return fail(res, e, next); }
 });
 router.put("/orders/:id", async (req, res, next) => {
   try { res.json(await updateOrder(req.me.id, req.params.id, req.body || {})); }

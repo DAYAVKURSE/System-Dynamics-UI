@@ -144,7 +144,7 @@ function OrderForm({ initial, services, busy, onSave, onCancel, saveLabel = "О�
 
 function ServiceForm({ initial, busy, onSave, onCancel, saveLabel = "Выложить услугу" }) {
   const [f, setF] = useState({ name: "", text: "", takes: [], gives: [], days: "", funcId: null,
-    ...initial, days: initial?.days ?? "" });
+    auto: false, ...initial, days: initial?.days ?? "", auto: initial?.auto === true });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
   return (
     <div style={form} aria-label="форма услуги">
@@ -162,10 +162,21 @@ function ServiceForm({ initial, busy, onSave, onCancel, saveLabel = "Вылож�
         <input aria-label="срок услуги" inputMode="decimal" style={{ ...S.inp, maxWidth: 90 }}
           value={f.days ?? ""} onChange={(e) => up({ days: e.target.value })} />
       </div>
+      {/* Автоматический приём (владелец, 2026-09-20): заказ по этой
+          услуге не ждёт переписки — отклик создаётся сам и сам
+          принимается, и задача сразу падает в бэклог. Вне рабочего
+          времени — обычный путь: обещать за себя круглосуточно нельзя. */}
+      <label className="flex items-center gap-2"
+        style={{ marginTop: 10, fontSize: 12, cursor: "pointer" }}>
+        <input type="checkbox" checked={f.auto} aria-label="принять автоматически в рабочее время"
+          onChange={(e) => up({ auto: e.target.checked })} style={{ accentColor: OK }} />
+        Принять автоматически в рабочее время
+      </label>
       <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !f.name.trim()}
           onClick={() => onSave({ name: f.name.trim(), text: f.text, takes: cleanRows(f.takes),
-            gives: cleanRows(f.gives), days: f.days === "" ? null : f.days, funcId: f.funcId })}>
+            gives: cleanRows(f.gives), days: f.days === "" ? null : f.days, funcId: f.funcId,
+            auto: f.auto })}>
           {saveLabel}</button>
         <button type="button" style={btn(false)} onClick={onCancel}>Отмена</button>
       </div>
@@ -494,6 +505,15 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner }
           onSave={(f) => act(() => updateService(s.id, f)).then(() => setEdit(false))}
           onCancel={() => setEdit(false)} />
       ) : (<>
+        {/* Заказчик должен видеть это до того, как оставит заказ: по такой
+            услуге ему не придётся ждать ответа (владелец, 2026-09-20). */}
+        {s.auto && (
+          <div className="flex items-center gap-2" style={{ marginTop: 6 }}
+            aria-label="принимает заказ автоматически">
+            <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: "50%",
+              background: OK, flex: "0 0 9px", display: "block" }} />
+            <span style={{ fontSize: 11.5, color: OK }}>Принимает заказ автоматически</span>
+          </div>)}
         {s.text && <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{s.text}</div>}
         <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>
           <div><b>берёт:</b> {rowsLine(s.takes) || "—"}</div>

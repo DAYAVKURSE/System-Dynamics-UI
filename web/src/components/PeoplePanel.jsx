@@ -42,6 +42,7 @@ const TAB_NAMES = {
   "scheme:edit": "Управление", "scheme:time": "Деятельность", "scheme:sim": "Цели",
   reports: "Отчёты", tools: "Инструменты",
   "tools:people": "Роли", "tools:assistant": "Агенты",
+  "tools:virtual": "Виртуальные",
   "tools:reminders": "Напоминания", "tools:calls": "Звонки",
   "tools:export": "Выгрузка",
 };

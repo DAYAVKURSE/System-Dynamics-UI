@@ -77,9 +77,26 @@ describe("разовая задача", () => {
     expect(dueNotifications(s(), late).map((d) => d.kind)).toContain("start");
   });
 
-  it("давно просроченное не сыпется пачкой после долгого простоя", () => {
+  /* Владелец (2026-09-20): «если уведомление не пришло по каким-либо
+     причинам в нужное время, то оно должно прийти, как только это станет
+     возможным». У РАЗОВОЙ задачи второго такого момента нет — значит,
+     опоздавшее уходит, сколько бы ни прошло. */
+  it("давно просроченное у разовой задачи всё равно уходит", () => {
     const tooLate = at("2026-09-15T10:00") + FIRE_WINDOW_MS + MIN;
-    expect(dueNotifications(s(), tooLate)).toEqual([]);
+    const due = dueNotifications(s(), tooLate);
+    expect(due.map((d) => d.kind)).toEqual(["start"]);
+    // А предупреждения «через 10 минут» уже нет: начало настало.
+    expect(due.map((d) => d.kind)).not.toContain("warn");
+    // Отметка об отправленном по-прежнему глушит повтор.
+    expect(dueNotifications(s(), tooLate, { [due[0].key]: 1 })).toEqual([]);
+  });
+
+  /* А у ПОВТОРЯЮЩЕЙСЯ окно остаётся: пропущенное вчерашнее срабатывание
+     заменяет сегодняшнее, и слать оба — звать к работе, которой нет. */
+  it("у повторяющейся давно просроченное не сыпется пачкой", () => {
+    const daily = { tzOffset: MSK,
+      tasks: [task({ repeat: "daily", time: "09:00", warn: 0, start: "" })] };
+    expect(dueNotifications(daily, at("2026-09-15T14:00"))).toEqual([]);
   });
 
   it("задача без даты начала ничего не планирует", () => {
@@ -234,14 +251,26 @@ describe("отложенная задача", () => {
     expect(dueNotifications(s(), at("2026-09-15T11:50"))).toEqual([]);
   });
 
-  it("взятую или сданную за это время задачу заново не начинают", () => {
-    expect(dueNotifications(s({ status: "progress" }), at("2026-09-15T12:00"))).toEqual([]);
+  it("взятой напоминают один раз, сданную не начинают вовсе", () => {
+    /* Владелец (2026-09-20): «если пользователь взял задачу в работу до
+       того, как пришло напоминание, то это напоминание должно приходить в
+       момент, когда он взял задачу в работу». Поэтому взятой, которой ещё
+       НЕ напоминали, плановое начало уходит — но ровно один раз. */
+    const taken = dueNotifications(s({ status: "progress" }), at("2026-09-15T12:00"));
+    expect(taken.map((d) => [d.kind, d.deferred])).toEqual([["start", false]]);
+    expect(dueNotifications(s({ status: "progress" }), at("2026-09-15T12:00"),
+      { [taken[0].key]: 1 })).toEqual([]);
+    // Сданную «начинать» нечего ни при каких отметках.
     expect(dueNotifications(s({ status: "review" }), at("2026-09-15T12:00"))).toEqual([]);
   });
 
-  it("без «до» отложенная молчит, и порченая дата — тоже не дата", () => {
-    expect(dueNotifications(s({ deferredUntil: null }), at("2026-09-15T12:00"))).toEqual([]);
-    expect(dueNotifications(s({ deferredUntil: "потом" }), at("2026-09-15T12:00"))).toEqual([]);
+  it("без «до» отложенная напоминает по плану, и порченая дата — не дата", () => {
+    /* Отложения нет — остаётся обычная лежащая задача с прошедшим
+       началом: ей напоминают, как только становится возможно. */
+    const plain = dueNotifications(s({ deferredUntil: null }), at("2026-09-15T12:00"));
+    expect(plain.map((d) => [d.kind, d.deferred])).toEqual([["start", false]]);
+    const broken = dueNotifications(s({ deferredUntil: "потом" }), at("2026-09-15T12:00"));
+    expect(broken.map((d) => [d.kind, d.deferred])).toEqual([["start", false]]);
   });
 });
 
@@ -548,35 +577,154 @@ describe("повтор и напоминание о постановке", () =>
   });
 });
 
-import { listReminders } from "../lib/scheduler.js";
+import { dueNotes, listReminders, noteAt, syncNotes } from "../lib/scheduler.js";
 
-describe("список напоминаний (владелец, 2026-09-15)", () => {
+/* ─────── СПИСОК НАПОМИНАНИЙ (владелец, 2026-09-20) ───────
+
+   Напоминание — запись, а не вычисляемая строчка: заводится, когда
+   задача появилась в бэклоге, и из списка не пропадает, пока человек не
+   удалит её сам. Прежде список считался из задач, и взятая в работу
+   задача исчезала из него вместе с напоминанием. */
+describe("записи напоминаний", () => {
   const now = Date.parse("2026-09-15T10:00:00Z");
-  it("исполнителю — предупреждение и «пора начинать» по времени; постановщику — «нужно поставить» без времени; висящее — первым", () => {
-    const schedule = { tzOffset: 0, tasks: [
-      { id: "a", title: "Сверстать", status: "backlog", kind: "task", start: "2026-09-15T12:00", repeat: "once", warn: 30 },
+  const sched = (tasks, over = {}) => ({ tzOffset: 0, tasks, notes: {}, ...over });
+
+  it("заводится, когда задача появилась в бэклоге", () => {
+    const { notes, changed } = syncNotes(sched([
+      { id: "a", title: "Сверстать", status: "backlog", kind: "task",
+        start: "2026-09-15T12:00", repeat: "once", warn: 30 },
       { id: "b", title: "Поставить макет", status: "wait", kind: "setup" },
-      { id: "c", title: "Готовая", status: "done", kind: "task", start: "2026-09-15T13:00", repeat: "once" },
-      { id: "d", title: "Ежедневная", status: "backlog", kind: "task", repeat: "daily", time: "09:00", warn: 0 },
-    ], reminders: { "setup:b": { kind: "setup", taskId: "b", lastSentAt: now - 60000 } } };
-    const list = listReminders(schedule, now);
-    expect(list.map((r) => r.id)).toEqual(["setup:b", "warn:a", "start:a", "start:d"]);
-    expect(list[0].hanging).toMatchObject({ deferredUntil: null });
-    expect(list[1].at).toBe("2026-09-15T11:30:00.000Z");
-    expect(list[2].at).toBe("2026-09-15T12:00:00.000Z");
-    // Ежедневная в 09:00 сегодня уже прошла — следующая завтра.
-    expect(list[3].at).toBe("2026-09-16T09:00:00.000Z");
-    expect(list[3].repeat).toBe("daily");
+    ]), now);
+    expect(changed).toBe(true);
+    expect(Object.keys(notes).sort()).toEqual(["setup:b", "task:a"]);
+    // Исполнителю — за 30 минут до начала; постановщику — сразу.
+    expect(notes["task:a"].at).toBe("2026-09-15T11:30:00.000Z");
+    expect(notes["setup:b"].at).toBe("2026-09-15T10:00:00.000Z");
+    expect(notes["task:a"].sentAt).toBeNull();
   });
-  it("отложенная — момент, до которого отложили; отложенное висящее — «молчит до»", () => {
-    const schedule = { tzOffset: 0, tasks: [
-      { id: "a", title: "Сверстать", status: "deferred", kind: "task", start: "2026-09-15T08:00", repeat: "once", warn: 30,
-        deferredUntil: "2026-09-15T15:00:00.000Z" }],
-    reminders: { "task:a": { kind: "task", taskId: "a", lastSentAt: now - 120000, deferredUntil: "2026-09-15T15:00:00.000Z" } } };
-    const list = listReminders(schedule, now);
-    expect(list.map((r) => r.id)).toEqual(["start:a"]);   // предупреждение отложенной не шлётся
-    expect(list[0]).toMatchObject({ at: "2026-09-15T15:00:00.000Z", deferred: true,
-      hanging: { deferredUntil: "2026-09-15T15:00:00.000Z" } });
+
+  it("у взятой и сданной задачи новой записи не заводится", () => {
+    const { notes } = syncNotes(sched([
+      { id: "a", title: "В работе", status: "progress", kind: "task", start: "2026-09-15T12:00" },
+      { id: "b", title: "Сдана", status: "review", kind: "task", start: "2026-09-15T12:00" },
+      { id: "c", title: "Отменена", status: "backlog", kind: "task", canceled: true },
+    ]), now);
+    expect(Object.keys(notes)).toEqual([]);
+  });
+
+  it("запись остаётся, когда задачу взяли в работу и когда сдали", () => {
+    const first = syncNotes(sched([
+      { id: "a", title: "Сверстать", status: "backlog", kind: "task",
+        start: "2026-09-15T12:00", repeat: "once", warn: 30 }]), now).notes;
+    const inWork = sched([{ id: "a", title: "Сверстать", status: "progress", kind: "task",
+      start: "2026-09-15T12:00", repeat: "once", warn: 30 }], { notes: first });
+    expect(syncNotes(inWork, now).notes["task:a"]).toBeTruthy();
+    const list = listReminders(inWork, now);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ id: "task:a", title: "Сверстать",
+      doing: "в работе", sentAt: null });
+  });
+
+  it("на форме — статус выполнения и статус напоминания", () => {
+    const notes = { "task:a": { id: "task:a", kind: "task", taskId: "a", title: "Сверстать",
+      at: "2026-09-15T11:30:00.000Z", sentAt: null } };
+    const bases = [["backlog", "бэклог"], ["deferred", "бэклог"], ["progress", "в работе"],
+      ["review", "сдана"], ["done", "сдана"], ["wait", "ожидает постановки"]];
+    bases.forEach(([status, doing]) => {
+      const list = listReminders(sched([{ id: "a", title: "Сверстать", status, kind: "task" }],
+        { notes }), now);
+      expect(list[0].doing).toBe(doing);
+    });
+    // Отправлено или нет — у самой записи, а не у задачи.
+    const sent = { "task:a": { ...notes["task:a"], sentAt: "2026-09-15T11:30:00.000Z" } };
+    expect(listReminders(sched([{ id: "a", status: "backlog", kind: "task" }], { notes: sent }),
+      now)[0].sentAt).toBe("2026-09-15T11:30:00.000Z");
+  });
+
+  it("удалённая запись не показывается и заново не заводится", () => {
+    const tasks = [{ id: "a", title: "Сверстать", status: "backlog", kind: "task",
+      start: "2026-09-15T12:00", repeat: "once", warn: 30 }];
+    const dead = { "task:a": { id: "task:a", kind: "task", taskId: "a", deleted: true } };
+    expect(listReminders(sched(tasks, { notes: dead }), now)).toEqual([]);
+    const { notes, changed } = syncNotes(sched(tasks, { notes: dead }), now);
+    expect(changed).toBe(false);
+    expect(notes["task:a"].deleted).toBe(true);
+  });
+
+  it("время сдвигается, пока не ушло; ушедшее не трогается", () => {
+    const tasks = (start) => [{ id: "a", title: "Сверстать", status: "backlog", kind: "task",
+      start, repeat: "once", warn: 0 }];
+    const notes = syncNotes(sched(tasks("2026-09-15T12:00")), now).notes;
+    const moved = syncNotes(sched(tasks("2026-09-15T14:00"), { notes }), now).notes;
+    expect(moved["task:a"].at).toBe("2026-09-15T14:00:00.000Z");
+    const gone = { "task:a": { ...moved["task:a"], sentAt: "2026-09-15T10:00:00.000Z" } };
+    expect(syncNotes(sched(tasks("2026-09-15T18:00"), { notes: gone }), now)
+      .notes["task:a"].at).toBe("2026-09-15T14:00:00.000Z");
+  });
+
+  it("пустое расписание — пустой список", () => {
     expect(listReminders(null, now)).toEqual([]);
+  });
+});
+
+describe("когда запись пора отправить", () => {
+  const now = Date.parse("2026-09-15T10:00:00Z");
+  const one = (status, at, over = {}) => ({
+    tzOffset: 0,
+    tasks: [{ id: "a", title: "Сверстать", status, kind: "task",
+      start: "2026-09-15T12:00", repeat: "once", warn: 30, ...over }],
+    notes: { "task:a": { id: "task:a", kind: "task", taskId: "a", title: "Сверстать",
+      at, sentAt: null } },
+  });
+
+  it("настало время — уходит", () => {
+    expect(dueNotes(one("backlog", "2026-09-15T09:59:00.000Z"), now).map((n) => n.id))
+      .toEqual(["task:a"]);
+  });
+
+  it("время не настало — молчит", () => {
+    expect(dueNotes(one("backlog", "2026-09-15T11:30:00.000Z"), now)).toEqual([]);
+  });
+
+  /* Владелец (2026-09-20): «если пользователь взял задачу в работу до
+     того, как пришло напоминание, то это напоминание должно приходить в
+     момент, когда он взял задачу в работу». */
+  it("взяли в работу раньше времени — уходит сразу", () => {
+    expect(dueNotes(one("progress", "2026-09-15T11:30:00.000Z"), now).map((n) => n.id))
+      .toEqual(["task:a"]);
+  });
+
+  it("уже отправленное второй раз не уходит", () => {
+    const s = one("backlog", "2026-09-15T09:00:00.000Z");
+    s.notes["task:a"].sentAt = "2026-09-15T09:00:00.000Z";
+    expect(dueNotes(s, now)).toEqual([]);
+  });
+
+  it("удалённое, отменённое и сданное молчат", () => {
+    const dead = one("backlog", "2026-09-15T09:00:00.000Z");
+    dead.notes["task:a"].deleted = true;
+    expect(dueNotes(dead, now)).toEqual([]);
+    expect(dueNotes(one("backlog", "2026-09-15T09:00:00.000Z", { canceled: true }), now))
+      .toEqual([]);
+    expect(dueNotes(one("review", "2026-09-15T09:00:00.000Z"), now)).toEqual([]);
+  });
+
+  it("постановщику — пока задача ждёт постановки", () => {
+    const s = { tzOffset: 0,
+      tasks: [{ id: "b", title: "Поставить", status: "wait", kind: "setup" }],
+      notes: { "setup:b": { id: "setup:b", kind: "setup", taskId: "b",
+        at: "2026-09-15T10:00:00.000Z", sentAt: null } } };
+    expect(dueNotes(s, now).map((n) => n.id)).toEqual(["setup:b"]);
+    s.tasks[0].status = "backlog";
+    expect(dueNotes(s, now)).toEqual([]);
+  });
+
+  it("время напоминания: за «предупредить» до начала, а без него — в начало", () => {
+    const t = (warn) => ({ id: "a", kind: "task", status: "backlog",
+      start: "2026-09-15T12:00", repeat: "once", warn });
+    expect(noteAt(t(30), now, 0)).toBe(Date.parse("2026-09-15T11:30:00.000Z"));
+    expect(noteAt(t(0), now, 0)).toBe(Date.parse("2026-09-15T12:00:00.000Z"));
+    // Постановщику ждать нечего: задача висит непоставленной уже сейчас.
+    expect(noteAt({ id: "b", kind: "setup", status: "wait" }, now, 0)).toBe(now);
   });
 });

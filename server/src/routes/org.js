@@ -4,6 +4,7 @@ import { renameRole,
   addForm, addRole, addUser, contractHtml, identify, listOrg, openRoles, registerUser, removeForm,
   removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
   setUserRole, setUserRoles, TABS,
+  addVirtualUser, claimVirtual, formsFor, mayActAs, profileOf, virtualByToken, virtualToken,
 } from "../lib/orgStore.js";
 import { MAX_REPORT_BYTES, saveReport } from "../lib/reportStore.js";
 import {
@@ -20,11 +21,144 @@ router.use(telegramUser);
 
 // Кто я и что мне видно. Единственный маршрут, открытый всем вошедшим:
 // без него интерфейс не знает, какие вкладки рисовать.
+/* ─── ЧТО ВИДНО НА ЧУЖОЙ ВИРТУАЛЬНОЙ СТРАНИЦЕ (владелец, 2026-09-20) ───
+
+   Владелец видит всё, что увидел бы сам человек, и всем управляет:
+   модель его. А тот, кто завёл страницу и не владелец, приходит на неё
+   ради одного — заполнить за будущего сотрудника то, что можно заполнить
+   заранее: его АНКЕТУ и его ДОГОВОР, кроме подписи. Подпись — то
+   единственное, что за человека не делают: она и есть его согласие.
+   Поэтому остальные вкладки на такой странице не рисуются вовсе. */
+const RECRUITER_TABS = ["me"];
+const asRecruiter = (req, me) => !!req.actingAs
+  && String(req.telegramRealId || "") !== String(me?.ownerId || "");
+
 router.get("/me", async (req, res, next) => {
   try {
     const me = await identify(req.telegramUserId, req.telegramProfile || {});
-    res.json(me);
-  } catch (e) { next(e); }
+    if (req.actingAs) {
+      const org = await listOrg();
+      const owner = String(org.ownerId || "") === String(req.telegramRealId || "");
+      me.actingAs = req.actingAs;
+      me.actingOwner = owner;
+      if (!owner) {
+        me.tabs = [...RECRUITER_TABS];
+        me.access = Object.fromEntries(RECRUITER_TABS.map((t) => [t, "rw"]));
+        me.isOwner = false;
+      }
+    }
+    return res.json(me);
+  } catch (e) { return next(e); }
+});
+
+/* ════════════════════════════════════════════════════════════════
+   ВИРТУАЛЬНЫЕ СОТРУДНИКИ (владелец, 2026-09-20)
+
+   Страница, за которой ещё нет человека. Заводит её любой позванный —
+   рекрутер или реферер, который проводит онбординг сам; владелец видит
+   и правит все, остальные — только свои.
+
+   Что тут можно: завести, выбрать роль, получить ссылку для регистрации
+   и войти под этой страницей. Всё остальное делается уже НА самой
+   странице — тем же приложением, теми же маршрутами: страница виртуаль-
+   ного сотрудника ничем не отличается от страницы человека, кроме того,
+   что человека за ней пока нет.
+   ════════════════════════════════════════════════════════════════ */
+const mineVirtual = (u, me) => u.virtual === true
+  && (me.isOwner || String(u.addedBy || "") === String(me.id));
+
+router.get("/virtual", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    if (!me.known) return res.status(403).json({ error: "you are not invited yet" });
+    const org = await listOrg();
+    return res.json({
+      users: (org.users || []).filter((u) => mineVirtual(u, me)),
+      roles: (org.roles || []).map((r) => ({ id: r.id, name: r.name, doc: r.doc || null })),
+      isOwner: !!me.isOwner,
+    });
+  } catch (e) { return next(e); }
+});
+
+router.post("/virtual", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    if (!me.known) return res.status(403).json({ error: "you are not invited yet" });
+    // Виртуальный под виртуальным не заводится: это было бы деревом
+    // страниц, за которыми нет никого.
+    if (req.actingAs) return res.status(403).json({ error: "not from a virtual page" });
+    const user = await addVirtualUser({ roleId: req.body?.roleId || null, addedBy: me.id });
+    return res.status(201).json(user);
+  } catch (e) {
+    if (/unknown role/.test(e.message)) return res.status(400).json({ error: e.message });
+    return next(e);
+  }
+});
+
+/* Роль виртуального сотрудника — здесь, а не в общем списке людей:
+   раздавать роли может владелец, а эту страницу завёл рекрутер, и без
+   роли ей нечего показывать и не под чем регистрироваться. */
+router.put("/virtual/:id/role", async (req, res, next) => {
+  try {
+    if (!(await mayActAs(req.telegramUserId, req.params.id))) {
+      return res.status(403).json({ error: "not your page" });
+    }
+    const roleId = req.body?.roleId || null;
+    const user = await setUserRoles(req.params.id, roleId ? [roleId] : []);
+    if (!user) return res.status(404).json({ error: "not found" });
+    return res.json(user);
+  } catch (e) {
+    if (/unknown role/.test(e.message)) return res.status(400).json({ error: e.message });
+    return next(e);
+  }
+});
+
+/* Ссылка для регистрации. Ключ одноразовый: новая ссылка отменяет
+   прежнюю — иначе разосланная вчера открывала бы страницу и сегодня. */
+router.post("/virtual/:id/link", async (req, res, next) => {
+  try {
+    if (!(await mayActAs(req.telegramUserId, req.params.id))) {
+      return res.status(403).json({ error: "not your page" });
+    }
+    const token = await virtualToken(req.params.id);
+    if (!token) return res.status(404).json({ error: "not found" });
+    const bot = process.env.BOT_NAME || "";
+    return res.json({ token,
+      link: bot ? `https://t.me/${bot}?startapp=join_${token}` : `?join=${token}` });
+  } catch (e) { return next(e); }
+});
+
+/* Что за страница ждёт по ссылке — ДО входа: человеку показывают роль и
+   договор, которые ему предлагают, а не пустой экран с кнопкой. */
+router.get("/join/:token", async (req, res, next) => {
+  try {
+    const user = await virtualByToken(req.params.token);
+    if (!user) return res.status(404).json({ error: "ссылка не открывается" });
+    const org = await listOrg();
+    const roleId = (user.roles || [])[0] || user.pending || null;
+    const role = roleId ? (org.roles || []).find((r) => r.id === roleId) : null;
+    return res.json({
+      name: user.name,
+      role: role ? { id: role.id, name: role.name, doc: role.doc || null } : null,
+      // Что за него уже заполнили: человеку не нужно вводить это заново.
+      profile: profileOf(user),
+      forms: formsFor(org, user),
+    });
+  } catch (e) { return next(e); }
+});
+
+/* Забрать страницу себе. Дважды не регистрируются: у кого доступ уже
+   есть, тот получает отказ словами (владелец, 2026-09-20). */
+router.post("/join", async (req, res, next) => {
+  try {
+    const r = await claimVirtual(req.body?.token, req.telegramRealId || req.telegramUserId,
+      req.telegramProfile || {});
+    if (r.error === "already registered") {
+      return res.status(409).json({ error: "Вы уже зарегистрированы в системе" });
+    }
+    if (r.error) return res.status(404).json({ error: "ссылка не открывается" });
+    return res.json(await identify(r.user.id, {}));
+  } catch (e) { return next(e); }
 });
 
 /* Своя анкета — единственное, что человек меняет о себе сам, поэтому
@@ -64,6 +198,14 @@ const MAX_CONTRACT_BYTES = Math.min(MAX_REPORT_BYTES, 8 * 1024 * 1024);
 router.post("/register", async (req, res, next) => {
   try {
     const { roleId, file, answers, start, end } = req.body || {};
+    // Подписанный экземпляр — тоже подпись: за человека его не приносят.
+    if (req.actingAs && file && file.data) {
+      const org = await listOrg();
+      if (String(org.ownerId || "") !== String(req.telegramRealId || "")) {
+        return res.status(403).json({
+          error: "Подписать договор за человека нельзя — это его согласие" });
+      }
+    }
     let saved = null;
     if (file && file.data) {
       /* Файл приезжает строкой base64 (или data:-ссылкой): тело здесь
@@ -109,6 +251,16 @@ router.get("/agreements/:id/html", async (req, res, next) => {
 });
 router.post("/agreements/:id/sign", async (req, res, next) => {
   try {
+    /* Подпись за человека не ставят (владелец, 2026-09-20): заполнить
+       договор с его страницы можно, подписать — нет. Владельцу можно:
+       он и так распоряжается всем. */
+    if (req.actingAs && req.body?.sign2) {
+      const org = await listOrg();
+      if (String(org.ownerId || "") !== String(req.telegramRealId || "")) {
+        return res.status(403).json({
+          error: "Подписать договор за человека нельзя — это его согласие" });
+      }
+    }
     const agreement = await signAgreement(req.telegramUserId, req.params.id, req.body || {});
     const me = await identify(req.telegramUserId, req.telegramProfile || {});
     res.json({ agreement, me });

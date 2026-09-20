@@ -1,4 +1,5 @@
 import { getInitData } from "./telegram.js";
+import { actingAs } from "./identity.js";
 
 /* ════════════════════════════════════════════════════════════════
    РЫНОК УСЛУГ · разговор с сервером (см. server/src/routes/market.js)
@@ -11,6 +12,9 @@ import { getInitData } from "./telegram.js";
 const headers = () => ({
   "Content-Type": "application/json",
   "X-Telegram-Init-Data": getInitData(),
+  /* Под чужой страницей — и здесь: «Войти под его именем» меняет не
+     одну вкладку, а всё приложение (см. identity.js). */
+  ...(actingAs() ? { "X-Act-As": actingAs() } : {}),
 });
 
 const json = async (url, opts) => {

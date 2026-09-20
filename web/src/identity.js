@@ -20,7 +20,7 @@ import { getInitData } from "./telegram.js";
 export const ALL_TABS = ["market", "me", "tasks", "review",
   "scheme", "scheme:edit", "scheme:time", "scheme:sim",
   "reports",
-  "tools", "tools:people", "tools:assistant", "tools:reminders",
+  "tools", "tools:people", "tools:assistant", "tools:virtual", "tools:reminders",
   "tools:calls", "tools:export"];
 
 /* Право на вкладке: «r» — только смотреть, «rw» — ещё и править. */
@@ -44,10 +44,36 @@ export const SOLO = {
   solo: true,
 };
 
-const headers = () => ({
-  "Content-Type": "application/json",
-  "X-Telegram-Init-Data": getInitData(),
-});
+/* ─────── ПОД КЕМ МЫ РАБОТАЕМ ───────
+
+   «Войти под его именем» (владелец, 2026-09-20): всё приложение начинает
+   работать со страницы виртуального сотрудника — та же регистрация, те
+   же вкладки, те же маршруты. Отличается один заголовок, и он тут: класть
+   его в каждый запрос по отдельности значило бы забыть его в одном.
+
+   Живёт в сеансе вкладки, а не в localStorage: чужая страница — это то,
+   куда зашли и откуда возвращаются, а не то, с чем просыпаются завтра.
+   Право проверяет сервер; здесь только адрес. */
+const ACT_KEY = "sd_act_as";
+export const actingAs = () => {
+  try { return sessionStorage.getItem(ACT_KEY) || ""; } catch { return ""; }
+};
+export function setActingAs(id) {
+  try {
+    if (id) sessionStorage.setItem(ACT_KEY, String(id));
+    else sessionStorage.removeItem(ACT_KEY);
+  } catch { /* приватный режим */ }
+  resetIdentity();
+}
+
+const headers = () => {
+  const act = actingAs();
+  return {
+    "Content-Type": "application/json",
+    "X-Telegram-Init-Data": getInitData(),
+    ...(act ? { "X-Act-As": act } : {}),
+  };
+};
 
 let cached = null;
 export function resetIdentity() { cached = null; }
@@ -178,6 +204,42 @@ export const setUserRole = (id, roleId) =>
 export const removeUser = (id) =>
   json(`/api/org/users/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/* ─────── виртуальные сотрудники ───────
+   Страница, за которой ещё нет человека: её заводит рекрутер, заполняет
+   за будущего сотрудника анкету и договор и присылает ссылку. */
+export const listVirtual = () => json("/api/org/virtual");
+export const addVirtual = (roleId) =>
+  json("/api/org/virtual", { method: "POST", body: JSON.stringify({ roleId }) });
+export const setVirtualRole = (id, roleId) =>
+  json(`/api/org/virtual/${encodeURIComponent(id)}/role`,
+    { method: "PUT", body: JSON.stringify({ roleId }) });
+export const virtualLink = (id) =>
+  json(`/api/org/virtual/${encodeURIComponent(id)}/link`, { method: "POST" });
+/* Что ждёт по ссылке — без подписи: её читает тот, кто ещё не вошёл. */
+export async function peekJoin(token) {
+  const r = await fetch(`/api/org/join/${encodeURIComponent(token)}`,
+    { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "ссылка не открывается");
+  return r.json();
+}
+export const joinRemote = (token) =>
+  json("/api/org/join", { method: "POST", body: JSON.stringify({ token }) });
+
+/* Ключ из ссылки — так же, как у ссылки на звонок: и из адреса, и из
+   `startapp` Telegram. */
+export function joinFromLocation() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const h = new URLSearchParams(String(location.hash || "").replace(/^#/, ""));
+    const direct = q.get("join") || h.get("join");
+    if (direct) return direct;
+    const start = q.get("tgWebAppStartParam") || h.get("tgWebAppStartParam")
+      || window.Telegram?.WebApp?.initDataUnsafe?.start_param || "";
+    const m = String(start).match(/^join_(.+)$/);
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+
 /* ─────── общая модель ─────── */
 
 export const getWorkspace = () => json("/api/workspace");
@@ -287,3 +349,7 @@ export const signAgreement = (id, { values, sign2 }) =>
 
 /* ─────── напоминания: что и когда пришлёт бот ─────── */
 export const listReminders = () => json("/api/schedule/reminders").then((r) => r.reminders || []);
+/* Убрать напоминание из списка: из него ничего не пропадает само, и
+   убрать может только сам человек (владелец, 2026-09-20). */
+export const dropReminder = (id) =>
+  json(`/api/schedule/reminders/${encodeURIComponent(id)}`, { method: "DELETE" });

@@ -159,3 +159,51 @@ describe("хранилище расписаний", () => {
     expect(files.every((f) => !f.includes("/") && f.endsWith(".json"))).toBe(true);
   });
 });
+
+/* ─────── СПИСОК НАПОМИНАНИЙ (владелец, 2026-09-20) ───────
+   Запись заводится, когда задача появилась в бэклоге, и живёт, пока её не
+   удалят руками: взятая в работу и сданная задача из списка не пропадают. */
+describe("напоминания в списке", () => {
+  const put = (tasks) => request(app).put("/api/schedule").send({ tzOffset: 0, tasks });
+  const list = () => request(app).get("/api/schedule/reminders");
+  const one = (over = {}) => ({ id: "a", title: "Сверстать", status: "backlog",
+    kind: "task", start: "2030-01-01T10:00", repeat: "once", warn: 30, ...over });
+
+  it("появляется у задачи в бэклоге и говорит оба статуса", async () => {
+    await put([one()]);
+    const r = await list();
+    expect(r.status).toBe(200);
+    expect(r.body.reminders).toHaveLength(1);
+    expect(r.body.reminders[0]).toMatchObject({ id: "task:a", title: "Сверстать",
+      doing: "бэклог", sentAt: null });
+    expect(r.body.reminders[0].at).toBe("2030-01-01T09:30:00.000Z");
+  });
+
+  it("не пропадает, когда задачу взяли в работу и когда сдали", async () => {
+    await put([one()]);
+    await put([one({ status: "progress" })]);
+    let r = await list();
+    expect(r.body.reminders.map((x) => [x.id, x.doing])).toEqual([["task:a", "в работе"]]);
+    await put([one({ status: "done" })]);
+    r = await list();
+    expect(r.body.reminders.map((x) => [x.id, x.doing])).toEqual([["task:a", "сдана"]]);
+  });
+
+  it("«Удалить» убирает её насовсем — заново не заводится", async () => {
+    await put([one()]);
+    expect((await request(app).delete("/api/schedule/reminders/task:a"))
+      .status).toBe(204);
+    expect((await list()).body.reminders).toEqual([]);
+    // Задача всё ещё в бэклоге, но напоминание не возвращается.
+    await put([one()]);
+    expect((await list()).body.reminders).toEqual([]);
+    // Второй раз удалять нечего.
+    expect((await request(app).delete("/api/schedule/reminders/task:a"))
+      .status).toBe(404);
+  });
+
+  it("у взятой сразу задачи записи не заводится вовсе", async () => {
+    await put([one({ id: "b", status: "progress" })]);
+    expect((await list()).body.reminders).toEqual([]);
+  });
+});

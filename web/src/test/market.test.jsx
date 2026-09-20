@@ -235,3 +235,40 @@ describe("отклик, чат, бриф, сделка", () => {
     expect(srv.log.find((r) => r.url.endsWith("/deliveries")).body).toEqual({ name: "логотип", text: "во вложении" });
   });
 });
+
+/* ─────── АВТОМАТИЧЕСКИЙ ПРИЁМ (владелец, 2026-09-20) ───────
+   Отметка стоит в форме услуги, а заказчик видит зелёный кружок: по такой
+   услуге ему не придётся ждать ответа. */
+describe("принимает заказ автоматически", () => {
+  it("в форме услуги есть чекбокс, и он уезжает на сервер", async () => {
+    const { log } = marketServer();
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    fireEvent.click(screen.getByRole("button", { name: "+ услуга" }));
+    const box = screen.getByLabelText("принять автоматически в рабочее время");
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    fireEvent.change(screen.getByLabelText("название услуги"), { target: { value: "Вёрстка" } });
+    fireEvent.click(screen.getByRole("button", { name: "Выложить услугу" }));
+    await waitFor(() => expect(log.some((c) => /\/services$/.test(c.url)
+      && c.method === "POST")).toBe(true));
+    expect(log.find((c) => /\/services$/.test(c.url) && c.method === "POST").body.auto)
+      .toBe(true);
+  });
+
+  it("заказчик видит зелёный кружок только у такой услуги", async () => {
+    const { state } = marketServer();
+    state.services.push(
+      { id: "s9", by: "300", name: "Вёрстка", text: "", takes: [], gives: [], days: 3,
+        at: "2026-09-13T10:00:00Z", auto: true },
+      { id: "s8", by: "300", name: "Дизайн", text: "", takes: [], gives: [], days: 3,
+        at: "2026-09-13T10:00:00Z", auto: false });
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    const auto = await screen.findByLabelText("услуга Вёрстка");
+    expect(within(auto).getByLabelText("принимает заказ автоматически").textContent)
+      .toContain("Принимает заказ автоматически");
+    const plain = screen.getByLabelText("услуга Дизайн");
+    expect(within(plain).queryByLabelText("принимает заказ автоматически")).toBeNull();
+  });
+});

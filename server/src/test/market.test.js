@@ -245,3 +245,79 @@ describe("имя и лицо автора", () => {
     expect((await request(app).get("/api/market/people/777").set(as(300))).status).toBe(404);
   });
 });
+
+/* ─────── АВТОМАТИЧЕСКИЙ ПРИЁМ (владелец, 2026-09-20) ───────
+
+   У услуги есть отметка «Принять автоматически в рабочее время». Заказ по
+   такой услуге не ждёт переписки: отклик создаётся сам и сам принимается,
+   задача падает в бэклог исполнителя. Вне рабочего времени — обычный путь. */
+const { setProfile } = await import("../lib/orgStore.js");
+
+describe("принимает заказ автоматически", () => {
+  // Мастер работает всю неделю круглосуточно — значит, «сейчас» рабочее.
+  const always = () => setProfile("300", { days: [0, 1, 2, 3, 4, 5, 6], from: "", to: "",
+    status: "ready" });
+  const never = () => setProfile("300", { days: [], from: "", to: "" });
+  const service = (auto) => request(app).post("/api/market/services").set(as(300))
+    .send({ name: "Вёрстка", text: "сверстаю", gives: [{ name: "макет", qty: 1 }],
+      days: 3, auto });
+
+  it("отметка хранится у услуги и видна заказчику", async () => {
+    const svc = await service(true);
+    expect(svc.body.auto).toBe(true);
+    const seen = await request(app).get("/api/market").set(as(200));
+    expect(seen.body.services[0].auto).toBe(true);
+  });
+
+  it("в рабочее время заказ принимается сам: отклик, сделка и задача в бэклоге",
+    async () => {
+      await always();
+      const svc = await service(true);
+      const r = await order(200, { serviceId: svc.body.id });
+      expect(r.status).toBe(201);
+      expect(r.body.status).toBe("deal");
+
+      const seen = await request(app).get("/api/market").set(as(300));
+      const o = seen.body.orders[0];
+      expect(o.status).toBe("deal");
+      expect(o.offers).toHaveLength(1);
+      expect(o.offers[0].accepted).toBe(true);
+      expect(o.offers[0].by).toBe("300");
+
+      // Задача у исполнителя — сразу в бэклоге, ставит и принимает заказчик.
+      const model = await readModel();
+      const task = (model.tasks || []).find((t) => t.market?.orderId === o.id);
+      expect(task).toMatchObject({ status: "backlog", assignee: "300",
+        setter: "200", reviewer: "200", title: "Сайт-визитка" });
+    });
+
+  it("вне рабочего времени — обычный путь: заказ ждёт отклика", async () => {
+    await never();
+    const svc = await service(true);
+    const r = await order(200, { serviceId: svc.body.id });
+    expect(r.body.status).toBe("open");
+    const seen = await request(app).get("/api/market").set(as(300));
+    expect(seen.body.orders[0].offers).toEqual([]);
+  });
+
+  it("без отметки ничего не меняется, даже в рабочее время", async () => {
+    await always();
+    const svc = await service(false);
+    const r = await order(200, { serviceId: svc.body.id });
+    expect(r.body.status).toBe("open");
+  });
+
+  it("свой же заказ по своей услуге сам собой не принимается", async () => {
+    await always();
+    const svc = await service(true);
+    const r = await order(300, { serviceId: svc.body.id });
+    expect(r.body.status).toBe("open");
+  });
+
+  it("заказ без услуги идёт как прежде", async () => {
+    await always();
+    await service(true);
+    const r = await order(200);
+    expect(r.body.status).toBe("open");
+  });
+});

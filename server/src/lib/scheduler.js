@@ -157,35 +157,136 @@ function nextPlanned(task, nowMs, tzOffset = 0) {
   return null;
 }
 const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
-export function listReminders(schedule, nowMs = Date.now()) {
-  const { tasks = [], reminders = {}, tzOffset = 0 } = schedule || {};
-  const out = [];
+/* ─────── ЗАПИСИ НАПОМИНАНИЙ (владелец, 2026-09-20) ───────
+
+   Напоминание — не вычисляемая строчка, а ЗАПИСЬ. Она заводится, когда
+   задача появилась в бэклоге, и из списка никуда не девается, пока
+   человек не удалит её сам: прежде список пересчитывался из задач, и
+   взятая в работу задача исчезала из него вместе со своим напоминанием —
+   «список напоминаний пуст», хотя работа была.
+
+   Запись одна на задачу: `task:<id>` исполнителю, `setup:<id>`
+   постановщику. В ней `at` — когда напоминание должно уйти, `sentAt` —
+   когда ушло (пусто — значит ещё нет). Удалённая остаётся надгробием
+   (`deleted`), чтобы не завестись заново на следующем же проходе.
+
+   Отправленной запись становится один раз: дальше повторы ведёт
+   «висящее» напоминание (`reminders`), как и прежде. */
+export const noteKind = (t) => (t?.kind === "setup" ? "setup" : "task");
+export const noteIdOf = (t) => `${noteKind(t)}:${t?.id}`;
+
+/* Когда напоминание должно уйти. Постановщику — сразу, ждать нечего:
+   задача уже висит непоставленной. Исполнителю — за `warn` до начала
+   (или в само начало, если предупреждать не за сколько). */
+export function noteAt(task, nowMs, tzOffset = 0) {
+  if (noteKind(task) === "setup") return nowMs;
+  const deferred = task.deferredUntil ? Date.parse(task.deferredUntil) : NaN;
+  const base = Number.isFinite(deferred) ? deferred : nextPlanned(task, nowMs, tzOffset);
+  if (base == null || !Number.isFinite(base)) return null;
+  const warn = Number(task.warn) || 0;
+  return warn > 0 ? base - warn * MIN : base;
+}
+
+/* Заводится ли запись. Постановщику — пока задача ждёт постановки,
+   исполнителю — пока она лежит. Дальше запись живёт сама: статус задачи
+   меняется, а напоминание остаётся в списке. */
+export const noteWanted = (t) => !!t && t.canceled !== true
+  && (noteKind(t) === "setup" ? t.status === "wait" : DEFERRABLE.includes(t.status));
+
+/** «Взяли в работу» — состояние, в котором неотправленное уходит сразу. */
+export const TAKEN = ["progress", "deadline"];
+
+/**
+ * Записи после этого прохода: заводит недостающие, обновляет время у тех,
+ * что ещё не ушли. Чистая функция — на диск пишет вызывающий.
+ */
+export function syncNotes(schedule, nowMs = Date.now()) {
+  const { tasks = [], notes = {}, tzOffset = 0 } = schedule || {};
+  const out = { ...notes };
+  let changed = false;
   tasks.forEach((t) => {
-    if (t.status === "done" || t.canceled === true) return;
-    const hang = reminders[`${t.kind === "setup" ? "setup" : "task"}:${t.id}`] || null;
-    const hanging = hang && reminderAlive(hang, tasks)
-      ? { since: iso(Number(hang.lastSentAt) || null), deferredUntil: hang.deferredUntil || null } : null;
-    if (t.kind === "setup") {
-      if (t.status !== "wait") return;
-      out.push({ id: `setup:${t.id}`, kind: "setup", taskId: t.id, title: t.title, at: null,
-        end: t.end || "", repeat: "once", hanging });
+    const id = noteIdOf(t);
+    const at = noteAt(t, nowMs, tzOffset);
+    const prev = out[id];
+    if (!prev) {
+      if (!noteWanted(t)) return;
+      out[id] = { id, kind: noteKind(t), taskId: String(t.id),
+        title: t.title || "Задача", end: t.end || "",
+        at: iso(at), createdAt: iso(nowMs), sentAt: null };
+      changed = true;
       return;
     }
-    if (!DEFERRABLE.includes(t.status)) return;
-    const deferred = t.deferredUntil ? Date.parse(t.deferredUntil) : NaN;
-    const at = Number.isFinite(deferred) && deferred > nowMs - FIRE_WINDOW_MS ? deferred : nextPlanned(t, nowMs, tzOffset);
-    const warn = Number(t.warn) || 0;
-    if (at != null && warn > 0 && !(Number.isFinite(deferred) && at === deferred)) {
-      out.push({ id: `warn:${t.id}`, kind: "warn", taskId: t.id, title: t.title, at: iso(at - warn * MIN),
-        warn, repeat: t.repeat || "once", hanging: null });
+    if (prev.deleted) return;
+    /* Пока не ушло — время может сдвинуться: постановщик поменял начало,
+       человек отложил задачу. Ушедшее не трогаем: это уже история. */
+    const nextAt = iso(at);
+    const title = t.title || "Задача";
+    if (!prev.sentAt && (prev.at !== nextAt || prev.title !== title)) {
+      out[id] = { ...prev, at: nextAt, title, end: t.end || "" };
+      changed = true;
     }
-    out.push({ id: `start:${t.id}`, kind: "start", taskId: t.id, title: t.title, at: iso(at),
-      repeat: t.repeat || "once", deferred: Number.isFinite(deferred) && at === deferred, hanging });
   });
-  // Сперва то, что висит, потом по времени; без времени — в конец.
-  return out.sort((a, b) => (b.hanging ? 1 : 0) - (a.hanging ? 1 : 0)
-    || (a.at == null ? 1 : 0) - (b.at == null ? 1 : 0)
-    || String(a.at || "").localeCompare(String(b.at || "")));
+  return { notes: out, changed };
+}
+
+/** Запись этой задачи — или null, если её нет вовсе. */
+export const noteOf = (schedule, task) => (schedule?.notes || {})[noteIdOf(task)] || null;
+
+/**
+ * Что пора отправить ВПЕРВЫЕ. Запись уходит, когда настало её время —
+ * или когда задачу взяли в работу раньше этого времени: напоминание,
+ * которое не успело прийти, должно прийти тогда, когда станет ясно, что
+ * оно уже опоздало (владелец, 2026-09-20).
+ */
+export function dueNotes(schedule, nowMs = Date.now()) {
+  const { tasks = [], notes = {} } = schedule || {};
+  const byId = new Map(tasks.map((t) => [noteIdOf(t), t]));
+  return Object.values(notes).filter((n) => {
+    if (!n || n.deleted || n.sentAt) return false;
+    const task = byId.get(n.id);
+    if (!task || task.canceled === true || task.status === "done") return false;
+    if (n.kind === "setup") return task.status === "wait";
+    if (TAKEN.includes(task.status)) return true;       // взяли раньше, чем напомнили
+    if (!DEFERRABLE.includes(task.status)) return false;
+    const at = n.at ? Date.parse(n.at) : NaN;
+    return Number.isFinite(at) && at <= nowMs;
+  });
+}
+
+/**
+ * Список для человека: по форме на каждое напоминание. Статус выполнения
+ * берётся у задачи прямо сейчас, статус напоминания — из самой записи.
+ * Удалённые не показываются.
+ */
+const DOING = { wait: "ожидает постановки", backlog: "бэклог", deferred: "бэклог",
+  deadline: "бэклог", progress: "в работе", review: "сдана", done: "сдана" };
+export function listReminders(schedule, nowMs = Date.now()) {
+  const { tasks = [], notes = {}, reminders = {} } = schedule || {};
+  const byId = new Map(tasks.map((t) => [noteIdOf(t), t]));
+  return Object.values(notes)
+    .filter((n) => n && !n.deleted)
+    .map((n) => {
+      const task = byId.get(n.id) || null;
+      const hang = reminders[n.id] || null;
+      return {
+        id: n.id, kind: n.kind, taskId: n.taskId,
+        title: task?.title || n.title || "Задача",
+        end: task?.end || n.end || "",
+        at: n.at || null,
+        sentAt: n.sentAt || null,
+        // Чем задача занята сейчас: бэклог, в работе, сдана.
+        doing: task ? (DOING[task.status] || "бэклог") : "задачи больше нет",
+        canceled: task?.canceled === true,
+        hanging: hang && reminderAlive(hang, tasks)
+          ? { since: iso(Number(hang.lastSentAt) || null),
+            deferredUntil: hang.deferredUntil || null }
+          : null,
+      };
+    })
+    // Сперва неотправленные и ближайшие; без времени — в конец.
+    .sort((a, b) => (a.sentAt ? 1 : 0) - (b.sentAt ? 1 : 0)
+      || (a.at == null ? 1 : 0) - (b.at == null ? 1 : 0)
+      || String(a.at || "").localeCompare(String(b.at || "")));
 }
 
 /* Что пора отправить прямо сейчас. Возвращает список без побочных эффектов;
@@ -214,6 +315,13 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
     /* Отменённые — тем более: напомнить о работе, которую решили не делать,
        значит позвать человека к делу, которого нет. */
     if (task.canceled === true) continue;
+    /* Удалённое из списка напоминание молчит: человек убрал его руками
+       (владелец, 2026-09-20). */
+    if ((schedule?.notes || {})[noteIdOf(task)]?.deleted) continue;
+    /* Плановое напоминание — пока задача лежит или её делают. Сданную
+       звать «начинать» нечего: прежде это не мешало только потому, что
+       опоздавшее на десять минут выбрасывалось. */
+    if (!DEFERRABLE.includes(task.status) && !TAKEN.includes(task.status)) continue;
     /* «Отложить» под предупреждением значит «в назначенный час не начну,
        напомни позже»: плановые «через N минут» и «начинается», лежащие
        РАНЬШЕ названного момента, не шлются — иначе в назначенный час
@@ -238,7 +346,21 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
 
       for (const m of moments) {
         if (m.at > nowMs) continue;
-        if (nowMs - m.at >= FIRE_WINDOW_MS) continue;
+        /* Опоздавшее у РАЗОВОЙ задачи не выбрасывается (владелец,
+           2026-09-20: «если уведомление не пришло по каким-либо причинам
+           в нужное время, то оно должно прийти, как только это станет
+           возможным»). Прежде момент, попавший в перезапуск сервера
+           длиннее десяти минут, пропадал молча, и напомнить было уже
+           нечем: второго такого момента у разовой задачи нет.
+           У ПОВТОРЯЮЩЕЙСЯ окно остаётся: пропущенное вчерашнее
+           срабатывание заменяет сегодняшнее, и слать оба — значит звать
+           к работе, которой уже нет. */
+        const repeating = task.repeat && task.repeat !== "once";
+        if (repeating && nowMs - m.at >= FIRE_WINDOW_MS) continue;
+        /* Опоздавшее ПРЕДУПРЕЖДЕНИЕ не шлётся, если само начало уже
+           настало: «через 10 минут начало» в момент начала — новость не о
+           том. Его заменяет «пора начинать», которое уйдёт следом. */
+        if (m.kind === "warn" && occ.ms <= nowMs) continue;
         if (!occ.deferred && deferredNow && m.at < until) continue;
         const key = `${task.id}:${occ.key}:${m.kind}`;
         if (sent[key]) continue;
@@ -376,7 +498,16 @@ export async function runTick({ store, send, now = Date.now(), log = () => {} })
     const chatId = schedule?.chatId;
     if (!chatId) continue;
 
+    /* Записи напоминаний — первым делом: они заводятся по задачам, и
+       по ним же решается, что человеку ещё не сказали. */
+    if (store.saveNotes) {
+      const synced = syncNotes(schedule, now);
+      if (synced.changed) await store.saveNotes(userId, synced.notes);
+      schedule.notes = synced.notes;
+    }
+
     const due = dueNotifications(schedule, now, schedule.sent || {});
+    const told = new Set();
     for (const n of due) {
       const text = formatMessage(n, userId);
       const keyboard = keyboardFor(n, userId);
@@ -391,11 +522,39 @@ export async function runTick({ store, send, now = Date.now(), log = () => {} })
             { kind: n.kind === "setup" ? "setup" : "task", taskId: n.taskId,
               occurrence: n.occurrence, text }, now);
         }
+        // Запись этой задачи стала «отправлено» — так она и читается в списке.
+        const noteId = `${n.kind === "setup" ? "setup" : "task"}:${n.taskId}`;
+        told.add(noteId);
+        if (store.markNoteSent) await store.markNoteSent(userId, noteId, now);
         sentCount++;
       } catch (e) {
         // Одна неудачная отправка не должна ронять весь проход: например,
         // пользователь не начал диалог с ботом. Отметку не ставим — попробуем
         // ещё раз на следующем тике, пока не вышли из окна.
+        log(`не удалось отправить напоминание пользователю ${userId}: ${e.message}`);
+      }
+    }
+
+    /* Напоминание, которое не успело прийти до того, как за задачу
+       взялись (владелец, 2026-09-20): плановый путь его уже не даёт —
+       момент ещё не настал, — а сказать надо сейчас. */
+    for (const note of (store.markNoteSent ? dueNotes(schedule, now) : [])) {
+      if (told.has(note.id)) continue;
+      const task = (schedule.tasks || []).find((t) => noteIdOf(t) === note.id);
+      if (!task) continue;
+      const n = { kind: note.kind === "setup" ? "setup" : "start", at: now,
+        taskId: task.id, title: task.title || "Задача", body: task.body || "",
+        warn: null, deferred: false, end: task.end || "",
+        assignee: task.assignee === undefined ? undefined
+          : task.assignee == null || task.assignee === "" ? null : String(task.assignee),
+        setter: task.setter == null || task.setter === "" ? null : String(task.setter),
+        startWall: task.start || "" };
+      const text = formatMessage(n, userId);
+      try {
+        await send(chatId, text, keyboardFor(n, userId));
+        await store.markNoteSent(userId, note.id, now);
+        sentCount++;
+      } catch (e) {
         log(`не удалось отправить напоминание пользователю ${userId}: ${e.message}`);
       }
     }

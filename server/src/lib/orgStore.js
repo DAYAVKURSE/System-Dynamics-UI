@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { aliasOf } from "./alias.js";
 import path from "node:path";
 import { getReport } from "./reportStore.js";
 import { docxToHtml } from "./docx.js";
@@ -38,7 +39,7 @@ const TAB_ALIAS = { json: "tools:export", calls: "tools:calls",
 export const TABS = ["market", "me", "tasks", "review",
   "scheme", "scheme:edit", "scheme:time", "scheme:sim",
   "reports",
-  "tools", "tools:people", "tools:assistant", "tools:reminders",
+  "tools", "tools:people", "tools:assistant", "tools:virtual", "tools:reminders",
   "tools:calls", "tools:export"];
 /* Право на вкладке: «r» — только смотреть, «rw» — ещё и править
    (владелец, 2026-09-20: одно нажатие — жёлтая «r», второе — зелёная
@@ -905,6 +906,121 @@ export async function renameAgentUser(agentId, name) {
   const clean = String(name || "").trim();
   if (clean && user.name !== clean) { user.name = clean; await writeOrg(org); }
   return user;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ВИРТУАЛЬНЫЙ СОТРУДНИК (владелец, 2026-09-20)
+
+   Третий вид участника, помимо человека и агента: страница, за которой
+   ещё НЕ СТОИТ реальный человек. Всё остальное у него как у обычного
+   участника — роль, анкета, договор, задачи, оценки.
+
+   Зачем: рекрутер или реферер проводит онбординг сам, заполняя за
+   будущего сотрудника всё, что можно заполнить заранее; а незарегистри-
+   рованного заказчика может заменить тот, кто с ним работает.
+
+   Имени у него нет — есть ФРАЗА ИЗ ДВУХ СЛОВ, та же, что у рук в тексте
+   технологического процесса (`aliasOf`): звать страницу, за которой
+   никого нет, чьим-то именем было бы обещанием, что человек уже есть.
+
+   `id` — `vt_<случайное>`: с Telegram-id он не пересечётся, как и у
+   агента. Когда по ссылке придёт настоящий человек, id НЕ МЕНЯЕТСЯ — к
+   записи просто привязывается его Telegram (`tg`). Иначе пришлось бы
+   переписать все ссылки на него: задачи, оценки, заказы, договоры, — и
+   потерянная где-то одна означала бы потерянную историю.
+   ════════════════════════════════════════════════════════════════ */
+const VIRTUAL_PREFIX = "vt_";
+export const isVirtualId = (id) => String(id || "").startsWith(VIRTUAL_PREFIX);
+const newVirtualId = () =>
+  `${VIRTUAL_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+const newToken = () =>
+  `${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`;
+
+/** Завести виртуального сотрудника. Роль можно выбрать сразу или позже. */
+export async function addVirtualUser({ roleId = null, addedBy = null } = {}) {
+  const org = await readOrg();
+  if (roleId && !org.roles.some((r) => r.id === String(roleId))) {
+    throw new Error("unknown role");
+  }
+  const id = newVirtualId();
+  const entry = {
+    id, name: aliasOf(id), virtual: true,
+    roles: roleId ? [String(roleId)] : [],
+    contracts: {},
+    addedAt: new Date().toISOString(),
+    addedBy: addedBy ? String(addedBy) : null,
+  };
+  org.users.push(entry);
+  await writeOrg(org);
+  return entry;
+}
+
+/** Ссылка для регистрации: одноразовый ключ у самой записи. */
+export async function virtualToken(id) {
+  const org = await readOrg();
+  const user = org.users.find((u) => u.id === String(id) && u.virtual);
+  if (!user) return null;
+  user.token = newToken();
+  await writeOrg(org);
+  return user.token;
+}
+
+/** Кого ждёт эта ссылка. Ключ не подошёл — null. */
+export async function virtualByToken(token) {
+  const key = String(token || "");
+  if (!key) return null;
+  const org = await readOrg();
+  return org.users.find((u) => u.virtual && u.token === key && !u.tg) || null;
+}
+
+/**
+ * По ссылке пришёл настоящий человек — страница становится его
+ * (владелец, 2026-09-20). Запись не переезжает: к ней привязывается
+ * Telegram, и всё, что на ней уже есть, остаётся при ней.
+ *
+ * Дважды не регистрируются: у кого доступ уже есть, тот получает отказ
+ * словами, а не вторую страницу.
+ */
+export async function claimVirtual(token, telegramId, profile = {}) {
+  const org = await readOrg();
+  const tg = String(telegramId);
+  const mine = org.users.find((u) => u.id === tg || String(u.tg || "") === tg);
+  if (mine) return { error: "already registered" };
+  if (org.ownerId === tg) return { error: "already registered" };
+  const user = org.users.find((u) => u.virtual && u.token === String(token || "") && !u.tg);
+  if (!user) return { error: "not found" };
+  user.tg = tg;
+  user.token = null;
+  /* Имя из двух слов уступает настоящему: страница теперь его, и звать
+     её псевдонимом больше не за что. Своё имя в анкете (`nameOwn`) — уже
+     его выбор и сильнее телеграмного, как и у всех. */
+  if (!user.nameOwn && profile.name) user.name = String(profile.name);
+  if (profile.username) user.username = String(profile.username);
+  if (profile.photo != null && user.avatar == null) user.photo = String(profile.photo || "");
+  await writeOrg(org);
+  return { user };
+}
+
+/**
+ * Кем человек действует. Обычно — собой; но страница виртуального
+ * сотрудника привязывается к Telegram (`tg`), и тогда человек всегда
+ * работает под ней: id записи — тот же, что был у виртуальной, и все
+ * ссылки на него остаются целыми.
+ */
+export async function recordIdFor(telegramId) {
+  const id = String(telegramId);
+  const org = await readOrg();
+  const bound = org.users.find((u) => String(u.tg || "") === id);
+  return bound ? bound.id : id;
+}
+
+/** Может ли этот человек работать со страницей виртуального сотрудника. */
+export async function mayActAs(actorId, virtualId) {
+  const org = await readOrg();
+  const target = org.users.find((u) => u.id === String(virtualId));
+  if (!target || !target.virtual || target.tg) return false;
+  if (org.ownerId === String(actorId)) return true;
+  return String(target.addedBy || "") === String(actorId);
 }
 
 export async function removeUser(id) {

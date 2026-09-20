@@ -5,7 +5,7 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addRole, removeRole, setUserRoles,
   takeTaskRemote, dropTaskRemote, submitTaskRemote, messageTaskRemote, markTaskRemote, seeChatRemote,
-  getRatings, resetIdentity, mayEdit, tabShown,
+  getRatings, resetIdentity, mayEdit, tabShown, actingAs, setActingAs, joinFromLocation,
   setupTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
@@ -38,6 +38,8 @@ import ReviewBoard from "./ReviewBoard.jsx";
 import PeoplePanel from "./PeoplePanel.jsx";
 import AgentsPanel from "./AgentsPanel.jsx";
 import MarketPanel from "./MarketPanel.jsx";
+import VirtualPanel from "./VirtualPanel.jsx";
+import JoinPanel from "./JoinPanel.jsx";
 import CallsBoard from "./CallsBoard.jsx";
 import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
@@ -763,6 +765,10 @@ export default function SystemModel(){
   const [regAway,setRegAway]=useState(false);
   const [openCards,setOpenCards]=useState(()=>new Set());
   const [openCall,setOpenCall]=useState(()=>callFromLocation());
+  /* Пришли по ссылке для регистрации (владелец, 2026-09-20): страницу,
+     заполненную за человека, он забирает себе. Ключ живёт до тех пор,
+     пока не вступил или не ушёл в приложение. */
+  const [joinKey,setJoinKey]=useState(()=>joinFromLocation());
   const [people,setPeople]=useState([]);
   /* РОЛИ — один список на всё приложение: они открывают вкладки, по ним
      заключают договоры («Люди и роли»), ими же названы роли у функций и
@@ -1522,6 +1528,17 @@ export default function SystemModel(){
      уже есть, — обратно в приложение, а вернуться он может кнопкой в
      шапке. Кому идти некуда (незваный, позванный без ролей, ждущий
      владельца), тому и «Назад» показывать незачем. */
+  /* Ссылка на чужую страницу — раньше всего остального: пока человек не
+     решил, вступает он или нет, показывать ему приложение не из чего. */
+  if(joinKey&&!me.solo) return (
+    <div style={{background:C.ink,color:C.text,minHeight:"100%",
+      fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif"}}>
+      <JoinPanel me={me} token={joinKey}
+        onJoined={m=>{ setJoinKey(null); resetIdentity();
+          if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); }}
+        onSkip={()=>setJoinKey(null)}/>
+    </div>);
+
   const needReg=!me.solo&&(!me.known||!!me.pending||!!me.agreement||!!me.waiting);
   const canSkip=!!me.isOwner||(me.tabs||[]).length>0;
   const onRegDone=m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); };
@@ -1565,6 +1582,14 @@ export default function SystemModel(){
       {/* Значки — ПОД линией шапки, у правого края (владелец, 2026-09-19). */}
       <div className="flex items-center gap-1"
         style={{justifyContent:"flex-end",marginBottom:8}}>
+        {/* Работаем под чужой страницей — путь назад стоит первым, перед
+            «Отменить» и «Вернуть» (владелец, 2026-09-20): человек должен
+            видеть, что он не у себя, и уйти одним нажатием. */}
+        {!!me.actingAs&&(
+          <button type="button" style={{...btn(true,WARN),marginRight:6,fontSize:11.5}}
+            onClick={()=>{ setActingAs(""); resetIdentity();
+              whoAmI().then(m=>{ setMe(m); setTab("me"); }).catch(()=>{}); }}>
+            Вернуться на свою страницу</button>)}
         <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
           disabled={!hist.canUndo} onClick={hist.undo} icon={ICON.undo}/>
         <IconButton label="вернуть" title="Вернуть отменённое (Ctrl+Shift+Z)"
@@ -2018,8 +2043,8 @@ export default function SystemModel(){
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
         <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-          {[["people","Роли"],["assistant","Агенты"],["reminders","Напоминания"],
-            ["calls","Звонки"],["export","Выгрузка"]]
+          {[["people","Роли"],["assistant","Агенты"],["virtual","Виртуальные"],
+            ["reminders","Напоминания"],["calls","Звонки"],["export","Выгрузка"]]
             // «Люди и роли» — дело владельца. «Выгрузка» тоже: схем у
             // не-владельца не бывает, у него одна — та, где его назначили.
             // «Люди и роли» и «Выгрузка» — дело владельца; остальные —
@@ -2060,6 +2085,15 @@ export default function SystemModel(){
       {/* Напоминания — всем, у кого есть «Инструменты»: за сколько
           предупреждать, решает тот, кому напоминают. Ответ сервера кладётся
           в «кто я», и расписание выше пересчитывается с новым «за сколько». */}
+      {/* Виртуальные сотрудники — свой раздел, следом за агентами
+          (владелец, 2026-09-20): третий вид участника. */}
+      {tab==="tools" && me.tabs.includes("tools") && tool==="virtual" && (
+        <VirtualPanel me={me}
+          /* Вошли под чужой страницей — приложение перечитывает «кто я»
+             целиком: вкладки, анкета и модель теперь её. */
+          onEnter={()=>{ resetIdentity(); whoAmI().then(m=>{ setMe(m); setTab("me"); })
+            .catch(()=>{}); }}/>)}
+
       {tab==="tools" && me.tabs.includes("tools") && tool==="reminders" && (
         <RemindersCard me={me} onSaved={p=>{ setMe(m=>({...m,profile:p})); }}/>)}
 

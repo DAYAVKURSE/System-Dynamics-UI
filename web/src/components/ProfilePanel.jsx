@@ -3,7 +3,8 @@ import { Avatar, C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField, FoldCard } from "
 import PersonStats from "./PersonStats.jsx";
 import Modal from "./Modal.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
-import { getDuty, putProfile, refuseFuncRemote, listReminders as listRemindersRemote } from "../identity.js";
+import { getDuty, putProfile, refuseFuncRemote, listReminders as listRemindersRemote,
+  dropReminder as dropReminderRemote } from "../identity.js";
 import { FormAnswers } from "./FormsPanel.jsx";
 import { WEEK, WORKER_KINDS, dutyOf } from "../lib/funcs.js";
 import { WARNS } from "./TasksBoard.jsx";
@@ -748,20 +749,43 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
    а не постановщик. Записывается в анкету (`warnMin`) тем же маршрутом,
    что и график: это тоже сведения о человеке, а не о задаче.
    ════════════════════════════════════════════════════════════════ */
-/* Список напоминаний (владелец, 2026-09-15): что и когда пришлёт бот —
-   считает сервер по расписанию человека (`listReminders` в scheduler.js).
-   Висящее — то, что уже ушло и повторяется каждую минуту. */
-const KIND_WORD = { warn: "предупреждение", start: "пора начинать", setup: "нужно поставить" };
+/* ─────── СПИСОК НАПОМИНАНИЙ (владелец, 2026-09-20) ───────
+
+   По ФОРМЕ на каждое напоминание, и в форме всё строго «ключ: значение».
+   Два из них — про состояние дел:
+
+   · статус выполнения — чем занята сама задача: бэклог, в работе, сдана;
+   · статус напоминания — ушло оно уже или ещё нет.
+
+   Напоминание заводится, когда задача появляется в бэклоге, и из списка
+   не пропадает, пока его не удалят кнопкой: прежде список считался из
+   задач, и взятая в работу задача исчезала из него вместе с
+   напоминанием — «список напоминаний пуст», хотя работа была. */
+const KIND_WORD = { task: "исполнителю: пора начинать", setup: "постановщику: нужно поставить" };
 const whenLocal = (isoStr) => {
   const d = new Date(isoStr || "");
   return isNaN(d.getTime()) ? "" : d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit",
     hour: "2-digit", minute: "2-digit" });
 };
+/* Строка формы: «ключ: значение» — и никак иначе. */
+const Field = ({ label, children, tone }) => (
+  <div style={{ fontSize: 11.5, lineHeight: 1.7 }}>
+    <span style={{ color: C.muted }}>{label}: </span>
+    <span style={tone ? { color: tone } : undefined}>{children}</span>
+  </div>);
+
 export function ReminderList({ known }) {
   const [list, setList] = useState(null);
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
   const load = () => listRemindersRemote().then(setList).catch((e) => setErr(e.message));
   useEffect(() => { if (known) load(); }, [known]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const drop = async (id) => {
+    setBusy(id); setErr("");
+    try { await dropReminderRemote(id); setList((p) => (p || []).filter((r) => r.id !== id)); }
+    catch (e) { setErr(e.message || "не удалось удалить"); }
+    setBusy("");
+  };
   if (!known) return null;
   return (
     <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 8,
@@ -776,17 +800,28 @@ export function ReminderList({ known }) {
       {list && !list.length && (
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Напоминаний нет.</div>)}
       {(list || []).map((r) => (
-        <div key={r.id} className="flex flex-wrap gap-2" aria-label={`напоминание ${r.id}`}
-          style={{ fontSize: 11.5, padding: "4px 0", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
-          <span style={{ flex: "1 1 160px", minWidth: 0 }}>
-            <span style={{ color: r.hanging ? WARN : C.muted }}>{KIND_WORD[r.kind] || r.kind} · </span>{r.title}
-          </span>
-          <span style={{ color: C.muted, whiteSpace: "nowrap" }}>
-            {r.hanging
-              ? (r.hanging.deferredUntil ? `отложено до ${whenLocal(r.hanging.deferredUntil)}` : "висит, повторяется каждую минуту")
-              : r.at ? `${whenLocal(r.at)}${r.repeat && r.repeat !== "once" ? " · повтор" : ""}${r.deferred ? " · отложено" : ""}`
-                : "сразу, пока не поставят"}
-          </span>
+        <div key={r.id} aria-label={`напоминание ${r.id}`}
+          style={{ background: C.panel, border: `1px solid ${r.hanging ? WARN : C.line}`,
+            borderRadius: 8, padding: 8, marginTop: 6 }}>
+          <Field label="задача">{r.title}</Field>
+          <Field label="напоминание">{KIND_WORD[r.kind] || r.kind}</Field>
+          {r.end && <Field label="срок">{String(r.end).replace("T", " ")}</Field>}
+          <Field label="когда">{r.at ? whenLocal(r.at) : "как только появится время"}</Field>
+          <Field label="статус выполнения"
+            tone={r.doing === "в работе" ? ACC : r.doing === "сдана" ? OK : undefined}>
+            {r.canceled ? "отменена" : r.doing}</Field>
+          <Field label="статус напоминания" tone={r.sentAt ? OK : WARN}>
+            {r.sentAt ? `отправлено ${whenLocal(r.sentAt)}` : "не отправлено"}</Field>
+          {r.hanging && (
+            <Field label="повтор" tone={WARN}>
+              {r.hanging.deferredUntil
+                ? `молчит до ${whenLocal(r.hanging.deferredUntil)}`
+                : "раз в минуту, пока не нажмут кнопку"}</Field>)}
+          <button type="button" disabled={busy === r.id}
+            aria-label={`удалить напоминание ${r.title}`}
+            style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11,
+              padding: "3px 9px", marginTop: 6 }}
+            onClick={() => drop(r.id)}>{busy === r.id ? "Удаляю…" : "Удалить"}</button>
         </div>))}
     </div>);
 }

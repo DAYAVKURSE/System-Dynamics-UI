@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { reminderAlive } from "./scheduler.js";
+import { reminderAlive, syncNotes } from "./scheduler.js";
 
 /* Расписания напоминаний — по файлу на пользователя Telegram.
    Хранятся отдельно от сценариев: планировщику нужен быстрый обход всех
@@ -121,8 +121,18 @@ export async function saveSchedule(userId, { chatId, tzOffset, tasks }) {
        расписание заново, и здесь повтор по такой задаче и гаснет. */
     reminders: Object.fromEntries(Object.entries(prev.reminders || {})
       .filter(([, rem]) => reminderAlive(rem, slim))),
+    /* ЗАПИСИ напоминаний переносятся ЦЕЛИКОМ (владелец, 2026-09-20): из
+       списка напоминание не пропадает, пока человек не удалит его сам, —
+       ни когда задачу взяли в работу, ни когда её сдали. */
+    notes: prev.notes || {},
     updatedAt: new Date().toISOString(),
   };
+  /* Запись напоминания заводится ЗДЕСЬ, как только доска прислала задачу
+     (владелец, 2026-09-20: «должно появляться в списке, когда задача
+     появляется в бэклоге»). Ждать прохода планировщика нельзя: человек
+     открывает список сразу, и пустой список читался бы как «напоминаний
+     не будет». */
+  data.notes = syncNotes(data).notes;
   await write(userId, data);
   return { tasks: data.tasks.length, updatedAt: data.updatedAt };
 }
@@ -204,6 +214,40 @@ export async function ackReminder(userId, id) {
   return true;
 }
 
+/* ─────── записи напоминаний ───────
+   Заводит их планировщик (`syncNotes`), гасит отправка, убирает человек. */
+export async function saveNotes(userId, notes) {
+  const data = (await readSchedule(userId)) || {};
+  data.notes = notes || {};
+  await write(userId, data);
+  return data.notes;
+}
+
+/** Напоминание ушло: в списке оно станет «отправлено». */
+export async function markNoteSent(userId, id, now = Date.now()) {
+  const data = await readSchedule(userId);
+  const note = data?.notes?.[id];
+  if (!note || note.sentAt) return false;
+  note.sentAt = new Date(now).toISOString();
+  await write(userId, data);
+  return true;
+}
+
+/**
+ * Убрать напоминание из списка. Остаётся надгробием: иначе следующий же
+ * проход завёл бы его заново по той же задаче. Заодно гаснет и повтор —
+ * удалённое напоминание не должно приходить раз в минуту.
+ */
+export async function dropNote(userId, id) {
+  const data = await readSchedule(userId);
+  const note = data?.notes?.[id];
+  if (!note || note.deleted) return false;
+  data.notes[id] = { id, kind: note.kind, taskId: note.taskId, deleted: true };
+  if (data.reminders) delete data.reminders[id];
+  await write(userId, data);
+  return true;
+}
+
 export async function markSent(userId, key, now = Date.now()) {
   const data = (await readSchedule(userId)) || { sent: {} };
   data.sent = data.sent || {};
@@ -233,4 +277,4 @@ export async function allSchedules() {
 
 export const store = { all: allSchedules, markSent, read: readSchedule, save: saveSchedule,
   setDeferredUntil, getReminder, openReminder, touchReminder, failReminder, deferReminder,
-  ackReminder };
+  ackReminder, saveNotes, markNoteSent, dropNote };

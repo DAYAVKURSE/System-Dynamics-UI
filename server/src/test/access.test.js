@@ -1050,3 +1050,152 @@ describe("r и rw на вкладке", () => {
     expect(res.body.error).not.toBe("read only");
   });
 });
+
+/* ════════════════════════════════════════════════════════════════
+   ВИРТУАЛЬНЫЙ СОТРУДНИК (владелец, 2026-09-20)
+
+   Третий вид участника: страница, за которой ещё нет человека. Её
+   заводит рекрутер или реферер, заполняет за будущего сотрудника всё,
+   что можно заполнить заранее, и присылает ссылку. Пришедший по ссылке
+   человек ЗАБИРАЕТ страницу себе — вместе со всем, что на ней уже есть.
+   ════════════════════════════════════════════════════════════════ */
+describe("виртуальный сотрудник", () => {
+  const make = (who = 100, roleId = "executor") => request(app).post("/api/org/virtual")
+    .set(as(who)).send({ roleId });
+
+  it("заводится с ролью, зовётся двумя словами и виден в своём списке", async () => {
+    const r = await make();
+    expect(r.status).toBe(201);
+    expect(r.body.virtual).toBe(true);
+    expect(r.body.id).toMatch(/^vt_/);
+    expect(r.body.name.split(" ")).toHaveLength(2);
+    expect(r.body.roles).toEqual(["executor"]);
+
+    const list = await request(app).get("/api/org/virtual").set(as(100));
+    expect(list.body.users.map((u) => u.id)).toEqual([r.body.id]);
+  });
+
+  it("заводит любой позванный, но видит только своих; владелец — всех", async () => {
+    await invite(200, "executor", "Иван");
+    const mine = await make(200);
+    expect(mine.status).toBe(201);
+    const owners = await make(100);
+    expect((await request(app).get("/api/org/virtual").set(as(200))).body.users.map((u) => u.id))
+      .toEqual([mine.body.id]);
+    expect((await request(app).get("/api/org/virtual").set(as(100))).body.users.map((u) => u.id).sort())
+      .toEqual([mine.body.id, owners.body.id].sort());
+    // Незваному — отказ: он ещё никто.
+    expect((await request(app).post("/api/org/virtual").set(as(999)).send({})).status).toBe(403);
+  });
+
+  it("«Войти под его именем»: работает тот, кто её завёл, и владелец", async () => {
+    await invite(200, "executor", "Иван");
+    await invite(400, "executor", "Чужой");
+    const v = await make(200);
+    const act = (who) => request(app).get("/api/org/me")
+      .set({ ...as(who), "X-Act-As": v.body.id });
+    expect((await act(200)).status).toBe(200);
+    expect((await act(100)).status).toBe(200);
+    // Чужому — отказ: страница не его.
+    expect((await act(400)).status).toBe(403);
+  });
+
+  it("рекрутеру с этой страницы видна только анкета, владельцу — всё", async () => {
+    await invite(200, "executor", "Иван");
+    const v = await make(200);
+    const mine = await request(app).get("/api/org/me")
+      .set({ ...as(200), "X-Act-As": v.body.id });
+    expect(mine.body.tabs).toEqual(["me"]);
+    expect(mine.body.actingAs).toBe(v.body.id);
+    expect(mine.body.actingOwner).toBe(false);
+    // Владелец видит то же, что увидел бы сам человек.
+    const own = await request(app).get("/api/org/me")
+      .set({ ...as(100), "X-Act-As": v.body.id });
+    expect(own.body.tabs).toContain("tasks");
+    expect(own.body.actingOwner).toBe(true);
+  });
+
+  it("анкету за него заполнить можно, а подписать за него — нельзя", async () => {
+    await invite(200, "executor", "Иван");
+    const v = await make(200);
+    const head = { ...as(200), "X-Act-As": v.body.id };
+    const saved = await request(app).put("/api/org/me/profile").set(head)
+      .send({ about: "верстальщик", days: [1, 2, 3] });
+    expect(saved.status).toBe(200);
+    expect(saved.body.profile.about).toBe("верстальщик");
+    // Подписанный экземпляр за человека не приносят.
+    const signed = await request(app).post("/api/org/register").set(head)
+      .send({ roleId: "executor", file: { name: "d.docx", type: "x", data: "AAA" } });
+    expect(signed.status).toBe(403);
+    expect(signed.body.error).toMatch(/подписать/i);
+  });
+
+  it("ссылка открывает страницу и говорит, что за роль и что уже заполнено", async () => {
+    const v = await make();
+    await request(app).put("/api/org/me/profile").set({ ...as(100), "X-Act-As": v.body.id })
+      .send({ about: "верстальщик" });
+    const link = await request(app).post(`/api/org/virtual/${v.body.id}/link`).set(as(100));
+    expect(link.status).toBe(200);
+    expect(link.body.token).toBeTruthy();
+    const peek = await request(app).get(`/api/org/join/${link.body.token}`).set(as(500));
+    expect(peek.status).toBe(200);
+    expect(peek.body.name).toBe(v.body.name);
+    expect(peek.body.role).toMatchObject({ id: "executor" });
+    expect(peek.body.profile.about).toBe("верстальщик");
+    // Порченый ключ не открывает ничего.
+    expect((await request(app).get("/api/org/join/нет-такого").set(as(500))).status).toBe(404);
+  });
+
+  it("пришедший по ссылке забирает страницу себе — со всем, что на ней есть", async () => {
+    const v = await make();
+    await request(app).put("/api/org/me/profile").set({ ...as(100), "X-Act-As": v.body.id })
+      .send({ about: "верстальщик" });
+    const { body: { token } } = await request(app)
+      .post(`/api/org/virtual/${v.body.id}/link`).set(as(100));
+
+    const joined = await request(app).post("/api/org/join").set(as(500, "Новенький"))
+      .send({ token });
+    expect(joined.status).toBe(200);
+    // Тот же id — значит, задачи, оценки и договоры остались при нём.
+    expect(joined.body.id).toBe(v.body.id);
+    expect(joined.body.profile.about).toBe("верстальщик");
+    // И дальше он входит под этой же страницей, без всяких заголовков.
+    const me = await request(app).get("/api/org/me").set(as(500, "Новенький"));
+    expect(me.body.id).toBe(v.body.id);
+    expect(me.body.name).toBe("Новенький");
+    expect(me.body.tabs).toEqual(["tasks"]);
+  });
+
+  it("дважды не регистрируются: у кого доступ есть, тот видит ошибку", async () => {
+    await invite(200, "executor", "Иван");
+    const v = await make();
+    const { body: { token } } = await request(app)
+      .post(`/api/org/virtual/${v.body.id}/link`).set(as(100));
+    const again = await request(app).post("/api/org/join").set(as(200, "Иван")).send({ token });
+    expect(again.status).toBe(409);
+    expect(again.body.error).toMatch(/уже зарегистрированы/i);
+    // И владелец — тоже уже зарегистрирован.
+    expect((await request(app).post("/api/org/join").set(as(100)).send({ token })).status)
+      .toBe(409);
+  });
+
+  it("ссылка одноразовая: забрали — второй раз не открывается", async () => {
+    const v = await make();
+    const { body: { token } } = await request(app)
+      .post(`/api/org/virtual/${v.body.id}/link`).set(as(100));
+    expect((await request(app).post("/api/org/join").set(as(500)).send({ token })).status)
+      .toBe(200);
+    expect((await request(app).get(`/api/org/join/${token}`).set(as(600))).status).toBe(404);
+    expect((await request(app).post("/api/org/join").set(as(600)).send({ token })).status)
+      .toBe(404);
+  });
+
+  it("под забранной страницей войти «как она» больше нельзя", async () => {
+    const v = await make();
+    const { body: { token } } = await request(app)
+      .post(`/api/org/virtual/${v.body.id}/link`).set(as(100));
+    await request(app).post("/api/org/join").set(as(500)).send({ token });
+    expect((await request(app).get("/api/org/me")
+      .set({ ...as(100), "X-Act-As": v.body.id })).status).toBe(403);
+  });
+});

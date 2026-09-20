@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
-import { readSchedule, saveSchedule } from "../lib/scheduleStore.js";
-import { listReminders } from "../lib/scheduler.js";
+import { dropNote, readSchedule, saveNotes, saveSchedule } from "../lib/scheduleStore.js";
+import { listReminders, syncNotes } from "../lib/scheduler.js";
 
 const router = Router();
 router.use(telegramUser);
@@ -16,12 +16,32 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-/* Список напоминаний человека: что и когда пришлёт бот, что висит. */
+/* Список напоминаний человека: по форме на каждое — что за задача, чем
+   она занята и ушло ли напоминание.
+
+   Записи заводятся здесь же, а не только в проходе планировщика: человек
+   открывает список сразу после того, как задача появилась, и пустой
+   список в этот момент читался бы как «напоминаний не будет». */
 router.get("/reminders", async (req, res, next) => {
   try {
     const s = await readSchedule(req.telegramUserId);
+    if (s) {
+      const synced = syncNotes(s, Date.now());
+      if (synced.changed) await saveNotes(req.telegramUserId, synced.notes);
+      s.notes = synced.notes;
+    }
     res.json({ reminders: listReminders(s, Date.now()), tzOffset: s?.tzOffset ?? 0 });
   } catch (e) { next(e); }
+});
+
+/* Убрать напоминание из списка. Только своё: расписание у каждого своё,
+   и чужого в этом маршруте не достать — id берётся из подписи. */
+router.delete("/reminders/:id", async (req, res, next) => {
+  try {
+    const ok = await dropNote(req.telegramUserId, req.params.id);
+    if (!ok) return res.status(404).json({ error: "not found" });
+    return res.status(204).end();
+  } catch (e) { return next(e); }
 });
 
 router.put("/", async (req, res, next) => {

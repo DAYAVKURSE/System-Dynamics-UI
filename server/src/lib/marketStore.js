@@ -223,6 +223,10 @@ export function addService(userId, fields = {}) {
       name, text: str(fields.text, MAX_TEXT),
       takes: rows(fields.takes), gives: rows(fields.gives),
       days: num(fields.days), funcId: sid(fields.funcId),
+      /* «Принять автоматически в рабочее время» (владелец, 2026-09-20):
+         заказ по такой услуге не ждёт отклика — он его получает сам.
+         Рабочее время проверяет маршрут: часы лежат в анкете. */
+      auto: fields.auto === true,
     };
     m.services.push(s);
     await writeMarket(m);
@@ -244,6 +248,7 @@ export function updateService(userId, id, fields = {}) {
     if ("takes" in fields) s.takes = rows(fields.takes);
     if ("gives" in fields) s.gives = rows(fields.gives);
     if ("days" in fields) s.days = num(fields.days);
+    if ("auto" in fields) s.auto = fields.auto === true;
     await writeMarket(m);
     return s;
   });
