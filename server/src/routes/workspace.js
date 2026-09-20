@@ -23,6 +23,23 @@ const seen = (req, task) => (req.me.isOwner ? task : taskViewFor(task, req.teleg
    ним считается, что человеку поручено. Их может быть несколько. */
 const myRoles = (me) => (me?.roles || []).map((r) => r.id);
 
+/* ─── ПРАВО «ТОЛЬКО СМОТРЕТЬ» (владелец, 2026-09-20) ───
+
+   Роль открывает вкладку либо на «r» (смотреть), либо на «rw» (ещё и
+   править). Запрет стоит здесь, а не только в интерфейсе: выключенная
+   кнопка — не запрет, а просьба не нажимать.
+
+   Отказ даётся только тому, у кого вкладка ОТКРЫТА НА ЧТЕНИЕ. Вкладки
+   нет вовсе — решают прежние правила: проверяющим человека делает
+   функция, а не вкладка, и отнимать у него приём работы за то, что
+   «Проверка» ему не выдана, значило бы менять не право, а смысл.
+
+   Вкладка та, НА КОТОРОЙ живёт нажатие: «Задачи» — взять, отложить,
+   бросить, сдать; «Проверка» — поставить, принять, вернуть. */
+const readOnly = (me, ...tabs) => !me?.isOwner
+  && tabs.length > 0 && tabs.every((t) => (me?.access || {})[t] === "r");
+const noWrite = (res) => res.status(403).json({ error: "read only" });
+
 // Срез модели под спрашивающего. Фильтрует сервер: спрятать чужие задачи
 // в интерфейсе значит не спрятать их вовсе.
 router.get("/", async (req, res, next) => {
@@ -88,6 +105,7 @@ router.get("/ratings", async (req, res, next) => {
    в `why`, теми же, что показывает форма. */
 router.post("/tasks/:id/setup", async (req, res, next) => {
   try {
+    if (readOnly(req.me, "review")) return noWrite(res);
     /* Должности живут в org.json, а не в модели: правило «исполнитель по
        должности» без них не проверить, поэтому карта приходит сюда. */
     const org = await listOrg();
@@ -116,6 +134,7 @@ router.get("/duty", async (req, res, next) => {
    В теле `off: true|false`. */
 router.post("/funcs/:id/duty", async (req, res, next) => {
   try {
+    if (readOnly(req.me, "scheme")) return noWrite(res);
     if (!req.me.known) return res.status(403).json({ error: "not invited" });
     const r = await refuseFunc(req.telegramUserId, req.params.id,
       req.body?.off === true, { roles: myRoles(req.me) });
@@ -132,6 +151,7 @@ router.post("/funcs/:id/duty", async (req, res, next) => {
    бы только в его окне. */
 router.post("/tasks/:id/take", async (req, res, next) => {
   try {
+    if (readOnly(req.me, "tasks")) return noWrite(res);
     const r = await takeTask(req.telegramUserId, req.params.id);
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
@@ -144,6 +164,7 @@ router.post("/tasks/:id/take", async (req, res, next) => {
    Задача возвращается в бэклог, её возьмут снова. */
 router.post("/tasks/:id/drop", async (req, res, next) => {
   try {
+    if (readOnly(req.me, "tasks")) return noWrite(res);
     const r = await dropTask(req.telegramUserId, req.params.id);
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in progress") return res.status(400).json({ error: r.error });
@@ -157,6 +178,7 @@ router.post("/tasks/:id/drop", async (req, res, next) => {
    в теле — до какого момента (ISO); без него откладывается без срока. */
 router.post("/tasks/:id/defer", async (req, res, next) => {
   try {
+    if (readOnly(req.me, "tasks")) return noWrite(res);
     const r = await deferTask(req.telegramUserId, req.params.id, { until: req.body?.until });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not in backlog") return res.status(400).json({ error: r.error });
@@ -167,6 +189,7 @@ router.post("/tasks/:id/defer", async (req, res, next) => {
 
 router.post("/tasks/:id/submit", async (req, res, next) => {
   try {
+    if (readOnly(req.me, "tasks")) return noWrite(res);
     const r = await submitTask(req.telegramUserId, req.params.id, req.body || {});
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     // Без вещи по обязательному выходу сдачи нет — и сказано, чего не хватает.
@@ -182,6 +205,11 @@ router.post("/tasks/:id/submit", async (req, res, next) => {
    участники и владелец. Убрать сказанное нельзя — сказанное сказано. */
 router.post("/tasks/:id/chat", async (req, res, next) => {
   try {
+    /* Откуда сказано, то и вкладка: исполнитель говорит с «Задач»,
+       постановщик и проверяющий — с «Проверки». */
+    if (readOnly(req.me, req.body?.role === "assignee" ? "tasks" : "review")) {
+      return noWrite(res);
+    }
     const r = await addMessage(req.telegramUserId, req.params.id, req.body || {},
       { isOwner: req.me.isOwner });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
@@ -196,6 +224,7 @@ router.post("/tasks/:id/chat", async (req, res, next) => {
    первую. */
 router.post("/tasks/:id/mark", async (req, res, next) => {
   try {
+    if (readOnly(req.me, "tasks", "review")) return noWrite(res);
     const r = await rateTask(req.telegramUserId, req.params.id, req.body || {},
       { isOwner: req.me.isOwner });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
@@ -208,7 +237,8 @@ router.post("/tasks/:id/mark", async (req, res, next) => {
 /* Обсуждение открыли — непрочитанного в нём для этого человека больше нет. */
 router.post("/tasks/:id/chat/seen", async (req, res, next) => {
   try {
-    const r = await seeChat(req.telegramUserId, req.params.id, { isOwner: req.me.isOwner });
+    const r = await seeChat(req.telegramUserId, req.params.id,
+      { role: req.body?.role, isOwner: req.me.isOwner });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
     res.json(seen(req, r.task));
@@ -217,6 +247,7 @@ router.post("/tasks/:id/chat/seen", async (req, res, next) => {
 
 router.post("/tasks/:id/review", async (req, res, next) => {
   try {
+    if (readOnly(req.me, "review")) return noWrite(res);
     const r = await reviewTask(req.telegramUserId, req.params.id, req.body || {});
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "comment required") return res.status(400).json({ error: r.error });

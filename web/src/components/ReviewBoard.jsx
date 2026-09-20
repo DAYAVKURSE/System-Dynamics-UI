@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
-import { ChatButton, Discussion, RateButton, RateModal, STATUSES, TaskSetup, funcLabel,
-  lackOf, markOf, newMark, newMessage, roleOf, whyNotSet }
+import { ChatButton, Discussion, RateButton, RateModal, STATUSES, TaskSetup, chatRoleAt,
+  funcLabel, lackOf, markOf, newMark, newMessage, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
 import { inTime, lastSubmission } from "../lib/workers.js";
 import { leftInUnit, timeLeft } from "../lib/funcs.js";
@@ -148,7 +148,7 @@ function Delete({ t, can, killId, setKillId, onKill, isOwner = false }) {
    на каждой букве. */
 function Card({ t, dim, openId, setOpenId, note, setNote,
   funcs, traits, entities, nameOf, meId, onAccept, onReturn, onChat, onRate,
-  extra = null, units = [] }) {
+  extra = null, units = [], ro = false }) {
     const on = openId === t.id;
     const sub = lastOf(t);
     const unitName = (id) => traits.find((x) => x.id === id)?.unit || "ед.";
@@ -166,7 +166,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
           <span style={{ fontSize: 10.5, color: C.muted }}>{sub ? fmtDT(sub.at) : st?.name}</span>
           {/* Обсуждение — на самой плашке (владелец, 2026-09-20): чтобы
               увидеть непрочитанное, задачу не надо раскрывать. */}
-          <ChatButton task={t} meId={meId} onOpen={onChat}
+          <ChatButton task={t} role={chatRoleAt(t, "review")} onOpen={onChat}
             style={{ padding: "2px 8px", fontSize: 10.5 }} />
           <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
         </div>
@@ -182,7 +182,8 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
             <div aria-label="поля задачи" style={{ marginBottom: 6 }}>
               <Row label="функция">{f ? funcLabel(f, entities) : "не назначена"}</Row>
               <Row label="поставил">{nameOf ? nameOf(roleOf(t, "setter")) : (roleOf(t, "setter") || "не назначен")}</Row>
-              <Row label="исполнитель">{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}</Row>
+              <Row label="исполнитель">
+                {nameOf ? nameOf(roleOf(t, "assignee")) : (roleOf(t, "assignee") || "не назначен")}</Row>
               <Row label="описание">{String(t.body || "").trim() || "не написано"}</Row>
               <Row label="критерии проверки">
                 {(f?.checks || []).length ? "" : "не поставлены"}</Row>
@@ -240,10 +241,12 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
                 (владелец, 2026-09-20). Приём работы ею больше не держится:
                 принять можно молча, вернуть — с текстом доработки. */}
             <div className="flex flex-wrap gap-2" style={{ marginBottom: 8 }}>
-              <RateButton task={t} meId={meId} to={t.assignee} onOpen={onRate} />
+              <RateButton task={t} meId={meId} to={t.assignee} onOpen={onRate} ro={ro} />
             </div>
 
-            {t.status === "review" && (
+            {/* «r» на «Проверке» — только смотреть: ни принять, ни вернуть
+                (владелец, 2026-09-20). */}
+            {t.status === "review" && !ro && (
               <>
                 {sub && inTime(t, sub) != null && (
                   <div style={{ fontSize: 10.5, marginBottom: 6,
@@ -272,7 +275,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
   published, onSay, onSeen, onRate, onSetup, onDelete, factors = [], materials = [],
-  ratings = null }) {
+  ratings = null, ro = false }) {
   const [openId, setOpenId] = useState(null);
   /* ─── обсуждение ───
      Разговор один на задачу и открывается с её плашки. Открыли —
@@ -280,12 +283,14 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
      должна одинаково на всех устройствах. */
   const [chatId, setChatId] = useState(null);
   const chatTask = tasks.find((t) => t.id === chatId) || null;
-  const mark_ = (t) => ({ ...(t.seenBy || {}),
-    ...(meId == null ? {} : { [String(meId)]: new Date().toISOString() }) });
+  /* С «Проверки» говорит ПОСТАНОВЩИК, пока задача не поставлена, и
+     ПРОВЕРЯЮЩИЙ после (владелец, 2026-09-20). */
   const openChat = (t) => {
+    const role = chatRoleAt(t, "review");
     setChatId(t.id);
-    setTasks?.((p) => p.map((x) => (x.id === t.id ? { ...x, seenBy: mark_(x) } : x)));
-    onSeen?.(t);
+    setTasks?.((p) => p.map((x) => (x.id === t.id
+      ? { ...x, seenBy: { ...(x.seenBy || {}), [role]: new Date().toISOString() } } : x)));
+    onSeen?.(t, role);
   };
   /* Оценка — окном: звёзды, отзыв и его видимость. Проверяющий оценивает
      исполнителя; себе не ставят, и кнопка тогда не нажимается. */
@@ -302,12 +307,13 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
     onRate?.(t, { to, mark, text, pub });
   };
   const say = (t, text) => {
-    const m = newMessage(text, meId);
+    const role = chatRoleAt(t, "review");
+    const m = newMessage(text, meId, role);
     setTasks?.((p) => p.map((x) => (x.id === t.id
       ? { ...x, chat: [...(x.chat || []), m],
-        seenBy: { ...(x.seenBy || {}), ...(meId == null ? {} : { [String(meId)]: m.at }) } }
+        seenBy: { ...(x.seenBy || {}), [role]: m.at } }
       : x)));
-    onSay?.(t, text);
+    onSay?.(t, text, role);
   };
   /* Единицы считаются один раз на всю вкладку: карточек много, а список
      у них общий — по нему ищут и взятое, и выданное. */
@@ -436,11 +442,11 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                 {why && <span style={{ fontSize: 10.5, color: WARN }}>{why}</span>}
                 {/* Кнопка есть и здесь — неактивная: обсуждение
                     открывается, когда задачу поставят. */}
-                <ChatButton task={t} meId={meId} onOpen={openChat}
+                <ChatButton task={t} role={chatRoleAt(t, "review")} onOpen={openChat}
                   style={{ padding: "2px 8px", fontSize: 10.5 }} />
                 <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
               </div>
-              {on && setup && (
+              {on && setup && !ro && (
                 <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits} factors={factors}
                   ratings={ratings}
                   entities={entities} people={people}
@@ -469,7 +475,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         note={note} setNote={setNote} meId={meId}
         funcs={funcs} traits={traits} entities={entities}
         nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-        onChat={openChat} onRate={openRate} extra={killRow(t)} />)}
+        onChat={openChat} onRate={openRate} extra={killRow(t)} ro={ro} />)}
 
       {restGroups.filter((g) => g.rows.length).map((g) => (
         <React.Fragment key={g.id}>
@@ -482,7 +488,8 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         note={note} setNote={setNote} meId={meId}
               funcs={funcs} traits={traits} entities={entities}
               nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-              onChat={openChat} onRate={openRate} extra={<>{recallRow(t)}{killRow(t)}</>} />))}
+              onChat={openChat} onRate={openRate} ro={ro}
+              extra={<>{recallRow(t)}{killRow(t)}</>} />))}
         </React.Fragment>))}
 
       {/* ─── готовые ───
@@ -498,13 +505,13 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         note={note} setNote={setNote} meId={meId}
             funcs={funcs} traits={traits} entities={entities}
             nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-            onChat={openChat} onRate={openRate} extra={killRow(t)} />)}
+            onChat={openChat} onRate={openRate} extra={killRow(t)} ro={ro} />)}
         </>)}
 
       {/* Обсуждение — окном поверх вкладки: разговор один на задачу, и
           открывается он с её плашки. */}
       {chatTask && (
-        <Discussion task={chatTask} meId={meId} nameOf={nameOf}
+        <Discussion task={chatTask} meId={meId} nameOf={nameOf} ro={ro}
           onSend={(text) => say(chatTask, text)} onClose={() => setChatId(null)} />)}
 
       {rateTask && (

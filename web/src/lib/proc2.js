@@ -628,7 +628,19 @@ export function paintOf(text = "", model = {}, proc = {}) {
   const { funcs, errors } = parseText(text, model, proc);
   const rows = new Map();
   const rowOf = (row) => { if (!rows.has(row)) rows.set(row, { row, spans: [], brackets: [], note: "", error: "" }); return rows.get(row); };
-  const put = (row, span, extra) => span && rowOf(row).spans.push({ start: span.start, end: span.end, ...extra });
+  /* Один и тот же участок строки красится ОДИН раз (владелец, 2026-09-20:
+     «условие для „Если" повторяется несколько раз при его единичном
+     вводе»). Условие группы лежит у КАЖДОЙ её задачи — и спан на него
+     приходил столько раз, сколько задач под условием, а подсветка рисует
+     каждый спан своим куском текста: «badger > 0badger > 0badger > 0». */
+  const put = (row, span, extra) => {
+    if (!span) return;
+    const r = rowOf(row);
+    const same = r.spans.some((x) => x.start === span.start && x.end === span.end
+      && x.kind === extra?.kind);
+    if (same) return;
+    r.spans.push({ start: span.start, end: span.end, ...extra });
+  };
   const lines = String(text || "").split("\n");
   lines.forEach((l, row) => { const lab = labelOf(l); if (lab) put(row, lab.label, { kind: "mark", label: lab.kind }); });
   funcs.forEach((f) => {

@@ -37,9 +37,21 @@ import Modal from "./Modal.jsx";
    открывает «Отчёты», и в списке она должна называться «Отчёты», а не
    «reports». Список один со `SystemModel.TAB_LIST`. */
 const TAB_NAMES = {
+  market: "Рынок услуг", me: "Анкета",
   tasks: "Задачи", review: "Проверка", scheme: "Схема",
+  "scheme:edit": "Управление", "scheme:time": "Деятельность", "scheme:sim": "Цели",
   reports: "Отчёты", tools: "Инструменты",
+  "tools:people": "Роли", "tools:assistant": "Агенты",
+  "tools:reminders": "Напоминания", "tools:calls": "Звонки",
+  "tools:export": "Выгрузка",
 };
+/* Право роли на вкладке — нажатиями по кругу: закрыта → «r» (жёлтая,
+   только смотреть) → «rw» (зелёная, ещё и править) → снова закрыта
+   (владелец, 2026-09-20). Право пишется справа от названия, чтобы не
+   угадывать его по цвету. */
+const NEXT_ACCESS = { "": "r", r: "rw", rw: "" };
+const accessIn = (role, tab) => (role.access || {})[tab]
+  || ((role.tabs || []).includes(tab) ? "rw" : "");
 
 /* ─── ПОЛОСКА УЧАСТНИКА (владелец, 2026-09-20) ───
 
@@ -372,12 +384,21 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
             <div style={{ fontSize: 10, color: C.muted, marginBottom: 3 }}>открывает вкладки:</div>
             <div className="flex flex-wrap gap-2">
               {ALL_TABS.map((t) => {
-                const on = (r.tabs || []).includes(t);
+                const acc = accessIn(r, t);
+                const inner = t.includes(":");
                 return (
-                  <button key={t} style={btn(on, on ? OK : undefined)} disabled={busy}
-                    onClick={() => act(() => setRoleTabs(r.id,
-                      on ? r.tabs.filter((x) => x !== t) : [...(r.tabs || []), t]))}>
-                    {TAB_NAMES[t] || t}</button>);})}
+                  <button key={t} disabled={busy}
+                    aria-label={`вкладка ${TAB_NAMES[t] || t}: ${acc || "закрыта"}`}
+                    style={{ ...btn(!!acc, acc === "rw" ? OK : acc === "r" ? WARN : undefined),
+                      ...(inner ? { fontSize: 10.5, padding: "3px 8px" } : {}) }}
+                    onClick={() => act(() => setRoleTabs(r.id, (() => {
+                      const map = {};
+                      ALL_TABS.forEach((x) => { const a = accessIn(r, x); if (a) map[x] = a; });
+                      const next = NEXT_ACCESS[acc];
+                      if (next) map[t] = next; else delete map[t];
+                      return map;
+                    })()))}>
+                    {TAB_NAMES[t] || t}{acc ? ` ${acc}` : ""}</button>);})}
             </div>
           </div>))}
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>

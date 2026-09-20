@@ -945,7 +945,7 @@ describe("критерии на форме постановки", () => {
       chain: { id: "c1", name: "Ц", step: 1, of: 1, result: "лид передан" } }];
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок") && d.textContent.includes("Срок:"));
     expect(plate.textContent).toMatch(/Предоставляемый материал:/);
     expect(plate.textContent).not.toMatch(/берёт:/);
     expect(plate.textContent).toMatch(/ожидается:/);
@@ -968,7 +968,7 @@ describe("критерии на форме постановки", () => {
     const f = [{ ...FUNCS[0], chain: { id: "c1", name: "Ц", step: 1, of: 1, result: "" } }];
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок") && d.textContent.includes("Срок:"));
     expect(plate.textContent).toMatch(/Ожидаемый результат: не назван/);
     expect(plate.textContent).not.toMatch(/Схеме/);
   });
@@ -1020,7 +1020,7 @@ describe("критерии на форме постановки", () => {
         { id: "p2_1", trait: "t2", lo: 1, hi: 1, to: "b" }] }];
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок") && d.textContent.includes("Срок:"));
     expect(plate.textContent).toMatch(/ожидается: заявки ровно 1(?!, заявки)/);
     expect(plate.textContent.match(/заявки ровно 1/g)).toHaveLength(1);
   });

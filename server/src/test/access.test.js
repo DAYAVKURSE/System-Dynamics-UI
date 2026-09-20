@@ -545,23 +545,28 @@ describe("обсуждение задачи", () => {
 
   /* Непрочитанное считается по метке «когда открывал»: своё сообщение
      непрочитанным не бывает, чужое — до открытия обсуждения. */
-  it("метка прочтения ставится своим сообщением и открытием обсуждения", async () => {
+  /* Метка прочтения — У РОЛИ, а не у аккаунта (владелец, 2026-09-20):
+     за всех троих может сидеть один человек, и кружок всё равно должен
+     появляться у остальных ролей. */
+  it("метка прочтения ставится ролью, а не аккаунтом", async () => {
     await saveModel();
     await invite(200, "executor", "Иван");
     await invite(300, "reviewer", "Пётр");
-    await say(300, { text: "вопрос" });
+    await say(300, { text: "вопрос", role: "reviewer" });
     const before = (await request(app).get("/api/workspace").set(as(200)))
       .body.tasks[0];
-    expect(before.seenBy?.["200"]).toBeUndefined();
-    expect(before.seenBy["300"]).toBeTruthy();
+    expect(before.chat[0].role).toBe("reviewer");
+    expect(before.seenBy.reviewer).toBeTruthy();
+    expect(before.seenBy.assignee).toBeUndefined();
 
-    const res = await request(app).post("/api/workspace/tasks/tk1/chat/seen").set(as(200));
+    const res = await request(app).post("/api/workspace/tasks/tk1/chat/seen")
+      .set(as(200)).send({ role: "assignee" });
     expect(res.status).toBe(200);
-    expect(res.body.seenBy["200"]).toBeTruthy();
+    expect(res.body.seenBy.assignee).toBeTruthy();
     // Посторонний метку не ставит.
     await invite(500, "executor", "Чужой");
     expect((await request(app).post("/api/workspace/tasks/tk1/chat/seen")
-      .set(as(500))).status).toBe(403);
+      .set(as(500)).send({ role: "assignee" })).status).toBe(403);
   });
 });
 
@@ -972,5 +977,75 @@ describe("анкеты через сервер", () => {
     expect(me.body.forms).toEqual([]);
     const org = await request(app).get("/api/org").set(as(100));
     expect(org.body.roles.find((r) => r.id === "executor").form).toBeNull();
+  });
+});
+
+/* ─── ПРАВО «ТОЛЬКО СМОТРЕТЬ» (владелец, 2026-09-20) ───
+   Роль открывает вкладку на «r» или на «rw». «r» запрещает правку сразу,
+   и запрет стоит на сервере: выключенная кнопка — не запрет. */
+describe("r и rw на вкладке", () => {
+  const setAccess = (roleId, access) => request(app)
+    .put(`/api/org/roles/${roleId}/tabs`).set(as(100)).send({ tabs: access });
+
+  it("«кто я» говорит право по каждой вкладке, а владельцу — везде rw", async () => {
+    await setAccess("executor", { tasks: "r", "tools:calls": "rw" });
+    await invite(200, "executor", "Иван");
+    const me = await request(app).get("/api/org/me").set(as(200, "Иван"));
+    expect(me.body.access.tasks).toBe("r");
+    expect(me.body.access["tools:calls"]).toBe("rw");
+    // Внутренняя вкладка открывает и свою верхнюю — иначе до неё не дойти.
+    expect(me.body.tabs).toContain("tools");
+    const own = await request(app).get("/api/org/me").set(as(100));
+    expect(own.body.access.reports).toBe("rw");
+  });
+
+  it("с «r» на «Задачах» задачу не взять и не сдать", async () => {
+    await saveModel();
+    await setAccess("executor", { tasks: "r" });
+    await invite(200, "executor", "Иван");
+    expect((await request(app).post("/api/workspace/tasks/tk1/take").set(as(200)))
+      .status).toBe(403);
+    expect((await request(app).post("/api/workspace/tasks/tk1/submit")
+      .set(as(200)).send({ text: "сделал" })).status).toBe(403);
+    // Читать при этом можно: вкладка открыта.
+    expect((await request(app).get("/api/workspace").set(as(200))).status).toBe(200);
+  });
+
+  it("с «rw» на «Задачах» задача берётся", async () => {
+    await saveModel();
+    await setAccess("executor", { tasks: "rw" });
+    await invite(200, "executor", "Иван");
+    await request(app).post("/api/workspace/tasks/tk1/drop").set(as(200));
+    const r = await request(app).post("/api/workspace/tasks/tk1/take").set(as(200));
+    expect([200, 400]).toContain(r.status);   // взялась или уже не в бэклоге
+    expect(r.status).not.toBe(403);
+  });
+
+  it("прежний список вкладок читается как полное право", async () => {
+    await saveModel();
+    await request(app).put("/api/org/roles/executor/tabs")
+      .set(as(100)).send({ tabs: ["tasks"] });
+    await invite(200, "executor", "Иван");
+    const me = await request(app).get("/api/org/me").set(as(200));
+    expect(me.body.access.tasks).toBe("rw");
+  });
+
+  it("«r» на «Проверке» не даёт ни принять, ни вернуть", async () => {
+    await saveModel();
+    await setAccess("reviewer", { review: "r" });
+    await invite(300, "reviewer", "Пётр");
+    const res = await request(app).post("/api/workspace/tasks/tk1/review")
+      .set(as(300)).send({ accept: true });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("read only");
+  });
+
+  it("вкладки нет вовсе — правила прежние, право её не отнимает", async () => {
+    await saveModel();
+    await setAccess("reviewer", { reports: "r" });
+    await invite(300, "reviewer", "Пётр");
+    const res = await request(app).post("/api/workspace/tasks/tk1/review")
+      .set(as(300)).send({ accept: true });
+    expect(res.body.error).not.toBe("read only");
   });
 });

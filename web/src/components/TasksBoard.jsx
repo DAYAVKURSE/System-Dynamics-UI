@@ -423,10 +423,44 @@ export function autoFlow(tasks=[],opts={}){
     const to=autoStatus(t,{...opts,tasks:opts.tasks||tasks});
     if(to===t.status) return t;
     moved=true;
-    return {...t,status:to};
+    /* Задача поставилась САМА — и момент постановки записывается здесь же
+       (владелец, 2026-09-20: «если задача ставится автоматически, значит,
+       там ставится то время, в которое она автоматически поставлена»).
+       Иначе «поставлена» у неё навсегда оставалась бы «не записано». */
+    const set=t.status==="wait"&&to!=="wait"&&!t.setAt
+      ?{setAt:new Date().toISOString()}:{};
+    return {...t,status:to,...set};
   });
   return moved?next:tasks;
 }
+
+/* ─────── КОГО СТАВИТЬ В ЗАДАЧУ ПО УМОЛЧАНИЮ ───────
+
+   Роли задачи не бывают пустыми (владелец, 2026-09-20: «не должно быть
+   такой ситуации, чтобы кто-то был не назначен»). Кого ставить, решают
+   ДОЛЖНОСТИ функции и порядок воркеров актива — то же правило, что и на
+   форме постановки. Постановщика не нашли — им становится исполнитель,
+   проверяющего — постановщик: передавать работу в этом месте некому.
+
+   Некого поставить вовсе — задача не заводится: работа, которую никто не
+   возьмёт, это не работа (её и не прогнозируют). */
+export const crewFor=(func,{entities=[],people=[],rolesOf=()=>[]}={})=>{
+  const asset=entities.find(e=>e.id===func?.e)||null;
+  const one=(k)=>{
+    const ok=new Set(eligible(func,k,{crew:crewOf(asset||{}),rolesOf,people}).map(String));
+    const list=people.filter(p=>ok.has(String(p.id)));
+    const first=pickOrder(asset,list)[0];
+    if(first) return String(first.id);
+    /* Прежние схемы называли людей списком прямо у функции — он читается
+       так же, даже когда списка людей ещё нет (свой сценарий на диске). */
+    const old0=(func?.[k]||[]).filter(x=>x!=null&&x!=="")[0];
+    return old0!=null?String(old0):null;
+  };
+  const assignee=one("owners");
+  const setter=one("setters")??assignee;
+  const reviewer=one("reviewers")??setter;
+  return { setter, assignee, reviewer };
+};
 
 /**
  * Одна сдача: сколько часов ушло и сколько ресурса взяли и выдали.
@@ -512,12 +546,11 @@ export function runsOfFunc(tasks=[],funcId){
       takes:sb.takes||{},gives:sb.gives||{}}));
 }
 
-/** Подпись функции: «актив · функция», как она читается на схеме. */
-export const funcLabel=(f,entities=[])=>{
-  if(!f) return "функция удалена";
-  const e=entities.find(x=>x.id===f.e);
-  return `${e?.name||"?"} · ${f.name||"без названия"}`;
-};
+/* Подпись функции — ТОЛЬКО ЕЁ ИМЯ (владелец, 2026-09-20: «актив там не
+   указывается»): в задаче речь о работе, а не о том, чьё это хозяйство.
+   `entities` остаётся в подписи ради прежних вызовов. */
+// eslint-disable-next-line no-unused-vars
+export const funcLabel=(f,entities=[])=>(f?(f.name||"без названия"):"функция удалена");
 
 /* ─────── чего не хватает, чтобы задачу поставить ───────
 
@@ -898,9 +931,22 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
 
    Обсуждение идёт, пока идёт работа: открывается, когда постановщик
    поставил задачу, и закрывается, когда её сдали. */
-export const newMessage=(text,by)=>({
+export const newMessage=(text,by,role="assignee")=>({
   id:uid("m"),text:String(text||"").trim(),at:new Date().toISOString(),
-  by:by==null?null:String(by)});
+  by:by==null?null:String(by),role});
+
+/* ─────── РОЛЬ В РАЗГОВОРЕ — ЭТО МЕСТО, ОТКУДА СКАЗАНО ───────
+
+   Владелец (2026-09-20): «Если в скиле задачи, значит, написал
+   исполнитель. Если в скиле проверки, то сообщение написано до того, как
+   задача появилась в бэклоге, — значит, постановщик. Иначе проверяющий.
+   Когда один пишет, остальные должны видеть уведомление».
+
+   Поэтому непрочитанное считается ПО РОЛЯМ, а не по аккаунтам: за всех
+   троих может сидеть один человек, и кружок всё равно должен появляться. */
+export const chatRoleAt=(task,where)=>(where==="tasks"
+  ? "assignee"
+  : task?.status==="wait" ? "setter" : "reviewer");
 
 /** Кем человек приходится ЭТОЙ задаче — словом, как в подписи сообщения. */
 export const roleInTask=(task,id)=>{
@@ -912,12 +958,10 @@ export const roleInTask=(task,id)=>{
   return "";
 };
 
-/** Сколько в обсуждении сообщений, которых этот человек ещё не видел. */
-export const unreadOf=(task,meId)=>{
-  const me=meId==null?null:String(meId);
-  if(!me) return 0;
-  const seen=Date.parse(task?.seenBy?.[me]||"")||0;
-  return (task?.chat||[]).filter(m=>String(m.by)!==me
+/** Сколько в обсуждении сообщений, которых ЭТА РОЛЬ ещё не видела. */
+export const unreadOf=(task,role="assignee")=>{
+  const seen=Date.parse(task?.seenBy?.[role]||"")||0;
+  return (task?.chat||[]).filter(m=>(m.role||"assignee")!==role
     &&(Date.parse(m.at)||0)>seen).length;
 };
 
@@ -936,8 +980,8 @@ export const chatOpen=(task)=>!isCanceled(task)
  * плашках «Проверки». Неактивна, пока задача не поставлена и после того,
  * как её сдали.
  */
-export function ChatButton({task,meId,onOpen,style}){
-  const n=unreadOf(task,meId);
+export function ChatButton({task,role="assignee",onOpen,style}){
+  const n=unreadOf(task,role);
   const on=chatReadable(task);
   return (
     <button type="button" disabled={!on} aria-label={`обсуждение: ${task.title}`}
@@ -968,8 +1012,8 @@ export const newMark=({to,mark,text,pub},by)=>({
 export const markOf=(task,by,to)=>(task?.marks||[]).find(m=>(
   String(m.by)===String(by)&&String(m.to)===String(to)))||null;
 
-export function RateButton({task,meId,to,onOpen,style}){
-  const can=to!=null&&to!==""&&meId!=null&&String(to)!==String(meId);
+export function RateButton({task,meId,to,onOpen,style,ro=false}){
+  const can=!ro&&to!=null&&to!==""&&meId!=null&&String(to)!==String(meId);
   return (
     <button type="button" disabled={!can}
       aria-label={`поставить оценку: ${task.title}`}
@@ -1005,8 +1049,10 @@ export function RateModal({task,whom,mine,onSend,onClose}){
 }
 
 /** Само обсуждение — окном, как разговор в мессенджере. */
-export function Discussion({task,meId,nameOf,onSend,onClose}){
-  const mayWrite=chatOpen(task);
+export function Discussion({task,meId,nameOf,onSend,onClose,ro=false}){
+  /* «r» на вкладке — только смотреть: сказать в обсуждении нельзя, читать
+     можно (владелец, 2026-09-20). */
+  const mayWrite=chatOpen(task)&&!ro;
   const [text,setText]=useState("");
   const me=meId==null?null:String(meId);
   const who=(id)=>(id==null||id===""?"":(nameOf?nameOf(id):String(id)));
@@ -1109,7 +1155,7 @@ export function HiddenSwitch({hidden,onChange,whoElse}){
 }
 
 export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials=[],setTasks,
-  onClose,nameOf,meId,isOwner=true,onSay,onSeen,onSubmit,onTake,onRate}){
+  onClose,nameOf,meId,isOwner=true,onSay,onSeen,onSubmit,onTake,onRate,ro=false}){
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
@@ -1162,17 +1208,19 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
   /* Обсуждение: открыли — непрочитанного больше нет, и метка уезжает на
      сервер, чтобы считалось одинаково на всех устройствах. */
   const [chat,setChat]=useState(false);
+  /* С доски задач говорит ИСПОЛНИТЕЛЬ — и непрочитанное считается для
+     него же (владелец, 2026-09-20). */
+  const myRole=chatRoleAt(task,"tasks");
   const openChat=()=>{
     setChat(true);
-    upMany({seenBy:{...(task.seenBy||{}),
-      ...(meId==null?{}:{[String(meId)]:new Date().toISOString()})}});
-    onSeen?.(task);
+    upMany({seenBy:{...(task.seenBy||{}),[myRole]:new Date().toISOString()}});
+    onSeen?.(task,myRole);
   };
   const say=(text)=>{
-    const m=newMessage(text,meId);
+    const m=newMessage(text,meId,myRole);
     upMany({chat:[...(task.chat||[]),m],
-      seenBy:{...(task.seenBy||{}),...(meId==null?{}:{[String(meId)]:m.at})}});
-    onSay?.(task,text);
+      seenBy:{...(task.seenBy||{}),[myRole]:m.at}});
+    onSay?.(task,text,myRole);
   };
   const toTake=!isCanceled(task)&&!isTaken(task)
     &&(BACKLOG_STATES.includes(task.status)||task.status==="deadline");
@@ -1536,7 +1584,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       {/* Оценка — постановщику: исполнитель говорит, как ему поставили
           работу (владелец, 2026-09-20). Себе не ставят. */}
       <div className="flex gap-2" style={{marginBottom:8}}>
-        <RateButton task={task} meId={meId} to={roleOf(task,"setter")}
+        <RateButton task={task} meId={meId} to={roleOf(task,"setter")} ro={ro}
           onOpen={()=>setRating(true)}/>
       </div>
       {rating&&(
@@ -1604,7 +1652,9 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               📎 {sb.file.name} · {Math.round((sb.file.size||0)/1024)} КБ</div>}
           </div>))}
 
-        {handed
+        {/* «r» на «Задачах» — только смотреть: ни взять, ни сдать
+            (владелец, 2026-09-20). */}
+        {handed||ro
           ? null
           : toTake
           ? <div className="flex flex-wrap gap-2">
@@ -1677,10 +1727,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       {/* Обсуждение — там же, где прежде были комментарии, и вместо них
           (владелец, 2026-09-20): кнопка, за ней окно разговора. */}
       <div className="flex gap-2" style={{marginTop:10}}>
-        <ChatButton task={task} meId={meId} onOpen={openChat}/>
+        <ChatButton task={task} role={chatRoleAt(task,"tasks")} onOpen={openChat}/>
       </div>
       {chat&&(
-        <Discussion task={task} meId={meId} nameOf={nameOf}
+        <Discussion task={task} meId={meId} nameOf={nameOf} ro={ro}
           onSend={say} onClose={()=>setChat(false)}/>)}
     </div>);
 }
@@ -1694,7 +1744,8 @@ export const TASK_PEOPLE=[["setter","постановщик"],["assignee","ис�
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],factors=[],tasks,setTasks,
-  openId,setOpenId,nameOf,onTake,onDrop,meId,canAssign=true,onSay,onSeen,onSubmit,onRate}){
+  openId,setOpenId,nameOf,onTake,onDrop,meId,canAssign=true,onSay,onSeen,onSubmit,onRate,
+  ro=false}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
   /* Двигать задачи по доске нельзя, и стрелок здесь нет. У исполнителя два
@@ -1823,16 +1874,18 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                     {/* Ряд переносится: колонка узкая, и «Взять в работу»
                         с «Отменить» рядом в неё не влезают — вторая уезжала
                         за край карточки. */}
+                    {/* «r» на вкладке — только смотреть: кнопок работы на
+                        карточке нет (владелец, 2026-09-20). */}
                     <div className="flex gap-2" style={{marginTop:6,flexWrap:"wrap",
                       alignItems:"center"}}>
-                      {!isCanceled(t)&&!isTaken(t)&&(BACKLOG_STATES.includes(t.status)
+                      {!ro&&!isCanceled(t)&&!isTaken(t)&&(BACKLOG_STATES.includes(t.status)
                         ||t.status==="deadline")&&(
                         <button style={{...btn(true,ACC),padding:"3px 9px",fontSize:11}}
                           onClick={e=>{e.stopPropagation();take(t);}}>
                           Взять в работу</button>)}
                       {/* У отменённой кнопок работы нет: её не берут и не
                           сдают, пока решение не отменили обратно. */}
-                      {!isCanceled(t)&&isTaken(t)
+                      {!ro&&!isCanceled(t)&&isTaken(t)
                         &&(t.status==="progress"||t.status==="deadline")&&(
                         <button style={{...btn(true,OK),padding:"3px 9px",fontSize:11}}
                           onClick={e=>{e.stopPropagation();hand(t);}}>
@@ -1843,7 +1896,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                       {!isCanceled(t)&&t.status==="done"&&(
                         <span style={{fontSize:10.5,color:OK}}>принято</span>)}
                       <span style={{flex:1}}/>
-                      {canAssign&&isCanceled(t)&&(
+                      {!ro&&canAssign&&isCanceled(t)&&(
                         <button style={{...btn(false),padding:"3px 8px",fontSize:11}}
                           aria-label={`вернуть задачу ${t.title}`}
                           onClick={e=>{e.stopPropagation();undrop(t);}}>
@@ -1851,7 +1904,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                       {/* Отменяют РАБОТУ: то, что человек сейчас делает.
                           Лежащую в бэклоге отменять не за что — её никто
                           не делает; сданную проверяют, принятую сделали. */}
-                      {!isCanceled(t)&&dropId!==t.id&&isTaken(t)
+                      {!ro&&!isCanceled(t)&&dropId!==t.id&&isTaken(t)
                         &&(t.status==="progress"||t.status==="deadline")&&(
                         <button style={{...btn(false),padding:"3px 8px",fontSize:11,
                           color:BAD,borderColor:"#5A2436",whiteSpace:"nowrap"}}
@@ -1891,7 +1944,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
           <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
             entities={entities} meId={meId} isOwner={canAssign}
             onSay={onSay} onSeen={onSeen} onSubmit={onSubmit}
-            onTake={take} onRate={onRate}
+            onTake={take} onRate={onRate} ro={ro}
             nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>
         </div>)}
     </div>);

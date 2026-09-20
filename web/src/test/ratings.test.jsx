@@ -132,7 +132,7 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     expect(screen.getByText("выполняемая задача")).toBeInTheDocument();
     expect(screen.queryByText("выполняемая функция")).toBeNull();
     const plate = [...document.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок") && d.textContent.includes("Срок:"));
     expect(plate.textContent).not.toMatch(/Ожидаемый результат/);
     expect(plate.textContent).toMatch(/Критерии проверки:/);
     expect(within(plate).getByText("есть ссылка")).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     render(<Board tasks={[task({ body: "собрать заявки за неделю" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     const plate = [...document.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок") && d.textContent.includes("Срок:"));
     expect(plate.textContent).toMatch(/Описание задачи: собрать заявки за неделю/);
     expect(plate.textContent).toMatch(/ожидается:/);
     expect(plate.textContent).not.toMatch(/выдаёт:/);
@@ -155,7 +155,7 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     render(<Board tasks={[task()]} />);
     fireEvent.click(screen.getByText("Задача A"));
     const plate = [...document.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок") && d.textContent.includes("Срок:"));
     expect(plate.textContent).toMatch(/Описание задачи: не назначено/);
   });
 
@@ -257,9 +257,12 @@ describe("оценка человеку", () => {
 });
 
 describe("обсуждение задачи", () => {
+  /* Роль сообщения — это МЕСТО, откуда сказано (владелец, 2026-09-20):
+     с «Задач» говорит исполнитель, с «Проверки» — постановщик или
+     проверяющий. Непрочитанное считается по ролям, а не по аккаунтам. */
   const talked = () => task({ chat: [
-    { id: "m1", text: "когда начнёшь?", at: "2026-01-01T10:00:00Z", by: "1" },
-    { id: "m2", text: "завтра", at: "2026-01-01T11:00:00Z", by: "2" },
+    { id: "m1", text: "когда начнёшь?", at: "2026-01-01T10:00:00Z", by: "1", role: "reviewer" },
+    { id: "m2", text: "завтра", at: "2026-01-01T11:00:00Z", by: "2", role: "assignee" },
   ] });
 
   it("кнопка вместо комментариев; окно — с датой, ролью и именем автора", () => {
@@ -291,7 +294,7 @@ describe("обсуждение задачи", () => {
   it("непрочитанные — красным кружком, и открытие обсуждения их снимает", () => {
     render(<Board tasks={[talked()]} />);
     fireEvent.click(screen.getByText("Задача A"));
-    // Иван (meId 2) не читал сообщение постановщика.
+    // На «Задачах» роль — исполнитель: чужой строкой тут сказанное проверяющим.
     expect(screen.getByLabelText("непрочитанных сообщений: 1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "обсуждение: Задача A" }));
     expect(screen.queryByLabelText(/непрочитанных сообщений/)).toBeNull();

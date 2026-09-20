@@ -217,7 +217,9 @@ describe("гипотетическая функция в таймлайне", ()
   it("подписана гипотетической, а не удалённой — и с выключенной галочкой тоже", () => {
     show(false);
     expect(screen.queryByText(/функция удалена/)).toBeNull();
-    expect(screen.getByText(/Актив · Из гипотезы/)).toBeInTheDocument();
+    // Актив в подписи функции не пишется (владелец, 2026-09-20).
+    expect(screen.getByText(/Из гипотезы/)).toBeInTheDocument();
+    expect(screen.queryByText(/Актив ·/)).toBeNull();
     expect(screen.getByText(/гипотетическая, гипотезы выключены/)).toBeInTheDocument();
   });
 

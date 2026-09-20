@@ -73,7 +73,8 @@ const seed = () => localStorage.setItem("sd_draft", JSON.stringify({
 const openSubmit = () => {
   fireEvent.click(screen.getByRole("button", { name: /Восстановить/ }));
   fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
-  fireEvent.click(screen.getByText("Сбор заявок"));
+  // Имя задачи совпадает с именем функции — берём карточку на доске.
+  fireEvent.click(screen.getAllByText("Сбор заявок")[0]);
   fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 };
 const dump = () => {

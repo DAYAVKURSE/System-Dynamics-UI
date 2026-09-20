@@ -250,9 +250,13 @@ describe("постановщик приходит из ролей функции
     tab("Инструменты"); tab("Выгрузка"); tab("Выгрузить");
     const after = JSON.parse(field().value);
     expect(after.tasks.length).toBeGreaterThan(0);
+    /* ПУСТЫХ РОЛЕЙ У ЗАДАЧИ НЕ БЫВАЕТ (владелец, 2026-09-20): названного
+       постановщика берут как есть, а неназванного заменяет исполнитель —
+       «не назначен» не остаётся ни у кого. */
     after.tasks.forEach((t) => {
       const f = funcs.find((x) => x.id === t.funcId);
-      expect(t.setter).toBe(f.setters[0] ?? null);
+      if (f.setters[0]) expect(t.setter).toBe(f.setters[0]);
+      else expect(t.setter).toBe(t.assignee);
     });
   });
 });

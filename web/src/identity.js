@@ -12,14 +12,36 @@ import { getInitData } from "./telegram.js";
    от единственного её хозяина было бы странно.
    ════════════════════════════════════════════════════════════════ */
 
-/* Вкладки роли — ровно те, что есть в приложении (`TAB_LIST` в
-   `SystemModel.jsx`), и то же самое перечислено на сервере (`TABS` в
-   `orgStore.js`). «Анкета» сюда не входит: она открыта всем вошедшим. */
-export const ALL_TABS = ["tasks", "review", "scheme", "reports", "tools"];
+/* Вкладки роли — ВСЕ, что есть в приложении (владелец, 2026-09-20), и
+   верхние, и внутренние; то же самое перечислено на сервере (`TABS` в
+   `orgStore.js`). Внутренние пишутся через двоеточие: «tools:calls».
+   Внутренняя вкладка — такое же место, и роль должна уметь открыть
+   «Звонки», не открывая «Выгрузку». */
+export const ALL_TABS = ["market", "me", "tasks", "review",
+  "scheme", "scheme:edit", "scheme:time", "scheme:sim",
+  "reports",
+  "tools", "tools:people", "tools:assistant", "tools:reminders",
+  "tools:calls", "tools:export"];
+
+/* Право на вкладке: «r» — только смотреть, «rw» — ещё и править. */
+export const mayEdit = (me, tab) => !me || !!me.isOwner || !!me.solo
+  || (me.access || {})[tab] !== "r";
+
+/* Видна ли ВНУТРЕННЯЯ вкладка. Роль, назвавшая внутренние вкладки,
+   открывает ровно их; роль, назвавшая только верхнюю, открывает всю —
+   иначе она сегодня потеряла бы то, что было у неё вчера. */
+export const tabShown = (me, top, key) => {
+  if (!me || me.isOwner || me.solo) return true;
+  const tabs = me.tabs || [];
+  const inner = tabs.filter((t) => t.startsWith(`${top}:`));
+  return inner.length ? inner.includes(`${top}:${key}`) : tabs.includes(top);
+};
 
 export const SOLO = {
   id: "local", isOwner: true, known: true, name: "", role: null,
-  tabs: [...ALL_TABS], solo: true,
+  tabs: [...ALL_TABS],
+  access: Object.fromEntries(ALL_TABS.map((t) => [t, "rw"])),
+  solo: true,
 };
 
 const headers = () => ({
@@ -41,7 +63,7 @@ export async function whoAmI() {
     if (!j || !j.ok || !j.org) { cached = SOLO; return cached; }
 
     const r = await fetch("/api/org/me", { headers: headers() });
-    if (!r.ok) { cached = { ...SOLO, solo: false, isOwner: false, known: false, tabs: [] }; return cached; }
+    if (!r.ok) { cached = { ...SOLO, solo: false, isOwner: false, known: false, tabs: [], access: {} }; return cached; }
     const me = await r.json();
     cached = { ...me, solo: false };
     return cached;
@@ -193,14 +215,15 @@ export const reviewTaskRemote = (id, { accept, comment, mark, hidden = false }) 
 /* Сообщение в обсуждение задачи. Своя операция, как у сдачи и приёма:
    модель целиком пишет владелец, а сказать в задаче должен уметь любой,
    кому она видна. Убрать сказанное нельзя — маршрута нет. */
-export const messageTaskRemote = (id, text) =>
+export const messageTaskRemote = (id, text, role) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/chat`,
-    { method: "POST", body: JSON.stringify({ text }) });
+    { method: "POST", body: JSON.stringify({ text, role }) });
 /* Обсуждение открыли — непрочитанного в нём для этого человека больше
    нет. Метка живёт у задачи, а не в браузере: непрочитанное должно
    считаться одинаково на всех устройствах. */
-export const seeChatRemote = (id) =>
-  json(`/api/workspace/tasks/${encodeURIComponent(id)}/chat/seen`, { method: "POST" });
+export const seeChatRemote = (id, role) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(id)}/chat/seen`,
+    { method: "POST", body: JSON.stringify({ role }) });
 /* Оценка человеку в задаче: пять звёзд, отзыв и его видимость. Своя
    операция, как у сдачи и приёма: модель целиком пишет владелец, а
    оценить должен уметь тот, кто в задаче работал. */

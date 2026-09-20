@@ -591,6 +591,7 @@ export const reviewTask = (userId, taskId, { accept, comment, mark, hidden }) =>
     task.chat = [...(task.chat || []), {
       id: "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       text: String(comment), at: new Date().toISOString(), by: String(userId),
+      role: "reviewer",
     }];
   }
   await writeModel(model);
@@ -736,7 +737,15 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false, rolesO
 
    Сообщение пишет любой, кому видна задача: её участники и владелец.
    Убрать сказанное нельзя — сказанное сказано. */
-export const addMessage = (userId, taskId, { text } = {},
+/* Роль в разговоре — не аккаунт, а МЕСТО, откуда сказано (владелец,
+   2026-09-20): с «Задач» говорит исполнитель, с «Проверки» до постановки
+   — постановщик, после — проверяющий. Непрочитанное считается по ролям:
+   написал один — остальные видят кружок, даже когда за всех сидит один
+   человек. */
+export const CHAT_ROLES = ["assignee", "setter", "reviewer"];
+const chatRole = (v) => (CHAT_ROLES.includes(String(v)) ? String(v) : "assignee");
+
+export const addMessage = (userId, taskId, { text, role } = {},
   { isOwner = false } = {}) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
@@ -744,13 +753,14 @@ export const addMessage = (userId, taskId, { text } = {},
   if (!isOwner && !participants(task).includes(me)) return { error: "not yours" };
   const body = String(text || "").trim();
   if (!body) return { error: "text required" };
+  const said = chatRole(role);
   const message = {
     id: "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    text: body, at: new Date().toISOString(), by: me,
+    text: body, at: new Date().toISOString(), by: me, role: said,
   };
   task.chat = [...(task.chat || []), message];
-  /* Своё же сообщение непрочитанным быть не может: метка двигается сама. */
-  task.seenBy = { ...(task.seenBy || {}), [me]: message.at };
+  /* Сказанное своей ролью непрочитанным быть не может: метка двигается сама. */
+  task.seenBy = { ...(task.seenBy || {}), [said]: message.at };
   await writeModel(model);
   return { task, message };
 });
@@ -791,13 +801,13 @@ export const rateTask = (userId, taskId, { to, mark, text, pub } = {},
 });
 
 /** Обсуждение открыли — непрочитанного в нём для этого человека больше нет. */
-export const seeChat = (userId, taskId, { isOwner = false } = {}) =>
+export const seeChat = (userId, taskId, { role, isOwner = false } = {}) =>
   withModel(async (model) => {
     const task = (model.tasks || []).find((t) => t.id === taskId);
     if (!task) return { error: "not found" };
     const me = String(userId);
     if (!isOwner && !participants(task).includes(me)) return { error: "not yours" };
-    task.seenBy = { ...(task.seenBy || {}), [me]: new Date().toISOString() };
+    task.seenBy = { ...(task.seenBy || {}), [chatRole(role)]: new Date().toISOString() };
     await writeModel(model);
     return { task };
   });

@@ -5,7 +5,7 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addRole, removeRole, setUserRoles,
   takeTaskRemote, dropTaskRemote, submitTaskRemote, messageTaskRemote, markTaskRemote, seeChatRemote,
-  getRatings, resetIdentity,
+  getRatings, resetIdentity, mayEdit, tabShown,
   setupTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
@@ -30,7 +30,7 @@ import { pickByOrderOf } from "../lib/pickOrder.js";
 import { actionsOf, goalRuns, normalizeGoals, perMonth, planGoal } from "../lib/goals.js";
 import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
-import TasksBoard, { autoFlow, roleOf, runsOfFunc } from "./TasksBoard.jsx";
+import TasksBoard, { autoFlow, crewFor, roleOf, runsOfFunc } from "./TasksBoard.jsx";
 import { swipeFrom, swipeStep, tabAfter } from "../lib/swipe.js";
 import { elbow } from "../lib/paths.js";
 import Timeline from "./Timeline.jsx";
@@ -750,6 +750,14 @@ export default function SystemModel(){
   // Спойлер процессов на «Управлении»: закрыт при открытии, помнится в сеансе.
   const [procsOpen,setProcsOpen]=useState(false);
   const [me,setMe]=useState(SOLO);
+  /* Выбранный раздел схемы может оказаться закрытым для роли — тогда
+     открывается первый, который ей доступен (владелец, 2026-09-20).
+     Иначе вкладка показывала бы пустоту под рядом кнопок. */
+  useEffect(()=>{
+    if(tabShown(me,"scheme",under)) return;
+    const first=["edit","time","sim"].find(k=>tabShown(me,"scheme",k));
+    if(first) setUnder(first);
+  },[me,under]);
   /* Регистрацию отложили: у кого доступ уже есть, тот уходит из неё
      «Назад» в приложение, а вернуться может кнопкой в шапке. */
   const [regAway,setRegAway]=useState(false);
@@ -1672,10 +1680,13 @@ export default function SystemModel(){
           meId={me.id}
           /* У владельца сдача и комментарий уезжают в составе модели через
              putWorkspace; POST'ить их ещё раз значило бы записать дважды. */
-          onSay={(t,text)=>{ if(!me.isOwner) messageTaskRemote(t.id,text).then(pullNow,()=>{}); }}
-          onSeen={(t)=>{ if(!me.isOwner) seeChatRemote(t.id).then(()=>{},()=>{}); }}
+          onSay={(t,text,role)=>{ if(!me.isOwner) messageTaskRemote(t.id,text,role).then(pullNow,()=>{}); }}
+          onSeen={(t,role)=>{ if(!me.isOwner) seeChatRemote(t.id,role).then(()=>{},()=>{}); }}
           onRate={(t,m)=>{ if(!me.isOwner) markTaskRemote(t.id,m).then(pullNow,()=>{}); }}
-          onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).then(pullNow,()=>{}); }}/>)}
+          onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).then(pullNow,()=>{}); }}
+          /* «r» на вкладке — только смотреть: кнопок работы нет вовсе
+             (владелец, 2026-09-20). */
+          ro={!mayEdit(me,"tasks")}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
       {tab==="review" && me.tabs.includes("review") && (
@@ -1684,8 +1695,8 @@ export default function SystemModel(){
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}
-          onSay={(t,text)=>{ if(!me.isOwner) messageTaskRemote(t.id,text).then(pullNow,()=>{}); }}
-          onSeen={(t)=>{ if(!me.isOwner) seeChatRemote(t.id).then(()=>{},()=>{}); }}
+          onSay={(t,text,role)=>{ if(!me.isOwner) messageTaskRemote(t.id,text,role).then(pullNow,()=>{}); }}
+          onSeen={(t,role)=>{ if(!me.isOwner) seeChatRemote(t.id,role).then(()=>{},()=>{}); }}
           onRate={(t,m)=>{ if(!me.isOwner) markTaskRemote(t.id,m).then(pullNow,()=>{}); }}
           /* Постановка у владельца уезжает в составе модели через
              putWorkspace; у позванного постановщика модель не пишется —
@@ -1695,7 +1706,8 @@ export default function SystemModel(){
             :(t,patch)=>setupTaskRemote(t.id,patch).then(r=>{ pullNow(); return r; })}
           onAccept={(t,note)=>decide(t,true,note)}
           onReturn={(t,note)=>decide(t,false,note)}
-          onRate={(t,m)=>{ if(!me.isOwner) markTaskRemote(t.id,m).then(pullNow,()=>{}); }}/>)}
+          onRate={(t,m)=>{ if(!me.isOwner) markTaskRemote(t.id,m).then(pullNow,()=>{}); }}
+          ro={!mayEdit(me,"review")}/>)}
 
       {/* ═══ СХЕМА ═══ */}
       {tab==="scheme" && me.tabs.includes("scheme") && (<>
@@ -1715,10 +1727,12 @@ export default function SystemModel(){
                 onClick={()=>schemeRef.current?.zoomBy(1/1.25)}>−</button>
               <button style={btn(false)} aria-label="увеличить"
                 onClick={()=>schemeRef.current?.zoomBy(1.25)}>+</button>
-              <button style={btn(false)} onClick={alignGrid}
-                title="Расставит блоки по сетке, сохранив расстановку по рядам">
-                ⌗ выровнять</button>
-              <button style={btn(true)} onClick={addEntity}>+ актив</button>
+              {mayEdit(me,"scheme:edit")&&(<>
+                <button style={btn(false)} onClick={alignGrid}
+                  title="Расставит блоки по сетке, сохранив расстановку по рядам">
+                  ⌗ выровнять</button>
+                <button style={btn(true)} onClick={addEntity}>+ актив</button>
+              </>)}
             </div>
           </div>
           <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 0",minWidth:0,
@@ -1776,17 +1790,22 @@ export default function SystemModel(){
             потом смотрят, что по ней делали («Деятельность») и куда она
             идёт («Прогноз»). */}
         <div className="flex gap-2" style={{margin:"10px 0",overflowX:"auto"}}>
+          {/* Внутренние вкладки — по праву роли (владелец, 2026-09-20):
+              роль, назвавшая «Деятельность», открывает её одну. */}
+          {tabShown(me,"scheme","edit")&&(
           <button style={btn(under==="edit")} onClick={()=>setUnder("edit")}>
-            Управление</button>
+            Управление</button>)}
           {/* Отдельного доступа у них нет: «Прогноз» и «Деятельность» —
               разделы СХЕМЫ, и открывает их та же вкладка. Прежде они
               спрашивали свои `sim` и `timeline`, которых в списке вкладок
               больше нет, — и роль, открывшая схему, получала её без
               половины разделов. */}
+          {tabShown(me,"scheme","time")&&(
           <button style={btn(under==="time")} onClick={()=>setUnder("time")}>
-            Деятельность</button>
+            Деятельность</button>)}
+          {tabShown(me,"scheme","sim")&&(
           <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
-            Цели</button>
+            Цели</button>)}
         </div>
         {/* Одна строка под вкладками — чем этот раздел занят (владелец,
             2026-09-19). */}
@@ -1896,8 +1915,19 @@ export default function SystemModel(){
              рождается уже с ним: форма постановки его не выбирает. Без
              этого позванный постановщик не увидел бы задачу в «ждут
              постановки»: ему показывают только те, где постановщик — он. */
-          onTasks={list=>setTasks(p=>[...p,...list.map(t=>(t.setter!=null&&t.setter!==""
-            ?t:{...t,setter:funcs.find(f=>f.id===t.funcId)?.setters?.[0]??null}))])}
+          onTasks={list=>setTasks(p=>[...p,...list.map(t=>{
+            /* Задача рождается С ЛЮДЬМИ (владелец, 2026-09-20): кого
+               ставить, решают должности функции и порядок воркеров
+               актива. Пустых ролей не бывает — иначе на «Проверке»
+               стояло бы «не назначен». */
+            const f=funcs.find(x=>x.id===t.funcId)||null;
+            const crew=crewFor(f,{entities,people,rolesOf});
+            const has=(v)=>v!=null&&v!=="";
+            return {...t,
+              setter:has(t.setter)?t.setter:crew.setter,
+              assignee:has(t.assignee)?t.assignee:crew.assignee,
+              reviewer:has(t.reviewer)?t.reviewer:crew.reviewer};
+          })])}
           onDropGoal={id=>setTasks(p=>p.filter(t=>(
             /* Уходит цель — уходит и заведённая ею работа. Кроме уже
                СДЕЛАННОЙ: принятая сдача это то, что и правда произошло, и
@@ -1993,7 +2023,10 @@ export default function SystemModel(){
             ["calls","Звонки"],["export","Выгрузка"]]
             // «Люди и роли» — дело владельца. «Выгрузка» тоже: схем у
             // не-владельца не бывает, у него одна — та, где его назначили.
-            .filter(([k])=>(k!=="people"&&k!=="export")||me.isOwner||me.solo)
+            // «Люди и роли» и «Выгрузка» — дело владельца; остальные —
+            // по праву роли на внутренней вкладке (владелец, 2026-09-20).
+            .filter(([k])=>((k!=="people"&&k!=="export")||me.isOwner||me.solo)
+              &&tabShown(me,"tools",k))
             .map(([k,t])=>(
               <button key={k} style={btn(tool===k)} onClick={()=>setTool(k)}>{t}</button>))}
         </div>)}

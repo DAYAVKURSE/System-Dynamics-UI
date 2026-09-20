@@ -28,12 +28,53 @@ import { docxToHtml } from "./docx.js";
    лежит вкладка, которой нет, — это обещание доступа к несуществующему
    месту: роль открывает «Прогноз», человек её получает и не находит.
    «Анкета» сюда не входит: она открыта всем вошедшим и роли не требует. */
-export const TABS = ["tasks", "review", "scheme", "reports", "tools"];
+const TAB_ALIAS = { json: "tools:export", calls: "tools:calls",
+  timeline: "scheme:time", sim: "scheme:sim" };
+/* ВКЛАДКИ — ВСЕ, что вообще есть в приложении (владелец, 2026-09-20), и
+   верхние, и внутренние: внутренняя вкладка — такое же место, и роль
+   должна уметь открыть «Звонки», не открывая «Выгрузку». Внутренние
+   пишутся через двоеточие: «tools:calls». Открытая внутренняя открывает и
+   свою верхнюю — иначе до неё не дойти. */
+export const TABS = ["market", "me", "tasks", "review",
+  "scheme", "scheme:edit", "scheme:time", "scheme:sim",
+  "reports",
+  "tools", "tools:people", "tools:assistant", "tools:reminders",
+  "tools:calls", "tools:export"];
+/* Право на вкладке: «r» — только смотреть, «rw» — ещё и править
+   (владелец, 2026-09-20: одно нажатие — жёлтая «r», второе — зелёная
+   «rw»). Прежние роли хранили просто список вкладок — он читается как
+   полное право: ничего у них не отнимаем. */
+export const ACCESS = ["r", "rw"];
+export const accessOf = (role = {}) => {
+  const out = {};
+  const put = (t, a) => {
+    const tab = TAB_ALIAS[t] || t;
+    if (!TABS.includes(tab)) return;
+    if (out[tab] === "rw") return;
+    out[tab] = ACCESS.includes(a) ? a : "rw";
+  };
+  /* Карта прав — главная; список `tabs` остался для прежних читателей и
+     повторяет её. Читать его первым значило бы выдавать «rw» там, где в
+     карте стоит «r»: вкладка уже полная, и «r» до неё не доходит. Роль без
+     карты — запись прошлой версии: её список и есть полное право. */
+  const map = role.access && typeof role.access === "object" ? role.access : null;
+  if (map) Object.entries(map).forEach(([t, a]) => put(t, a));
+  (role.tabs || []).forEach((t) => {
+    if (!map || !((TAB_ALIAS[t] || t) in map)) put(t, "rw");
+  });
+  /* Внутренняя вкладка открывает и свою верхнюю: до «Звонков» иначе не
+     добраться. Право у верхней — не ниже права внутренней. */
+  Object.entries({ ...out }).forEach(([t, a]) => {
+    const top = t.includes(":") ? t.split(":")[0] : "";
+    if (top && out[top] !== "rw") out[top] = a;
+  });
+  return out;
+};
 /* Прежние имена вкладок из сохранённых ролей: «выгрузка» и «звонки» стали
    внутренними вкладками «инструментов», а «таймлайн» и «прогноз» —
    разделами «Схемы». Читаем старое как новое, чтобы роль, заведённая
    вчера, не потеряла вкладку сегодня. */
-const TAB_ALIAS = { json: "tools", calls: "tools", timeline: "scheme", sim: "scheme" };
+
 export const normTabs = (tabs) => [...new Set((tabs || [])
   .map((t) => TAB_ALIAS[t] || t).filter((t) => TABS.includes(t)))];
 
@@ -115,7 +156,8 @@ export async function readOrg() {
        дописываем — доступ человека собран из его прежней роли. */
     const old = Array.isArray(parsed.positions) ? parsed.positions : [];
     const all = [
-      ...roles.map((r) => ({ ...r, tabs: normTabs(r.tabs), contract: fileRef(r.contract),
+      ...roles.map((r) => ({ ...r, tabs: Object.keys(accessOf(r)), access: accessOf(r),
+        contract: fileRef(r.contract),
         form: formLink(r.form),
         /* Договор-документ роли (lib/contractStore.js): по нему зовут
            участника и его подписывают. Прежний `contract` (файл-шаблон)
@@ -241,7 +283,18 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
     // Владельцу доступно всё; остальным — то, что дают ЕГО ДЕЙСТВУЮЩИЕ
     // роли вместе. Ни одной (удалили, договор не подписан, срок вышел) —
     // не показываем ничего, кроме объяснения.
-    tabs: isOwner ? [...TABS] : normTabs(active.flatMap((r) => r.tabs || [])),
+    tabs: isOwner ? [...TABS] : normTabs(active.flatMap((r) => Object.keys(accessOf(r)))),
+    /* Право на каждой вкладке: «r» — смотреть, «rw» — править. У
+       владельца полное везде; у остальных — самое широкое из его
+       действующих ролей (владелец, 2026-09-20). */
+    access: isOwner
+      ? Object.fromEntries(TABS.map((t) => [t, "rw"]))
+      : active.reduce((acc, r) => {
+        Object.entries(accessOf(r)).forEach(([t, a]) => {
+          if (acc[t] !== "rw") acc[t] = a;
+        });
+        return acc;
+      }, {}),
     /* Роли, которые у человека есть, но не действуют, — словами, чтобы
        объяснение было точным: «срок договора вышел», а не «ролей нет». */
     inactive: mine.filter((r) => !active.includes(r))
@@ -855,8 +908,8 @@ export async function addRole({ name, tabs, contract }) {
   while (org.roles.some((r) => r.id === id)) id = `${slug(clean)}-${n++}`;
   // Новая роль по умолчанию — исполнитель: из бота роль заводится одним
   // именем, а видеть чужие проверки без явного решения она не должна.
-  const list = normTabs(tabs);
-  const role = { id, name: clean, tabs: list.length ? list : ["tasks"],
+  const map = accessOf({ tabs: tabs && tabs.length ? tabs : ["tasks"] });
+  const role = { id, name: clean, tabs: Object.keys(map), access: map,
     contract: fileRef(contract), builtin: false };
   org.roles.push(role);
   await writeOrg(org);
@@ -878,11 +931,22 @@ export async function renameRole(id, name) {
   return role;
 }
 
+/**
+ * Что роль открывает и на каком праве.
+ *
+ * Принимает и прежний список вкладок (читается как полное право), и карту
+ * «вкладка → r|rw» (владелец, 2026-09-20). Хранится карта; список `tabs`
+ * остаётся для прежних читателей — в нём те же вкладки.
+ */
 export async function setRoleTabs(id, tabs) {
   const org = await readOrg();
   const role = org.roles.find((r) => r.id === id);
   if (!role) return null;
-  role.tabs = normTabs(tabs);
+  const map = Array.isArray(tabs)
+    ? accessOf({ tabs })
+    : accessOf({ access: tabs || {} });
+  role.access = map;
+  role.tabs = Object.keys(map);
   await writeOrg(org);
   return role;
 }

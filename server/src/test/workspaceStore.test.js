@@ -62,7 +62,7 @@ describe("одновременные правки модели", () => {
       store.submitTask("200", "s1", { hours: 1 }),
       store.submitTask("200", "s2", { hours: 2 }),
       store.reviewTask("300", "r1", { accept: true, mark: 4, comment: "принято" }),
-      ...ids(20, "x").map(() => store.seeChat("300", "d1", { isOwner: false })),
+      ...ids(20, "x").map(() => store.seeChat("300", "d1", { role: "reviewer" })),
     ]);
     results.forEach((r) => expect(r.error).toBeUndefined());
 
@@ -74,7 +74,7 @@ describe("одновременные правки модели", () => {
     expect(byId.r1.reviews).toHaveLength(1);
     // Решение проверяющего ложится в обсуждение задачи.
     expect(byId.r1.chat.map((m) => m.text)).toEqual(["принято"]);
-    expect(byId.d1.seenBy["300"]).toBeTruthy();
+    expect(byId.d1.seenBy.reviewer).toBeTruthy();
   });
 
   it("withModel выполняет работы по очереди, а не вперемешку", async () => {
@@ -138,8 +138,11 @@ describe("обсуждение задачи", () => {
       .toEqual({ error: "text required" });
     const r = await store.addMessage("200", "t1", { text: "завтра" });
     expect(r.message).toMatchObject({ text: "завтра", by: "200" });
-    // Своё сообщение непрочитанным не бывает: метка двигается сама.
-    expect(r.task.seenBy["200"]).toBe(r.message.at);
+    /* Роль — это место, откуда сказано (владелец, 2026-09-20), и метка
+       прочтения двигается у неё же: сказанное своей ролью непрочитанным
+       не бывает. */
+    expect(r.message.role).toBe("assignee");
+    expect(r.task.seenBy.assignee).toBe(r.message.at);
     expect((await store.readModel()).tasks[0].chat).toHaveLength(2);
   });
 
@@ -147,8 +150,10 @@ describe("обсуждение задачи", () => {
     await store.writeModel({ tasks: [task("t1", "progress")] });
     expect(await store.seeChat("999", "t1")).toEqual({ error: "not yours" });
     expect(await store.seeChat("200", "нет")).toEqual({ error: "not found" });
-    const r = await store.seeChat("300", "t1");
-    expect(r.task.seenBy["300"]).toBeTruthy();
+    const r = await store.seeChat("300", "t1", { role: "reviewer" });
+    expect(r.task.seenBy.reviewer).toBeTruthy();
+    // Роль не названа — читается роль исполнителя.
+    expect((await store.seeChat("300", "t1")).task.seenBy.assignee).toBeTruthy();
   });
 });
 

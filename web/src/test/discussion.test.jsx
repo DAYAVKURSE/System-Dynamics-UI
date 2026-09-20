@@ -20,9 +20,10 @@ const FUNCS = [{ id: "f1", e: "usr", name: "Сбор заявок", dur: 2, durU
 const PEOPLE = [{ id: "1", name: "Владелец" }, { id: "2", name: "Иван" }, { id: "3", name: "Пётр" }];
 const nameOf = (id) => PEOPLE.find((p) => p.id === String(id))?.name || String(id);
 
+/* Роль сообщения — место, откуда сказано (владелец, 2026-09-20). */
 const CHAT = [
-  { id: "m1", text: "когда начнёшь?", at: "2026-01-01T10:00:00Z", by: "1" },
-  { id: "m2", text: "завтра", at: "2026-01-01T11:00:00Z", by: "2" },
+  { id: "m1", text: "когда начнёшь?", at: "2026-01-01T10:00:00Z", by: "1", role: "setter" },
+  { id: "m2", text: "завтра", at: "2026-01-01T11:00:00Z", by: "2", role: "assignee" },
 ];
 const task = (over = {}) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
   setter: "1", assignee: "2", reviewer: "3", status: "progress", chat: CHAT, ...over });
@@ -43,11 +44,12 @@ describe("обсуждение на «Проверке»", () => {
     expect(screen.queryByLabelText("поля задачи")).toBeNull();
   });
 
-  it("красный кружок считает непрочитанное, открытие его снимает", () => {
+  it("красный кружок считает непрочитанное по РОЛИ, открытие его снимает", () => {
     const seen = [];
     const t = task();
     render(<Review tasks={[t]} onSeen={(x) => seen.push(x.id)} />);
-    // Пётр не читал ни одного из двух сообщений.
+    /* Задача в работе — с «Проверки» смотрит проверяющий, и оба чужих
+       сообщения (постановщика и исполнителя) для него непрочитаны. */
     expect(screen.getByLabelText("непрочитанных сообщений: 2")).toBeInTheDocument();
     fireEvent.click(button());
     expect(seen).toEqual([t.id]);
@@ -63,21 +65,33 @@ describe("обсуждение на «Проверке»", () => {
     expect(within(talk).getByText(/Иван · исполнитель/)).toBeInTheDocument();
   });
 
-  it("сказанное уходит наружу и остаётся в разговоре", () => {
+  it("сказанное уходит наружу с ролью и остаётся в разговоре", () => {
     const said = [];
-    render(<Review tasks={[task()]} onSay={(t, text) => said.push(text)} />);
+    render(<Review tasks={[task()]} onSay={(t, text, role) => said.push([text, role])} />);
     fireEvent.click(button());
     const field = screen.getByLabelText("сообщение");
     fireEvent.change(field, { target: { value: "жду" } });
     fireEvent.blur(field);
     fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
-    expect(said).toEqual(["жду"]);
+    // Задача уже поставлена — с «Проверки» говорит проверяющий.
+    expect(said).toEqual([["жду", "reviewer"]]);
     expect(within(screen.getByLabelText("обсуждение")).getByText("жду")).toBeInTheDocument();
   });
 
   /* ЧИТАТЬ МОЖНО ВСЕГДА, ПИСАТЬ — ПОКА РАБОТУ НЕ ПРИНЯЛИ (владелец,
      2026-09-20): «в обсуждения готовых задач должно быть можно зайти, но
      нельзя добавить сообщение»; на «Проверке» писать можно. */
+  /* РОЛЬ ЗАВИСИТ ОТ МЕСТА, А НЕ ОТ АККАУНТА (владелец, 2026-09-20): за
+     всех троих может сидеть один человек, и кружок всё равно появляется. */
+  it("сказанное с «Задач» видно как непрочитанное на «Проверке» — и наоборот", () => {
+    const fromTasks = task({ chat: [
+      { id: "m9", text: "сделал", at: "2026-02-01T10:00:00Z", by: "2", role: "assignee" }],
+    seenBy: { assignee: "2026-02-01T10:00:00Z" } });
+    render(<Review tasks={[fromTasks]} meId="2" />);
+    // Тот же аккаунт, но роль другая — значит, для неё это новое.
+    expect(screen.getByLabelText("непрочитанных сообщений: 1")).toBeInTheDocument();
+  });
+
   it("до постановки кнопка неактивна", () => {
     render(<Review tasks={[task({ status: "wait" })]} />);
     expect(button()).toBeDisabled();
@@ -117,11 +131,11 @@ describe("маршруты обсуждения", () => {
       calls.push({ url: String(url), method: opts.method, body: JSON.parse(opts.body || "{}") });
       return { ok: true, status: 201, json: async () => ({}) };
     });
-    await messageTaskRemote("tk1", "слово");
-    await seeChatRemote("tk1");
+    await messageTaskRemote("tk1", "слово", "reviewer");
+    await seeChatRemote("tk1", "setter");
     expect(calls[0]).toMatchObject({ url: "/api/workspace/tasks/tk1/chat", method: "POST",
-      body: { text: "слово" } });
+      body: { text: "слово", role: "reviewer" } });
     expect(calls[1]).toMatchObject({ url: "/api/workspace/tasks/tk1/chat/seen",
-      method: "POST" });
+      method: "POST", body: { role: "setter" } });
   });
 });
