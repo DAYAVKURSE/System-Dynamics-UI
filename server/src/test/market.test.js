@@ -71,7 +71,9 @@ describe("заказы и услуги", () => {
     /* Вместе они не работают — значит, незнакомы: автор представлен
        двумя словами, а не именем (владелец, 2026-09-20). */
     expect(seen.body.people["200"]).toBe(aliasOf("200"));
-    expect(seen.body.faces["200"]).toEqual({ avatar: "", anon: true });
+    expect(seen.body.faces["200"]).toMatchObject({ avatar: "", anon: true });
+    // Статус автора — рядом с лицом: по нему видно, на месте ли он.
+    expect(seen.body.faces["200"].status).toBe("ready");
     expect(seen.body.me).toBe("300");
   });
 

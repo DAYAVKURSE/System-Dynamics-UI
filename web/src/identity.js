@@ -210,9 +210,12 @@ export const removeUser = (id) =>
 export const listVirtual = () => json("/api/org/virtual");
 export const addVirtual = (roleId) =>
   json("/api/org/virtual", { method: "POST", body: JSON.stringify({ roleId }) });
-export const setVirtualRole = (id, roleId) =>
+/* Ролей у виртуального сотрудника несколько, как у обычного участника. */
+export const setVirtualRoles = (id, roles) =>
   json(`/api/org/virtual/${encodeURIComponent(id)}/role`,
-    { method: "PUT", body: JSON.stringify({ roleId }) });
+    { method: "PUT", body: JSON.stringify({ roles }) });
+/* Ссылка заводится вместе со страницей и приходит в списке; этот маршрут
+   остался для случая «выдать новую взамен разосланной». */
 export const virtualLink = (id) =>
   json(`/api/org/virtual/${encodeURIComponent(id)}/link`, { method: "POST" });
 /* Что ждёт по ссылке — без подписи: её читает тот, кто ещё не вошёл. */

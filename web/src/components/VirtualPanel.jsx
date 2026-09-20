@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { ACC, Avatar, BAD, C, OK, S, btn } from "./ui.jsx";
-import { addVirtual, listVirtual, setActingAs, setVirtualRole, virtualLink } from "../identity.js";
+import { ACC, Avatar, BAD, C, OK, S, WARN, btn } from "./ui.jsx";
+import { addVirtual, listVirtual, setActingAs, setVirtualRoles } from "../identity.js";
 
 /* ════════════════════════════════════════════════════════════════
    ВИРТУАЛЬНЫЕ СОТРУДНИКИ (владелец, 2026-09-20)
@@ -28,7 +28,6 @@ export default function VirtualPanel({ me, onEnter }) {
   const [view, setView] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  const [links, setLinks] = useState({});
   const known = Boolean(me?.known && !me?.solo);
 
   const load = () => listVirtual().then(setView).catch((e) => setMsg(e.message));
@@ -87,34 +86,37 @@ export default function VirtualPanel({ me, onEnter }) {
               {u.tg ? "страницу забрали" : "человека ещё нет"}</span>
           </div>
 
+          {/* Роли — кнопками, как у обычного участника (владелец,
+              2026-09-20): их может быть несколько, он и дизайнер, и
+              проверяющий. */}
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 8 }}>
-            <span style={{ fontSize: 10.5, color: C.muted }}>роль:</span>
-            <select style={{ ...S.inp, flex: "0 1 200px", fontSize: 11.5, padding: "3px 6px" }}
-              aria-label={`роль ${u.name}`} disabled={busy}
-              value={(u.roles || [])[0] || ""}
-              onChange={(e) => act(() => setVirtualRole(u.id, e.target.value || null))}>
-              <option value="">— без роли —</option>
-              {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+            {roles.map((r) => {
+              const has = (u.roles || []).includes(r.id);
+              return (
+                <button key={r.id} type="button" aria-pressed={has} disabled={busy}
+                  aria-label={`роль «${r.name}»: ${u.name}`}
+                  style={{ ...btn(has, has ? OK : undefined), fontSize: 11, padding: "2px 7px" }}
+                  onClick={() => act(() => setVirtualRoles(u.id, has
+                    ? (u.roles || []).filter((x) => x !== r.id)
+                    : [...(u.roles || []), r.id]))}>
+                  {r.name}</button>);
+            })}
+            {!roles.length && (
+              <span style={{ fontSize: 10.5, color: WARN }}>ролей ещё нет</span>)}
           </div>
 
           <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
             <button type="button" style={btn(true, ACC)} disabled={busy}
               aria-label={`войти под именем ${u.name}`}
               onClick={() => enter(u)}>Войти под его именем</button>
-            <button type="button" style={btn(false)} disabled={busy}
-              aria-label={`ссылка для регистрации ${u.name}`}
-              onClick={() => act(async () => {
-                const r = await virtualLink(u.id);
-                setLinks((p) => ({ ...p, [u.id]: r.link }));
-                return r;
-              })}>Сгенерировать ссылку</button>
           </div>
 
-          {links[u.id] && (
+          {/* Ссылка — внизу формы и сразу: страница заводится вместе с
+              ней, и отдельной кнопки для этого нет. */}
+          {u.link && (
             <div style={{ marginTop: 8 }}>
               <div style={{ fontSize: 10.5, color: C.muted }}>ссылка для регистрации:</div>
-              <input readOnly value={links[u.id]} aria-label={`ссылка ${u.name}`}
+              <input readOnly value={u.link} aria-label={`ссылка ${u.name}`}
                 onFocus={(e) => e.target.select()}
                 style={{ ...S.inp, width: "100%", fontSize: 11, marginTop: 3,
                   fontFamily: "ui-monospace, monospace" }} />

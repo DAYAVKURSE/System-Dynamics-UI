@@ -72,8 +72,14 @@ router.get("/virtual", async (req, res, next) => {
     const me = await identify(req.telegramUserId, req.telegramProfile || {});
     if (!me.known) return res.status(403).json({ error: "you are not invited yet" });
     const org = await listOrg();
+    const bot = process.env.BOT_NAME || "";
+    const link = (t) => (t
+      ? (bot ? `https://t.me/${bot}?startapp=join_${t}` : `?join=${t}`) : "");
     return res.json({
-      users: (org.users || []).filter((u) => mineVirtual(u, me)),
+      // Ссылка показана прямо в форме (владелец, 2026-09-20): отдельной
+      // кнопки для неё нет — страница заводится сразу со ссылкой.
+      users: (org.users || []).filter((u) => mineVirtual(u, me))
+        .map((u) => ({ ...u, link: u.tg ? "" : link(u.token) })),
       roles: (org.roles || []).map((r) => ({ id: r.id, name: r.name, doc: r.doc || null })),
       isOwner: !!me.isOwner,
     });
@@ -103,8 +109,12 @@ router.put("/virtual/:id/role", async (req, res, next) => {
     if (!(await mayActAs(req.telegramUserId, req.params.id))) {
       return res.status(403).json({ error: "not your page" });
     }
-    const roleId = req.body?.roleId || null;
-    const user = await setUserRoles(req.params.id, roleId ? [roleId] : []);
+    /* Ролей НЕСКОЛЬКО, как у обычного участника (владелец, 2026-09-20):
+       он и дизайнер, и проверяющий. Прежний `roleId` читается как список
+       из одной — чтобы старый вызов не сломался. */
+    const roles = Array.isArray(req.body?.roles) ? req.body.roles
+      : (req.body?.roleId ? [req.body.roleId] : []);
+    const user = await setUserRoles(req.params.id, roles);
     if (!user) return res.status(404).json({ error: "not found" });
     return res.json(user);
   } catch (e) {

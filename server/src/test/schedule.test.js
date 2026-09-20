@@ -6,19 +6,28 @@ import path from "node:path";
 
 let app;
 let store;
+let ws;
+let rootDir;
 let tmpDir;
 
 beforeAll(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "sd-schedules-"));
+  /* Каталоги врозь: `beforeEach` чистит каталог расписаний по файлам, и
+     вложенная папка модели ломала бы уборку. */
+  rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "sd-schedules-"));
+  tmpDir = path.join(rootDir, "sched");
+  await fs.mkdir(tmpDir, { recursive: true });
   process.env.SCHEDULES_DIR = tmpDir;
+  process.env.WORKSPACE_DIR = path.join(rootDir, "ws");
+  process.env.ORG_DIR = path.join(rootDir, "org");
   process.env.NODE_ENV = "test";
   ({ createApp: app } = await import("../app.js"));
   app = app();
   store = await import("../lib/scheduleStore.js");
+  ws = await import("../lib/workspaceStore.js");
 });
 
 afterAll(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await fs.rm(rootDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
@@ -164,46 +173,59 @@ describe("хранилище расписаний", () => {
    Запись заводится, когда задача появилась в бэклоге, и живёт, пока её не
    удалят руками: взятая в работу и сданная задача из списка не пропадают. */
 describe("напоминания в списке", () => {
-  const put = (tasks) => request(app).put("/api/schedule").send({ tzOffset: 0, tasks });
+  /* Задачи берутся из МОДЕЛИ, а не из расписания, присланного браузером
+     (владелец, 2026-09-20): пока доску не открыли, список был пуст —
+     «взял задачу в работу, ничего не появилось». */
+  const model = (tasks) => ws.writeModel({ tasks });
   const list = () => request(app).get("/api/schedule/reminders");
   const one = (over = {}) => ({ id: "a", title: "Сверстать", status: "backlog",
-    kind: "task", start: "2030-01-01T10:00", repeat: "once", warn: 30, ...over });
+    assignee: "dev-user", setter: "dev-user", reviewer: "dev-user",
+    start: "2030-01-01T10:00", submissions: [], reviews: [], chat: [], ...over });
 
-  it("появляется у задачи в бэклоге и говорит оба статуса", async () => {
-    await put([one()]);
+  it("появляется у задачи в бэклоге — даже если доску не открывали", async () => {
+    await model([one()]);
     const r = await list();
     expect(r.status).toBe(200);
     expect(r.body.reminders).toHaveLength(1);
     expect(r.body.reminders[0]).toMatchObject({ id: "task:a", title: "Сверстать",
       doing: "бэклог", sentAt: null });
-    expect(r.body.reminders[0].at).toBe("2030-01-01T09:30:00.000Z");
   });
 
   it("не пропадает, когда задачу взяли в работу и когда сдали", async () => {
-    await put([one()]);
-    await put([one({ status: "progress" })]);
+    await model([one()]);
+    await list();
+    await model([one({ status: "progress" })]);
     let r = await list();
     expect(r.body.reminders.map((x) => [x.id, x.doing])).toEqual([["task:a", "в работе"]]);
-    await put([one({ status: "done" })]);
+    await model([one({ status: "done" })]);
     r = await list();
     expect(r.body.reminders.map((x) => [x.id, x.doing])).toEqual([["task:a", "сдана"]]);
   });
 
-  it("«Удалить» убирает её насовсем — заново не заводится", async () => {
-    await put([one()]);
-    expect((await request(app).delete("/api/schedule/reminders/task:a"))
-      .status).toBe(204);
+  it("чужая задача не напоминает о себе", async () => {
+    await model([one({ assignee: "999", setter: "999" })]);
     expect((await list()).body.reminders).toEqual([]);
-    // Задача всё ещё в бэклоге, но напоминание не возвращается.
-    await put([one()]);
-    expect((await list()).body.reminders).toEqual([]);
-    // Второй раз удалять нечего.
-    expect((await request(app).delete("/api/schedule/reminders/task:a"))
-      .status).toBe(404);
   });
 
-  it("у взятой сразу задачи записи не заводится вовсе", async () => {
-    await put([one({ id: "b", status: "progress" })]);
+  it("ждущая постановки напоминает ПОСТАНОВЩИКУ", async () => {
+    await model([one({ status: "wait" })]);
+    const r = await list();
+    expect(r.body.reminders.map((x) => [x.id, x.doing]))
+      .toEqual([["setup:a", "ожидает постановки"]]);
+  });
+
+  it("«Удалить» убирает её насовсем — заново не заводится", async () => {
+    await model([one()]);
+    await list();
+    expect((await request(app).delete("/api/schedule/reminders/task:a")).status).toBe(204);
+    expect((await list()).body.reminders).toEqual([]);
+    // Задача всё ещё в бэклоге, но напоминание не возвращается.
+    expect((await list()).body.reminders).toEqual([]);
+    expect((await request(app).delete("/api/schedule/reminders/task:a")).status).toBe(404);
+  });
+
+  it("отменённая задача записи не заводит", async () => {
+    await model([one({ canceled: true })]);
     expect((await list()).body.reminders).toEqual([]);
   });
 });

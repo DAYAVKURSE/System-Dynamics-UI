@@ -8,7 +8,7 @@ import {
   BadInput, acceptBrief, addChat, addDelivery, addOffer, addOrder, addService, peopleOf,
   readMarket, removeOrder, removeService, setBrief, updateOrder, updateService, viewFor,
 } from "../lib/marketStore.js";
-import { worksNow } from "../lib/workTime.js";
+import { liveStatus, worksNow } from "../lib/workTime.js";
 import { readSchedule } from "../lib/scheduleStore.js";
 import { sendMessage } from "../lib/telegram.js";
 
@@ -71,12 +71,17 @@ const withNames = async (view, me) => {
   const known = await knownToAsker(me);
   const people = {};
   const faces = {};
-  org.users.forEach((u) => {
-    if (!ids.has(String(u.id))) return;
+  for (const u of org.users) {
+    if (!ids.has(String(u.id))) continue;
     const face = faceOf(u, { known, me });
     people[String(u.id)] = face.name;
-    faces[String(u.id)] = { avatar: face.avatar, anon: face.anon };
-  });
+    /* Статус автора по его графику — тем же правилом, что и в строке
+       воркера (владелец, 2026-09-20): рядом с «принимает автоматически»
+       должно быть видно, на месте ли он сейчас. */
+    const tz = (await readSchedule(u.id))?.tzOffset ?? 0;
+    faces[String(u.id)] = { avatar: face.avatar, anon: face.anon,
+      status: liveStatus(u, Date.now(), tz) };
+  }
   return { ...view, people, faces };
 };
 

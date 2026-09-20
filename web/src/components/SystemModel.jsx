@@ -2043,7 +2043,7 @@ export default function SystemModel(){
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
         <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
-          {[["people","Роли"],["assistant","Агенты"],["virtual","Виртуальные"],
+          {[["people","Роли"],["assistant","Агенты"],["virtual","Виртуальные сотрудники"],
             ["reminders","Напоминания"],["calls","Звонки"],["export","Выгрузка"]]
             // «Люди и роли» — дело владельца. «Выгрузка» тоже: схем у
             // не-владельца не бывает, у него одна — та, где его назначили.

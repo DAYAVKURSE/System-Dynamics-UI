@@ -272,3 +272,85 @@ describe("принимает заказ автоматически", () => {
     expect(within(plain).queryByLabelText("принимает заказ автоматически")).toBeNull();
   });
 });
+
+/* ─────── ПОИСК ПО СМЫСЛУ (владелец, 2026-09-20) ───────
+   Поле справа от «+ заказ» и «+ услуга»; выпадающий список подходящего;
+   нажатие ставит выбранное первым, а под ним — ближайшее по смыслу. */
+describe("поиск на рынке", () => {
+  const SERVICES = [
+    { id: "s1", by: "300", name: "Разработка", text: "сделаю сайт", takes: [], gives: [],
+      days: 3, at: "2026-09-13T10:00:00Z" },
+    { id: "s2", by: "300", name: "Доставка грузов", text: "по городу", takes: [], gives: [],
+      days: 1, at: "2026-09-13T10:00:00Z" },
+    { id: "s3", by: "300", name: "Вёрстка лендинга", text: "адаптивная", takes: [], gives: [],
+      days: 2, at: "2026-09-13T10:00:00Z" },
+  ];
+  const withServices = () => {
+    const s = marketServer();
+    s.state.services.push(...SERVICES);
+    return s;
+  };
+
+  it("поле стоит справа от «+ услуга»", async () => {
+    withServices();
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    const add = await screen.findByRole("button", { name: "+ услуга" });
+    const field = screen.getByLabelText("поиск услуг");
+    const row = add.parentElement;
+    expect(row).toContainElement(field);
+    expect([...row.children].indexOf(add))
+      .toBeLessThan([...row.children].indexOf(field.parentElement));
+  });
+
+  it("ищет по смыслу: «программирование» находит «Разработку»", async () => {
+    withServices();
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    fireEvent.change(screen.getByLabelText("поиск услуг"),
+      { target: { value: "программирование" } });
+    const list = await screen.findByRole("listbox", { name: /поиск услуг/ });
+    const found = within(list).getAllByRole("option").map((o) => o.textContent);
+    expect(found.some((t) => t.includes("Разработка"))).toBe(true);
+    expect(found.some((t) => t.includes("Доставка"))).toBe(false);
+  });
+
+  it("нажатие ставит выбранное первым, под ним — ближайшее по смыслу", async () => {
+    withServices();
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    fireEvent.change(screen.getByLabelText("поиск услуг"), { target: { value: "разработка" } });
+    fireEvent.click(await screen.findByRole("option", { name: "найдено: Разработка" }));
+    await waitFor(() => {
+      const cards = screen.getAllByLabelText(/^услуга /).map((c) => c.getAttribute("aria-label"));
+      expect(cards[0]).toBe("услуга Разработка");
+      expect(cards[1]).toBe("услуга Вёрстка лендинга");
+    });
+  });
+
+  it("пустое поле возвращает список как был", async () => {
+    withServices();
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    const field = screen.getByLabelText("поиск услуг");
+    fireEvent.change(field, { target: { value: "разработка" } });
+    fireEvent.click(await screen.findByRole("option", { name: "найдено: Разработка" }));
+    await waitFor(() => expect(screen.getAllByLabelText(/^услуга /)[0]
+      .getAttribute("aria-label")).toBe("услуга Разработка"));
+    fireEvent.change(field, { target: { value: "" } });
+    await waitFor(() => expect(screen.getAllByLabelText(/^услуга /)[0]
+      .getAttribute("aria-label")).toBe("услуга Вёрстка лендинга"));
+  });
+
+  it("в названии новой услуги подсказываются готовые, близкие по смыслу", async () => {
+    withServices();
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    fireEvent.click(screen.getByRole("button", { name: "+ услуга" }));
+    fireEvent.change(screen.getByLabelText("название услуги"),
+      { target: { value: "программирование" } });
+    const hints = await screen.findByRole("listbox", { name: /название услуги/ });
+    fireEvent.click(within(hints).getByRole("option", { name: "название: Разработка" }));
+    expect(screen.getByLabelText("название услуги")).toHaveValue("Разработка");
+  });
+});

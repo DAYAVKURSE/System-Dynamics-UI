@@ -2,6 +2,7 @@ import "dotenv/config";
 import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
+import { scheduleFor } from "./lib/scheduleTasks.js";
 import { store } from "./lib/scheduleStore.js";
 import { answerCallback, answerInline, editMessage, getFile, getMe, getUpdates, sendWithKeyboard }
   from "./lib/telegram.js";
@@ -47,6 +48,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
         /* Уведомление о начале работы приходит с кнопками «Начать» и
            «Отложить», поэтому отправка та же, что и у бота. */
         store, send: sendWithKeyboard, log: (m) => console.warn(`[scheduler] ${m}`),
+        // Задачи — из модели: список не должен зависеть от того, открывали
+        // ли приложение (владелец, 2026-09-20).
+        tasksFor: scheduleFor,
       });
       if (sent) console.log(`[scheduler] отправлено напоминаний: ${sent}`);
       /* Попытка публикации оценок — на каждом тике: то, что стало

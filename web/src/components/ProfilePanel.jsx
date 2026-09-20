@@ -854,11 +854,10 @@ export function RemindersCard({ me, onSaved }) {
         {msg && (
           <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>{msg}</span>)}
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-        {known
-          ? "Применяется сразу. Чтобы напоминание дошло, у бота должен быть начат диалог."
-          : "Без сервера напоминаний нет: боту некуда слать, и выбирать здесь нечего."}
-      </div>
+      {!known && (
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+          Без сервера напоминаний нет: боту некуда слать, и выбирать здесь нечего.
+        </div>)}
       <ReminderList known={known} />
     </FoldCard>);
 }

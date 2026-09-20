@@ -16,7 +16,8 @@ const ME = { id: "1", name: "Иван", known: true, solo: false, isOwner: false
 const VIEW = {
   isOwner: false,
   roles: [{ id: "executor", name: "исполнитель" }, { id: "reviewer", name: "проверяющий" }],
-  users: [{ id: "vt_abc", name: "wise oyster", virtual: true, roles: ["executor"] }],
+  users: [{ id: "vt_abc", name: "wise oyster", virtual: true, roles: ["executor"],
+    link: "https://t.me/bot?startapp=join_k1" }],
 };
 
 const server = (over = {}) => {
@@ -59,38 +60,28 @@ describe("вкладка «Виртуальные»", () => {
     expect(row.querySelector("img")).toBeTruthy();
   });
 
-  it("здесь ровно три действия: роль, вход и ссылка", async () => {
-    server();
-    render(<VirtualPanel me={ME} />);
-    const row = await screen.findByLabelText("виртуальный wise oyster");
-    expect(screen.getByLabelText("роль wise oyster")).toHaveValue("executor");
-    expect(screen.getByRole("button", { name: "войти под именем wise oyster" }))
-      .toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ссылка для регистрации wise oyster" }))
-      .toBeInTheDocument();
-    // Ни правки имени, ни удаления человека здесь нет.
-    expect(row.textContent).not.toContain("Удалить");
-  });
-
-  it("роль уезжает своим маршрутом: её меняет тот, кто завёл страницу", async () => {
+  it("роли — кнопками, как у обычного участника, и их несколько", async () => {
     const calls = server();
     render(<VirtualPanel me={ME} />);
-    await screen.findByLabelText("роль wise oyster");
-    fireEvent.change(screen.getByLabelText("роль wise oyster"),
-      { target: { value: "reviewer" } });
+    await screen.findByLabelText("виртуальный wise oyster");
+    const exec = screen.getByRole("button", { name: "роль «исполнитель»: wise oyster" });
+    const rev = screen.getByRole("button", { name: "роль «проверяющий»: wise oyster" });
+    expect(exec).toHaveAttribute("aria-pressed", "true");
+    expect(rev).toHaveAttribute("aria-pressed", "false");
+    // Вторая роль ДОБАВЛЯЕТСЯ к первой, а не заменяет её.
+    fireEvent.click(rev);
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     const put = calls.find((c) => c.method === "PUT");
     expect(put.url).toBe("/api/org/virtual/vt_abc/role");
-    expect(put.body).toEqual({ roleId: "reviewer" });
+    expect(put.body).toEqual({ roles: ["executor", "reviewer"] });
   });
 
-  it("«Сгенерировать ссылку» показывает саму ссылку", async () => {
+  it("ссылка показана внизу формы сразу, без кнопки", async () => {
     server();
     render(<VirtualPanel me={ME} />);
-    fireEvent.click(await screen.findByRole("button",
-      { name: "ссылка для регистрации wise oyster" }));
     const field = await screen.findByLabelText("ссылка wise oyster");
     expect(field).toHaveValue("https://t.me/bot?startapp=join_k1");
+    expect(screen.queryByRole("button", { name: /Сгенерировать ссылку/ })).toBeNull();
   });
 
   it("«Войти под его именем» переводит под эту страницу всё приложение", async () => {

@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ACC, Avatar, BAD, C, OK, S, WARN, btn } from "./ui.jsx";
+import { statusColor } from "./ProfilePanel.jsx";
+import { statusOf } from "../lib/workers.js";
+import { nameHints, nearest, search } from "../lib/semantic.js";
 import {
   acceptOffer, addDelivery, addOffer, addOrder, addService, dropOrder, dropService, getMarket,
   getMarketPerson, putBrief, sendChat, updateOrder, updateService,
@@ -80,7 +83,8 @@ const cleanRows = (rows) => rows.map((r) => ({ name: String(r.name || "").trim()
 
 /* ─────── форма заказа: слова, цена, ресурсы, подходящие услуги ─────── */
 
-function OrderForm({ initial, services, busy, onSave, onCancel, saveLabel = "Оставить заказ" }) {
+function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
+  saveLabel = "Оставить заказ" }) {
   const [f, setF] = useState({ name: "", text: "", price: "", resources: [emptyRow()],
     serviceId: null, funcId: null, ...initial,
     resources: initial?.resources?.length ? initial.resources : [emptyRow()] });
@@ -92,8 +96,10 @@ function OrderForm({ initial, services, busy, onSave, onCancel, saveLabel = "О�
   return (
     <div style={form} aria-label="форма заказа">
       <div style={S.lbl}>заказ</div>
-      <input aria-label="название заказа" style={{ ...S.inp, margin: "6px 0" }} placeholder="название"
-        value={f.name} onChange={(e) => up({ name: e.target.value })} />
+      {/* Пока набирают название, рядом падают уже придуманные — близкие
+          по смыслу (владелец, 2026-09-20): можно взять готовое. */}
+      <NameField label="название заказа" placeholder="название" value={f.name}
+        onChange={(v) => up({ name: v })} items={[...orders, ...services]} />
       <textarea aria-label="содержание заказа" style={{ ...S.inp, minHeight: 64, marginBottom: 6 }}
         placeholder="содержание: что нужно сделать" value={f.text}
         onChange={(e) => up({ text: e.target.value })} />
@@ -142,15 +148,16 @@ function OrderForm({ initial, services, busy, onSave, onCancel, saveLabel = "О�
 
 /* ─────── форма услуги: слова, берёт, выдаёт, срок ─────── */
 
-function ServiceForm({ initial, busy, onSave, onCancel, saveLabel = "Выложить услугу" }) {
+function ServiceForm({ initial, services = [], busy, onSave, onCancel,
+  saveLabel = "Выложить услугу" }) {
   const [f, setF] = useState({ name: "", text: "", takes: [], gives: [], days: "", funcId: null,
     auto: false, ...initial, days: initial?.days ?? "", auto: initial?.auto === true });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
   return (
     <div style={form} aria-label="форма услуги">
       <div style={S.lbl}>услуга</div>
-      <input aria-label="название услуги" style={{ ...S.inp, margin: "6px 0" }} placeholder="название"
-        value={f.name} onChange={(e) => up({ name: e.target.value })} />
+      <NameField label="название услуги" placeholder="название" value={f.name}
+        onChange={(v) => up({ name: v })} items={services} />
       <textarea aria-label="описание услуги" style={{ ...S.inp, minHeight: 64, marginBottom: 6 }}
         placeholder="описание: что делаете" value={f.text} onChange={(e) => up({ text: e.target.value })} />
       <div style={{ ...S.lbl, marginTop: 6 }}>какие ресурсы берёт</div>
@@ -360,6 +367,98 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
   );
 }
 
+/* ─────── ПОИСК ПО СМЫСЛУ (владелец, 2026-09-20) ───────
+
+   Поле стоит справа от «+ заказ» и «+ услуга». Пока человек печатает,
+   встроенный эмбеддер (`lib/semantic.js`) ищет подходящее ПО СМЫСЛУ, а не
+   по буквам: «программирование» находит «Разработку». Подходящее падает
+   выпадающим списком — по нему и нажимают.
+
+   Нажали — выбранное встаёт ПЕРВЫМ, а под ним ближайшие по смыслу: это и
+   есть ответ на «покажи такое же». Пустое поле возвращает список как был.
+
+   Всё считается на месте, без сети: записи уже загружены, а ходить к
+   модели на каждую букву значило бы ждать ответа на каждое нажатие. */
+function SearchBox({ items, label, onPick, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const found = value.trim() ? search(value, items, { limit: 8 }) : [];
+  return (
+    <div style={{ position: "relative", flex: "1 1 180px", minWidth: 140 }}>
+      <input aria-label={label} placeholder="поиск по смыслу" value={value}
+        style={{ ...S.inp, width: "100%" }}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        /* Закрываем с задержкой: без неё список исчезает раньше, чем
+           нажатие по строке успевает дойти. */
+        onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && !!found.length && (
+        <div role="listbox" aria-label={`${label}: подходящее`}
+          style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
+            background: C.panel, border: `1px solid ${ACC}`, borderRadius: 8,
+            marginTop: 2, maxHeight: 220, overflowY: "auto" }}>
+          {found.map(({ item }) => (
+            <button key={item.id} type="button" role="option" aria-selected="false"
+              aria-label={`найдено: ${item.name}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onPick(item); setOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left",
+                background: "transparent", border: "none", color: C.text,
+                borderBottom: `1px solid ${C.line}`, padding: "6px 9px",
+                fontSize: 12, cursor: "pointer" }}>
+              <div style={{ fontWeight: 600 }}>{item.name}</div>
+              {item.text && (
+                <div style={{ fontSize: 11, color: C.muted }}>
+                  {item.text.length > 70 ? `${item.text.slice(0, 69)}…` : item.text}</div>)}
+            </button>))}
+        </div>)}
+    </div>);
+}
+
+/* Подсказка готовых названий: то же по смыслу, но только по имени —
+   человек набирает своё, а рядом падает список уже придуманных. */
+function NameField({ value, onChange, items, label, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const hints = nameHints(value, items);
+  return (
+    <div style={{ position: "relative", margin: "6px 0" }}>
+      <input aria-label={label} placeholder={placeholder} value={value}
+        style={{ ...S.inp, width: "100%" }}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && !!hints.length && (
+        <div role="listbox" aria-label={`${label}: готовые названия`}
+          style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
+            background: C.panel, border: `1px solid ${ACC}`, borderRadius: 8,
+            marginTop: 2, maxHeight: 180, overflowY: "auto" }}>
+          {hints.map((h) => (
+            <button key={h.name} type="button" role="option" aria-selected="false"
+              aria-label={`название: ${h.name}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onChange(h.name); setOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left",
+                background: "transparent", border: "none", color: C.text,
+                borderBottom: `1px solid ${C.line}`, padding: "5px 9px",
+                fontSize: 12, cursor: "pointer" }}>{h.name}</button>))}
+        </div>)}
+    </div>);
+}
+
+/** Список в порядке «выбранное, потом ближайшее по смыслу». */
+export function orderedBy(picked, items) {
+  if (!picked) return items;
+  const self = items.find((x) => x.id === picked);
+  if (!self) return items;
+  const near = nearest(self, items).map((r) => r.item);
+  const rest = items.filter((x) => x !== self && !near.includes(x));
+  return [self, ...near, ...rest];
+}
+
+/** Цветной кружок статуса — тот же, что в строке воркера. */
+const Dot = ({ color }) => (
+  <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: "50%",
+    background: color, flex: "0 0 9px", display: "block" }} />);
+
 /* Кружок с лицом автора: своё лицо у знакомого, знак приложения —
    у того, с кем смотрящий вместе не работает. */
 function PersonDot({ id, nameOf, faceOf, onOpen }) {
@@ -401,7 +500,8 @@ function PersonModal({ id, me, onClose }) {
 
 /* ─────── карточка заказа ─────── */
 
-function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, act, isOwner }) {
+function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, act, isOwner,
+  picked = false }) {
   const [edit, setEdit] = useState(false);
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState("");
@@ -411,7 +511,8 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
   const myOffer = (order.offers || []).find((o) => String(o.by) === String(me));
   const status = order.status === "deal" ? "договорились" : order.status === "done" ? "выполнен" : "открыт";
   return (
-    <div style={{ ...S.card, marginBottom: 8, borderColor: mineOrder ? `${ACC}55` : C.line }}
+    <div style={{ ...S.card, marginBottom: 8,
+      borderColor: picked ? ACC : mineOrder ? `${ACC}55` : C.line }}
       aria-label={`заказ ${order.name}`}>
       <div className="flex flex-wrap items-center gap-2">
         {/* Кружок с лицом автора — ПЕРЕД названием (владелец,
@@ -489,11 +590,15 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
 
 /* ─────── карточка услуги ─────── */
 
-function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner }) {
+function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
+  picked = false }) {
   const [edit, setEdit] = useState(false);
   const mineSvc = String(s.by) === String(me);
+  // Статус считает сервер: график лежит у него, и он же знает часовой пояс.
+  const statusId = faceOf?.(s.by)?.status || "ready";
   return (
-    <div style={{ ...S.card, marginBottom: 8, borderColor: mineSvc ? `${ACC}55` : C.line }}
+    <div style={{ ...S.card, marginBottom: 8,
+      borderColor: picked ? ACC : mineSvc ? `${ACC}55` : C.line }}
       aria-label={`услуга ${s.name}`}>
       <div className="flex flex-wrap items-center gap-2">
         <PersonDot id={s.by} nameOf={nameOf} faceOf={faceOf} onOpen={onOpenPerson} />
@@ -508,10 +613,16 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner }
         {/* Заказчик должен видеть это до того, как оставит заказ: по такой
             услуге ему не придётся ждать ответа (владелец, 2026-09-20). */}
         {s.auto && (
-          <div className="flex items-center gap-2" style={{ marginTop: 6 }}
+          <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 6 }}
             aria-label="принимает заказ автоматически">
-            <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: "50%",
-              background: OK, flex: "0 0 9px", display: "block" }} />
+            {/* Статус автора по графику — ПЕРЕД надписью (владелец,
+                2026-09-20): принимает он автоматически только в рабочее
+                время, и по статусу видно, идёт оно сейчас или нет. Цвет
+                кружка и слов — цвет самого статуса. */}
+            <Dot color={statusColor(statusId)} />
+            <span style={{ fontSize: 11.5, color: statusColor(statusId) }}>
+              {statusOf(statusId).name}</span>
+            <Dot color={OK} />
             <span style={{ fontSize: 11.5, color: OK }}>Принимает заказ автоматически</span>
           </div>)}
         {s.text && <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{s.text}</div>}
@@ -537,6 +648,12 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
   const [view, setView] = useState(null);
   const [card, setCard] = useState(null);
   const [sub, setSub] = useState("orders");
+  /* Что ищут и что нашли: выбранное встаёт первым, под ним — ближайшее
+     по смыслу (владелец, 2026-09-20). */
+  const [findOrder, setFindOrder] = useState("");
+  const [pickOrder, setPickOrder] = useState(null);
+  const [findService, setFindService] = useState("");
+  const [pickService, setPickService] = useState(null);
   const [adding, setAdding] = useState(null);   // null | {kind, initial}
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -607,32 +724,43 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
       {!view && <div style={{ ...hint, marginBottom: 8 }}>{msg || "Загружаю…"}</div>}
 
       {sub === "orders" && view && (<>
-        {adding?.kind === "order" ? (
-          <OrderForm initial={adding.initial} services={services} busy={busy}
+        {/* Поиск — СПРАВА от «+ заказ» (владелец, 2026-09-20). */}
+        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 8 }}>
+          {adding?.kind !== "order" && (
+            <button type="button" style={btn(true, OK)} disabled={busy}
+              onClick={() => setAdding({ kind: "order", initial: null })}>+ заказ</button>)}
+          <SearchBox items={orders} label="поиск заказов" value={findOrder}
+            onChange={(v) => { setFindOrder(v); if (!v.trim()) setPickOrder(null); }}
+            onPick={(item) => { setPickOrder(item.id); setFindOrder(item.name); }} />
+        </div>
+        {adding?.kind === "order" && (
+          <OrderForm initial={adding.initial} services={services} orders={orders} busy={busy}
             onSave={(f) => act(() => addOrder(f)).then((r) => { if (r) setAdding(null); })}
-            onCancel={() => setAdding(null)} />
-        ) : (
-          <button type="button" style={{ ...btn(true, OK), marginBottom: 8 }} disabled={busy}
-            onClick={() => setAdding({ kind: "order", initial: null })}>+ заказ</button>)}
+            onCancel={() => setAdding(null)} />)}
         {!orders.length && <div style={hint}>Заказов пока нет.</div>}
-        {orders.slice().reverse().map((o) => (
+        {orderedBy(pickOrder, orders.slice().reverse()).map((o) => (
           <OrderCard key={o.id} order={o} me={view.me} nameOf={nameOf} faceOf={faceOf}
-            onOpenPerson={setCard} services={services}
+            onOpenPerson={setCard} services={services} picked={o.id === pickOrder}
             busy={busy} act={act} isOwner={Boolean(me?.isOwner)} />))}
       </>)}
 
       {sub === "services" && view && (<>
-        {adding?.kind === "service" ? (
-          <ServiceForm initial={adding.initial} busy={busy}
+        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 8 }}>
+          {adding?.kind !== "service" && (
+            <button type="button" style={btn(true, OK)} disabled={busy}
+              onClick={() => setAdding({ kind: "service", initial: null })}>+ услуга</button>)}
+          <SearchBox items={services} label="поиск услуг" value={findService}
+            onChange={(v) => { setFindService(v); if (!v.trim()) setPickService(null); }}
+            onPick={(item) => { setPickService(item.id); setFindService(item.name); }} />
+        </div>
+        {adding?.kind === "service" && (
+          <ServiceForm initial={adding.initial} services={services} busy={busy}
             onSave={(f) => act(() => addService(f)).then((r) => { if (r) setAdding(null); })}
-            onCancel={() => setAdding(null)} />
-        ) : (
-          <button type="button" style={{ ...btn(true, OK), marginBottom: 8 }} disabled={busy}
-            onClick={() => setAdding({ kind: "service", initial: null })}>+ услуга</button>)}
+            onCancel={() => setAdding(null)} />)}
         {!services.length && <div style={hint}>Услуг пока нет.</div>}
-        {services.slice().reverse().map((s) => (
+        {orderedBy(pickService, services.slice().reverse()).map((s) => (
           <ServiceCard key={s.id} s={s} me={view.me} nameOf={nameOf} faceOf={faceOf}
-            onOpenPerson={setCard} busy={busy} act={act}
+            onOpenPerson={setCard} busy={busy} act={act} picked={s.id === pickService}
             isOwner={Boolean(me?.isOwner)} />))}
       </>)}
 

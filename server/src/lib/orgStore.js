@@ -947,6 +947,10 @@ export async function addVirtualUser({ roleId = null, addedBy = null } = {}) {
     id, name: aliasOf(id), virtual: true,
     roles: roleId ? [String(roleId)] : [],
     contracts: {},
+    /* Ссылка — сразу (владелец, 2026-09-20): отдельной кнопки для неё
+       нет, она просто показана внизу формы. Страница без ссылки —
+       страница, которую некому забрать. */
+    token: newToken(),
     addedAt: new Date().toISOString(),
     addedBy: addedBy ? String(addedBy) : null,
   };

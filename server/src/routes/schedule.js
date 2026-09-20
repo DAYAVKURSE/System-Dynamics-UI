@@ -2,6 +2,7 @@ import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { dropNote, readSchedule, saveNotes, saveSchedule } from "../lib/scheduleStore.js";
 import { listReminders, syncNotes } from "../lib/scheduler.js";
+import { scheduleFor } from "../lib/scheduleTasks.js";
 
 const router = Router();
 router.use(telegramUser);
@@ -24,13 +25,15 @@ router.get("/", async (req, res, next) => {
    список в этот момент читался бы как «напоминаний не будет». */
 router.get("/reminders", async (req, res, next) => {
   try {
-    const s = await readSchedule(req.telegramUserId);
-    if (s) {
-      const synced = syncNotes(s, Date.now());
-      if (synced.changed) await saveNotes(req.telegramUserId, synced.notes);
-      s.notes = synced.notes;
-    }
-    res.json({ reminders: listReminders(s, Date.now()), tzOffset: s?.tzOffset ?? 0 });
+    /* Задачи — из МОДЕЛИ (владелец, 2026-09-20): прежде список строился
+       только по расписанию из браузера, и пока доску не открыли, он был
+       пуст — «взял задачу в работу, ничего не появилось». */
+    const saved = await readSchedule(req.telegramUserId);
+    const s = await scheduleFor(req.telegramUserId, saved);
+    const synced = syncNotes(s, Date.now());
+    if (synced.changed) await saveNotes(req.telegramUserId, synced.notes);
+    s.notes = synced.notes;
+    res.json({ reminders: listReminders(s, Date.now()), tzOffset: s.tzOffset });
   } catch (e) { next(e); }
 });
 

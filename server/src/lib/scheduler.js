@@ -490,13 +490,18 @@ export function formatMessage(n, userId = null) {
 
 /* Один проход планировщика. store и send передаются снаружи — так тик
    проверяется на заглушках, без диска и без обращений к Telegram. */
-export async function runTick({ store, send, now = Date.now(), log = () => {} }) {
+export async function runTick({ store, send, now = Date.now(), log = () => {},
+  tasksFor = null }) {
   const schedules = await store.all();
   let sentCount = 0;
 
-  for (const { userId, schedule } of schedules) {
-    const chatId = schedule?.chatId;
+  for (const { userId, schedule: saved } of schedules) {
+    const chatId = saved?.chatId;
     if (!chatId) continue;
+    /* Задачи берём из модели, а не только из присланного браузером
+       (владелец, 2026-09-20): напоминание, которое приходит лишь после
+       того, как открыли приложение, не нужно — за этим и идут к боту. */
+    const schedule = tasksFor ? await tasksFor(userId, saved) : saved;
 
     /* Записи напоминаний — первым делом: они заводятся по задачам, и
        по ним же решается, что человеку ещё не сказали. */
