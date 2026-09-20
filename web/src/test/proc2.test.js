@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, peopleOfPosition, procFuncs,
-  capFirstTyped, indentText, setFuncHead, splitProc, joinProc, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
+  capFirstTyped, indentText, setFuncHead, splitProc, joinProc, liftTaskMeta, putTaskMeta, setTaskHead, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -624,5 +624,44 @@ describe("куски процесса: результат — в шапке", ()
 
   it("без результата и имени у единственной функции «Функция:» не появляется", () => {
     expect(joinProc([{ name: "", result: "", body: "Задача: Принять\nКто: Оператор" }])).not.toMatch(/Функция:/);
+  });
+});
+
+/* ОПИСАНИЕ ЗАДАЧИ (владелец, 2026-09-20): «во всплывающем контекстном меню
+   задачи должно устанавливаться описание». В тексте процесса это строка
+   «Описание:» под задачей; в поле её не показывают — поднимает
+   `liftTaskMeta`, ставит обратно `putTaskMeta`. */
+describe("описание задачи в тексте процесса", () => {
+  const model = { entities: [{ id: "e1", name: "Актив", posts: ["r1"] }],
+    traits: [{ id: "t1", e: "e1", l: "заявки" }], positions: [{ id: "r1", name: "Оператор" }] };
+  const text = ["Задача: Принять", "Срок: 2 дн", "Описание: звоним и уточняем",
+    "Критерий: есть запись", "Кто: Оператор", "Отдаёт: заявки 1"].join("\n");
+
+  it("описание доезжает до функции, критерии — тоже", () => {
+    const f = procFuncs({ id: "p", text }, model)[0];
+    expect(f.about).toBe("звоним и уточняем");
+    expect(f.checks).toEqual(["есть запись"]);
+  });
+
+  it("описания нет — поле функции не трогается вовсе", () => {
+    const f = procFuncs({ id: "p", text: "Задача: Принять\nКто: Оператор\nОтдаёт: заявки 1" }, model)[0];
+    expect("about" in f).toBe(false);
+  });
+
+  it("описание у задачи одно: второе «Описание:» заменяет первое", () => {
+    const f = procFuncs({ id: "p", text: `${text}\nОписание: другое` }, model)[0];
+    expect(f.about).toBe("другое");
+  });
+
+  it("описание и критерии уходят из тела в meta и возвращаются на место", () => {
+    const { body, meta } = liftTaskMeta(text);
+    expect(body).not.toMatch(/Описание:|Критерий:/);
+    expect(meta[0]).toEqual({ about: "звоним и уточняем", checks: ["есть запись"] });
+    expect(putTaskMeta(body, meta)).toBe(text);
+  });
+
+  it("«Описание:» без задачи — сказано словами", () => {
+    const out = issuesOf({ id: "p", text: "Описание: сирота" }, model);
+    expect(out.some((x) => /«Описание:» без задачи/.test(x))).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ import { DUR_UNITS, avgOf, byCrew, countWorkers, crewOf, everyOf, everyText,
   newFunc, newGive,
   missingGives,
   newPort, normalizeFunc, normalizeFuncs, okRange, pruneWorkers, rangeText,
-  requiredGives, runHours, runQty, workersOf } from "../lib/funcs.js";
+  requiredGives, runHours, runQty, workersOf, timeLeft } from "../lib/funcs.js";
 
 /* Функция — то, что преобразует ресурсы актива: берёт одни, выдаёт другие,
    и на это уходит время. Здесь проверяется её запись, диапазоны, среднее по
@@ -295,5 +295,45 @@ describe("обязательные результаты работы", () => {
     // Смета необязательна: её отсутствие ничего не держит.
     expect(missingGives(f, { smeta: { name: "смета.xlsx" } }).map((p) => p.trait))
       .toEqual(["maket"]);
+  });
+});
+
+/* ПОЛОСА ВРЕМЕНИ ДО СРОКА (владелец, 2026-09-20): «зелёная, если много
+   времени; жёлтая, если времени осталось меньше половины; красная, если
+   меньше 20%». Доля — от окна работы, а не от суток. */
+describe("сколько осталось до срока", () => {
+  const now = Date.parse("2026-09-20T12:00:00Z");
+  const t = (start, end) => ({ start, end });
+
+  it("больше половины окна — зелёная", () => {
+    const l = timeLeft(t("2026-09-20T00:00:00Z", "2026-09-21T00:00:00Z"), now);
+    expect(l.tone).toBe("ok");
+    expect(l.share).toBe(0.5);
+  });
+
+  it("меньше половины — жёлтая, меньше пятой части — красная", () => {
+    expect(timeLeft(t("2026-09-20T00:00:00Z", "2026-09-20T20:00:00Z"), now).tone).toBe("warn");
+    expect(timeLeft(t("2026-09-20T00:00:00Z", "2026-09-20T13:00:00Z"), now).tone).toBe("bad");
+  });
+
+  it("срок прошёл — красная и пустая, словами", () => {
+    const l = timeLeft(t("2026-09-20T00:00:00Z", "2026-09-20T11:00:00Z"), now);
+    expect(l).toMatchObject({ share: 0, tone: "bad", text: "срок прошёл" });
+  });
+
+  it("срока нет — полосы нет вовсе", () => {
+    expect(timeLeft({ start: "2026-09-20T00:00:00Z", end: null }, now)).toBe(null);
+  });
+
+  it("начала нет — окно считается от постановки", () => {
+    const l = timeLeft({ setAt: "2026-09-20T00:00:00Z", end: "2026-09-21T00:00:00Z" }, now);
+    expect(l.share).toBe(0.5);
+    expect(l.sure).toBe(true);
+  });
+
+  it("ни начала, ни постановки — полоса полная, и это видно по `sure`", () => {
+    const l = timeLeft({ end: "2026-09-21T00:00:00Z" }, now);
+    expect(l.share).toBe(1);
+    expect(l.sure).toBeFalsy();
   });
 });

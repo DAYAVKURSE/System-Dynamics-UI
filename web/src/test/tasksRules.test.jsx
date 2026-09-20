@@ -450,7 +450,9 @@ describe("очередь постановки", () => {
       // функции, и на сервер она идёт тем же путём.
       await waitFor(() => expect(sent).toEqual([{ assignee: "2" }]));
       fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
-      expect(sent[1]).toEqual({ status: "backlog", held: false });
+      /* Момент постановки едет вместе со статусом (владелец, 2026-09-20). */
+      expect(sent[1]).toMatchObject({ status: "backlog", held: false });
+      expect(Date.parse(sent[1].setAt)).toBeGreaterThan(0);
       // Ушла из очереди только после ответа сервера — он и есть правда.
       await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
     });
@@ -709,7 +711,8 @@ describe("«Инструменты» и роли", () => {
     expect(screen.queryByLabelText("исполнитель")).toBeNull();
     await waitFor(() => expect(posts).toEqual([{ assignee: "6", reviewer: "3" }]));
     fireEvent.click(screen.getByRole("button", { name: "Поставить" }));
-    await waitFor(() => expect(posts[1]).toEqual({ status: "backlog", held: false }));
+    await waitFor(() => expect(posts[1]).toMatchObject({ status: "backlog", held: false }));
+    expect(Date.parse(posts[1].setAt)).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByText(/Ничего не ждёт постановки/)).toBeTruthy());
     // Модель целиком позванный не пишет — и постановка её не выгружает.
     expect(global.fetch.mock.calls.some(([u, o]) => String(u).endsWith("/api/workspace")
@@ -957,5 +960,54 @@ describe("критерии на форме постановки", () => {
       .find((d) => d.textContent.startsWith("Пользователи · Сбор заявок"));
     expect(plate.textContent).toMatch(/выдаёт: заявки ровно 1(?!, заявки)/);
     expect(plate.textContent.match(/заявки ровно 1/g)).toHaveLength(1);
+  });
+});
+
+/* ПОЛЯ ЗАДАЧИ НА «ПРОВЕРКЕ» — ЧЕРЕЗ ДВОЕТОЧИЕ, КАЖДОЕ СВОЕЙ СТРОКОЙ
+   (владелец, 2026-09-20): «задачи, которые в работе, тоже содержат
+   непонятные поля; всё должно быть написано через двоеточие: название
+   поля, двоеточие, текст, и каждое новое поле должно быть на новой
+   строке». Вместо «Сдачи ещё не было» — даты и полоса времени. */
+describe("поля задачи в работе на «Проверке»", () => {
+  const F = [{ ...FUNCS[0], about: "звоним и уточняем", checks: ["есть запись"] }];
+  const Review = ({ tasks: t0, funcs = F }) => {
+    const [tasks, setTasks] = React.useState(t0);
+    return (<ReviewBoard tasks={tasks} setTasks={setTasks} funcs={funcs} traits={TRAITS}
+      entities={ENTITIES} people={PEOPLE} meId="3" isOwner
+      nameOf={(id) => id} onAccept={() => {}} onReturn={() => {}} />);
+  };
+  const работа = (over = {}) => ({ ...newTask({ funcId: "f1", title: "Задача" }),
+    status: "progress", taken: true, setter: "1", assignee: "2", reviewer: "3",
+    setAt: "2026-09-20T09:00", start: "2026-09-20T09:00", end: "2026-09-21T09:00", ...over });
+
+  const show = (t) => render(<Review tasks={[t]} funcs={F} />);
+
+  it("каждое поле — своей строкой, с названием и двоеточием", () => {
+    show(работа({ body: "позвонить первым делом" }));
+    fireEvent.click(screen.getByText("Задача"));
+    const box = screen.getByLabelText("поля задачи");
+    const rows = [...box.children].filter((n) => n.tagName === "DIV").map((n) => n.textContent);
+    expect(rows[0]).toMatch(/^функция: /);
+    expect(rows[1]).toMatch(/^поставил: /);
+    expect(rows[2]).toMatch(/^исполнитель: /);
+    expect(rows[3]).toBe("описание: звоним и уточняем");
+    expect(rows[4]).toBe("содержимое: позвонить первым делом");
+    expect(rows[5]).toMatch(/^критерии проверки: /);
+    expect(box.textContent).toMatch(/поставлена: /);
+    expect(box.textContent).toMatch(/сдать до: /);
+    // Прежней строки без названия больше нет.
+    expect(screen.queryByText(/Сдачи ещё не было/)).toBeNull();
+  });
+
+  it("пустое поле названо словами, а не пропущено", () => {
+    show(работа({ body: "" }));
+    fireEvent.click(screen.getByText("Задача"));
+    expect(screen.getByLabelText("поля задачи").textContent).toMatch(/содержимое: не написано/);
+  });
+
+  it("срок не назначен — полосы нет, и сказано почему", () => {
+    show(работа({ end: null }));
+    fireEvent.click(screen.getByText("Задача"));
+    expect(screen.getByText(/до срока: срок не назначен/)).toBeInTheDocument();
   });
 });

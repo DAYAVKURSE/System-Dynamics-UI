@@ -6,7 +6,7 @@ import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, 
 import { HINT, ICON, ROLE_KINDS, ROLE_WORD, diffTasks, exportText, fromV1, hintAt, importText, isV1,
   issuesOf, itemState, labelOf, paintOf, parseText, peopleOfPosition, procFuncs, replaceName, setAuto, setHand, setPerson,
   suggest, toggleRole, usesAsset, whoState, renameVar, setTaskTime, parseDur, parseEvery, parsePar,
-  durText, everyText, parText, TIME_UNITS, setTaskChecks, setFuncHead, capFirstTyped, indentText, splitProc, joinProc, varsOf } from "../lib/proc2.js";
+  durText, everyText, parText, TIME_UNITS, setFuncHead, capFirstTyped, indentText, splitProc, joinProc, liftTaskMeta, varsOf } from "../lib/proc2.js";
 import { allHands, handColor, newHandName, newVarName } from "../lib/hands.js";
 import { hasKind, toggleKind } from "../lib/traits.js";
 import ProcMaps from "./ProcMaps.jsx";
@@ -238,7 +238,7 @@ function Range({ lo, hi, unit, label, onChange }) {
 }
 
 /* ─────── поле с подсказками ─────── */
-function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands = () => new Set(), kinds = [], onTrait, outerVars = [] }) {
+function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands = () => new Set(), kinds = [], onTrait, outerVars = [], meta = [], onMeta }) {
   /* Разбор поля знает о закреплённых ресурсах соседних функций процесса:
      поле видит только своё тело, а переменные общие (владелец, 2026-09-19). */
   const proc = { ...proc0, outerVars };
@@ -481,19 +481,21 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
     return out;
   })();
   const setTime = (kind, next) => rewrite(setTaskTime(text, taskRow, kind, next));
-  /* Критерии проверки задачи — строки «Критерий: …» (владелец, 2026-09-18). */
-  const taskChecks = (() => {
-    if (taskRow < 0) return [];
-    const rows = text.split("\n");
-    const out = [];
-    for (let i = taskRow + 1; i < rows.length; i += 1) {
-      const lab = labelOf(rows[i]);
-      if (!lab || !["dur", "every", "par", "check"].includes(lab.kind)) break;
-      if (lab.kind === "check" && lab.rest.text.trim()) out.push(lab.rest.text.trim());
-    }
-    return out;
-  })();
-  const setChecks = (list) => rewrite(setTaskChecks(text, taskRow, list));
+  /* Описание и критерии задачи — в МЕНЮ, а не в поле (владелец,
+     2026-09-20). В тексте процесса они по-прежнему строками «Описание:» и
+     «Критерий:», но поле их не показывает: `splitProc` поднимает их в
+     `meta` по порядку задач, `joinProc` ставит обратно. Номер задачи
+     считается по тому же телу, что показано, — поэтому он и совпадает. */
+  const taskIndex = taskRow < 0 ? -1
+    : text.split("\n").slice(0, taskRow + 1).filter((l) => labelOf(l)?.kind === "task").length - 1;
+  const taskMeta = (taskIndex >= 0 && meta[taskIndex]) || { about: "", checks: [] };
+  const taskChecks = taskMeta.checks || [];
+  const taskAbout = taskMeta.about || "";
+  /* Наружу уходит и нынешнее тело: в нём могли остаться несохранённые
+     правки, и брать текст из записи значило бы их потерять. */
+  const setMeta = (patch) => onMeta?.(text, taskIndex, patch);
+  const setChecks = (list) => setMeta({ checks: list });
+  const setAbout = (v) => setMeta({ about: v });
   /* «Кому:»/«От кого:» — то же меню, что у «Кто:», без ролей (владелец, 2026-09-18). */
   const whoRow = caretRow >= 0 && ["who", "to", "from"].includes(rowKind) ? caretRow : -1;
   const isWho = whoRow >= 0 && rowKind === "who";
@@ -820,6 +822,16 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
           </div>
           ) : taskRow >= 0 ? (
           <div data-task-menu="" aria-label={`меню задачи ${taskName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {/* Описание — ПЕРВЫМ, до критериев (владелец, 2026-09-20):
+                сперва что за работа, потом по чему её примут. Оно едет в
+                каждую задачу этой функции и видно на форме постановки. */}
+            <Fold title="описание" open={fold === "about"} onToggle={() => setFold(fold === "about" ? "" : "about")}
+              value={taskAbout ? "есть" : "—"}>
+              <textarea key={taskAbout} defaultValue={taskAbout} aria-label="описание задачи" rows={2}
+                placeholder="что это за работа — увидит исполнитель"
+                style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "3px 5px", resize: "vertical" }}
+                onBlur={(e) => setAbout(e.target.value.trim())} />
+            </Fold>
             <Fold title="критерии проверки" open={fold === "checks"} onToggle={() => setFold(fold === "checks" ? "" : "checks")}
               value={taskChecks.length ? String(taskChecks.length) : "—"}>
               {!taskChecks.length && <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 4 }}>по чему проверяющий примет работу</div>}
@@ -1214,10 +1226,37 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
      2026-09-20): в тексте процесса он встаёт строкой «Результат:» под
      «Функция:», а в поле тела его нет — там ему не к чему привязаться. */
   const setPart = (p, i, patchObj) => {
-    const parts = splitProc(p.text).map((s0, j) => (j === i ? { ...s0, ...patchObj } : s0));
+    const parts = splitProc(p.text).map((s0, j) => {
+      if (j !== i) return s0;
+      const next = { ...s0, ...patchObj };
+      /* Если в новом теле человек написал «Описание:» или «Критерий:»
+         руками — поднимаем их в меню, как и всё остальное; написанное
+         раньше при этом остаётся (правка тела про него ничего не знает). */
+      if (patchObj.body != null) {
+        const { body, meta } = liftTaskMeta(patchObj.body);
+        next.body = body;
+        next.meta = (s0.meta || []).map((m, k) => (meta[k] ? { ...m, ...meta[k] } : m));
+        meta.forEach((m, k) => { if (m && !next.meta[k]) next.meta[k] = m; });
+      }
+      return next;
+    });
     setText(p, joinProc(parts));
   };
-  const addPart = (p) => setText(p, joinProc([...splitProc(p.text), { name: "", result: "", body: "" }]));
+  /* Описание и критерии задачи: меню задаёт их номером задачи, тело
+     приходит оттуда же — с несохранёнными правками поля (владелец,
+     2026-09-20). */
+  const setTaskMeta = (p, fi, bodyText, ti, patch) => {
+    if (!(ti >= 0)) return;
+    const parts = splitProc(p.text);
+    const part = parts[fi];
+    if (!part) return;
+    const lifted = liftTaskMeta(bodyText);
+    const meta = [...(part.meta || [])];
+    meta[ti] = { about: "", checks: [], ...(meta[ti] || {}), ...patch };
+    parts[fi] = { ...part, body: lifted.body, meta };
+    setText(p, joinProc(parts));
+  };
+  const addPart = (p) => setText(p, joinProc([...splitProc(p.text), { name: "", result: "", body: "", meta: [] }]));
   const dropPart = (p, i) => setText(p, joinProc(splitProc(p.text).filter((s0, j) => j !== i)));
   /* Описание и прочие поля записи — без пересборки функций: текст не тронут. */
   const setProc = (p, patchObj) => setProcs(patch(p.id, (x) => ({ ...x, ...patchObj })));
@@ -1394,6 +1433,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                       </div>
                       <ProcText value={indentText(seg.body)} model={model} proc={p} label="текст процесса" outerVars={outer}
                         onCommit={(t) => setPart(p, fi, { body: t })} usedHands={usedHands}
+                        meta={seg.meta || []} onMeta={(body, ti, patch) => setTaskMeta(p, fi, body, ti, patch)}
                         kinds={kinds} onTrait={(id, patch) => commit({ procs, traits: traits.map((t) => (t.id === id ? { ...t, ...patch } : t)) })} />
                     </>)}
                   </div>);

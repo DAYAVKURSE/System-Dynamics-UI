@@ -3,6 +3,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
 import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
+import { timeLeft } from "../lib/funcs.js";
 import { reportSrc } from "../storage.js";
 import { unitsOf } from "../lib/units.js";
 import { givenUnits, tookUnits } from "../lib/taskUnits.js";
@@ -50,6 +51,38 @@ import { UnitList } from "./UnitLinks.jsx";
    стереть её значило бы сделать вид, что работы не было. Поэтому у
    взятой в работу, сданной и принятой кнопки удаления нет вовсе.
    ════════════════════════════════════════════════════════════════ */
+
+/* Поле карточки: «название: текст», каждое своей строкой (владелец,
+   2026-09-20). Пустое названо словами — иначе строка читалась бы как
+   «поля нет», а не «оно пустое». */
+function Row({ label, children }) {
+  return (
+    <div style={{ fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+      <span style={{ color: C.muted }}>{label}: </span>{children}
+    </div>);
+}
+
+/* Полоса времени до срока (владелец, 2026-09-20): зелёная, пока времени
+   много; жёлтая, когда осталось меньше половины; красная — меньше 20%.
+   Длина полосы — сама доля: чем меньше осталось, тем короче. */
+function TimeBar({ task }) {
+  const left = timeLeft(task);
+  if (!left) {
+    return (
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>
+        до срока: срок не назначен — считать нечего</div>);
+  }
+  const color = left.tone === "bad" ? BAD : left.tone === "warn" ? WARN : OK;
+  return (
+    <div style={{ marginBottom: 8 }} aria-label={`до срока: ${left.text}`} data-tone={left.tone}>
+      <div style={{ fontSize: 11, color, marginBottom: 3 }}>до срока: {left.text}</div>
+      <div style={{ height: 6, borderRadius: 3, background: C.ink, border: `1px solid ${C.line}`,
+        overflow: "hidden" }}>
+        <div data-bar="" style={{ width: `${Math.round(left.share * 100)}%`, height: "100%",
+          background: color, borderRadius: 3 }} />
+      </div>
+    </div>);
+}
 
 const fmtDT = (v) => {
   if (!v) return "—";
@@ -135,29 +168,34 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
         {on && (
           <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.6 }}>
-              {f ? funcLabel(f, entities) : "задача без функции"}
-              {" · поставил: "}{nameOf ? nameOf(roleOf(t, "setter")) : (roleOf(t, "setter") || "не назначен")}
-              {" · исполнитель: "}{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}
-            </div>
-            {/* Описание функции — то, что за работа вообще; содержимое
-                задачи — что к этому добавил постановщик. Первое есть
-                всегда, второго может не быть. */}
-            {!!String(f?.about || "").trim() && (
-              <div style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.5,
-                whiteSpace: "pre-wrap", color: C.muted }}>{f.about}</div>)}
-            {/* Критерии проверки — то, по чему принимают работу (владелец, 2026-09-18). */}
-            {!!(f?.checks || []).length && (
-              <div aria-label="критерии проверки" style={{ marginBottom: 6 }}>
-                <div style={S.lbl}>критерии проверки</div>
-                <ul style={{ margin: "3px 0 0", paddingLeft: 18, fontSize: 12, lineHeight: 1.5 }}>
+            {/* Каждое поле — своей строкой и со своим названием (владелец,
+                2026-09-20: «всё должно быть написано через двоеточие:
+                название поля, двоеточие, текст, и каждое новое поле должно
+                быть на новой строке»). Прежде строка шла через «·», а
+                описание и содержимое лежали безымянным текстом — что это,
+                человек угадывал. */}
+            <div aria-label="поля задачи" style={{ marginBottom: 6 }}>
+              <Row label="функция">{f ? funcLabel(f, entities) : "не назначена"}</Row>
+              <Row label="поставил">{nameOf ? nameOf(roleOf(t, "setter")) : (roleOf(t, "setter") || "не назначен")}</Row>
+              <Row label="исполнитель">{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}</Row>
+              {/* Описание функции — что за работа вообще; содержимое задачи
+                  — что к этому добавил постановщик. */}
+              <Row label="описание">{String(f?.about || "").trim() || "не написано"}</Row>
+              <Row label="содержимое">{String(t.body || "").trim() || "не написано"}</Row>
+              <Row label="критерии проверки">
+                {(f?.checks || []).length ? "" : "не поставлены"}</Row>
+              {!!(f?.checks || []).length && (
+                <ul aria-label="критерии проверки"
+                  style={{ margin: "0 0 2px", paddingLeft: 18, fontSize: 11.5, lineHeight: 1.6 }}>
                   {f.checks.map((c, i) => (<li key={`${i}:${c}`}>{c}</li>))}
-                </ul>
-              </div>)}
-            {t.body && <div style={{ fontSize: 12, marginBottom: 6, lineHeight: 1.5 }}>{t.body}</div>}
+                </ul>)}
+              {/* Даты на месте прежнего «Сдачи ещё не было» (владелец,
+                  2026-09-20): когда задачу поставили и когда её ждут. */}
+              <Row label="поставлена">{t.setAt ? fmtDT(t.setAt) : "не записано"}</Row>
+              <Row label="сдать до">{t.end ? fmtDT(t.end) : "срок не назначен"}</Row>
+            </div>
 
-            {!sub && <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>
-              Сдачи ещё не было — проверять нечего.</div>}
+            {!sub && <TimeBar task={t} />}
             {(t.submissions || []).map((sb) => (
               <div key={sb.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
                 borderRadius: 8, padding: 8, marginBottom: 6 }}>

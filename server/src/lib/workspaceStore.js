@@ -714,6 +714,11 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false, rolesO
       task.taken = false;
       task.deferredAt = null;
       task.deferredUntil = null;
+      /* Момент постановки — час сервера, а не тот, что прислал клиент:
+         дату «когда поставлена» (владелец, 2026-09-20) читают все, и
+         подсунуть её задним числом со своего телефона нельзя. Отзыв и
+         повторная постановка её переписывают: поставлена она заново. */
+      task.setAt = new Date().toISOString();
     }
     await writeModel(model);
     return { task };

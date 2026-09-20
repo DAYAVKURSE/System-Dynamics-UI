@@ -62,12 +62,23 @@ const LABELS = [
   ["to", ["кому", "куда"]], ["from", ["от кого", "откуда"]], ["or", ["или"]],
   ["if", ["если"]], ["then", ["то"]], ["else", ["иначе"]],
   ["dur", ["срок"]], ["every", ["попытка"]], ["par", ["одновременно"]], ["check", ["критерий"]],
-  ["result", ["результат"]],
+  ["result", ["результат"]], ["about", ["описание"]],
 ];
 const LABEL_KIND = new Map(LABELS.flatMap(([k, ws]) => ws.map((w) => [w, k])));
 export const LABEL_TEXT = { func: "Функция:", task: "Задача:", who: "Кто:", take: "Берёт:", takes: "Берут:",
   give: "Отдаёт:", gives: "Отдают:", to: "Кому:", from: "От кого:", or: "Или:", if: "Если:", then: "То:", else: "Иначе:",
-  dur: "Срок:", every: "Попытка:", par: "Одновременно:", check: "Критерий:", result: "Результат:" };
+  dur: "Срок:", every: "Попытка:", par: "Одновременно:", check: "Критерий:", result: "Результат:",
+  about: "Описание:" };
+
+/* Строки, которые правят не в поле процесса, а в меню задачи (владелец,
+   2026-09-20: «критерии проверки не должны быть написаны в поле
+   технологического процесса — они есть во всплывающем контекстном меню»).
+   В тексте они остаются: текст по-прежнему единственный источник. Из поля
+   их поднимает `liftTaskMeta`, обратно ставит `putTaskMeta` — так же, как
+   «Результат:» у функции живёт своим полем в шапке. */
+export const MENU_KINDS = ["about", "check"];
+/* Строки «шапки» задачи: идут сразу за «Задача:» и правятся не текстом. */
+const HEAD_KINDS = ["dur", "every", "par", ...MENU_KINDS];
 
 /* ─────── сроки задачи в тексте (владелец, 2026-09-18) ───────
    «Срок: 2 дн» / «Срок: 2-4 дн», «Попытка: сразу» / «Попытка: через 3 дн»,
@@ -331,6 +342,16 @@ export function parseText(text = "", model = {}, proc = {}) {
         if (!t2) { err(row, "«Критерий:» — напишите, что проверяем"); return; }
         task.checks = [...(task.checks || []), { text: t2, row, span: { start: rs, end: rs + rest.trimEnd().length } }];
         last = "check"; lastStep = null; lastWho = null; return;
+      }
+      if (lab.kind === "about") {
+        /* Описание — у ЗАДАЧИ и одно: это ответ на вопрос «что за работа»,
+           а не список (владелец, 2026-09-20). Второе «Описание:» заменяет
+           первое, а не копится рядом. */
+        if (!task) { err(row, "«Описание:» без задачи"); return; }
+        const t2 = rest.trim();
+        if (!t2) { err(row, "«Описание:» — напишите, что это за работа"); return; }
+        task.about = { text: t2, row, span: { start: rs, end: rs + rest.trimEnd().length } };
+        last = "about"; lastStep = null; lastWho = null; return;
       }
       if (lab.kind === "result") {
         const t2 = rest.trim();
@@ -613,6 +634,7 @@ export function paintOf(text = "", model = {}, proc = {}) {
   funcs.forEach((f) => {
     if (f.span) put(f.row, f.span, { kind: "func", name: f.name });
     if (f.result) put(f.result.row, f.result.span, { kind: "check", state: "ok", name: f.result.text });
+    f.tasks.forEach((t) => { if (t.about) put(t.about.row, t.about.span, { kind: "check", state: "ok", name: t.about.text }); });
     f.tasks.forEach((t) => {
       if (t.span) put(t.row, t.span, { kind: "task", name: t.name });
       if (t.condSpan && t.condRow != null) put(t.condRow, t.condSpan, { kind: "cond" });
@@ -790,12 +812,17 @@ export function splitProc(text = "") {
     cur.body.push(raw.replace(/^[ \t]+/, ""));
   });
   if (!parts.length) parts.push({ name: "", result: "", body: [] });
-  return parts.map((p) => ({ name: p.name, result: p.result, body: p.body.join("\n").replace(/^\n+|\n+$/g, "") }));
+  /* Описание и критерии задач уезжают из тела в `meta`: правят их в меню
+     задачи, а не в поле (владелец, 2026-09-20). */
+  return parts.map((p) => {
+    const { body, meta } = liftTaskMeta(p.body.join("\n").replace(/^\n+|\n+$/g, ""));
+    return { name: p.name, result: p.result, body, meta };
+  });
 }
 export function joinProc(parts = []) {
   const list = parts.length ? parts : [{ name: "", result: "", body: "" }];
   const text = list.map((p) => {
-    const body = String(p.body || "").replace(/^\n+|\n+$/g, "");
+    const body = putTaskMeta(String(p.body || "").replace(/^\n+|\n+$/g, ""), p.meta || []);
     const res = String(p.result || "").trim();
     /* Строка «Результат:» относится к функции — значит, у куска должна быть
        строка «Функция:», даже если имя пустое и функция одна. */
@@ -834,20 +861,83 @@ export function setFuncHead(text = "", funcRow, { result } = {}) {
   return [...lines.slice(0, funcRow + 1), ...head, ...lines.slice(at)].join("\n");
 }
 
-/** Переписать критерии задачи: строки «Критерий: …» под её сроками. */
-export function setTaskChecks(text = "", taskRow, list = []) {
+/**
+ * Переписать шапку задачи: сроки, «Описание:» и «Критерий:» под ней.
+ *
+ * Описание — ПЕРВЫМ, до критериев (владелец, 2026-09-20: «должно
+ * устанавливаться описание; оно должно быть первым, до критерия
+ * проверки»): сперва что за работа, потом по чему её примут.
+ * Что не передали — остаётся как было.
+ */
+export function setTaskHead(text = "", taskRow, patch = {}) {
   const lines = String(text || "").split("\n");
   let at = taskRow + 1;
-  const keep = [];
+  const time = [];
+  let about = "";
+  const checks = [];
   while (at < lines.length) {
-    const k = labelOf(lines[at])?.kind;
-    if (k === "check") { at += 1; continue; }
-    if (["dur", "every", "par"].includes(k)) { keep.push(lines[at]); at += 1; continue; }
-    break;
+    const lab = labelOf(lines[at]);
+    const k = lab?.kind;
+    if (!HEAD_KINDS.includes(k)) break;
+    if (k === "about") about = lab.rest.text.trim();
+    else if (k === "check") { const v = lab.rest.text.trim(); if (v) checks.push(v); }
+    else time.push(lines[at]);
+    at += 1;
   }
-  const rest = lines.slice(at);
-  const checks = list.map((x) => String(x).trim()).filter(Boolean).map((x) => `${LABEL_TEXT.check} ${x}`);
-  return [...lines.slice(0, taskRow + 1), ...keep, ...checks, ...rest].join("\n");
+  const nextAbout = String(("about" in patch ? patch.about : about) ?? "").trim();
+  const nextChecks = ("checks" in patch ? patch.checks : checks)
+    .map((x) => String(x).trim()).filter(Boolean);
+  const head = [...time,
+    ...(nextAbout ? [`${LABEL_TEXT.about} ${nextAbout}`] : []),
+    ...nextChecks.map((x) => `${LABEL_TEXT.check} ${x}`)];
+  return [...lines.slice(0, taskRow + 1), ...head, ...lines.slice(at)].join("\n");
+}
+
+/** Переписать критерии задачи, не трогая описание и сроки. */
+export const setTaskChecks = (text = "", taskRow, list = []) => setTaskHead(text, taskRow, { checks: list });
+
+/* ─────── строки меню: из поля наружу и обратно ───────
+   `liftTaskMeta` вынимает «Описание:» и «Критерий:» из тела и складывает
+   по задачам (по порядку задач в теле); `putTaskMeta` ставит их назад —
+   сразу за строками сроков задачи, описание первым. */
+export function liftTaskMeta(text = "") {
+  const body = [];
+  const meta = [];
+  let ti = -1;
+  String(text || "").split("\n").forEach((raw) => {
+    const lab = labelOf(raw);
+    if (lab?.kind === "task") ti += 1;
+    if (lab && MENU_KINDS.includes(lab.kind) && ti >= 0) {
+      const v = lab.rest.text.trim();
+      if (!v) return;
+      if (!meta[ti]) meta[ti] = { about: "", checks: [] };
+      if (lab.kind === "about") meta[ti].about = v;
+      else meta[ti].checks.push(v);
+      return;
+    }
+    body.push(raw);
+  });
+  return { body: body.join("\n"), meta };
+}
+
+export function putTaskMeta(text = "", meta = []) {
+  const rows = String(text || "").split("\n");
+  const out = [];
+  let ti = -1;
+  rows.forEach((raw, i) => {
+    out.push(raw);
+    const k = labelOf(raw)?.kind;
+    if (k === "task") ti += 1;
+    if (ti < 0) return;
+    const inHead = k === "task" || ["dur", "every", "par"].includes(k);
+    const nextK = labelOf(rows[i + 1] || "")?.kind;
+    if (!inHead || ["dur", "every", "par"].includes(nextK)) return;
+    const m = meta[ti];
+    if (!m) return;
+    if (m.about) out.push(`${LABEL_TEXT.about} ${m.about}`);
+    (m.checks || []).forEach((c) => out.push(`${LABEL_TEXT.check} ${c}`));
+  });
+  return out.join("\n");
 }
 
 /** Переименовать переменную ресурса во всём тексте: «(переменная: X)», «(X)», «(флаг X)». */
@@ -1295,7 +1385,11 @@ export function procFuncs(proc = {}, model = {}) {
         chain: { id: fid, name: fname, step: ti + 1, of: f.tasks.length, result: f.result?.text || "" },
         takes: main.takes, gives: main.gives, steps: main.steps, who: main.who, posts: main.posts,
         ...(main.cond || t.cond ? { cond: main.cond || t.cond } : {}), ...(t.isElse ? { condElse: true } : {}), ...(alt.length ? { alt } : {}),
-        dur: 1, durHi: 1, durUnit: "дн", ...(t.time || {}), checks: (t.checks || []).map((c) => c.text), accepted: true,
+        dur: 1, durHi: 1, durUnit: "дн", ...(t.time || {}), checks: (t.checks || []).map((c) => c.text),
+        /* Описание пишется в функцию, только когда оно есть: пустое стёрло
+           бы написанное руками в карточке функции (`syncProcFuncs` кладёт
+           построенное поверх прежнего). */
+        ...(t.about?.text ? { about: t.about.text } : {}), accepted: true,
       });
     });
   });
@@ -1396,6 +1490,7 @@ export function taskBlocks(text = "", model = {}) {
     if (t.condRow != null) rows.add(t.condRow);
     if (t.elseRow != null) rows.add(t.elseRow);
     (t.checks || []).forEach((c) => rows.add(c.row));
+    if (t.about) rows.add(t.about.row);
     t.branches.forEach((b) => { rows.add(b.row); if (b.thenRow != null) rows.add(b.thenRow); b.who.forEach((w) => rows.add(w.row)); b.steps.forEach((s) => { rows.add(s.row); s.items.forEach((it) => rows.add(it.row ?? s.row)); [...(s.tos || []), ...(s.froms || [])].forEach((x) => rows.add(x.row)); s.or.forEach((it) => rows.add(it.row ?? s.row)); }); });
     const body = [...rows].sort((a, b) => a - b).map((r) => lines[r]).join("\n");
     out.push({ key: `${f.name || fi}|${t.name || ti}`, name: t.name || `задача ${ti + 1}`, func: f.name, text: body });

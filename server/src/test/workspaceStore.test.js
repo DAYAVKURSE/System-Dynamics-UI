@@ -217,4 +217,19 @@ describe("отзыв задачи", () => {
     const { task } = await store.setupTask("100", "r1", { status: "backlog" }, { isOwner: true });
     expect(task).toMatchObject({ status: "backlog", held: false });
   });
+
+  /* КОГДА ПОСТАВИЛИ — ЧАС СЕРВЕРА (владелец, 2026-09-20): «даты, когда была
+     поставлена задача, когда должна быть дана». Присланную клиентом дату
+     не берём: её читают все, и подсунуть её задним числом нельзя. */
+  it("момент постановки записывается сервером, а не берётся из запроса", async () => {
+    await store.writeModel({
+      entities: [{ id: "e1", crew: ["200"] }],
+      funcs: [{ id: "f1", e: "e1", name: "Ф", takes: [], gives: [], owners: ["200"] }],
+      tasks: [lying({ status: "wait" })],
+    });
+    const before = Date.now();
+    const { task } = await store.setupTask("100", "r1",
+      { status: "backlog", setAt: "2000-01-01T00:00:00.000Z" }, { isOwner: true });
+    expect(Date.parse(task.setAt)).toBeGreaterThanOrEqual(before);
+  });
 });

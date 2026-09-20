@@ -568,6 +568,41 @@ export const uniqPorts = (ports = []) => {
   });
 };
 
+/* ─────── сколько времени осталось до срока ───────
+
+   Владелец (2026-09-20): «полоску, отображающую, сколько времени осталось
+   до конца: зелёной, если много времени; жёлтой, если осталось меньше
+   половины; красной, если меньше 20%».
+
+   Доля считается от ОКНА работы — от начала (а его нет — от постановки) до
+   срока, — а не от суток: полоса отвечает на вопрос «много ли ещё», и у
+   недельной задачи и у часовой ответ должен читаться одинаково. Срока нет
+   — полосы нет вовсе: рисовать её от выдуманной даты значило бы обещать
+   то, чего никто не обещал.
+*/
+const at = (v) => { const n = Date.parse(v || ""); return Number.isFinite(n) ? n : null; };
+
+export function timeLeft(task = {}, now = Date.now()) {
+  const end = at(task.end);
+  if (end == null) return null;
+  const from = at(task.start) ?? at(task.setAt);
+  const left = end - now;
+  if (left <= 0) return { share: 0, tone: "bad", text: "срок прошёл" };
+  const total = from != null && end > from ? end - from : null;
+  const share = total == null ? 1 : Math.max(0, Math.min(1, left / total));
+  const tone = share < 0.2 ? "bad" : share < 0.5 ? "warn" : "ok";
+  return { share, tone, text: `осталось ${leftText(left)}`, sure: total != null };
+}
+
+/** «2 дн», «5 ч», «40 мин» — сколько осталось, словами. */
+export function leftText(msLeft = 0) {
+  const m = Math.max(0, Math.round(msLeft / 60000));
+  if (m < 60) return `${m} мин`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} ч`;
+  return `${Math.round(h / 24)} дн`;
+}
+
 /** Вилка по-человечески: «от 3 до 5», «ровно 4», «от 3». */
 export const rangeText = (p) => {
   const lo = num(p?.lo);

@@ -686,7 +686,10 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
   const putTask=()=>{
     /* Поставили — значит отзыв отработан: снимаем пометку, иначе задача
        осталась бы в «ждут постановки» навсегда. */
-    const put={status:"backlog",held:false};
+    /* Когда задачу поставили — записывается здесь (владелец, 2026-09-20:
+       «даты, когда была поставлена задача, когда должна быть дана»).
+       Считать её из чего-то другого нельзя: статус меняется и потом. */
+    const put={status:"backlog",held:false,setAt:new Date().toISOString()};
     if(typeof onSetup!=="function"){ upMany(put); return; }
     setSetupErr(""); setPutting(true);
     Promise.resolve(onSetup(task,put))

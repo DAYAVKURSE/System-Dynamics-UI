@@ -284,8 +284,9 @@ describe("роли, статусы, функции", () => {
     fireEvent.click(area, { target: { selectionStart: 3 } });   // строка «Задача:»
     const menu = () => container.querySelector("[data-task-menu]");
     expect(menu()).not.toBeNull();
+    /* Описание — первым, до критериев (владелец, 2026-09-20). */
     expect(within(menu()).getAllByRole("button").map((b) => b.getAttribute("aria-label")))
-      .toEqual(["критерии проверки", "срок", "следующая попытка", "одновременные выполнения"]);
+      .toEqual(["описание", "критерии проверки", "срок", "следующая попытка", "одновременные выполнения"]);
     fireEvent.click(within(menu()).getByRole("button", { name: "срок" }));
     const lo = screen.getByLabelText("срок: сколько");
     fireEvent.change(lo, { target: { value: "3" } });
@@ -336,7 +337,11 @@ describe("роли, статусы, функции", () => {
     expect(area).not.toHaveAttribute("readonly");
   });
 
-  it("меню задачи: критерии проверки добавляются «+» и уходят в текст и в функцию (владелец, 2026-09-18)", () => {
+  /* КРИТЕРИИ И ОПИСАНИЕ — В МЕНЮ, НЕ В ПОЛЕ (владелец, 2026-09-20):
+     «критерии проверки не должны быть написаны в поле технологического
+     процесса; они есть во всплывающем контекстном меню». В тексте процесса
+     они остаются — текст по-прежнему единственный источник. */
+  it("меню задачи: критерии уходят в текст процесса, но не в поле", () => {
     const area = addProc();
     write(area, TEXT);
     view(area);
@@ -344,12 +349,50 @@ describe("роли, статусы, функции", () => {
     const menu = () => container.querySelector("[data-task-menu]");
     fireEvent.click(within(menu()).getByRole("button", { name: "критерии проверки" }));
     fireEvent.click(within(menu()).getByRole("button", { name: "добавить критерий" }));
-    expect(area.value.split("\n")[1].trim()).toBe("Критерий: новый критерий");
     const inp = screen.getByLabelText("критерий 1");
     fireEvent.change(inp, { target: { value: "есть ссылка" } });
     fireEvent.blur(inp);
-    expect(area.value.split("\n")[1].trim()).toBe("Критерий: есть ссылка");
+    // Меню помнит критерий, хотя в поле его не видно.
+    expect(screen.getByLabelText("критерий 1").value).toBe("есть ссылка");
+    // В поле процесса строки «Критерий:» нет вовсе.
+    expect(area.value).not.toMatch(/Критерий:/);
+    // А в тексте процесса — есть, сразу под задачей.
     expect(dump().procs[0].text.split("\n")[1].trim()).toBe("Критерий: есть ссылка");
+  });
+
+  /* ОПИСАНИЕ ЗАДАЧИ — ИЗ МЕНЮ (владелец, 2026-09-20): «во всплывающем
+     контекстном меню задачи должно устанавливаться описание; оно должно
+     быть первым, до критерия проверки». */
+  it("меню задачи: описание уходит в текст процесса и в функцию, но не в поле", () => {
+    const area = addProc();
+    write(area, TEXT);
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: 3 } });
+    const menu = () => container.querySelector("[data-task-menu]");
+    fireEvent.click(within(menu()).getByRole("button", { name: "описание" }));
+    const inp = screen.getByLabelText("описание задачи");
+    fireEvent.change(inp, { target: { value: "звоним и уточняем заявку" } });
+    fireEvent.blur(inp);
+    expect(screen.getByLabelText("описание задачи").value).toBe("звоним и уточняем заявку");
+    expect(area.value).not.toMatch(/Описание:/);
+    expect(dump().procs[0].text.split("\n")[1].trim()).toBe("Описание: звоним и уточняем заявку");
+  });
+
+  it("описание стоит перед критериями и не путается с ними", () => {
+    const area = addProc();
+    write(area, TEXT);
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: 3 } });
+    const menu = () => container.querySelector("[data-task-menu]");
+    fireEvent.click(within(menu()).getByRole("button", { name: "критерии проверки" }));
+    fireEvent.click(within(menu()).getByRole("button", { name: "добавить критерий" }));
+    fireEvent.click(within(menu()).getByRole("button", { name: "описание" }));
+    const inp = screen.getByLabelText("описание задачи");
+    fireEvent.change(inp, { target: { value: "что за работа" } });
+    fireEvent.blur(inp);
+    const rows = dump().procs[0].text.split("\n").map((l) => l.trim());
+    expect(rows[1]).toBe("Описание: что за работа");
+    expect(rows[2]).toBe("Критерий: новый критерий");
   });
 
   it("меню ресурса: единица, чем подтверждается, чем считаем — под спойлерами (владелец, 2026-09-18)", () => {
