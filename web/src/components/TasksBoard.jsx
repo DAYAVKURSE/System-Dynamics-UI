@@ -558,7 +558,7 @@ export const canSet=(task,funcs,traits,tasks,factors)=>
    нет. Ожидаемый результат с 2026-09-20 в ней есть — владелец: «на плашке
    функции, на форме постановки задачи, должен быть написан „Ожидаемый
    результат" под остальными полями». */
-function FuncCard({func,entities,traitName,showChecks=true,bare=false}){
+function FuncCard({func,entities,traitName,bare=false}){
   /* Каждая строка плашки названа: без подписи число «1 дн.» читалось как
      что угодно (владелец, 2026-09-20: «в следующем не написано, что это;
      должно быть написано „Срок:", в последнем — „Ожидаемый результат:"»). */
@@ -572,18 +572,13 @@ function FuncCard({func,entities,traitName,showChecks=true,bare=false}){
   return (
     <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
       padding:9,margin:"6px 0 8px",fontSize:11.5,lineHeight:1.6}}>
+      {/* Только название функции: актив, от которого она, на плашке не
+          пишется (владелец, 2026-09-20). */}
       <div style={{fontSize:12.5,fontWeight:700,color:C.text}}>
-        {funcLabel(func,entities)}</div>
-      {/* Критерии проверки (владелец, 2026-09-18): по чему проверяющий
-          примет работу. Исполнитель видит их до сдачи, проверяющий — при
-          проверке; оба смотрят на один список. */}
-      {showChecks&&!bare&&!!(func.checks||[]).length&&(
-        <div aria-label="критерии проверки" style={{marginTop:6}}>
-          <div style={S.lbl}>критерии проверки</div>
-          <ul style={{margin:"3px 0 0",paddingLeft:18,color:C.text}}>
-            {func.checks.map((c,i)=>(<li key={`${i}:${c}`} style={{marginBottom:2}}>{c}</li>))}
-          </ul>
-        </div>)}
+        {func.name||"без названия"}</div>
+      {/* Критериев на плашке нет: они у ЗАДАЧИ и стоят своим разделом
+          ниже (владелец, 2026-09-20). У функции — только ожидаемый
+          результат. */}
       {/* «Берёт» и «выдаёт» — только когда есть что (владелец, 2026-09-19):
           строка «ничего» ничего не говорила. Ресурс — один раз, сколько бы
           у него ни было получателей (владелец, 2026-09-20): портов на него
@@ -788,8 +783,8 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
             : selfSet(task) ? "Ставится сама." : "Принимается сама."}
         </div>)}
 
-      <div style={S.lbl}>функция, которую выполняет задача</div>
-      <FuncCard func={func} entities={entities} traitName={traitName} showChecks={false} bare/>
+      <div style={S.lbl}>выполняемая функция</div>
+      <FuncCard func={func} entities={entities} traitName={traitName} bare/>
 
       {/* Описание задачи: по умолчанию — то, что сказано у самой задачи или
           в техпроцессе (владелец, 2026-09-19). */}
@@ -961,6 +956,9 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
      говорила «десять есть» и молчала о том, какие они. Держатся списком
      по индексу: `giveUnits[ресурс][i]`. */
   const [giveUnits,setGiveUnits]=useState({});
+  /* Какая форма ресурса и какая единица раскрыты (владелец, 2026-09-20). */
+  const [openGive,setOpenGive]=useState("");
+  const [openUnit,setOpenUnit]=useState("");
   const [giveBusy,setGiveBusy]=useState("");
   const [giveErr,setGiveErr]=useState({});
   /* Подтверждение — один файл на всю сдачу, для ресурсов с уникальным
@@ -1002,7 +1000,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       gives:Object.fromEntries(func.gives.map(p=>[p.trait,
         Math.max(num(p.lo)>0?1:0,Math.round(mid(p)))]))});
     setTook({});
-    setGiveUnits({}); setGiveErr({}); setGiveBusy("");
+    setGiveUnits({}); setGiveErr({}); setGiveBusy(""); setOpenGive(""); setOpenUnit("");
     setProof(null); setProofErr(""); setProofBusy(false);
     setRating(NO_RATING); setMoreThings(false);
     setHanding(true);
@@ -1128,7 +1126,13 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     reset();
   };
 
-  const QtyRow=({kind,port})=>{
+  /* Строки формы — ФУНКЦИИ, а не компоненты (владелец, 2026-09-20: «после
+     каждого набора символа клавиатура у меня исчезает»). Компонент,
+     объявленный внутри другого, при каждой перерисовке новый: React
+     считает его другим типом, снимает поддерево и ставит заново — поле
+     теряет фокус, и клавиатура закрывается. Разметка, возвращённая
+     функцией, встаёт на то же место и фокус переживает. */
+  const qtyRow=(kind,port)=>{
     /* У входа спрашиваем не только сколько, но и ЧТО: если у ресурса есть
        единицы с номерами, исполнитель отмечает те, которые взял. Без этого
        потом не ответить, что выросло вот из этого задания. */
@@ -1141,7 +1145,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         ?was.filter(x=>x!==id):[...was,id]};
     });
     return (
-      <div style={{marginBottom:6}}>
+      <div key={port.id} style={{marginBottom:6}}>
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
           <span style={{fontSize:11.5,flex:"1 1 130px"}}>{traitName(port.trait)}</span>
           <span style={{fontSize:10.5,color:WARN}}>план {rangeText(port)}</span>
@@ -1183,86 +1187,119 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
      (`requiredGives`): второе такое же правило разошлось бы с первым. */
   const listBox={maxHeight:200,overflowY:"auto",marginTop:4,paddingRight:4,
     border:`1px solid ${C.line}`,borderRadius:6,padding:"2px 6px 6px"};
-  const ThingRow=({port})=>{
+  /* ─── сдаваемый ресурс — своя форма (владелец, 2026-09-20) ───
+
+     Форма разворачивается нажатием. Внутри: количество (по умолчанию —
+     заложенное техпроцессом), уже приложенные единицы (каждая
+     разворачивается: заменить, поправить, удалить) и «Загрузить новый».
+     Сколько единиц сдают — столько и полей: сдал десять договоров —
+     десять файлов. Чем единица подтверждается, решает РЕСУРС
+     (`kindOfTrait`): файл, текст или уникальный код; код не загружают —
+     его создаёт программа, и на всю сдачу прикладывают одно
+     подтверждение. Обязателен ли выход, решает `requiredGives`. */
+  const dropUnit=(trait,i)=>{
+    setGiveUnits(p=>({...p,[trait]:(p[trait]||[]).filter((u,k)=>k!==i)}));
+    setQty(p=>({...p,gives:{...p.gives,[trait]:Math.max(0,slots(trait)-1)}}));
+    setOpenUnit("");
+  };
+  const unitRow=(port,i,u,k)=>{
+    const name=traitName(port.trait);
+    const id=`${port.trait}~${i}`;
+    const on=openUnit===id;
+    const busy=giveBusy===id;
+    const err=giveErr[id];
+    const title=k==="file"?(u?.file?.name||"файла нет")
+      :k==="text"?(String(u?.text||"").trim().slice(0,40)||"текста нет")
+        :(u?.code||"");
+    const got=k==="file"?!!u?.file:k==="text"?!!String(u?.text||"").trim():!!u?.code;
+    return (
+      <div key={id} style={{border:`1px solid ${C.line}`,borderRadius:6,marginBottom:4}}>
+        <button type="button" aria-expanded={on} aria-label={`единица ${i+1}: ${name}`}
+          onClick={()=>setOpenUnit(on?"":id)} className="flex items-center gap-2"
+          style={{width:"100%",background:"transparent",border:"none",color:C.text,
+            cursor:"pointer",padding:"5px 7px",textAlign:"left"}}>
+          <span style={{fontSize:11,color:ACC}}>№{i+1}</span>
+          <span style={{fontSize:11,flex:1,minWidth:0,color:got?C.text:C.muted,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</span>
+          <span style={{fontSize:11,color:C.muted}}>{on?"▾":"▸"}</span>
+        </button>
+        {on&&(
+          <div style={{padding:"0 7px 7px"}}>
+            {k==="file"&&(
+              <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
+                <label style={{...btn(false),fontSize:11,padding:"3px 8px",
+                  cursor:busy?"default":"pointer",opacity:busy?0.6:1}}>
+                  {busy?"Загружаю…":u?.file?"Заменить файл":"Загрузить файл"}
+                  <input type="file" style={{display:"none"}} disabled={busy}
+                    aria-label={`результат ${i+1}: ${name}`}
+                    onChange={e=>pickGiveFile(port.trait,i,e.target.files?.[0])}/>
+                </label>
+                {u?.file&&(<span style={{fontSize:10.5,color:ACC}}>
+                  📎 {u.file.name} · {Math.round((u.file.size||0)/1024)} КБ</span>)}
+              </div>)}
+            {k==="text"&&(
+              <textarea rows={3} value={u?.text||""}
+                aria-label={`результат ${i+1}: ${name}`}
+                onChange={e=>putUnit(port.trait,i,{kind:"text",text:e.target.value})}
+                style={{...S.inp,width:"100%",fontSize:12,resize:"vertical"}}/>)}
+            {k==="code"&&(
+              <input readOnly value={u?.code||""}
+                aria-label={`уникальный код ${i+1}: ${name}`}
+                style={{...S.inp,width:"100%",fontSize:11.5,
+                  fontFamily:"ui-monospace, monospace",letterSpacing:1}}/>)}
+            {k!=="code"&&(
+              <button type="button" style={{...btn(false),fontSize:10.5,color:BAD,
+                borderColor:"#5A2436",marginTop:5}}
+                aria-label={`удалить единицу ${i+1}: ${name}`}
+                onClick={()=>dropUnit(port.trait,i)}>Удалить</button>)}
+            {err&&(<div style={{fontSize:10.5,color:BAD,marginTop:4}}>{err}</div>)}
+          </div>)}
+      </div>);
+  };
+  const giveForm=(port)=>{
     const name=traitName(port.trait);
     const must=requiredGives(func).some(x=>x.trait===port.trait);
     const n=slots(port.trait);
     const k=kindOf(port.trait);
     const list=unitsFor(port.trait);
     const done=filledOf(port.trait);
-    const idx=Array.from({length:n},(_,i)=>i);
+    const on=openGive===port.trait;
+    const addNew=()=>{
+      setQty(p=>({...p,gives:{...p.gives,[port.trait]:n+1}}));
+      setOpenUnit(`${port.trait}~${n}`);
+    };
     return (
-      <div style={{marginBottom:8}}>
-        <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-          <span style={{fontSize:11.5,fontWeight:600}}>{name}</span>
-          <span style={{fontSize:10.5,color:C.muted}}>
-            {n?`${nm(n)} ${unitWord(n)} · ${k==="code"?"уникальный код"
-              :k==="text"?"текст":"файл"}`:"ничего не выдано"}</span>
-          <span style={{flex:1}}/>
-          {!!n&&(<span style={{fontSize:10.5,color:done===n?OK:must?WARN:C.muted}}>
-            {k==="code"?(proof?"подтверждение есть":"нужно подтверждение")
-              :n>1?`готово ${done} из ${nm(n)}`
-                :done?"приложено"
-                  :must?"обязательно: без него работа не сдаётся"
-                    :"можно не прикладывать: минимум по этому ресурсу — 0"}</span>)}
-        </div>
-        {!n&&(<div style={{fontSize:10,color:C.muted,marginTop:2}}>
-          поставьте число выше — по единице на каждую сданную вещь</div>)}
-        {!!n&&k==="code"&&(
-          <div role="list" aria-label={`коды: ${name}`} style={{...listBox,maxHeight:140}}>
-            {idx.map(i=>(
-              <input key={i} readOnly value={list[i]?.code||""}
-                aria-label={`уникальный код ${i+1}: ${name}`}
-                style={{...S.inp,width:"100%",marginTop:4,fontSize:11.5,
-                  fontFamily:"ui-monospace, monospace",letterSpacing:1}}/>))}
+      <div key={port.id} style={{border:`1px solid ${must&&done<n?"#5A2436":C.line}`,
+        borderRadius:8,marginBottom:6,background:C.panel2}}>
+        <button type="button" aria-expanded={on} aria-label={`ресурс: ${name}`}
+          onClick={()=>setOpenGive(on?"":port.trait)} className="flex items-center gap-2"
+          style={{width:"100%",background:"transparent",border:"none",color:C.text,
+            cursor:"pointer",padding:"7px 9px",textAlign:"left"}}>
+          <span style={{fontSize:11.5,fontWeight:600,flex:1,minWidth:0}}>{name}</span>
+          <span style={{fontSize:10.5,color:n&&done===n?OK:must?WARN:C.muted}}>
+            {done} из {nm(n)}</span>
+          <span style={{fontSize:11,color:C.muted}}>{on?"▾":"▸"}</span>
+        </button>
+        {on&&(
+          <div style={{padding:"0 9px 9px"}}>
+            <div style={S.lbl}>количество</div>
+            <NumField value={qty.gives[port.trait]??0} style={{width:"100%",margin:"3px 0 8px"}}
+              aria-label={`количество: ${name}`}
+              onCommit={v=>setQty(p=>({...p,gives:{...p.gives,[port.trait]:
+                Math.max(0,Math.floor(Number(v)||0))}}))}/>
+            {Array.from({length:n},(x,i)=>unitRow(port,i,list[i],k))}
+            {k!=="code"&&(
+              <button type="button" style={{...btn(false),fontSize:11,marginTop:2}}
+                aria-label={`загрузить новый: ${name}`} onClick={addNew}>
+                Загрузить новый</button>)}
           </div>)}
-        {!!n&&k==="code"&&(
-          <div style={{fontSize:10,color:C.muted,marginTop:3}}>
-            коды создаёт программа — набранный руками не уникален ничем
-          </div>)}
-        {!!n&&k==="file"&&(
-          <div role="list" aria-label={`файлы: ${name}`} style={listBox}>
-            {idx.map(i=>{
-              const got=list[i]?.file;
-              const busy=giveBusy===`${port.trait}~${i}`;
-              const err=giveErr[`${port.trait}~${i}`];
-              return (
-                <div key={i} role="listitem" className="flex flex-wrap gap-2"
-                  style={{alignItems:"center",marginTop:4}}>
-                  <label style={{...btn(false),fontSize:11,padding:"3px 8px",
-                    cursor:busy?"default":"pointer",opacity:busy?0.6:1,
-                    borderColor:must&&!got?"#5A2436":undefined}}>
-                    {busy?"Загружаю…":n>1?(got?`Заменить №${i+1}`:`Загрузить №${i+1}`):(got?`Заменить ${name}`:`Загрузить ${name}`)}
-                    <input type="file" style={{display:"none"}} disabled={busy}
-                      aria-label={n>1?`результат ${i+1}: ${name}`:`результат: ${name}`}
-                      onChange={e=>pickGiveFile(port.trait,i,e.target.files?.[0])}/>
-                  </label>
-                  {got&&(<span style={{fontSize:10.5,color:ACC}}>
-                    📎 {got.name} · {Math.round((got.size||0)/1024)} КБ</span>)}
-                  {got&&(<button style={{...btn(false),fontSize:10.5,padding:"2px 6px",color:BAD}}
-                    aria-label={n>1?`убрать результат ${i+1}: ${name}`:`убрать ${name}`}
-                    onClick={()=>dropGiveFile(port.trait,i)}>×</button>)}
-                  {err&&(<span style={{fontSize:10.5,color:BAD}}>{err}</span>)}
-                </div>);
-            })}
-          </div>)}
-        {!!n&&k==="text"&&(
-          <div role="list" aria-label={`тексты: ${name}`} style={listBox}>
-            {idx.map(i=>(
-              <textarea key={i} rows={n>1?2:4} value={list[i]?.text||""}
-                aria-label={n>1?`результат ${i+1}: ${name}`:`результат: ${name}`}
-                onChange={e=>putUnit(port.trait,i,{kind:"text",text:e.target.value})}
-                style={{...S.inp,width:"100%",marginTop:4,fontSize:12,resize:"vertical"}}/>))}
-          </div>)}
-        {n>1&&!must&&(<div style={{fontSize:10,color:C.muted,marginTop:3}}>
-          можно не прикладывать: минимум по этому ресурсу — 0</div>)}
       </div>);
   };
 
   /* Подтверждение — одно на всю сдачу и сразу на все её единицы-коды:
      подтверждают не каждый ключ отдельно, а то, что партию выдали. */
-  const ProofRow=()=>(
-    <div className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:8}}>
+  const proofRow=()=>(
+    <div key="proof" className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:8}}>
       <label style={{...btn(false),fontSize:11,padding:"4px 8px",
         cursor:proofBusy?"default":"pointer",opacity:proofBusy?0.6:1,
         borderColor:proof?undefined:"#5A2436"}}>
@@ -1287,9 +1324,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       </div>
 
       <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>{task.title}</div>
-      <div style={{fontSize:10.5,color:C.muted,lineHeight:1.6,marginBottom:8}}>
-        поставил: {who(roleOf(task,"setter"))} · проверяет: {who(roleOf(task,"reviewer"))}
-        {task.end?` · срок ${fmtDT(task.end)}`:" · срок не назначен"}
+      {/* Каждое поле — своей строкой (владелец, 2026-09-20). */}
+      <div style={{fontSize:11,color:C.muted,lineHeight:1.7,marginBottom:8}}>
+        <div>проверяет: {who(roleOf(task,"reviewer"))}</div>
+        <div>срок: {task.end?fmtDT(task.end):"не назначен"}</div>
       </div>
 
       {/* Описание задачи — слова постановщика ОБ ЭТОМ выполнении; своего
@@ -1308,7 +1346,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
           </div></>);
       })()}
 
-      <div style={S.lbl}>функция, которую выполняет задача</div>
+      <div style={S.lbl}>выполняемая функция</div>
       <FuncCard func={func} entities={entities} traitName={traitName}/>
 
       {/* Сами вещи на входе — всегда, а не только при сдаче: работают с
@@ -1328,14 +1366,22 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
             </div>))}
         </div></>)}
 
-      <div style={S.lbl}>сдача — что вышло на самом деле</div>
+      {/* Критерии — у ЗАДАЧИ, своим разделом перед сдачей (владелец,
+          2026-09-20). */}
+      <div aria-label="критерии проверки" style={{marginBottom:8}}>
+        <div style={S.lbl}>критерии проверки</div>
+        {(func?.checks||[]).length
+          ? (<ul style={{margin:"3px 0 0",paddingLeft:18,fontSize:12,lineHeight:1.6}}>
+              {func.checks.map((c,i)=>(<li key={`${i}:${c}`}>{c}</li>))}
+            </ul>)
+          : (<div style={{fontSize:11.5,color:C.muted,marginTop:3}}>нет</div>)}
+      </div>
+
+      <div style={S.lbl}>сдача задачи</div>
       <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
         padding:9,margin:"6px 0 8px"}}>
         {!subs.length&&<div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
-          Ещё не сдавалась. «Сдать» запишет отчёт словами, сколько времени
-          ушло, сколько ресурса реально взяли и выдали, и сами вещи, которые
-          вышли, — из принятых сдач считается среднее арифметическое, и оно
-          уточняет прогноз.</div>}
+          Ещё не сдавалась.</div>}
         {subs.map(sb=>(
           <div key={sb.id} style={{background:C.ink,border:`1px solid ${C.line}`,
             borderRadius:6,padding:7,marginBottom:6}}>
@@ -1384,18 +1430,17 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                 задача не привязана к функции — сдавать нечего</span>}
             </div>
           : <div>
-              {/* Отчёт — словами и сверху: это главное, что читает
-                  проверяющий; числа и вещи — под ним. */}
-              <div style={S.lbl}>отчёт — словами</div>
-              <TxtField area value={draftText} placeholder="что сделали и что вышло"
+              <div style={S.lbl}>отчёт</div>
+              <TxtField area value={draftText}
                 aria-label="отчёт о работе"
                 style={{minHeight:56,margin:"5px 0 8px",lineHeight:1.5}}
                 onCommit={setDraftText}/>
 
+              <div style={S.lbl}>время выполнения</div>
               <div className="flex flex-wrap gap-2"
-                style={{alignItems:"center",marginBottom:8}}>
-                <span style={{fontSize:11.5,color:C.muted}}>ушло времени</span>
+                style={{alignItems:"center",margin:"5px 0 8px"}}>
                 <NumField value={hours} style={{flex:"0 1 90px"}}
+                  aria-label="время выполнения"
                   onCommit={v=>setHours(Number(v)||0)}/>
                 <span style={{fontSize:11.5,color:C.muted}}>ч</span>
                 <span style={{fontSize:10.5,color:WARN}}>
@@ -1404,14 +1449,8 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               {!!func.takes.length&&<>
                 <div style={S.lbl}>сколько взяли</div>
                 <div style={{margin:"5px 0 8px"}}>
-                  {uniqPorts(func.takes).map(p=>(<QtyRow key={p.id} kind="takes" port={p}/>))}
+                  {uniqPorts(func.takes).map(p=>qtyRow("takes",p))}
                 </div></>}
-              {!!func.gives.length&&<>
-                <div style={S.lbl}>сколько выдали</div>
-                <div style={{margin:"5px 0 8px"}}>
-                  {uniqPorts(func.gives).map(p=>(<QtyRow key={p.id} kind="gives" port={p}/>))}
-                </div></>}
-
               {/* ─── вещи или оценка: одно место на двоих ───
                   Пока отчёт не написан или не хватает обязательной вещи —
                   кнопки загрузки. Когда всё на месте — на этом же месте
@@ -1419,15 +1458,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               {showThings
                 ? <>
                     {!!func.gives.length&&<>
-                      <div style={S.lbl}>вещи, которые вышли</div>
-                      <div style={{fontSize:10,color:C.muted,margin:"3px 0 5px",
-                        lineHeight:1.5}}>
-                        Приложите то, что вышло: по этим файлам работу потом
-                        смотрят и скачивают.
-                      </div>
+                      <div style={S.lbl}>сдаваемые ресурсы</div>
                       <div style={{margin:"5px 0 8px"}}>
-                        {uniqPorts(func.gives).map(p=>(<ThingRow key={p.id} port={p}/>))}
-                        {needsProof&&<ProofRow/>}
+                        {uniqPorts(func.gives).map(p=>giveForm(p))}
+                        {needsProof&&proofRow()}
                       </div></>}
                     {!func.gives.length&&(
                       <div style={{fontSize:10.5,color:C.muted,marginBottom:8}}>

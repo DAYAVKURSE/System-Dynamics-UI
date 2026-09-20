@@ -36,10 +36,22 @@ const open = () => {
   fireEvent.click(screen.getByText("Задача A"));
   fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 };
+/* Ресурс сдаётся своей формой: её раскрывают, ставят количество, и у
+   каждой единицы своя строка (владелец, 2026-09-20). */
+const openGive = () => {
+  const box = screen.getByRole("button", { name: "ресурс: договоры" });
+  if (box.getAttribute("aria-expanded") !== "true") fireEvent.click(box);
+};
 const setGiven = (n) => {
-  const box = screen.getByLabelText("выдано: договоры");
+  openGive();
+  const box = screen.getByLabelText("количество: договоры");
   fireEvent.change(box, { target: { value: String(n) } });
   fireEvent.blur(box);
+};
+const openUnit = (i) => {
+  openGive();
+  const row = screen.getByRole("button", { name: `единица ${i}: договоры` });
+  if (row.getAttribute("aria-expanded") !== "true") fireEvent.click(row);
 };
 const attach = async (label, name) => {
   const input = screen.getByLabelText(label);
@@ -49,6 +61,7 @@ const attach = async (label, name) => {
   await waitFor(() => expect(screen.getAllByText(new RegExp(name.replace(".", "\\.")))
     .length).toBeGreaterThan(0));
 };
+const attachUnit = async (i, name) => { openUnit(i); await attach(`результат ${i}: договоры`, name); };
 const write = () => {
   const t = screen.getByLabelText("отчёт о работе");
   fireEvent.change(t, { target: { value: "сделал" } });
@@ -56,24 +69,23 @@ const write = () => {
 };
 
 describe("сдача: по вещи на каждую единицу", () => {
-  it("десять единиц — десять полей загрузки, и сдать можно только заполнив все", async () => {
+  it("десять единиц — десять строк, и сдать можно только заполнив все", async () => {
     const got = [];
     render(<Board kind="file" onSubmit={(t, sb) => got.push(sb)} />);
     open();
     setGiven(10);
-    expect(screen.getByRole("list", { name: "файлы: договоры" })
-      .querySelectorAll("input[type=file]")).toHaveLength(10);
-    expect(screen.getByText(/готово 0 из 10/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^единица \d+: договоры$/ })).toHaveLength(10);
+    expect(screen.getByText("0 из 10")).toBeInTheDocument();
     // Одна приложенная вещь из десяти — это не сданная работа.
-    await attach("результат 1: договоры", "договор-1.pdf");
-    expect(screen.getByText(/готово 1 из 10/)).toBeInTheDocument();
+    await attachUnit(1, "договор-1.pdf");
+    expect(screen.getByText("1 из 10")).toBeInTheDocument();
     expect(screen.getByText(/пока не приложено: договоры/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
     for (let i = 2; i <= 10; i += 1) {
-      await attach(`результат ${i}: договоры`, `договор-${i}.pdf`);
+      // eslint-disable-next-line no-await-in-loop
+      await attachUnit(i, `договор-${i}.pdf`);
     }
-    expect(screen.getByText(/готово 10 из 10/)).toBeInTheDocument();
-    // Отчёт словами — последним: с ним работа готова к сдаче.
+    expect(screen.getByText("10 из 10")).toBeInTheDocument();
     write();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     expect(got).toHaveLength(1);
@@ -87,15 +99,36 @@ describe("сдача: по вещи на каждую единицу", () => {
     render(<Board kind="text" onSubmit={(t, sb) => got.push(sb)} />);
     open();
     setGiven(2);
-    expect(screen.queryByLabelText(/^результат 1: договоры$/)).toBeTruthy();
-    expect(screen.queryByRole("list", { name: "файлы: договоры" })).toBeNull();
     ["первый", "второй"].forEach((v, i) => {
-      fireEvent.change(screen.getByLabelText(`результат ${i + 1}: договоры`),
-        { target: { value: v } });
+      openUnit(i + 1);
+      const box = screen.getByLabelText(`результат ${i + 1}: договоры`);
+      expect(box.tagName.toLowerCase()).toBe("textarea");
+      fireEvent.change(box, { target: { value: v } });
     });
     write();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     expect(got[0].units.t2.map((u) => u.text)).toEqual(["первый", "второй"]);
+  });
+
+  /* КЛАВИАТУРА НЕ ЗАКРЫВАЕТСЯ (владелец, 2026-09-20): «после каждого
+     набора символа клавиатура у меня исчезает». Поле теряло фокус, потому
+     что строки формы были компонентами, объявленными внутри другого
+     компонента: при каждой перерисовке React считал их новым типом и
+     ставил поддерево заново. */
+  it("набор в текстовом ресурсе не сбрасывает фокус поля", () => {
+    render(<Board kind="text" />);
+    open();
+    setGiven(1);
+    openUnit(1);
+    const box = screen.getByLabelText("результат 1: договоры");
+    box.focus();
+    expect(document.activeElement).toBe(box);
+    fireEvent.change(box, { target: { value: "д" } });
+    expect(document.activeElement).toBe(screen.getByLabelText("результат 1: договоры"));
+    expect(document.activeElement).toBe(box);
+    fireEvent.change(box, { target: { value: "до" } });
+    expect(document.activeElement).toBe(box);
+    expect(screen.getByLabelText("результат 1: договоры").value).toBe("до");
   });
 
   it("ресурс-код: коды создаёт программа, а грузят подтверждение — одно на всех", async () => {
@@ -103,16 +136,18 @@ describe("сдача: по вещи на каждую единицу", () => {
     render(<Board kind="code" onSubmit={(t, sb) => got.push(sb)} />);
     open();
     setGiven(3);
-    const codes = [...screen.getByRole("list", { name: "коды: договоры" })
-      .querySelectorAll("input")].map((i) => i.value);
+    // Код стоит подписью самой единицы: показать один, а записать другой было бы обманом.
+    const codes = screen.getAllByRole("button", { name: /^единица \d+: договоры$/ })
+      .map((b) => b.textContent.replace(/^№\d/, "").replace(/[▸▾]/g, "").trim());
     expect(codes).toHaveLength(3);
     codes.forEach((c) => expect(c).toMatch(/^[A-Z2-9]{8}$/));
     expect(new Set(codes).size).toBe(3);
-    // Полей загрузки у кода нет вовсе — его не загружают.
-    expect(screen.queryByRole("list", { name: "файлы: договоры" })).toBeNull();
-    expect(screen.getByText(/нужно подтверждение/)).toBeInTheDocument();
+    // Загружать код нельзя — его не загружают.
+    openUnit(1);
+    expect(screen.getByLabelText("уникальный код 1: договоры")).toHaveAttribute("readonly");
+    expect(screen.queryByLabelText("результат 1: договоры")).toBeNull();
+    expect(screen.getByText(/без него работа не сдаётся/)).toBeInTheDocument();
     await attach("подтверждение выдачи", "акт.pdf");
-    expect(screen.getByText(/подтверждение есть/)).toBeInTheDocument();
     write();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     expect(got[0].units.t2.map((u) => u.code)).toEqual(codes);

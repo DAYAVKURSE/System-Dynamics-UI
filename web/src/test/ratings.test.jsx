@@ -39,12 +39,21 @@ function Board({ tasks: t0, meId = "2", onSubmit, onComment }) {
 }
 
 /* Результат работы прикладывается файлом: без него сдачи нет. */
+/* Ресурс сдаётся своей формой: её раскрывают, потом раскрывают единицу
+   (владелец, 2026-09-20). */
+const openUnitForm = (trait = "заявки") => {
+  const box = screen.queryByRole("button", { name: `ресурс: ${trait}` });
+  if (box && box.getAttribute("aria-expanded") !== "true") fireEvent.click(box);
+  const one = screen.queryByRole("button", { name: `единица 1: ${trait}` });
+  if (one && one.getAttribute("aria-expanded") !== "true") fireEvent.click(one);
+};
 const attachResult = async (label, name = "результат.txt") => {
+  openUnitForm();
   const input = screen.getByLabelText(label);
   const f = new File(["x"], name, { type: "text/plain" });
   Object.defineProperty(input, "files", { value: [f], configurable: true });
   fireEvent.change(input);
-  await waitFor(() => expect(screen.getByText(new RegExp(name))).toBeTruthy());
+  await waitFor(() => expect(screen.getAllByText(new RegExp(name)).length).toBeGreaterThan(0));
 };
 const commit = (el, value) => {
   fireEvent.change(el, { target: { value } });
@@ -54,7 +63,7 @@ const commit = (el, value) => {
 const openHanding = async () => {
   fireEvent.click(screen.getByText("Задача A"));
   fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
-  await attachResult("результат: заявки");
+  await attachResult("результат 1: заявки");
   commit(screen.getByLabelText("отчёт о работе"), "сделал");
 };
 // Их две: одна в форме сдачи, другая на карточке в колонке.
@@ -72,8 +81,11 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     expect(screen.getByLabelText("отчёт о работе")).toBeInTheDocument();
     expect(screen.queryByText("Загрузить отчёт")).toBeNull();
     expect(screen.queryByLabelText("отчёт о работе файлом")).toBeNull();
-    expect(screen.getByText("Загрузить заявки")).toBeInTheDocument();
-    expect(screen.getByText(/обязательно: без него работа не сдаётся/)).toBeInTheDocument();
+    /* Ресурс сдаётся своей формой; кнопка загрузки — внутри единицы
+       (владелец, 2026-09-20). */
+    openUnitForm();
+    expect(screen.getByText("Загрузить файл")).toBeInTheDocument();
+    expect(screen.getByText(/Задача не выполнена, пока не приложено: заявки/)).toBeInTheDocument();
   });
 
   it("пока отчёт не написан и вещь не приложена — ни оценки, ни «Сдать», а слова о том, чего нет", async () => {
@@ -85,7 +97,7 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     expect(screen.getByText(/Напишите отчёт словами/)).toBeInTheDocument();
     expect(screen.getByText(/Задача не выполнена, пока не приложено: заявки/)).toBeInTheDocument();
     // Вещь приложена, отчёта нет — всё ещё не готово, и сказано, что не так.
-    await attachResult("результат: заявки");
+    await attachResult("результат 1: заявки");
     expect(screen.queryByText(/Задача не выполнена/)).toBeNull();
     expect(screen.getByText(/Напишите отчёт словами/)).toBeInTheDocument();
     expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
@@ -94,16 +106,16 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
   it("написано и приложено — на месте кнопок загрузки оценка постановки и «Сдать»", async () => {
     render(<Board tasks={[task()]} />);
     open();
-    await attachResult("результат: заявки");
+    await attachResult("результат 1: заявки");
     commit(screen.getByLabelText("отчёт о работе"), "сделал");
     expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(2);
-    expect(screen.queryByText(/Загрузить заявки/)).toBeNull();
-    expect(screen.queryByText(/Заменить заявки/)).toBeNull();
+    expect(screen.queryByText(/Заменить файл/)).toBeNull();
     // Что приложено — видно; к вещам можно вернуться и снова уйти к оценке.
     expect(screen.getByText(/приложено: заявки — результат.txt/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "изменить вещи" }));
-    expect(screen.getByText("Заменить заявки")).toBeInTheDocument();
+    openUnitForm();
+    expect(screen.getByText("Заменить файл")).toBeInTheDocument();
     expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "К оценке и сдаче" }));
     expect(screen.getByText(/оценка постановки задачи/)).toBeInTheDocument();
@@ -122,8 +134,8 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     };
     render(<Free />);
     open();
-    expect(screen.getByText("Загрузить спрос")).toBeInTheDocument();
-    expect(screen.getByText(/минимум по этому ресурсу — 0/)).toBeInTheDocument();
+    openUnitForm("спрос");
+    expect(screen.getByText("Загрузить файл")).toBeInTheDocument();
     // Держит только обязательная: «спрос» в списке недостающего нет.
     expect(screen.getByText(/пока не приложено: заявки\./)).toBeInTheDocument();
   });

@@ -35,12 +35,21 @@ function Board({ tasks: t0 }) {
 /* Результат работы прикладывается файлом по каждому выданному ресурсу.
    Без сервера файл ложится инлайном — поэтому дожидаемся, а не считаем
    запись мгновенной. */
+/* Ресурс сдаётся своей формой: её раскрывают, потом раскрывают единицу
+   (владелец, 2026-09-20). */
+const openUnitForm = (trait = "заявки") => {
+  const box = screen.queryByRole("button", { name: `ресурс: ${trait}` });
+  if (box && box.getAttribute("aria-expanded") !== "true") fireEvent.click(box);
+  const one = screen.queryByRole("button", { name: `единица 1: ${trait}` });
+  if (one && one.getAttribute("aria-expanded") !== "true") fireEvent.click(one);
+};
 const attachResult = async (label, name = "результат.txt") => {
+  openUnitForm();
   const input = screen.getByLabelText(label);
   const f = new File(["x"], name, { type: "text/plain" });
   Object.defineProperty(input, "files", { value: [f], configurable: true });
   fireEvent.change(input);
-  await waitFor(() => expect(screen.getByText(new RegExp(name))).toBeTruthy());
+  await waitFor(() => expect(screen.getAllByText(new RegExp(name)).length).toBeGreaterThan(0));
 };
 /* Отчёт — словами, сверху формы: без него «Сдать» не появляется. */
 const writeReport = (text = "готово") => {
@@ -175,7 +184,7 @@ describe("сдача записывает факт выполнения", () => 
       fireEvent.change(hours, { target: { value: "5" } });
       fireEvent.blur(hours);
       // Функция обещала выдать «заявки» — без самой заявки работа не сдана.
-      await attachResult("результат: заявки");
+      await attachResult("результат 1: заявки");
       writeReport("собрал");
       // Их две: одна в форме сдачи, другая на карточке в колонке.
       fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
@@ -206,7 +215,7 @@ describe("сдача записывает факт выполнения", () => 
     // Сдачи не появилось: числа записаны, а результата нет.
     expect(screen.queryByText(/взято: спрос/)).toBeNull();
 
-    await attachResult("результат: заявки");
+    await attachResult("результат 1: заявки");
     expect(screen.queryByText(/Задача не выполнена, пока не приложено/)).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
@@ -229,9 +238,9 @@ describe("сдача записывает факт выполнения", () => 
       fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 
       expect(screen.queryByText(/Задача не выполнена, пока не приложено/)).toBeNull();
-      expect(screen.getByText(/минимум по этому ресурсу — 0/)).toBeInTheDocument();
-      // Кнопка «Загрузить заявки» есть и у необязательной вещи — просто не держит.
-      expect(screen.getByText("Загрузить заявки")).toBeInTheDocument();
+      // Форма ресурса есть и у необязательной вещи — просто не держит сдачу.
+      openUnitForm();
+      expect(screen.getByLabelText("количество: заявки")).toBeInTheDocument();
       writeReport();
       fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
       expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
@@ -538,11 +547,11 @@ describe("поля задачи в порядке постановки", () => {
       canAssign nameOf={(id) => id} setTasks={() => {}} />);
     const labels = [...container.querySelectorAll("div")]
       .map((d) => d.textContent)
-      .filter((x) => ["название", "функция, которую выполняет задача", "описание задачи",
+      .filter((x) => ["название", "выполняемая функция", "описание задачи",
         "критерии проверки", "начать", "что сказали в задаче"].includes(x));
     const at = (x) => labels.indexOf(x);
-    expect(at("название")).toBeLessThan(at("функция, которую выполняет задача"));
-    expect(at("функция, которую выполняет задача")).toBeLessThan(at("описание задачи"));
+    expect(at("название")).toBeLessThan(at("выполняемая функция"));
+    expect(at("выполняемая функция")).toBeLessThan(at("описание задачи"));
     expect(at("описание задачи")).toBeLessThan(at("критерии проверки"));
     expect(at("критерии проверки")).toBeLessThan(at("начать"));
     // Сказанное в задаче — ровно один раз, и только чтение: слова к
@@ -920,7 +929,7 @@ describe("критерии на форме постановки", () => {
       chain: { id: "c1", name: "Ц", step: 1, of: 1, result: "лид передан" } }];
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Пользователи · Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок"));
     expect(plate.textContent).toMatch(/берёт:/);
     expect(plate.textContent).toMatch(/выдаёт:/);
     expect(plate.textContent).toMatch(/Срок: 2 ч на одно выполнение/);
@@ -941,7 +950,7 @@ describe("критерии на форме постановки", () => {
     const f = [{ ...FUNCS[0], chain: { id: "c1", name: "Ц", step: 1, of: 1, result: "" } }];
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Пользователи · Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок"));
     expect(plate.textContent).toMatch(/Ожидаемый результат: не назван — его ставят у функции на «Схеме»/);
   });
 
@@ -992,7 +1001,7 @@ describe("критерии на форме постановки", () => {
         { id: "p2_1", trait: "t2", lo: 1, hi: 1, to: "b" }] }];
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
-      .find((d) => d.textContent.startsWith("Пользователи · Сбор заявок"));
+      .find((d) => d.textContent.startsWith("Сбор заявок"));
     expect(plate.textContent).toMatch(/выдаёт: заявки ровно 1(?!, заявки)/);
     expect(plate.textContent.match(/заявки ровно 1/g)).toHaveLength(1);
   });

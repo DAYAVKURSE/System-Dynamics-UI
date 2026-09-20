@@ -136,18 +136,19 @@ const FUNCS0=normalizeFuncs([
    Лента, а не линия: вилка входов и выходов — гипотеза, и рисовать её одной
    чертой значило бы показать знание, которого нет. Факт ложится поверх
    отдельной линией, когда выполнения появились. */
-/* `upTo` — до какого месяца дорисован хвост. Ось всегда во весь горизонт:
-   так видно, что впереди ещё есть куда расти, а сам хвост удлиняется, когда
-   ползунок месяца едет вперёд. */
-function Chart({lo,hi,fact,months,goalLine,cursorMonth,upTo}){
+/* Лента рисуется на ВЕСЬ горизонт сразу (владелец, 2026-09-20: «графики в
+   прогнозах не работают»). Прежде хвост дорисовывался по ползунку месяца, а
+   ползунок стоит на нуле, пока его не двигали, — и график был пуст: одна
+   точка полилинией не рисуется. Выбранный месяц по-прежнему отмечен
+   чертой, но лента от него не зависит. */
+function Chart({lo,hi,fact,months,goalLine,cursorMonth}){
   const W=700,H=240,PL=54,PB=26,PT=12,PR=12;
   const all=[...(lo||[]),...(hi||[]),...(fact||[]),...(goalLine!=null?[goalLine]:[])];
   const max=Math.max(1,...all.filter(isFinite))*1.1;
   const x=i=>PL+(i/Math.max(1,months))*(W-PL-PR);
   const y=v=>PT+(1-Math.min(v,max)/max)*(H-PT-PB);
   const step=Math.max(1,Math.ceil(months/6));
-  // Ноль месяцев — это всё равно точка «сейчас», а не пустота.
-  const till=(row)=>(row||[]).slice(0,Math.max(1,(upTo??months)+1));
+  const till=(row)=>(row||[]).slice(0,months+1);
   const LO=till(lo),HI=till(hi),FT=fact?till(fact):null;
   const band=HI.length&&LO.length
     ?[...HI.map((v,i)=>`${x(i)},${y(v)}`),
@@ -1919,10 +1920,10 @@ export default function SystemModel(){
                           :" · по прогнозу не достигается")}
                     </div>
                     {on&&(
-                      <div style={{marginTop:8}}>
+                      <div style={{marginTop:8}} aria-label={`график: ${t.l}`}>
                         <Chart lo={lo} hi={hi} fact={fc.fact?fc.fact[t.id]:null}
                           months={span} goalLine={line}
-                          cursorMonth={simMonth} upTo={simMonth}/>
+                          cursorMonth={simMonth}/>
                       </div>)}
                   </div>);
               })}

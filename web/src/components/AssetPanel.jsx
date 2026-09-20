@@ -924,10 +924,11 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   {` · факторы: ${factorsOf(f).map(factorName).join(", ")} — конверсия ${
                     Math.round(chanceOf(f, factors) * 100) / 100}%`}</span>)}
             </>}>
-            {/* Критерии проверки задачи (владелец, 2026-09-18, правка
-                2026-09-19): добавляются и здесь. У задачи из техпроцесса они
-                живут строками «Критерий:» в тексте — туда и пишем. */}
-            <Form title="критерии проверки">
+            {/* Критерии — у ЗАДАЧИ, а не у функции (владелец, 2026-09-20:
+                «у функции есть только ожидаемый результат»). У задачи из
+                техпроцесса они живут строками «Критерий:» в его тексте —
+                туда и пишем; правятся они и в меню задачи на процессе. */}
+            <Form title="критерии проверки задачи">
               {(f.checks || []).map((c, i) => (
                 <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 4 }}>
                   <TxtField value={c} aria-label={`критерий ${i + 1}`} style={{ flex: 1, fontSize: 12 }}
@@ -937,7 +938,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                     onClick={() => setChecksOf(f, (f.checks || []).filter((y, k) => k !== i))}>✕</button>
                 </div>))}
               <button style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="добавить критерий"
-                onClick={() => setChecksOf(f, [...(f.checks || []), "новый критерий"])}>+ критерий</button>
+                onClick={() => setChecksOf(f, [...(f.checks || []), " "])}>+ критерий</button>
             </Form>
 
             {/* Описания у функции нет (владелец, 2026-09-20: «описание

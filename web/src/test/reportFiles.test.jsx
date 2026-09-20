@@ -92,7 +92,15 @@ const attachTo = async (label, f) => {
 };
 /* Результат работы: без него задача не сдаётся — «заявки» функция обещала
    выдать (минимум в вилке 1). */
-const attachResult = (f) => attachTo("результат: заявки", f);
+/* Ресурс сдаётся своей формой: её раскрывают, потом раскрывают единицу
+   (владелец, 2026-09-20). */
+const openUnitForm = (trait = "заявки") => {
+  const box = screen.queryByRole("button", { name: `ресурс: ${trait}` });
+  if (box && box.getAttribute("aria-expanded") !== "true") fireEvent.click(box);
+  const one = screen.queryByRole("button", { name: `единица 1: ${trait}` });
+  if (one && one.getAttribute("aria-expanded") !== "true") fireEvent.click(one);
+};
+const attachResult = (f) => { openUnitForm(); return attachTo("результат 1: заявки", f); };
 /* Отчёт — словами, и без него «Сдать» не появляется. */
 const writeReport = () => {
   const el = screen.getByLabelText("отчёт о работе");

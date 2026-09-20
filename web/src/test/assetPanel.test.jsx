@@ -801,8 +801,10 @@ describe("шапка функции в карточке (владелец, 2026-
     const { container: box } = render(
       <Funcs entityId="e1" funcs={[f]} setFuncs={() => {}} traits={[]} entities={[{ id: "e1", name: "Актив" }]}
         open={f.id} setOpen={() => {}} onTaskChecks={(x, list) => log.push([x.id, list])} />);
+    /* Новый критерий заводится ПУСТЫМ: слова в нём пишет человек, а не
+       приложение (владелец, 2026-09-20). */
     fireEvent.click(within(box).getByRole("button", { name: "добавить критерий" }));
-    expect(log).toEqual([["t1", ["заявка в базе", "новый критерий"]]]);
+    expect(log).toEqual([["t1", ["заявка в базе", " "]]]);
     fireEvent.click(within(box).getByRole("button", { name: "убрать критерий 1" }));
     expect(log[1]).toEqual(["t1", []]);
   });

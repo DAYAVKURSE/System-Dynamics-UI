@@ -182,3 +182,39 @@ describe("щипок", () => {
     expect(v.y).toBeLessThanOrEqual(ch - v.h / 2 + 0.01);
   });
 });
+
+/* ГРАФИК ПРОГНОЗА РИСУЕТСЯ СРАЗУ (владелец, 2026-09-20: «графики в
+   прогнозах не работают»). Прежде лента дорисовывалась по ползунку месяца,
+   а он стоит на нуле, пока его не двигали: одна точка полилинией не
+   рисуется, и график был пуст. */
+describe("график прогноза", () => {
+  const openChart = () => {
+    fireEvent.click(screen.getByRole("button", { name: "Цели" }));
+    const head = screen.getAllByText("заявки")[0];
+    fireEvent.click(head);
+    return screen.getByLabelText("график: заявки");
+  };
+
+  it("лента нарисована на весь горизонт, не дожидаясь ползунка", () => {
+    const box = openChart();
+    const lines = [...box.querySelectorAll("polyline")]
+      .map((n) => n.getAttribute("points").trim().split(/\s+/).length);
+    expect(lines.length).toBeGreaterThan(0);
+    // В каждой линии больше одной точки — иначе рисовать нечего.
+    lines.forEach((n) => expect(n).toBeGreaterThan(1));
+    // Лента-полигон на месте.
+    expect(box.querySelector("polygon")).not.toBeNull();
+  });
+
+  it("ползунок месяца двигает только черту, а не длину ленты", () => {
+    const box = openChart();
+    const before = [...box.querySelectorAll("polyline")]
+      .map((n) => n.getAttribute("points"));
+    const sim = within(screen.getByLabelText("прогноз на схеме"))
+      .getByLabelText("месяц на схеме");
+    fireEvent.change(sim, { target: { value: "5" } });
+    const after = [...screen.getByLabelText("график: заявки").querySelectorAll("polyline")]
+      .map((n) => n.getAttribute("points"));
+    expect(after).toEqual(before);
+  });
+});

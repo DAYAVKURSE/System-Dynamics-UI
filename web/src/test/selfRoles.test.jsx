@@ -38,12 +38,21 @@ const solo = (over) => task({ setter: "1", assignee: "1", reviewer: "1", ...over
 
 /* Функция обещала выдать «заявки» (минимум в вилке 1) — без самой заявки
    работа не сдаётся. Прикладываем её так же, как это делает человек. */
+/* Ресурс сдаётся своей формой: её раскрывают, потом раскрывают единицу
+   (владелец, 2026-09-20). */
+const openUnitForm = (trait = "заявки") => {
+  const box = screen.queryByRole("button", { name: `ресурс: ${trait}` });
+  if (box && box.getAttribute("aria-expanded") !== "true") fireEvent.click(box);
+  const one = screen.queryByRole("button", { name: `единица 1: ${trait}` });
+  if (one && one.getAttribute("aria-expanded") !== "true") fireEvent.click(one);
+};
 const attachResult = async (label, name = "результат.txt") => {
+  openUnitForm();
   const input = screen.getByLabelText(label);
   const f = new File(["x"], name, { type: "text/plain" });
   Object.defineProperty(input, "files", { value: [f], configurable: true });
   fireEvent.change(input);
-  await waitFor(() => expect(screen.getByText(new RegExp(name))).toBeTruthy());
+  await waitFor(() => expect(screen.getAllByText(new RegExp(name)).length).toBeGreaterThan(0));
 };
 /* Отчёт — словами: без него «Сдать» не появляется (v1.2). */
 const writeReport = (text = "готово") => {
@@ -164,7 +173,7 @@ describe("на доске", () => {
     render(<Board tasks={[solo({ status: "progress" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
-    await attachResult("результат: заявки");
+    await attachResult("результат 1: заявки");
     writeReport();
     // Их две: одна в форме сдачи, другая на карточке в колонке.
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
@@ -178,7 +187,7 @@ describe("на доске", () => {
     render(<Board tasks={[solo({ status: "progress", reviewer: "2" })]} />);
     fireEvent.click(screen.getByText("Задача A"));
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
-    await attachResult("результат: заявки");
+    await attachResult("результат 1: заявки");
     writeReport();
     // Их две: одна в форме сдачи, другая на карточке в колонке.
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
