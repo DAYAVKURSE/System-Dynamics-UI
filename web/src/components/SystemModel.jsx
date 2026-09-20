@@ -1706,7 +1706,6 @@ export default function SystemModel(){
             :(t,patch)=>setupTaskRemote(t.id,patch).then(r=>{ pullNow(); return r; })}
           onAccept={(t,note)=>decide(t,true,note)}
           onReturn={(t,note)=>decide(t,false,note)}
-          onRate={(t,m)=>{ if(!me.isOwner) markTaskRemote(t.id,m).then(pullNow,()=>{}); }}
           ro={!mayEdit(me,"review")}/>)}
 
       {/* ═══ СХЕМА ═══ */}

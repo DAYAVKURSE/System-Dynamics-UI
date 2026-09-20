@@ -241,6 +241,13 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
   if (user && !user.nameOwn && profile.name && user.name !== profile.name) {
     user.name = profile.name; changed = true;
   }
+  /* Аватарка из Telegram — то, что показывается по умолчанию (владелец,
+     2026-09-20). Она живёт отдельно от своей (`avatar`): человек мог
+     сменить её в Telegram, и запомненная вчера ссылка сегодня уже пустая.
+     Своя картинка ею не переписывается — у неё своё поле. */
+  if (user && profile.photo != null && user.photo !== profile.photo) {
+    user.photo = String(profile.photo || ""); changed = true;
+  }
   if (changed) await writeOrg(org);
 
   /* Ролей у человека может быть несколько: он и дизайнер, и проверяющий.
@@ -478,12 +485,36 @@ export async function deferMinOf(userId) {
    текст в неё насовсем. Молча выбросить чужие слова было бы хуже всего. */
 const LEGACY_FIELDS = ["title", "skills", "contact"];
 const LIMIT = 2000;
-const profileOf = (user = {}) => {
+/* Картинка приезжает ссылкой на хранилище отчётов (`/api/reports/…`), а
+   без него — самой картинкой в data:-URL. Предел щедрый ровно настолько,
+   чтобы маленькая картинка поместилась: org.json — не файловый диск. */
+const AVATAR_LIMIT = 400000;
+/* ─────── АВАТАРКА (владелец, 2026-09-20) ───────
+
+   Картинка у человека ОДНА, и у неё три состояния, записанные одним
+   полем `avatar`:
+
+   · нет поля вовсе — показывается та, что стоит у него в Telegram;
+   · строка — своя, загруженная взамен телеграмной;
+   · пустая строка — «Удалить»: пустой кружок с первой буквой имени.
+
+   Двух полей тут быть не может: «есть своя» и «телеграмную убрали» — это
+   один и тот же вопрос «что показывать», заданный дважды, и ответы на
+   него разошлись бы. */
+export const avatarOf = (user = {}) => {
+  const own = user.avatar;
+  const photo = String(user.photo || "");
+  if (own == null) return { avatar: photo, avatarOwn: false, avatarOff: false };
+  const s = String(own);
+  return { avatar: s, avatarOwn: !!s, avatarOff: !s };
+};
+
+export const profileOf = (user = {}) => {
   const about = String(user.about || "");
   const old = LEGACY_FIELDS.map((k) => String(user[k] || "").trim()).filter(Boolean);
   /* Имя едет вместе с анкетой: его правят там же, и везде, где приложение
      показывает человека, оно берётся отсюда (владелец, 2026-09-20). */
-  return { name: String(user.name || ""),
+  return { name: String(user.name || ""), ...avatarOf(user),
     about: about || old.join("\n"), ...scheduleOf(user), answers: answersOf(user) };
 };
 
@@ -499,6 +530,12 @@ export async function setProfile(userId, patch = {}) {
   if (patch.name != null) {
     const called = String(patch.name).trim().slice(0, 200);
     if (called) { user.name = called; user.nameOwn = true; }
+  }
+  /* Картинка: строка — своя взамен телеграмной, пустая строка —
+     «Удалить» (пустой кружок), `null` — вернуть телеграмную. */
+  if (patch.avatar !== undefined) {
+    if (patch.avatar === null) delete user.avatar;
+    else user.avatar = String(patch.avatar).slice(0, AVATAR_LIMIT);
   }
   PROFILE_FIELDS.forEach((k) => {
     if (patch[k] == null) return;
@@ -570,7 +607,7 @@ const formOf = (f) => (f && typeof f === "object" && f.id
 const newQid = () => `q${crypto.randomBytes(4).toString("hex")}`;
 
 /** Анкеты человека — по его ролям, каждая один раз, с вопросами. */
-const formsFor = (org, user = {}) => {
+export const formsFor = (org, user = {}) => {
   const ids = [...new Set(userRoles(user)
     .map((rid) => org.roles.find((r) => r.id === rid)?.form).filter(Boolean))];
   return ids.map((id) => org.forms.find((f) => f.id === id)).filter(Boolean);

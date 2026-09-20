@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, Stars, TxtField, ScrollRail } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, Stars, TimeBar, TxtField, ScrollRail } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson, uniqPorts } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
@@ -9,6 +9,7 @@ import { inputCount, inputUnits } from "../lib/taskUnits.js";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 import Modal from "./Modal.jsx";
 import { MatList } from "./UnitLinks.jsx";
+import Pomodoro from "./Pomodoro.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · выполнения функций
@@ -1611,6 +1612,15 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               label="предоставляемый материал: вещи"/>;
           })()}
         </div></>)}
+
+      {/* ТОМАТ — только у взятой в работу и до самой сдачи (владелец,
+          2026-09-20): часы нужны тому, кто сейчас работает, а сданной
+          задаче отсчитывать нечего. Под ним — полоса срока, та же, что
+          на «Проверке». */}
+      {isTaken(task)&&!handed&&!isCanceled(task)&&(<>
+        <Pomodoro taskId={task.id} meId={meId}/>
+        <TimeBar task={task} func={func}/>
+      </>)}
 
       <div style={S.lbl}>сдача задачи</div>
       <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,

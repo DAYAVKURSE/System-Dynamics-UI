@@ -44,6 +44,9 @@ export function telegramUser(req, res, next) {
     name: [result.user?.first_name, result.user?.last_name].filter(Boolean).join(" ")
       || result.user?.username || "",
     username: result.user?.username || "",
+    // Аватарка из Telegram — то, что человек уже про себя выбрал. Она
+    // приходит подписанной, как и имя, поэтому ей можно верить.
+    photo: String(result.user?.photo_url || ""),
   };
   next();
 }

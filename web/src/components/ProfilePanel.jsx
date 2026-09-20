@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField, FoldCard } from "./ui.jsx";
+import { Avatar, C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField, FoldCard } from "./ui.jsx";
 import PersonStats from "./PersonStats.jsx";
+import Modal from "./Modal.jsx";
+import { putReportFile, reportSrc } from "../storage.js";
 import { getDuty, putProfile, refuseFuncRemote, listReminders as listRemindersRemote } from "../identity.js";
 import { FormAnswers } from "./FormsPanel.jsx";
 import { WEEK, WORKER_KINDS, dutyOf } from "../lib/funcs.js";
@@ -396,8 +398,53 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
     </FoldCard>);
 }
 
+/* ─────── ОКНО КАРТИНКИ (владелец, 2026-09-20) ───────
+
+   Нажали на кружок — открылась сама картинка, а под ней «Заменить» и
+   «Удалить». Картинка ОДНА: «Заменить» кладёт новую взамен прежней, а не
+   вторую рядом. Чужую картинку только смотрят — кнопок под ней нет. */
+const AVATAR_MAX = 300 * 1024;
+
+export function AvatarModal({ src, name, mine, busy, msg, onPick, onDrop, onClose }) {
+  const file = useRef(null);
+  return (
+    <Modal title={name || "лицо"} onClose={onClose}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+        {src ? (
+          <img src={src} alt="" aria-label={`лицо крупно: ${name || "—"}`}
+            style={{ maxWidth: "100%", maxHeight: "46dvh", borderRadius: 12,
+              display: "block", objectFit: "contain" }} />
+        ) : (
+          <div aria-label="лица нет"
+            style={{ width: 160, height: 160, borderRadius: "50%", background: C.panel2,
+              border: `1px solid ${C.line}`, display: "flex", alignItems: "center",
+              justifyContent: "center", color: C.muted, fontSize: 64, fontWeight: 700 }}>
+            {String(name || "").trim().slice(0, 1).toUpperCase()}
+          </div>)}
+      </div>
+      {mine && (
+        <div className="flex flex-wrap gap-2" style={{ justifyContent: "center" }}>
+          <label style={{ ...btn(true, ACC), display: "inline-block",
+            cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
+            {busy ? "Загружаю…" : "Заменить"}
+            <input ref={file} type="file" accept="image/*" style={{ display: "none" }}
+              aria-label="новое лицо" disabled={busy}
+              onChange={(e) => onPick?.(e.target.files?.[0])} />
+          </label>
+          <button type="button" disabled={busy || !src}
+            style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
+              opacity: src ? 1 : 0.5 }}
+            onClick={() => onDrop?.()}>Удалить</button>
+        </div>)}
+      {msg && (
+        <div role="status" style={{ fontSize: 11, color: BAD, marginTop: 8,
+          textAlign: "center" }}>{msg}</div>)}
+    </Modal>);
+}
+
 export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = NONE,
-  entities = NONE, rolesOf, traitName, onSaved, published, ratings, onRefuseFunc }) {
+  entities = NONE, rolesOf, traitName, onSaved, published, ratings, onRefuseFunc,
+  anon = false }) {
   // Чья анкета открыта. По умолчанию — своя: с себя человек и начинает.
   const id = personId == null ? me?.id : personId;
   const mine = String(id) === String(me?.id);
@@ -429,6 +476,9 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
   const [busy, setBusy] = useState(false);
   const [naming, setNaming] = useState(false);
   const [nameMsg, setNameMsg] = useState("");
+  const [faceOpen, setFaceOpen] = useState(false);
+  const [faceMsg, setFaceMsg] = useState("");
+  const [faceBusy, setFaceBusy] = useState(false);
   const [scMsg, setScMsg] = useState("");
   // Что сервер знает о графике сейчас: с этим сверяется автосохранение.
   const savedSchedule = useRef(scheduleKey(source));
@@ -544,6 +594,41 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
   /* Имя сохраняется своим нажатием, а не вместе с анкетой: анкеты у роли
      может и не быть, а имя есть у каждого. Пустое не принимается —
      безымянного человека не выберешь в исполнители. */
+  /* Картинка человека. Своя приходит с «кто я», чужая — со списком людей;
+     поле одно и то же, поэтому берётся оттуда же, откуда и анкета. */
+  const face = String((mine ? me?.profile?.avatar : person?.avatar) || "");
+
+  /* «Заменить»: картинка уезжает на диск сервера, а в анкету едет ссылка.
+     Без сервера — сама картинка строкой, и тогда она должна быть
+     маленькой: анкета живёт в org.json, а не на файловом диске. */
+  const pickFace = async (f) => {
+    if (!f) return;
+    setFaceBusy(true); setFaceMsg("");
+    try {
+      const saved = await putReportFile(f, { kind: "avatar" });
+      const src = reportSrc(saved);
+      if (!src) throw new Error("не удалось прочитать картинку");
+      if (!saved.url && src.length > AVATAR_MAX) {
+        throw new Error(`без сервера картинка хранится в анкете — не больше ${Math.round(AVATAR_MAX / 1024)} КБ`);
+      }
+      const got = await putProfile({ avatar: src });
+      onSaved?.(got?.profile || { ...draft, avatar: src });
+      setFaceOpen(false);
+    } catch (e) { setFaceMsg(e.message || "не удалось загрузить картинку"); }
+    setFaceBusy(false);
+  };
+  /* «Удалить» оставляет ПУСТОЙ кружок (владелец, 2026-09-20): телеграмная
+     назад не возвращается — её тоже убрали. */
+  const dropFace = async () => {
+    setFaceBusy(true); setFaceMsg("");
+    try {
+      const got = await putProfile({ avatar: "" });
+      onSaved?.(got?.profile || { ...draft, avatar: "" });
+      setFaceOpen(false);
+    } catch (e) { setFaceMsg(e.message || "не удалось убрать картинку"); }
+    setFaceBusy(false);
+  };
+
   const rename = async (raw) => {
     const called = String(raw || "").trim();
     setNaming(false);
@@ -583,6 +668,13 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           Своё имя правится здесь же, карандашом справа (владелец,
           2026-09-20): названное здесь имя приложение показывает везде. */}
       <div className="flex items-center gap-2" style={{ margin: "2px 0 8px" }}>
+        {/* Кружок с лицом — ПЕРЕД именем (владелец, 2026-09-20). Нажатие
+            открывает саму картинку; своя правится там же. */}
+        {/* Незнакомый автор с «Рынка услуг»: вместо лица — знак
+            приложения, и открывать там нечего (владелец, 2026-09-20). */}
+        <Avatar src={anon ? "" : face} name={name} size={38} logo={anon}
+          onClick={anon ? undefined : () => setFaceOpen(true)}
+          title={anon ? "лицо скрыто" : mine ? "ваше лицо" : `лицо: ${name || "—"}`} />
         {naming ? (
           <input autoFocus aria-label="имя" defaultValue={name}
             style={{ ...S.inp, flex: 1, fontSize: 15, fontWeight: 700, padding: "3px 6px" }}
@@ -601,6 +693,10 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
       </div>
       {nameMsg && (
         <div style={{ fontSize: 11, color: BAD, marginBottom: 6 }}>{nameMsg}</div>)}
+      {faceOpen && (
+        <AvatarModal src={face} name={name} mine={mine} busy={faceBusy} msg={faceMsg}
+          onPick={pickFace} onDrop={dropFace}
+          onClose={() => { setFaceOpen(false); setFaceMsg(""); }} />)}
 
       {/* Анкета — ПЕРВОЙ, и только когда есть что заполнять: вопросы
           задаёт анкета, назначенная роли («Люди и роли»). Ролям без анкеты

@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
-import { identify, listOrg } from "../lib/orgStore.js";
+import { avatarOf, formsFor, identify, listOrg, profileOf } from "../lib/orgStore.js";
+import { aliasOf } from "../lib/alias.js";
+import { peopleOf as workPeopleOf, readModel, viewFor as workViewFor }
+  from "../lib/workspaceStore.js";
 import {
   BadInput, acceptBrief, addChat, addDelivery, addOffer, addOrder, addService, peopleOf,
   removeOrder, removeService, setBrief, updateOrder, updateService, viewFor,
@@ -32,19 +35,76 @@ router.use(async (req, res, next) => {
 const fail = (res, e, next) => (e instanceof BadInput
   ? res.status(e.status).json({ error: e.message }) : next(e));
 
-const withNames = async (view) => {
+/* ─── КТО ЗДЕСЬ ЗНАКОМ (владелец, 2026-09-20) ───
+
+   Рынок открыт всем позванным, и заказ оставляет любой — в том числе
+   человек, которого смотрящий никогда не видел. Такой автор
+   представляется ДВУМЯ СЛОВАМИ, а вместо лица у него знак приложения:
+   имя и лицо — не то, что показывают незнакомцу на бирже.
+
+   Знаком — тот, С КЕМ ЧЕЛОВЕК ВМЕСТЕ РАБОТАЕТ: те же люди, что видны ему
+   в рабочей области (участники его задач и воркеры видимых активов).
+   Список берётся оттуда же, чтобы «знаком» значило одно и то же в обоих
+   местах, а не два похожих правила. Владелец знаком со всеми: модель его.
+   Себя человек, разумеется, знает. */
+const knownToAsker = async (me) => {
+  if (me.isOwner) return null;               // null — знакомы все
+  try { return workPeopleOf(workViewFor(await readModel(), me)); }
+  catch { return new Set(); }
+};
+
+/** Как автор представляется этому смотрящему: имя и лицо либо два слова. */
+export const faceOf = (user, { known, me }) => {
+  const id = String(user.id);
+  if (known === null || known.has(id) || id === String(me.id)) {
+    return { name: user.name, ...avatarOf(user), anon: false };
+  }
+  return { name: aliasOf(id), avatar: "", avatarOwn: false, avatarOff: false, anon: true };
+};
+
+const withNames = async (view, me) => {
   const ids = peopleOf(view);
   const org = await listOrg();
+  const known = await knownToAsker(me);
   const people = {};
-  org.users.forEach((u) => { if (ids.has(String(u.id))) people[String(u.id)] = u.name; });
-  return { ...view, people };
+  const faces = {};
+  org.users.forEach((u) => {
+    if (!ids.has(String(u.id))) return;
+    const face = faceOf(u, { known, me });
+    people[String(u.id)] = face.name;
+    faces[String(u.id)] = { avatar: face.avatar, anon: face.anon };
+  });
+  return { ...view, people, faces };
 };
 
 router.get("/", async (req, res, next) => {
   try {
     const view = await viewFor(req.me.id);
-    res.json({ ...(await withNames(view)), me: req.me.id });
+    res.json({ ...(await withNames(view, req.me)), me: req.me.id });
   } catch (e) { fail(res, e, next); }
+});
+
+/* ─── страница автора ───
+
+   Открывается нажатием на кружок с лицом. Та же страница, что у воркера
+   актива: анкета, график, рейтинг. Незнакомому смотрящему она
+   представляется двумя словами и знаком приложения, а всё остальное на
+   ней то же самое (владелец, 2026-09-20). */
+router.get("/people/:id", async (req, res, next) => {
+  try {
+    const org = await listOrg();
+    const user = (org.users || []).find((u) => String(u.id) === String(req.params.id));
+    if (!user) return res.status(404).json({ error: "not found" });
+    const known = await knownToAsker(req.me);
+    const face = faceOf(user, { known, me: req.me });
+    const profile = profileOf(user);
+    return res.json({
+      id: String(user.id), ...face,
+      // Анкета — как есть, кроме имени и лица: их решает `face`.
+      profile: { ...profile, name: face.name, avatar: face.avatar },
+      forms: formsFor(org, user),
+    });
+  } catch (e) { return fail(res, e, next); }
 });
 
 /* ─── заказы ─── */

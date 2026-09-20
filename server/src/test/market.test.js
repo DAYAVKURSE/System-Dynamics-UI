@@ -41,7 +41,8 @@ afterAll(async () => {
 });
 
 const { addRole, addUser } = await import("../lib/orgStore.js");
-const { readModel } = await import("../lib/workspaceStore.js");
+const { readModel, writeModel } = await import("../lib/workspaceStore.js");
+const { aliasOf } = await import("../lib/alias.js");
 
 let role;
 beforeEach(async () => {
@@ -67,7 +68,10 @@ describe("заказы и услуги", () => {
       resources: [{ name: "логотип", qty: 1 }, { name: "тексты", qty: 3 }] });
     const seen = await request(app).get("/api/market").set(as(300));
     expect(seen.body.orders.map((o) => o.name)).toEqual(["Сайт-визитка"]);
-    expect(seen.body.people["200"]).toBe("Заказчик");
+    /* Вместе они не работают — значит, незнакомы: автор представлен
+       двумя словами, а не именем (владелец, 2026-09-20). */
+    expect(seen.body.people["200"]).toBe(aliasOf("200"));
+    expect(seen.body.faces["200"]).toEqual({ avatar: "", anon: true });
     expect(seen.body.me).toBe("300");
   });
 
@@ -106,7 +110,7 @@ describe("отклики, чат, бриф, сделка", () => {
     expect(third.body.orders[0].offerCount).toBe(1);
     const owner = await request(app).get("/api/market").set(as(200));
     expect(owner.body.orders[0].offers).toHaveLength(1);
-    expect(owner.body.people["300"]).toBe("Мастер");
+    expect(owner.body.people["300"]).toBe(aliasOf("300"));
     // Повторный отклик того же человека — правка первого, а не второй.
     await request(app).post(`/api/market/orders/${o.id}/offers`).set(as(300)).send({ text: "за 3 дня" });
     const again = await request(app).get("/api/market").set(as(300));
@@ -177,5 +181,67 @@ describe("отклики, чат, бриф, сделка", () => {
     // Исполнитель видит, что ему отдали.
     const seen = await request(app).get("/api/market").set(as(300));
     expect(seen.body.orders[0].offers[0].deliveries).toHaveLength(1);
+  });
+});
+
+/* ─────── КТО ЗДЕСЬ ЗНАКОМ (владелец, 2026-09-20) ───────
+
+   На рынке автор, с которым смотрящий вместе не работает, представляется
+   двумя словами, и лица у него нет — вместо него приложение показывает
+   свой знак. Знаком — тот, кто виден в рабочей области. */
+describe("имя и лицо автора", () => {
+  it("владельцу видны все имена: модель его", async () => {
+    await order(200);
+    const seen = await request(app).get("/api/market").set(as(100));
+    expect(seen.body.people["200"]).toBe("Заказчик");
+    expect(seen.body.faces["200"].anon).toBe(false);
+  });
+
+  it("свою запись человек видит своим именем", async () => {
+    await order(200);
+    const seen = await request(app).get("/api/market").set(as(200));
+    expect(seen.body.people["200"]).toBe("Заказчик");
+  });
+
+  it("с кем работаешь вместе — тот с именем и лицом", async () => {
+    /* Одна задача на двоих — и они уже не чужие: тот же список людей, по
+       которому рабочая область решает, чьи имена показывать. */
+    const model = await readModel();
+    await writeModel({ ...model,
+      tasks: [{ id: "tk1", title: "Вместе", status: "progress",
+        setter: "200", assignee: "300", reviewer: "200", submissions: [] }] });
+    await order(200);
+    const seen = await request(app).get("/api/market").set(as(300));
+    expect(seen.body.people["200"]).toBe("Заказчик");
+    expect(seen.body.faces["200"].anon).toBe(false);
+  });
+
+  it("два слова у одного человека всегда одни и те же", async () => {
+    expect(aliasOf("200")).toBe(aliasOf("200"));
+    expect(aliasOf("200")).not.toBe(aliasOf("201"));
+    expect(aliasOf("200").split(" ")).toHaveLength(2);
+  });
+
+  it("страница автора: незнакомому — два слова и без лица, остальное то же",
+    async () => {
+      await request(app).put("/api/org/me/profile").set(as(200))
+        .send({ about: "делаю сайты", avatar: "/api/reports/ab/cd" });
+      const far = await request(app).get("/api/market/people/200").set(as(300));
+      expect(far.status).toBe(200);
+      expect(far.body.name).toBe(aliasOf("200"));
+      expect(far.body.anon).toBe(true);
+      expect(far.body.avatar).toBe("");
+      // Всё остальное на странице — как у воркера: анкета на месте.
+      expect(far.body.profile.about).toBe("делаю сайты");
+      expect(far.body.profile.name).toBe(aliasOf("200"));
+
+      const near = await request(app).get("/api/market/people/200").set(as(100));
+      expect(near.body.name).toBe("Заказчик");
+      expect(near.body.anon).toBe(false);
+      expect(near.body.avatar).toBe("/api/reports/ab/cd");
+    });
+
+  it("нет такого человека — так и сказано", async () => {
+    expect((await request(app).get("/api/market/people/777").set(as(300))).status).toBe(404);
   });
 });

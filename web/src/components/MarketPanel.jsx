@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ACC, BAD, C, OK, S, WARN, btn } from "./ui.jsx";
+import { ACC, Avatar, BAD, C, OK, S, WARN, btn } from "./ui.jsx";
 import {
   acceptOffer, addDelivery, addOffer, addOrder, addService, dropOrder, dropService, getMarket,
-  putBrief, sendChat, updateOrder, updateService,
+  getMarketPerson, putBrief, sendChat, updateOrder, updateService,
 } from "../market.js";
 import {
   daysText, emptyRow, matchServices, orderFromFunc, rowsLine, rowText, serviceFromFunc,
 } from "../lib/market.js";
 import { putReportFile, reportSrc } from "../storage.js";
+import Modal from "./Modal.jsx";
+import ProfilePanel from "./ProfilePanel.jsx";
+import { getRatings } from "../identity.js";
 
 /* ════════════════════════════════════════════════════════════════
    РЫНОК УСЛУГ · первая вкладка
@@ -346,9 +349,48 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
   );
 }
 
+/* Кружок с лицом автора: своё лицо у знакомого, знак приложения —
+   у того, с кем смотрящий вместе не работает. */
+function PersonDot({ id, nameOf, faceOf, onOpen }) {
+  const face = faceOf?.(id) || {};
+  return (
+    <Avatar src={face.avatar || ""} name={nameOf(id)} size={28} logo={!!face.anon}
+      title={`страница: ${nameOf(id)}`} onClick={() => onOpen?.(id)} />);
+}
+
+/* ─────── СТРАНИЦА АВТОРА ───────
+
+   Нажали на кружок с лицом — окном открылась его страница: та же, что у
+   воркера актива (анкета, график, рейтинг). Незнакомый смотрящему автор
+   представлен двумя словами, и вместо лица у него знак приложения —
+   решает это сервер, а не интерфейс.
+
+   Окном, а не переходом: человек смотрит, кто это, и должен вернуться
+   туда же, откуда смотрел. */
+function PersonModal({ id, me, onClose }) {
+  const [who, setWho] = useState(null);
+  const [ratings, setRatings] = useState(null);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    let alive = true;
+    getMarketPerson(id).then((p) => { if (alive) setWho(p); },
+      (e) => { if (alive) setMsg(e.message || "страница не открывается"); });
+    getRatings().then((r) => { if (alive) setRatings(r); }, () => {});
+    return () => { alive = false; };
+  }, [id]);
+  const person = who ? { id: who.id, name: who.name, ...who.profile, forms: who.forms } : null;
+  return (
+    <Modal title={who?.name || "страница"} onClose={onClose}>
+      {!who && <div style={hint}>{msg || "Загружаю…"}</div>}
+      {who && (
+        <ProfilePanel me={me} personId={who.id} people={[person]} ratings={ratings}
+          anon={who.anon} />)}
+    </Modal>);
+}
+
 /* ─────── карточка заказа ─────── */
 
-function OrderCard({ order, me, nameOf, services, busy, act, isOwner }) {
+function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, act, isOwner }) {
   const [edit, setEdit] = useState(false);
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState("");
@@ -361,6 +403,9 @@ function OrderCard({ order, me, nameOf, services, busy, act, isOwner }) {
     <div style={{ ...S.card, marginBottom: 8, borderColor: mineOrder ? `${ACC}55` : C.line }}
       aria-label={`заказ ${order.name}`}>
       <div className="flex flex-wrap items-center gap-2">
+        {/* Кружок с лицом автора — ПЕРЕД названием (владелец,
+            2026-09-20). Нажатие открывает его страницу. */}
+        <PersonDot id={order.by} nameOf={nameOf} faceOf={faceOf} onOpen={onOpenPerson} />
         <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{order.name}</span>
         <span style={{ fontSize: 10.5, color: order.status === "open" ? OK : WARN }}>{status}</span>
       </div>
@@ -433,13 +478,14 @@ function OrderCard({ order, me, nameOf, services, busy, act, isOwner }) {
 
 /* ─────── карточка услуги ─────── */
 
-function ServiceCard({ s, me, nameOf, busy, act, isOwner }) {
+function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner }) {
   const [edit, setEdit] = useState(false);
   const mineSvc = String(s.by) === String(me);
   return (
     <div style={{ ...S.card, marginBottom: 8, borderColor: mineSvc ? `${ACC}55` : C.line }}
       aria-label={`услуга ${s.name}`}>
       <div className="flex flex-wrap items-center gap-2">
+        <PersonDot id={s.by} nameOf={nameOf} faceOf={faceOf} onOpen={onOpenPerson} />
         <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{s.name}</span>
         <span style={{ fontSize: 10.5, color: C.muted }}>{mineSvc ? "ваша услуга" : nameOf(s.by)} · {when(s.at)}</span>
       </div>
@@ -469,6 +515,7 @@ function ServiceCard({ s, me, nameOf, busy, act, isOwner }) {
 
 export default function MarketPanel({ me, traits = [], draft = null, onDraftDone }) {
   const [view, setView] = useState(null);
+  const [card, setCard] = useState(null);
   const [sub, setSub] = useState("orders");
   const [adding, setAdding] = useState(null);   // null | {kind, initial}
   const [msg, setMsg] = useState("");
@@ -510,6 +557,10 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
 
   const people = view?.people || {};
   const nameOf = (id) => people[String(id)] || (String(id) === String(me?.id) ? "вы" : `участник ${id}`);
+  /* Лицо автора — от сервера: он же решает, знаком ли автор смотрящему.
+     Нет записи — незнакомец, и вместо лица знак приложения. */
+  const faces = view?.faces || {};
+  const faceOf = (id) => faces[String(id)] || { avatar: "", anon: true };
   const orders = view?.orders || [];
   const services = view?.services || [];
 
@@ -545,7 +596,8 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
             onClick={() => setAdding({ kind: "order", initial: null })}>+ заказ</button>)}
         {!orders.length && <div style={hint}>Заказов пока нет.</div>}
         {orders.slice().reverse().map((o) => (
-          <OrderCard key={o.id} order={o} me={view.me} nameOf={nameOf} services={services}
+          <OrderCard key={o.id} order={o} me={view.me} nameOf={nameOf} faceOf={faceOf}
+            onOpenPerson={setCard} services={services}
             busy={busy} act={act} isOwner={Boolean(me?.isOwner)} />))}
       </>)}
 
@@ -559,9 +611,13 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
             onClick={() => setAdding({ kind: "service", initial: null })}>+ услуга</button>)}
         {!services.length && <div style={hint}>Услуг пока нет.</div>}
         {services.slice().reverse().map((s) => (
-          <ServiceCard key={s.id} s={s} me={view.me} nameOf={nameOf} busy={busy} act={act}
+          <ServiceCard key={s.id} s={s} me={view.me} nameOf={nameOf} faceOf={faceOf}
+            onOpenPerson={setCard} busy={busy} act={act}
             isOwner={Boolean(me?.isOwner)} />))}
       </>)}
+
+      {card != null && (
+        <PersonModal id={card} me={me} onClose={() => setCard(null)} />)}
 
       {msg && view && <div role="status" style={{ fontSize: 12, color: WARN, marginTop: 8 }}>{msg}</div>}
     </div>

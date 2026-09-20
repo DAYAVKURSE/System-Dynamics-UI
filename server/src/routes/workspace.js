@@ -55,7 +55,9 @@ router.get("/", async (req, res, next) => {
       const ids = peopleOf(view);
       view.people = (await listOrg()).users
         .filter((u) => ids.has(String(u.id)))
-        .map((u) => ({ id: u.id, name: u.name }));
+        // Лицо — рядом с именем: кружок стоит везде, где человека видно,
+        // и вторым запросом за картинкой ходить незачем.
+        .map((u) => ({ id: u.id, name: u.name, avatar: u.avatar || "" }));
     }
     res.json(view);
   } catch (e) { next(e); }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import logoUrl from "../assets/logo.png";
 import { deliverFile } from "../storage.js";
 import { getTelegram } from "../telegram.js";
+import { leftInUnit, timeLeft } from "../lib/funcs.js";
 
 /* Общие примитивы интерфейса: палитра, стили и поля ввода.
    Вынесены сюда, чтобы схема (SystemModel) и доска задач (TasksBoard)
@@ -444,4 +445,66 @@ export function TxtField({value,onCommit,placeholder,style,area,...rest}){
   const p={...rest,value:d,placeholder,style:{...S.inp,...style},onFocus:()=>setF(true),
     onChange:e=>setD(e.target.value),onBlur:()=>{setF(false);onCommit(d);}};
   return area ? <textarea {...p}/> : <input {...p}/>;
+}
+
+/* ─────── ПОЛОСА СРОКА ───────
+
+   Сколько осталось до конца срока: зелёная, пока времени много; жёлтая,
+   когда осталось меньше половины; красная — меньше 20%. Длина полосы —
+   сама доля: чем меньше осталось, тем короче. Остаток — в единицах срока
+   функции (владелец, 2026-09-20): работа мерена днями — и остаток в днях.
+
+   Одна на всё приложение: она стоит и на «Проверке», и под «Томатом» в
+   форме задачи, и должна выглядеть там одинаково. */
+export function TimeBar({ task, func }) {
+  const left = timeLeft(task);
+  if (!left) {
+    return (
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>
+        до конца срока: срок не назначен</div>);
+  }
+  const text = left.left > 0 ? leftInUnit(left.left, func?.durUnit) : "срок прошёл";
+  const color = left.tone === "bad" ? BAD : left.tone === "warn" ? WARN : OK;
+  return (
+    <div style={{ marginBottom: 8 }} aria-label={`до конца срока: ${text}`} data-tone={left.tone}>
+      <div style={{ fontSize: 11, color, marginBottom: 3 }}>до конца срока: {text}</div>
+      <div style={{ height: 6, borderRadius: 3, background: C.ink, border: `1px solid ${C.line}`,
+        overflow: "hidden" }}>
+        <div data-bar="" style={{ width: `${Math.round(left.share * 100)}%`, height: "100%",
+          background: color, borderRadius: 3 }} />
+      </div>
+    </div>);
+}
+
+/* ─────── КРУЖОК С ЛИЦОМ ───────
+
+   Картинка у человека одна (владелец, 2026-09-20): по умолчанию — та,
+   что стоит у него в Telegram; своя кладётся взамен; «Удалить» оставляет
+   пустой кружок с первой буквой имени. Кружок один на всё приложение:
+   он стоит и в анкете, и перед названием на «Рынке услуг».
+
+   `logo` — вместо лица знак приложения: так показывается тот, кто
+   смотрящему незнаком, и лица у него для этого человека нет. */
+export function Avatar({ src = "", name = "", size = 36, logo = false, onClick, title }) {
+  const letter = String(name || "").trim().slice(0, 1).toUpperCase();
+  const round = {
+    width: size, height: size, flex: `0 0 ${size}px`, borderRadius: "50%",
+    overflow: "hidden", background: C.panel2, border: `1px solid ${C.line}`,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    color: C.muted, fontSize: Math.round(size * 0.42), fontWeight: 700,
+    padding: 0, lineHeight: 1,
+  };
+  const inside = logo
+    ? <img src={logoUrl} alt="" aria-hidden="true" width={Math.round(size * 0.72)}
+      height={Math.round(size * 0.72)} style={{ display: "block" }} />
+    : src
+      ? <img src={src} alt="" aria-hidden="true" width={size} height={size}
+        style={{ display: "block", width: "100%", height: "100%", objectFit: "cover" }} />
+      : <span aria-hidden="true">{letter}</span>;
+  if (!onClick) {
+    return <span aria-label={title || `лицо: ${name || "—"}`} style={round}>{inside}</span>;
+  }
+  return (
+    <button type="button" aria-label={title || `лицо: ${name || "—"}`} onClick={onClick}
+      style={{ ...round, cursor: "pointer" }}>{inside}</button>);
 }

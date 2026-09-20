@@ -376,7 +376,10 @@ describe("анкета", () => {
     /* Имя едет вместе с анкетой: его правят там же, и везде, где
        приложение показывает человека, оно берётся отсюда. */
     expect(me.profile).toEqual({ name: "Первый", about: "", days: [], from: "", to: "",
-      perDay: {}, status: "ready", statusAt: null, warnMin: 10, deferMin: 30, answers: {} });
+      perDay: {}, status: "ready", statusAt: null, warnMin: 10, deferMin: 30, answers: {},
+      // Картинка — одна на человека: пусто, пока не пришла телеграмная и
+      // не загрузили свою.
+      avatar: "", avatarOwn: false, avatarOff: false });
   });
 
   /* ИМЯ — В АНКЕТЕ (владелец, 2026-09-20): человек называет себя сам, и
@@ -449,7 +452,8 @@ describe("анкета", () => {
         status: "break", about: "аналитик" });
       expect(saved).toEqual({ name: "владелец", about: "аналитик", days: [1, 3],
         from: "09:00", to: "18:00", perDay: {}, status: "break",
-        statusAt: expect.any(String), warnMin: 10, deferMin: 30, answers: {} });
+        statusAt: expect.any(String), warnMin: 10, deferMin: 30, answers: {},
+        avatar: "", avatarOwn: false, avatarOff: false });
       // И «кто я» после этого говорит то же самое.
       expect((await identify("100", {})).profile).toEqual(saved);
       /* Момент выбора: из запроса, если прислан, иначе — момент смены;
@@ -907,5 +911,44 @@ describe("агенты как участники", () => {
     expect(await removeUser("ag_a_1")).toBe(true);
     expect(await removeUser("ag_a_1")).toBe(false);
     expect((await listOrg()).users.some((x) => x.id === "ag_a_1")).toBe(false);
+  });
+});
+
+/* ─────── АВАТАРКА (владелец, 2026-09-20) ───────
+   Картинка одна. По умолчанию — телеграмная; «Заменить» кладёт свою;
+   «Удалить» оставляет пустой кружок и телеграмную назад НЕ возвращает. */
+describe("аватарка", () => {
+  it("по умолчанию показывается телеграмная", async () => {
+    const me = await identify("100", { name: "Первый", photo: "https://t.me/i/a.jpg" });
+    expect(me.profile.avatar).toBe("https://t.me/i/a.jpg");
+    expect(me.profile.avatarOwn).toBe(false);
+    expect(me.profile.avatarOff).toBe(false);
+  });
+
+  it("своя картинка сильнее телеграмной и не сбивается на входе", async () => {
+    await identify("100", { name: "Первый", photo: "https://t.me/i/a.jpg" });
+    const saved = await setProfile("100", { avatar: "/api/reports/ab/cd" });
+    expect(saved.avatar).toBe("/api/reports/ab/cd");
+    expect(saved.avatarOwn).toBe(true);
+    // Человек сменил картинку в Telegram — своя остаётся своей.
+    const again = await identify("100", { name: "Первый", photo: "https://t.me/i/b.jpg" });
+    expect(again.profile.avatar).toBe("/api/reports/ab/cd");
+  });
+
+  it("«Удалить» оставляет пустой кружок, а не телеграмную", async () => {
+    await identify("100", { name: "Первый", photo: "https://t.me/i/a.jpg" });
+    const saved = await setProfile("100", { avatar: "" });
+    expect(saved.avatar).toBe("");
+    expect(saved.avatarOff).toBe(true);
+    expect((await identify("100", { name: "Первый", photo: "https://t.me/i/a.jpg" }))
+      .profile.avatar).toBe("");
+  });
+
+  it("null возвращает телеграмную", async () => {
+    await identify("100", { name: "Первый", photo: "https://t.me/i/a.jpg" });
+    await setProfile("100", { avatar: "" });
+    const back = await setProfile("100", { avatar: null });
+    expect(back.avatar).toBe("https://t.me/i/a.jpg");
+    expect(back.avatarOff).toBe(false);
   });
 });

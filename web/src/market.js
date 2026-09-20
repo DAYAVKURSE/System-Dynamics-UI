@@ -23,6 +23,10 @@ const post = (url, body) => json(url, { method: "POST", body: JSON.stringify(bod
 const put = (url, body) => json(url, { method: "PUT", body: JSON.stringify(body || {}) });
 
 export const getMarket = () => json("/api/market");
+/* Страница автора — та же, что у воркера актива. Незнакомому смотрящему
+   она представляется двумя словами и знаком приложения (владелец,
+   2026-09-20); решает это сервер, а не интерфейс. */
+export const getMarketPerson = (id) => json(`/api/market/people/${enc(id)}`);
 
 export const addOrder = (fields) => post("/api/market/orders", fields);
 export const updateOrder = (id, fields) => put(`/api/market/orders/${enc(id)}`, fields);

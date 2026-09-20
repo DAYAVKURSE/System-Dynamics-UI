@@ -1,10 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, TimeBar, btn, nm } from "./ui.jsx";
 import { ChatButton, Discussion, RateButton, RateModal, STATUSES, TaskSetup, chatRoleAt,
   funcLabel, lackOf, markOf, newMark, newMessage, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
 import { inTime, lastSubmission } from "../lib/workers.js";
-import { leftInUnit, timeLeft } from "../lib/funcs.js";
 import { unitsOf } from "../lib/units.js";
 import { givenUnits, tookUnits } from "../lib/taskUnits.js";
 import { MatList } from "./UnitLinks.jsx";
@@ -59,31 +58,6 @@ function Row({ label, children }) {
   return (
     <div style={{ fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
       <span style={{ color: C.muted }}>{label}: </span>{children}
-    </div>);
-}
-
-/* Полоса времени до срока (владелец, 2026-09-20): зелёная, пока времени
-   много; жёлтая, когда осталось меньше половины; красная — меньше 20%.
-   Длина полосы — сама доля: чем меньше осталось, тем короче. */
-function TimeBar({ task, func }) {
-  const left = timeLeft(task);
-  if (!left) {
-    return (
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>
-        до конца срока: срок не назначен</div>);
-  }
-  /* Остаток — в единицах срока функции (владелец, 2026-09-20): работа
-     мерена днями — и остаток в днях. */
-  const text = left.left > 0 ? leftInUnit(left.left, func?.durUnit) : "срок прошёл";
-  const color = left.tone === "bad" ? BAD : left.tone === "warn" ? WARN : OK;
-  return (
-    <div style={{ marginBottom: 8 }} aria-label={`до конца срока: ${text}`} data-tone={left.tone}>
-      <div style={{ fontSize: 11, color, marginBottom: 3 }}>до конца срока: {text}</div>
-      <div style={{ height: 6, borderRadius: 3, background: C.ink, border: `1px solid ${C.line}`,
-        overflow: "hidden" }}>
-        <div data-bar="" style={{ width: `${Math.round(left.share * 100)}%`, height: "100%",
-          background: color, borderRadius: 3 }} />
-      </div>
     </div>);
 }
 
