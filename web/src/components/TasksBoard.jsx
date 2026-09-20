@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
-  rangeText, requiredGives, shortage, handMate, fixedPerson } from "../lib/funcs.js";
+  rangeText, requiredGives, shortage, handMate, fixedPerson, uniqPorts } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
 import { pickByOrderOf, pickOrder } from "../lib/pickOrder.js";
 import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel } from "../lib/units.js";
@@ -585,15 +585,17 @@ function FuncCard({func,entities,traitName,showChecks=true,bare=false}){
           </ul>
         </div>)}
       {/* «Берёт» и «выдаёт» — только когда есть что (владелец, 2026-09-19):
-          строка «ничего» ничего не говорила. */}
+          строка «ничего» ничего не говорила. Ресурс — один раз, сколько бы
+          у него ни было получателей (владелец, 2026-09-20): портов на него
+          несколько, а вещь одна. */}
       {!!func.takes.length&&(
         <div style={{color:C.muted,marginTop:4}}>
-          берёт: {func.takes.map(p=>`${traitName(p.trait)} ${rangeText(p)}`
+          берёт: {uniqPorts(func.takes).map(p=>`${traitName(p.trait)} ${rangeText(p)}`
             +(p.spend===false?" (не расходует)":"")).join(", ")}
         </div>)}
       {!!func.gives.length&&(
         <div style={{color:C.muted}}>
-          выдаёт: {func.gives.map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")}
+          выдаёт: {uniqPorts(func.gives).map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")}
         </div>)}
       {!bare&&!!String(func.chain?.result||"").trim()&&(
         <div style={{color:C.muted,marginTop:4}}>
@@ -1381,12 +1383,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               {!!func.takes.length&&<>
                 <div style={S.lbl}>сколько взяли</div>
                 <div style={{margin:"5px 0 8px"}}>
-                  {func.takes.map(p=>(<QtyRow key={p.id} kind="takes" port={p}/>))}
+                  {uniqPorts(func.takes).map(p=>(<QtyRow key={p.id} kind="takes" port={p}/>))}
                 </div></>}
               {!!func.gives.length&&<>
                 <div style={S.lbl}>сколько выдали</div>
                 <div style={{margin:"5px 0 8px"}}>
-                  {func.gives.map(p=>(<QtyRow key={p.id} kind="gives" port={p}/>))}
+                  {uniqPorts(func.gives).map(p=>(<QtyRow key={p.id} kind="gives" port={p}/>))}
                 </div></>}
 
               {/* ─── вещи или оценка: одно место на двоих ───
@@ -1403,7 +1405,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                         смотрят и скачивают.
                       </div>
                       <div style={{margin:"5px 0 8px"}}>
-                        {func.gives.map(p=>(<ThingRow key={p.id} port={p}/>))}
+                        {uniqPorts(func.gives).map(p=>(<ThingRow key={p.id} port={p}/>))}
                         {needsProof&&<ProofRow/>}
                       </div></>}
                     {!func.gives.length&&(

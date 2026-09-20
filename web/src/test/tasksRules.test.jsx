@@ -922,4 +922,18 @@ describe("критерии на форме постановки", () => {
     expect(plate.textContent).not.toMatch(/ожидаемый результат/);
     expect(plate.textContent).not.toMatch(/критерии проверки/);
   });
+
+  /* Ресурс с двумя получателями — два порта, но одна вещь (владелец,
+     2026-09-20: «два раза написано „возможный диапазон времени"; должно
+     быть написано только один раз»). */
+  it("ресурс с несколькими получателями написан один раз", () => {
+    const f = [{ ...FUNCS[0],
+      gives: [{ id: "p2", trait: "t2", lo: 1, hi: 1, to: "a" },
+        { id: "p2_1", trait: "t2", lo: 1, hi: 1, to: "b" }] }];
+    const { container } = render(<Setup funcs={f} />);
+    const plate = [...container.querySelectorAll("div")]
+      .find((d) => d.textContent.startsWith("Пользователи · Сбор заявок"));
+    expect(plate.textContent).toMatch(/выдаёт: заявки ровно 1(?!, заявки)/);
+    expect(plate.textContent.match(/заявки ровно 1/g)).toHaveLength(1);
+  });
 });
