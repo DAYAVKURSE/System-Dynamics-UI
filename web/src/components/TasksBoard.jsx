@@ -563,7 +563,6 @@ function FuncCard({func,entities,traitName,showChecks=true,bare=false}){
      что угодно (владелец, 2026-09-20: «в следующем не написано, что это;
      должно быть написано „Срок:", в последнем — „Ожидаемый результат:"»). */
   const result=String(func?.chain?.result||"").trim();
-  const about=String(func?.about||"").trim();
   if(!func){
     return (
       <div style={{fontSize:11,color:WARN,margin:"6px 0 8px",lineHeight:1.5}}>
@@ -612,18 +611,10 @@ function FuncCard({func,entities,traitName,showChecks=true,bare=false}){
           ? <span style={{color:C.text}}>{result}</span>
           : <span>не назван — его ставят у функции на «Схеме»</span>}
       </div>
-      {/* Описание функции — что это за работа вообще; стоит последним, после
-          ожидаемого результата (владелец, 2026-09-20: «описание функции,
-          установленное в технологическом процессе, должно быть также видно
-          на плашке функции, на форме постановки задачи»). Оно живёт у
-          функции и едет в каждую её задачу: переписывать его в каждое
-          выполнение руками значило бы спрашивать второй раз то, что уже
-          сказано. */}
-      <div style={{color:C.muted,marginTop:4,whiteSpace:"pre-wrap"}}>
-        описание: {about
-          ? <span style={{color:C.text}}>{about}</span>
-          : <span>не написано — его пишут у функции на «Схеме»</span>}
-      </div>
+      {/* Описания функции на плашке нет (владелец, 2026-09-20: «убери
+          описание функции из тех. процесса и с плашки функции на форме
+          постановки задач; описание должно быть только у задачи»). Оно
+          стоит своим полем «Описание задачи» ниже на этой же форме. */}
     </div>);
 }
 
@@ -803,7 +794,10 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
       {/* Описание задачи: по умолчанию — то, что сказано у самой задачи или
           в техпроцессе (владелец, 2026-09-19). */}
       <div style={S.lbl}>описание задачи</div>
-      <TxtField area value={task.body||String(func?.about||"")}
+      {/* Описание ЗАДАЧИ. Пустое подхватывает написанное у этой задачи в
+          технологическом процессе (`func.body`): постановщику не нужно
+          переписывать то, что уже сказано (владелец, 2026-09-20). */}
+      <TxtField area value={task.body||String(func?.body||"")}
         style={{minHeight:70,margin:"4px 0 8px",lineHeight:1.5}}
         onCommit={v=>commitOne("body",v)}/>
 
@@ -1298,16 +1292,21 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         {task.end?` · срок ${fmtDT(task.end)}`:" · срок не назначен"}
       </div>
 
-      {/* Содержимое — слова постановщика ОБ ЭТОМ выполнении. Здесь они
-          только читаются. Пусто — это не поломка: что это за работа,
-          сказано описанием функции ниже, и добавлять к нему нечего. */}
-      {!!String(task.body||"").trim()&&(<>
-        <div style={S.lbl}>что нужно сделать</div>
-        <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-          padding:9,margin:"5px 0 8px",fontSize:12,lineHeight:1.6,
-          whiteSpace:"pre-wrap"}}>
-          {task.body}
-        </div></>)}
+      {/* Описание задачи — слова постановщика ОБ ЭТОМ выполнении; своего
+          нет — написанное у этой задачи в техпроцессе (владелец,
+          2026-09-20: описание у задачи, а не у функции). Здесь оно только
+          читается. Пусто — не поломка: добавить было нечего. */}
+      {(() => {
+        const body=String(task.body||"").trim()||String(func?.body||"").trim();
+        if(!body) return null;
+        return (<>
+          <div style={S.lbl}>что нужно сделать</div>
+          <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+            padding:9,margin:"5px 0 8px",fontSize:12,lineHeight:1.6,
+            whiteSpace:"pre-wrap"}}>
+            {body}
+          </div></>);
+      })()}
 
       <div style={S.lbl}>функция, которую выполняет задача</div>
       <FuncCard func={func} entities={entities} traitName={traitName}/>

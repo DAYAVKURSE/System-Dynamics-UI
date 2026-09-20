@@ -34,11 +34,18 @@ export function daysOf(f = {}) {
   return Math.round((h / HOURS_PER_DAY) * 10) / 10;
 }
 
+/* Текст карточки — ОЖИДАЕМЫЙ РЕЗУЛЬТАТ функции (владелец, 2026-09-20: «у
+   функции должен быть ожидаемый результат, и только у неё»). Описания у
+   функции больше нет; результат подходит карточке даже лучше — заказчик
+   покупает то, что выйдет, а не рассказ о работе. Это лишь заготовка
+   текста: в форме его правят руками. */
+const funcText = (f = {}) => String(f.chain?.result || "").trim();
+
 /** Услуга из функции: что делает, что берёт, что выдаёт, за сколько. */
 export function serviceFromFunc(f = {}, { traits = [] } = {}) {
   return {
     name: String(f.name || "").trim(),
-    text: String(f.about || "").trim(),
+    text: funcText(f),
     takes: rowsOf(f.takes, traits),
     gives: rowsOf(f.gives, traits),
     days: daysOf(f),
@@ -50,7 +57,7 @@ export function serviceFromFunc(f = {}, { traits = [] } = {}) {
 export function orderFromFunc(f = {}, { traits = [] } = {}) {
   return {
     name: String(f.name || "").trim(),
-    text: String(f.about || "").trim(),
+    text: funcText(f),
     price: null,
     resources: rowsOf(f.takes, traits),
     funcId: f.id || null,

@@ -1386,10 +1386,12 @@ export function procFuncs(proc = {}, model = {}) {
         takes: main.takes, gives: main.gives, steps: main.steps, who: main.who, posts: main.posts,
         ...(main.cond || t.cond ? { cond: main.cond || t.cond } : {}), ...(t.isElse ? { condElse: true } : {}), ...(alt.length ? { alt } : {}),
         dur: 1, durHi: 1, durUnit: "дн", ...(t.time || {}), checks: (t.checks || []).map((c) => c.text),
-        /* Описание пишется в функцию, только когда оно есть: пустое стёрло
-           бы написанное руками в карточке функции (`syncProcFuncs` кладёт
-           построенное поверх прежнего). */
-        ...(t.about?.text ? { about: t.about.text } : {}), accepted: true,
+        /* Описание — у ЗАДАЧИ, а не у функции (владелец, 2026-09-20:
+           «описание должно быть именно у задач, а не у функций… у функции
+           должен быть ожидаемый результат, и только у неё»). Отсюда оно
+           едет в «Описание задачи» на форме постановки — поле `body`
+           задачи, а не описание функции. */
+        ...(t.about?.text ? { body: t.about.text } : {}), accepted: true,
       });
     });
   });

@@ -178,10 +178,11 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
               <Row label="функция">{f ? funcLabel(f, entities) : "не назначена"}</Row>
               <Row label="поставил">{nameOf ? nameOf(roleOf(t, "setter")) : (roleOf(t, "setter") || "не назначен")}</Row>
               <Row label="исполнитель">{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}</Row>
-              {/* Описание функции — что за работа вообще; содержимое задачи
-                  — что к этому добавил постановщик. */}
-              <Row label="описание">{String(f?.about || "").trim() || "не написано"}</Row>
-              <Row label="содержимое">{String(t.body || "").trim() || "не написано"}</Row>
+              {/* Описание — у ЗАДАЧИ (владелец, 2026-09-20). Своего у неё
+                  нет — берётся написанное у этой задачи в техпроцессе: это
+                  то же поле «Описание задачи», что видит постановщик. */}
+              <Row label="описание">
+                {String(t.body || "").trim() || String(f?.body || "").trim() || "не написано"}</Row>
               <Row label="критерии проверки">
                 {(f?.checks || []).length ? "" : "не поставлены"}</Row>
               {!!(f?.checks || []).length && (

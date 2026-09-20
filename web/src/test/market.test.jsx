@@ -19,7 +19,10 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 const TRAITS = [{ id: "t1", l: "макет" }, { id: "t2", l: "страница" }];
-const FUNC = { id: "f1", name: "Вёрстка", about: "по макету", takes: [{ trait: "t1", lo: 1, hi: 1 }],
+/* Текст карточки — ожидаемый результат функции (владелец, 2026-09-20:
+   описания у функции больше нет, у неё есть результат). */
+const FUNC = { id: "f1", name: "Вёрстка", chain: { id: "c1", name: "Вёрстка", result: "по макету" },
+  takes: [{ trait: "t1", lo: 1, hi: 1 }],
   gives: [{ trait: "t2", lo: 2, hi: 3 }], dur: 24, durHi: 48 };
 
 describe("слова из функции", () => {

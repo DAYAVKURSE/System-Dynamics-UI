@@ -753,7 +753,11 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
     /* Номер выполнения считает `scheduleOf`, а называет его `runTitle`:
        четыре выполнения одной функции — четыре разные задачи. */
     const tasks = rows.filter((r) => named(r.func)).map((r) => ({
+      /* Описание задачи из техпроцесса едет с ней сразу (владелец,
+         2026-09-20): постановщик увидит его в «Описании задачи» и правит,
+         если надо, а не переписывает с нуля. */
       ...newTask({ funcId: r.func, title: runTitle(r),
+        body: String(funcs.find((f) => f.id === r.func)?.body || ""),
         start: nowLocal(r.start), end: nowLocal(r.end) }),
       goalId: fresh.id,
     }));

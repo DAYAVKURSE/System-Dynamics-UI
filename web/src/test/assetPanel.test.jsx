@@ -114,14 +114,12 @@ describe("новое в форме функции", () => {
     expect(dump().funcs.pop().takes[0].spend).toBe(false);
   });
 
-  it("у функции есть описание, и оно необязательно", () => {
+  /* ОПИСАНИЯ У ФУНКЦИИ НЕТ (владелец, 2026-09-20): «описание должно быть
+     только у задачи, а у функции — ожидаемый результат, и только у неё». */
+  it("у функции нет описания — только ожидаемый результат", () => {
     addFunc();
-    const box = screen.getByLabelText("описание функции");
-    // Пустое описание не мешает функции быть функцией.
-    expect(box.value).toBe("");
-    fireEvent.change(box, { target: { value: "разбираем заявку и пишем ТЗ" } });
-    fireEvent.blur(box);
-    expect(dump().funcs.pop().about).toBe("разбираем заявку и пишем ТЗ");
+    expect(screen.queryByLabelText("описание функции")).toBeNull();
+    expect(screen.getByLabelText(/^ожидаемый результат функции/)).toBeInTheDocument();
   });
 
   it("сколько дел держит ОДИН ВОРКЕР — спрашивается у функции", () => {
