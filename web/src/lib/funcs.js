@@ -591,7 +591,16 @@ export function timeLeft(task = {}, now = Date.now()) {
   const total = from != null && end > from ? end - from : null;
   const share = total == null ? 1 : Math.max(0, Math.min(1, left / total));
   const tone = share < 0.2 ? "bad" : share < 0.5 ? "warn" : "ok";
-  return { share, tone, text: `осталось ${leftText(left)}`, sure: total != null };
+  return { share, tone, left, text: `осталось ${leftText(left)}`, sure: total != null };
+}
+
+/* Сколько осталось В ЕДИНИЦАХ СРОКА ЗАДАЧИ (владелец, 2026-09-20): срок
+   функции задан в часах, днях, неделях или месяцах — в них и считается
+   остаток, иначе «осталось 40 ч» у месячной работы читается как ошибка. */
+export function leftInUnit(msLeft = 0, unit = DUR_DEFAULT) {
+  const k = DUR_UNITS[unit] ? unit : DUR_DEFAULT;
+  const v = Math.max(0, msLeft) / 3600000 / DUR_UNITS[k];
+  return `${Math.round(v * 10) / 10} ${k}`;
 }
 
 /** «2 дн», «5 ч», «40 мин» — сколько осталось, словами. */

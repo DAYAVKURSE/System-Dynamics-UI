@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField, ScrollRail } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, TxtField, ScrollRail } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson, uniqPorts } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
 import { pickByOrderOf, pickOrder } from "../lib/pickOrder.js";
-import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel } from "../lib/units.js";
+import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel, unitTitle } from "../lib/units.js";
 import { inputCount, inputUnits } from "../lib/taskUnits.js";
-import { UnitList } from "./UnitLinks.jsx";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -585,7 +584,7 @@ function FuncCard({func,entities,traitName,bare=false,about=""}){
           несколько, а вещь одна. */}
       {!!func.takes.length&&(
         <div style={{color:C.muted,marginTop:4}}>
-          берёт: {uniqPorts(func.takes).map(p=>`${traitName(p.trait)} ${rangeText(p)}`
+          Предоставляемый материал: {uniqPorts(func.takes).map(p=>`${traitName(p.trait)} ${rangeText(p)}`
             +(p.spend===false?" (не расходует)":"")).join(", ")}
         </div>)}
       {/* Описание задачи — над «ожидается» (владелец, 2026-09-20). Слова
@@ -957,7 +956,7 @@ export function HiddenSwitch({hidden,onChange,whoElse}){
 }
 
 export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials=[],setTasks,
-  onClose,nameOf,meId,isOwner=true,onComment,onDropComment,onSubmit}){
+  onClose,nameOf,meId,isOwner=true,onComment,onDropComment,onSubmit,onTake}){
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
@@ -996,6 +995,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
      ушла проверяющему: и вторая сдача, и слова к ней — уже не к этой
      форме. Вернут на доработку — статус снова рабочий, и форма оживёт. */
   const handed=task.status==="review"||task.status==="done";
+  /* Невзятую работу не сдают — её берут (владелец, 2026-09-20: «если
+     нажать на задачу, которая в бэклоге, у неё есть кнопка „Сдать" —
+     вместо неё должна быть „Взять в работу"»). Условие то же, что у
+     кнопки на карточке в колонке. */
+  const toTake=!isCanceled(task)&&!isTaken(task)
+    &&(BACKLOG_STATES.includes(task.status)||task.status==="deadline");
   const traitName=(id)=>traits.find(t=>t.id===id)?.l||"(ресурс удалён)";
   const who=(id)=>(id?(nameOf?nameOf(id):id):"не назначен");
   /* Номера единиц, которые получились из сдач. Сдача — это не «плюс одна
@@ -1360,17 +1365,30 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
           определённой заявкой, а не с числом «заявок 4», и скачать её
           нужно до того, как работа сделана. Израсходованных тут нет —
           их больше нет ни у кого. */}
+      {/* Вещь — одной строкой, и в строке ТОЛЬКО её имя (владелец,
+          2026-09-20): ни номера, ни задачи, при которой она получена. */}
       {!!func?.takes?.length&&(<>
-        <div style={S.lbl}>материалы на входе</div>
+        <div style={S.lbl}>предоставляемый материал</div>
         <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-          padding:9,margin:"6px 0 8px"}}>
-          {inputUnits({tasks:tasksAll,funcs,materials},func).map(g=>(
-            <div key={g.trait} style={{marginBottom:6}}>
-              <div style={{fontSize:11.5,fontWeight:600}}>{traitName(g.trait)}</div>
-              <UnitList units={g.units} traitName={traitName(g.trait)}
-                unitName={traits.find(t=>t.id===g.trait)?.unit||"ед."}
-                label={`материалы на входе: ${traitName(g.trait)}`}/>
-            </div>))}
+          padding:9,margin:"6px 0 8px"}} aria-label="предоставляемый материал">
+          {(()=>{
+            const rows=inputUnits({tasks:tasksAll,funcs,materials},func)
+              .flatMap(g=>g.units.map(u=>({...u,unitName:traits.find(t=>t.id===g.trait)?.unit||"ед."})));
+            if(!rows.length) return (
+              <div style={{fontSize:11,color:C.muted}}>нет</div>);
+            return rows.map(u=>(
+              <div key={u.id} className="flex flex-wrap gap-2"
+                style={{alignItems:"center",fontSize:11.5,padding:"3px 0",
+                  borderTop:`1px solid ${C.line}`}}>
+                <span style={{flex:"1 1 120px",minWidth:0,overflowWrap:"anywhere"}}>
+                  {unitTitle(u)}</span>
+                <Download url={u.file?reportSrc(u.file):""}
+                  text={u.file?"":(u.code||u.text)}
+                  name={u.file?u.file.name:`${u.unitName}-${u.no}.txt`}
+                  aria-label={`скачать ${unitTitle(u)}`}
+                  style={{fontSize:10.5,padding:"2px 7px",color:ACC}}/>
+              </div>));
+          })()}
         </div></>)}
 
       <div style={S.lbl}>сдача задачи</div>
@@ -1385,9 +1403,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               <span style={{fontSize:12,fontWeight:600,color:OK,flex:1}}>
                 {nm(sb.hours)} ч</span>
               <span style={{fontSize:10,color:C.muted}}>{fmtDT(sb.at)}</span>
-              <button style={{...btn(false),padding:"2px 6px"}}
-                aria-label="убрать сдачу"
-                onClick={()=>up("submissions",subs.filter(x=>x.id!==sb.id))}>✕</button>
             </div>
             <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
               взято: {Object.entries(sb.takes||{}).map(([id,v])=>{
@@ -1420,6 +1435,11 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 
         {handed
           ? null
+          : toTake
+          ? <div className="flex flex-wrap gap-2">
+              <button style={btn(true,ACC)} onClick={()=>onTake?.(task)}>
+                Взять в работу</button>
+            </div>
           : !handing
           ? <div className="flex flex-wrap gap-2">
               <button style={btn(true,OK)} disabled={!func} onClick={startHanding}>
@@ -1670,6 +1690,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
         <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
           entities={entities} meId={meId} isOwner={canAssign}
           onComment={onComment} onDropComment={onDropComment} onSubmit={onSubmit}
+          onTake={take}
           nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}
 
       {/* Полоса над доской говорит, что колонки уезжают за край и куда

@@ -76,6 +76,12 @@ const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [], forms: [], docs:
    показывать) и должности (кем он числится) — и у человека было по одной
    из каждого. На деле это один вопрос: кто он здесь. Должности прежних
    записей читаются как роли без вкладок, и никто ничего не теряет. */
+/** Дата как день: «2026-01-31». Чужая строка в запись не пускается. */
+const dayOnly = (v) => {
+  const t = Date.parse(String(v || ""));
+  return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : "";
+};
+
 const fileRef = (f) => (f && typeof f === "object" && f.url
   ? { name: String(f.name || "файл"), type: String(f.type || ""),
     size: Number(f.size) || 0, url: String(f.url) }
@@ -661,13 +667,19 @@ export async function openRoles() {
  * Повторная регистрация в ту же роль заменяет подписанный экземпляр:
  * договор перезаключают, а не заводят вторую запись о том же.
  */
-export async function registerUser(userId, profile = {}, { roleId, file, answers } = {}) {
+export async function registerUser(userId, profile = {}, { roleId, file, answers, start, end } = {}) {
   const org = await readOrg();
   const id = String(userId);
   const role = org.roles.find((r) => r.id === roleId);
   if (!role) throw new Error("unknown role");
   const signed = fileRef(file);
   if (role.contract && !signed) throw new Error("contract is required");
+  /* У ДОГОВОРА ВСЕГДА ЕСТЬ СРОК (владелец, 2026-09-20). У договора-документа
+     он приходит плейсхолдерами, которые заполняет владелец или сам
+     подписывающий; у принесённого файлом плейсхолдеров нет вовсе — значит,
+     даты называет тот, кто его приносит. Без них договора нет. */
+  const from = dayOnly(start), to = dayOnly(end);
+  if (signed && (!from || !to)) throw new Error("dates are required");
 
   let user = org.users.find((u) => u.id === id);
   const known = !!user;
@@ -678,7 +690,8 @@ export async function registerUser(userId, profile = {}, { roleId, file, answers
   }
   if (profile.name && user.name !== profile.name) user.name = profile.name;
   user.contracts = { ...(user.contracts || {}),
-    [role.id]: { ...(signed || {}), at: new Date().toISOString() } };
+    [role.id]: { ...(signed || {}), at: new Date().toISOString(),
+      ...(from ? { start: from } : {}), ...(to ? { end: to } : {}) } };
   if (answers && typeof answers === "object") {
     user.answers = { ...answersOf(user), ...answersOf({ answers }) };
   }

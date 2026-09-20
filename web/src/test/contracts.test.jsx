@@ -47,7 +47,7 @@ const ORG = {
     /* Пришёл сам: договор подписан, роли нет — ждёт владельца. */
     { id: "7", name: "Новичок", roles: [], wants: "executor", agreements: [],
       contracts: { executor: { name: "подписан.pdf", type: "application/pdf",
-        url: "/api/reports/s/f7" } } }],
+        url: "/api/reports/s/f7", start: "2026-01-01", end: "2027-12-31" } } }],
   forms: [], docs: [DOC],
 };
 const ME = { id: "1", isOwner: true, known: true };
@@ -141,8 +141,16 @@ describe("цвет полоски по сроку договора", () => {
     expect(userTone(agr("2026-01-01", "2026-03-05"), NOW)).toBe(WARN);
     expect(userTone(agr("2026-01-01", "2026-03-01"), NOW)).toBe(WARN);
   });
-  it("подписанный экземпляр без сроков — договор есть, полоска зелёная", () => {
-    expect(userTone({ contracts: { executor: { name: "п.pdf" } } }, NOW)).toBe(OK);
+  it("подписанный экземпляр считается по своим датам, как и соглашение", () => {
+    const file = (start, end) => ({ contracts: { executor: { name: "п.pdf", start, end } } });
+    expect(userTone(file("2026-01-01", "2026-12-31"), NOW)).toBe(OK);
+    expect(userTone(file("2026-01-01", "2026-03-05"), NOW)).toBe(WARN);
+    expect(userTone(file("2026-01-01", "2026-02-28"), NOW)).toBe(BAD);
+  });
+
+  it("у владельца и агента договор бессрочный — полоска всегда зелёная", () => {
+    expect(userTone({ owner: true }, NOW)).toBe(OK);
+    expect(userTone({ agent: true }, NOW)).toBe(OK);
   });
 
   it("полоска стоит слева у карточки участника", async () => {
@@ -152,8 +160,10 @@ describe("цвет полоски по сроку договора", () => {
     const petr = await screen.findByLabelText("участник Пётр");
     expect(petr.style.borderLeftWidth).toBe("4px");
     expect(petr.style.borderLeftColor).toBe(rgb(BAD));
-    // У Новичка подписанный экземпляр — зелёная.
+    // У Новичка договор действует по 2027 год — зелёная.
     expect(screen.getByLabelText("участник Новичок").style.borderLeftColor).toBe(rgb(OK));
+    // У владельца договора нет, но он бессрочный — тоже зелёная.
+    expect(screen.getByLabelText("участник Владелец").style.borderLeftColor).toBe(rgb(OK));
   });
 });
 
@@ -185,12 +195,12 @@ describe("заявка на участие и договоры участник�
     expect(list.textContent).not.toContain("файл");
     // Пока не нажали — ни скачивания, ни просмотра.
     expect(screen.queryByLabelText(/скачать договор исполнитель/)).toBeNull();
-    fireEvent.click(screen.getByLabelText("договор исполнитель · подписан.pdf · срок не указан"));
-    expect(screen.getByLabelText("скачать договор исполнитель · подписан.pdf · срок не указан"))
+    fireEvent.click(screen.getByLabelText("договор исполнитель · подписан.pdf · с 01.01.2026 по 31.12.2027"));
+    expect(screen.getByLabelText("скачать договор исполнитель · подписан.pdf · с 01.01.2026 по 31.12.2027"))
       .toHaveAttribute("href", "/api/reports/s/f7");
 
     // Просмотр — то же окно, что и правка документа, но без правки.
-    fireEvent.click(screen.getByLabelText("посмотреть договор исполнитель · подписан.pdf · срок не указан"));
+    fireEvent.click(screen.getByLabelText("посмотреть договор исполнитель · подписан.pdf · с 01.01.2026 по 31.12.2027"));
     const win = await screen.findByRole("dialog", { name: /документ/ });
     expect(within(win).getByLabelText("текст документа"))
       .toHaveAttribute("contenteditable", "false");

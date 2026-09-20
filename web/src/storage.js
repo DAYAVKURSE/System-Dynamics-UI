@@ -312,6 +312,24 @@ export async function putReportFile(file, { kind = "", meeting = "" } = {}) {
 /** Куда смотреть за содержимым файла — ссылка на диск или инлайн. */
 export const reportSrc = (f) => (f ? (f.url || f.data || "") : "");
 
+/* ─────── «Скачать» = прислать себе в чат с ботом ───────
+
+   Сохранить файл из мини-приложения на телефон нельзя: WebView Telegram
+   не даёт, и ссылка со скачиванием там просто ничего не делает (владелец,
+   2026-09-20). Из чата с ботом — можно, и это один путь на все «Скачать»:
+   договор участника, материал на входе, вещь на выходе. Без файла (текст
+   или код) уходит сообщением. */
+export async function deliverFile({ url, text, name } = {}) {
+  const r = await fetch("/api/reports/deliver", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": getInitData() },
+    body: JSON.stringify({ url, text, name }),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.error || `не удалось отправить (сервер ответил ${r.status})`);
+  return out;
+}
+
 /* Файл для скачивания текста или кода: вещь без файла всё равно скачивают.
    Правило одно на все места, где единицу дают скачать, — «Отчёты», форма
    задачи, «Проверка»: у одной вещи одна ссылка. */

@@ -545,7 +545,7 @@ describe("договор роли", () => {
     const open = await openRoles();
     expect(open.find((r) => r.id === role.id).contract.name).toBe("договор.pdf");
 
-    await registerUser("700", { name: "Новый" }, { roleId: role.id, file: SIGNED });
+    await registerUser("700", { name: "Новый" }, { roleId: role.id, file: SIGNED, start: "2026-01-01", end: "2026-12-31" });
     const me = await identify("700", { name: "Новый" });
     // Роли и доступа нет: впустить решает владелец (владелец, 2026-09-20).
     expect(me.roles).toEqual([]);
@@ -572,6 +572,23 @@ describe("договор роли", () => {
     expect((await identify("701", {})).known).toBe(false);
   });
 
+  /* У ДОГОВОРА ВСЕГДА ЕСТЬ СРОК (владелец, 2026-09-20): у принесённого
+     файлом плейсхолдеров нет, и даты называет тот, кто его подписал. */
+  it("подписанный экземпляр без дат не принимается", async () => {
+    await identify("100", { name: "Владелец" });
+    const role = await addRole({ name: "Курьер", tabs: ["tasks"] });
+    await setRoleContract(role.id, DOC);
+    await expect(registerUser("705", {}, { roleId: role.id, file: SIGNED }))
+      .rejects.toThrow(/dates are required/);
+    await expect(registerUser("705", {}, { roleId: role.id, file: SIGNED, start: "2026-01-01" }))
+      .rejects.toThrow(/dates are required/);
+    await registerUser("705", {}, { roleId: role.id, file: SIGNED,
+      start: "2026-01-01", end: "2026-12-31" });
+    const user = (await listOrg()).users.find((u) => u.id === "705");
+    expect(user.contracts[role.id].start).toBe("2026-01-01");
+    expect(user.contracts[role.id].end).toBe("2026-12-31");
+  });
+
   it("роль без договора подписывать нечем — но владельца всё равно ждут", async () => {
     await identify("100", { name: "Владелец" });
     const role = await addRole({ name: "Гость", tabs: ["tasks"] });
@@ -587,11 +604,11 @@ describe("договор роли", () => {
     const b = await addRole({ name: "Вторая", tabs: ["review"] });
     await setRoleContract(a.id, DOC);
     await setRoleContract(b.id, DOC);
-    await registerUser("703", { name: "Оба" }, { roleId: a.id, file: SIGNED });
+    await registerUser("703", { name: "Оба" }, { roleId: a.id, file: SIGNED, start: "2026-01-01", end: "2026-12-31" });
     // Первую роль открыл владелец; дальше человек уже участник, и вторую
     // ему выдаёт сама подпись.
     await setUserRoles("703", [a.id]);
-    await registerUser("703", { name: "Оба" }, { roleId: b.id, file: SIGNED });
+    await registerUser("703", { name: "Оба" }, { roleId: b.id, file: SIGNED, start: "2026-01-01", end: "2026-12-31" });
     const me = await identify("703", {});
     expect(me.roles.map((r) => r.id)).toEqual([a.id, b.id]);
     expect(me.tabs).toEqual(["tasks", "review"]);
@@ -609,7 +626,7 @@ describe("договор роли", () => {
     expect(waiting.pending).toBe(role.id);
     expect(waiting.tabs).toEqual([]);
     // Подписал — роль есть, и ждать больше нечего.
-    await registerUser("704", {}, { roleId: role.id, file: SIGNED });
+    await registerUser("704", {}, { roleId: role.id, file: SIGNED, start: "2026-01-01", end: "2026-12-31" });
     const done = await identify("704", {});
     expect(done.roles.map((r) => r.id)).toEqual([role.id]);
     expect(done.pending).toBe("");

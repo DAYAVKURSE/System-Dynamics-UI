@@ -281,6 +281,17 @@ export function unitLabel(u = {}) {
   return u.title || "без названия";
 }
 
+/* ИМЯ ВЕЩИ — только вещь, без задачи, при которой она получена (владелец,
+   2026-09-20: «должно быть просто название материала в одной строке»).
+   Код, имя файла или первые слова текста; нет ничего — так и сказано. */
+export function unitTitle(u = {}) {
+  if (u.code) return u.code;
+  if (u.file?.name) return u.file.name;
+  const t = String(u.text || "").trim();
+  if (t) return t.length > 60 ? `${t.slice(0, 59)}…` : t;
+  return "без названия";
+}
+
 /** Единицы одного ресурса — от новых к старым, как их и выбирают. */
 export const unitsOfTrait = (model, trait) => unitsOf(model)
   .filter((u) => u.trait === trait)

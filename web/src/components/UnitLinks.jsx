@@ -1,5 +1,5 @@
 import React from "react";
-import { C, ACC, WARN, btn } from "./ui.jsx";
+import { C, ACC, WARN, Download } from "./ui.jsx";
 import { unitLabel } from "../lib/units.js";
 import { reportSrc, textHref } from "../storage.js";
 
@@ -38,13 +38,12 @@ export function UnitLine({ u, traitName, unitName }) {
       </span>
       {!u.accepted && <span style={{ fontSize: 10, color: WARN }}>не принята</span>}
       {has
-        ? <a href={href} target="_blank" rel="noreferrer" download={fileName}
-            aria-label={`скачать ${traitName} №${u.no}`}
-            style={{ ...btn(false), fontSize: 10.5, padding: "2px 7px",
-              textDecoration: "none", color: ACC }}>
-            {/* У кода скачивают не сам код, а бумагу о выдаче: код уже
-                на экране, а подтверждение — только по ссылке. */}
-            {u.code && u.file ? "скачать подтверждение" : "скачать"}</a>
+        ? <Download url={u.file ? href : ""} text={u.file ? "" : (u.code || u.text)}
+            name={fileName} aria-label={`скачать ${traitName} №${u.no}`}
+            style={{ fontSize: 10.5, padding: "2px 7px", color: ACC }}
+            /* У кода скачивают не сам код, а бумагу о выдаче: код уже на
+               экране, а подтверждение — только файлом. */
+            label={u.code && u.file ? "скачать подтверждение" : "скачать"} />
         : <span style={{ fontSize: 10, color: WARN }}>содержимого нет</span>}
     </div>);
 }

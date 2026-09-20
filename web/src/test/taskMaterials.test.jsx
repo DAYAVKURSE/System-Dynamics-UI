@@ -58,25 +58,30 @@ function Review({ tasks: t0 }) {
 }
 
 describe("форма задачи: материалы на входе", () => {
-  it("показывает единицы входа со ссылками «скачать», а израсходованную — нет", () => {
+  /* ОДНА СТРОКА — ОДНА ВЕЩЬ, И В НЕЙ ТОЛЬКО ЕЁ ИМЯ (владелец, 2026-09-20):
+     ни номера, ни задачи, при которой вещь получена. */
+  it("показывает вещи входа именем и скачиванием, а израсходованную — нет", () => {
     render(<Board tasks={[collected(), contracted(),
       task({ id: "c", status: "progress", taken: true })]} />);
     fireEvent.click(screen.getByText("Задача C"));
-    const list = screen.getByRole("list", { name: "материалы на входе: заявки" });
+    const list = screen.getByLabelText("предоставляемый материал");
     // Заявка №1 ушла в договор — на входе её больше нет.
-    expect(within(list).queryByText("№1")).toBeNull();
-    expect(within(list).getByText("№2")).toBeInTheDocument();
-    const link = within(list).getByRole("link", { name: "скачать заявки №2" });
+    expect(within(list).queryByText("заявка-1.pdf")).toBeNull();
+    expect(within(list).getByText("заявка-2.pdf")).toBeInTheDocument();
+    // Ни номера, ни названия задачи в строке нет.
+    expect(list.textContent).not.toMatch(/№/);
+    expect(list.textContent).not.toMatch(/Задача A/);
+    const link = within(list).getByRole("link", { name: "скачать заявка-2.pdf" });
     expect(link).toHaveAttribute("href", "data:text/plain,2");
     expect(link).toHaveAttribute("download", "заявка-2.pdf");
   });
 
-  it("единиц нет — так и сказано, и блок виден без нажатия «Сдать»", () => {
+  it("вещей нет — так и сказано, и блок виден без нажатия «Сдать»", () => {
     render(<Board tasks={[task({ id: "c", status: "backlog" })]} />);
     fireEvent.click(screen.getByText("Задача C"));
-    expect(screen.getByText("материалы на входе")).toBeInTheDocument();
-    expect(screen.getByText("единиц пока нет")).toBeInTheDocument();
-    expect(screen.queryByRole("list", { name: "материалы на входе: заявки" })).toBeNull();
+    expect(screen.getByText("предоставляемый материал")).toBeInTheDocument();
+    expect(within(screen.getByLabelText("предоставляемый материал")).getByText("нет"))
+      .toBeInTheDocument();
   });
 
   it("карточка на доске называет только число единиц на входе", () => {

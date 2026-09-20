@@ -36,11 +36,17 @@ const fetchMock = (over = {}) => vi.fn(async (url, opts) => {
 
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; });
 
+/* У договора всегда есть срок (владелец, 2026-09-20): у принесённого
+   файлом плейсхолдеров нет, и даты называет тот, кто его подписал. */
 const attach = (name = "подписан.pdf") => {
   const input = screen.getByLabelText("подписанный договор");
   const f = new File(["x"], name, { type: "application/pdf" });
   Object.defineProperty(input, "files", { value: [f], configurable: true });
   fireEvent.change(input);
+  fireEvent.change(screen.getByLabelText("договор действует с"),
+    { target: { value: "2026-01-01" } });
+  fireEvent.change(screen.getByLabelText("договор действует по"),
+    { target: { value: "2026-12-31" } });
 };
 
 describe("регистрация по договору", () => {
@@ -66,6 +72,8 @@ describe("регистрация по договору", () => {
     expect(sent[0].roleId).toBe("exec");
     expect(sent[0].file.name).toBe("подписан.pdf");
     expect(sent[0].file.data).toMatch(/^data:/);
+    expect(sent[0].start).toBe("2026-01-01");
+    expect(sent[0].end).toBe("2026-12-31");
     // Роль выдана — приложение узнаёт об этом сразу, без перезагрузки.
     await waitFor(() => expect(done[0]).toMatchObject({ known: true, tabs: ["tasks"] }));
   });
@@ -92,6 +100,24 @@ describe("регистрация по договору", () => {
     // Ни своей роли выбрать заново, ни чужую: списка ролей у него нет.
     expect(screen.queryByLabelText("роль: исполнитель")).toBeNull();
     expect(screen.queryByLabelText("роль: гость")).toBeNull();
+  });
+
+  it("без срока договора «Вступить» не нажимается", async () => {
+    global.fetch = fetchMock({ sent: [] });
+    render(<RegisterPanel me={{ known: false }} />);
+    await waitFor(() => expect(screen.getByLabelText("роль: исполнитель")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("роль: исполнитель"));
+    const input = screen.getByLabelText("подписанный договор");
+    const f = new File(["x"], "п.pdf", { type: "application/pdf" });
+    Object.defineProperty(input, "files", { value: [f], configurable: true });
+    fireEvent.change(input);
+    expect(screen.getByRole("button", { name: "Вступить" })).toBeDisabled();
+    expect(screen.getByText(/не указан срок договора/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("договор действует с"),
+      { target: { value: "2026-01-01" } });
+    fireEvent.change(screen.getByLabelText("договор действует по"),
+      { target: { value: "2026-12-31" } });
+    expect(screen.getByRole("button", { name: "Вступить" })).not.toBeDisabled();
   });
 
   it("«Назад» с выбранной роли возвращает к выбору роли", async () => {

@@ -118,6 +118,10 @@ export default function RegisterPanel({ me, onBack, onDone }) {
   const [pick, setPick] = useState(me?.pending || "");
   const [file, setFile] = useState(null);
   const [answers, setAnswers] = useState(() => ({ ...(me?.profile?.answers || {}) }));
+  /* У ДОГОВОРА ВСЕГДА ЕСТЬ СРОК (владелец, 2026-09-20): у принесённого
+     файлом плейсхолдеров нет, и даты называет тот, кто его подписал. */
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -135,13 +139,13 @@ export default function RegisterPanel({ me, onBack, onDone }) {
   const invited = !!me?.pending;
   const cur = (roles || []).find((r) => r.id === (invited ? me.pending : pick)) || null;
   const needs = !!cur?.contract;
-  const ready = !!cur && (!needs || !!file);
+  const ready = !!cur && (!needs || (!!file && !!start && !!end));
 
   const send = async () => {
     if (!ready || busy) return;
     setBusy(true); setMsg("");
     try {
-      const r = await registerRemote(cur.id, file, answers);
+      const r = await registerRemote(cur.id, file, answers, { start, end });
       onDone?.(r?.me || null);
     } catch (e) { setMsg(e.message || "не удалось отправить"); }
     setBusy(false);
@@ -226,6 +230,20 @@ export default function RegisterPanel({ me, onBack, onDone }) {
             </label>
             {file && <span style={{ fontSize: 11, color: OK }}>📎 {file.name}</span>}
           </div>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
+            <label style={{ fontSize: 11, color: C.muted }}>
+              действует с{" "}
+              <input type="date" value={start} aria-label="договор действует с"
+                style={{ ...S.inp, fontSize: 12, padding: "3px 6px" }}
+                onChange={(e) => { setStart(e.target.value); setMsg(""); }} />
+            </label>
+            <label style={{ fontSize: 11, color: C.muted }}>
+              по{" "}
+              <input type="date" value={end} aria-label="договор действует по"
+                style={{ ...S.inp, fontSize: 12, padding: "3px 6px" }}
+                onChange={(e) => { setEnd(e.target.value); setMsg(""); }} />
+            </label>
+          </div>
         </>)}
 
         {/* ─── 4. анкета роли ─── */}
@@ -242,7 +260,7 @@ export default function RegisterPanel({ me, onBack, onDone }) {
             disabled={!ready || busy} onClick={send}>
             {busy ? "Отправляю…" : "Вступить"}</button>
           <span style={{ fontSize: 10.5, color: C.muted }}>
-            {ready ? "" : "нет подписанного договора"}</span>
+            {ready ? "" : !file ? "нет подписанного договора" : "не указан срок договора"}</span>
         </div>
       </>)}
 

@@ -63,7 +63,7 @@ const MAX_CONTRACT_BYTES = Math.min(MAX_REPORT_BYTES, 8 * 1024 * 1024);
 
 router.post("/register", async (req, res, next) => {
   try {
-    const { roleId, file, answers } = req.body || {};
+    const { roleId, file, answers, start, end } = req.body || {};
     let saved = null;
     if (file && file.data) {
       /* Файл приезжает строкой base64 (или data:-ссылкой): тело здесь
@@ -79,13 +79,16 @@ router.post("/register", async (req, res, next) => {
         name: file.name, type: file.type, bytes, kind: "contract" });
     }
     const user = await registerUser(req.telegramUserId, req.telegramProfile || {},
-      { roleId, file: saved, answers });
+      { roleId, file: saved, answers, start, end });
     const me = await identify(req.telegramUserId, req.telegramProfile || {});
     res.json({ me, user: { id: user.id, roles: user.roles } });
   } catch (e) {
     if (/unknown role/.test(e.message)) return res.status(404).json({ error: e.message });
     if (/contract is required/.test(e.message)) {
       return res.status(400).json({ error: "Договор не приложен: без подписанного экземпляра роль не выдаётся." });
+    }
+    if (/dates are required/.test(e.message)) {
+      return res.status(400).json({ error: "У договора должны быть дата начала и дата окончания действия." });
     }
     return next(e);
   }

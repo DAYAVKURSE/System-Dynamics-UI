@@ -115,6 +115,53 @@ router.post("/:id/send", telegramUser, member, async (req, res, next) => {
   }
 });
 
+/* ─────── «Скачать» = прислать себе в чат с ботом ───────
+
+   WebView Telegram не даёт сохранить файл на телефон: ссылка со
+   скачиванием там просто ничего не делает (владелец, 2026-09-20: «кнопка
+   „Скачать" не работает»). Чат с ботом — и есть папка «Загрузки».
+
+   Здесь — ЛЮБОЙ файл, который человек и так может открыть по ссылке:
+   договор участника, материал на входе. Ссылка и есть ключ к файлу (см.
+   чтение ниже, оно открыто), поэтому отправка её тому, кто подписан,
+   ничего нового не открывает. Вещь без файла — текст или код — уходит
+   сообщением: скачивать там нечего, а забрать надо. */
+const FILE_URL = /^\/api\/reports\/([a-f0-9]{32})\/([A-Za-z0-9-]{6,64})$/;
+router.post("/deliver", telegramUser, member, async (req, res, next) => {
+  try {
+    const { url, text, name } = req.body || {};
+    const words = String(text ?? "").trim();
+    if (words) {
+      await sendMessage(req.telegramUserId,
+        `${name ? `${name}\n\n` : ""}${words.slice(0, 3500)}`);
+      return res.json({ sent: "text" });
+    }
+    const m = FILE_URL.exec(String(url || ""));
+    if (!m) return res.status(400).json({ error: "bad url" });
+    const file = await getReport(m[1], m[2]);
+    if (!file) return res.status(404).json({ error: "not found" });
+    const title = String(name || file.name || "файл");
+    if (file.bytes.length > MAX_BOT_DOCUMENT_BYTES) {
+      const base = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+      if (!base) {
+        return res.status(409).json({
+          error: `${title} — ${Math.round(file.bytes.length / 1024 / 1024)} МБ, больше, чем бот`
+            + " может отправить файлом, а ссылку прислать нечем: на сервере не задан"
+            + " адрес приложения (PUBLIC_URL).",
+        });
+      }
+      await sendMessage(req.telegramUserId, `${title}:\n${base}${url}`);
+      return res.json({ sent: "link" });
+    }
+    const blob = new Blob([file.bytes], { type: file.type });
+    await sendDocument(req.telegramUserId, { blob, name: file.name || title, caption: title });
+    return res.json({ sent: "file" });
+  } catch (e) {
+    if (e.userMessage) return res.status(409).json({ error: e.userMessage });
+    return next(e);
+  }
+});
+
 router.post("/", telegramUser, member,
   express.raw({ type: () => true, limit: MAX_REPORT_BYTES }),
   async (req, res, next) => {

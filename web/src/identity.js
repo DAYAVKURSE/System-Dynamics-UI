@@ -130,9 +130,11 @@ export const setRoleForm = (id, formId) =>
    выбранной ролью: общее хранилище файлов заперто для участников, и
    открывать его ради регистрации значило бы раздать диск всем подряд. */
 export const openRoles = () => json("/api/org/roles").then((o) => o.roles || []);
-export async function registerRemote(roleId, file, answers) {
+export async function registerRemote(roleId, file, answers, dates) {
   const body = { roleId,
-    ...(answers && Object.keys(answers).length ? { answers } : {}) };
+    ...(answers && Object.keys(answers).length ? { answers } : {}),
+    ...(dates?.start ? { start: dates.start } : {}),
+    ...(dates?.end ? { end: dates.end } : {}) };
   if (file) {
     const data = await new Promise((ok, no) => {
       const r = new FileReader();

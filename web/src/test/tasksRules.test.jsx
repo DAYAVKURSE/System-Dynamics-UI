@@ -570,16 +570,29 @@ describe("поля задачи в порядке постановки", () => {
     expect(screen.queryByPlaceholderText("написать комментарий")).toBeNull();
   });
 
-  it("у исполнителя формы постановки нет — только содержимое, сдача и комментарии", () => {
+  it("у исполнителя формы постановки нет — только содержимое и работа", () => {
     const t = { ...newTask({ funcId: "f1", title: "Задача A" }), status: "backlog",
       setter: "1", assignee: "2", reviewer: "3", body: "собрать заявки",
       end: "2030-01-01T10:00" };
     render(<Board tasks={[t]} />);
     fireEvent.click(screen.getByText("Задача A"));
     expect(screen.getByText("собрать заявки")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "СДАТЬ" })).toBeInTheDocument();
     expect(screen.queryByLabelText("исполнитель")).toBeNull();
     expect(screen.queryByLabelText("начать")).toBeNull();
+  });
+
+  /* НЕВЗЯТУЮ РАБОТУ НЕ СДАЮТ — ЕЁ БЕРУТ (владелец, 2026-09-20). */
+  it("задача в бэклоге: «Взять в работу» вместо «Сдать»", () => {
+    const t = { ...newTask({ funcId: "f1", title: "Задача A" }), status: "backlog",
+      setter: "1", assignee: "2", reviewer: "3", end: "2030-01-01T10:00" };
+    render(<Board tasks={[t]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.queryByRole("button", { name: "СДАТЬ" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Взять в работу" }).length)
+      .toBeGreaterThan(0);
+    // Взяли — и вот теперь сдают.
+    fireEvent.click(screen.getAllByRole("button", { name: "Взять в работу" })[0]);
+    expect(screen.getByRole("button", { name: "СДАТЬ" })).toBeInTheDocument();
   });
 
   it("заводить задачи руками нельзя: они берутся из целей", () => {
@@ -940,7 +953,8 @@ describe("критерии на форме постановки", () => {
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
       .find((d) => d.textContent.startsWith("Сбор заявок"));
-    expect(plate.textContent).toMatch(/берёт:/);
+    expect(plate.textContent).toMatch(/Предоставляемый материал:/);
+    expect(plate.textContent).not.toMatch(/берёт:/);
     expect(plate.textContent).toMatch(/ожидается:/);
     expect(plate.textContent).not.toMatch(/выдаёт:/);
     expect(plate.textContent).toMatch(/Срок: 2 ч на одно выполнение/);
@@ -1071,6 +1085,6 @@ describe("поля задачи в работе на «Проверке»", () =
   it("срок не назначен — полосы нет, и сказано почему", () => {
     show(работа({ end: null }));
     fireEvent.click(screen.getByText("Задача"));
-    expect(screen.getByText(/до срока: срок не назначен/)).toBeInTheDocument();
+    expect(screen.getByText(/до конца срока: срок не назначен/)).toBeInTheDocument();
   });
 });

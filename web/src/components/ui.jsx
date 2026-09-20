@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import logoUrl from "../assets/logo.png";
+import { deliverFile } from "../storage.js";
+import { getTelegram } from "../telegram.js";
 
 /* Общие примитивы интерфейса: палитра, стили и поля ввода.
    Вынесены сюда, чтобы схема (SystemModel) и доска задач (TasksBoard)
@@ -8,6 +10,48 @@ import logoUrl from "../assets/logo.png";
 export const C={ink:"#0E1420",panel:"#161F2E",panel2:"#1D2839",line:"#2A3852",
   text:"#E6EDF7",muted:"#8FA0BC"};
 export const OK="#3DDC97",WARN="#FFB13D",BAD="#FF5C7A",NEU="#5A6B85",ACC="#7CE0FF";
+
+/* ─────── «СКАЧАТЬ» ───────
+
+   Сохранить файл из мини-приложения на телефон нельзя: WebView Telegram
+   не даёт, и ссылка со скачиванием там просто ничего не делает (владелец,
+   2026-09-20: «кнопка „Скачать" не работает»). Поэтому «Скачать» — это
+   отправка файла себе в чат с ботом: оттуда он сохраняется и
+   пересылается штатными средствами. Кнопка одна на все места: договор
+   участника, материал на входе, вещь на выходе.
+
+   Вещь без файла (текст, код) уходит сообщением: скачивать там нечего, а
+   забрать надо. */
+export function Download({url,text,name,label="Скачать",style,...rest}){
+  const [state,setState]=useState("");   // "", "идёт", "готово", ошибка
+  /* Вне Telegram (браузер, рабочий стол) обычная ссылка со скачиванием
+     работает — и она честнее: файл ложится туда, куда человек скажет.
+     Файл без сервера (`data:`) отправлять некуда и незачем. */
+  const plain=!getTelegram()||!String(url||"").startsWith("/api/");
+  if(plain){
+    const href=url||(text!=null?`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`:"");
+    return (
+      <a href={href} target="_blank" rel="noreferrer" download={name||true}
+        style={{...btn(false),textDecoration:"none",...style}} {...rest}>{label}</a>);
+  }
+  const go=async()=>{
+    if(state==="идёт") return;
+    setState("идёт");
+    try{
+      const r=await deliverFile({url,text,name});
+      setState(r?.sent==="link"?"ссылка в чате":"в чате с ботом");
+    }catch(e){ setState(e.message||"не удалось отправить"); }
+  };
+  const bad=state&&!["идёт","в чате с ботом","ссылка в чате"].includes(state);
+  return (
+    <span className="flex items-center gap-2" style={{alignItems:"center"}}>
+      <button type="button" style={{...btn(false),...style}} disabled={state==="идёт"}
+        onClick={e=>{e.stopPropagation();go();}} {...rest}>
+        {state==="идёт"?"Отправляю…":label}</button>
+      {state&&state!=="идёт"&&(
+        <span style={{fontSize:10,color:bad?BAD:OK}}>{state}</span>)}
+    </span>);
+}
 
 export const nm=(n)=>!isFinite(n)?"—":
   (Math.abs(n)>=100?Math.round(n):Math.round(n*100)/100).toLocaleString("ru-RU");

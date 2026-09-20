@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, TxtField } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, S, btn, Download, TxtField } from "./ui.jsx";
 import { renameRole,
   ALL_TABS, addRole, listOrg, removeRole, removeUser, setRoleContract, setRoleTabs,
   setUserRoles,
@@ -58,14 +58,21 @@ const inForce = (a, now) => {
   return true;
 };
 export const userTone = (u = {}, now = Date.now()) => {
-  const live = (u.agreements || []).filter((a) => inForce(a, now));
-  if (live.length) {
-    const ends = live.map((a) => dayMs(a.end)).filter((t) => t != null);
-    if (ends.length < live.length) return OK;   // хоть один бессрочный
-    return Math.min(...ends) + DAY - 1 - now < SOON ? WARN : OK;
-  }
-  if (Object.keys(u.contracts || {}).length) return OK;
-  return BAD;
+  /* У владельца и агента договор бессрочный — полоска у них всегда
+     зелёная (владелец, 2026-09-20). Правило одно на всех, разнится только
+     срок. */
+  if (u.owner || u.agent) return OK;
+  /* Договор — и выданный владельцем (`agreements`), и принесённый файлом
+     (`contracts`): срок есть у обоих, и считается он одинаково. */
+  const all = [
+    ...(u.agreements || []),
+    ...Object.values(u.contracts || {}).filter((c) => c && (c.start || c.end)),
+  ];
+  const live = all.filter((a) => inForce(a, now));
+  if (!live.length) return BAD;
+  const ends = live.map((a) => dayMs(a.end)).filter((t) => t != null);
+  if (!ends.length) return OK;
+  return Math.min(...ends) + DAY - 1 - now < SOON ? WARN : OK;
 };
 
 /* Не Word — показываем сам файл тем же окном: картинку картинкой,
@@ -128,6 +135,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
   const [add, setAdd] = useState(null);         // {user, role} — кого добавляем
   const [shown, setShown] = useState("");       // раскрытый договор в списке
   const [doc, setDoc] = useState(null);         // {title, html} — окно просмотра
+  const [docErr, setDocErr] = useState({});     // почему договор не открылся
 
   const load = async () => {
     try {
@@ -178,12 +186,16 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
      видно (владелец, 2026-09-20). Нажатие раскрывает «Скачать» и
      «Посмотреть»; скачивание идёт по ссылке на сам файл, а просмотр
      открывает то же окно, что и правка документа, только без правки. */
-  const openDoc = async (title, load) => {
-    setMsg("");
+  const openDoc = async (key, title, load) => {
+    setDocErr({});
     try {
       const r = await load();
       setDoc({ title, html: r.html || fileHtml(r.url, r.type) });
-    } catch (e) { setMsg(e.message || "не удалось открыть договор"); }
+    } catch (e) {
+      // Ошибку видно У СТРОКИ, а не общей строчкой внизу страницы: туда
+      // никто не смотрит, и нажатие выглядело как «кнопка не работает».
+      setDocErr({ [key]: e.message || "не удалось открыть договор" });
+    }
   };
   const docRow = (key, { label, tone, url, name, view }) => (
     <div key={key} style={{ flexBasis: "100%" }}>
@@ -193,12 +205,14 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
           color: tone || C.text, fontSize: 10.5, cursor: "pointer" }}>{label}</button>
       {shown === key && (
         <div className="flex flex-wrap gap-2" style={{ margin: "4px 0 6px" }}>
-          <a href={url} download={name || "договор"} aria-label={`скачать договор ${label}`}
-            style={{ ...btn(false), fontSize: 10.5, padding: "2px 8px",
-              textDecoration: "none" }}>Скачать</a>
+          <Download url={url} name={name || "договор"}
+            aria-label={`скачать договор ${label}`}
+            style={{ fontSize: 10.5, padding: "2px 8px" }} />
           <button type="button" aria-label={`посмотреть договор ${label}`}
             style={{ ...btn(false), fontSize: 10.5, padding: "2px 8px" }}
             onClick={view}>Посмотреть</button>
+          {docErr[key] && (
+            <span style={{ fontSize: 10.5, color: BAD }}>{docErr[key]}</span>)}
         </div>)}
     </div>);
 
@@ -212,8 +226,8 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
       <div key={u.id} className="flex flex-wrap gap-2" aria-label={`участник ${u.name}`}
         style={{ alignItems: "center", padding: 8, marginBottom: 6,
           background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-          /* Владельцу и агенту договор не нужен — полоски у них нет. */
-          borderLeft: `4px solid ${owner || u.agent ? C.line : userTone(u)}` }}>
+          /* Полоска — у ВСЕХ (владелец, 2026-09-20). */
+          borderLeft: `4px solid ${userTone({ ...u, owner })}` }}>
         <span style={{ fontSize: 12.5, flex: "1 1 130px" }}>
           {u.name}
           {u.username ? <span style={{ color: C.muted }}> @{u.username}</span> : null}
@@ -270,7 +284,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                       + (on ? "" : " · не действует");
                     return docRow(`a:${a.id}`, { label, tone: on ? C.text : WARN,
                       url: a.file?.url, name: a.file?.name,
-                      view: () => openDoc(label, () => agreementHtml(a.id)) });
+                      view: () => openDoc(`a:${a.id}`, label, () => agreementHtml(a.id)) });
                   })}
                 </div>)}
               {!!Object.keys(u.contracts || {}).filter((rid) => !(u.agreements || []).some((a) => a.roleId === rid)).length && (
@@ -280,10 +294,11 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                        подписанного экземпляра их нет: его принесли файлом,
                        без дат, — так и сказано. */
                     const label = `${roleName(rid) || rid}${f?.name ? ` · ${f.name}` : ""}`
-                      + " · срок не указан";
+                      + ` · с ${dayText(f?.start)} по ${dayText(f?.end)}`;
                     return docRow(`${u.id}:${rid}`, { label, tone: ACC,
                       url: reportSrc(f), name: f?.name,
-                      view: () => openDoc(label, () => contractHtml(u.id, rid)) });
+                      view: () => openDoc(`${u.id}:${rid}`, label,
+                        () => contractHtml(u.id, rid)) });
                   })}
                 </div>)}
             </>}

@@ -901,7 +901,7 @@ describe("регистрация по договору", () => {
     await request(app).put("/api/org/roles/executor/contract").set(as(100))
       .send({ contract: CONTRACT });
     const res = await request(app).post("/api/org/register").set(as(777, "Новый"))
-      .send({ roleId: "executor",
+      .send({ roleId: "executor", start: "2026-01-01", end: "2026-12-31",
         file: { name: "подписан.pdf", type: "application/pdf", data: SIGNED } });
     expect(res.status).toBe(200);
     // Роли и вкладок нет: впустить решает владелец (владелец, 2026-09-20).

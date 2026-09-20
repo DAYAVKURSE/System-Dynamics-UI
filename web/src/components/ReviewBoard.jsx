@@ -3,7 +3,7 @@ import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
 import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, lackOf, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
-import { timeLeft } from "../lib/funcs.js";
+import { leftInUnit, timeLeft } from "../lib/funcs.js";
 import { reportSrc } from "../storage.js";
 import { unitsOf } from "../lib/units.js";
 import { givenUnits, tookUnits } from "../lib/taskUnits.js";
@@ -65,17 +65,20 @@ function Row({ label, children }) {
 /* Полоса времени до срока (владелец, 2026-09-20): зелёная, пока времени
    много; жёлтая, когда осталось меньше половины; красная — меньше 20%.
    Длина полосы — сама доля: чем меньше осталось, тем короче. */
-function TimeBar({ task }) {
+function TimeBar({ task, func }) {
   const left = timeLeft(task);
   if (!left) {
     return (
       <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>
-        до срока: срок не назначен — считать нечего</div>);
+        до конца срока: срок не назначен</div>);
   }
+  /* Остаток — в единицах срока функции (владелец, 2026-09-20): работа
+     мерена днями — и остаток в днях. */
+  const text = left.left > 0 ? leftInUnit(left.left, func?.durUnit) : "срок прошёл";
   const color = left.tone === "bad" ? BAD : left.tone === "warn" ? WARN : OK;
   return (
-    <div style={{ marginBottom: 8 }} aria-label={`до срока: ${left.text}`} data-tone={left.tone}>
-      <div style={{ fontSize: 11, color, marginBottom: 3 }}>до срока: {left.text}</div>
+    <div style={{ marginBottom: 8 }} aria-label={`до конца срока: ${text}`} data-tone={left.tone}>
+      <div style={{ fontSize: 11, color, marginBottom: 3 }}>до конца срока: {text}</div>
       <div style={{ height: 6, borderRadius: 3, background: C.ink, border: `1px solid ${C.line}`,
         overflow: "hidden" }}>
         <div data-bar="" style={{ width: `${Math.round(left.share * 100)}%`, height: "100%",
@@ -192,7 +195,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
               <Row label="сдать до">{t.end ? fmtDT(t.end) : "срок не назначен"}</Row>
             </div>
 
-            {!sub && <TimeBar task={t} />}
+            {!sub && <TimeBar task={t} func={funcs.find((f) => f.id === t.funcId)} />}
             {(t.submissions || []).map((sb) => (
               <div key={sb.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
                 borderRadius: 8, padding: 8, marginBottom: 6 }}>
@@ -373,18 +376,14 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
   };
   const recallRow = (t) => (recallable(t) ? (
     <div className="flex gap-2" style={{ alignItems: "center", marginTop: 8 }}>
-      <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
-        задача лежит в бэклоге — её можно отозвать и переставить</span>
+      <span style={{ flex: 1 }} />
       <button style={{ ...btn(false), padding: "2px 8px", fontSize: 10.5 }}
         aria-label={`отозвать задачу ${t.title}`}
         onClick={(e) => { e.stopPropagation(); recall(t); }}>Отозвать</button>
     </div>) : null);
   const killRow = (t, style = { marginTop: 8 }) => (canKill(t, { isOwner }) ? (
     <div className="flex gap-2" style={{ alignItems: "center", ...style }}>
-      <span style={{ fontSize: 10.5, color: C.muted, flex: 1 }}>
-        {killStarted(t)
-          ? "удалить насовсем может только владелец: уйдут сдачи, оценки и выданные единицы"
-          : "задача ещё не начата — её можно удалить насовсем"}</span>
+      <span style={{ flex: 1 }} />
       <Delete t={t} can={killStarted(t) ? isOwner : canDelete} isOwner={isOwner}
         killId={killId} setKillId={setKillId} onKill={kill} />
     </div>) : null);
