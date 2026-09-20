@@ -1178,16 +1178,14 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
   const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: indentText(tidyProcText(text)) })) });
   /* Части процесса — функции: своё поле у каждой (владелец, 2026-09-19).
-     Ожидаемый результат — первая строка «Результат:» тела функции. */
-  const headResult = (body) => {
-    const lab = labelOf(String(body || "").split("\n")[0] || "");
-    return lab?.kind === "result" ? lab.rest.text.trim() : "";
-  };
+     Ожидаемый результат — своё поле куска, в тело не входит (владелец,
+     2026-09-20): в тексте процесса он встаёт строкой «Результат:» под
+     «Функция:», а в поле тела его нет — там ему не к чему привязаться. */
   const setPart = (p, i, patchObj) => {
     const parts = splitProc(p.text).map((s0, j) => (j === i ? { ...s0, ...patchObj } : s0));
     setText(p, joinProc(parts));
   };
-  const addPart = (p) => setText(p, joinProc([...splitProc(p.text), { name: "", body: "" }]));
+  const addPart = (p) => setText(p, joinProc([...splitProc(p.text), { name: "", result: "", body: "" }]));
   const dropPart = (p, i) => setText(p, joinProc(splitProc(p.text).filter((s0, j) => j !== i)));
   /* Описание и прочие поля записи — без пересборки функций: текст не тронут. */
   const setProc = (p, patchObj) => setProcs(patch(p.id, (x) => ({ ...x, ...patchObj })));
@@ -1357,9 +1355,9 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                     {!fHid && (<>
                       <div className="flex items-center gap-2" style={{ margin: "2px 0 4px" }}>
                         <span style={S.lbl}>ожидаемый результат</span>
-                        <input defaultValue={headResult(seg.body)} aria-label={`ожидаемый результат функции «${fName}»`}
+                        <input key={seg.result} defaultValue={seg.result} aria-label={`ожидаемый результат функции «${fName}»`}
                           style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 6px" }}
-                          onBlur={(e) => setPart(p, fi, { body: setFuncHead(seg.body, -1, { result: e.target.value.trim() }) })}
+                          onBlur={(e) => setPart(p, fi, { result: e.target.value.trim() })}
                           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                       </div>
                       <ProcText value={indentText(seg.body)} model={model} proc={p} label="текст процесса" outerVars={outer}

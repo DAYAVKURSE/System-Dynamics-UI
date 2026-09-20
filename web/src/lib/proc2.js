@@ -770,27 +770,39 @@ function outerCond(lines, at) {
    У каждой функции своё поле ввода: текст процесса режется по строкам
    «Функция:» и собирается обратно. Отступы при разборе на части снимаются,
    а при сборке ставятся заново — поле показывает тело функции само по себе,
-   а в процессе оно снова лежит внутри неё. */
+   а в процессе оно снова лежит внутри неё.
+
+   Шапка функции — имя и ожидаемый результат — у куска СВОИ поля, в тело не
+   входят (владелец, 2026-09-20: результат «зачем-то переместился в поле
+   ввода „Технологический процесс"… появилась подсказка, что этот результат
+   без функции»). Строка «Результат:» в теле без своей «Функция:» и правда
+   ни к чему не привязана — потому она в теле и не живёт: при разборе на
+   части она поднимается в `result`, при сборке встаёт под «Функция:». */
 export function splitProc(text = "") {
   const parts = [];
   let cur = null;
   String(text || "").split("\n").forEach((raw) => {
     const lab = labelOf(raw);
-    if (lab?.kind === "func") { cur = { name: lab.rest.text.trim(), body: [] }; parts.push(cur); return; }
-    if (!cur) { cur = { name: "", body: [] }; parts.push(cur); }
+    if (lab?.kind === "func") { cur = { name: lab.rest.text.trim(), result: "", body: [] }; parts.push(cur); return; }
+    if (!cur) { cur = { name: "", result: "", body: [] }; parts.push(cur); }
+    /* «Результат:» до первой строки тела — шапка функции, не тело. */
+    if (lab?.kind === "result" && !cur.body.some((l) => l.trim())) { cur.result = lab.rest.text.trim(); return; }
     cur.body.push(raw.replace(/^[ \t]+/, ""));
   });
-  if (!parts.length) parts.push({ name: "", body: [] });
-  return parts.map((p) => ({ name: p.name, body: p.body.join("\n").replace(/^\n+|\n+$/g, "") }));
+  if (!parts.length) parts.push({ name: "", result: "", body: [] });
+  return parts.map((p) => ({ name: p.name, result: p.result, body: p.body.join("\n").replace(/^\n+|\n+$/g, "") }));
 }
 export function joinProc(parts = []) {
-  const list = parts.length ? parts : [{ name: "", body: "" }];
+  const list = parts.length ? parts : [{ name: "", result: "", body: "" }];
   const text = list.map((p) => {
     const body = String(p.body || "").replace(/^\n+|\n+$/g, "");
+    const res = String(p.result || "").trim();
     /* Строка «Результат:» относится к функции — значит, у куска должна быть
        строка «Функция:», даже если имя пустое и функция одна. */
-    const head = p.name || list.length > 1 || labelOf(body.split("\n")[0] || "")?.kind === "result";
-    return head ? `${LABEL_TEXT.func} ${String(p.name || "").trim()}\n${body}` : body;
+    const head = p.name || list.length > 1 || res;
+    const lines = [...(head ? [`${LABEL_TEXT.func} ${String(p.name || "").trim()}`] : []),
+      ...(res ? [`${LABEL_TEXT.result} ${res}`] : []), ...(body ? [body] : [])];
+    return lines.join("\n");
   }).join("\n\n");
   return indentText(text);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffTasks, exportText, fromV1, hintAt, importText, isV1, issuesOf, labelOf, paintOf, parseText, peopleOfPosition, procFuncs,
-  capFirstTyped, indentText, setFuncHead, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
+  capFirstTyped, indentText, setFuncHead, splitProc, joinProc, parseDur, parseEvery, parsePar, setTaskTime, setTaskChecks, renameVar, replaceName, setAuto, setHand, setPerson, suggest, takesAt, toggleRole, usesAsset } from "../lib/proc2.js";
 
 /* ЯЗЫК ТЕХПРОЦЕССА v2 (владелец, 2026-09-18): строки с метками, роли
    значками, переменные, ветки «Если/Иначе». Здесь — разбор, раскраска,
@@ -579,5 +579,41 @@ describe("получатель варианта", () => {
       .toEqual([["Аналитик", false], ["Партнёр", true]]);
     expect(step.to.name).toBe("Аналитик");
     expect(step.or[0].to.name).toBe("Партнёр");
+  });
+});
+
+/* ШАПКА ФУНКЦИИ — НЕ ТЕЛО (владелец, 2026-09-20): ожидаемый результат
+   «зачем-то переместился в поле ввода „Технологический процесс"… появилась
+   подсказка, что этот результат без функции». Кусок функции держит имя и
+   результат своими полями; в тело они не входят. */
+describe("куски процесса: результат — в шапке", () => {
+  const text = ["Функция: Приём", "  Результат: лид передан", "  Задача: Принять", "    Кто: Оператор", "    Берёт: заявки 1"].join("\n");
+
+  it("splitProc поднимает «Результат:» из тела в шапку куска", () => {
+    const [part] = splitProc(text);
+    expect(part.name).toBe("Приём");
+    expect(part.result).toBe("лид передан");
+    expect(part.body).not.toMatch(/Результат:/);
+    expect(part.body.split("\n")[0]).toBe("Задача: Принять");
+  });
+
+  it("joinProc ставит результат под «Функция:», и текст проходит круг без потерь", () => {
+    const parts = splitProc(text);
+    const back = joinProc(parts);
+    expect(back.split("\n").map((l) => l.trim()).slice(0, 3)).toEqual(["Функция: Приём", "Результат: лид передан", "Задача: Принять"]);
+    expect(splitProc(back)).toEqual(parts);
+  });
+
+  it("результат у безымянной единственной функции тоже получает свою «Функция:»", () => {
+    const back = joinProc([{ name: "", result: "лид передан", body: "Задача: Принять\nКто: Оператор" }]);
+    expect(back.split("\n")[0]).toMatch(/^Функция:\s*$/);
+    expect(back.split("\n")[1].trim()).toBe("Результат: лид передан");
+    const [part] = splitProc(back);
+    expect(part.result).toBe("лид передан");
+    expect(part.body).toBe("Задача: Принять\nКто: Оператор");
+  });
+
+  it("без результата и имени у единственной функции «Функция:» не появляется", () => {
+    expect(joinProc([{ name: "", result: "", body: "Задача: Принять\nКто: Оператор" }])).not.toMatch(/Функция:/);
   });
 });

@@ -501,13 +501,21 @@ describe("описание процесса и меню функции (влад
     fireEvent.blur(screen.getByLabelText("название функции процесса"));
     await waitFor(() => expect(container.querySelector("[data-func-name]").textContent).toBe("Приём заявок"));
 
-    // Ожидаемый результат — поле под названием.
+    // Ожидаемый результат — поле под названием. В поле текста он НЕ
+    // попадает (владелец, 2026-09-20: «зачем-то переместился в поле ввода…
+    // появилась подсказка, что этот результат без функции»): в тексте
+    // процесса он стоит под «Функция:», а в поле тела ему не к чему
+    // привязаться.
     const res = screen.getByLabelText("ожидаемый результат функции «Приём заявок»");
     fireEvent.change(res, { target: { value: "лид передан в продажи" } });
     fireEvent.blur(res);
-    await waitFor(() => expect(screen.getAllByLabelText("текст процесса")[0].value).toMatch(/Результат: лид передан в продажи/));
+    await waitFor(() => expect(screen.getByLabelText("ожидаемый результат функции «Приём заявок»").value).toBe("лид передан в продажи"));
+    expect(screen.getAllByLabelText("текст процесса")[0].value).not.toMatch(/Результат:/);
+    expect(screen.queryByText(/«Результат:» без функции/)).toBeNull();
     // В поле функции своей строки «Функция:» нет — она в шапке.
     expect(screen.getAllByLabelText("текст процесса")[0].value).not.toMatch(/Функция:/);
+    // Задачи функции остались в поле, как были.
+    expect(screen.getAllByLabelText("текст процесса")[0].value).toMatch(/Задача: Принять/);
 
     // «+ функция» добавляет вторую форму со своим полем.
     fireEvent.click(screen.getByRole("button", { name: "добавить функцию процесса" }));
