@@ -48,6 +48,26 @@ export const TASKS = [
 ];
 export const TASK_IDS = TASKS.map((t) => t.id);
 
+/* ─────── НАЗНАЧЕНИЯ МОДЕЛЕЙ (владелец, 2026-09-20) ───────
+
+   У агента не одна модель на всё: разговор, голос, рисунок, чтение
+   картинок и расшифровка — разные умения, и модели у них разные.
+   Назначения — у КАЖДОГО АГЕНТА свои (владелец): один агент рисует одним,
+   другой другим.
+
+   Агент всегда знает, что у него есть: список назначенных моделей уходит
+   к нему в системную подсказку, а чего нет — там сказано прямо, чтобы он
+   говорил «у меня нет модели для рисования», а не выдумывал. */
+export const USES = [
+  { id: "main", name: "Основная", what: "разговор и работа с приложением" },
+  { id: "voice", name: "Отправка голосовых сообщений", what: "речь из текста" },
+  { id: "draw", name: "Рисование изображений", what: "картинка по описанию" },
+  { id: "vision", name: "Распознавание изображений", what: "что на картинке" },
+  { id: "transcribe", name: "Расшифровка записей звонков", what: "текст из записи" },
+];
+export const USE_IDS = USES.map((u) => u.id);
+export const MAX_MCP = 20;
+
 /* Одна фраза на все места — бот, очередь: кто бы ни
    спросил ненастроенного помощника, ответ обязан звучать одинаково и
    называть, где это чинится. Чинит теперь сам человек, а не владелец. */
@@ -59,7 +79,13 @@ export const MAX_AGENTS = 20;
 /* Встроенный агент: есть у всех и всегда первый. На него смотрит
    `modelFor`, к нему идёт память из бота, его нельзя удалить. */
 export const BUILTIN_AGENT_ID = "assistant";
-const builtinAgent = () => ({ id: BUILTIN_AGENT_ID, name: "Ассистент", builtin: true, models: [], transcribe: null });
+const emptyUses = () => Object.fromEntries(USE_IDS.map((u) => [u, null]));
+/* `ask: true` — спрашивать перед изменением; `false` — применять сразу
+   (владелец, 2026-09-20: настройка стоит на форме агента). По умолчанию
+   спрашиваем: молча менять чужую работу — не то, чего ждут от первого
+   же вопроса. */
+const builtinAgent = () => ({ id: BUILTIN_AGENT_ID, name: "Ассистент", builtin: true,
+  models: [], transcribe: null, uses: emptyUses(), mcp: [], ask: true });
 const NAME_LIMIT = 80;
 const MODEL_LIMIT = 120;
 // Ключи у всех видов — печатная латиница без пробелов. Перевод строки в
@@ -98,7 +124,7 @@ const fileFor = (userId) => path.join(baseDir(),
   `${String(userId).replace(/[^a-zA-Z0-9_-]/g, "_") || "unknown"}.json`);
 
 const emptyTasks = () => Object.fromEntries(TASK_IDS.map((t) => [t, null]));
-const empty = () => ({ providers: [], tasks: emptyTasks(), agents: [builtinAgent()] });
+const empty = () => ({ providers: [], tasks: emptyTasks(), agents: [builtinAgent()], mcp: [] });
 
 /* ─────── проверка полей ─────── */
 
@@ -189,6 +215,35 @@ function normalize(raw) {
     }
     return out;
   };
+  /* MCP-серверы человека: адрес, откуда взят, и список инструментов,
+     который сервер о себе рассказал. Общие на всех его агентов — ключ и
+     адрес одни, а какие из них агенту разрешены, говорит сам агент. */
+  rec.mcp = [];
+  for (const m of (Array.isArray(raw?.mcp) ? raw.mcp : [])) {
+    if (!m || typeof m !== "object" || !AGENT_ID_RE.test(String(m.id))) continue;
+    if (rec.mcp.some((x) => x.id === String(m.id))) continue;
+    rec.mcp.push({
+      id: String(m.id),
+      name: String(m.name || "").trim().slice(0, NAME_LIMIT) || String(m.id),
+      url: String(m.url || "").trim().slice(0, 500),
+      repo: String(m.repo || "").trim().slice(0, 500),
+      tools: (Array.isArray(m.tools) ? m.tools : [])
+        .map((t) => String(t || "").trim().slice(0, MODEL_LIMIT)).filter(Boolean).slice(0, 100),
+      at: String(m.at || "") || null,
+    });
+    if (rec.mcp.length >= MAX_MCP) break;
+  }
+  const mcpOf = (ids) => (Array.isArray(ids) ? ids : [])
+    .map((x) => String(x)).filter((x, i, all) => all.indexOf(x) === i)
+    .filter((x) => rec.mcp.some((m) => m.id === x));
+  /* Назначения: пара «провайдер + модель» на каждое умение, и только та,
+     что и правда отмечена у провайдера. */
+  const usesOf = (raw2) => {
+    const out = emptyUses();
+    const src = raw2 && typeof raw2 === "object" ? raw2 : {};
+    USE_IDS.forEach((u) => { out[u] = pairOf(src[u]); });
+    return out;
+  };
   const assistant = builtinAgent();
   if (Array.isArray(raw?.agents)) {
     const own = raw.agents.find((a) => a && a.id === BUILTIN_AGENT_ID);
@@ -196,6 +251,9 @@ function normalize(raw) {
       assistant.name = String(own.name || "").trim() || assistant.name;
       assistant.models = pairsOf(own.models);
       assistant.transcribe = pairOf(own.transcribe);
+      assistant.uses = usesOf(own.uses);
+      assistant.mcp = mcpOf(own.mcp);
+      assistant.ask = own.ask !== false;
     }
   } else {
     /* Запись до агентов: её выбор — таблица задач. Строка чата становится
@@ -204,6 +262,15 @@ function normalize(raw) {
     assistant.models = pairsOf([rec.tasks.chat]);
     assistant.transcribe = pairOf(rec.tasks.transcribe);
   }
+  /* Прежнее поле `transcribe` и назначение `uses.transcribe` — одно и
+     то же умение, записанное дважды: старые записи знают только первое,
+     форма правит второе. Держим их в согласии, чтобы `modelFor` отвечал
+     одинаково, кто бы ни спросил. */
+  const tieTranscribe = (a) => {
+    if (a.uses.transcribe) a.transcribe = { ...a.uses.transcribe };
+    else if (a.transcribe) a.uses.transcribe = { ...a.transcribe };
+  };
+  tieTranscribe(assistant);
   rec.agents = [assistant];
   for (const a of (Array.isArray(raw?.agents) ? raw.agents : [])) {
     if (!a || typeof a !== "object" || !AGENT_ID_RE.test(String(a.id)) || a.id === BUILTIN_AGENT_ID) continue;
@@ -211,7 +278,9 @@ function normalize(raw) {
     rec.agents.push({
       id: String(a.id), name: String(a.name || "").trim() || "агент", builtin: false,
       models: pairsOf(a.models), transcribe: pairOf(a.transcribe),
+      uses: usesOf(a.uses), mcp: mcpOf(a.mcp), ask: a.ask !== false,
     });
+    tieTranscribe(rec.agents[rec.agents.length - 1]);
     if (rec.agents.length >= MAX_AGENTS) break;
   }
   return rec;
@@ -311,13 +380,18 @@ const agentView = (a) => ({
   id: a.id, name: a.name, builtin: Boolean(a.builtin),
   models: a.models.map((m) => ({ ...m })),
   transcribe: a.transcribe ? { ...a.transcribe } : null,
+  uses: Object.fromEntries(USE_IDS.map((u) => [u, a.uses?.[u] ? { ...a.uses[u] } : null])),
+  mcp: [...(a.mcp || [])],
+  ask: a.ask !== false,
 });
+const mcpView = (m) => ({ id: m.id, name: m.name, url: m.url, repo: m.repo,
+  tools: [...(m.tools || [])], at: m.at || null });
 
 /** Что видно человеку на экране: его провайдеры без ключей, агенты и таблица. */
 export function settingsView(userId) {
   const rec = readUserSettings(userId);
   return { providers: rec.providers.map(providerView), tasks: { ...rec.tasks },
-    agents: rec.agents.map(agentView) };
+    agents: rec.agents.map(agentView), mcp: rec.mcp.map(mcpView), uses: USES.map((u) => ({ ...u })) };
 }
 
 /** Агент человека — копия или null. Чужого не найти: файл свой. */
@@ -487,7 +561,7 @@ export function addAgent(userId, { name } = {}) {
  * только те поля, что есть в теле. Нет такого агента — null: «не найден»
  * здесь правда, а не ошибка ввода.
  */
-export function updateAgent(userId, id, { name, models, transcribe } = {}) {
+export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, ask } = {}) {
   const rec = readUserSettings(userId);
   const a = rec.agents.find((x) => x.id === String(id));
   if (!a) return null;
@@ -495,7 +569,32 @@ export function updateAgent(userId, id, { name, models, transcribe } = {}) {
   if (models !== undefined) a.models = cleanPairs(rec, models, `У агента «${a.name}»`);
   if (transcribe !== undefined) {
     a.transcribe = transcribe == null ? null : cleanPair(rec, transcribe, `У агента «${a.name}» для расшифровки`);
+    a.uses = { ...(a.uses || {}), transcribe: a.transcribe ? { ...a.transcribe } : null };
   }
+  /* Назначения приходят по одному: правят то умение, которое назвали, а
+     остальные остаются как были. */
+  if (uses !== undefined && uses && typeof uses === "object") {
+    a.uses = { ...(a.uses || {}) };
+    for (const [u, row] of Object.entries(uses)) {
+      if (!USE_IDS.includes(u)) throw new BadInput(`Нет такого назначения: «${u}»`);
+      a.uses[u] = row == null ? null
+        : cleanPair(rec, row, `У агента «${a.name}» для «${USES.find((x) => x.id === u).name}»`);
+      /* Модель назначения обязана быть и в коллекции агента: назначить
+         то, чем агенту не разрешено думать, — обещание без покрытия. */
+      if (a.uses[u] && !a.models.some((m) => m.providerId === a.uses[u].providerId
+        && m.model === a.uses[u].model)) {
+        a.models = [...a.models, { ...a.uses[u] }];
+      }
+      if (u === "transcribe") a.transcribe = a.uses[u] ? { ...a.uses[u] } : null;
+    }
+  }
+  if (mcp !== undefined) {
+    const ids = (Array.isArray(mcp) ? mcp : []).map(String);
+    const bad = ids.find((x) => !rec.mcp.some((m) => m.id === x));
+    if (bad) throw new BadInput(`Нет такого MCP-сервера: «${bad}»`);
+    a.mcp = ids.filter((x, i) => ids.indexOf(x) === i);
+  }
+  if (ask !== undefined) a.ask = ask !== false;
   return agentView(writeUserSettings(userId, rec).agents.find((x) => x.id === a.id));
 }
 
@@ -508,6 +607,63 @@ export function removeAgent(userId, id) {
   rec.agents = rec.agents.filter((x) => x.id !== a.id);
   writeUserSettings(userId, rec);
   return true;
+}
+
+/* ─────── MCP-СЕРВЕРЫ (владелец, 2026-09-20) ───────
+
+   Адрес сервера и то, что он о себе рассказал: имя и список инструментов.
+   Репозиторий — откуда его взяли; он же подсказывает адрес, когда сервер
+   опубликован рядом с кодом. Приложение ходит к серверу само
+   (`lib/mcp.js`), поэтому здесь хранится именно адрес, а не рецепт
+   запуска: запускать чужой код на своём сервере мы не беремся. */
+export function addMcp(userId, { name, url, repo } = {}) {
+  const rec = readUserSettings(userId);
+  if (rec.mcp.length >= MAX_MCP) throw new BadInput(`MCP-серверов — не больше ${MAX_MCP}`);
+  const address = cleanBaseUrl(url);
+  if (!address) throw new BadInput("Адрес MCP-сервера обязателен: http:// или https://");
+  const id = `mcp${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const m = { id, name: String(name || "").trim().slice(0, NAME_LIMIT) || address,
+    url: address, repo: String(repo || "").trim().slice(0, 500), tools: [], at: null };
+  rec.mcp.push(m);
+  writeUserSettings(userId, rec);
+  return mcpView(m);
+}
+
+export function updateMcp(userId, id, { name, url, repo, tools } = {}) {
+  const rec = readUserSettings(userId);
+  const m = rec.mcp.find((x) => x.id === String(id));
+  if (!m) return null;
+  if (name !== undefined) m.name = String(name || "").trim().slice(0, NAME_LIMIT) || m.url;
+  if (url !== undefined) {
+    const address = cleanBaseUrl(url);
+    if (!address) throw new BadInput("Адрес MCP-сервера обязателен: http:// или https://");
+    m.url = address;
+  }
+  if (repo !== undefined) m.repo = String(repo || "").trim().slice(0, 500);
+  if (tools !== undefined) {
+    m.tools = (Array.isArray(tools) ? tools : [])
+      .map((t) => String(t || "").trim().slice(0, MODEL_LIMIT)).filter(Boolean).slice(0, 100);
+    m.at = new Date().toISOString();
+  }
+  writeUserSettings(userId, rec);
+  return mcpView(rec.mcp.find((x) => x.id === m.id));
+}
+
+export function removeMcp(userId, id) {
+  const rec = readUserSettings(userId);
+  const m = rec.mcp.find((x) => x.id === String(id));
+  if (!m) return false;
+  rec.mcp = rec.mcp.filter((x) => x.id !== m.id);
+  // И у агентов он больше не разрешён: ссылка на то, чего нет, — не право.
+  rec.agents.forEach((a) => { a.mcp = (a.mcp || []).filter((x) => x !== m.id); });
+  writeUserSettings(userId, rec);
+  return true;
+}
+
+/** Сервер с адресом — для вызова его инструментов. */
+export function mcpFor(userId, id) {
+  const m = readUserSettings(userId).mcp.find((x) => x.id === String(id));
+  return m ? { ...m } : null;
 }
 
 /** Провайдер с ключом — только для вызова его API (список моделей). Наружу не отдавать. */

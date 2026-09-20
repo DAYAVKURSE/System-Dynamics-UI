@@ -57,6 +57,19 @@ export const updateAgent = (id, patch) =>
 export const dropAgent = (id) =>
   json(`/api/assistant/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/* ─────── MCP-серверы ───────
+   Адрес сервера и то, что он о себе рассказал. Список инструментов
+   спрашивает сервер приложения, а не браузер: адрес может вести внутрь
+   сети, куда браузеру хода нет. */
+export const addMcp = (m) =>
+  json("/api/assistant/mcp", { method: "POST", body: JSON.stringify(m) });
+export const updateMcp = (id, m) =>
+  json(`/api/assistant/mcp/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(m) });
+export const dropMcp = (id) =>
+  json(`/api/assistant/mcp/${encodeURIComponent(id)}`, { method: "DELETE" });
+export const mcpTools = (id) =>
+  json(`/api/assistant/mcp/${encodeURIComponent(id)}/tools`, { method: "POST" });
+
 /* ─────── вопрос ───────
 
    В два шага: поставить вопрос и опрашивать ответ короткими запросами.

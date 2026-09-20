@@ -3,9 +3,11 @@ import express from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { addAgentUser, agentUserId, identify, removeUser, renameAgentUser } from "../lib/orgStore.js";
 import {
-  TASKS, addAgent, addProvider, agentFor, isBadInput, kindsView, providerFor, removeAgent,
-  removeProvider, setTasks, settingsView, updateAgent, updateProvider,
+  TASKS, addAgent, addMcp, addProvider, agentFor, isBadInput, kindsView, mcpFor, providerFor,
+  removeAgent, removeMcp, removeProvider, setTasks, settingsView, updateAgent, updateMcp,
+  updateProvider,
 } from "../lib/assistantSettings.js";
+import { listTools } from "../lib/mcp.js";
 import { listModels } from "../lib/aiProviders.js";
 import { ask, find } from "../lib/assistantQueue.js";
 import {
@@ -133,8 +135,9 @@ router.post("/agents", async (req, res, next) => {
 
 router.put("/agents/:id", async (req, res, next) => {
   try {
-    const { name, models, transcribe } = req.body || {};
-    const agent = updateAgent(req.me.id, req.params.id, { name, models, transcribe });
+    const { name, models, transcribe, uses, mcp, ask: askMode } = req.body || {};
+    const agent = updateAgent(req.me.id, req.params.id,
+      { name, models, transcribe, uses, mcp, ask: askMode });
     if (!agent) return res.status(404).json({ error: "Агент не найден" });
     if (name !== undefined && req.me.isOwner) await renameAgentUser(agent.id, agent.name);
     res.json(agent);
@@ -151,6 +154,52 @@ router.delete("/agents/:id", async (req, res, next) => {
     // Участника-агента может уже не быть — владелец убрал его из списка сам.
     if (req.me.isOwner) await removeUser(agentUserId(req.params.id));
     return res.status(204).end();
+  } catch (e) { return badInput(e, res, next); }
+});
+
+/* ─────── MCP-СЕРВЕРЫ (владелец, 2026-09-20) ───────
+
+   Форма под провайдерами: адрес сервера, откуда он взят (репозиторий) и
+   список его инструментов. Список спрашивается у самого сервера — так же,
+   как список моделей у провайдера: вводить его руками значило бы держать
+   копию чужого списка и ошибаться в ней.
+
+   Серверы — у каждого человека свои, как и ключи: адрес может вести в
+   его сеть, и чужому там делать нечего. */
+router.post("/mcp", (req, res, next) => {
+  try {
+    return res.status(201).json(addMcp(req.me.id, {
+      name: req.body?.name, url: req.body?.url, repo: req.body?.repo }));
+  } catch (e) { return badInput(e, res, next); }
+});
+
+router.put("/mcp/:id", (req, res, next) => {
+  try {
+    const m = updateMcp(req.me.id, req.params.id, req.body || {});
+    if (!m) return res.status(404).json({ error: "MCP-сервер не найден" });
+    return res.json(m);
+  } catch (e) { return badInput(e, res, next); }
+});
+
+router.delete("/mcp/:id", (req, res, next) => {
+  try {
+    if (!removeMcp(req.me.id, req.params.id)) {
+      return res.status(404).json({ error: "MCP-сервер не найден" });
+    }
+    return res.status(204).end();
+  } catch (e) { return badInput(e, res, next); }
+});
+
+/* Спросить у сервера, что он умеет, и запомнить список. */
+router.post("/mcp/:id/tools", async (req, res, next) => {
+  try {
+    const m = mcpFor(req.me.id, req.params.id);
+    if (!m) return res.status(404).json({ error: "MCP-сервер не найден" });
+    let tools = [];
+    try { tools = await listTools(m.url); }
+    catch (e) { return res.status(502).json({ error: String(e?.message || e).slice(0, 300) }); }
+    const saved = updateMcp(req.me.id, m.id, { tools: tools.map((t) => t.name) });
+    return res.json({ ...saved, offered: tools });
   } catch (e) { return badInput(e, res, next); }
 });
 

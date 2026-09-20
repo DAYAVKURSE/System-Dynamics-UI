@@ -21,7 +21,16 @@ const KINDS = [
   { id: "openai", name: "Совместимый с OpenAI", defaultBaseUrl: "https://api.openai.com/v1" },
   { id: "anthropic", name: "Anthropic (Claude)", defaultBaseUrl: "https://api.anthropic.com" },
 ];
-const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null };
+const USES = [
+  { id: "main", name: "Основная" },
+  { id: "voice", name: "Отправка голосовых сообщений" },
+  { id: "draw", name: "Рисование изображений" },
+  { id: "vision", name: "Распознавание изображений" },
+  { id: "transcribe", name: "Расшифровка записей звонков" },
+];
+const NO_USES = { main: null, voice: null, draw: null, vision: null, transcribe: null };
+const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [],
+  transcribe: null, uses: { ...NO_USES }, mcp: [], ask: true };
 const P1 = { id: "p_1", name: "Мой OpenAI", kind: "openai", baseUrl: "", models: ["gpt-4.1", "gpt-4o-mini"], hasKey: true };
 
 /** Подменный сервер: отвечает по адресу и методу, запоминает запросы. */
@@ -45,11 +54,19 @@ const agentOf = (url) => new URL(String(url), "http://x").searchParams.get("agen
 /** Подменный сервер настроек: провайдеры, агенты и память, как настоящий. */
 function settingsServer(providers = [], agents = [ASSISTANT], extra = {}) {
   const state = { providers: providers.map((p) => ({ ...p })), agents: agents.map((a) => ({ ...a })),
-    memory: {} };
+    memory: {}, mcp: (extra.mcp || []).map((m) => ({ ...m })) };
   const view = (p) => ({ ...p, hasKey: true });
   const log = server({
     "GET /api/assistant/settings": () => ({ body: { providers: state.providers.map(view),
-      agents: state.agents.map((a) => ({ ...a })), kinds: KINDS, tasks: {}, taskList: [] } }),
+      agents: state.agents.map((a) => ({ ...a })), kinds: KINDS, tasks: {}, taskList: [],
+      mcp: state.mcp.map((m) => ({ ...m })), uses: USES } }),
+    "POST /api/assistant/mcp": ({ opts }) => {
+      const b = JSON.parse(opts.body);
+      const m = { id: `mcp${state.mcp.length + 1}`, name: b.name || b.url, url: b.url,
+        repo: b.repo || "", tools: [] };
+      state.mcp.push(m);
+      return { status: 201, body: m };
+    },
     "GET /api/assistant/memory": ({ url }) => ({ body: [...(state.memory[agentOf(url)] || [])] }),
     "POST /api/assistant/memory": ({ opts }) => {
       const b = JSON.parse(opts.body);
@@ -73,7 +90,12 @@ function settingsServer(providers = [], agents = [ASSISTANT], extra = {}) {
     "PUT *": ({ url, opts }) => {
       const b = JSON.parse(opts.body);
       const a = state.agents.find((x) => url.endsWith(`/agents/${x.id}`));
-      if (a) { Object.assign(a, b); return { body: { ...a } }; }
+      if (a) {
+        const { uses, ...rest } = b;
+        Object.assign(a, rest);
+        if (uses) a.uses = { ...a.uses, ...uses };
+        return { body: { ...a } };
+      }
       const p = state.providers.find((x) => url.endsWith(`/providers/${x.id}`));
       if (!p) return { status: 404, body: { error: "не найдено" } };
       if (b.models) p.models = b.models;
@@ -85,115 +107,161 @@ function settingsServer(providers = [], agents = [ASSISTANT], extra = {}) {
       state.providers = state.providers.filter((x) => !url.endsWith(`/providers/${x.id}`));
       return { status: 204, body: null };
     },
-    ...extra,
+    ...Object.fromEntries(Object.entries(extra).filter(([k]) => k !== "mcp")),
   });
   return { log, state };
 }
 
 describe("агенты", () => {
-  it("«Ассистент» есть всегда и без кнопки удаления; две формы: провайдер, память", async () => {
+  /* Владелец (2026-09-20): три формы — агенты, провайдеры с моделями и
+     MCP-серверы; «+ агент» справа от вкладок; имя правится двойным
+     нажатием; «Удалить» внизу формы и с вопросом «Вы уверены?». */
+  it("«Ассистент» есть всегда, удалить его нечем, и форм три", async () => {
     settingsServer([P1]);
     render(<AgentsPanel me={IVAN} />);
     const tabs = await screen.findByRole("tablist", { name: "агенты" });
     expect(within(tabs).getByRole("tab", { name: "Ассистент" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("button", { name: /удалить агента/ })).toBeNull();
-    expect(screen.getByText("1 · провайдер")).toBeInTheDocument();
-    // «Коллекция моделей» убрана (владелец, 2026-09-13): коллекция — галочки у провайдера.
-    expect(screen.queryByText(/коллекция моделей/)).toBeNull();
+    expect(screen.getByLabelText("провайдеры и модели")).toBeInTheDocument();
+    expect(screen.getByLabelText("mcp-серверы")).toBeInTheDocument();
     expect(screen.getByText("2 · память")).toBeInTheDocument();
   });
 
-  it("«+ агент» внизу — POST с именем, новая вкладка, у неё есть «Удалить агента»", async () => {
+  it("«+ агент» стоит справа от вкладок и заводит агента сразу", async () => {
     const { log } = settingsServer([P1]);
     render(<AgentsPanel me={OWNER} />);
-    await screen.findByRole("tab", { name: "Ассистент" });
-    const name = screen.getByPlaceholderText("имя нового агента");
-    fireEvent.change(name, { target: { value: "Закупщик" } });
-    fireEvent.blur(name);
-    /* Имя уходит наружу по расфокусу: жмём «+ агент» только когда оно уже
-       в поле. Иначе на медленном раннере нажатие успевало раньше правки, и
-       уезжал POST с пустым именем — тест падал по таймауту, ожидая вкладку,
-       которой не будет. */
-    await waitFor(() => expect(name.value).toBe("Закупщик"));
-    fireEvent.click(screen.getByRole("button", { name: "+ агент" }));
-    // Сперва — сам запрос: если он не ушёл, ждать вкладку бессмысленно.
+    const tabs = await screen.findByRole("tablist", { name: "агенты" });
+    const add = within(tabs).getByRole("button", { name: "добавить агента" });
+    // Справа: кнопка — последняя в ряду вкладок.
+    expect([...tabs.children].indexOf(add)).toBe(tabs.children.length - 1);
+    fireEvent.click(add);
     await waitFor(() => expect(log.some((r) => r.method === "POST"
-      && r.url === "/api/assistant/agents")).toBe(true), { timeout: 15000 });
-    await screen.findByRole("tab", { name: "Закупщик · агент" }, { timeout: 15000 });
-    const post = log.find((r) => r.method === "POST" && r.url === "/api/assistant/agents");
-    expect(JSON.parse(post.body)).toEqual({ name: "Закупщик" });
-    expect(screen.getByRole("button", { name: "удалить агента Закупщик" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Закупщик · агент" })).toHaveAttribute("aria-selected", "true");
-  }, 20000);
+      && r.url === "/api/assistant/agents")).toBe(true));
+    await screen.findByRole("tab", { name: "Агент 1" });
+    expect(screen.getByRole("tab", { name: "Агент 1" })).toHaveAttribute("aria-selected", "true");
+  });
 
-  it("провайдер: модели списком после «Загрузить»; нажатие — галочка: PUT models провайдера и агента; повтор снимает", async () => {
+  it("имя правится двойным нажатием по нему в шапке", async () => {
+    const other = { ...ASSISTANT, id: "a_1", name: "Закупщик", builtin: false };
+    const { log } = settingsServer([P1], [ASSISTANT, other]);
+    render(<AgentsPanel me={OWNER} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Закупщик" }));
+    // Одно нажатие ничего не меняет: поле появляется по двойному.
+    const title = screen.getByLabelText("имя агента: Закупщик");
+    fireEvent.click(title);
+    expect(screen.queryByLabelText("имя агента")).toBeNull();
+    fireEvent.doubleClick(title);
+    const field = screen.getByLabelText("имя агента");
+    fireEvent.change(field, { target: { value: "Снабженец" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(log.some((r) => r.method === "PUT"
+      && r.url.endsWith("/agents/a_1"))).toBe(true));
+    expect(JSON.parse(log.find((r) => r.method === "PUT"
+      && r.url.endsWith("/agents/a_1")).body)).toEqual({ name: "Снабженец" });
+  });
+
+  it("«Удалить» внизу формы спрашивает «Вы уверены?» и слушается «Нет»", async () => {
+    const other = { ...ASSISTANT, id: "a_1", name: "Закупщик", builtin: false };
+    const { log } = settingsServer([P1], [ASSISTANT, other]);
+    render(<AgentsPanel me={OWNER} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Закупщик" }));
+    fireEvent.click(screen.getByRole("button", { name: "удалить агента Закупщик" }));
+    expect(screen.getByText("Вы уверены? Это действие необратимо")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Нет" }));
+    expect(screen.queryByText("Вы уверены? Это действие необратимо")).toBeNull();
+    expect(log.some((r) => r.method === "DELETE")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "удалить агента Закупщик" }));
+    fireEvent.click(screen.getByRole("button", { name: "Да" }));
+    await waitFor(() => expect(log.some((r) => r.method === "DELETE"
+      && r.url.endsWith("/agents/a_1"))).toBe(true));
+  });
+
+  it("галочка у модели ПОДКЛЮЧАЕТ её — правится провайдер, а не агент", async () => {
     const { log } = settingsServer([{ ...P1, models: [] }], [ASSISTANT], {
       "GET /api/assistant/providers/p_1/models": [{ id: "gpt-4.1", name: "gpt-4.1" }, { id: "o3", name: "o3" }],
     });
     render(<AgentsPanel me={IVAN} />);
     await screen.findByRole("tab", { name: "Мой OpenAI ✓" });
-    // Ручного ввода и «Добавить модель» больше нет (владелец, 2026-09-13).
-    expect(screen.queryByLabelText("имя модели")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Добавить модель" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Загрузить список моделей" }));
     const row = await screen.findByRole("checkbox", { name: "модель gpt-4.1" });
     expect(row).toHaveAttribute("aria-checked", "false");
     fireEvent.click(row);
-    // Сперва модель отмечается у провайдера, затем пара — в коллекцию агента.
-    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant"))).toBe(true));
-    const pp = log.find((r) => r.method === "PUT" && r.url.endsWith("/providers/p_1"));
-    expect(JSON.parse(pp.body).models).toEqual(["gpt-4.1"]);
-    const pa = log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant"));
-    expect(JSON.parse(pa.body)).toEqual({ models: [{ providerId: "p_1", model: "gpt-4.1" }] });
     await waitFor(() => expect(screen.getByRole("checkbox", { name: "модель gpt-4.1" }))
       .toHaveAttribute("aria-checked", "true"));
-    expect(screen.getByRole("button", { name: "Обновить список" })).toBeInTheDocument();
-    // Повторное нажатие снимает: пара уходит из коллекции, и модель — с провайдера
-    // (другой агент её не держит).
-    log.length = 0;
-    fireEvent.click(screen.getByRole("checkbox", { name: "модель gpt-4.1" }));
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "модель gpt-4.1" }))
-      .toHaveAttribute("aria-checked", "false"));
-    expect(JSON.parse(log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant")).body))
-      .toEqual({ models: [] });
-    expect(JSON.parse(log.find((r) => r.method === "PUT" && r.url.endsWith("/providers/p_1")).body).models)
-      .toEqual([]);
+    expect(JSON.parse(log.find((r) => r.method === "PUT"
+      && r.url.endsWith("/providers/p_1")).body).models).toEqual(["gpt-4.1"]);
+    // Коллекция агента при подключении не трогается: это разные вопросы.
+    expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/agents/assistant"))).toBe(false);
   });
 
-  it("галочки — про открытого агента; расшифровка у Ассистента — из его коллекции", async () => {
-    const { log } = settingsServer([P1], [{ ...ASSISTANT, models: [{ providerId: "p_1", model: "gpt-4.1" }] },
-      { id: "a_1", name: "Закупщик", builtin: false, models: [], transcribe: null }]);
-    render(<AgentsPanel me={OWNER} />);
+  it("у агента пять назначений, и выбор — из подключённых моделей", async () => {
+    const { log } = settingsServer([P1]);
+    render(<AgentsPanel me={IVAN} />);
     await screen.findByRole("tab", { name: "Ассистент" });
-    // Отмеченные ранее модели провайдера видны и до «Загрузить»; у Ассистента gpt-4.1 отмечена.
-    expect(screen.getByRole("checkbox", { name: "модель gpt-4.1" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("checkbox", { name: "модель gpt-4o-mini" })).toHaveAttribute("aria-checked", "false");
-    // У другого агента та же модель не отмечена — коллекция своя.
-    fireEvent.click(screen.getByRole("tab", { name: "Закупщик · агент" }));
-    expect(screen.getByRole("checkbox", { name: "модель gpt-4.1" })).toHaveAttribute("aria-checked", "false");
-    expect(screen.queryByLabelText("модель для расшифровки")).toBeNull();
-    fireEvent.click(screen.getByRole("checkbox", { name: "модель gpt-4o-mini" }));
-    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1"))).toBe(true));
-    expect(JSON.parse(log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1")).body))
-      .toEqual({ models: [{ providerId: "p_1", model: "gpt-4o-mini" }] });
-    // Расшифровка — только у Ассистента и только из его коллекции.
-    fireEvent.click(screen.getByRole("tab", { name: "Ассистент" }));
-    const sel = screen.getByLabelText("модель для расшифровки");
-    expect(Array.from(sel.options).map((o) => o.value)).toEqual(["", "p_1|gpt-4.1"]);
-    fireEvent.change(sel, { target: { value: "p_1|gpt-4.1" } });
-    await waitFor(() => expect(log.some((r) => r.body?.includes("transcribe"))).toBe(true));
-    expect(JSON.parse(log.find((r) => r.body?.includes("transcribe")).body))
-      .toEqual({ transcribe: { providerId: "p_1", model: "gpt-4.1" } });
+    USES.forEach((u) => expect(screen.getByLabelText(`модель: ${u.name}`)).toBeInTheDocument());
+    const main = screen.getByLabelText("модель: Основная");
+    expect([...main.options].map((o) => o.value))
+      .toEqual(["", "p_1|gpt-4.1", "p_1|gpt-4o-mini"]);
+    fireEvent.change(main, { target: { value: "p_1|gpt-4o-mini" } });
+    await waitFor(() => expect(log.some((r) => r.method === "PUT"
+      && r.url.endsWith("/agents/assistant"))).toBe(true));
+    expect(JSON.parse(log.find((r) => r.method === "PUT"
+      && r.url.endsWith("/agents/assistant")).body))
+      .toEqual({ uses: { main: { providerId: "p_1", model: "gpt-4o-mini" } } });
+  });
+
+  it("переключатель «спрашивать / применять сразу» уезжает на сервер", async () => {
+    const { log } = settingsServer([P1]);
+    render(<AgentsPanel me={IVAN} />);
+    await screen.findByRole("tab", { name: "Ассистент" });
+    const ask = screen.getByRole("button", { name: "Спрашивать перед применением" });
+    expect(ask).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Применять сразу" }));
+    await waitFor(() => expect(log.some((r) => r.method === "PUT"
+      && r.body?.includes("ask"))).toBe(true));
+    expect(JSON.parse(log.find((r) => r.body?.includes("ask")).body)).toEqual({ ask: false });
+  });
+
+  it("MCP-серверы: форма внизу, а у агента — галочки, какие ему разрешены", async () => {
+    const { log } = settingsServer([P1], [ASSISTANT], {
+      mcp: [{ id: "mcp1", name: "Погода", url: "https://x/mcp", repo: "", tools: ["forecast"] }],
+    });
+    render(<AgentsPanel me={IVAN} />);
+    const box = await screen.findByLabelText("mcp-серверы");
+    expect(within(box).getByLabelText("mcp-сервер Погода").textContent).toContain("forecast");
+    const pick = screen.getByRole("checkbox", { name: "mcp Погода" });
+    expect(pick).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(pick);
+    await waitFor(() => expect(log.some((r) => r.body?.includes("mcp"))).toBe(true));
+    expect(JSON.parse(log.find((r) => r.body?.includes("mcp")).body)).toEqual({ mcp: ["mcp1"] });
+  });
+
+  it("новый MCP-сервер: адрес обязателен, репозиторий — рядом", async () => {
+    const { log } = settingsServer([P1]);
+    render(<AgentsPanel me={IVAN} />);
+    await screen.findByLabelText("mcp-серверы");
+    const add = screen.getByRole("button", { name: "Добавить сервер" });
+    expect(add).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("название сервера"), { target: { value: "Погода" } });
+    fireEvent.change(screen.getByLabelText("адрес сервера"), { target: { value: "https://x/mcp" } });
+    fireEvent.change(screen.getByLabelText("репозиторий сервера"),
+      { target: { value: "https://github.com/x/y" } });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить сервер" }));
+    await waitFor(() => expect(log.some((r) => r.method === "POST"
+      && r.url === "/api/assistant/mcp")).toBe(true));
+    expect(JSON.parse(log.find((r) => r.url === "/api/assistant/mcp").body))
+      .toEqual({ name: "Погода", url: "https://x/mcp", repo: "https://github.com/x/y" });
   });
 
   it("память у каждого агента своя: GET ?agent=, POST с agent", async () => {
-    const other = { id: "a_1", name: "Закупщик", builtin: false, models: [], transcribe: null };
+    const other = { ...ASSISTANT, id: "a_1", name: "Закупщик", builtin: false };
     const { log, state } = settingsServer([P1], [ASSISTANT, other]);
     state.memory.assistant = [{ id: "m1", title: "памятка", text: "клиент любит звонки", file: null, at: "2026-09-07T10:00:00Z" }];
     render(<AgentsPanel me={IVAN} />);
     await screen.findByText("памятка");
     expect(log.some((r) => r.method === "GET" && r.url === "/api/assistant/memory?agent=assistant")).toBe(true);
-    fireEvent.click(screen.getByRole("tab", { name: "Закупщик · агент" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Закупщик" }));
     await screen.findByText("Память пуста.");
     expect(log.some((r) => r.method === "GET" && r.url === "/api/assistant/memory?agent=a_1")).toBe(true);
     fireEvent.change(screen.getByLabelText("текст записи"), { target: { value: "цены поставщиков" } });

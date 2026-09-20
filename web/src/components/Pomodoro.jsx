@@ -40,7 +40,7 @@ export const clockText = (sec) => {
    (идут); `left` — сколько осталось, когда их остановили. Одно из двух,
    никогда оба: иначе после паузы пришлось бы гадать, какое верно. */
 const emptyState = () => ({ work: WORK_MIN, rest: REST_MIN, mode: "work",
-  endsAt: null, left: WORK_MIN * 60 });
+  endsAt: null, left: WORK_MIN * 60, done: 0 });
 
 export const readState = (key) => {
   try {
@@ -54,6 +54,10 @@ export const readState = (key) => {
       work, rest, mode,
       endsAt: Number.isFinite(v.endsAt) ? v.endsAt : null,
       left: Number.isFinite(v.left) ? Math.max(0, v.left) : full,
+      /* Сколько томатов по этой задаче уже провели. Томат — ДОВЕДЁННЫЙ
+         до нуля отрезок РАБОТЫ: перерыв не томат, а брошенный сбросом —
+         не проведён (владелец, 2026-09-20). */
+      done: Number.isFinite(v.done) ? Math.max(0, Math.floor(v.done)) : 0,
     };
   } catch { return emptyState(); }
 };
@@ -96,10 +100,14 @@ export function ring() {
 
 const PLAY = "M8 5.5v13l11-6.5z";
 const PAUSE = "M9 5.5h3.2v13H9zM16.8 5.5H20v13h-3.2z";
-const Icon = ({ d }) => (
+/* Кругом со стрелкой: отрезок начинается заново — и уже другой. */
+const RESET = "M12 5a7 7 0 1 0 6.3 4M18.5 4v5h-5";
+const Icon = ({ d, line = false }) => (
   <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"
     style={{ display: "block" }}>
-    <path d={d} fill="currentColor" />
+    <path d={d} fill={line ? "none" : "currentColor"}
+      {...(line ? { stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round",
+        strokeLinejoin: "round" } : {})} />
   </svg>);
 
 export default function Pomodoro({ taskId, meId }) {
@@ -136,7 +144,9 @@ export default function Pomodoro({ taskId, meId }) {
       setLeft(v);
       if (v <= 0) {
         if (!rang.current) { rang.current = true; ring(); }
-        put({ endsAt: null, left: 0 });
+        // Отрезок работы, дошедший до нуля, — проведённый томат.
+        put({ endsAt: null, left: 0,
+          ...(st.mode === "rest" ? {} : { done: (st.done || 0) + 1 }) });
       }
     };
     tick();
@@ -163,6 +173,15 @@ export default function Pomodoro({ taskId, meId }) {
     put({ endsAt: Date.now() + sec * 1000, left: sec });
   };
   const pause = () => { if (running) put({ endsAt: null, left: leftNow(st) }); };
+  /* «Сброс» бросает текущий отрезок и ставит ПРОТИВОПОЛОЖНЫЙ (владелец,
+     2026-09-20): работа — значит, дальше перерыв; перерыв — значит,
+     работа. Брошенный отрезок работы томатом не считается: томат — это
+     доведённая до конца работа, а не начатая. */
+  const reset = () => {
+    rang.current = false;
+    const mode = st.mode === "work" ? "rest" : "work";
+    put({ mode, endsAt: null, left: (mode === "rest" ? st.rest : st.work) * 60 });
+  };
 
   /* Поменяли минуты — часы этого отрезка встают на новое время, если они
      не идут: иначе правка «сколько длится работа» молча отняла бы время у
@@ -185,7 +204,10 @@ export default function Pomodoro({ taskId, meId }) {
 
   return (
     <div style={{ ...S.card, marginBottom: 10 }} aria-label="томат">
-      <div style={S.lbl}>томат</div>
+      {/* Заголовок считает проведённые томаты по этой задаче (владелец,
+          2026-09-20), а не просто называет раздел. */}
+      <div style={S.lbl} aria-label={`томатов: ${st.done || 0}`}>
+        Томатов: {st.done || 0}</div>
       <div className="flex flex-wrap items-center gap-3" style={{ marginTop: 6 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: "0 1 auto" }}>
           {minField("work", "Работа:")}
@@ -213,6 +235,12 @@ export default function Pomodoro({ taskId, meId }) {
             disabled={!running} onClick={pause}
             style={{ ...btn(false), padding: "5px 9px", opacity: running ? 1 : 0.5 }}>
             <Icon d={PAUSE} /></button>
+          <button type="button" aria-label="сброс"
+            title={st.mode === "work" ? "Сбросить и перейти к перерыву"
+              : "Сбросить и перейти к работе"}
+            onClick={reset}
+            style={{ ...btn(false), padding: "5px 9px" }}>
+            <Icon d={RESET} line /></button>
         </div>
       </div>
     </div>);

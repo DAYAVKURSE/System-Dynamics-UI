@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { complete as completeDefault } from "./aiProviders.js";
 import { contextFor as contextForDefault } from "./assistantContext.js";
 import * as settings from "./assistantSettings.js";
+import { actionsNote, mcpNote, modelsNote, runAgent } from "./assistantAgent.js";
+import { identify } from "./orgStore.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОЧЕРЕДЬ ВОПРОСОВ
@@ -174,11 +176,28 @@ export function createQueue({
       : "";
     progress(it, "model", { providerName: model.providerName || model.provider || "модель",
       model: model.model || "" });
+    /* Помощник не только рассказывает, но и ДЕЛАЕТ — теми же правами,
+       что и спрашивающий (владелец, 2026-09-20). Что ему разрешено,
+       решают не эти строки, а функции хранилища: они зовутся с id
+       человека и отвечают ему то же, что ответили бы кнопке. */
+    let who = { isOwner: false };
+    try { who = await identify(it.userId, {}, { claim: false }); } catch { /* гость */ }
+    const agent = settings.agentFor(it.userId, settings.BUILTIN_AGENT_ID) || {};
+    const view = settings.settingsView(it.userId);
+    const servers = (agent.mcp || [])
+      .map((id) => (view.mcp || []).find((m) => m.id === id)).filter(Boolean);
+    const system = [
+      SYSTEM_PROMPT,
+      modelsNote(agent, view.providers || []),
+      actionsNote(agent.ask !== false),
+      mcpNote(servers),
+      `# Данные\n${context}${extra}`,
+    ].filter(Boolean).join("\n\n");
     try {
-      const text = await withTimeout(complete({
-        ...model,
-        system: `${SYSTEM_PROMPT}\n\n# Данные\n${context}${extra}`,
-        messages: [{ role: "user", content: it.question }],
+      const text = await withTimeout(runAgent({
+        userId: it.userId, agentId: settings.BUILTIN_AGENT_ID,
+        question: it.question, system, model, complete,
+        isOwner: !!who.isOwner, ask: agent.ask !== false, servers,
         signal: it.abort.signal,
       }), answerTimeoutMs, `Модель не ответила за ${Math.round(answerTimeoutMs / 60000)} мин`);
       progress(it, "answer");

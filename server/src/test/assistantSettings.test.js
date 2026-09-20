@@ -34,9 +34,9 @@ const withModels = (user, over = {}, models = ["gpt-4.1", "gpt-4o-mini"]) => {
 
 describe("файл на человека", () => {
   it("пусто — так и сказано: ни провайдеров, ни строк таблицы, и modelFor — null", () => {
-    expect(readUserSettings("200")).toEqual({ providers: [],
+    expect(readUserSettings("200")).toEqual({ providers: [], mcp: [],
       tasks: { chat: null, bot: null, transcribe: null },
-      agents: [{ id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null }] });
+      agents: [{ id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: [], ask: true }] });
     expect(settingsView("200").providers).toEqual([]);
     expect(modelFor("200", "chat")).toBeNull();
     expect(NOT_CONFIGURED).toMatch(/добавьте провайдера/);
@@ -219,7 +219,7 @@ describe("перенос прежних настроек владельца из
    коллекцией моделей из провайдеров человека. modelFor смотрит сначала в
    коллекцию ассистента, потом — в прежнюю таблицу. */
 describe("агенты", () => {
-  const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null };
+  const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: [], ask: true };
 
   it("встроенный есть всегда, первым, и его нельзя удалить", () => {
     expect(settingsView("200").agents).toEqual([ASSISTANT]);
@@ -235,7 +235,7 @@ describe("агенты", () => {
 
   it("создание, переименование, удаление; имя обязательно; предел назван числом", () => {
     const a = addAgent("200", { name: "  Юрист   по договорам " });
-    expect(a).toEqual({ id: a.id, name: "Юрист по договорам", builtin: false, models: [], transcribe: null });
+    expect(a).toEqual({ id: a.id, name: "Юрист по договорам", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: [], ask: true });
     expect(a.id).toMatch(/^a_[0-9a-f]{8}$/);
     expect(settingsView("200").agents.map((x) => x.id)).toEqual(["assistant", a.id]);
     expect(updateAgent("200", a.id, { name: "Юрист" }).name).toBe("Юрист");

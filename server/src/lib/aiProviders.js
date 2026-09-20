@@ -75,10 +75,25 @@ export const endpoints = (kind, baseUrl) => {
 };
 
 /** Сообщения диалога — только две роли; системная подсказка едет отдельно. */
+/* Разговор ведётся в ОБЩЕМ виде, а перекладывают его в вид провайдера
+   адаптеры (владелец, 2026-09-20: помощник должен уметь делать то же, что
+   человек). Три вида сообщений:
+
+   · `{role:"user"|"assistant", content}` — слова;
+   · `{role:"assistant", calls:[{id,name,args}]}` — модель зовёт инструмент;
+   · `{role:"tool", callId, name, content}` — что инструмент ответил.
+
+   У OpenAI и Anthropic это записано по-разному, и знать об этом должен
+   только адаптер: иначе цикл «позвал — сделали — сказали» пришлось бы
+   писать дважды. */
 const cleanMessages = (messages) => (Array.isArray(messages) ? messages : [])
-  .filter((m) => m && (m.role === "user" || m.role === "assistant"))
-  .map((m) => ({ role: m.role, content: String(m.content ?? "") }))
-  .filter((m) => m.content.trim());
+  .filter((m) => m && (m.role === "user" || m.role === "assistant" || m.role === "tool"))
+  .map((m) => (m.role === "tool"
+    ? { role: "tool", callId: String(m.callId || ""), name: String(m.name || ""),
+      content: String(m.content ?? "") }
+    : { role: m.role, content: String(m.content ?? ""),
+      ...(Array.isArray(m.calls) && m.calls.length ? { calls: m.calls } : {}) }))
+  .filter((m) => m.role === "tool" || m.content.trim() || m.calls);
 
 /* Ключ из текста ошибки вырезается ДО того, как ошибка станет ошибкой:
    провайдер может вернуть тело запроса обратно, а nginx перед ним —
@@ -101,9 +116,28 @@ function providerError(name, status, body, key) {
 
 const openaiLike = {
   headers: (key) => ({ "Content-Type": "application/json", Authorization: `Bearer ${key}` }),
-  request({ model, system, messages }) {
+  request({ model, system, messages, tools }) {
+    const out = messages.map((m) => {
+      if (m.role === "tool") {
+        return { role: "tool", tool_call_id: m.callId, content: m.content };
+      }
+      if (m.calls) {
+        return { role: "assistant", content: m.content || null,
+          tool_calls: m.calls.map((c) => ({ id: c.id, type: "function",
+            function: { name: c.name, arguments: JSON.stringify(c.args || {}) } })) };
+      }
+      return { role: m.role, content: m.content };
+    });
     return { model, messages: [...(system ? [{ role: "system", content: system }] : []),
-      ...messages], max_tokens: MAX_TOKENS };
+      ...out], max_tokens: MAX_TOKENS,
+      ...(tools?.length ? { tools: tools.map((t) => ({ type: "function",
+        function: { name: t.name, description: t.description, parameters: t.schema } })) } : {}) };
+  },
+  calls(data) {
+    return (data?.choices?.[0]?.message?.tool_calls || [])
+      .filter((c) => c?.function?.name)
+      .map((c) => ({ id: String(c.id || c.function.name), name: String(c.function.name),
+        args: parseArgs(c.function.arguments) }));
   },
   answer(data) {
     const c = data?.choices?.[0]?.message?.content;
@@ -125,8 +159,39 @@ const anthropic = {
     "x-api-key": key,
     "anthropic-version": "2023-06-01",
   }),
-  request({ model, system, messages }) {
-    return { model, max_tokens: MAX_TOKENS, ...(system ? { system } : {}), messages };
+  request({ model, system, messages, tools }) {
+    const out = [];
+    for (const m of messages) {
+      if (m.role === "tool") {
+        /* Ответы инструментов у Anthropic — части сообщения ЧЕЛОВЕКА, и
+           подряд идущие складываются в одно: иначе на каждый инструмент
+           приходило бы по сообщению, и порядок «позвал — ответили»
+           разошёлся бы. */
+        const last = out[out.length - 1];
+        const part = { type: "tool_result", tool_use_id: m.callId, content: m.content };
+        if (last?.role === "user" && Array.isArray(last.content)) last.content.push(part);
+        else out.push({ role: "user", content: [part] });
+        continue;
+      }
+      if (m.calls) {
+        out.push({ role: "assistant", content: [
+          ...(m.content ? [{ type: "text", text: m.content }] : []),
+          ...m.calls.map((c) => ({ type: "tool_use", id: c.id, name: c.name,
+            input: c.args || {} })),
+        ] });
+        continue;
+      }
+      out.push({ role: m.role, content: m.content });
+    }
+    return { model, max_tokens: MAX_TOKENS, ...(system ? { system } : {}), messages: out,
+      ...(tools?.length ? { tools: tools.map((t) => ({ name: t.name,
+        description: t.description, input_schema: t.schema })) } : {}) };
+  },
+  calls(data) {
+    return (Array.isArray(data?.content) ? data.content : [])
+      .filter((p) => p?.type === "tool_use" && p.name)
+      .map((p) => ({ id: String(p.id || p.name), name: String(p.name),
+        args: p.input && typeof p.input === "object" ? p.input : {} }));
   },
   answer(data) {
     return (Array.isArray(data?.content) ? data.content : [])
@@ -138,6 +203,15 @@ const anthropic = {
       .map((m) => ({ id: String(m?.id || ""), name: String(m?.display_name || m?.id || "") }))
       .filter((m) => m.id);
   },
+};
+
+/* Аргументы у OpenAI приезжают СТРОКОЙ с JSON внутри. Порченый JSON —
+   не повод ронять разговор: пустые аргументы инструмент отвергнет сам и
+   скажет, чего не хватило. */
+const parseArgs = (raw) => {
+  if (raw && typeof raw === "object") return raw;
+  try { const v = JSON.parse(String(raw || "{}")); return v && typeof v === "object" ? v : {}; }
+  catch { return {}; }
 };
 
 const ADAPTERS = { openai: openaiLike, anthropic, hf: openaiLike };
@@ -196,7 +270,8 @@ export async function complete(p, doFetch = globalThis.fetch) {
   // никто не прочитает, незачем.
   if (p?.signal?.aborted) throw new Error(CANCELLED);
 
-  const body = adapter.request({ model, system: String(p?.system || ""), messages });
+  const body = adapter.request({ model, system: String(p?.system || ""), messages,
+    tools: Array.isArray(p?.tools) ? p.tools : [] });
   let res;
   try {
     res = await doFetch(endpoints(kind, p?.baseUrl).chat, { method: "POST",
@@ -215,8 +290,11 @@ export async function complete(p, doFetch = globalThis.fetch) {
   }
 
   const text = adapter.answer(data).trim();
-  if (!text) throw new Error(`${name} ответил пустым сообщением`);
-  return text;
+  const calls = p?.tools?.length ? (adapter.calls?.(data) || []) : [];
+  /* С инструментами ответ бывает без слов вовсе — модель просто зовёт
+     инструмент, и это не пустое сообщение, а ход в разговоре. */
+  if (!text && !calls.length) throw new Error(`${name} ответил пустым сообщением`);
+  return p?.tools?.length ? { text, calls } : text;
 }
 
 /**

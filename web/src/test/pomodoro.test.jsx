@@ -182,3 +182,61 @@ describe("томат в форме задачи", () => {
     expect(screen.queryByLabelText("томат")).toBeNull();
   });
 });
+
+/* ─── счётчик и сброс (владелец, 2026-09-20) ───
+   Заголовок считает ПРОВЕДЁННЫЕ томаты по этой задаче, а «Сброс» бросает
+   текущий отрезок и ставит противоположный. */
+describe("томаты и сброс", () => {
+  const reset = () => screen.getByRole("button", { name: "сброс" });
+
+  it("заголовок — «Томатов: N», и вначале ноль", () => {
+    render(<Pomodoro taskId="t1" meId="7" />);
+    expect(screen.getByLabelText("томатов: 0").textContent).toBe("Томатов: 0");
+  });
+
+  it("доведённая до конца работа прибавляет томат, перерыв — нет", () => {
+    render(<Pomodoro taskId="t1" meId="7" />);
+    fireEvent.change(screen.getByLabelText("Работа: минут"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("Перерыв: минут"), { target: { value: "1" } });
+    fireEvent.click(play());
+    act(() => { vi.advanceTimersByTime(61_000); });
+    expect(screen.getByLabelText("томатов: 1")).toBeInTheDocument();
+    // Перерыв до конца — счётчик не растёт: томат это работа.
+    fireEvent.click(play());
+    act(() => { vi.advanceTimersByTime(61_000); });
+    expect(screen.getByLabelText("томатов: 1")).toBeInTheDocument();
+  });
+
+  it("счёт помнится у задачи и у каждой свой", () => {
+    const { unmount } = render(<Pomodoro taskId="t1" meId="7" />);
+    fireEvent.change(screen.getByLabelText("Работа: минут"), { target: { value: "1" } });
+    fireEvent.click(play());
+    act(() => { vi.advanceTimersByTime(61_000); });
+    unmount();
+    render(<Pomodoro taskId="t2" meId="7" />);
+    expect(screen.getByLabelText("томатов: 0")).toBeInTheDocument();
+    expect(readState(keyOf("7", "t1")).done).toBe(1);
+  });
+
+  it("«Сброс» из работы ставит перерыв, из перерыва — работу", () => {
+    render(<Pomodoro taskId="t1" meId="7" />);
+    expect(screen.getByText("работа")).toBeInTheDocument();
+    fireEvent.click(reset());
+    expect(screen.getByText("перерыв")).toBeInTheDocument();
+    expect(clock().textContent).toBe("05:00");
+    fireEvent.click(reset());
+    expect(screen.getByText("работа")).toBeInTheDocument();
+    expect(clock().textContent).toBe("25:00");
+  });
+
+  it("сброшенная работа томатом не считается", () => {
+    render(<Pomodoro taskId="t1" meId="7" />);
+    fireEvent.click(play());
+    act(() => { vi.advanceTimersByTime(30_000); });
+    fireEvent.click(reset());
+    expect(screen.getByLabelText("томатов: 0")).toBeInTheDocument();
+    // И часы больше не идут: сброс останавливает отсчёт.
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(clock().textContent).toBe("05:00");
+  });
+});
