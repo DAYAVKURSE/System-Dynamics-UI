@@ -948,6 +948,33 @@ describe("критерии на форме постановки", () => {
   /* Описание задачи из техпроцесса подставляется в «Описание задачи» на
      форме постановки (владелец, 2026-09-20: «это же описание должно
      попадать в поле „Описание задачи" на форме „Ждём постановки"»). */
+  /* Описание из процесса — ЗНАЧЕНИЕ ПО УМОЛЧАНИЮ: постановщик его меняет,
+     и дальше живёт его текст (владелец, 2026-09-20). */
+  it("описание из процесса правится при постановке, и правка вытесняет его", () => {
+    const f = [{ ...FUNCS[0], body: "звоним и уточняем заявку" }];
+    const Live = () => {
+      const [tasks, setTasks] = React.useState([
+        { ...newTask({ funcId: "f1", title: "Задача" }), end: "2030-01-01T10:00" }]);
+      return (<>
+        <TaskSetup task={tasks[0]} tasks={tasks} funcs={f} entities={ENTITIES}
+          traits={TRAITS} setTasks={setTasks} people={PEOPLE} canAssign nameOf={(id) => id} />
+        <span data-body="">{tasks[0].body}</span>
+      </>);
+    };
+    const { container } = render(<Live />);
+    const area = [...container.querySelectorAll("textarea")]
+      .find((n) => n.value === "звоним и уточняем заявку");
+    expect(area).toBeTruthy();
+    // Своего описания у задачи ещё нет — в поле стоит процессное.
+    expect(container.querySelector("[data-body]").textContent).toBe("");
+    fireEvent.change(area, { target: { value: "позвонить до обеда" } });
+    fireEvent.blur(area);
+    expect(container.querySelector("[data-body]").textContent).toBe("позвонить до обеда");
+    // И теперь в поле стоит написанное человеком, а не процессное.
+    expect([...container.querySelectorAll("textarea")]
+      .some((n) => n.value === "звоним и уточняем заявку")).toBe(false);
+  });
+
   it("описание задачи из процесса стоит в поле «Описание задачи»", () => {
     const f = [{ ...FUNCS[0], body: "звоним и уточняем заявку" }];
     const { container } = render(<Setup funcs={f} />);

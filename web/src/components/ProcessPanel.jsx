@@ -363,7 +363,34 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
     if (next !== v) { putText(next, caret); return; }
     setText(v); place(v, at);
   };
-  const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
+  /* Строка, по которой нажали. Курсор за пальцем браузер двигает не
+     всегда (владелец, 2026-09-20: «не отреагировало на нажатие… и
+     отреагировало только на длительное нажатие»): при коротком нажатии он
+     остаётся там, где был, и меню открывалось для чужой строки. Поэтому
+     строку берём по координате нажатия, а столбец — у курсора, когда тот
+     и правда на этой строке. */
+  const rowAt = (clientY) => {
+    const el = inp.current;
+    if (!el || clientY == null) return -1;
+    const r = el.getBoundingClientRect();
+    const px = LINE_H * 12;
+    const y = clientY - r.top - 7 + (el.scrollTop || 0);
+    if (y < 0) return -1;
+    const rows = text.split("\n").length;
+    return Math.min(rows - 1, Math.floor(y / px));
+  };
+  const startOf = (row) => text.split("\n").slice(0, row).reduce((n, l) => n + l.length + 1, 0);
+  const onMove = (e) => {
+    const at = e.target.selectionStart ?? text.length;
+    const want = e.type === "click" ? rowAt(e.clientY) : -1;
+    if (want >= 0 && want !== text.slice(0, at).split("\n").length - 1) {
+      const idx = startOf(want);
+      inp.current?.setSelectionRange(idx, idx);
+      place(text, idx);
+      return;
+    }
+    place(text, at);
+  };
   const startEdit = () => {
     const el = inp.current;
     if (!el || editing) return;
@@ -583,6 +610,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
   const [pickVar, setPickVar] = useState(false);
   const [renamingVar, setRenamingVar] = useState(false);
   const [fold, setFold] = useState("");   // какой раздел меню раскрыт
+  const [newCheck, setNewCheck] = useState(null);   // пустое поле нового критерия
   const pinRes = () => {
     const at = resStart + (res.tail ? res.tailSpan.end : res.nameSpan.end);
     const next = `${text.slice(0, at)} (${newVarName(new Set([...procVars, ...usedHands()]))})${text.slice(at)}`;
@@ -828,13 +856,11 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             <Fold title="описание" open={fold === "about"} onToggle={() => setFold(fold === "about" ? "" : "about")}
               value={taskAbout ? "есть" : "—"}>
               <textarea key={taskAbout} defaultValue={taskAbout} aria-label="описание задачи" rows={2}
-                placeholder="что это за работа — увидит исполнитель"
                 style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "3px 5px", resize: "vertical" }}
                 onBlur={(e) => setAbout(e.target.value.trim())} />
             </Fold>
             <Fold title="критерии проверки" open={fold === "checks"} onToggle={() => setFold(fold === "checks" ? "" : "checks")}
               value={taskChecks.length ? String(taskChecks.length) : "—"}>
-              {!taskChecks.length && <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 4 }}>по чему проверяющий примет работу</div>}
               {taskChecks.map((c, i) => (
                 <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 3 }}>
                   <input defaultValue={c} aria-label={`критерий ${i + 1}`}
@@ -845,7 +871,17 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                     onClick={() => setChecks(taskChecks.filter((x, k) => k !== i))}
                     style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
                 </div>))}
-              <button type="button" aria-label="добавить критерий" onClick={() => setChecks([...taskChecks, "новый критерий"])}
+              {/* Новый критерий — ПУСТОЕ поле: слова в нём пишет человек,
+                  а не приложение (владелец, 2026-09-20). Пустое при уходе
+                  из поля просто исчезает. */}
+              {newCheck != null && (
+                <div className="flex items-center gap-2" style={{ marginBottom: 3 }}>
+                  <input autoFocus defaultValue="" aria-label={`критерий ${taskChecks.length + 1}`}
+                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 5px" }}
+                    onBlur={(e) => { const v = e.target.value.trim(); setNewCheck(null); if (v) setChecks([...taskChecks, v]); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                </div>)}
+              <button type="button" aria-label="добавить критерий" onClick={() => setNewCheck("")}
                 style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}>+ критерий</button>
             </Fold>
             <Fold title="срок" open={fold === "dur"} onToggle={() => setFold(fold === "dur" ? "" : "dur")}

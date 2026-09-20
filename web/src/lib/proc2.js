@@ -1103,7 +1103,12 @@ export function suggest(hint, model = {}, proc = {}) {
     else if (c.lastLab === "or" && !c.blankBefore) items.push(label("to", "куда"), label("or", "ещё выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
     else if (c.lastLab === "to" && !c.blankBefore) items.push(label("to", "ещё кому"), label("or", "иной выход"), label(plural ? "takes" : "take"), label(plural ? "gives" : "give"), label("who"));
     else if (c.lastLab === "from" && !c.blankBefore) items.push(label("from", "ещё от кого"), label(plural ? "gives" : "give"), label(plural ? "takes" : "take"), label("who"));
-    else if (["dur", "every", "par", "check"].includes(c.lastLab) && !c.blankBefore) items.push(label("who", "участник"), label("check", "что проверяем"), label("dur", "сколько идёт"), label("every", "когда следующая"), label("par", "одновременных"), label("take", "что берёт"), label("give", "что отдаёт"));
+    /* Метки, которые задают в меню сущности, в подсказках НЕ предлагаются
+       (владелец, 2026-09-20: «критерии задачи, срок задачи, попыток,
+       одновременно — это всё не задаётся в поле и не пишется в поле, и
+       этого не должно быть в выпадающем списке»). Строка с такой меткой в
+       тексте остаётся читаемой: подсказка после неё ведёт дальше. */
+    else if (["dur", "every", "par", "check", "about"].includes(c.lastLab) && !c.blankBefore) items.push(label("who", "участник"), label("take", "что берёт"), label("give", "что отдаёт"));
     else if ((c.lastLab === "then" || c.lastLab === "if") && !c.blankBefore) items.push(label("who", "участник"), label("take", "что берёт"), label("give", "что отдаёт"));
     else if ((c.hasWho || c.whoRun) && !c.blankBefore) items.push(label(plural ? "takes" : "take", "что берёт"), label(plural ? "gives" : "give", "что отдаёт"), label("who", "ещё участник"));
     else items.push(label("who", "участник"), label("task", "новая задача"), label("func", "новая функция"));
@@ -1201,13 +1206,12 @@ export function suggest(hint, model = {}, proc = {}) {
     items.push({ name: "", kind: "", note: "сколько таких задач идёт у одного воркера одновременно", info: true });
     items.push({ name: ", на актив", kind: "дальше", note: "предел на весь актив", insert: true, text: ", на актив ", suffix: "" });
   } else if (hint.kind === "name") {
-    /* После имени функции — её критерии и ожидаемый результат (владелец,
-       2026-09-19), после имени задачи — участник, критерии и сроки. */
-    if (hint.label === "func") items.push({ name: LABEL_TEXT.result, kind: "метка", note: "что должно получиться",
-      insert: true, text: `\n${LABEL_TEXT.result}`, suffix: " ", trimBefore: true });
-    if (hint.label === "task") ["who", "check", "dur", "every", "par"].forEach((k) => items.push({ name: LABEL_TEXT[k], kind: "метка",
-      note: k === "who" ? "участник" : k === "check" ? "что проверяем" : k === "dur" ? "сколько идёт" : k === "every" ? "когда следующая" : "одновременных",
-      insert: true, text: `\n${LABEL_TEXT[k]}`, suffix: " ", trimBefore: true }));
+    /* После имени задачи — только участник: срок, попытка, одновременно,
+       критерий и описание задаются в меню и в текст руками не пишутся
+       (владелец, 2026-09-20). Ожидаемый результат функции — там же, своим
+       полем в её шапке, поэтому и его в подсказках нет. */
+    if (hint.label === "task") items.push({ name: LABEL_TEXT.who, kind: "метка", note: "участник",
+      insert: true, text: `\n${LABEL_TEXT.who}`, suffix: " ", trimBefore: true });
     items.push({ name: "↵", kind: "дальше", note: hint.label === "func" ? "новая строка: Задача:" : "новая строка: Кто:", insert: true,
       text: `\n${LABEL_TEXT[hint.label === "func" ? "task" : "who"]}`, suffix: " ", trimBefore: true });
   }

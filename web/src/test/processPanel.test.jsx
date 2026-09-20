@@ -386,13 +386,66 @@ describe("роли, статусы, функции", () => {
     const menu = () => container.querySelector("[data-task-menu]");
     fireEvent.click(within(menu()).getByRole("button", { name: "критерии проверки" }));
     fireEvent.click(within(menu()).getByRole("button", { name: "добавить критерий" }));
+    const ch = screen.getByLabelText("критерий 1");
+    fireEvent.change(ch, { target: { value: "есть запись" } });
+    fireEvent.blur(ch);
     fireEvent.click(within(menu()).getByRole("button", { name: "описание" }));
     const inp = screen.getByLabelText("описание задачи");
     fireEvent.change(inp, { target: { value: "что за работа" } });
     fireEvent.blur(inp);
     const rows = dump().procs[0].text.split("\n").map((l) => l.trim());
     expect(rows[1]).toBe("Описание: что за работа");
-    expect(rows[2]).toBe("Критерий: новый критерий");
+    expect(rows[2]).toBe("Критерий: есть запись");
+  });
+
+  /* СЛОВА ПИШЕТ ЧЕЛОВЕК (владелец, 2026-09-20): новый критерий заводится
+     пустым полем, а не текстом приложения; пустое просто исчезает. */
+  it("новый критерий — пустое поле, и пустое не сохраняется", () => {
+    const area = addProc();
+    write(area, TEXT);
+    view(area);
+    fireEvent.click(area, { target: { selectionStart: 3 } });
+    const menu = () => container.querySelector("[data-task-menu]");
+    fireEvent.click(within(menu()).getByRole("button", { name: "критерии проверки" }));
+    fireEvent.click(within(menu()).getByRole("button", { name: "добавить критерий" }));
+    const ch = screen.getByLabelText("критерий 1");
+    expect(ch.value).toBe("");
+    fireEvent.blur(ch);
+    expect(screen.queryByLabelText("критерий 1")).toBeNull();
+    expect(dump().procs[0].text).not.toMatch(/Критерий:/);
+  });
+
+  /* ОДИНОЧНОЕ НАЖАТИЕ ОТКРЫВАЕТ МЕНЮ ТОЙ СТРОКИ, ПО КОТОРОЙ НАЖАЛИ
+     (владелец, 2026-09-20): «при попытке сделать описание задачи
+     приложение не отреагировало на нажатие на поле „Задача" и
+     отреагировало только на длительное нажатие». Браузер двигает курсор за
+     пальцем не всегда, поэтому строка берётся по координате нажатия. */
+  it("нажатие по строке «Задача:» открывает её меню, даже если курсор стоял в конце", () => {
+    const area = addProc();
+    write(area, TEXT);
+    view(area);
+    // Курсор в конце текста — на строке «Отдаёт:», не на задаче.
+    fireEvent.click(area, { target: { selectionStart: area.value.length } });
+    expect(container.querySelector("[data-task-menu]")).toBeNull();
+    // Нажатие пальцем по первой строке: координата вместо курсора.
+    area.getBoundingClientRect = () => ({ top: 0, left: 0, right: 300, bottom: 200, width: 300, height: 200 });
+    fireEvent.click(area, { clientY: 15, target: { selectionStart: area.value.length } });
+    const menu = container.querySelector("[data-task-menu]");
+    expect(menu).not.toBeNull();
+    expect(menu.getAttribute("aria-label")).toBe("меню задачи лид");
+  });
+
+  /* МЕТКИ ИЗ МЕНЮ — НЕ В ПОДСКАЗКАХ (владелец, 2026-09-20): «критерии
+     задачи, срок задачи, попыток, одновременно… этого не должно быть в
+     выпадающем списке». */
+  it("в подсказках нет меток, которые задают в меню", () => {
+    const area = addProc();
+    type(area, "Задача: лид\nКто: Пользователи\n");
+    const names = options().join(" | ");
+    ["Критерий:", "Срок:", "Попытка:", "Одновременно:", "Описание:"]
+      .forEach((w) => expect(names).not.toContain(w));
+    // А метки, которые и правда пишут в поле, на месте.
+    expect(names).toContain("Берёт:");
   });
 
   it("меню ресурса: единица, чем подтверждается, чем считаем — под спойлерами (владелец, 2026-09-18)", () => {
