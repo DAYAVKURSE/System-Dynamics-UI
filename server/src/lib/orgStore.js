@@ -191,9 +191,12 @@ export async function identify(userId, profile = {}, { claim = true } = {}) {
       roleId: null, addedAt: new Date().toISOString(), addedBy: null };
     org.users.push(user); changed = true;
   }
-  // Имя из Telegram обновляем на входе: человек мог его сменить, а в
-  // приглашении оно записано таким, каким было тогда.
-  if (user && profile.name && user.name !== profile.name) {
+  /* Имя из Telegram обновляем на входе: человек мог его сменить, а в
+     приглашении оно записано таким, каким было тогда. НО не поверх
+     своего: если человек назвал себя сам в анкете (`nameOwn`), это имя и
+     есть его имя во всём приложении (владелец, 2026-09-20), и телеграмное
+     его не переписывает. */
+  if (user && !user.nameOwn && profile.name && user.name !== profile.name) {
     user.name = profile.name; changed = true;
   }
   if (changed) await writeOrg(org);
@@ -425,7 +428,10 @@ const LIMIT = 2000;
 const profileOf = (user = {}) => {
   const about = String(user.about || "");
   const old = LEGACY_FIELDS.map((k) => String(user[k] || "").trim()).filter(Boolean);
-  return { about: about || old.join("\n"), ...scheduleOf(user), answers: answersOf(user) };
+  /* Имя едет вместе с анкетой: его правят там же, и везде, где приложение
+     показывает человека, оно берётся отсюда (владелец, 2026-09-20). */
+  return { name: String(user.name || ""),
+    about: about || old.join("\n"), ...scheduleOf(user), answers: answersOf(user) };
 };
 
 /** Свою анкету человек пишет сам. Чужую — никто. */
@@ -434,6 +440,13 @@ export async function setProfile(userId, patch = {}) {
   const id = String(userId);
   const user = org.users.find((u) => u.id === id);
   if (!user) return null;
+  /* Имя человек пишет сам, здесь же, где и анкету. Названное им имя
+     сильнее телеграмного: `nameOwn` не даёт переписать его на входе.
+     Пустое имя не принимается — безымянного человека не выберешь. */
+  if (patch.name != null) {
+    const called = String(patch.name).trim().slice(0, 200);
+    if (called) { user.name = called; user.nameOwn = true; }
+  }
   PROFILE_FIELDS.forEach((k) => {
     if (patch[k] == null) return;
     user[k] = String(patch[k]).slice(0, LIMIT);

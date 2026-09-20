@@ -187,7 +187,7 @@ describe("сдача записывает факт выполнения", () => 
       await attachResult("результат 1: заявки");
       writeReport("собрал");
       // Их две: одна в форме сдачи, другая на карточке в колонке.
-      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
 
       expect(screen.getByText(/5 ч/)).toBeInTheDocument();
       expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
@@ -211,13 +211,13 @@ describe("сдача записывает факт выполнения", () => 
        чего не хватает. Единственная «Сдать» — на карточке в колонке, и она
        только открывает форму. */
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     // Сдачи не появилось: числа записаны, а результата нет.
     expect(screen.queryByText(/взято: спрос/)).toBeNull();
 
     await attachResult("результат 1: заявки");
     expect(screen.queryByText(/Не приложено:/)).toBeNull();
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
   });
 
@@ -242,7 +242,7 @@ describe("сдача записывает факт выполнения", () => 
       openUnitForm();
       expect(screen.getByLabelText("количество: заявки")).toBeInTheDocument();
       writeReport();
-      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
       expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
     });
 

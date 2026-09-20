@@ -40,7 +40,7 @@ const collected = () => task({ id: "a", title: "Задача A", funcId: "f0", s
 const contracted = (status = "done") => task({ id: "b", title: "Задача B", status,
   taken: true, submissions: [{ id: "s2", at: "2026-01-02T10:00:00Z", hours: 2,
     takes: { t1: 1 }, took: { t1: ["s1~t1"] }, gives: { t2: 1 },
-    units: { t2: [{ kind: "code", code: "ABCD2345" }] },
+    units: { t2: [{ kind: "code", code: "ABCD2345" }] }, text: "сделано",
     proof: { name: "выдача.pdf", data: "data:text/plain,proof" } }] });
 
 function Board({ tasks: t0 }) {
@@ -94,42 +94,47 @@ describe("форма задачи: материалы на входе", () => {
 });
 
 describe("«Проверка»: материалы сдачи", () => {
-  it("взятое — по номерам, выданный код — с кодом и ссылкой на подтверждение", () => {
+  /* ФОРМА СДАЧИ — БЕЗ ЛИШНЕГО (владелец, 2026-09-20): сколько ушло, когда
+     сдано, отчёт и материалы. Материалы строками: в строке только имя
+     вещи и «Скачать» справа — ни номера, ни задачи, при которой она
+     получена, ни чисел «взято: заявки 2». */
+  it("взятое и выданное — строками с именем и скачиванием", () => {
     render(<Review tasks={[collected(), contracted("review")]} />);
     fireEvent.click(screen.getByText("Задача B"));
-    const took = screen.getByRole("list", { name: "взято: заявки" });
-    expect(within(took).getByText("№1")).toBeInTheDocument();
-    expect(within(took).getByText("Задача A")).toBeInTheDocument();
-    expect(within(took).getByRole("link", { name: "скачать заявки №1" }))
+    const took = screen.getByRole("list", { name: "взято" });
+    expect(within(took).getByText("заявка-1.pdf")).toBeInTheDocument();
+    expect(took.textContent).not.toMatch(/№/);
+    expect(took.textContent).not.toMatch(/Задача A/);
+    expect(within(took).getByRole("link", { name: "скачать заявка-1.pdf" }))
       .toHaveAttribute("href", "data:text/plain,1");
-    const given = screen.getByRole("list", { name: "выдано: договоры" });
+
+    const given = screen.getByRole("list", { name: "выдано" });
     expect(within(given).getByText("ABCD2345")).toBeInTheDocument();
-    const proof = within(given).getByRole("link", { name: "скачать договоры №1" });
-    expect(proof).toHaveTextContent("скачать подтверждение");
+    // У кода скачивается бумага о выдаче: сам код уже на экране.
+    const proof = within(given).getByRole("link", { name: "скачать ABCD2345" });
     expect(proof).toHaveAttribute("href", "data:text/plain,proof");
     expect(proof).toHaveAttribute("download", "выдача.pdf");
+
+    // Чисел сдачи в форме больше нет.
+    expect(screen.queryByText(/взято: заявки 1/)).toBeNull();
+    expect(screen.queryByText(/выдано: договоры/)).toBeNull();
   });
 
-  it("взятое не названо — сказано словами, с количеством по ресурсу", () => {
+  it("взятого нет — так и сказано, без объяснений", () => {
     const t = contracted("review");
     t.submissions[0].took = {};
     render(<Review tasks={[collected(), t]} />);
     fireEvent.click(screen.getByText("Задача B"));
-    expect(screen.getByText("какие именно — не названо, взято: заявки 1")).toBeInTheDocument();
-    expect(screen.queryByRole("list", { name: "взято: заявки" })).toBeNull();
+    expect(screen.queryByText(/какие именно — не названо/)).toBeNull();
+    expect(screen.getByRole("list", { name: "выдано" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "взято" })).toBeNull();
   });
 
-  it("прежняя сдача с общим полем files читается и скачивается", () => {
-    const old = task({ id: "a", title: "Задача A", funcId: "f0", status: "review",
-      taken: true, submissions: [{ id: "s1", at: "2026-01-01T10:00:00Z", hours: 1,
-        takes: {}, gives: { t1: 1 },
-        files: { t1: { name: "старая.pdf", data: "data:text/plain,old" } } }] });
-    render(<Review tasks={[old]} />);
-    fireEvent.click(screen.getByText("Задача A"));
-    expect(screen.getByText("ничего не взято")).toBeInTheDocument();
-    const given = screen.getByRole("list", { name: "выдано: заявки" });
-    const link = within(given).getByRole("link", { name: "скачать заявки №1" });
-    expect(link).toHaveAttribute("href", "data:text/plain,old");
-    expect(link).toHaveAttribute("download", "старая.pdf");
+  it("отчёт стоит под своим заголовком, а время и дата — сверху", () => {
+    render(<Review tasks={[collected(), contracted("review")]} />);
+    fireEvent.click(screen.getByText("Задача B"));
+    expect(screen.getByText("ушло 2 ч")).toBeInTheDocument();
+    expect(screen.getByText("отчёт")).toBeInTheDocument();
+    expect(screen.getByText("сделано")).toBeInTheDocument();
   });
 });

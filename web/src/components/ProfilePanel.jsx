@@ -427,6 +427,8 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
   const [draft, setDraft] = useState(source);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [nameMsg, setNameMsg] = useState("");
   const [scMsg, setScMsg] = useState("");
   // Что сервер знает о графике сейчас: с этим сверяется автосохранение.
   const savedSchedule = useRef(scheduleKey(source));
@@ -539,6 +541,21 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
     setDutyBusy(false);
   };
 
+  /* Имя сохраняется своим нажатием, а не вместе с анкетой: анкеты у роли
+     может и не быть, а имя есть у каждого. Пустое не принимается —
+     безымянного человека не выберешь в исполнители. */
+  const rename = async (raw) => {
+    const called = String(raw || "").trim();
+    setNaming(false);
+    if (!called || called === name) return;
+    setBusy(true); setNameMsg("");
+    try {
+      const saved = await putProfile({ name: called });
+      onSaved?.(saved?.profile || { ...draft, name: called });
+    } catch (e) { setNameMsg(e.message || "не удалось сохранить имя"); }
+    setBusy(false);
+  };
+
   const save = async () => {
     setBusy(true); setMsg("");
     try {
@@ -562,8 +579,28 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
 
   return (
     <div>
-      {/* Имя — шапкой страницы, а не внутри анкеты: анкеты может не быть. */}
-      <div style={{ fontSize: 15, fontWeight: 700, margin: "2px 0 8px" }}>{name || "—"}</div>
+      {/* Имя — шапкой страницы, а не внутри анкеты: анкеты может не быть.
+          Своё имя правится здесь же, карандашом справа (владелец,
+          2026-09-20): названное здесь имя приложение показывает везде. */}
+      <div className="flex items-center gap-2" style={{ margin: "2px 0 8px" }}>
+        {naming ? (
+          <input autoFocus aria-label="имя" defaultValue={name}
+            style={{ ...S.inp, flex: 1, fontSize: 15, fontWeight: 700, padding: "3px 6px" }}
+            onBlur={(e) => rename(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") setNaming(false);
+            }} />
+        ) : (<>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>{name || "—"}</span>
+          {mine && (
+            <button type="button" aria-label="изменить имя" title="Изменить имя"
+              disabled={busy} onClick={() => { setNaming(true); setMsg(""); }}
+              style={{ ...btn(false), fontSize: 12, padding: "2px 7px" }}>✎</button>)}
+        </>)}
+      </div>
+      {nameMsg && (
+        <div style={{ fontSize: 11, color: BAD, marginBottom: 6 }}>{nameMsg}</div>)}
 
       {/* Анкета — ПЕРВОЙ, и только когда есть что заполнять: вопросы
           задаёт анкета, назначенная роли («Люди и роли»). Ролям без анкеты
@@ -572,11 +609,6 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           задачами не должны уезжать за ней. */}
       {!!forms.length && (
         <FoldCard title={mine ? "моя анкета" : "анкета"}>
-          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, margin: "6px 0 8px" }}>
-            {mine
-              ? "Пишете только вы и о себе. Видно тем, кто выбирает, кому поручить работу."
-              : "Анкету пишет сам человек — здесь она только читается."}
-          </div>
           <div aria-label="вопросы анкеты"
             style={{ maxHeight: "55vh", overflowY: "auto", paddingRight: 4, marginBottom: 8 }}>
             <FormAnswers forms={forms} answers={answersOf(draft)} mine={mine}

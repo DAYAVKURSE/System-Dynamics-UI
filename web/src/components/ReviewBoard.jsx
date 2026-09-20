@@ -5,10 +5,9 @@ import { ChatButton, Discussion, HiddenSwitch, STATUSES, TaskSetup, funcLabel, l
   from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { leftInUnit, timeLeft } from "../lib/funcs.js";
-import { reportSrc } from "../storage.js";
 import { unitsOf } from "../lib/units.js";
 import { givenUnits, tookUnits } from "../lib/taskUnits.js";
-import { UnitList } from "./UnitLinks.jsx";
+import { MatList } from "./UnitLinks.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ПРОВЕРКА
@@ -153,9 +152,6 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
     const sub = lastOf(t);
     const unitName = (id) => traits.find((x) => x.id === id)?.unit || "ед.";
     const f = funcs.find((x) => x.id === t.funcId) || null;
-    const traitName = (id) => traits.find((x) => x.id === id)?.l || "(ресурс удалён)";
-    const qty = (map) => Object.entries(map || {})
-      .map(([id, v]) => `${traitName(id)} ${nm(v)}`).join(", ") || "—";
     const st = STATUSES.find((s) => s.id === t.status);
     return (
       <div style={{ ...S.card, marginBottom: 8, opacity: dim ? 0.65 : 1,
@@ -204,6 +200,9 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                 2026-09-20). */}
             {!sub && t.status !== "done" && (
               <TimeBar task={t} func={funcs.find((f) => f.id === t.funcId)} />)}
+            {/* Сдача — четырьмя вещами и без лишних слов (владелец,
+                2026-09-20): сколько ушло, когда сдано, отчёт и материалы.
+                Чисел «взято: заявки 2» тут больше нет — есть сами вещи. */}
             {(t.submissions || []).map((sb) => (
               <div key={sb.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
                 borderRadius: 8, padding: 8, marginBottom: 6 }}>
@@ -212,63 +211,28 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                     ушло {nm(sb.hours)} ч</span>
                   <span style={{ fontSize: 10, color: C.muted }}>{fmtDT(sb.at)}</span>
                 </div>
-                {/* Числа сдачи — это и есть факт, который уточнит прогноз.
-                    Проверяющий должен видеть их до того, как примет. */}
-                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
-                  взято: {qty(sb.takes)} · выдано: {qty(sb.gives)}</div>
-                {/* Сами результаты — до того, как их примут: принимают
-                    работу по тому, что вышло, а не по числу «1». */}
-                {!!Object.keys(sb.files || {}).length && (
-                  <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
-                    {Object.entries(sb.files).map(([id, f]) => (
-                      <a key={id} href={reportSrc(f)} target="_blank" rel="noreferrer"
-                        style={{ fontSize: 10.5, color: ACC }}>
-                        📎 {traitName(id)}: {f.name}</a>))}
-                  </div>)}
-                {/* Материалы сдачи — вещами, а не числом: что взяли (по
-                    номерам, которые назвал исполнитель) и что выдали
-                    (каждая — со скачиванием). Строки выданного есть
-                    только у последней сдачи: результат — то, что сдали в
-                    последний раз. */}
+                {!!String(sb.text || "").trim() && (<>
+                  <div style={{ ...S.lbl, marginTop: 6 }}>отчёт</div>
+                  <div style={{ fontSize: 11.5, marginTop: 2, lineHeight: 1.5,
+                    whiteSpace: "pre-wrap" }}>{sb.text}</div>
+                </>)}
+                {/* Материалы сдачи — вещами, а не числом: что взяли и что
+                    выдали, по строке на вещь. Строки выданного есть только
+                    у последней сдачи: результат — то, что сдали в последний
+                    раз. */}
                 {sb.id === sub?.id && (() => {
                   const took = tookUnits(units, sb);
                   const given = givenUnits(units, t, sb);
-                  const byTrait = (list) => [...new Set(list.map((u) => u.trait))]
-                    .map((id) => ({ trait: id, units: list.filter((u) => u.trait === id) }));
-                  const takesQty = Object.entries(sb.takes || {}).filter(([, v]) => Number(v) > 0);
+                  const one = (list) => (list[0] ? unitName(list[0].trait) : "ед.");
                   return (
                     <div style={{ marginTop: 6 }}>
                       <div style={S.lbl}>материалы</div>
                       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>взято</div>
-                      {took.length ? byTrait(took).map((g) => (
-                        <UnitList key={g.trait} units={g.units} traitName={traitName(g.trait)}
-                          unitName={unitName(g.trait)}
-                          label={`взято: ${traitName(g.trait)}`} />))
-                        : <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
-                            {takesQty.length
-                              ? `какие именно — не названо, взято: ${qty(Object.fromEntries(takesQty))}`
-                              : "ничего не взято"}</div>}
+                      <MatList units={took} unitName={one(took)} label="взято" />
                       <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6 }}>выдано</div>
-                      {!given.length && (
-                        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
-                          ничего не выдано</div>)}
-                      {byTrait(given).map((g) => (
-                        <div key={g.trait} style={{ marginTop: 2 }}>
-                          <div style={{ fontSize: 11, fontWeight: 600 }}>{traitName(g.trait)}</div>
-                          <UnitList units={g.units} traitName={traitName(g.trait)}
-                            unitName={unitName(g.trait)}
-                            label={`выдано: ${traitName(g.trait)}`} />
-                        </div>))}
+                      <MatList units={given} unitName={one(given)} label="выдано" />
                     </div>);
                 })()}
-                {sb.text && <div style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5 }}>
-                  {sb.text}</div>}
-                {sb.file && (/^image\//.test(sb.file.type || "")
-                  ? <img src={reportSrc(sb.file)} alt={sb.file.name}
-                      style={{ maxWidth: "100%", borderRadius: 6, marginTop: 5,
-                        border: `1px solid ${C.line}` }} />
-                  : <div style={{ fontSize: 10.5, color: ACC, marginTop: 4 }}>
-                      📎 {sb.file.name}</div>)}
               </div>))}
 
             {t.status === "review" && (

@@ -8,6 +8,7 @@ import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel, unitTitle } from "../
 import { inputCount, inputUnits } from "../lib/taskUnits.js";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 import Modal from "./Modal.jsx";
+import { MatList } from "./UnitLinks.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · выполнения функций
@@ -1488,22 +1489,11 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
           padding:9,margin:"6px 0 8px"}} aria-label="предоставляемый материал">
           {(()=>{
-            const rows=inputUnits({tasks:tasksAll,funcs,materials},func)
-              .flatMap(g=>g.units.map(u=>({...u,unitName:traits.find(t=>t.id===g.trait)?.unit||"ед."})));
-            if(!rows.length) return (
-              <div style={{fontSize:11,color:C.muted}}>нет</div>);
-            return rows.map(u=>(
-              <div key={u.id} className="flex flex-wrap gap-2"
-                style={{alignItems:"center",fontSize:11.5,padding:"3px 0",
-                  borderTop:`1px solid ${C.line}`}}>
-                <span style={{flex:"1 1 120px",minWidth:0,overflowWrap:"anywhere"}}>
-                  {unitTitle(u)}</span>
-                <Download url={u.file?reportSrc(u.file):""}
-                  text={u.file?"":(u.code||u.text)}
-                  name={u.file?u.file.name:`${u.unitName}-${u.no}.txt`}
-                  aria-label={`скачать ${unitTitle(u)}`}
-                  style={{fontSize:10.5,padding:"2px 7px",color:ACC}}/>
-              </div>));
+            const groups=inputUnits({tasks:tasksAll,funcs,materials},func);
+            const rows=groups.flatMap(g=>g.units);
+            const one=groups[0]?traits.find(t=>t.id===groups[0].trait)?.unit||"ед.":"ед.";
+            return <MatList units={rows} unitName={one}
+              label="предоставляемый материал: вещи"/>;
           })()}
         </div></>)}
 
@@ -1728,13 +1718,6 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
   const undrop=(t)=>setTasks(p=>p.map(x=>(x.id===t.id?{...x,canceled:false}:x)));
   return (
     <div>
-      {open&&(
-        <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
-          entities={entities} meId={meId} isOwner={canAssign}
-          onSay={onSay} onSeen={onSeen} onSubmit={onSubmit}
-          onTake={take}
-          nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}
-
       {/* Полоса над доской говорит, что колонки уезжают за край и куда
           ещё можно подвинуть окно; сама доска помечена как «своё
           движение», чтобы протяжка по ней возила колонки, а не вкладки. */}
@@ -1864,5 +1847,17 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
             </div>);
         })}
       </div>
+
+      {/* Форма задачи — ПОД доской (владелец, 2026-09-20): нажали на
+          задачу в колонке — форма раскрывается следом за панелью, а не
+          перед ней, и доска не уезжает вниз из-под руки. */}
+      {open&&(
+        <div style={{marginTop:10}}>
+          <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
+            entities={entities} meId={meId} isOwner={canAssign}
+            onSay={onSay} onSeen={onSeen} onSubmit={onSubmit}
+            onTake={take}
+            nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>
+        </div>)}
     </div>);
 }

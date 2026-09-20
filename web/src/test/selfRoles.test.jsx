@@ -176,7 +176,7 @@ describe("на доске", () => {
     await attachResult("результат 1: заявки");
     writeReport();
     // Их две: одна в форме сдачи, другая на карточке в колонке.
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     closeEditor();
     /* Колонки «Готово» на доске нет: доска отвечает на «что мне делать»,
        а принятое живёт на «Проверке». Задача просто уходит с доски. */
@@ -190,7 +190,7 @@ describe("на доске", () => {
     await attachResult("результат 1: заявки");
     writeReport();
     // Их две: одна в форме сдачи, другая на карточке в колонке.
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     closeEditor();
     expect(within(column("Проверка")).getByText("Задача A")).toBeInTheDocument();
   });

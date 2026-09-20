@@ -654,9 +654,9 @@ describe("своя анкета", () => {
     const res = await request(app).put("/api/org/me/profile").set(as(200, "Иван"))
       .send({ days: [1, 2, 5], from: "10:00", to: "19:00", status: "off", warnMin: 30 });
     expect(res.status).toBe(200);
-    expect(res.body.profile).toEqual({ about: "", days: [1, 2, 5], from: "10:00",
-      to: "19:00", perDay: {}, status: "off", statusAt: expect.any(String), warnMin: 30,
-      deferMin: 30, answers: {} });
+    expect(res.body.profile).toEqual({ name: "Иван", about: "", days: [1, 2, 5],
+      from: "10:00", to: "19:00", perDay: {}, status: "off",
+      statusAt: expect.any(String), warnMin: 30, deferMin: 30, answers: {} });
     const me = await request(app).get("/api/org/me").set(as(200, "Иван"));
     expect(me.body.profile).toEqual(res.body.profile);
     // И владелец видит то же в списке людей — там выбирают, кому поручить.

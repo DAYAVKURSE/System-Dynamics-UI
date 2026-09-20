@@ -87,7 +87,7 @@ describe("сдача: по вещи на каждую единицу", () => {
     }
     expect(screen.getByText("10 из 10")).toBeInTheDocument();
     write();
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     expect(got).toHaveLength(1);
     expect(got[0].units.t2).toHaveLength(10);
     expect(got[0].units.t2.map((u) => u.file.name))
@@ -106,7 +106,7 @@ describe("сдача: по вещи на каждую единицу", () => {
       fireEvent.change(box, { target: { value: v } });
     });
     write();
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     expect(got[0].units.t2.map((u) => u.text)).toEqual(["первый", "второй"]);
   });
 
@@ -149,7 +149,7 @@ describe("сдача: по вещи на каждую единицу", () => {
     expect(screen.getByText(/нет подтверждения/)).toBeInTheDocument();
     await attach("подтверждение выдачи", "акт.pdf");
     write();
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     expect(got[0].units.t2.map((u) => u.code)).toEqual(codes);
     expect(got[0].proof.name).toBe("акт.pdf");
   });

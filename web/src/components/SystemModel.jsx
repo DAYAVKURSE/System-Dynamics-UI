@@ -1633,7 +1633,10 @@ export default function SystemModel(){
           onRefuseFunc={me.isOwner?refuseFuncHere:undefined}
           traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
           onSaved={p=>{
-            setMe(m=>({...m,profile:p}));
+            /* Имя едет вместе с анкетой: назвал себя человек сам — так он
+               зовётся везде, где приложение его показывает (владелец,
+               2026-09-20). */
+            setMe(m=>({...m,profile:p,...(p?.name?{name:p.name}:{})}));
             setPeople(list=>list.map(u=>(String(u.id)===String(me.id)?{...u,...p}:u)));
           }}/>)}
 
@@ -2092,7 +2095,7 @@ export default function SystemModel(){
             onRefuseFunc={me.isOwner&&String(card)===String(me.id)?refuseFuncHere:undefined}
             traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
             onSaved={p=>{
-              setMe(m=>({...m,profile:p}));
+              setMe(m=>({...m,profile:p,...(p?.name?{name:p.name}:{})}));
               setPeople(list=>list.map(u=>(String(u.id)===String(me.id)?{...u,...p}:u)));
             }}/>
         </Modal>)}

@@ -356,8 +356,31 @@ describe("анкета", () => {
     /* Поле анкеты одно: что о себе писать, решает человек. Рядом с ней —
        рабочий график и статус: они отвечают не «кто это», а «работает ли
        он сейчас», и спрашивают их раньше. */
-    expect(me.profile).toEqual({ about: "", days: [], from: "", to: "", perDay: {},
-      status: "ready", statusAt: null, warnMin: 10, deferMin: 30, answers: {} });
+    /* Имя едет вместе с анкетой: его правят там же, и везде, где
+       приложение показывает человека, оно берётся отсюда. */
+    expect(me.profile).toEqual({ name: "Первый", about: "", days: [], from: "", to: "",
+      perDay: {}, status: "ready", statusAt: null, warnMin: 10, deferMin: 30, answers: {} });
+  });
+
+  /* ИМЯ — В АНКЕТЕ (владелец, 2026-09-20): человек называет себя сам, и
+     этим именем он зовётся везде; телеграмное его больше не переписывает. */
+  it("своё имя сильнее телеграмного и не затирается на входе", async () => {
+    await identify("100", { name: "Из телеграма" });
+    const saved = await setProfile("100", { name: "  Как я себя зову  " });
+    expect(saved.name).toBe("Как я себя зову");
+    // Следующий вход с прежним телеграмным именем его не возвращает.
+    const me = await identify("100", { name: "Из телеграма" });
+    expect(me.name).toBe("Как я себя зову");
+    expect(me.profile.name).toBe("Как я себя зову");
+    // И в списке людей — то же имя: оттуда его берут все остальные формы.
+    expect((await listOrg()).users.find((u) => u.id === "100").name)
+      .toBe("Как я себя зову");
+  });
+
+  it("пустое имя не принимается — безымянного человека не выберешь", async () => {
+    await identify("100", { name: "Первый" });
+    await setProfile("100", { name: "   " });
+    expect((await identify("100", {})).name).toBe("Первый");
   });
 
   it("человек пишет свою анкету, и она приходит вместе с «кто я»", async () => {
@@ -407,9 +430,9 @@ describe("анкета", () => {
       await identify("100", {});
       const saved = await setProfile("100", { days: [1, 3], from: "09:00", to: "18:00",
         status: "break", about: "аналитик" });
-      expect(saved).toEqual({ about: "аналитик", days: [1, 3], from: "09:00",
-        to: "18:00", perDay: {}, status: "break", statusAt: expect.any(String), warnMin: 10,
-        deferMin: 30, answers: {} });
+      expect(saved).toEqual({ name: "владелец", about: "аналитик", days: [1, 3],
+        from: "09:00", to: "18:00", perDay: {}, status: "break",
+        statusAt: expect.any(String), warnMin: 10, deferMin: 30, answers: {} });
       // И «кто я» после этого говорит то же самое.
       expect((await identify("100", {})).profile).toEqual(saved);
       /* Момент выбора: из запроса, если прислан, иначе — момент смены;

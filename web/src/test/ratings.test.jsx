@@ -67,7 +67,7 @@ const openHanding = async () => {
   commit(screen.getByLabelText("отчёт о работе"), "сделал");
 };
 // Их две: одна в форме сдачи, другая на карточке в колонке.
-const hand = () => fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+const hand = () => fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
 
 describe("форма сдачи: отчёт словами, вещи кнопками, потом оценка", () => {
   const open = () => {

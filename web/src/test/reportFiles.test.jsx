@@ -125,7 +125,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
     expect(upload.opts.body).toBeInstanceOf(File);
 
     writeReport();
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     const sub = dump().tasks[0].submissions[0];
     expect(sub.units.t2[0].file.url).toMatch(/^\/api\/reports\//);
     expect(sub.units.t2[0].file.data).toBeUndefined();     // никакого data:-URL в сценарии
@@ -142,7 +142,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
 
       await waitFor(() => expect(screen.getAllByText(/📎/).length).toBeGreaterThan(0));
       writeReport();
-      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+      fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
       const saved = dump().tasks[0].submissions[0].units.t2[0].file;
       expect(saved.data).toMatch(/^data:/);
       expect(saved.url).toBeUndefined();
@@ -169,7 +169,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
     expect(screen.getByText(/Не приложено:/))
       .toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
-    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Сдать" }).at(-1));
     expect(dump().tasks[0].submissions.length).toBe(0);
   });
 

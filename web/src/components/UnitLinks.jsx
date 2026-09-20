@@ -1,6 +1,6 @@
 import React from "react";
 import { C, ACC, WARN, Download } from "./ui.jsx";
-import { unitLabel } from "../lib/units.js";
+import { unitLabel, unitTitle } from "../lib/units.js";
 import { reportSrc, textHref } from "../storage.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -45,6 +45,32 @@ export function UnitLine({ u, traitName, unitName }) {
                экране, а подтверждение — только файлом. */
             label={u.code && u.file ? "скачать подтверждение" : "скачать"} />
         : <span style={{ fontSize: 10, color: WARN }}>содержимого нет</span>}
+    </div>);
+}
+
+/* ─────── ВЕЩИ СТРОКАМИ ───────
+
+   В строке только ИМЯ вещи и «Скачать» справа (владелец, 2026-09-20): ни
+   номера, ни задачи, при которой вещь получена, ни ресурса — их спросят
+   в «Отчётах», где у каждой вещи своя история. */
+export function MatList({ units = [], unitName = "ед.", label, empty = "нет" }) {
+  if (!units.length) {
+    return <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{empty}</div>;
+  }
+  return (
+    <div role="list" aria-label={label} style={{ marginTop: 2 }}>
+      {units.map((u) => (
+        <div key={u.id} role="listitem" className="flex flex-wrap gap-2"
+          style={{ alignItems: "center", fontSize: 11.5, padding: "3px 0",
+            borderTop: `1px solid ${C.line}` }}>
+          <span style={{ flex: "1 1 120px", minWidth: 0, overflowWrap: "anywhere" }}>
+            {unitTitle(u)}</span>
+          <Download url={u.file ? reportSrc(u.file) : ""}
+            text={u.file ? "" : (u.code || u.text)}
+            name={u.file ? u.file.name : `${unitName}-${u.no}.txt`}
+            aria-label={`скачать ${unitTitle(u)}`}
+            style={{ fontSize: 10.5, padding: "2px 7px", color: ACC }} />
+        </div>))}
     </div>);
 }
 
