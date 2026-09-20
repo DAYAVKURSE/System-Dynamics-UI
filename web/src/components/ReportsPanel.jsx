@@ -6,7 +6,7 @@ import { putReportFile, reportSrc, textHref } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { putShare } from "../identity.js";
 import {
-  childrenOf, dropNode, linkTo, newProject, newSection, pickedOf,
+  childrenOf, dropNode, linkTo, newProject, newSection, pickedOf, procsOfTrait,
   pathOf, rootsOf, shareLink, summaryOf,
 } from "../lib/reports.js";
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
@@ -99,16 +99,16 @@ const fmtDT = (v) => {
    значениях вылезали из формы; текст в потоке переносится и не вылезает
    никогда. Заодно это второе кодирование к цвету: пара «прогноз/факт»
    читается и без цвета — так требует правило про план и факт. */
-export function ChangeChart({ rows = [], traitName, madeOf, haveOf, off, onToggle }) {
+export function ChangeChart({ rows = [], traitName, madeOf, off, onToggle }) {
   const [open, setOpen] = useState("");
   if (!rows.length) return null;
   const isOff = (id) => !!(off && off.has && off.has(String(id)));
   const live = rows.filter((r) => !isOff(r.trait));
-  /* ОДНА шкала на все строки (владелец, 2026-09-19: «сделай нормальный,
-     однородный график, который также будет показывать отрицательные
-     значения»). Своя шкала у каждой строки — это не график, а набор полос:
-     «+3» и «+3000» выглядели одинаково. Ноль всегда на шкале, поэтому
-     убыль видно слева от него, а прибыль справа. */
+  /* ОДНА шкала на все столбцы (владелец, 2026-09-19: «однородный график,
+     который также будет показывать отрицательные значения»). Своя шкала у
+     каждого — это не график, а набор полос: «+3» и «+3000» выглядели бы
+     одинаково. Ноль всегда на шкале, поэтому убыль видно вниз от него, а
+     прибыль вверх. */
   const vals = live.flatMap((r) => [Math.min(r.lo, r.hi), Math.max(r.lo, r.hi),
     ...(r.fact == null ? [] : [r.fact])]);
   const rawMin = Math.min(0, ...vals);
@@ -116,122 +116,98 @@ export function ChangeChart({ rows = [], traitName, madeOf, haveOf, off, onToggl
   const pad = (rawMax - rawMin || 1) * 0.08;
   const min = rawMin - pad;
   const max = rawMax + pad;
-  const at = (v) => ((v - min) / (max - min || 1)) * 100;
-  const zero = at(0);
+  const H = 128;                       // высота поля полос
+  const y = (v) => ((max - v) / (max - min || 1)) * H;
+  const zeroY = y(0);
+  /* Полоса — от нуля к значению: вверх при прибыли, вниз при убыли
+     (владелец, 2026-09-20: «полоски должны быть вертикальными… отдалённо
+     похож на эквалайзер»). */
+  const bar = (a, b, color, title, dim) => {
+    const top = Math.min(y(a), y(b));
+    const height = Math.abs(y(b) - y(a));
+    return (
+      <div title={title} style={{ position: "absolute", left: 0, right: 0,
+        top, height: Math.max(height, a === b ? 0 : 2), background: color,
+        borderRadius: 2, opacity: dim ? 0.45 : 1 }} />);
+  };
   const dot = (color, label) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
       fontSize: 10.5, color: C.muted }}>
       <span style={{ width: 9, height: 9, borderRadius: 2, background: color }} />
       {label}</span>);
-  const bar = (a, b, color, title, dim) => {
-    const left = Math.min(at(a), at(b));
-    const width = Math.abs(at(b) - at(a));
-    return (
-      <div title={title} style={{ position: "absolute", left: `${left}%`,
-        width: `${width}%`, minWidth: 2, top: 0, height: 9, borderRadius: 3,
-        background: color, opacity: dim ? 0.45 : 1 }} />);
-  };
+  const opened = open ? rows.find((r) => r.trait === open) : null;
+  const openedUnits = opened && madeOf ? madeOf(opened.trait) : [];
   return (
     <div>
-      <div className="flex flex-wrap gap-2"
-        style={{ alignItems: "center", marginBottom: 6 }}>
-        {dot(WARN, "прогноз — на сколько изменится (от и до)")}{dot(OK, "факт")}
+      <div className="flex" style={{ alignItems: "flex-start", gap: 6 }}>
+        {/* Шкала слева: без неё высота полосы — число без единиц. */}
+        <div style={{ position: "relative", width: 34, height: H, flex: "0 0 34px",
+          fontSize: 9.5, color: C.muted, fontFamily: "ui-monospace, monospace" }}>
+          <span style={{ position: "absolute", right: 0, top: 0 }}>{nm(rawMax)}</span>
+          <span style={{ position: "absolute", right: 0, top: zeroY - 6 }}>0</span>
+          {rawMin < 0 && <span style={{ position: "absolute", right: 0, bottom: 0 }}>{nm(rawMin)}</span>}
+        </div>
+        <div data-chart="" style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
+          <div className="flex" style={{ alignItems: "flex-end", gap: 10,
+            minWidth: `${rows.length * 42}px` }}>
+            {rows.map((r) => {
+              const lo = Math.min(r.lo, r.hi);
+              const hi = Math.max(r.lo, r.hi);
+              const gone = isOff(r.trait);
+              const planText = lo === hi ? nm(hi) : `${nm(lo)} … ${nm(hi)}`;
+              const units = madeOf ? madeOf(r.trait) : [];
+              const label = `${traitName(r.trait)}: прогноз ${planText}`
+                + (r.fact == null ? ", факта нет" : `, факт ${nm(r.fact)}`)
+                + (gone ? " — не прослеживается" : "");
+              return (
+                <div key={r.trait} style={{ flex: "0 0 32px", width: 32 }}>
+                  <div role="img" aria-label={label} data-off={gone ? "1" : undefined}
+                    style={{ position: "relative", height: H,
+                      opacity: gone ? 0.35 : 1, cursor: units.length && !gone ? "pointer" : "default" }}
+                    onClick={() => (units.length && !gone ? setOpen(open === r.trait ? "" : r.trait) : null)}>
+                    <div style={{ position: "absolute", left: 0, right: 0, top: zeroY,
+                      height: 1, background: C.line }} />
+                    {/* Прогноз — левая полоса, факт — правая: столбик на
+                        ресурс, как на эквалайзере. */}
+                    <div style={{ position: "absolute", left: 2, width: 12, top: 0, bottom: 0 }}>
+                      {lo !== 0 && bar(0, lo, gone ? NEU : WARN, `прогноз не меньше ${nm(lo)}`)}
+                      {lo !== hi && bar(lo, hi, gone ? NEU : WARN, `прогноз до ${nm(hi)}`, true)}
+                    </div>
+                    <div style={{ position: "absolute", right: 2, width: 12, top: 0, bottom: 0 }}>
+                      {r.fact != null && r.fact !== 0 && bar(0, r.fact, gone ? NEU : OK, `факт ${nm(r.fact)}`)}
+                    </div>
+                  </div>
+                  {/* Подпись по диагонали и галочка под самой полосой
+                      (владелец, 2026-09-20). Снятая галочка — ресурс серый
+                      и в отчёт не идёт. */}
+                  <div style={{ height: 78, position: "relative", marginTop: 4 }}>
+                    {onToggle && (
+                      <input type="checkbox" checked={!gone}
+                        aria-label={`прослеживать ${traitName(r.trait)}`}
+                        onChange={() => onToggle(r.trait)}
+                        style={{ position: "absolute", left: 8, top: 0 }} />)}
+                    {/* Длинное имя обрезается: иначе подпись уезжает на
+                        соседний столбец и читаются обе плохо. */}
+                    <span title={traitName(r.trait)} style={{ position: "absolute", left: 14, top: 20,
+                      transform: "rotate(45deg)", transformOrigin: "left top",
+                      whiteSpace: "nowrap", fontSize: 10.5, maxWidth: 86,
+                      overflow: "hidden", textOverflow: "ellipsis",
+                      color: gone ? C.muted : C.text }}>{traitName(r.trait)}</span>
+                  </div>
+                </div>);
+            })}
+          </div>
+        </div>
       </div>
-      {rows.map((r) => {
-        const lo = Math.min(r.lo, r.hi);
-        const hi = Math.max(r.lo, r.hi);
-        const gone = isOff(r.trait);
-        const planText = lo === hi ? nm(hi) : `${nm(lo)} … ${nm(hi)}`;
-        // Вещи этого ресурса, которые уже родились: их и открывают нажатием.
-        const units = madeOf ? madeOf(r.trait) : [];
-        const on = open === r.trait;
-        const label = `${traitName(r.trait)}: прогноз ${planText}`
-          + (r.fact == null ? ", факта нет" : `, факт ${nm(r.fact)}`);
-        const head = (
-          <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline" }}>
-            <span style={{ fontSize: 11.5, flex: "1 1 110px",
-              color: gone ? C.muted : C.text }}>{traitName(r.trait)}</span>
-            {/* Сколько есть сейчас — точка отсчёта: «+3» без неё не говорит,
-                много это или мало. */}
-            {haveOf && (
-              <span style={{ fontSize: 10.5, color: C.muted }}>
-                сейчас{" "}
-                <b style={{ fontFamily: "ui-monospace, monospace" }}>{nm(haveOf(r.trait))}</b>
-              </span>)}
-            <span style={{ fontSize: 10.5, color: gone ? C.muted : WARN }}>
-              прогноз{" "}
-              <b style={{ fontFamily: "ui-monospace, monospace" }}>{planText}</b>
-            </span>
-            <span style={{ fontSize: 10.5, color: gone || r.fact == null ? C.muted : OK }}>
-              {r.fact == null ? "факта нет" : (<>факт{" "}
-                <b style={{ fontFamily: "ui-monospace, monospace" }}>
-                  {nm(r.fact)}</b></>)}
-            </span>
-            {!!units.length && !gone && (
-              <span style={{ fontSize: 10.5, color: ACC }}>
-                {on ? "▾" : "▸"} {nm(units.length)} шт. — показать</span>)}
-          </div>);
-        return (
-          <div key={r.trait} style={{ marginBottom: 9, opacity: gone ? 0.5 : 1 }}>
-            <div className="flex items-start gap-2">
-              {/* Галочка слева: ресурс можно не прослеживать, и в отчёт он
-                  тогда не идёт (владелец, 2026-09-19). */}
-              {onToggle && (
-                <input type="checkbox" checked={!gone}
-                  aria-label={`прослеживать ${traitName(r.trait)}`}
-                  onChange={() => onToggle(r.trait)}
-                  style={{ marginTop: 3, flex: "0 0 auto" }} />)}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                {/* Есть что открыть — строка нажимается; нечего — она просто
-                    строка, и притворяться кнопкой ей незачем. */}
-                {units.length && !gone
-                  ? (<div role="button" tabIndex={0} style={{ cursor: "pointer" }}
-                      aria-label={`созданные единицы: ${traitName(r.trait)}`}
-                      onClick={() => setOpen(on ? "" : r.trait)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault(); setOpen(on ? "" : r.trait);
-                        }
-                      }}>{head}</div>)
-                  : head}
-                {/* Полоса прогноза и полоса факта — на общей шкале и с общим
-                    нулём: строки сравнимы между собой. */}
-                {gone
-                  ? (<div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>
-                      не прослеживается</div>)
-                  : (<div style={{ position: "relative", height: r.fact == null ? 11 : 23,
-                      marginTop: 3, overflow: "hidden" }}
-                      role="img" aria-label={label}>
-                      <div style={{ position: "absolute", left: `${zero}%`, top: 0, bottom: 0,
-                        width: 1, background: C.line }} />
-                      {lo !== 0 && bar(0, lo, WARN, `прогноз не меньше ${nm(lo)}`)}
-                      {lo !== hi && bar(lo, hi, WARN, `прогноз до ${nm(hi)}`, true)}
-                      {/* Ноль полосой не рисуется: обрубок в 2 пикселя у нулевой
-                          линии читался бы как «чуть-чуть», а вышло ровно ничего.
-                          Само число при этом стоит текстом выше. */}
-                      {r.fact != null && r.fact !== 0 && (
-                        <div style={{ position: "absolute", top: 14, left: 0, right: 0,
-                          height: 9 }}>
-                          {bar(0, r.fact, OK, `факт ${nm(r.fact)}`)}
-                        </div>)}
-                    </div>)}
-                {on && !gone && (
-                  <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 8,
-                    marginTop: 2 }}>
-                    {units.map((u) => (
-                      <MadeUnit key={u.id} u={u} traitName={traitName} />))}
-                  </div>)}
-              </div>
-            </div>
-          </div>);
-      })}
-      {/* Шкала под графиком: без неё длина полосы — число без единиц. */}
-      <div className="flex" style={{ position: "relative", height: 14, marginTop: 2,
-        fontSize: 9.5, color: C.muted, fontFamily: "ui-monospace, monospace" }}>
-        {rawMin < 0 && <span style={{ position: "absolute", left: 0 }}>{nm(rawMin)}</span>}
-        <span style={{ position: "absolute", left: `${zero}%`, transform: "translateX(-50%)" }}>0</span>
-        {rawMax > 0 && <span style={{ position: "absolute", right: 0 }}>{nm(rawMax)}</span>}
+      {/* Подписи — ПОД графиком и без пояснений (владелец, 2026-09-20). */}
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
+        {dot(WARN, "прогноз")}{dot(OK, "факт")}{dot(NEU, "неактивен")}
       </div>
+      {opened && !!openedUnits.length && (
+        <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 8, marginTop: 6 }}
+          aria-label={`созданные единицы: ${traitName(opened.trait)}`}>
+          {openedUnits.map((u) => (<MadeUnit key={u.id} u={u} traitName={traitName} />))}
+        </div>)}
     </div>);
 }
 
@@ -532,7 +508,6 @@ const perRun = (s) => (s.runs > 0 ? nm(Math.round((s.workHi / s.runs) * 10) / 10
 
 /* ─── 3. сроки и трудозатраты ─── */
 function Schedule({ steps = [], before = [], plan, actual, traitName = (x) => x }) {
-  const live = steps.filter((s) => !s.short?.length);
   return (
     <div>
       <Facts rows={[
@@ -547,23 +522,9 @@ function Schedule({ steps = [], before = [], plan, actual, traitName = (x) => x 
       <div style={{ marginTop: 8 }}>
         <Timeline steps={steps} before={before} traitName={traitName} />
       </div>
-      {!!live.length && (
-        <div style={{ marginTop: 6 }}>
-          <div style={S.lbl}>по функциям</div>
-          {live.map((s) => (
-            <div key={s.func} className="flex flex-wrap gap-2"
-              style={{ alignItems: "baseline", fontSize: 10.5, lineHeight: 1.6,
-                borderTop: `1px solid ${C.line}`, padding: "3px 0" }}>
-              <span style={{ fontSize: 11.5, flex: "1 1 120px" }}>{s.name}</span>
-              <span style={{ color: C.muted }}>
-                начнётся {s.startHours > 0 ? `через ${timeText(s.startHours)}` : "сразу"}</span>
-              <span style={{ color: C.muted }}>займёт {timeText(s.calendarHours)}</span>
-              <span style={{ color: WARN }}>работы {hoursRange(s.workLo, s.workHi)}</span>
-              {!!s.doneCount && (
-                <span style={{ color: OK }}>
-                  по факту {nm(Math.round((s.factHours || 0) * 10) / 10)} ч</span>)}
-            </div>))}
-        </div>)}
+      {/* Списка «по функциям» здесь нет (владелец, 2026-09-20: «раздел
+          „Сроки и трудозатраты" это уже отражает») — то же самое стоит
+          выше полосами на календарной линейке. */}
     </div>);
 }
 
@@ -987,7 +948,10 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
    заголовком сказано, что в нём, и одно и то же в двух местах не стоит. */
 /* Раздел сворачивается нажатием на заголовок (владелец, 2026-09-19: «все
    формы на вкладке „Отчёты" должны уметь сворачиваться при нажатии»). */
-function Part({ n, title, hint, children, open: open0 = true }) {
+/* Пояснений у разделов нет (владелец, 2026-09-20: «убери из отчётов весь
+   лишний текст»): заголовок и есть объяснение, а абзац под ним человек
+   всё равно перечитывает один раз и больше не смотрит. */
+function Part({ n, title, children, open: open0 = true }) {
   const [open, setOpen] = useState(open0);
   return (
     <section style={{ marginTop: 12, borderTop: `1px solid ${C.line}`,
@@ -999,12 +963,7 @@ function Part({ n, title, hint, children, open: open0 = true }) {
         <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{n}. {title}</span>
         <span style={{ fontSize: 11, color: C.muted }}>{open ? "▾" : "▸"}</span>
       </button>
-      {open && (<>
-        {hint && (
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
-            {hint}</div>)}
-        <div style={{ marginTop: 6 }}>{children}</div>
-      </>)}
+      {open && <div style={{ marginTop: 6 }}>{children}</div>}
     </section>);
 }
 
@@ -1040,10 +999,13 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
      кнопки „Проследить" — исправь это». Выбор ресурса это ещё вопрос, а не
      ответ: пока кнопку не нажали, отчёт не считается и на экране ничего не
      меняется. */
-  const [draft, setDraft] = useState(() => ({ trait: node.trait || "",
-    units: pickedOf(node), upto: node.upto || "", qty: node.qty || 1 }));
+  const [form, setForm] = useState(false);
+  const [draft, setDraft] = useState(() => ({ trait: "", proc: "", units: [], qty: 1 }));
   const setD = (patch) => setDraft((d) => ({ ...d, ...patch }));
   const units = draft.trait ? unitsOfTrait(model, draft.trait) : [];
+  /* В списке процессов — только те, где этот ресурс участвует (владелец,
+     2026-09-20): процесс, где о нём не сказано ни слова, только мешает. */
+  const procs = useMemo(() => procsOfTrait(model, draft.trait), [model, draft.trait]);
   const picked = draft.units.filter(Boolean);
   /* Ресурсы, которые решено не прослеживать: строка сереет, полосы нет, и
      в отчёт он не идёт (владелец, 2026-09-19). */
@@ -1068,20 +1030,20 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
      вопросом, пока на него не нажали; нажатие уносит выбор в отдельный
      раздел, и в отчёте их может быть сколько угодно: один ресурс — один
      раздел. */
+  /* «Применить» СОЗДАЁТ раздел (владелец, 2026-09-20): один ресурс — один
+     раздел, и в отчёте их может быть сколько угодно. Перенастройки нет:
+     раздел удаляют и создают заново — так не бывает наполовину
+     переписанного раздела, у которого имя от одного ресурса, а числа от
+     другого. */
   const trace = () => {
     if (!draft.trait) return;
-    const patch = { trait: draft.trait, units: picked, upto: draft.upto,
-      qty: picked.length || draft.qty || 1 };
-    /* Раздел уже что-то прослеживает — нажатие перенастраивает ЕГО. У
-       отчёта, который пока ничего не прослеживает, появляется раздел: один
-       ресурс — один раздел, и в отчёте их может быть сколько угодно. */
-    if (node.trait) { up(patch); setOpen(true); return; }
-    const name = `${traitName(draft.trait)}${draft.upto ? ` → ${traitName(draft.upto)}` : ""}`;
-    const kid = { ...newSection(node.id, name), ...patch };
+    const procName = (model.procs || []).find((pr) => pr.id === draft.proc)?.name;
+    const name = `${traitName(draft.trait)}${procName ? ` · ${procName}` : ""}`;
+    const kid = { ...newSection(node.id, name), trait: draft.trait, proc: draft.proc,
+      units: picked, qty: picked.length || 1 };
     setNodes((p) => [...p, kid]);
-    setDraft({ trait: "", units: [], upto: "", qty: 1 });
-    /* Раздел открывается прямо здесь, в общем списке: уводить в отдельный
-       вид нельзя — кнопки «все отчёты» больше нет (владелец, 2026-09-19). */
+    setDraft({ trait: "", proc: "", units: [], qty: 1 });
+    setForm(false);
     setOpen(true);
   };
   /* Цепочки нет, а функции, берущие этот ресурс, у процесса, принятого
@@ -1152,140 +1114,91 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           onClick={() => setNodes((p) => dropNode(p, node.id))}>удалить</button>
       </div>
 
-      {/* «Шаг» и «задача» — не одно и то же, и коротких слов тут мало:
-          шаг это ФУНКЦИЯ цепочки, а задача — одно её выполнение. Одна
-          функция, выполненная четыре раза, — это один шаг и четыре задачи,
-          и подпись обязана говорить это словами, а не оставлять человека
-          гадать, почему числа разные. */}
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
-        функций в цепочке: {plan.hi.steps.length} ·
-        {" "}задач по этому разделу: {sum.rows} (принято {sum.accepted}) ·
-        {" "}часов по факту: {nm(sum.hours)}
-      </div>
+      {/* Сводки под названием нет (владелец, 2026-09-20: «не должно быть
+          написано, сколько функций в цепочке, сколько задач, поэтому
+          разделу и тому подобное») — эти числа стоят внутри разделов,
+          каждое на своём месте. */}
 
       {open && (<>
-        {/* ─── что прослеживаем ─── */}
-        <div style={{ ...S.lbl, marginTop: 8 }}>что прослеживаем</div>
-        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
-          <select style={{ ...S.inp, flex: "1 1 130px", minWidth: 0, fontSize: 11.5,
-            padding: "4px 6px" }}
-            aria-label={`с какого ресурса: ${node.name || "без названия"}`}
-            value={draft.trait}
-            onChange={(e) => setD({ trait: e.target.value, upto: "", units: [] })}>
-            <option value="">— с какого ресурса —</option>
-            {traits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
-          </select>
-          {/* ─── КАКАЯ ИМЕННО единица этого ресурса ───
+        {/* ─── новый раздел ───
 
-              Поле стоит рядом с самим ресурсом, потому что вопрос один и
-              тот же: «какой договор». Прежде выбор жил отдельным рядом
-              кнопок ниже, и его попросту не находили — а без него отчёт
-              отвечал прогнозом там, где спрашивали про сделанное.
-
-              Пусто — это ответ, а не пропуск: «что произойдёт, когда
-              договор появится». Выбрана единица — второй вопрос: «что
-              происходило вот с этим». */}
-          <select style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: 11.5,
-            padding: "4px 6px" }}
-            aria-label={`какая единица: ${node.name || "без названия"}`}
-            value="" disabled={!draft.trait || !units.length}
-            onChange={(e) => (e.target.value
-              ? setD({ units: [...new Set([...picked, e.target.value])] })
-              : null)}>
-            <option value="">
-              {!draft.trait ? "— сначала выберите ресурс —"
-                : !units.length ? "единиц пока нет — это прогноз"
-                  : picked.length ? "+ добавить единицу" : "— какая именно единица —"}
-            </option>
-            {units.filter((u) => !picked.includes(u.id)).map((u) => (
-              <option key={u.id} value={u.id}>
-                №{u.no} {u.title || "без названия"}
-                {u.accepted ? "" : " (не принято)"}</option>))}
-          </select>
-          {/* Количество стоит ЗДЕСЬ, у самого ресурса: это его количество, и
-              спрашивать «сколько» отдельно от «чего» — значит заставлять
-              человека держать связь в голове. Выбраны конкретные единицы —
-              число берётся из них и руками не правится: две записи про одно
-              и то же разъехались бы, и стало бы непонятно, какой верить. */}
-          <NumField value={picked.length || draft.qty || 1}
-            style={{ flex: "0 1 72px", fontSize: 11.5, padding: "4px 6px",
-              opacity: picked.length ? 0.6 : 1 }}
-            readOnly={!!picked.length}
-            aria-label={`количество: ${node.name || "без названия"}`}
-            onCommit={(v) => (picked.length
-              ? null : setD({ qty: Math.max(1, Number(v) || 1) }))} />
-          <span style={{ fontSize: 10.5, color: C.muted }}>
-            {picked.length ? "шт. — столько выбрано" : "шт."}</span>
-          <select style={{ ...S.inp, flex: "1 1 130px", minWidth: 0, fontSize: 11.5,
-            padding: "4px 6px" }}
-            aria-label={`до какого звена: ${node.name || "без названия"}`}
-            value={draft.upto} disabled={!draft.trait}
-            onChange={(e) => setD({ upto: e.target.value })}>
-            <option value="">
-              {draft.trait ? "до конца цепочки" : "— сначала выберите ресурс —"}</option>
-            {uptoTraits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
-            {/* Старая запись со звеном-функцией: показываем, что стоит, —
-                молча заменить на «до конца» значило бы переписать выбор. */}
-            {!!draft.upto && !uptoTraits.some((t) => t.id === draft.upto)
-              && funcs.some((f) => f.id === draft.upto) && (
-              <option value={draft.upto}>{funcName(draft.upto)} (функция — прежняя запись)</option>)}
-          </select>
-          <button style={{ ...btn(true, OK), fontSize: 11,
-            opacity: draft.trait ? 1 : 0.45, cursor: draft.trait ? "pointer" : "default" }}
-            disabled={!draft.trait} onClick={trace}
-            aria-label={`проследить: ${node.name || "без названия"}`}
-            title={draft.trait ? "Показать движение этого ресурса"
-              : "Сначала выберите ресурс"}>Проследить</button>
-        </div>
+            У отчёта есть название, под ним — кнопка «Создать раздел»
+            (владелец, 2026-09-20). Поля формы стоят столбиком, у каждого
+            своя подпись: прежде они шли строкой, два из них были
+            неактивны, и что они спрашивают — понять было нельзя. */}
+        {root && (<>
+          <button style={{ ...btn(true, ACC), fontSize: 11.5, marginTop: 8 }}
+            aria-expanded={form} aria-label={`создать раздел: ${node.name || "без названия"}`}
+            onClick={() => setForm((v) => !v)}>
+            {form ? "▾ Создать раздел" : "+ Создать раздел"}</button>
+          {form && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8,
+              background: C.ink, border: `1px solid ${C.line}`, borderRadius: 8, padding: 9 }}>
+              <label style={{ display: "block" }}>
+                <div style={S.lbl}>отслеживаемый ресурс</div>
+                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "4px 6px", marginTop: 3 }}
+                  aria-label="отслеживаемый ресурс" value={draft.trait}
+                  onChange={(e) => setD({ trait: e.target.value, proc: "", units: [] })}>
+                  <option value="">— выберите ресурс —</option>
+                  {traits.map((t) => (<option key={t.id} value={t.id}>{t.l}</option>))}
+                </select>
+              </label>
+              <label style={{ display: "block" }}>
+                <div style={S.lbl}>отслеживаемый техпроцесс</div>
+                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "4px 6px", marginTop: 3 }}
+                  aria-label="отслеживаемый техпроцесс" value={draft.proc}
+                  disabled={!draft.trait || !procs.length}
+                  onChange={(e) => setD({ proc: e.target.value })}>
+                  <option value="">
+                    {!draft.trait ? "— сначала выберите ресурс —"
+                      : !procs.length ? "процессов с этим ресурсом нет — вся схема"
+                        : "вся схема"}
+                  </option>
+                  {procs.map((pr) => (
+                    <option key={pr.id} value={pr.id}>{pr.name || "процесс без названия"}</option>))}
+                </select>
+              </label>
+              <label style={{ display: "block" }}>
+                <div style={S.lbl}>существующая единица</div>
+                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "4px 6px", marginTop: 3 }}
+                  aria-label="существующая единица" value=""
+                  disabled={!draft.trait || !units.length}
+                  onChange={(e) => (e.target.value
+                    ? setD({ units: [...new Set([...picked, e.target.value])] })
+                    : null)}>
+                  <option value="">
+                    {!draft.trait ? "— сначала выберите ресурс —"
+                      : !units.length ? "единиц пока нет — это прогноз"
+                        : picked.length ? "+ добавить единицу" : "— без единицы: прогноз —"}
+                  </option>
+                  {units.filter((u) => !picked.includes(u.id)).map((u) => (
+                    <option key={u.id} value={u.id}>
+                      №{u.no} {u.title || "без названия"}
+                      {u.accepted ? "" : " (не принято)"}</option>))}
+                </select>
+              </label>
+              {!!picked.length && (
+                <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
+                  {picked.map((id) => {
+                    const u = units.find((x) => x.id === id);
+                    return (
+                      <button key={id} style={{ ...btn(true, ACC), fontSize: 11, padding: "3px 7px" }}
+                        aria-label={`убрать единицу: ${u ? `№${u.no}` : id}`}
+                        onClick={() => setD({ units: picked.filter((x) => x !== id) })}>
+                        {u ? `№${u.no} ${u.title || "без названия"}` : "единица удалена"}
+                        {" ×"}</button>);
+                  })}
+                </div>)}
+              <button style={{ ...btn(true, OK), fontSize: 11.5,
+                opacity: draft.trait ? 1 : 0.45, cursor: draft.trait ? "pointer" : "default" }}
+                disabled={!draft.trait} onClick={trace} aria-label="применить">Применить</button>
+            </div>)}
+        </>)}
         {hypoBlocked && (
           <div style={{ fontSize: 11, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
             Движение не считается: функции, которые берут «{traitName(node.trait)}»,
             принадлежат процессу, принятому гипотетически. Включите «считать
             гипотезы» на «Схеме».
-          </div>)}
-
-        {/* ─── выбранные единицы ───
-
-            Ресурс сюда не ЗАГРУЖАЮТ: новые вещи рождаются там, где их и
-            делают, — при сдаче выполненной задачи. Здесь их ВЫБИРАЮТ из уже
-            сделанных, и выбранные стоят рядом фишками: видно, про что
-            отчёт, и любую можно снять. */}
-        {!!picked.length && (
-          <div className="flex flex-wrap gap-2" style={{ marginTop: 6,
-            alignItems: "center" }}>
-            {picked.map((id) => {
-              const u = units.find((x) => x.id === id);
-              return (
-                <button key={id} style={{ ...btn(true, ACC), fontSize: 11,
-                  padding: "3px 7px" }}
-                  aria-label={`убрать единицу: ${u ? `№${u.no}` : id}`}
-                  onClick={() => setD({ units: picked.filter((x) => x !== id) })}>
-                  {u ? `№${u.no} ${u.title || "без названия"}` : "единица удалена"}
-                  {" ×"}</button>);
-            })}
-          </div>)}
-        {!!node.trait && (
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-            {picked.length
-              ? `Выбрано ${picked.length} — отчёт про них и про то, что из них выросло: их задачи, их вещи, их часы.`
-              : units.length
-                ? `Единица не выбрана — это ПРОГНОЗ: что произойдёт, когда ${
-                  traitName(node.trait)} появится в системе. Выберите конкретную
-                  единицу выше, чтобы увидеть, что по ней уже сделано.`
-                : `Единиц у ресурса «${traitName(node.trait)}» пока нет — выбирать
-                  не из чего, и это прогноз. Единица появляется, когда её выдаёт
-                  чья-то выполненная задача; ресурс, приходящий со стороны, их не
-                  имеет вовсе.`}
-          </div>)}
-
-        {!node.trait && (
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-            Выберите ресурс, с которого начинается работа, и звено, до которого её прослеживать.
-          </div>)}
-
-        {doc.broken && (
-          <div style={{ fontSize: 11, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
-            До этого звена цепочка не доходит: между ним и ресурсом разрыв.
           </div>)}
 
         {!!doc.unit && (
@@ -1322,15 +1235,9 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           </div>)}
 
         {!!node.trait && (<>
-          <Part n={1} title="Ресурсы — что изменится"
-            hint="Насколько изменится каждый ресурс. Прогноз — вилка, факт — по принятым задачам.">
-            <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
-              считано на {nm(plan.hi.qty)} × {traitName(node.trait)}
-              {doc.hypothetical ? " — единица не выбрана, прогноз для новой" : ""}
-            </div>
+          <Part n={1} title="Ресурсы">
             {changes.length
               ? <ChangeChart rows={changes} traitName={traitName}
-                  haveOf={(t) => Number(traits.find((x) => x.id === t)?.have) || 0}
                   madeOf={(t) => doc.made.filter((u) => u.trait === t)}
                   off={offSet} onToggle={toggleTrait} />
               : <div style={{ fontSize: 11, color: C.muted }}>
@@ -1341,43 +1248,45 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
                 {Object.entries(plan.hi.need)
                   .map(([id, q]) => `${traitName(id)} ${nm(q)}`).join(", ")}
               </div>)}
-            {/* Нажимать не на что — так и сказано: молчаливо неактивная
-                строка читается как поломка. */}
-            {!!changes.length && (
-              <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-                {doc.made.length
-                  ? "Нажмите на ресурс — откроются сами вещи, которые по нему вышли, и их можно скачать."
-                  : "Готовых вещей по этой цепочке ещё нет — открывать пока нечего."}
-              </div>)}
           </Part>
 
-          <Part n={2} title="Сроки и трудозатраты"
-            hint="Когда что начнётся, сколько продлится и сколько часов потребует.">
+          <Part n={2} title="Сроки и трудозатраты">
             <Schedule steps={doc.steps} before={doc.before} plan={plan} actual={actual}
               traitName={traitName} />
           </Part>
 
-          <Part n={3} title="Задачи — что уже сделано"
-            hint="Заведённые задачи: кто, срок, состояние, часы и что вышло.">
+          <Part n={3} title="Задачи — что уже сделано">
             <TaskList steps={doc.steps} before={doc.before} actual={actual}
               traitName={traitName}
               personName={(id) => (nameOf ? nameOf(id) : id)} />
           </Part>
 
           {FACTORS_ON && !!factors.length && (
-            <Part n={4} title="Факторы — что влияет"
-              hint="Что в этой цепочке случается само, без людей, и с какой вероятностью.">
+            <Part n={4} title="Факторы — что влияет">
               <FactorRows factors={factors} />
             </Part>)}
         </>)}
 
+        {kids.map((k, i) => (
+          <Node key={k.id} node={k} nodes={nodes} model={model}
+            doc={doc.sections[i]} depth={depth + 1}
+            focus={focus} onFocus={onFocus} setNodes={setNodes}
+            traitName={traitName} funcName={funcName} nameOf={nameOf} entities={entities} />))}
+
+        {/* Скачать и ссылка — ВНИЗУ: у раздела внизу раздела, у отчёта
+            внизу отчёта, под его разделами (владелец, 2026-09-20). Ссылка
+            бывает только на весь отчёт или на созданный раздел — на то,
+            что у них внутри, ссылок нет. */}
         <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
           <button style={{ ...btn(true, OK), fontSize: 11 }} disabled={saving}
+            aria-label={root ? "скачать отчёт" : `скачать раздел ${node.name || "без названия"}`}
             onClick={download}>
-            {saving ? "Готовлю…" : "Скачать отчёт"}</button>
+            {saving ? "Готовлю…" : root ? "Скачать отчёт" : "Скачать раздел"}</button>
           <button style={{ ...btn(false), fontSize: 11 }} disabled={busy}
+            aria-label={root ? "ссылка на отчёт" : `ссылка на раздел ${node.name || "без названия"}`}
             onClick={makeLink}>
-            {busy ? "Готовлю…" : link ? "обновить ссылку" : "ссылка на этот блок"}</button>
+            {busy ? "Готовлю…" : link ? "обновить ссылку"
+              : root ? "Ссылка на отчёт" : "Ссылка на раздел"}</button>
         </div>
         {saveErr && (
           <div style={{ fontSize: 10.5, color: BAD, marginTop: 5, lineHeight: 1.5 }}>
@@ -1392,12 +1301,6 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
                 : "Открывается без входа: снимок этого блока и ничего сверх."}
             </div>
           </div>)}
-
-        {kids.map((k, i) => (
-          <Node key={k.id} node={k} nodes={nodes} model={model}
-            doc={doc.sections[i]} depth={depth + 1}
-            focus={focus} onFocus={onFocus} setNodes={setNodes}
-            traitName={traitName} funcName={funcName} nameOf={nameOf} entities={entities} />))}
       </>)}
     </div>);
 }

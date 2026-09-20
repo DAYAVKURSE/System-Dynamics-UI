@@ -46,14 +46,14 @@ const str = (v) => (v == null ? "" : String(v));
 
 /** Проект — корень карты: у него нет родителя. */
 export const newProject = (name = "новый проект") => ({
-  id: nextId("rp"), parent: null, name, trait: "", units: [], file: null,
+  id: nextId("rp"), parent: null, name, trait: "", proc: "", units: [], file: null,
   upto: "", qty: 1,
 });
 
 /** Раздел — тот же блок, только внутри другого. */
 export const newSection = (parent, name = "новый раздел") => ({
   id: nextId("rs"), parent: parent ?? null, name,
-  trait: "", units: [], file: null, upto: "", qty: 1,
+  trait: "", proc: "", units: [], file: null, upto: "", qty: 1,
 });
 
 /* Поля `brief`, `picks` и `tweaks` не читаются и не сохраняются. Пересказ
@@ -77,6 +77,10 @@ export const normalizeReport = (n = {}) => {
     name: str(n.name),
     // Ресурс, с которого раздел начинается, и он сам — файлом.
     trait: str(n.trait),
+    /* Отслеживаемый техпроцесс (владелец, 2026-09-20): пусто — вся схема.
+       Выбран — в цепочку идут только его функции: спрашивают «как этот
+       ресурс движется ВОТ В ЭТОМ процессе», а не вообще. */
+    proc: str(n.proc),
     units,
     file: n.file && typeof n.file === "object" ? n.file : null,
     // Звено, до которого прослеживаем: ресурс или функция. Пусто — до конца.
@@ -94,6 +98,29 @@ export const normalizeReport = (n = {}) => {
 
 export const normalizeReports = (list) =>
   (Array.isArray(list) ? list.map(normalizeReport) : []);
+
+/**
+ * Техпроцессы, в которых участвует этот ресурс.
+ *
+ * Владелец (2026-09-20): «при выборе ресурса в отслеживаемом техпроцессе
+ * должны быть только те процессы, в которых участвует этот ресурс».
+ * Участвует — значит какая-то функция процесса его берёт или выдаёт;
+ * процесс, где о ресурсе не сказано ни слова, в списке только мешает.
+ */
+export function procsOfTrait(model = {}, traitId) {
+  const id = str(traitId);
+  if (!id) return [];
+  const ids = new Set((model.funcs || [])
+    .filter((f) => f && f.proc
+      && [...(f.takes || []), ...(f.gives || [])].some((p) => str(p.trait) === id))
+    .map((f) => f.proc));
+  return (model.procs || []).filter((p) => ids.has(p.id));
+}
+
+/** Модель глазами раздела: выбран техпроцесс — только его функции. */
+export const scopeOf = (model = {}, node = {}) => (node && node.proc
+  ? { ...model, funcs: (model.funcs || []).filter((f) => f && f.proc === node.proc) }
+  : model);
 
 /** Блоки первого уровня. Потерявший родителя всплывает наверх, а не пропадает. */
 export const rootsOf = (nodes = []) => nodes.filter((n) =>

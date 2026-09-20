@@ -65,7 +65,7 @@ describe("запись карты", () => {
 
   it("чужая запись достраивается, а не ломается", () => {
     expect(normalizeReports([{ id: "x" }])[0])
-      .toEqual({ id: "x", parent: null, name: "", trait: "", units: [],
+      .toEqual({ id: "x", parent: null, name: "", trait: "", proc: "", units: [],
         file: null, upto: "", qty: 1, off: [] });
     // Прежняя запись с одной единицей читается как список из одного.
     expect(normalizeReports([{ id: "x", unit: "s1~t2" }])[0])
@@ -199,24 +199,25 @@ describe("карта в форме", () => {
       focus={focus} onFocus={setFocus} />);
   };
 
-  /* «ПРОСЛЕДИТЬ» (владелец, 2026-09-19): «нужно добавить кнопку
-     „Проследить", по нажатию которой будет создаваться раздел отчёта с
-     прослеживаемым движением ресурсов». */
-  it("«Проследить» уносит выбор в свой раздел, а отчёт освобождается под следующий", () => {
+  /* СОЗДАНИЕ РАЗДЕЛА (владелец, 2026-09-20): «у нас есть название отчёта,
+     под ним кнопка „Создать раздел"; при создании раздела все ожидаемые
+     поля должны быть в столбике… кнопка „Применить"». */
+  it("«Создать раздел» открывает столбик подписанных полей, «Применить» создаёт раздел", () => {
     render(<Panel nodes={[{ id: "rp1", parent: null, name: "Заказ", trait: "", upto: "" }]} />);
-    const pick = screen.getByLabelText("с какого ресурса: Заказ");
-    // Пока ресурс не выбран, прослеживать нечего — кнопка не нажимается.
-    expect(screen.getByRole("button", { name: "проследить: Заказ" })).toBeDisabled();
-    fireEvent.change(pick, { target: { value: "t1" } });
-    fireEvent.click(screen.getByRole("button", { name: "проследить: Заказ" }));
-    // Раздел назван ресурсом, открыт и несёт его движение — прямо здесь,
-    // в общем списке: кнопки «все отчёты» больше нет (владелец, 2026-09-19).
+    // Под названием отчёта — только кнопка: полей до неё нет.
+    expect(screen.queryByLabelText("отслеживаемый ресурс")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "создать раздел: Заказ" }));
+    // Поля названы и стоят столбиком; «Применить» пока не нажимается.
+    expect(screen.getByLabelText("отслеживаемый ресурс")).toBeInTheDocument();
+    expect(screen.getByLabelText("отслеживаемый техпроцесс")).toBeDisabled();
+    expect(screen.getByLabelText("существующая единица")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "применить" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("отслеживаемый ресурс"), { target: { value: "t1" } });
+    fireEvent.click(screen.getByRole("button", { name: "применить" }));
+    // Раздел назван ресурсом и несёт его движение; форма закрылась.
     expect(screen.getByLabelText("название раздела").textContent).toBe("заявка");
-    expect(screen.getByLabelText("с какого ресурса: заявка").value).toBe("t1");
-    expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "← все отчёты" })).toBeNull();
-    // У самого отчёта выбор снова пуст — под следующее прослеживание.
-    expect(screen.getByLabelText("с какого ресурса: Заказ").value).toBe("");
+    expect(screen.getByText("1. Ресурсы")).toBeInTheDocument();
+    expect(screen.queryByLabelText("отслеживаемый ресурс")).toBeNull();
   });
 
   it("название отчёта правится двойным нажатием, а не в поле", () => {
@@ -246,15 +247,19 @@ describe("карта в форме", () => {
        — что будет сделано» больше нет вовсе (владелец, 2026-09-19: «второй
        раздел убери полностью»). */
     render(<Panel nodes={NODES} />);
-    expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
+    expect(screen.getByText("1. Ресурсы")).toBeInTheDocument();
     expect(screen.getByText("2. Сроки и трудозатраты")).toBeInTheDocument();
     expect(screen.getByText("3. Задачи — что уже сделано")).toBeInTheDocument();
+    /* Пояснений под заголовками нет (владелец, 2026-09-20: «убери из
+       отчётов весь лишний текст»). */
+    expect(screen.queryByText(/Насколько изменится каждый ресурс/)).toBeNull();
+    expect(screen.queryByText(/Когда что начнётся, сколько продлится/)).toBeNull();
     expect(screen.queryByText(/Функции — что будет сделано/)).toBeNull();
     // Факторов в модели нет — раздела про них нет: пустой раздел — не раздел.
     expect(screen.queryByText(/4\. Факторы/)).toBeNull();
     expect(screen.queryByText(/созданные ресурсы/)).toBeNull();
     // Часы и сроки стоят во втором разделе и ТОЛЬКО там.
-    const part1 = screen.getByText("1. Ресурсы — что изменится").closest("section");
+    const part1 = screen.getByText("1. Ресурсы").closest("section");
     expect(within(part1).queryByText(/человеко-часов/)).toBeNull();
     expect(within(part1).queryByText(/Займёт/)).toBeNull();
     const part2 = screen.getByText("2. Сроки и трудозатраты").closest("section");
@@ -278,7 +283,10 @@ describe("карта в форме", () => {
     expect(screen.queryByRole("button",
       { name: /ссылка на раздел отчёта/ })).toBeNull();
     // Ссылка на сам отчёт при этом осталась.
-    expect(screen.getAllByRole("button", { name: "ссылка на этот блок" }).length)
+    /* Ссылка бывает только на весь отчёт или на созданный раздел
+       (владелец, 2026-09-20). */
+    expect(screen.getByRole("button", { name: "ссылка на отчёт" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^ссылка на раздел / }).length)
       .toBeGreaterThan(0);
   });
 
@@ -290,7 +298,8 @@ describe("карта в форме", () => {
        работы». Нажатие на ресурс отвечает на другой вопрос: «что по нему
        вышло вообще», и вещей становится больше. */
     const before = screen.queryAllByText(/скачать · макет\.pdf/).length;
-    const rows = screen.getAllByLabelText("созданные единицы: макет");
+    // Столбик ресурса на графике нажимается — под графиком открываются вещи.
+    const rows = screen.getAllByRole("img", { name: /^макет: прогноз/ });
     fireEvent.click(rows[0]);
     const links = screen.getAllByText(/скачать · макет\.pdf/);
     expect(links.length).toBeGreaterThan(before);
@@ -308,8 +317,9 @@ describe("карта в форме", () => {
       .forEach((t) => {
         expect(screen.getAllByText(t).length).toBeGreaterThan(0);
       });
-    // Ноль часов до старта — это не «мгновенно», а «сразу».
-    expect(screen.getAllByText(/начнётся сразу/).length).toBeGreaterThan(0);
+    /* Списка «по функциям» под сроками больше нет (владелец, 2026-09-20:
+       «раздел „Сроки и трудозатраты" это уже отражает»). */
+    expect(screen.queryByText("по функциям")).toBeNull();
   });
 
   it("таймлайн стоит на календарной линейке, а не на безымянной полосе", () => {
@@ -324,32 +334,14 @@ describe("карта в форме", () => {
     expect(screen.getAllByText(/^\d{2}\.\d{2}(\.\d{2})?$/).length).toBe(5);
   });
 
-  it("раздел спрашивает ресурс и звено, а не пару «функция + ресурс»", () => {
+  /* Созданный раздел ничего не переспрашивает: его настраивают при
+     создании, а переделывают удалением и новым разделом (владелец,
+     2026-09-20: поля — на форме создания). */
+  it("у созданного раздела полей формы нет — только сам отчёт", () => {
     render(<Panel nodes={NODES} />);
-    // У каждого раздела свои поля, и метка называет, чьи они.
-    expect(screen.getByLabelText("с какого ресурса: Макеты")).toBeInTheDocument();
-    expect(screen.getByLabelText("до какого звена: Макеты")).toBeInTheDocument();
-    expect(screen.queryByLabelText("функция результата")).toBeNull();
-  });
-
-  it("звено — только ресурс: функция звеном не бывает", () => {
-    /* Владелец: цепочка прослеживается до ресурса или до конца — «до
-       вёрстки» не звено, а действие по дороге к нему. */
-    render(<Panel nodes={NODES} />);
-    const sel = screen.getByLabelText("до какого звена: Макеты");
-    expect(sel.querySelector("optgroup")).toBeNull();
-    const names = [...sel.options].map((o) => o.textContent);
-    expect(names).not.toContain("Собрать макет");
-    expect(names[0]).toBe("до конца цепочки");
-  });
-
-  it("в звенья попадает только то, до чего цепочка доходит", () => {
-    render(<Panel nodes={NODES} />);
-    const names = [...screen.getByLabelText("до какого звена: Макеты").options]
-      .map((o) => o.textContent);
-    expect(names).toContain("макет");
-    // «Спрос» не производит никто, и в цепочку он не входит.
-    expect(names).not.toContain("спрос");
+    expect(screen.queryByLabelText("отслеживаемый ресурс")).toBeNull();
+    expect(screen.queryByLabelText("до какого звена: Макеты")).toBeNull();
+    expect(screen.getByRole("button", { name: /^создать раздел/ })).toBeInTheDocument();
   });
 
   /* Узлы, где прослеживают ОПРЕДЕЛЁННУЮ вещь: заявку №1, из которой вышел
@@ -382,8 +374,9 @@ describe("карта в форме", () => {
     render(<Panel nodes={NODES} />);
     expect(screen.queryByLabelText("файл ресурса: Макеты")).toBeNull();
     expect(screen.queryByText(/Загрузить сам ресурс/)).toBeNull();
-    // На его месте — поле выбора единицы, рядом с самим ресурсом.
-    expect(screen.getByLabelText("какая единица: Макеты")).toBeInTheDocument();
+    // На его месте — поле выбора единицы на форме создания раздела.
+    fireEvent.click(screen.getByRole("button", { name: /^создать раздел/ }));
+    expect(screen.getByLabelText("существующая единица")).toBeInTheDocument();
   });
 
   it("отчёт скачивается файлом — и в нём то же, что на экране", () => {
@@ -397,7 +390,7 @@ describe("карта в форме", () => {
       title: "Макеты",
     });
     // Те же две части и в том же порядке, что и на экране.
-    expect(html).toContain("1. Ресурсы — что изменится");
+    expect(html).toContain("1. Ресурсы");
     // Раздела «Функции — что будет сделано» нет и в файле (владелец, 2026-09-19).
     expect(html).not.toContain("Функции — что будет сделано");
     expect(html).toContain("2. Сроки и трудозатраты");
@@ -467,7 +460,7 @@ describe("карта в форме", () => {
     };
     try {
       render(<Panel nodes={NODES} />);
-        fireEvent.click(screen.getAllByRole("button", { name: "Скачать отчёт" })[1]);
+        fireEvent.click(screen.getByRole("button", { name: /^скачать раздел/ }));
       expect(saved).toHaveLength(1);
       expect(saved[0].name).toMatch(/\.html$/);
     } finally {
@@ -478,22 +471,19 @@ describe("карта в форме", () => {
 
   it("можно спросить про несколько определённых единиц, а не про весь ресурс", () => {
     /* Единицы есть у того, что кто-то ПРОИЗВОДИТ: они рождаются сдачей
-       выполненной задачи. У «макета» они есть, и спросить можно про
-       любые — по одной, по нескольким или ни про одну. */
-    render(<Panel nodes={NODES.map((n) => (n.id === "rs1"
-      ? { ...n, trait: "t2" } : n))} />);
-    expect(screen.getByText(/это ПРОГНОЗ/)).toBeInTheDocument();
-
-    // Поле стоит рядом с самим ресурсом: вопрос один и тот же — «какой».
-    const pick = screen.getByLabelText("какая единица: Макеты");
+       выполненной задачи. Выбирают их на форме создания раздела. */
+    render(<Panel nodes={[NODES[0]]} />);
+    fireEvent.click(screen.getByRole("button", { name: /^создать раздел/ }));
+    fireEvent.change(screen.getByLabelText("отслеживаемый ресурс"), { target: { value: "t2" } });
+    const pick = screen.getByLabelText("существующая единица");
     fireEvent.change(pick, { target: { value: "s1~t2" } });
-    expect(screen.getByText(/Выбрано 1/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/убрать единицу: №1/)).toBeInTheDocument();
     // Несколько — тоже: прослеживают и «вот этот договор», и «вот эти три».
     fireEvent.change(pick, { target: { value: "s2~t2" } });
-    expect(screen.getByText(/Выбрано 2/)).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/убрать единицу: №/).length).toBe(2);
     // Выбранное стоит фишками, и любую можно снять: выбор не в один конец.
     fireEvent.click(screen.getByLabelText(/убрать единицу: №1/));
-    expect(screen.getByText(/Выбрано 1/)).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/убрать единицу: №/).length).toBe(1);
   });
 
   it("отчёт по единице показывает её саму и то, что из неё выросло", () => {
@@ -540,27 +530,24 @@ describe("карта в форме", () => {
     expect(screen.queryByLabelText("время Собрать макет от")).toBeNull();
   });
 
-  it("количество спрашивается у самого ресурса", () => {
-    /* «Сколько» отдельно от «чего» заставляло держать связь в голове:
-       поле стоит рядом с выбором ресурса, и это его количество. */
-    render(<Panel nodes={NODES} />);
-    // Поле числовое по клавиатуре, но текстовое по разметке: значение строкой.
-    expect(screen.getByLabelText("количество: Макеты")).toHaveValue("1");
-    expect(screen.queryByLabelText("на сколько единиц: Макеты")).toBeNull();
-  });
-
-  it("оценка пересчитывается на заданное количество — по нажатию «Проследить»", () => {
-    render(<Panel nodes={NODES} />);
-    const qty = screen.getByLabelText("количество: Макеты");
-    fireEvent.change(qty, { target: { value: "3" } });
-    fireEvent.blur(qty);
-    /* Пока не нажали — ничего не пересчитано (владелец, 2026-09-19: «ресурс
-       начинает прослеживаться до нажатия кнопки „Проследить"»). */
-    expect(screen.getByText(/считано на 1 ×/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "проследить: Макеты" }));
-    // Три заявки — три выполнения, а не одно, повторённое трижды.
-    expect(screen.getByText(/считано на 3 ×/)).toBeInTheDocument();
-    expect(screen.getAllByText(/3 ×/).length).toBeGreaterThan(0);
+  /* ТЕХПРОЦЕСС В ФОРМЕ (владелец, 2026-09-20): «при выборе ресурса в
+     отслеживаемом техпроцессе должны быть только те процессы, в которых
+     участвует этот ресурс». */
+  it("в списке процессов — только те, где ресурс участвует", () => {
+    const model = { ...MODEL,
+      procs: [{ id: "p1", name: "Приём" }, { id: "p2", name: "Чужой" }],
+      funcs: [...MODEL.funcs, { id: "f9", e: "e1", name: "Из чужого", proc: "p2",
+        takes: [], gives: [], dur: 1, durUnit: "ч" }] };
+    model.funcs = model.funcs.map((f) => (f.id === "f1" ? { ...f, proc: "p1" } : f));
+    render(<Panel nodes={[NODES[0]]} model={model} />);
+    fireEvent.click(screen.getByRole("button", { name: /^создать раздел/ }));
+    fireEvent.change(screen.getByLabelText("отслеживаемый ресурс"), { target: { value: "t1" } });
+    const names = [...screen.getByLabelText("отслеживаемый техпроцесс").options]
+      .map((o) => o.textContent);
+    expect(names).toContain("Приём");
+    expect(names).not.toContain("Чужой");
+    // Первый пункт — вся схема: процесс выбирать не обязательно.
+    expect(names[0]).toBe("вся схема");
   });
 
   it("видно, НАД ЧЕМ работала задача: этим выполнения и отличаются", () => {
@@ -602,8 +589,6 @@ describe("карта в форме", () => {
     expect(screen.queryByText(/Задач тут нет и не должно быть/)).toBeNull();
     expect(screen.queryByText("Макет главной")).toBeNull();
     expect(screen.queryByText("Второй заход")).toBeNull();
-    // И сказано, как увидеть сделанное: выбрать конкретную единицу.
-    expect(screen.getByText(/это ПРОГНОЗ/)).toBeInTheDocument();
     expect(screen.getByText(/Задач по этому разделу ещё не заведено/))
       .toBeInTheDocument();
   });
@@ -650,7 +635,7 @@ describe("карта в форме", () => {
         json: async () => ({ token: "b".repeat(64), node: "rp1" }) };
     }));
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getAllByRole("button", { name: "ссылка на этот блок" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /^ссылка на раздел/ }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0][0]).toBe("/api/shares");
     expect(await screen.findByText(new RegExp(`\\?share=${"b".repeat(64)}`)))
@@ -662,7 +647,7 @@ describe("карта в форме", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403,
       json: async () => ({ error: "only the owner can do this" }) })));
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getAllByRole("button", { name: "ссылка на этот блок" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /^ссылка на раздел/ }));
     expect(await screen.findByText(/откроется только у тех, у кого модель уже есть/))
       .toBeInTheDocument();
   });
@@ -795,28 +780,46 @@ describe("первый раздел отчёта", () => {
   };
   const TRACED = [{ id: "rs1", parent: null, name: "Макеты", trait: "t1", upto: "" }];
 
-  it("график однородный: у всех строк одна шкала и общий ноль", () => {
-    const { container } = render(<Panel2 nodes={TRACED} />);
-    const part = screen.getByText("1. Ресурсы — что изменится").closest("section");
-    // Нулевая линия у всех строк на одном месте — значит шкала общая.
+  /* ГРАФИК — ВЕРТИКАЛЬНЫМИ ПОЛОСАМИ (владелец, 2026-09-20): «сделай
+     однородный визуальный график; полоски должны быть вертикальными… он
+     может быть отдалённо похож на эквалайзер»; подписи по диагонали с
+     чекбоксом под каждой полосой, а квадратики — ПОД графиком и без
+     пояснений. */
+  it("график однородный: у всех столбцов одна шкала и общий ноль", () => {
+    render(<Panel2 nodes={TRACED} />);
+    const part = screen.getByText("1. Ресурсы").closest("section");
+    // Нулевая линия у всех столбцов на одной высоте — значит шкала общая.
     const zeros = [...part.querySelectorAll("div[role='img'] > div:first-child")]
-      .map((d) => d.style.left);
+      .map((d) => d.style.top);
     expect(zeros.length).toBeGreaterThan(1);
     expect(new Set(zeros).size).toBe(1);
-    // Убыль рисуется слева от нуля: значения ниже нуля на шкале есть.
+    // Ноль не у самого края: и прибыль, и убыль на шкале помещаются.
     const zero = parseFloat(zeros[0]);
     expect(zero).toBeGreaterThan(0);
-    expect(zero).toBeLessThan(100);
-    expect(container).toBeTruthy();
   });
 
-  it("галочка убирает ресурс из отчёта и делает строку серой", () => {
+  it("подписи графика — под ним и без пояснений", () => {
+    render(<Panel2 nodes={TRACED} />);
+    const part = screen.getByText("1. Ресурсы").closest("section");
+    ["прогноз", "факт", "неактивен"].forEach((w) => {
+      expect(within(part).getAllByText(w).length).toBeGreaterThan(0);
+    });
+    expect(within(part).queryByText(/насколько изменится/i)).toBeNull();
+    // Подписи стоят ПОСЛЕ самого графика.
+    const chart = part.querySelector("[data-chart]");
+    const legend = within(part).getAllByText("неактивен")[0];
+    // eslint-disable-next-line no-bitwise
+    expect(chart.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("галочка убирает ресурс из отчёта и делает столбец серым", () => {
     render(<Panel2 nodes={TRACED} />);
     const box = screen.getByLabelText("прослеживать заявка");
     expect(box.checked).toBe(true);
     fireEvent.click(box);
     expect(screen.getByLabelText("прослеживать заявка").checked).toBe(false);
-    expect(screen.getByText("не прослеживается")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /заявка: .*не прослеживается/ }))
+      .toHaveAttribute("data-off", "1");
   });
 
   it("исключённый ресурс не идёт и в файл", () => {
@@ -829,14 +832,15 @@ describe("первый раздел отчёта", () => {
     expect(html).not.toMatch(/<b>заявка<\/b>/);
   });
 
-  it("до нажатия «Проследить» ничего не прослеживается", () => {
+  it("до нажатия «Применить» ничего не прослеживается", () => {
     render(<Panel2 nodes={[{ id: "rp1", parent: null, name: "Заказ", trait: "", upto: "" }]} />);
-    fireEvent.change(screen.getByLabelText("с какого ресурса: Заказ"),
+    fireEvent.click(screen.getByRole("button", { name: "создать раздел: Заказ" }));
+    fireEvent.change(screen.getByLabelText("отслеживаемый ресурс"),
       { target: { value: "t1" } });
-    // Выбор сделан, но отчёта ещё нет: кнопку не нажимали.
-    expect(screen.queryByText("1. Ресурсы — что изменится")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "проследить: Заказ" }));
-    expect(screen.getByText("1. Ресурсы — что изменится")).toBeInTheDocument();
+    // Выбор сделан, но раздела ещё нет: кнопку не нажимали.
+    expect(screen.queryByText("1. Ресурсы")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "применить" }));
+    expect(screen.getByText("1. Ресурсы")).toBeInTheDocument();
   });
 });
 

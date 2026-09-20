@@ -20,7 +20,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { actualOf, chainOf, estimateRange, factorsIn } from "./chain.js";
-import { childrenOf, pathOf, pickedOf, stepAnchor } from "./reports.js";
+import { childrenOf, pathOf, pickedOf, stepAnchor, scopeOf } from "./reports.js";
 import { descendantsOf, hasLineage, parentsOf, unitsOf } from "./units.js";
 import { fromHours, portSpends } from "./funcs.js";
 
@@ -43,8 +43,12 @@ export const rangeTimeText = (lo, hi) => (Math.abs(num(lo) - num(hi)) < 1e-9
  * `deep` собирает и вложенные разделы: карта показывается целиком, а
  * скачанный отчёт должен быть тем же самым, что и на экране.
  */
-export function reportOf(model = {}, node, nodes = [], { runsOf, deep = true } = {}) {
+export function reportOf(model0 = {}, node, nodes = [], { runsOf, deep = true } = {}) {
   if (!node) return null;
+  /* Выбран отслеживаемый техпроцесс — считаем в его границах (владелец,
+     2026-09-20). Границы ставятся ОДИН раз, здесь: разойдись они, цепочка
+     и факт считали бы разные схемы. */
+  const model = scopeOf(model0, node);
   const chain = chainOf(model, { from: node.trait, upto: node.upto });
   const picked = pickedOf(node);
   const plan = estimateRange(model, chain, { runsOf,
@@ -501,14 +505,10 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   ${d.unit && !d.traced ? '<p class="w">По этой единице не записано, что из чего сделано: при сдаче не отметили взятое. Ниже — только она сама.</p>' : ""}
   ${d.parents.length ? `<p class="m">сделано из: ${d.parents.map((u) => `№${u.no} ${esc(u.title || "без названия")}`).join(", ")}</p>` : ""}
 
-  <h${h + 1}>1. Ресурсы — что изменится</h${h + 1}>
-  <p class="m">Сколько каждого ресурса прибавится или убавится по этой цепочке.
-    Прогноз — вилка «от и до», факт — по принятым задачам. Считано на
-    ${nm(plan.hi.qty)} × ${tn(node.trait)}${d.hypothetical ? " — единица не выбрана, прогноз для новой" : ""}.</p>
+  <h${h + 1}>1. Ресурсы</h${h + 1}>
   ${changes.filter((c) => !c.off).length
     ? changes.filter((c) => !c.off)
       .map((c) => barRow(c, tn, d.made.filter((u) => u.trait === c.trait))).join("")
-      + '<p class="m">Под ресурсом стоят сами вещи, которые по нему вышли.</p>' 
     : '<p class="m">Ресурсы по этой цепочке не меняются.</p>'}
   ${Object.keys(plan.hi.need || {}).length
     ? `<p class="w">Своего не хватит — нужно со стороны: ${esc(Object.entries(plan.hi.need)
@@ -516,8 +516,6 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
     : ""}
 
   <h${h + 1}>2. Сроки и трудозатраты</h${h + 1}>
-  <p class="m">Когда какая функция начнётся и сколько продлится; сколько часов
-    работы людей это потребует — по прогнозу и по факту.</p>
   ${factsHtml([
     { label: "Займёт времени — вся цепочка",
       value: rangeTimeText(plan.lo.calendarHours, plan.hi.calendarHours) },
@@ -537,8 +535,6 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   </table>` : ""}
 
   <h${h + 1}>3. Задачи — что уже сделано</h${h + 1}>
-  <p class="m">Задачи, заведённые по этой цепочке: кто делает, срок, состояние,
-    часы по плану и по факту, что взято и что вышло.</p>
   ${factsHtml([
     { label: "Задач принято",
       value: actual.any ? `${nm(actual.done)} из ${nm(actual.total)}` : "ни одной" },
@@ -562,7 +558,6 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
     </table>`).join("")}
 
   ${factors.length ? `<h${h + 1}>4. Факторы — что влияет</h${h + 1}>
-  <p class="m">Что в этой цепочке случается само, без людей, и с какой вероятностью.</p>
   <table><tr><th>функция</th><th>факторы</th></tr>
     ${factors.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.factors.length
       ? x.factors.map((y) => `${y.name} ${y.chance}%`).join(", ") : "фактор не назван")}</td></tr>`).join("")}
