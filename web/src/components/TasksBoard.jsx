@@ -1502,8 +1502,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       <div style={S.lbl}>сдача задачи</div>
       <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
         padding:9,margin:"6px 0 8px"}}>
-        {!subs.length&&<div style={{fontSize:11.5,color:C.muted,marginBottom:8}}>
-          Ещё не сдавалась.</div>}
         {subs.map(sb=>(
           <div key={sb.id} style={{background:C.ink,border:`1px solid ${C.line}`,
             borderRadius:6,padding:7,marginBottom:6}}>
