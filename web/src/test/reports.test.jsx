@@ -6,7 +6,7 @@ import ShareView, { shareFromLocation } from "../components/ShareView.jsx";
 import SystemModel, { TAB_LIST } from "../components/SystemModel.jsx";
 import {
   childrenOf, dropNode, newProject, newSection, normalizeReport, normalizeReports,
-  pathOf, reportFromLocation, rootsOf, shareLink, subtree, summaryOf,
+  pathOf, reportFromLocation, rootsOf, shareLink, subtree, summaryOf, moveNode,
 } from "../lib/reports.js";
 import { deliverReport, reportHtml, reportOf } from "../lib/reportDoc.js";
 
@@ -851,5 +851,44 @@ describe("исключённые ресурсы живут в записи", () 
     expect(normalizeReport({ id: "r", off: ["t1", "t1", "", null, "t2"] }).off)
       .toEqual(["t1", "t2"]);
     expect(normalizeReport({ id: "r" }).off).toEqual([]);
+  });
+});
+
+/* ТРИ ПОЛОСКИ СЛЕВА МЕНЯЮТ РАЗДЕЛЫ МЕСТАМИ (владелец, 2026-09-20): «в
+   отчётах добавь на форму каждого раздела три полоски слева; с их помощью
+   разделы должны меняться местами при перетягивании за эти полоски». */
+describe("перестановка разделов", () => {
+  const Panel3 = ({ nodes: n0 }) => {
+    const [nodes, setNodes] = React.useState(n0);
+    return (<ReportsPanel nodes={nodes} setNodes={setNodes} model={MODEL}
+      entities={[{ id: "e1", name: "Мы" }]} nameOf={(id) => id}
+      focus={null} onFocus={() => {}} />);
+  };
+  const TWO = [
+    { id: "rp1", parent: null, name: "Отчёт", trait: "", upto: "" },
+    { id: "a", parent: "rp1", name: "Первый", trait: "t1", upto: "" },
+    { id: "b", parent: "rp1", name: "Второй", trait: "t2", upto: "" },
+  ];
+
+  it("порядок меняется перетаскиванием за полоски", () => {
+    const { container } = render(<Panel3 nodes={TWO} />);
+    const names = () => [...container.querySelectorAll("[data-report-node]")]
+      .map((n) => n.getAttribute("data-report-node"));
+    expect(names()).toEqual(["rp1", "a", "b"]);
+    const grip = screen.getByLabelText("переставить Второй");
+    const target = container.querySelector('[data-report-node="a"]');
+    document.elementFromPoint = () => target;
+    fireEvent.pointerDown(grip, { pointerId: 1 });
+    fireEvent.pointerMove(grip, { pointerId: 1, clientX: 5, clientY: 5 });
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+    expect(names()).toEqual(["rp1", "b", "a"]);
+  });
+
+  it("чужой отчёт перетаскиванием не меняется", () => {
+    const three = [...TWO, { id: "rp2", parent: null, name: "Другой", trait: "", upto: "" }];
+    expect(moveNode(three, "a", "rp2")).toEqual(three);
+    // А соседи меняются местами.
+    expect(moveNode(three, "a", "b").map((n) => n.id)).toEqual(["rp1", "b", "a", "rp2"]);
+    expect(moveNode(three, "a", "a")).toEqual(three);
   });
 });

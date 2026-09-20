@@ -306,14 +306,11 @@ describe("назначения берутся из воркеров актива
     expect(taskGaps({ end: "2030-01-01T10:00" })).toEqual(["исполнитель"]);
   });
 
-  it("описание задачи из техпроцесса видно в задаче — и постановщику, и исполнителю", () => {
-    /* Описание — у ЗАДАЧИ (владелец, 2026-09-20). Написанное у неё в
-       техпроцессе едет в каждое её выполнение: переписывать его руками
-       значило бы просить одно и то же дважды. */
-    const funcs = [{ ...FUNCS[0], body: "разбираем заявку и пишем ТЗ" }];
+  it("описание задачи видно в задаче — и постановщику, и исполнителю", () => {
+    const funcs = [FUNCS[0]];
     const Board = () => {
       const [tasks, setTasks] = React.useState([{ ...newTask({ funcId: "f1",
-        title: "Задача A" }), status: "progress", body: "" }]);
+        title: "Задача A" }), status: "progress", body: "разбираем заявку и пишем ТЗ" }]);
       const [openId, setOpenId] = React.useState(null);
       return (<TasksBoard funcs={funcs} entities={ENTITIES} traits={TRAITS}
         tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
@@ -575,8 +572,8 @@ describe("поля задачи в порядке постановки", () => {
   it("заводить задачи руками нельзя: они берутся из целей", () => {
     render(<Board tasks={[]} />);
     expect(screen.queryByRole("button", { name: "+ выполнение" })).toBeNull();
-    // Вводная карточка на месте: она и объясняет, откуда задачи берутся.
-    expect(screen.getByText(/Задачи приходят из применённых целей/)).toBeInTheDocument();
+    /* Вводных описаний на вкладке нет вовсе (владелец, 2026-09-20). */
+    expect(screen.queryByText(/Задачи приходят из применённых целей/)).toBeNull();
   });
 });
 
@@ -914,10 +911,9 @@ describe("критерии на форме постановки", () => {
     expect(screen.queryByLabelText("критерий 1")).toBeNull();
   });
 
-  it("критериев нет — так и сказано, и сказано где их ставят", () => {
+  it("критериев нет — так и сказано, без объяснений", () => {
     render(<Setup funcs={[{ ...FUNCS[0], checks: [] }]} />);
-    expect(screen.getByText(/критериев нет — их ставят у функции на «Схеме»/))
-      .toBeInTheDocument();
+    expect(screen.getByText("критериев нет")).toBeInTheDocument();
   });
 
   /* У КАЖДОЙ СТРОКИ ПЛАШКИ — ПОДПИСЬ (владелец, 2026-09-20): «у тебя
@@ -951,7 +947,8 @@ describe("критерии на форме постановки", () => {
     const { container } = render(<Setup funcs={f} />);
     const plate = [...container.querySelectorAll("div")]
       .find((d) => d.textContent.startsWith("Сбор заявок"));
-    expect(plate.textContent).toMatch(/Ожидаемый результат: не назван — его ставят у функции на «Схеме»/);
+    expect(plate.textContent).toMatch(/Ожидаемый результат: не назван/);
+    expect(plate.textContent).not.toMatch(/Схеме/);
   });
 
   /* Описание задачи из техпроцесса подставляется в «Описание задачи» на
@@ -1050,10 +1047,10 @@ describe("поля задачи в работе на «Проверке»", () =
     expect(screen.getByLabelText("поля задачи").textContent).toMatch(/описание: не написано/);
   });
 
-  it("своего описания нет — берётся написанное у задачи в техпроцессе", () => {
+  it("описание — только своё: чужого в строку не подставляют", () => {
     show(работа({ body: "" }), [{ ...FUNCS[0], body: "из техпроцесса" }]);
     fireEvent.click(screen.getByText("Задача"));
-    expect(screen.getByLabelText("поля задачи").textContent).toMatch(/описание: из техпроцесса/);
+    expect(screen.getByLabelText("поля задачи").textContent).toMatch(/описание: не написано/);
   });
 
   it("срок не назначен — полосы нет, и сказано почему", () => {

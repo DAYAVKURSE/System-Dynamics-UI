@@ -122,6 +122,27 @@ export const scopeOf = (model = {}, node = {}) => (node && node.proc
   ? { ...model, funcs: (model.funcs || []).filter((f) => f && f.proc === node.proc) }
   : model);
 
+/**
+ * Переставить блок к соседу — порядок в массиве и есть порядок на экране.
+ *
+ * Владелец (2026-09-20): «в отчётах добавь на форму каждого раздела три
+ * полоски слева; с их помощью разделы должны меняться местами при
+ * перетягивании». Меняются местами только СОСЕДИ — блоки одного родителя:
+ * перетащить раздел в чужой отчёт значило бы сменить ему отчёт, а
+ * перетаскивание об этом не спрашивает.
+ */
+export function moveNode(nodes = [], id, overId) {
+  if (!id || !overId || id === overId) return nodes;
+  const from = nodes.findIndex((n) => n.id === id);
+  const to = nodes.findIndex((n) => n.id === overId);
+  if (from < 0 || to < 0) return nodes;
+  if ((nodes[from].parent ?? null) !== (nodes[to].parent ?? null)) return nodes;
+  const rest = nodes.filter((n) => n.id !== id);
+  const at = rest.findIndex((n) => n.id === overId);
+  const idx = from < to ? at + 1 : at;
+  return [...rest.slice(0, idx), nodes[from], ...rest.slice(idx)];
+}
+
 /** Блоки первого уровня. Потерявший родителя всплывает наверх, а не пропадает. */
 export const rootsOf = (nodes = []) => nodes.filter((n) =>
   !n.parent || !nodes.some((x) => x.id === n.parent));

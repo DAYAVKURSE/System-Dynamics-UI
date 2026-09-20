@@ -415,24 +415,24 @@ describe("роли, статусы, функции", () => {
     expect(dump().procs[0].text).not.toMatch(/Критерий:/);
   });
 
-  /* ОДИНОЧНОЕ НАЖАТИЕ ОТКРЫВАЕТ МЕНЮ ТОЙ СТРОКИ, ПО КОТОРОЙ НАЖАЛИ
-     (владелец, 2026-09-20): «при попытке сделать описание задачи
-     приложение не отреагировало на нажатие на поле „Задача" и
-     отреагировало только на длительное нажатие». Браузер двигает курсор за
-     пальцем не всегда, поэтому строка берётся по координате нажатия. */
-  it("нажатие по строке «Задача:» открывает её меню, даже если курсор стоял в конце", () => {
+  /* ПОЛЕ МЕНЮ ПОЛУЧАЕТ ФОКУС С ОДНОГО НАЖАТИЯ (владелец, 2026-09-20:
+     «когда я нажимаю на поле ввода описания во всплывающем меню, у меня не
+     срабатывает кнопка, и редактирование не начинается при одиночном
+     нажатии»). Меню гасило `mousedown` всюду, кроме `input`, — textarea
+     фокуса не получала. */
+  it("нажатие на поле описания в меню не перехватывается", () => {
     const area = addProc();
     write(area, TEXT);
     view(area);
-    // Курсор в конце текста — на строке «Отдаёт:», не на задаче.
-    fireEvent.click(area, { target: { selectionStart: area.value.length } });
-    expect(container.querySelector("[data-task-menu]")).toBeNull();
-    // Нажатие пальцем по первой строке: координата вместо курсора.
-    area.getBoundingClientRect = () => ({ top: 0, left: 0, right: 300, bottom: 200, width: 300, height: 200 });
-    fireEvent.click(area, { clientY: 15, target: { selectionStart: area.value.length } });
+    fireEvent.click(area, { target: { selectionStart: 3 } });
     const menu = container.querySelector("[data-task-menu]");
-    expect(menu).not.toBeNull();
-    expect(menu.getAttribute("aria-label")).toBe("меню задачи лид");
+    fireEvent.click(within(menu).getByRole("button", { name: "описание" }));
+    const box = screen.getByLabelText("описание задачи");
+    const ev = fireEvent.mouseDown(box);
+    // Событие не отменено — браузер поставит фокус сам.
+    expect(ev).toBe(true);
+    const onInput = fireEvent.mouseDown(within(menu).getByLabelText("описание задачи"));
+    expect(onInput).toBe(true);
   });
 
   /* МЕТКИ ИЗ МЕНЮ — НЕ В ПОДСКАЗКАХ (владелец, 2026-09-20): «критерии

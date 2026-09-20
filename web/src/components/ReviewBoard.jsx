@@ -178,11 +178,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
               <Row label="функция">{f ? funcLabel(f, entities) : "не назначена"}</Row>
               <Row label="поставил">{nameOf ? nameOf(roleOf(t, "setter")) : (roleOf(t, "setter") || "не назначен")}</Row>
               <Row label="исполнитель">{nameOf ? nameOf(t.assignee) : (t.assignee || "не назначен")}</Row>
-              {/* Описание — у ЗАДАЧИ (владелец, 2026-09-20). Своего у неё
-                  нет — берётся написанное у этой задачи в техпроцессе: это
-                  то же поле «Описание задачи», что видит постановщик. */}
-              <Row label="описание">
-                {String(t.body || "").trim() || String(f?.body || "").trim() || "не написано"}</Row>
+              <Row label="описание">{String(t.body || "").trim() || "не написано"}</Row>
               <Row label="критерии проверки">
                 {(f?.checks || []).length ? "" : "не поставлены"}</Row>
               {!!(f?.checks || []).length && (
@@ -426,15 +422,6 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
 
   return (
     <div>
-      <div style={{ ...S.card, marginBottom: 10 }}>
-        <div style={S.lbl}>постановка и проверка{isOwner ? " · вы владелец, вам видно всё" : ""}</div>
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-          {isOwner
-            ? "Здесь ставят задачи и принимают сдачи: и то, и другое делает не тот, кто работу делает."
-            : "Здесь то, что ставите и проверяете вы. Чужие задачи сюда не попадают."}
-        </div>
-      </div>
-
       {/* Сперва то, что ещё не поручено: непоставленная задача — это работа,
           которой пока нет, и она важнее уже сделанной. */}
       <div style={{ ...S.card, marginBottom: 10 }}>

@@ -604,7 +604,7 @@ function FuncCard({func,entities,traitName,bare=false}){
       <div style={{color:C.muted,marginTop:4}}>
         Ожидаемый результат: {result
           ? <span style={{color:C.text}}>{result}</span>
-          : <span>не назван — его ставят у функции на «Схеме»</span>}
+          : <span>не назван</span>}
       </div>
       {/* Описания функции на плашке нет (владелец, 2026-09-20: «убери
           описание функции из тех. процесса и с плашки функции на форме
@@ -808,7 +808,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
               {func.checks.map((c,i)=>(<li key={`${i}:${c}`}>{c}</li>))}
             </ul>)
             : (<div style={{fontSize:11,color:C.muted,marginTop:3}}>
-              критериев нет — их ставят у функции на «Схеме»</div>)}
+              критериев нет</div>)}
         </div>)}
 
       <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
@@ -1334,17 +1334,13 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
           нет — написанное у этой задачи в техпроцессе (владелец,
           2026-09-20: описание у задачи, а не у функции). Здесь оно только
           читается. Пусто — не поломка: добавить было нечего. */}
-      {(() => {
-        const body=String(task.body||"").trim()||String(func?.body||"").trim();
-        if(!body) return null;
-        return (<>
-          <div style={S.lbl}>что нужно сделать</div>
-          <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-            padding:9,margin:"5px 0 8px",fontSize:12,lineHeight:1.6,
-            whiteSpace:"pre-wrap"}}>
-            {body}
-          </div></>);
-      })()}
+      {!!String(task.body||"").trim()&&(<>
+        <div style={S.lbl}>что нужно сделать</div>
+        <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
+          padding:9,margin:"5px 0 8px",fontSize:12,lineHeight:1.6,
+          whiteSpace:"pre-wrap"}}>
+          {task.body}
+        </div></>)}
 
       <div style={S.lbl}>выполняемая функция</div>
       <FuncCard func={func} entities={entities} traitName={traitName}/>
@@ -1702,16 +1698,6 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
   const undrop=(t)=>setTasks(p=>p.map(x=>(x.id===t.id?{...x,canceled:false}:x)));
   return (
     <div>
-      {/* Вводная карточка — на своём месте. Её убирали ради переключателя
-          «Доска / Пространство»; пространства больше нет, и объяснение,
-          откуда берутся задачи, снова стоит там, где его читают. */}
-      <div style={{...S.card,marginBottom:10}}>
-        <div style={S.lbl}>задачи — то, что поручено</div>
-        <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
-          Задачи приходят из применённых целей и ставятся во вкладке «Проверка». Здесь их берут и сдают.
-        </div>
-      </div>
-
       {open&&(
         <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
           entities={entities} meId={meId} isOwner={canAssign}

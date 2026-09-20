@@ -363,34 +363,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
     if (next !== v) { putText(next, caret); return; }
     setText(v); place(v, at);
   };
-  /* Строка, по которой нажали. Курсор за пальцем браузер двигает не
-     всегда (владелец, 2026-09-20: «не отреагировало на нажатие… и
-     отреагировало только на длительное нажатие»): при коротком нажатии он
-     остаётся там, где был, и меню открывалось для чужой строки. Поэтому
-     строку берём по координате нажатия, а столбец — у курсора, когда тот
-     и правда на этой строке. */
-  const rowAt = (clientY) => {
-    const el = inp.current;
-    if (!el || clientY == null) return -1;
-    const r = el.getBoundingClientRect();
-    const px = LINE_H * 12;
-    const y = clientY - r.top - 7 + (el.scrollTop || 0);
-    if (y < 0) return -1;
-    const rows = text.split("\n").length;
-    return Math.min(rows - 1, Math.floor(y / px));
-  };
-  const startOf = (row) => text.split("\n").slice(0, row).reduce((n, l) => n + l.length + 1, 0);
-  const onMove = (e) => {
-    const at = e.target.selectionStart ?? text.length;
-    const want = e.type === "click" ? rowAt(e.clientY) : -1;
-    if (want >= 0 && want !== text.slice(0, at).split("\n").length - 1) {
-      const idx = startOf(want);
-      inp.current?.setSelectionRange(idx, idx);
-      place(text, idx);
-      return;
-    }
-    place(text, at);
-  };
+  const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
   const startEdit = () => {
     const el = inp.current;
     if (!el || editing) return;
@@ -819,7 +792,13 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
           /* pointerdown — раньше mousedown и не гасится preventDefault шапки при перетаскивании. */
           onPointerDown={() => setMenuActive(true)}
           onTouchStart={touchStart} onTouchEnd={(e) => touchEnd(e, null)} onTouchCancel={() => { touch.current = null; hold.current = false; }}
-          onMouseDown={(e) => { setMenuActive(true); if (e.target.tagName === "INPUT") hold.current = true; else e.preventDefault(); }}
+          /* Нажатие на ПОЛЕ меню не перехватываем: `preventDefault` не давал
+             ему получить фокус, и правка начиналась только с долгого нажатия
+             (владелец, 2026-09-20). Textarea и select — такие же поля, как
+             input, и в этот список не попадали. */
+          onMouseDown={(e) => { setMenuActive(true);
+            if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) hold.current = true;
+            else e.preventDefault(); }}
           style={{ position: "fixed", left: menuPos?.x ?? 8, top: menuPos?.y ?? 8, zIndex: 40, width: 210,
             /* Меньше прозрачности у спящего меню (владелец, 2026-09-19):
                сквозь него читался текст под ним, и меню терялось. */
@@ -1348,7 +1327,6 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
       </button>
       {shown && (
       <Section title="" addLabel="+ процесс" onAdd={add}
-        hint="Строки с метками: «Функция:», «Задача:», «Кто: Должность» (актив подставится сам), «Берёт:», «Отдаёт:», «Кому:». Подсказки — окном над полем; ресурс можно ввести свой."
         empty={procs.length ? null : "Процессов пока нет."}>
         {procs.map((p) => {
           const { funcs: pf } = parseText(p.text, model, p);

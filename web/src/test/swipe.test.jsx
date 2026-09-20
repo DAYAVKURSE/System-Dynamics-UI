@@ -52,17 +52,17 @@ describe("свайп по экрану", () => {
     const W = window.innerWidth;
     // Открыты «Задачи»; влево — «Проверка», она в ряду следующая.
     swipe(root, W - 20, 20);
-    expect(screen.getByText(/постановка и проверка/)).toBeInTheDocument();
+    expect(screen.getByText(/ждут постановки/i)).toBeInTheDocument();
     // Вправо — обратно в «Задачи».
     swipe(root, 20, W - 20);
-    expect(screen.queryByText(/постановка и проверка/)).toBeNull();
+    expect(screen.queryByText(/ждут постановки/i)).toBeNull();
   });
 
   it("короткого движения мало: вкладка остаётся", () => {
     const { container } = render(<SystemModel />);
     const root = container.firstChild;
     swipe(root, 400, 200);
-    expect(screen.queryByText(/постановка и проверка/)).toBeNull();
+    expect(screen.queryByText(/ждут постановки/i)).toBeNull();
   });
 });
 

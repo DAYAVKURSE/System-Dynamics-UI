@@ -1,12 +1,12 @@
 import { FACTORS_ON } from "../lib/flags.js";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, NameField, S, btn, nm, NumField, TxtField } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc, textHref } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { putShare } from "../identity.js";
 import {
-  childrenOf, dropNode, linkTo, newProject, newSection, pickedOf, procsOfTrait,
+  childrenOf, dropNode, linkTo, moveNode, newProject, newSection, pickedOf, procsOfTrait,
   pathOf, rootsOf, shareLink, summaryOf,
 } from "../lib/reports.js";
 import { deliverReport, reportHtml, reportOf, rangeTimeText, timeText }
@@ -1055,6 +1055,26 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
       && (model.procs || []).find((pr) => pr.id === f.proc)?.status === "hypo")
     && model.hypoOn !== true;
 
+  /* Перетаскивание за полоски: пока палец ведут, блок встаёт на место того
+     соседа, над которым он сейчас. */
+  const dragging = useRef(false);
+  const onDragStart = (e) => {
+    dragging.current = true;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
+  const onDragMove = (e) => {
+    if (!dragging.current) return;
+    const under = typeof document.elementFromPoint === "function"
+      ? document.elementFromPoint(e.clientX, e.clientY) : null;
+    const over = under?.closest?.("[data-report-node]")?.getAttribute("data-report-node");
+    if (over && over !== node.id) setNodes((p) => moveNode(p, node.id, over));
+  };
+  const onDragEnd = (e) => {
+    dragging.current = false;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const download = async () => {
@@ -1089,12 +1109,23 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
   };
 
   return (
-    <div style={{ background: depth ? "transparent" : C.panel2,
+    <div data-report-node={node.id} style={{ background: depth ? "transparent" : C.panel2,
       border: `1px solid ${focus === node.id ? ACC : C.line}`, borderRadius: 10,
       padding: 9, marginTop: 8,
       borderLeft: depth ? `2px solid ${C.line}` : `1px solid ${C.line}`,
       marginLeft: depth ? 6 : 0 }}>
       <div className="flex items-center gap-2">
+        {/* Три полоски слева: за них раздел перетаскивают и меняют местами
+            с соседями (владелец, 2026-09-20). */}
+        <span data-drag="" role="button" tabIndex={0}
+          aria-label={`переставить ${node.name || "без названия"}`}
+          onPointerDown={onDragStart} onPointerMove={onDragMove}
+          onPointerUp={onDragEnd} onPointerCancel={onDragEnd}
+          style={{ display: "inline-flex", flexDirection: "column", justifyContent: "center",
+            gap: 2, padding: "3px 2px", cursor: "grab", touchAction: "none", flex: "0 0 auto" }}>
+          {[0, 1, 2].map((i) => (
+            <span key={i} style={{ width: 12, height: 2, borderRadius: 1, background: C.muted }} />))}
+        </span>
         <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
           aria-label={`${open ? "свернуть" : "развернуть"} ${node.name || "блок"}`}
           onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button>
