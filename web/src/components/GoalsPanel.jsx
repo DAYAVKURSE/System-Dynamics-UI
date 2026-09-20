@@ -4,6 +4,7 @@ import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, budgetHours, copyGoal, newGoal,
   checkGoal, exprText, exprsOf, goalState, goalText, planGoal, plannable, rateOf }
   from "../lib/goals.js";
 import ExprField from "./ExprField.jsx";
+import Modal from "./Modal.jsx";
 import { DUR_UNITS } from "../lib/funcs.js";
 import { doerNamed, newTask, nowLocal, runTitle } from "./TasksBoard.jsx";
 
@@ -213,7 +214,7 @@ const stamp = (g) => JSON.stringify([g.trait, g.expr, g.exprs, g.rate, g.dueKind
   g.dueUnit, g.dueOn, g.days, g.hours, g.hoursPer,
   (g.costs || []).map((c) => [c.trait, c.qty])]);
 
-function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onToggle }) {
+function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, open, onToggle }) {
   const traitName = (id) => traits.find((t) => t.id === id)?.l || "ресурс не выбран";
   const ready = checkGoal(goal, traits);
   /* План считается только у цели-числа («=», «>»): «<» и «!» — условие,
@@ -223,6 +224,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
      нынешним отпечатком — считали, но с тех пор цель поправили. */
   const [shown, setShown] = useState(null);
   const [naming, setNaming] = useState(false);
+  const [recall, setRecall] = useState(false);
   const fresh = shown != null && shown === stamp(goal);
   const plan = canPlan && fresh ? planGoal(model, goal, { runsOf }) : null;
   const up = (patch) => { setShown(null); onSet(goal.id, patch); };
@@ -259,10 +261,29 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
             {goal.appliedAt && (
               <span style={{ color: OK, fontWeight: 400, fontSize: 11 }}> · применена</span>)}
           </span>)}
+        {/* «Отозвать» — рядом с «удалить» (владелец, 2026-09-20): у
+            непринятой цели отзывать нечего, и кнопка не нажимается. */}
+        <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px",
+          opacity: goal.appliedAt ? 1 : 0.5 }} aria-label="отозвать цель"
+          disabled={!goal.appliedAt} onClick={() => setRecall(true)}>отозвать</button>
         <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
           fontSize: 11, padding: "2px 6px" }} aria-label="удалить цель"
           onClick={() => onDel(goal.id)}>удалить</button>
       </div>
+      {/* Отзыв спрашивает об одном: стирать ли сделанное. «Нет» убирает
+          дальнейший прогноз и невыполненные задачи, «Да» — всё, что цель
+          завела, и от неё остаётся заполненная форма. */}
+      {recall && (
+        <Modal title="Удалить созданную деятельность" onClose={() => setRecall(false)}>
+          <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+            <button type="button" style={btn(true, BAD)}
+              aria-label="удалить созданную деятельность"
+              onClick={() => { setRecall(false); onRecall(goal.id, true); }}>Да</button>
+            <button type="button" style={btn(true, OK)}
+              aria-label="оставить созданную деятельность"
+              onClick={() => { setRecall(false); onRecall(goal.id, false); }}>Нет</button>
+          </div>
+        </Modal>)}
       {/* ─── ПОКАЗАТЕЛЬ ───
           Цель — это не только намерение, но и мерка: сколько ресурса есть
           сейчас против того, сколько нужно. Видно и в свёрнутом виде: ради
@@ -704,7 +725,7 @@ function Schedule({ plan }) {
  * не свойство ресурса.
  */
 export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onTasks,
-  onDropGoal }) {
+  onDropGoal, onRecallGoal }) {
   const [open, setOpen] = useState(null);
   /* Функции, которым не назвали должность: по ним задачи не завелись. */
   const [noPost, setNoPost] = useState([]);
@@ -715,6 +736,20 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
      никто не просил. Прогноз пересчитывается сам: он считается по
      применённым целям, и стоит убрать одну — он считается заново без неё. */
   const del = (id) => { onDropGoal?.(id); setGoals((p) => p.filter((g) => g.id !== id)); setOpen(null); };
+
+  /* ─────── отзыв цели ───────
+
+     Отозвать — не удалить: цель остаётся заполненной формой, которую
+     можно применить снова. Уходит решение: цель больше не применена, и
+     дальнейшего прогноза по ней нет — он считается по применённым.
+
+     «Нет» убирает только невыполненную работу: сделанное — это то, что
+     правда произошло, и стирать его значило бы переписать прошлое.
+     «Да» убирает всё, что цель завела, вместе с результатами. */
+  const recall = (id, all) => {
+    onRecallGoal?.(id, all);
+    set(id, { appliedAt: null });
+  };
 
   /* ─────── цель применяется ОДИН раз ───────
 
@@ -786,7 +821,7 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
         </div>)}
       {goals.map((g) => (
         <Goal key={g.id} goal={g} traits={traits} model={model} runsOf={runsOf}
-          onSet={set} onDel={del} onApply={apply}
+          onSet={set} onDel={del} onApply={apply} onRecall={recall}
           open={open === g.id} onToggle={() => setOpen(open === g.id ? null : g.id)} />))}
     </div>);
 }

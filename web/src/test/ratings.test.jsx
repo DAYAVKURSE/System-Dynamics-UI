@@ -111,8 +111,8 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     render(<Board tasks={[handed]} />);
     fireEvent.click(screen.getByText("Задача A"));
     expect(screen.queryByRole("button", { name: "СДАТЬ" })).toBeNull();
-    // Обсуждение сданной задачи закрыто: кнопка есть, но неактивна.
-    expect(screen.getByRole("button", { name: "обсуждение: Задача A" })).toBeDisabled();
+    // Обсуждение сданной задачи открыто: её ещё не приняли.
+    expect(screen.getByRole("button", { name: "обсуждение: Задача A" })).not.toBeDisabled();
   });
 
   it("в работе — «Сдать» на месте", () => {
@@ -317,14 +317,17 @@ describe("обсуждение задачи", () => {
     expect(screen.queryByLabelText(/непрочитанных сообщений/)).toBeNull();
   });
 
-  it("кнопка неактивна, пока задача не поставлена, и после сдачи", () => {
-    const button = () => screen.getByRole("button", { name: "обсуждение: Задача A" });
-    render(<Board tasks={[task({ status: "wait" })]} />);
-    // Непоставленной задачи на доске исполнителя нет вовсе — смотрим сданную.
+  /* ЧИТАТЬ МОЖНО ВСЕГДА, ПИСАТЬ — ПОКА РАБОТУ НЕ ПРИНЯЛИ (владелец,
+     2026-09-20). Готовых задач на доске исполнителя нет вовсе — они на
+     «Проверке» (`discussion.test.jsx`). */
+  it("сданная задача открывается, и писать в ней можно", () => {
     render(<Board tasks={[task({ status: "review",
       submissions: [newSubmission({ hours: 1, text: "сдал" })] })]} />);
-    fireEvent.click(screen.getAllByText("Задача A")[0]);
-    expect(button()).toBeDisabled();
+    fireEvent.click(screen.getByText("Задача A"));
+    const button = screen.getByRole("button", { name: "обсуждение: Задача A" });
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+    expect(screen.getByLabelText("сообщение")).toBeInTheDocument();
   });
 
   it("в работе кнопка активна", () => {

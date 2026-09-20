@@ -200,7 +200,10 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
               <Row label="сдать до">{t.end ? fmtDT(t.end) : "срок не назначен"}</Row>
             </div>
 
-            {!sub && <TimeBar task={t} func={funcs.find((f) => f.id === t.funcId)} />}
+            {/* У готовой задачи срока не осталось — полоски нет (владелец,
+                2026-09-20). */}
+            {!sub && t.status !== "done" && (
+              <TimeBar task={t} func={funcs.find((f) => f.id === t.funcId)} />)}
             {(t.submissions || []).map((sb) => (
               <div key={sb.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
                 borderRadius: 8, padding: 8, marginBottom: 6 }}>

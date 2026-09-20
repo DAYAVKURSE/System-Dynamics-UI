@@ -920,9 +920,13 @@ export const unreadOf=(task,meId)=>{
     &&(Date.parse(m.at)||0)>seen).length;
 };
 
-/** Идёт ли обсуждение: с постановки и до сдачи. */
+/* Обсуждение ЧИТАЕТСЯ у всякой поставленной задачи, готовую включительно
+   (владелец, 2026-09-20: «в обсуждения готовых задач должно быть можно
+   зайти, но нельзя добавить сообщение»). */
+export const chatReadable=(task)=>!!task&&task.status!=="wait";
+/** Можно ли ПИСАТЬ: пока работа не принята. */
 export const chatOpen=(task)=>!isCanceled(task)
-  &&["backlog","deferred","progress","deadline"].includes(task?.status);
+  &&["backlog","deferred","progress","deadline","review"].includes(task?.status);
 
 /**
  * Кнопка «Обсуждение» с красным кружком непрочитанных.
@@ -933,7 +937,7 @@ export const chatOpen=(task)=>!isCanceled(task)
  */
 export function ChatButton({task,meId,onOpen,style}){
   const n=unreadOf(task,meId);
-  const on=chatOpen(task);
+  const on=chatReadable(task);
   return (
     <button type="button" disabled={!on} aria-label={`обсуждение: ${task.title}`}
       style={{...btn(false),opacity:on?1:0.5,...style}}
@@ -949,6 +953,7 @@ export function ChatButton({task,meId,onOpen,style}){
 
 /** Само обсуждение — окном, как разговор в мессенджере. */
 export function Discussion({task,meId,nameOf,onSend,onClose}){
+  const mayWrite=chatOpen(task);
   const [text,setText]=useState("");
   const me=meId==null?null:String(meId);
   const who=(id)=>(id==null||id===""?"":(nameOf?nameOf(id):String(id)));
@@ -982,12 +987,15 @@ export function Discussion({task,meId,nameOf,onSend,onClose}){
             </div>);
         })}
       </div>
-      <div className="flex gap-2" style={{marginTop:8}}>
-        <TxtField value={text} placeholder="сообщение" aria-label="сообщение"
-          onCommit={setText}/>
-        <button style={btn(true,OK)} disabled={!text.trim()} onClick={send}>
-          Отправить</button>
-      </div>
+      {/* Принятая работа обсуждению открыта только на чтение: сказанное
+          при ней остаётся, дописывать к ней нечего. */}
+      {mayWrite&&(
+        <div className="flex gap-2" style={{marginTop:8}}>
+          <TxtField value={text} placeholder="сообщение" aria-label="сообщение"
+            onCommit={setText}/>
+          <button style={btn(true,OK)} disabled={!text.trim()} onClick={send}>
+            Отправить</button>
+        </div>)}
     </Modal>);
 }
 

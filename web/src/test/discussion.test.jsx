@@ -75,12 +75,34 @@ describe("обсуждение на «Проверке»", () => {
     expect(within(screen.getByLabelText("обсуждение")).getByText("жду")).toBeInTheDocument();
   });
 
-  it("до постановки и после сдачи кнопка неактивна", () => {
-    const { unmount } = render(<Review tasks={[task({ status: "wait" })]} />);
+  /* ЧИТАТЬ МОЖНО ВСЕГДА, ПИСАТЬ — ПОКА РАБОТУ НЕ ПРИНЯЛИ (владелец,
+     2026-09-20): «в обсуждения готовых задач должно быть можно зайти, но
+     нельзя добавить сообщение»; на «Проверке» писать можно. */
+  it("до постановки кнопка неактивна", () => {
+    render(<Review tasks={[task({ status: "wait" })]} />);
     expect(button()).toBeDisabled();
-    unmount();
+  });
+
+  it("готовая задача открывается, но писать в ней нечем", () => {
     render(<Review tasks={[task({ status: "done" })]} />);
-    expect(button()).toBeDisabled();
+    expect(button()).not.toBeDisabled();
+    fireEvent.click(button());
+    expect(within(screen.getByLabelText("обсуждение")).getByText("когда начнёшь?"))
+      .toBeInTheDocument();
+    expect(screen.queryByLabelText("сообщение")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Отправить" })).toBeNull();
+  });
+
+  it("сданная, но не принятая — писать можно", () => {
+    render(<Review tasks={[task({ status: "review" })]} />);
+    fireEvent.click(button());
+    expect(screen.getByLabelText("сообщение")).toBeInTheDocument();
+  });
+
+  it("у готовой задачи полоски срока нет", () => {
+    render(<Review tasks={[task({ status: "done", end: "2030-01-01T10:00" })]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.queryByText(/до конца срока/)).toBeNull();
   });
 });
 
