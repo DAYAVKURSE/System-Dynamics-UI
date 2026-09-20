@@ -52,9 +52,38 @@ export function diffLines(a = [], b = []) {
 /** Разница между двумя HTML документа. */
 export const diffHtml = (fromHtml, toHtml) => diffLines(linesOf(fromHtml), linesOf(toHtml));
 
-/** «+3 −1» — коротко, для строки версии. */
-export const diffText = ({ added = [], removed = [] } = {}) =>
-  (!added.length && !removed.length ? "без изменений" : `+${added.length} −${removed.length}`);
+/** «+3 ±2 −1» — коротко, для строки версии; «±» только когда есть замены. */
+export const diffText = ({ added = [], removed = [], changed = [] } = {}) =>
+  (!added.length && !removed.length && !changed.length ? "без изменений"
+    : `+${added.length} ${changed.length ? `±${changed.length} ` : ""}−${removed.length}`);
+
+/* ─────── замена — не «убрали и добавили» ───────
+
+   Владелец (2026-09-20): «добавь жёлтую плашку между зелёной и красной,
+   которая будет показывать конфликтующие изменения, наложенные поверх
+   старых: добавлен текст — зелёная, убран — красная, заменён — жёлтая».
+
+   Замена — одна правка одного места, и читать её надо рядом, «было →
+   стало». Раньше она разъезжалась по двум плашкам, и человек собирал её
+   обратно глазами: в зелёной новая строка, в красной старая, а что одна
+   встала на место другой — нигде не сказано.
+
+   Парой считаем убранное и добавленное, про которые `isPair` говорит, что
+   одно — правка другого; по умолчанию это `similar` (общих слов не меньше
+   половины). Что пары не нашло — осталось добавленным или убранным. */
+export function pairChanges(removed = [], added = [], isPair = null) {
+  const pair = isPair || similar;
+  const usedAdded = new Set();
+  const restRemoved = [];
+  const changed = [];
+  removed.forEach((from) => {
+    const k = added.findIndex((to, i) => !usedAdded.has(i) && pair(from, to));
+    if (k < 0) { restRemoved.push(from); return; }
+    usedAdded.add(k);
+    changed.push({ from, to: added[k] });
+  });
+  return { added: added.filter((x, i) => !usedAdded.has(i)), removed: restRemoved, changed };
+}
 
 /* ─────── изменения по словам: одна форма — одно место ───────
 
@@ -114,40 +143,60 @@ const sentenceAround = (words, from, to) => {
   return { s, e };
 };
 
-/** Форма одного изменения: предложение словами, изменённые — с пометкой `hl`. */
-const formOf = (sign, words, from, to) => {
-  const { s, e } = sentenceAround(words, from, to);
-  return { sign, parts: words.slice(s, e + 1).map((w, k) => ({ text: w, hl: s + k >= from && s + k <= to })) };
+/* Куски подряд идущих слов одного вида в потоке `diffWords`. */
+const runsOf = (d) => {
+  const out = [];
+  d.forEach((x, i) => {
+    const last = out[out.length - 1];
+    if (last && last.t === x.t && last.to === i - 1) last.to = i;
+    else out.push({ t: x.t, from: i, to: i });
+  });
+  return out;
 };
 
-/** Формы изменений между двумя списками абзацев: «+» и «−», по одному месту в каждой. */
+/* Форма одного изменения: предложение ТОЙ версии, про которую форма.
+   Зелёная читается по новой версии (`keep` без убранных слов), красная —
+   по старой, жёлтая — по обеим сразу: в ней и было, и стало. */
+const formIn = (sign, d, from, to, keep) => {
+  const view = d.map((x, i) => ({ ...x, i })).filter((x) => keep.includes(x.t));
+  const p0 = view.findIndex((x) => x.i >= from);
+  let p1 = -1;
+  view.forEach((x, k) => { if (x.i <= to) p1 = k; });
+  if (p0 < 0 || p1 < p0) return null;
+  const { s, e } = sentenceAround(view.map((x) => x.w), p0, p1);
+  return { sign,
+    parts: view.slice(s, e + 1).map((x) => ({ text: x.w, hl: x.i >= from && x.i <= to, t: x.t })) };
+};
+
+const wholeForm = (sign, line, t) => ({ sign, parts: wordsOf(line).map((w) => ({ text: w, hl: true, t })) });
+
+/** Формы изменений между двумя списками абзацев: «+», «−» и «±», по одному месту в каждой. */
 export function changeForms(fromLines = [], toLines = []) {
   const { added, removed } = diffLines(fromLines, toLines);
   const forms = [];
   const usedAdded = new Set();
   removed.forEach((old) => {
     const k = added.findIndex((nw, idx) => !usedAdded.has(idx) && similar(old, nw));
-    if (k < 0) { forms.push({ sign: "-", parts: wordsOf(old).map((w) => ({ text: w, hl: true })) }); return; }
+    if (k < 0) { forms.push(wholeForm("-", old, "del")); return; }
     usedAdded.add(k);
-    const nw = added[k];
-    const wa = wordsOf(old), wb = wordsOf(nw);
-    const d = diffWords(old, nw);
-    // Куски подряд идущих добавленных/убранных слов — по своей форме.
-    const runs = (type, key) => {
-      const out = [];
-      let cur = null;
-      d.forEach((x) => {
-        if (x.t === type) { if (cur && x[key] === cur.to + 1) cur.to = x[key]; else { cur = { from: x[key], to: x[key] }; out.push(cur); } }
-      });
-      return out;
-    };
-    runs("add", "j").forEach((r) => forms.push(formOf("+", wb, r.from, r.to)));
-    runs("del", "i").forEach((r) => forms.push(formOf("-", wa, r.from, r.to)));
+    const d = diffWords(old, added[k]);
+    const runs = runsOf(d).filter((r) => r.t !== "same");
+    /* Убранное и добавленное ВПЛОТНУЮ друг к другу — это замена: новые
+       слова встали на место старых, и разводить их по двум формам значило
+       бы прятать саму правку. */
+    for (let i = 0; i < runs.length; i += 1) {
+      const r = runs[i], next = runs[i + 1];
+      if (next && next.t !== r.t && next.from === r.to + 1) {
+        forms.push(formIn("±", d, r.from, next.to, ["same", "del", "add"]));
+        i += 1;
+      } else if (r.t === "add") forms.push(formIn("+", d, r.from, r.to, ["same", "add"]));
+      else forms.push(formIn("-", d, r.from, r.to, ["same", "del"]));
+    }
   });
   added.forEach((nw, idx) => {
-    if (!usedAdded.has(idx)) forms.push({ sign: "+", parts: wordsOf(nw).map((w) => ({ text: w, hl: true })) });
+    if (!usedAdded.has(idx)) forms.push(wholeForm("+", nw, "add"));
   });
-  return forms;
+  return forms.filter(Boolean);
 }
 
 /** Формы изменений между двумя HTML документа. */

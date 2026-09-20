@@ -1403,12 +1403,21 @@ export function taskBlocks(text = "", model = {}) {
   return out;
 }
 
-/** Что добавилось/изменилось (зелёное) и что убрано/заменено (красное) между версиями. */
+/**
+ * Что добавилось (зелёное), что заменено (жёлтое) и что убрано (красное).
+ *
+ * Задача, которая была и осталась, но написана иначе, — ЗАМЕНА (владелец,
+ * 2026-09-20). Прежде она попадала разом в «добавлено» и в «убрано», и
+ * одна правка читалась как две: где новый текст, а где старый, приходилось
+ * решать по памяти. Теперь у неё своя запись с `was` — прежним текстом.
+ */
 export function diffTasks(fromText = "", toText = "", model = {}) {
   const a = taskBlocks(fromText, model), b = taskBlocks(toText, model);
   const byKeyA = new Map(a.map((x) => [x.key, x]));
   const byKeyB = new Map(b.map((x) => [x.key, x]));
-  const added = b.filter((x) => !byKeyA.has(x.key) || byKeyA.get(x.key).text !== x.text);
-  const removed = a.filter((x) => !byKeyB.has(x.key) || byKeyB.get(x.key).text !== x.text);
-  return { added, removed };
+  const added = b.filter((x) => !byKeyA.has(x.key));
+  const removed = a.filter((x) => !byKeyB.has(x.key));
+  const changed = b.filter((x) => byKeyA.has(x.key) && byKeyA.get(x.key).text !== x.text)
+    .map((x) => ({ ...x, was: byKeyA.get(x.key).text }));
+  return { added, removed, changed };
 }

@@ -17,7 +17,7 @@ import { handColor } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
 import { procFuncs as procFuncs2, replaceName, setFuncHead, setTaskChecks } from "../lib/proc2.js";
 import { Brand, C, OK, WARN, BAD, NEU, ACC, ICON, IconButton, NameField, S, TAB_LINE,
-  tab as tabStyle, btn, durText, nm, NumField, TxtField } from "./ui.jsx";
+  tab as tabStyle, btn, durText, nm, NumField, TxtField, DiffBoxes, WAS_STYLE } from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
   crewOf,
   normalizeAssets,
@@ -599,19 +599,18 @@ export function docFrom(data,cur){
 /* ═══ ВЕРСИИ СЦЕНАРИЯ (владелец, 2026-09-19) ═══
    Кнопка с числом версий после выбора сценария; внутри — список сохранений,
    а у версии две формы: что добавилось и что убралось, как в техпроцессе. */
-function ScenarioDiff({ added, removed }) {
-  const box = (sign, list, color, label) => (
-    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: 8, padding: "4px 8px 8px", margin: 0, minWidth: 0 }}>
-      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sign}</legend>
-      {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
-      {list.map((l, i) => (
-        <div key={i} style={{ fontSize: 11.5, marginTop: i ? 4 : 0, overflowWrap: "anywhere" }}>{l}</div>))}
-    </fieldset>);
-  return (
-    <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
-      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{box("+", added, OK, "добавлено или изменено")}</div>
-      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{box("−", removed, BAD, "убрано или заменено")}</div>
+function ScenarioDiff({ added = [], removed = [], changed = [] }) {
+  /* Заменённая строка — «было → стало» на одном месте: старое зачёркнуто,
+     новое обычным текстом (владелец, 2026-09-20). */
+  const line = (x, sign) => (
+    <div style={{ fontSize: 11.5, overflowWrap: "anywhere" }}>
+      {sign === "±" ? (<>
+        <span style={WAS_STYLE}>{x.from}</span>
+        <span style={{ color: WARN }}> → </span>
+        <span>{x.to}</span>
+      </>) : x}
     </div>);
+  return <DiffBoxes added={added} changed={changed} removed={removed} item={line} gap={4} />;
 }
 
 function ScenarioVersions({ id, when, stamp = "" }) {
@@ -637,7 +636,7 @@ function ScenarioVersions({ id, when, stamp = "" }) {
         i > 0 ? getScenarioVersion(id, list[i - 1].v) : Promise.resolve(null),
       ]);
       setDiff(diffDocs(prev?.data || {}, now?.data || {}));
-    } catch { setDiff({ added: [], removed: [] }); }
+    } catch { setDiff({ added: [], removed: [], changed: [] }); }
     setBusy(false);
   };
   if (!id) return null;
@@ -661,7 +660,8 @@ function ScenarioVersions({ id, when, stamp = "" }) {
               </button>
               {which === v.v && (busy
                 ? <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>смотрю…</div>
-                : diff && <ScenarioDiff added={diff.added} removed={diff.removed} />)}
+                : diff && <ScenarioDiff added={diff.added} removed={diff.removed}
+                    changed={diff.changed} />)}
             </div>))}
         </div>)}
     </div>);

@@ -11,16 +11,30 @@ const base = {
 };
 
 describe("разница версий схемы", () => {
-  it("те же данные — ничего не добавилось и не убралось", () => {
+  it("те же данные — ничего не добавилось, не заменилось и не убралось", () => {
     expect(diffDocs(base, { ...base, entities: [{ name: "Пользователи", id: "e1" }] }))
-      .toEqual({ added: [], removed: [] });
+      .toEqual({ added: [], removed: [], changed: [] });
   });
 
-  it("переименование актива — пара строк: старая убрана, новая добавлена", () => {
+  /* ЗАМЕНА — ТРЕТЬЯ ПЛАШКА (владелец, 2026-09-20): «если текст добавлен —
+     зелёная, убран — красная, заменён — жёлтая». Переименование это
+     замена: старая строка никуда не делась, поверх неё легла новая. */
+  it("переименование актива — замена: было и стало одной записью", () => {
     const next = { ...base, entities: [{ id: "e1", name: "Клиенты" }] };
     const d = diffDocs(base, next);
-    expect(d.added.some((l) => l.includes("актив: Клиенты"))).toBe(true);
-    expect(d.removed.some((l) => l.includes("актив: Пользователи"))).toBe(true);
+    // Имя актива стоит в его строке и в строках, где он упомянут: каждая — замена.
+    expect(d.changed).toContainEqual({ from: "актив: Пользователи", to: "актив: Клиенты" });
+    expect(d.changed.every((c) => c.from !== c.to)).toBe(true);
+    expect(d.added).toEqual([]);
+    expect(d.removed).toEqual([]);
+  });
+
+  it("убранное без пары остаётся красным, а не становится заменой", () => {
+    const next = { ...base, traits: [] };   // ресурс убрали совсем
+    const d = diffDocs(base, next);
+    expect(d.removed.some((l) => l.startsWith("ресурс: заявки"))).toBe(true);
+    // Строка функции изменилась, но она другого вида — парой ресурсу не станет.
+    expect(d.changed.every((c) => !c.from.startsWith("ресурс:"))).toBe(true);
   });
 
   it("новая задача в процессе видна строкой", () => {
@@ -28,6 +42,7 @@ describe("разница версий схемы", () => {
     const d = diffDocs(base, next);
     expect(d.added).toEqual(["процесс «Передача»: Берёт: заявки 1"]);
     expect(d.removed).toEqual([]);
+    expect(d.changed).toEqual([]);
   });
 
   it("схема словами: активы, ресурсы, функции, процессы", () => {

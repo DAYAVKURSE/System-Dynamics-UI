@@ -177,26 +177,43 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
   );
 }
 
-/* ─────── изменения формами: «+» зелёная, «−» красная, по одному месту ─────── */
+/* ─────── изменения формами: «+» зелёная, «±» жёлтая, «−» красная ─────── */
 
 /**
  * Одна форма — одно изменение (владелец, 2026-09-15): предложение, в
  * которое добавили или из которого убрали слова, и сами слова выделены
  * цветом рамки. Форм столько, сколько мест изменилось.
+ *
+ * Слова, вставшие НА МЕСТО старых, — это замена, и у неё своя жёлтая форма
+ * (владелец, 2026-09-20). В ней предложение видно целиком: старые слова
+ * зачёркнуты, новые — жёлтым; две формы вместо одной прятали бы саму
+ * правку — что одно стало другим.
  */
+const SIGN = { "+": { text: "+", label: "добавлено" }, "-": { text: "−", label: "убрано" },
+  "±": { text: "±", label: "заменено" } };
 export function DiffForms({ forms, title, empty = "Изменений нет." }) {
   if (!forms) return null;
   const box = (f, i) => {
-    const color = f.sign === "+" ? OK : BAD;
+    const color = f.sign === "+" ? OK : f.sign === "-" ? BAD : WARN;
+    const sg = SIGN[f.sign] || SIGN["+"];
+    const mark = (p) => {
+      if (!p.hl) return undefined;
+      const base = { background: `${color}33`, fontWeight: 600, borderRadius: 3, padding: "0 2px" };
+      if (f.sign !== "±") return { ...base, color };
+      // В замене видно и старое, и новое: старое — зачёркнутым и тише.
+      return p.t === "del"
+        ? { ...base, background: `${color}1f`, color: C.muted, fontWeight: 400, textDecoration: "line-through" }
+        : { ...base, color };
+    };
     return (
-      <fieldset key={i} aria-label={f.sign === "+" ? "добавлено" : "убрано"}
+      <fieldset key={i} aria-label={sg.label}
         style={{ border: `1px solid ${color}`, borderRadius: 6, padding: "2px 8px 6px",
           margin: "6px 0 0", minWidth: 0 }}>
-        <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{f.sign === "+" ? "+" : "−"}</legend>
+        <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sg.text}</legend>
         <div style={{ fontSize: 11.5, lineHeight: 1.6, color: C.text }}>
           {f.parts.map((p, k) => (
-            <span key={k} data-hl={p.hl ? f.sign : undefined}
-              style={p.hl ? { background: `${color}33`, color, fontWeight: 600, borderRadius: 3, padding: "0 2px" } : undefined}>
+            <span key={k} data-hl={p.hl ? (f.sign === "±" ? p.t : f.sign) : undefined}
+              style={mark(p)}>
               {p.text}{k < f.parts.length - 1 ? " " : ""}</span>))}
         </div>
       </fieldset>);

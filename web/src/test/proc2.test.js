@@ -451,14 +451,23 @@ describe("функции из текста и версии", () => {
     expect(procFuncs({ ...proc, text: "Задача: x\nКто: Курьер\nОтдаёт: оплата" }, model)).toEqual([]);
   });
 
-  it("разница версий — по задачам: изменённая задача в «+» и в «−»", () => {
+  /* ЗАМЕНА — СВОЯ ЗАПИСЬ (владелец, 2026-09-20): «если текст заменён — в
+     жёлтой». Переписанная задача не «убрана и добавлена»: она осталась на
+     месте, изменился её текст, и старый лежит рядом в `was`. */
+  it("разница версий — по задачам: переписанная задача в «заменено», со старым текстом", () => {
     const a = importText(T);
     const b = a.replace("назначенный диапазон 45-55% A", "назначенный диапазон 50% A");
     const d = diffTasks(a, b, model);
-    expect(d.added.map((x) => x.name)).toEqual(["назначить время"]);
-    expect(d.removed.map((x) => x.name)).toEqual(["назначить время"]);
-    expect(diffTasks(a, a, model)).toEqual({ added: [], removed: [] });
+    expect(d.changed.map((x) => x.name)).toEqual(["назначить время"]);
+    expect(d.changed[0].was).toContain("45-55% A");
+    expect(d.changed[0].text).toContain("50% A");
+    expect(d.added).toEqual([]);
+    expect(d.removed).toEqual([]);
+    expect(diffTasks(a, a, model)).toEqual({ added: [], removed: [], changed: [] });
+    // Новая задача — по-прежнему добавление, а не замена.
     expect(diffTasks("", a, model).added).toHaveLength(2);
+    expect(diffTasks("", a, model).changed).toEqual([]);
+    expect(diffTasks(a, "", model).removed).toHaveLength(2);
   });
 });
 

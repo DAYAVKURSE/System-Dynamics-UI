@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import React from "react";
+import { DiffForms } from "../components/ContractsPanel.jsx";
+import { changeForms } from "../lib/docdiff.js";
 
 /* ДОГОВОРЫ: документы с версиями, «права сотрудников», приглашение с
    подписью, договор к подписи у позванного (владелец, 2026-09-14). */
@@ -297,5 +300,32 @@ describe("ошибка загрузки — на форме", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toMatch(/обязательных плейсхолдеров/);
     expect(screen.getByLabelText("новый договор")).toContainElement(alert);
+  });
+});
+
+/* ЖЁЛТАЯ ФОРМА ЗАМЕНЫ (владелец, 2026-09-20): «добавь жёлтую плашку между
+   зелёной и красной: добавлен текст — зелёная, убран — красная, заменён —
+   жёлтая». В форме замены видно и старое, и новое: старое зачёркнуто. */
+describe("формы изменений документа", () => {
+  const forms = (from, to) => changeForms([from], [to]);
+
+  it("замена слов — жёлтая форма «±», старое зачёркнуто, новое выделено", () => {
+    render(<DiffForms forms={forms("Срок выполнения — три дня.", "Срок выполнения — пять дней.")} />);
+    const box = screen.getByLabelText("заменено");
+    expect(box.querySelector("legend").textContent).toBe("±");
+    expect(screen.queryByLabelText("добавлено")).toBeNull();
+    expect(screen.queryByLabelText("убрано")).toBeNull();
+    const del = [...box.querySelectorAll("[data-hl='del']")];
+    const add = [...box.querySelectorAll("[data-hl='add']")];
+    expect(del.map((n) => n.textContent.trim())).toEqual(["три", "дня."]);
+    expect(add.map((n) => n.textContent.trim())).toEqual(["пять", "дней."]);
+    expect(del[0].style.textDecoration).toBe("line-through");
+    expect(add[0].style.textDecoration).toBe("");
+  });
+
+  it("добавление — зелёная, удаление — красная, как было", () => {
+    render(<DiffForms forms={forms("бета гамма дельта", "новое бета гамма дельта")} />);
+    expect(screen.getByLabelText("добавлено").querySelector("legend").textContent).toBe("+");
+    expect(screen.queryByLabelText("заменено")).toBeNull();
   });
 });

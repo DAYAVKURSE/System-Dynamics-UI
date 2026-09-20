@@ -459,9 +459,19 @@ describe("версии, выгрузка и загрузка", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent("доля меньше");   // новейшая — первой
     fireEvent.click(rows[0]);
-    expect(within(screen.getByLabelText("добавлено или изменено")).getByText("лид")).toBeInTheDocument();
-    expect(screen.getByLabelText("добавлено или изменено")).toHaveTextContent("40% A");
-    expect(screen.getByLabelText("убрано или заменено")).toHaveTextContent("50% A");
+    /* Задачу переписали — она в жёлтой плашке «заменено», и в ней видно и
+       было, и стало (владелец, 2026-09-20). */
+    const was = screen.getByLabelText("заменено");
+    expect(was).toHaveTextContent("40% A");
+    expect(was).toHaveTextContent("50% A");
+    expect(was).toHaveTextContent("было");
+    expect(was).toHaveTextContent("стало");
+    expect(screen.getByLabelText("добавлено")).toHaveTextContent("ничего");
+    expect(screen.getByLabelText("убрано")).toHaveTextContent("ничего");
+    // Жёлтая стоит МЕЖДУ зелёной и красной.
+    const order = [...screen.getByLabelText("заменено").closest(".flex").children]
+      .map((n) => n.firstChild.getAttribute("aria-label"));
+    expect(order).toEqual(["добавлено", "заменено", "убрано"]);
   });
 
   it("выгрузка — роли словами; загрузка из окна — значками", () => {

@@ -19,6 +19,41 @@ export const S={
     fontFamily:"ui-monospace, Menlo, monospace"},
   card:{background:C.panel,border:`1px solid ${C.line}`,borderRadius:10,padding:12},
 };
+/* ─────── три плашки разницы версий: «+», «±», «−» ───────
+   Владелец (2026-09-20): «везде, где есть гит-версионирование и зелёная и
+   красная плашка, добавь также жёлтую плашку между ними, которая будет
+   показывать конфликтующие изменения, наложенные поверх старых: добавлен
+   текст — зелёная, убран — красная, заменён — жёлтая».
+
+   Жёлтая стоит МЕЖДУ зелёной и красной: замена и есть середина между
+   «появилось» и «пропало» — старое никуда не делось, поверх него легло
+   новое. Пустая плашка не прячется: «ничего» — такой же ответ, как список,
+   а исчезнувшая плашка читалась бы как «здесь ещё не смотрели».
+
+   Что показывать внутри — знает вызывающий: `item(x, sign)`. Сама тройка
+   одна на все места, чтобы версии схемы и версии техпроцесса не разъехались
+   ни цветом, ни порядком. */
+export function DiffBoxes({ added = [], changed = [], removed = [], item, gap = 6 }) {
+  const box = (sign, list, color, label) => (
+    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: 8,
+      padding: "4px 8px 8px", margin: 0, minWidth: 0 }}>
+      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sign}</legend>
+      {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
+      {list.map((x, i) => (
+        <div key={i} style={{ marginTop: i ? gap : 0, minWidth: 0 }}>{item(x, sign)}</div>))}
+    </fieldset>);
+  return (
+    <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+      <div style={{ flex: "1 1 200px", minWidth: 0 }}>{box("+", added, OK, "добавлено")}</div>
+      <div style={{ flex: "1 1 200px", minWidth: 0 }}>{box("±", changed, WARN, "заменено")}</div>
+      <div style={{ flex: "1 1 200px", minWidth: 0 }}>{box("−", removed, BAD, "убрано")}</div>
+    </div>);
+}
+
+/* Старый текст замены — зачёркнут и приглушён, новый — цветом замены:
+   «было → стало» одной строкой, без второй плашки. */
+export const WAS_STYLE = { color: C.muted, textDecoration: "line-through" };
+
 /* ─────── полоса прокрутки над широким рядом ───────
    Доска задач шире экрана: колонки статусов уезжают вправо, и по самой
    доске не видно, что за краем есть ещё (владелец, 2026-09-20: «нужно

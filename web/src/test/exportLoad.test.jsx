@@ -99,11 +99,18 @@ describe("версии сценария на вкладке выгрузки (в
     await waitFor(() => expect(btn.textContent).toMatch(/Версии \(2\)/));
     fireEvent.click(btn);
     fireEvent.click(await screen.findByRole("button", { name: "версия 2" }));
-    // Две формы: зелёная с плюсом и красная с минусом.
-    const plus = await screen.findByLabelText("добавлено или изменено");
-    const minus = screen.getByLabelText("убрано или заменено");
+    /* Три формы: зелёная «+», жёлтая «±» между ними и красная «−»
+       (владелец, 2026-09-20). */
+    const plus = await screen.findByLabelText("добавлено");
+    const both = screen.getByLabelText("заменено");
+    const minus = screen.getByLabelText("убрано");
     expect(plus.querySelector("legend").textContent).toBe("+");
+    expect(both.querySelector("legend").textContent).toBe("±");
     expect(minus.querySelector("legend").textContent).toBe("−");
+    // eslint-disable-next-line no-bitwise
+    expect(plus.compareDocumentPosition(both) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // eslint-disable-next-line no-bitwise
+    expect(both.compareDocumentPosition(minus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await waitFor(() => expect(plus.textContent).toMatch(/актив/));
   });
 });

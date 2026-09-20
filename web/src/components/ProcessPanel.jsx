@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm, DiffBoxes, WAS_STYLE } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
 import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, tidyProcText } from "../lib/process.js";
@@ -1088,22 +1088,20 @@ function TextModal({ title, value, onChange, onClose, onLoad }) {
 
 /* ─────── версии ─────── */
 const when = (iso) => { try { return new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
-function TaskDiff({ added, removed }) {
-  const box = (sign, list, color, label) => (
-    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: 8, padding: "4px 8px 8px", margin: 0, minWidth: 0 }}>
-      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sign}</legend>
-      {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
-      {list.map((t, i) => (
-        <div key={i} style={{ marginTop: i ? 6 : 0 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600 }}>{t.func ? `${t.func} · ` : ""}{t.name}</div>
-          <pre style={{ margin: 0, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 11, whiteSpace: "pre-wrap", color: C.muted }}>{t.text}</pre>
-        </div>))}
-    </fieldset>);
-  return (
-    <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
-      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{box("+", added, OK, "добавлено или изменено")}</div>
-      <div style={{ flex: "1 1 220px", minWidth: 0 }}>{box("−", removed, BAD, "убрано или заменено")}</div>
-    </div>);
+/* Задача, которую переписали, — в жёлтой плашке целиком: сперва каким был
+   её текст, потом каким стал (владелец, 2026-09-20). */
+const PRE = { margin: 0, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 11, whiteSpace: "pre-wrap" };
+function TaskDiff({ added = [], removed = [], changed = [] }) {
+  const one = (t, sign) => (<>
+    <div style={{ fontSize: 11.5, fontWeight: 600 }}>{t.func ? `${t.func} · ` : ""}{t.name}</div>
+    {sign === "±" && (<>
+      <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>было</div>
+      <pre style={{ ...PRE, ...WAS_STYLE }}>{t.was}</pre>
+      <div style={{ fontSize: 10, color: WARN, marginTop: 2 }}>стало</div>
+    </>)}
+    <pre style={{ ...PRE, color: sign === "±" ? C.text : C.muted }}>{t.text}</pre>
+  </>);
+  return <DiffBoxes added={added} changed={changed} removed={removed} item={one} />;
 }
 function Versions({ proc, model, onSave }) {
   const [open, setOpen] = useState(false);
