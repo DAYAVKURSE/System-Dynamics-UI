@@ -45,8 +45,16 @@ export { barOf };
    целиком, со скрытыми словами всех проверяющих, и файл без зрителя
    унёс бы их наружу. */
 export default function Timeline({ tasks, funcs = [], traits = [], entities = [], nameOf,
-  procs = [], meId = null }) {
+  procs = [], meId = null, hypoOn = true }) {
   const [openId, setOpenId] = useState(null);
+  /* Функция гипотетического процесса — не удалённая (владелец, 2026-09-20:
+     «если гипотеза выключена, на некоторых функциях написано „функция
+     удалена" — должна быть подпись, что функция гипотетическая»). Сюда
+     приходят ВСЕ функции, а не только те, что в расчёте: таймлайн — про
+     работу, которая была, и выключенная галочка её не отменяет. */
+  const hypoOf = useMemo(() => new Set((procs || []).filter((p) => p.status === "hypo").map((p) => p.id)), [procs]);
+  const funcTag = (f) => (f && f.proc && hypoOf.has(f.proc)
+    ? <span style={{ color: WARN }}> · гипотетическая{hypoOn ? "" : ", гипотезы выключены"}</span> : null);
   const [only, setOnly] = useState("all");
   /* Фильтр по техпроцессу (владелец, 2026-09-19): в модели их несколько, и
      смотреть работу обычно нужно по одному. */
@@ -158,7 +166,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
                   overflow: "hidden" }}>
                   {t.title}
                   <div style={{ fontSize: 9.5, color: C.muted }}>
-                    {funcLabel(func, entities)}</div>
+                    {funcLabel(func, entities)}{funcTag(func)}</div>
                 </div>
                 <div style={{ flex: 1, position: "relative", height: 26,
                   background: C.ink, borderRadius: 6,
@@ -221,7 +229,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
             </div>
             <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6,
               marginBottom: 8 }}>
-              Статус: {st?.name || "—"} · функция: {funcLabel(func, entities)}
+              Статус: {st?.name || "—"} · функция: {funcLabel(func, entities)}{funcTag(func)}
               {t.setter ? <> · поставил: {nameOf ? nameOf(t.setter) : t.setter}</> : null}
               {t.assignee ? <> · исполнитель: {nameOf ? nameOf(t.assignee) : t.assignee}</> : null}
               {t.reviewer ? <> · проверяет: {nameOf ? nameOf(t.reviewer) : t.reviewer}</> : null}

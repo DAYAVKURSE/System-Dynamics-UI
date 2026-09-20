@@ -629,8 +629,17 @@ describe("карта в форме", () => {
 
   it("удаление блока уносит вложенные разделы", () => {
     render(<Panel nodes={NODES} />);
-    fireEvent.click(screen.getAllByRole("button", { name: "удалить" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^удалить отчёт/ })[0]);
     expect(screen.getByText(/Отчётов пока нет/)).toBeInTheDocument();
+  });
+
+  /* «Удалить» видна и у свёрнутого отчёта (владелец, 2026-09-20). */
+  it("«удалить» остаётся в шапке, когда отчёт свёрнут", () => {
+    render(<Panel nodes={NODES} />);
+    const fold = screen.getAllByRole("button", { name: /^свернуть / })[0];
+    fireEvent.click(fold);
+    expect(screen.getAllByRole("button", { name: /^развернуть / }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /^удалить отчёт/ })[0]).toBeVisible();
   });
 
   it("ссылка наружу — это снимок на сервере, а не адрес приложения", async () => {

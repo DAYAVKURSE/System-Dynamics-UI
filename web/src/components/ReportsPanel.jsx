@@ -1143,6 +1143,13 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           style={{ fontSize: root ? 13 : 12.5, fontWeight: root ? 700 : 600 }}
           onCommit={(v) => up({ name: v })} />
         {!root && <span style={{ fontSize: 10, color: C.muted }}>раздел</span>}
+        {/* «Удалить» — в шапке, чтобы было видно и у свёрнутого блока
+            (владелец, 2026-09-20: «у отчёта должна быть видна кнопка
+            „Удалить", если он свернут»). */}
+        <button style={{ ...btn(false), fontSize: 11, color: BAD, borderColor: "#5A2436",
+          marginLeft: "auto", flex: "none" }}
+          aria-label={`удалить ${root ? "отчёт" : "раздел"} ${node.name || "без названия"}`}
+          onClick={() => setNodes((p) => dropNode(p, node.id))}>удалить</button>
       </div>
 
       {/* «Шаг» и «задача» — не одно и то же, и коротких слов тут мало:
@@ -1371,10 +1378,6 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
           <button style={{ ...btn(false), fontSize: 11 }} disabled={busy}
             onClick={makeLink}>
             {busy ? "Готовлю…" : link ? "обновить ссылку" : "ссылка на этот блок"}</button>
-          <span style={{ flex: 1 }} />
-          <button style={{ ...btn(false), fontSize: 11, color: BAD,
-            borderColor: "#5A2436" }}
-            onClick={() => setNodes((p) => dropNode(p, node.id))}>удалить</button>
         </div>
         {saveErr && (
           <div style={{ fontSize: 10.5, color: BAD, marginTop: 5, lineHeight: 1.5 }}>

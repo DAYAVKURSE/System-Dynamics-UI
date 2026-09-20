@@ -201,3 +201,29 @@ describe("фильтры таймлайна", () => {
     expect(container.textContent).not.toMatch(/чёрточки/);
   });
 });
+
+/* ФУНКЦИЯ ГИПОТЕЗЫ — НЕ УДАЛЁННАЯ (владелец, 2026-09-20: «если гипотеза
+   выключена, на некоторых функциях написано „функция удалена" — должна быть
+   подпись, что функция гипотетическая»). */
+describe("гипотетическая функция в таймлайне", () => {
+  const FUNCS = [{ id: "f1", e: "e1", name: "Из гипотезы", dur: 1, durUnit: "ч", proc: "p1",
+    takes: [], gives: [] }];
+  const TASKS = [{ id: "a", funcId: "f1", title: "Задача гипотезы", status: "backlog",
+    start: "2030-01-01T10:00", submissions: [], reviews: [], comments: [] }];
+  const show = (hypoOn) => render(<Timeline tasks={TASKS} funcs={FUNCS} traits={[]}
+    entities={[{ id: "e1", name: "Актив" }]} procs={[{ id: "p1", name: "Гипотеза", status: "hypo" }]}
+    hypoOn={hypoOn} nameOf={(id) => id} meId="1" />);
+
+  it("подписана гипотетической, а не удалённой — и с выключенной галочкой тоже", () => {
+    show(false);
+    expect(screen.queryByText(/функция удалена/)).toBeNull();
+    expect(screen.getByText(/Актив · Из гипотезы/)).toBeInTheDocument();
+    expect(screen.getByText(/гипотетическая, гипотезы выключены/)).toBeInTheDocument();
+  });
+
+  it("с включённой галочкой — просто гипотетическая", () => {
+    show(true);
+    expect(screen.getByText(/гипотетическая$/)).toBeInTheDocument();
+    expect(screen.queryByText(/выключены/)).toBeNull();
+  });
+});

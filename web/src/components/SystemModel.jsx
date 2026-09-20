@@ -1776,9 +1776,12 @@ export default function SystemModel(){
                выполнять больше нечего. */
             onDropFuncs={ids=>setTasks(p=>p.filter(t=>!ids.includes(t.funcId)))}/>)}
 
+        {/* Таймлайну — все функции, не только считаемые: задача по
+            гипотетической функции есть и при выключенной галочке, и
+            называть её функцию «удалённой» — ложь (владелец, 2026-09-20). */}
         {under==="time" && (
-          <Timeline tasks={myTasks} funcs={liveFuncs} traits={traitsLive} entities={entities}
-            procs={procs} nameOf={personName} meId={me.id}/>)}
+          <Timeline tasks={myTasks} funcs={funcs} traits={traitsLive} entities={entities}
+            procs={procs} hypoOn={hypoOn} nameOf={personName} meId={me.id}/>)}
 
         {under==="edit" && selE && (
           <div style={{...S.card,marginTop:10}}>
