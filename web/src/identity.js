@@ -23,6 +23,22 @@ export const ALL_TABS = ["market", "me", "tasks", "review",
   "tools", "tools:people", "tools:assistant", "tools:virtual", "tools:reminders",
   "tools:calls", "tools:export"];
 
+/* Имена вкладок — те же слова, что на их кнопках в приложении: роль
+   открывает «Отчёты», и называться она должна «Отчёты», а не «reports».
+   Список один со `SystemModel.TAB_LIST`; здесь он потому, что вкладки
+   выбирают в двух местах — у роли и в коде доступа. */
+export const TAB_NAMES = {
+  market: "Рынок услуг", me: "Анкета",
+  tasks: "Задачи", review: "Проверка", scheme: "Схема",
+  "scheme:edit": "Управление", "scheme:time": "Деятельность", "scheme:sim": "Цели",
+  reports: "Отчёты", tools: "Инструменты",
+  "tools:people": "Роли", "tools:assistant": "Агенты",
+  "tools:virtual": "Виртуальные сотрудники",
+  "tools:reminders": "Напоминания", "tools:calls": "Звонки",
+  "tools:export": "Выгрузка",
+};
+export const tabName = (t) => TAB_NAMES[t] || t;
+
 /* Право на вкладке: «r» — только смотреть, «rw» — ещё и править. */
 export const mayEdit = (me, tab) => !me || !!me.isOwner || !!me.solo
   || (me.access || {})[tab] !== "r";
@@ -210,6 +226,19 @@ export const removeUser = (id) =>
 export const listVirtual = () => json("/api/org/virtual");
 export const addVirtual = (roleId) =>
   json("/api/org/virtual", { method: "POST", body: JSON.stringify({ roleId }) });
+/* Код доступа на «+ сотрудник»: страница настоящего человека, который сам
+   пустил к себе, появляется в том же списке (владелец, 2026-09-20). */
+export const addByCode = (code) =>
+  json("/api/org/virtual", { method: "POST", body: JSON.stringify({ code }) });
+export const removeVirtual = (id) =>
+  json(`/api/org/virtual/${encodeURIComponent(id)}`, { method: "DELETE" });
+/* Свой код для техподдержки: срок в минутах, «r» или «rw» и вкладки. */
+export const getAccessCode = () => json("/api/org/access-code");
+export const makeAccessCode = (minutes, access, tabs) =>
+  json("/api/org/access-code",
+    { method: "POST", body: JSON.stringify({ minutes, access, tabs }) });
+export const dropAccessCode = () =>
+  json("/api/org/access-code", { method: "DELETE" });
 /* Ролей у виртуального сотрудника несколько, как у обычного участника. */
 export const setVirtualRoles = (id, roles) =>
   json(`/api/org/virtual/${encodeURIComponent(id)}/role`,

@@ -85,7 +85,7 @@ const cleanRows = (rows) => rows.map((r) => ({ name: String(r.name || "").trim()
 
 function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
   saveLabel = "Оставить заказ" }) {
-  const [f, setF] = useState({ name: "", text: "", price: "", resources: [emptyRow()],
+  const [f, setF] = useState({ name: "", text: "", price: "",
     serviceId: null, funcId: null, ...initial,
     resources: initial?.resources?.length ? initial.resources : [emptyRow()] });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
@@ -150,8 +150,8 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
 
 function ServiceForm({ initial, services = [], busy, onSave, onCancel,
   saveLabel = "Выложить услугу" }) {
-  const [f, setF] = useState({ name: "", text: "", takes: [], gives: [], days: "", funcId: null,
-    auto: false, ...initial, days: initial?.days ?? "", auto: initial?.auto === true });
+  const [f, setF] = useState({ name: "", text: "", takes: [], gives: [], funcId: null,
+    ...initial, days: initial?.days ?? "", auto: initial?.auto === true });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
   return (
     <div style={form} aria-label="форма услуги">

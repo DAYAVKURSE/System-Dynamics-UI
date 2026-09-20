@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, WARN, BAD, ACC, S, btn, Download, TxtField } from "./ui.jsx";
 import { renameRole,
-  ALL_TABS, addRole, listOrg, removeRole, removeUser, setRoleContract, setRoleTabs,
+  ALL_TABS, TAB_NAMES, addRole, listOrg, removeRole, removeUser, setRoleContract, setRoleTabs,
   setUserRoles,
 } from "../identity.js";
 import { putReportFile, reportSrc } from "../storage.js";
@@ -33,19 +33,6 @@ import Modal from "./Modal.jsx";
    написано рядом с ней — молчание было бы обещанием, которого нет.
    ════════════════════════════════════════════════════════════════ */
 
-/* Имена вкладок — те же слова, что на самих кнопках приложения: роль
-   открывает «Отчёты», и в списке она должна называться «Отчёты», а не
-   «reports». Список один со `SystemModel.TAB_LIST`. */
-const TAB_NAMES = {
-  market: "Рынок услуг", me: "Анкета",
-  tasks: "Задачи", review: "Проверка", scheme: "Схема",
-  "scheme:edit": "Управление", "scheme:time": "Деятельность", "scheme:sim": "Цели",
-  reports: "Отчёты", tools: "Инструменты",
-  "tools:people": "Роли", "tools:assistant": "Агенты",
-  "tools:virtual": "Виртуальные сотрудники",
-  "tools:reminders": "Напоминания", "tools:calls": "Звонки",
-  "tools:export": "Выгрузка",
-};
 /* Право роли на вкладке — нажатиями по кругу: закрыта → «r» (жёлтая,
    только смотреть) → «rw» (зелёная, ещё и править) → снова закрыта
    (владелец, 2026-09-20). Право пишется справа от названия, чтобы не

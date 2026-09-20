@@ -18,6 +18,7 @@ const VIEW = {
   roles: [{ id: "executor", name: "исполнитель" }, { id: "reviewer", name: "проверяющий" }],
   users: [{ id: "vt_abc", name: "wise oyster", virtual: true, roles: ["executor"],
     link: "https://t.me/bot?startapp=join_k1" }],
+  code: null,
 };
 
 const server = (over = {}) => {
@@ -40,6 +41,15 @@ const server = (over = {}) => {
         ? { ok: false, status: 409,
           json: async () => ({ error: "Вы уже зарегистрированы в системе" }) }
         : { ok: true, status: 200, json: async () => ({ id: "vt_abc", known: true }) };
+    }
+    if (u.includes("/api/org/access-code")) {
+      if ((opts.method || "GET") === "POST") {
+        return { ok: true, status: 201,
+          json: async () => ({ code: { code: "AB12CD34", minutes: 20, access: "r",
+            tabs: ["tasks"], expiresAt: new Date(Date.now() + 20 * 60000).toISOString() } }) };
+      }
+      return { ok: true, status: 200,
+        json: async () => ({ code: over.code || null, tabs: [], mine: [] }) };
     }
     return { ok: true, status: 200, json: async () => (over.view || VIEW) };
   }));
@@ -131,5 +141,69 @@ describe("вступление по ссылке", () => {
     render(<JoinPanel me={{ known: false, solo: false }} token="k1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Вступить" }));
     expect(await screen.findByText(/уже зарегистрированы/)).toBeInTheDocument();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════
+   КОД ДОСТУПА (владелец, 2026-09-20)
+
+   «При нажатии „+ сотрудник" сначала должно появляться модальное окно, в
+   котором можно ввести определённый код»; «добавь кнопку „Удалить
+   сотрудника" на его форму»; «форма кода доступа… кнопка „Сгенерировать
+   код для техподдержки"… время действия кода в минутах и radio button
+   r/rw… ниже кнопки с вкладками».
+   ════════════════════════════════════════════════════════════════ */
+
+describe("код доступа", () => {
+  it("«+ сотрудник» сначала спрашивает код, и с кодом заводит чужую страницу", async () => {
+    const calls = server();
+    render(<VirtualPanel me={ME} />);
+    await screen.findByLabelText("виртуальный wise oyster");
+    fireEvent.click(screen.getByRole("button", { name: "+ сотрудник" }));
+    // Сначала окно, а не запрос.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    fireEvent.change(screen.getByLabelText("код доступа сотрудника"),
+      { target: { value: "AB12CD34" } });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST"
+      && c.url.endsWith("/api/org/virtual") && c.body?.code === "AB12CD34")).toBe(true));
+  });
+
+  it("без кода — пустая страница, как раньше", async () => {
+    const calls = server();
+    render(<VirtualPanel me={ME} />);
+    await screen.findByLabelText("виртуальный wise oyster");
+    fireEvent.click(screen.getByRole("button", { name: "+ сотрудник" }));
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST"
+      && c.url.endsWith("/api/org/virtual") && c.body?.roleId === "executor")).toBe(true));
+  });
+
+  it("«Удалить сотрудника» спрашивает и удаляет", async () => {
+    const calls = server();
+    render(<VirtualPanel me={ME} />);
+    await screen.findByLabelText("виртуальный wise oyster");
+    fireEvent.click(screen.getByLabelText("удалить сотрудника wise oyster"));
+    expect(screen.getByText("Вы уверены? Это действие необратимо")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Да" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE"
+      && c.url.endsWith("/api/org/virtual/vt_abc"))).toBe(true));
+  });
+
+  it("форма кода: кнопка, поле, минуты, r/rw и кнопки вкладок", async () => {
+    const calls = server();
+    render(<VirtualPanel me={{ ...ME, isOwner: true }} />);
+    const box = await screen.findByLabelText("форма кода доступа");
+    // Поле пустое, пока код не выдан.
+    const field = screen.getByLabelText("код доступа");
+    expect(field.value).toBe("");
+    fireEvent.change(screen.getByLabelText("время действия кода"), { target: { value: "20" } });
+    fireEvent.click(screen.getByLabelText("r"));
+    fireEvent.click(screen.getByLabelText("вкладка Задачи"));
+    fireEvent.click(screen.getByRole("button", { name: "Сгенерировать код для техподдержки" }));
+    await waitFor(() => expect(field.value).toBe("AB12CD34"));
+    const post = calls.find((c) => c.method === "POST" && c.url.endsWith("/api/org/access-code"));
+    expect(post.body).toEqual({ minutes: 20, access: "r", tabs: ["tasks"] });
   });
 });

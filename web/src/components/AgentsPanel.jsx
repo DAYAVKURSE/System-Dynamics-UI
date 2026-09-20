@@ -3,7 +3,8 @@ import { ACC, BAD, C, OK, S, WARN, btn, TxtField } from "./ui.jsx";
 import Modal from "./Modal.jsx";
 import {
   addAgent, addMcp, addMemory, addProvider, dropAgent, dropMcp, dropMemory, dropProvider,
-  getAssistantSettings, listMemory, mcpTools, providerModels, updateAgent, updateProvider,
+  getAssistantSettings, listMemory, mcpRegistry, mcpTools, providerModels, updateAgent,
+  updateProvider,
 } from "../assistant.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -51,7 +52,6 @@ const sameRow = (a, b) => !!a && !!b && a.providerId === b.providerId && a.model
 const hasRow = (list, row) => (list || []).some((x) => sameRow(x, row));
 
 const EMPTY_FORM = { name: "", kind: "openai", baseUrl: "", key: "" };
-const EMPTY_MCP = { name: "", url: "", repo: "" };
 /* Назначения приходят с сервера (`USES`), но список нужен и до ответа:
    форма рисуется сразу, а не после загрузки. */
 const USES_FALLBACK = [
@@ -69,7 +69,6 @@ export default function AgentsPanel({ me, onChanged }) {
   const [agentId, setAgentId] = useState("assistant");
   const [current, setCurrent] = useState("");   // id открытого провайдера или "new"
   const [providerForm, setProviderForm] = useState(EMPTY_FORM);
-  const [mcpForm, setMcpForm] = useState(EMPTY_MCP);
   const [renaming, setRenaming] = useState(false);
   const [killing, setKilling] = useState(null);
   const [msg, setMsg] = useState("");
@@ -234,27 +233,6 @@ export default function AgentsPanel({ me, onChanged }) {
                   </div>);
               })}
 
-              {/* ═══ MCP-серверы агента ═══ */}
-              <div style={{ ...S.lbl, marginTop: 10 }}>MCP-серверы</div>
-              <div style={{ ...hint, margin: "4px 0 6px" }}>
-                Какие из подключённых серверов этот агент может звать.
-              </div>
-              {!servers.length && (
-                <div style={hint}>Серверов нет — добавьте их в форме ниже.</div>)}
-              <div className="flex flex-wrap gap-2">
-                {servers.map((m) => {
-                  const on = (agent.mcp || []).includes(m.id);
-                  return (
-                    <button key={m.id} type="button" role="checkbox" aria-checked={on}
-                      disabled={busy} aria-label={`mcp ${m.name}`}
-                      style={btn(on, on ? OK : undefined)}
-                      onClick={() => run(() => updateAgent(agent.id, {
-                        mcp: on ? (agent.mcp || []).filter((x) => x !== m.id)
-                          : [...(agent.mcp || []), m.id] }))}>
-                      {on ? "✓ " : ""}{m.name}</button>);
-                })}
-              </div>
-
               {/* ═══ спрашивать или делать ═══ */}
               <div style={{ ...S.lbl, marginTop: 10 }}>изменения в приложении</div>
               <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
@@ -270,8 +248,36 @@ export default function AgentsPanel({ me, onChanged }) {
               </div>
             </div>
 
+            {/* ═══ инструкции ═══ */}
+            <Skill key={`skill-${agent.id}`} agent={agent} busy={busy}
+              onSave={(text) => run(() => updateAgent(agent.id, { skill: text }),
+                text ? "Инструкция сохранена." : "Инструкция удалена.")} />
+
             {/* ═══ память ═══ */}
             <Memory key={agent.id} agent={agent} busy={busy} setBusy={setBusy} />
+
+            {/* ═══ MCP-серверы агента ═══ Сразу после памяти (владелец,
+                2026-09-20): выбирают из коллекции, а собирают её в форме
+                MCP-серверов ниже. */}
+            <div style={form}>
+              <div style={S.lbl}>3 · MCP-серверы</div>
+              {!servers.length && (
+                <div style={{ ...hint, marginTop: 4 }}>
+                  Серверов нет — добавьте их в форме ниже.</div>)}
+              <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+                {servers.map((m) => {
+                  const on = (agent.mcp || []).includes(m.id);
+                  return (
+                    <button key={m.id} type="button" role="checkbox" aria-checked={on}
+                      disabled={busy} aria-label={`mcp ${m.name}`}
+                      style={btn(on, on ? OK : undefined)}
+                      onClick={() => run(() => updateAgent(agent.id, {
+                        mcp: on ? (agent.mcp || []).filter((x) => x !== m.id)
+                          : [...(agent.mcp || []), m.id] }))}>
+                      {on ? "✓ " : ""}{m.name}</button>);
+                })}
+              </div>
+            </div>
 
             {/* ═══ удалить ═══ */}
             {!agent.builtin && (
@@ -332,9 +338,9 @@ export default function AgentsPanel({ me, onChanged }) {
 
     {/* ═══ 3. MCP-СЕРВЕРЫ ═══ */}
     {view && (
-      <McpForm servers={servers} form={mcpForm} setForm={setMcpForm} busy={busy}
-        onAdd={() => run(() => addMcp(mcpForm), "Сервер добавлен — спросите его инструменты.")
-          .then((m) => { if (m) setMcpForm(EMPTY_MCP); })}
+      <McpForm servers={servers} busy={busy}
+        onAdd={(rec) => run(() => addMcp(rec),
+          (m) => `Сервер «${m.name}» добавлен — спросите его инструменты.`)}
         onTools={(id) => run(() => mcpTools(id),
           (m) => `${m.name}: инструментов — ${(m.tools || []).length}.`)}
         onDrop={(m) => run(() => dropMcp(m.id), `Сервер «${m.name}» удалён.`)} />)}
@@ -343,21 +349,36 @@ export default function AgentsPanel({ me, onChanged }) {
 
 /* ─────── MCP-серверы: адрес, репозиторий и что сервер умеет ─────── */
 
-function McpForm({ servers, form, setForm, busy, onAdd, onTools, onDrop }) {
+function McpForm({ servers, busy, onAdd, onTools, onDrop }) {
   const [kill, setKill] = useState(null);
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const [list, setList] = useState(null);
+  const [open, setOpen] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const refresh = async () => {
+    setLoading(true); setErr("");
+    try { setList(await mcpRegistry()); }
+    catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const have = new Set(servers.map((m) => m.url));
+
   return (
     <div style={{ ...S.card, marginBottom: 10 }} aria-label="mcp-серверы">
-      <div style={S.lbl}>MCP-серверы</div>
-      <div style={{ ...hint, margin: "6px 0 8px" }}>
-        Чужие инструменты, которыми агент может пользоваться. Приложение ходит к серверу
-        само: укажите его адрес, а репозиторий — чтобы было видно, откуда он взят.
+      <div className="flex items-center gap-2">
+        <span style={{ ...S.lbl, flex: 1 }}>MCP-серверы</span>
+        <button type="button" style={btn(false)} disabled={loading}
+          aria-label="обновить список серверов" onClick={refresh}>
+          {loading ? "…" : "Обновить"}</button>
       </div>
 
       {servers.map((m) => (
         <div key={m.id} aria-label={`mcp-сервер ${m.name}`}
           style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-            padding: 8, marginBottom: 6 }}>
+            padding: 8, marginTop: 6 }}>
           <div className="flex flex-wrap items-center gap-2">
             <span style={{ fontSize: 12.5, fontWeight: 700, flex: "1 1 120px" }}>{m.name}</span>
             <span style={{ fontSize: 10.5, color: (m.tools || []).length ? OK : C.muted }}>
@@ -378,18 +399,53 @@ function McpForm({ servers, form, setForm, busy, onAdd, onTools, onDrop }) {
               onClick={() => setKill(m)}>Удалить</button>
           </div>
         </div>))}
-      {!servers.length && <div style={{ ...hint, marginBottom: 6 }}>Серверов пока нет.</div>}
 
-      <div style={{ background: C.panel, borderRadius: 8, padding: 10 }}>
-        <div style={S.lbl}>новый сервер</div>
-        <input aria-label="название сервера" style={{ ...S.inp, margin: "6px 0" }}
-          placeholder="название — как вы его называете" value={form.name} onChange={set("name")} />
-        <input aria-label="адрес сервера" style={{ ...S.inp, marginBottom: 6 }}
-          placeholder="адрес: https://…/mcp" value={form.url} onChange={set("url")} />
-        <input aria-label="репозиторий сервера" style={{ ...S.inp, marginBottom: 6 }}
-          placeholder="репозиторий: https://github.com/…" value={form.repo} onChange={set("repo")} />
-        <button type="button" style={btn(true, OK)} disabled={busy || !form.url.trim()}
-          onClick={onAdd}>Добавить сервер</button>
+      {/* ─── РЕЕСТР: что вообще есть (владелец, 2026-09-20) ───
+          Список общий, поэтому он не хранится, а спрашивается. Нажатие на
+          сервер раскрывает его форму: что он такое, откуда и по какому
+          адресу; там же «Добавить» — и он попадает в коллекцию, из которой
+          выбирают на форме агента. */}
+      <div style={{ ...S.lbl, marginTop: 12 }}>реестр</div>
+      {err && <div style={{ ...hint, color: BAD, marginTop: 4 }}>{err}</div>}
+      {!list && !err && <div style={{ ...hint, marginTop: 4 }}>Загружаю…</div>}
+      {list && !list.servers.length && !err && (
+        <div style={{ ...hint, marginTop: 4 }}>Реестр ничего не вернул.</div>)}
+
+      <div style={{ marginTop: 4 }}>
+        {(list?.servers || []).map((r) => {
+          const on = open === r.id;
+          const added = have.has(r.url);
+          return (
+            <div key={r.id} style={{ borderTop: `1px solid ${C.line}` }}>
+              <button type="button" aria-expanded={on} aria-label={`сервер ${r.name}`}
+                onClick={() => setOpen(on ? "" : r.id)}
+                style={{ ...S.inp, width: "100%", textAlign: "left", border: "none",
+                  background: "transparent", cursor: "pointer", padding: "7px 2px",
+                  display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{r.name}</span>
+                {added && <span style={{ fontSize: 10, color: OK }}>добавлен</span>}
+                <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
+              </button>
+              {on && (
+                <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
+                  borderRadius: 8, padding: 8, marginBottom: 6 }}
+                  aria-label={`форма сервера ${r.name}`}>
+                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6 }}>
+                    {r.description && <div>{r.description}</div>}
+                    <div>имя: {r.full}</div>
+                    {r.version && <div>версия: {r.version}</div>}
+                    <div>адрес: {r.url}</div>
+                    {r.transport && <div>подключение: {r.transport}</div>}
+                    {r.repo && <div>репозиторий: {r.repo}</div>}
+                  </div>
+                  <button type="button" style={{ ...btn(!added, added ? undefined : OK),
+                    marginTop: 8 }}
+                    disabled={busy || added} aria-label={`добавить сервер ${r.name}`}
+                    onClick={() => onAdd({ name: r.name, url: r.url, repo: r.repo })}>
+                    {added ? "Уже добавлен" : "Добавить"}</button>
+                </div>)}
+            </div>);
+        })}
       </div>
 
       {kill && (
@@ -535,6 +591,36 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
       {listMsg && <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{listMsg}</div>}
     </div>
   );
+}
+
+/* ─────── ИНСТРУКЦИИ АГЕНТА · СКИЛЛ (владелец, 2026-09-20) ───────
+
+   Одно поле и две кнопки. «Сохранить» кладёт инструкцию агенту, и она
+   уходит в его системную подсказку в каждом разговоре — это и значит
+   «применяется как скилл»: не напоминание в одном вопросе, а то, что он
+   умеет всегда. «Удалить» — то же сохранение пустым: умения больше нет.
+
+   Поле живёт своим черновиком, а не полем агента: пока человек печатает,
+   ничего не отправляется, иначе каждое нажатие клавиши было бы запросом. */
+function Skill({ agent, busy, onSave }) {
+  const [text, setText] = useState(agent.skill || "");
+  const saved = String(agent.skill || "");
+  const dirty = text.trim() !== saved;
+  return (
+    <div style={form} aria-label="инструкции агента">
+      <div style={S.lbl}>1 · инструкции</div>
+      <textarea aria-label="инструкция агента" rows={4} value={text}
+        disabled={busy} onChange={(e) => setText(e.target.value)}
+        style={{ ...S.inp, width: "100%", marginTop: 6, resize: "vertical",
+          minHeight: 72, lineHeight: 1.5 }} />
+      <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+        <button type="button" style={btn(dirty, dirty ? OK : undefined)}
+          disabled={busy || !dirty} onClick={() => onSave(text.trim())}>Сохранить</button>
+        <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+          disabled={busy || (!saved && !text)}
+          onClick={() => { setText(""); onSave(""); }}>Удалить</button>
+      </div>
+    </div>);
 }
 
 /* ─────── память агента ─────── */

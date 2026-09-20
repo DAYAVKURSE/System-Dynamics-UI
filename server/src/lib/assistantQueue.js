@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { complete as completeDefault } from "./aiProviders.js";
 import { contextFor as contextForDefault } from "./assistantContext.js";
 import * as settings from "./assistantSettings.js";
-import { actionsNote, mcpNote, modelsNote, runAgent } from "./assistantAgent.js";
+import { actionsNote, mcpNote, modelsNote, runAgent, skillNote } from "./assistantAgent.js";
 import { identify } from "./orgStore.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -191,6 +191,7 @@ export function createQueue({
       modelsNote(agent, view.providers || []),
       actionsNote(agent.ask !== false),
       mcpNote(servers),
+      skillNote(agent.skill),
       `# Данные\n${context}${extra}`,
     ].filter(Boolean).join("\n\n");
     try {

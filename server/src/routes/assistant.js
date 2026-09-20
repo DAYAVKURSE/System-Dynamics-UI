@@ -8,6 +8,7 @@ import {
   updateProvider,
 } from "../lib/assistantSettings.js";
 import { listTools } from "../lib/mcp.js";
+import { listRegistry } from "../lib/mcpRegistry.js";
 import { listModels } from "../lib/aiProviders.js";
 import { ask, find } from "../lib/assistantQueue.js";
 import {
@@ -135,9 +136,9 @@ router.post("/agents", async (req, res, next) => {
 
 router.put("/agents/:id", async (req, res, next) => {
   try {
-    const { name, models, transcribe, uses, mcp, ask: askMode } = req.body || {};
+    const { name, models, transcribe, uses, mcp, ask: askMode, skill } = req.body || {};
     const agent = updateAgent(req.me.id, req.params.id,
-      { name, models, transcribe, uses, mcp, ask: askMode });
+      { name, models, transcribe, uses, mcp, ask: askMode, skill });
     if (!agent) return res.status(404).json({ error: "Агент не найден" });
     if (name !== undefined && req.me.isOwner) await renameAgentUser(agent.id, agent.name);
     res.json(agent);
@@ -188,6 +189,18 @@ router.delete("/mcp/:id", (req, res, next) => {
     }
     return res.status(204).end();
   } catch (e) { return badInput(e, res, next); }
+});
+
+/* СПИСОК ДОСТУПНЫХ СЕРВЕРОВ ИЗ РЕЕСТРА (владелец, 2026-09-20): форма
+   показывает его и умеет обновить. Реестр общий, поэтому маршрут ничего
+   не хранит — он только спрашивает и отдаёт как есть. */
+router.get("/mcp/registry", async (req, res, next) => {
+  try {
+    const r = await listRegistry();
+    return res.json(r);
+  } catch (e) {
+    return res.status(502).json({ error: String(e?.message || e).slice(0, 300) });
+  }
 });
 
 /* Спросить у сервера, что он умеет, и запомнить список. */

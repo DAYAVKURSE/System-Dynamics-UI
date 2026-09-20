@@ -5,6 +5,8 @@ import { renameRole,
   removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
   setUserRole, setUserRoles, TABS,
   addVirtualUser, claimVirtual, formsFor, mayActAs, profileOf, virtualByToken, virtualToken,
+  accessCodeOf, dropAccessCode, dropGrant, grantFor, grantsTo, makeAccessCode,
+  removeVirtualUser, useAccessCode,
 } from "../lib/orgStore.js";
 import { MAX_REPORT_BYTES, saveReport } from "../lib/reportStore.js";
 import {
@@ -33,15 +35,36 @@ const RECRUITER_TABS = ["me"];
 const asRecruiter = (req, me) => !!req.actingAs
   && String(req.telegramRealId || "") !== String(me?.ownerId || "");
 
+/* Гость по коду видит РОВНО то, что ему открыли (владелец, 2026-09-20):
+   выбранные вкладки и не выше выбранного права. Пересекаем с тем, что
+   есть у самой страницы: открыть гостю вкладку, которой у хозяина нет,
+   значит показать пустое место и назвать это доступом. */
+const byGrant = (me, grant) => {
+  const has = me.access && typeof me.access === "object" ? me.access : {};
+  const tabs = (grant.tabs || []).filter((t) => has[t] || (me.tabs || []).includes(t));
+  const cap = (t) => (grant.access === "r" ? "r" : (has[t] || "rw"));
+  return {
+    tabs: [...new Set(["me", ...tabs])],
+    access: Object.fromEntries(["me", ...tabs].map((t) => [t, cap(t)])),
+  };
+};
+
 router.get("/me", async (req, res, next) => {
   try {
     const me = await identify(req.telegramUserId, req.telegramProfile || {});
     if (req.actingAs) {
       const org = await listOrg();
       const owner = String(org.ownerId || "") === String(req.telegramRealId || "");
+      const grant = await grantFor(req.telegramRealId, req.actingAs);
       me.actingAs = req.actingAs;
-      me.actingOwner = owner;
-      if (!owner) {
+      me.actingOwner = owner && !grant;
+      me.actingGrant = grant ? { access: grant.access, until: grant.until } : null;
+      if (grant) {
+        const g = byGrant(me, grant);
+        me.tabs = g.tabs;
+        me.access = g.access;
+        me.isOwner = false;
+      } else if (!owner) {
         me.tabs = [...RECRUITER_TABS];
         me.access = Object.fromEntries(RECRUITER_TABS.map((t) => [t, "rw"]));
         me.isOwner = false;
@@ -75,13 +98,27 @@ router.get("/virtual", async (req, res, next) => {
     const bot = process.env.BOT_NAME || "";
     const link = (t) => (t
       ? (bot ? `https://t.me/${bot}?startapp=join_${t}` : `?join=${t}`) : "");
+    /* Страницы НАСТОЯЩИХ людей, открытые по коду, стоят в том же списке:
+       гостю всё равно, кто за страницей, — ему на неё заходить. Отличает
+       их `real`: у настоящего человека нет ни ссылки, ни ролей на правку,
+       и «удалить» у него значит «убрать у себя», а не «стереть». */
+    const granted = await grantsTo(me.id);
+    const byId = new Map((org.users || []).map((u) => [u.id, u]));
     return res.json({
       // Ссылка показана прямо в форме (владелец, 2026-09-20): отдельной
       // кнопки для неё нет — страница заводится сразу со ссылкой.
-      users: (org.users || []).filter((u) => mineVirtual(u, me))
-        .map((u) => ({ ...u, link: u.tg ? "" : link(u.token) })),
+      users: [
+        ...(org.users || []).filter((u) => mineVirtual(u, me))
+          .map((u) => ({ ...u, link: u.tg ? "" : link(u.token) })),
+        ...granted.filter((g) => byId.has(g.by)).map((g) => ({
+          ...byId.get(g.by), link: "", real: true,
+          grant: { access: g.access, tabs: g.tabs || [], until: g.until },
+        })),
+      ],
       roles: (org.roles || []).map((r) => ({ id: r.id, name: r.name, doc: r.doc || null })),
       isOwner: !!me.isOwner,
+      tabs: TABS,
+      code: await accessCodeOf(me.id),
     });
   } catch (e) { return next(e); }
 });
@@ -93,6 +130,19 @@ router.post("/virtual", async (req, res, next) => {
     // Виртуальный под виртуальным не заводится: это было бы деревом
     // страниц, за которыми нет никого.
     if (req.actingAs) return res.status(403).json({ error: "not from a virtual page" });
+    /* С КОДОМ — это не новая страница, а чужая: человек уже есть, и он
+       сам пустил к себе (владелец, 2026-09-20). Без кода — как прежде:
+       пустая страница, за которой пока никого. */
+    const code = String(req.body?.code || "").trim();
+    if (code) {
+      const r = await useAccessCode(code, me.id);
+      if (r.error === "own code") {
+        return res.status(400).json({ error: "Это ваш собственный код" });
+      }
+      if (r.error) return res.status(404).json({ error: "Код не подошёл или истёк" });
+      return res.status(201).json({ ...r.user, real: true, link: "",
+        grant: { access: r.grant.access, tabs: r.grant.tabs, until: r.grant.until } });
+    }
     const user = await addVirtualUser({ roleId: req.body?.roleId || null, addedBy: me.id });
     return res.status(201).json(user);
   } catch (e) {
@@ -121,6 +171,63 @@ router.put("/virtual/:id/role", async (req, res, next) => {
     if (/unknown role/.test(e.message)) return res.status(400).json({ error: e.message });
     return next(e);
   }
+});
+
+/* «Удалить сотрудника» (владелец, 2026-09-20). Что именно удаляется,
+   решает вид страницы, а не кнопка: виртуальная — стирается, за ней
+   никого нет; настоящего человека кнопка убирает ИЗ СВОЕГО СПИСКА,
+   гасит разрешение и больше ничего — стереть человека из организации
+   она не вправе. */
+router.delete("/virtual/:id", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    if (!me.known) return res.status(403).json({ error: "you are not invited yet" });
+    if (await dropGrant(me.id, req.params.id)) return res.json({ ok: true, kind: "grant" });
+    if (!(await mayActAs(req.telegramUserId, req.params.id))) {
+      return res.status(403).json({ error: "not your page" });
+    }
+    if (!(await removeVirtualUser(req.params.id))) {
+      return res.status(404).json({ error: "not found" });
+    }
+    return res.json({ ok: true, kind: "page" });
+  } catch (e) { return next(e); }
+});
+
+/* ─────── КОД ДОСТУПА ДЛЯ ТЕХПОДДЕРЖКИ (владелец, 2026-09-20) ───────
+
+   Свою страницу открывает сам человек: выдаёт код, называет срок в
+   минутах, «r» или «rw» и вкладки, которые гостю будет видно. Код вводят
+   на «+ сотрудник» — и страница появляется в списке у гостя. */
+router.get("/access-code", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    if (!me.known) return res.status(403).json({ error: "you are not invited yet" });
+    return res.json({ code: await accessCodeOf(me.id), tabs: TABS, mine: me.tabs || [] });
+  } catch (e) { return next(e); }
+});
+
+router.post("/access-code", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    if (!me.known) return res.status(403).json({ error: "you are not invited yet" });
+    // Код на ЧУЖУЮ страницу не выдают: пустить к себе решает хозяин.
+    if (req.actingAs) return res.status(403).json({ error: "not your page" });
+    const code = await makeAccessCode(me.id, {
+      minutes: req.body?.minutes,
+      access: req.body?.access,
+      tabs: Array.isArray(req.body?.tabs) ? req.body.tabs : [],
+    });
+    return res.status(201).json({ code });
+  } catch (e) { return next(e); }
+});
+
+router.delete("/access-code", async (req, res, next) => {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    if (!me.known) return res.status(403).json({ error: "you are not invited yet" });
+    await dropAccessCode(me.id);
+    return res.json({ ok: true });
+  } catch (e) { return next(e); }
 });
 
 /* Ссылка для регистрации. Ключ одноразовый: новая ссылка отменяет

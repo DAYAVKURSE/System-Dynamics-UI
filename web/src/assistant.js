@@ -69,6 +69,9 @@ export const dropMcp = (id) =>
   json(`/api/assistant/mcp/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const mcpTools = (id) =>
   json(`/api/assistant/mcp/${encodeURIComponent(id)}/tools`, { method: "POST" });
+/* Реестр — общий каталог серверов: форма показывает его и умеет обновить.
+   Ничего не хранит: спрашивает сервер приложения и отдаёт как есть. */
+export const mcpRegistry = () => json("/api/assistant/mcp/registry");
 
 /* ─────── вопрос ───────
 

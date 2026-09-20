@@ -60,6 +60,10 @@ function settingsServer(providers = [], agents = [ASSISTANT], extra = {}) {
     "GET /api/assistant/settings": () => ({ body: { providers: state.providers.map(view),
       agents: state.agents.map((a) => ({ ...a })), kinds: KINDS, tasks: {}, taskList: [],
       mcp: state.mcp.map((m) => ({ ...m })), uses: USES } }),
+    "GET /api/assistant/mcp/registry": () => ({ body: { url: "https://registry.example",
+      servers: extra.registry || [{ id: "io.github.x/weather", name: "weather",
+        full: "io.github.x/weather", description: "погода по городу", version: "1.0.0",
+        repo: "https://github.com/x/y", url: "https://x/mcp", transport: "streamable-http" }] } }),
     "POST /api/assistant/mcp": ({ opts }) => {
       const b = JSON.parse(opts.body);
       const m = { id: `mcp${state.mcp.length + 1}`, name: b.name || b.url, url: b.url,
@@ -237,21 +241,58 @@ describe("агенты", () => {
     expect(JSON.parse(log.find((r) => r.body?.includes("mcp")).body)).toEqual({ mcp: ["mcp1"] });
   });
 
-  it("новый MCP-сервер: адрес обязателен, репозиторий — рядом", async () => {
+  /* РЕЕСТР ВМЕСТО ПОЛЕЙ (владелец, 2026-09-20: «убери описание и все три
+     поля… я видел список доступных серверов и мог обновить; при нажатии
+     на каждый из серверов его форма должна раскрываться»). */
+  it("MCP: список из реестра, раскрытие сервера и «Добавить»", async () => {
     const { log } = settingsServer([P1]);
     render(<AgentsPanel me={IVAN} />);
     await screen.findByLabelText("mcp-серверы");
-    const add = screen.getByRole("button", { name: "Добавить сервер" });
-    expect(add).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("название сервера"), { target: { value: "Погода" } });
-    fireEvent.change(screen.getByLabelText("адрес сервера"), { target: { value: "https://x/mcp" } });
-    fireEvent.change(screen.getByLabelText("репозиторий сервера"),
-      { target: { value: "https://github.com/x/y" } });
-    fireEvent.click(screen.getByRole("button", { name: "Добавить сервер" }));
+    // Полей больше нет — есть список и «Обновить».
+    expect(screen.queryByLabelText("адрес сервера")).toBeNull();
+    expect(screen.queryByLabelText("репозиторий сервера")).toBeNull();
+    await waitFor(() => expect(log.some((r) => r.method === "GET"
+      && r.url === "/api/assistant/mcp/registry")).toBe(true));
+    const row = await screen.findByRole("button", { name: "сервер weather" });
+    // Свёрнут: формы с описанием ещё нет.
+    expect(screen.queryByLabelText("форма сервера weather")).toBeNull();
+    fireEvent.click(row);
+    const card = await screen.findByLabelText("форма сервера weather");
+    expect(card.textContent).toContain("погода по городу");
+    expect(card.textContent).toContain("https://x/mcp");
+    fireEvent.click(screen.getByRole("button", { name: "добавить сервер weather" }));
     await waitFor(() => expect(log.some((r) => r.method === "POST"
       && r.url === "/api/assistant/mcp")).toBe(true));
     expect(JSON.parse(log.find((r) => r.url === "/api/assistant/mcp").body))
-      .toEqual({ name: "Погода", url: "https://x/mcp", repo: "https://github.com/x/y" });
+      .toEqual({ name: "weather", url: "https://x/mcp", repo: "https://github.com/x/y" });
+    // Кнопка «Обновить» спрашивает реестр заново.
+    fireEvent.click(screen.getByRole("button", { name: "обновить список серверов" }));
+    await waitFor(() => expect(log.filter((r) => r.method === "GET"
+      && r.url === "/api/assistant/mcp/registry").length).toBeGreaterThan(1));
+  });
+
+  /* ИНСТРУКЦИИ — ПЕРЕД ПАМЯТЬЮ, MCP — СРАЗУ ПОСЛЕ НЕЁ (владелец,
+     2026-09-20). Инструкция применяется как скилл: она уходит агенту. */
+  it("инструкции: поле, «Сохранить» и «Удалить» — перед памятью", async () => {
+    const { log } = settingsServer([P1]);
+    render(<AgentsPanel me={IVAN} />);
+    const field = await screen.findByLabelText("инструкция агента");
+    const mem = screen.getByText("2 · память");
+    const mcp = screen.getByText("3 · MCP-серверы");
+    expect(field.compareDocumentPosition(mem) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mem.compareDocumentPosition(mcp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const box = screen.getByLabelText("инструкции агента");
+    // Пока не меняли — сохранять нечего.
+    expect(within(box).getByRole("button", { name: "Сохранить" })).toBeDisabled();
+    fireEvent.change(field, { target: { value: "Отвечай только по-русски" } });
+    fireEvent.click(within(box).getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(log.some((r) => r.method === "PUT"
+      && /agents\/assistant$/.test(r.url))).toBe(true));
+    expect(JSON.parse(log.find((r) => r.method === "PUT").body).skill)
+      .toBe("Отвечай только по-русски");
+    fireEvent.click(within(box).getByRole("button", { name: "Удалить" }));
+    await waitFor(() => expect(log.filter((r) => r.method === "PUT"
+      && JSON.parse(r.body).skill === "").length).toBe(1));
   });
 
   it("память у каждого агента своя: GET ?agent=, POST с agent", async () => {

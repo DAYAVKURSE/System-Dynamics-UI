@@ -1434,7 +1434,6 @@ export default function SystemModel(){
   const workload=useMemo(()=>load({funcs,procs,hypoOn},{runsOf,plan:runsPlan}),
     [funcs,procs,hypoOn,runsOf,runsPlan]);
   // Есть ли что включать: без гипотетических процессов галочка — мебель.
-  const anyHypo=procs.some(p=>p.status==="hypo");
   const valuesFor=useCallback((tid)=>{
     const at=Math.min(simMonth,span);
     return {lo:fc.lo[tid]?.[at]??0,hi:fc.hi[tid]?.[at]??0,
@@ -1773,14 +1772,16 @@ export default function SystemModel(){
             </div>
             {/* Галочка гипотез — здесь, под ползунком прогноза (владелец,
                 2026-09-20: «этот чекбокс должен быть на форме прогноза, под
-                полоской прокрутки прогноза»), и только когда есть что
-                включать: без гипотетических процессов она — мебель. */}
-            {anyHypo && (
-              <label className="flex items-center gap-2"
-                style={{fontSize:11.5,color:hypoOn?WARN:C.muted,marginTop:4,cursor:"pointer"}}>
-                <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
-                включить гипотезы
-              </label>)}
+                полоской прокрутки прогноза»), и ВСЕГДА (владелец,
+                2026-09-20: «эта кнопка должна быть всегда»). Прежде она
+                висела на условии «есть гипотетические процессы» — и
+                пропадала на одной схеме, возвращаясь на другой: человек
+                искал переключатель там, где его только что видел. */}
+            <label className="flex items-center gap-2"
+              style={{fontSize:11.5,color:hypoOn?WARN:C.muted,marginTop:4,cursor:"pointer"}}>
+              <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
+              включить гипотезы
+            </label>
           </div>
         </div>
 

@@ -85,7 +85,23 @@ const emptyUses = () => Object.fromEntries(USE_IDS.map((u) => [u, null]));
    спрашиваем: молча менять чужую работу — не то, чего ждут от первого
    же вопроса. */
 const builtinAgent = () => ({ id: BUILTIN_AGENT_ID, name: "Ассистент", builtin: true,
-  models: [], transcribe: null, uses: emptyUses(), mcp: [], ask: true });
+  models: [], transcribe: null, uses: emptyUses(), mcp: [], ask: true, skill: "" });
+
+/* ─────── ИНСТРУКЦИЯ АГЕНТА · СКИЛЛ (владелец, 2026-09-20) ───────
+
+   «Перед разделом „Память" сделай раздел „Инструкции"… введённая
+   инструкция должна применяться как скилл».
+
+   Скилл — это то, что агент умеет ВСЕГДА, а не то, что ему напомнили в
+   одном вопросе: он уходит в системную подсказку каждого разговора, до
+   самого вопроса. Поэтому он один и правится на форме, а не копится
+   сообщениями — иначе «умение» зависело бы от того, что человек написал
+   последним.
+
+   Чужого поведения он не отменяет: подсказка приложения идёт первой, и
+   инструкция стоит после неё — она добавляет умение, а не снимает
+   запреты. */
+export const MAX_SKILL = 4000;
 const NAME_LIMIT = 80;
 const MODEL_LIMIT = 120;
 // Ключи у всех видов — печатная латиница без пробелов. Перевод строки в
@@ -254,6 +270,7 @@ function normalize(raw) {
       assistant.uses = usesOf(own.uses);
       assistant.mcp = mcpOf(own.mcp);
       assistant.ask = own.ask !== false;
+      assistant.skill = String(own.skill || "").slice(0, MAX_SKILL);
     }
   } else {
     /* Запись до агентов: её выбор — таблица задач. Строка чата становится
@@ -279,6 +296,7 @@ function normalize(raw) {
       id: String(a.id), name: String(a.name || "").trim() || "агент", builtin: false,
       models: pairsOf(a.models), transcribe: pairOf(a.transcribe),
       uses: usesOf(a.uses), mcp: mcpOf(a.mcp), ask: a.ask !== false,
+      skill: String(a.skill || "").slice(0, MAX_SKILL),
     });
     tieTranscribe(rec.agents[rec.agents.length - 1]);
     if (rec.agents.length >= MAX_AGENTS) break;
@@ -383,6 +401,7 @@ const agentView = (a) => ({
   uses: Object.fromEntries(USE_IDS.map((u) => [u, a.uses?.[u] ? { ...a.uses[u] } : null])),
   mcp: [...(a.mcp || [])],
   ask: a.ask !== false,
+  skill: String(a.skill || ""),
 });
 const mcpView = (m) => ({ id: m.id, name: m.name, url: m.url, repo: m.repo,
   tools: [...(m.tools || [])], at: m.at || null });
@@ -561,7 +580,7 @@ export function addAgent(userId, { name } = {}) {
  * только те поля, что есть в теле. Нет такого агента — null: «не найден»
  * здесь правда, а не ошибка ввода.
  */
-export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, ask } = {}) {
+export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, ask, skill } = {}) {
   const rec = readUserSettings(userId);
   const a = rec.agents.find((x) => x.id === String(id));
   if (!a) return null;
@@ -595,6 +614,9 @@ export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, a
     a.mcp = ids.filter((x, i) => ids.indexOf(x) === i);
   }
   if (ask !== undefined) a.ask = ask !== false;
+  /* Инструкция-скилл: пустая строка — «удалить», это одно и то же
+     действие, и отдельного маршрута ему не нужно. */
+  if (skill !== undefined) a.skill = String(skill || "").trim().slice(0, MAX_SKILL);
   return agentView(writeUserSettings(userId, rec).agents.find((x) => x.id === a.id));
 }
 

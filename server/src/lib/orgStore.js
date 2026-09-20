@@ -100,7 +100,8 @@ export const BUILTIN_ROLES = [
    один и тот же дизайнер может быть и исполнителем, и проверяющим.
    Должности заводит владелец в блоке воркеров; встроенных нет — какие
    должности бывают, знает он, а не мы. */
-const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [], forms: [], docs: [], agreements: [] };
+const EMPTY = { ownerId: null, roles: BUILTIN_ROLES, users: [], forms: [], docs: [],
+  agreements: [], codes: [], grants: [] };
 
 /* ─────── договор — акцепт участия ───────
 
@@ -186,9 +187,15 @@ export async function readOrg() {
          записаны: их форму держит lib/contractStore.js. */
       docs: Array.isArray(parsed.docs) ? parsed.docs : [],
       agreements: Array.isArray(parsed.agreements) ? parsed.agreements : [],
+      /* Коды доступа и выданные по ним разрешения (см. ниже). Их форму
+         держат `makeAccessCode` и `useAccessCode`; здесь они только
+         читаются, чтобы не пропасть при следующей записи. */
+      codes: Array.isArray(parsed.codes) ? parsed.codes : [],
+      grants: Array.isArray(parsed.grants) ? parsed.grants : [],
     };
   } catch {
-    return { ...EMPTY, roles: [...BUILTIN_ROLES], users: [], forms: [], docs: [], agreements: [] };
+    return { ...EMPTY, roles: [...BUILTIN_ROLES], users: [], forms: [], docs: [], agreements: [],
+      codes: [], grants: [] };
   }
 }
 
@@ -1018,11 +1025,21 @@ export async function recordIdFor(telegramId) {
   return bound ? bound.id : id;
 }
 
-/** Может ли этот человек работать со страницей виртуального сотрудника. */
+/**
+ * Может ли этот человек работать с чужой страницей.
+ *
+ * Два разных основания, и путать их нельзя:
+ * · страница ВИРТУАЛЬНАЯ — за ней никого нет, и её открывает тот, кто её
+ *   завёл (и владелец);
+ * · страница НАСТОЯЩЕГО человека — её открывает только тот, кому сам
+ *   хозяин выдал код доступа, и только пока код не истёк. Владелец сюда
+ *   не входит: пустить к себе решает человек, а не должность.
+ */
 export async function mayActAs(actorId, virtualId) {
   const org = await readOrg();
   const target = org.users.find((u) => u.id === String(virtualId));
-  if (!target || !target.virtual || target.tg) return false;
+  if (!target) return false;
+  if (!target.virtual || target.tg) return !!(await grantFor(actorId, virtualId));
   if (org.ownerId === String(actorId)) return true;
   return String(target.addedBy || "") === String(actorId);
 }
@@ -1119,6 +1136,170 @@ export async function removeRole(id) {
   // остаются. Молча раздавать им другую роль нельзя.
   org.users = org.users.map((u) => ({ ...u,
     roles: (u.roles || []).filter((r) => r !== id) }));
+  await writeOrg(org);
+  return true;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   КОД ДОСТУПА ДЛЯ ТЕХПОДДЕРЖКИ (владелец, 2026-09-20)
+
+   «Сгенерировать код для техподдержки… время действия кода в минутах и
+   r/rw… ниже кнопки с вкладками: по нажатию пользователь выбирает, какие
+   из вкладок будет видеть агент техподдержки».
+
+   Это вторая, обратная сторона виртуального сотрудника. Виртуальный —
+   страница БЕЗ человека, и войти на неё может тот, кто её завёл. Здесь
+   человек ЕСТЬ, и пустить на свою страницу решает он сам: выдаёт код, а
+   тот, кто код ввёл, получает его страницу в своём списке и заходит на
+   неё так же, как на виртуальную. Сам человек при этом продолжает
+   работать у себя — доступ не передаётся, а РАЗДЕЛЯЕТСЯ.
+
+   Поэтому у кода три свойства, и все три задаёт выдающий:
+   · сколько минут он живёт — просроченный не открывает ничего;
+   · «r» или «rw» — смотреть или ещё и править;
+   · какие вкладки видно — остальных у гостя просто нет.
+
+   Код одноразовый по смыслу, но не по счёту: им можно впустить одного
+   гостя. Впустили — код гаснет, чтобы разосланный вчера не открывал
+   страницу сегодня. Срок разрешения — тот же, что у кода: минуты
+   отсчитываются от выдачи, а не от входа, иначе «10 минут» значили бы
+   «десять минут с любого момента, когда гостю вздумается».
+   ════════════════════════════════════════════════════════════════ */
+
+/* Буквы без похожих друг на друга: «0» и «O», «1» и «I» в коде, который
+   читают вслух по телефону, — это лишний круг разговора. */
+const CODE_ABC = "ACEFHJKLMNPRTUVWXY3456789";
+const newAccessCode = () => Array.from({ length: 8 },
+  () => CODE_ABC[Math.floor(Math.random() * CODE_ABC.length)]).join("");
+export const normCode = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+const MIN_MS = 60 * 1000;
+export const MAX_CODE_MINUTES = 24 * 60;
+const minutesOf = (v) => {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n < 1) return 15;
+  return Math.min(n, MAX_CODE_MINUTES);
+};
+const accessLevel = (v) => (String(v) === "r" ? "r" : "rw");
+
+const live = (rec, nowMs) => !!rec && !rec.usedBy && Date.parse(rec.expiresAt || "") > nowMs;
+const liveGrant = (g, nowMs) => !!g && Date.parse(g.until || "") > nowMs;
+
+const codeView = (rec, nowMs = Date.now()) => (live(rec, nowMs) ? {
+  code: rec.code,
+  minutes: rec.minutes,
+  access: rec.access,
+  tabs: [...(rec.tabs || [])],
+  expiresAt: rec.expiresAt,
+} : null);
+
+/** Выдать код на свою страницу. Прежний невыданный гаснет: код один. */
+export async function makeAccessCode(byId, { minutes = 15, access = "rw", tabs = [] } = {}) {
+  const org = await readOrg();
+  const by = String(byId);
+  const mins = minutesOf(minutes);
+  const rec = {
+    code: newAccessCode(),
+    by,
+    minutes: mins,
+    access: accessLevel(access),
+    tabs: normTabs(tabs),
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + mins * MIN_MS).toISOString(),
+    usedBy: null,
+  };
+  org.codes = [...(org.codes || []).filter((c) => c.by !== by), rec];
+  await writeOrg(org);
+  return codeView(rec);
+}
+
+/** Действующий код этого человека — чтобы поле не пустело при возврате. */
+export async function accessCodeOf(byId) {
+  const org = await readOrg();
+  const now = Date.now();
+  return codeView((org.codes || []).find((c) => c.by === String(byId)), now);
+}
+
+/** Погасить свой код досрочно. */
+export async function dropAccessCode(byId) {
+  const org = await readOrg();
+  const by = String(byId);
+  const before = (org.codes || []).length;
+  org.codes = (org.codes || []).filter((c) => c.by !== by);
+  if (org.codes.length !== before) await writeOrg(org);
+  return true;
+}
+
+/**
+ * Ввести чужой код — его страница появляется в списке у гостя.
+ *
+ * Сам код НЕ передаёт страницу: он делает её доступной ещё одному, и
+ * хозяин продолжает работать у себя (владелец, 2026-09-20: «у реального
+ * сотрудника также должна быть возможность пользоваться своей страницей,
+ * как и у виртуального»).
+ */
+export async function useAccessCode(code, actorId) {
+  const org = await readOrg();
+  const key = normCode(code);
+  const now = Date.now();
+  const rec = (org.codes || []).find((c) => c.code === key);
+  if (!live(rec, now)) return { error: "bad code" };
+  const to = String(actorId);
+  if (rec.by === to) return { error: "own code" };
+  const user = (org.users || []).find((u) => u.id === rec.by);
+  if (!user) return { error: "bad code" };
+  rec.usedBy = to;
+  org.grants = [...(org.grants || []).filter((g) => !(g.by === rec.by && g.to === to)), {
+    by: rec.by,
+    to,
+    access: rec.access,
+    tabs: [...(rec.tabs || [])],
+    until: rec.expiresAt,
+    at: new Date().toISOString(),
+  }];
+  await writeOrg(org);
+  return { user, grant: org.grants[org.grants.length - 1] };
+}
+
+/** Чьи страницы открыты этому человеку по коду — только действующие. */
+export async function grantsTo(actorId) {
+  const org = await readOrg();
+  const now = Date.now();
+  return (org.grants || []).filter((g) => g.to === String(actorId) && liveGrant(g, now));
+}
+
+/** Разрешение на эту страницу — или null, если его нет или оно истекло. */
+export async function grantFor(actorId, targetId) {
+  const org = await readOrg();
+  const now = Date.now();
+  return (org.grants || []).find((g) => g.to === String(actorId)
+    && g.by === String(targetId) && liveGrant(g, now)) || null;
+}
+
+/** Убрать чужую страницу из своего списка: «Удалить сотрудника». */
+export async function dropGrant(actorId, targetId) {
+  const org = await readOrg();
+  const before = (org.grants || []).length;
+  org.grants = (org.grants || [])
+    .filter((g) => !(g.to === String(actorId) && g.by === String(targetId)));
+  if (org.grants.length === before) return false;
+  await writeOrg(org);
+  return true;
+}
+
+/**
+ * Удалить виртуального сотрудника (владелец, 2026-09-20).
+ *
+ * Только СТРАНИЦУ, за которой никого нет: забранную человеком страницу
+ * удаляет уже не эта кнопка — за ней стоит участник, и убирают его в
+ * «Участниках», зная, что теряют.
+ */
+export async function removeVirtualUser(id) {
+  const org = await readOrg();
+  const uid = String(id);
+  const user = (org.users || []).find((u) => u.id === uid);
+  if (!user || !user.virtual || user.tg) return false;
+  org.users = org.users.filter((u) => u.id !== uid);
   await writeOrg(org);
   return true;
 }
