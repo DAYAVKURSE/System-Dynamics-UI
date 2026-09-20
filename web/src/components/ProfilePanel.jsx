@@ -137,11 +137,6 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
                 statusAt: new Date().toISOString() }))}>
               {x.name}</button>))}
         </div>
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-          Статус — про сейчас, график — про вообще. Ваш выбор действует до
-          следующей смены по графику: тогда статус снова станет «на рабочем
-          месте» или «сегодня не работаю».
-        </div>
       </>) : null}
       </div>
 
@@ -168,10 +163,6 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
                 onClick={() => tap(d.id)}
                 onDoubleClick={() => dbl(d.id)}>{d.short}</button>);
           })}
-        </div>
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-          Одно нажатие — посмотреть часы дня, двойное — править (жёлтый); в правке
-          следующие дни берутся одним нажатием.
         </div>
       </>) : (
         <div style={{ fontSize: 12, marginTop: 4,
@@ -655,7 +646,7 @@ export function ReminderList({ known }) {
       {list === null && !err && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Загружаю…</div>}
       {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: 4 }}>{err}</div>}
       {list && !list.length && (
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Напоминаний нет: у задач нет времени начала, и ничего не ждёт постановки.</div>)}
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Напоминаний нет.</div>)}
       {(list || []).map((r) => (
         <div key={r.id} className="flex flex-wrap gap-2" aria-label={`напоминание ${r.id}`}
           style={{ fontSize: 11.5, padding: "4px 0", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
@@ -689,11 +680,6 @@ export function RemindersCard({ me, onSaved }) {
   const label = WARN_CHOICES.find((w) => w.v === current)?.name || `за ${current} мин`;
   return (
     <FoldCard title="напоминания">
-      <div style={{ fontSize: 11.5, color: C.muted, margin: "6px 0 8px", lineHeight: 1.6 }}>
-        Бот напоминает о задаче заранее и в момент начала, а постановщику — о
-        задаче, которую пора поставить. Напоминание повторяется каждую минуту,
-        пока вы не ответите на него кнопкой под сообщением в чате бота.
-      </div>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <span style={{ fontSize: 11.5, color: C.muted }}>предупреждать</span>
         <select style={{ ...S.inp, flex: "0 1 200px" }} value={String(current)}

@@ -701,7 +701,7 @@ describe("страница по ссылке", () => {
       expect(screen.getByText(/с ресурса «заявка»/)).toBeInTheDocument();
       // Те же разделы и в том же порядке, что и на экране владельца.
       // Вложенный раздел устроен так же — потому части и находятся дважды.
-      expect(screen.getAllByText("1. Ресурсы — что изменится").length).toBe(2);
+      expect(screen.getAllByText("1. Ресурсы").length).toBe(2);
       // Раздела «Функции — что будет сделано» нет и снаружи (владелец, 2026-09-19).
       expect(screen.queryByText(/Функции — что будет сделано/)).toBeNull();
       expect(screen.getAllByText("2. Сроки и трудозатраты").length).toBe(2);

@@ -324,9 +324,6 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, open, onTogg
               onChange={(e) => up({ dueOn: e.target.value })} />
           </Row>)}
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-        Срок — про выход на темп, а не про первый результат.
-      </div>
       </Form>
 
       {/* ─── ВРЕМЯ НА ДОСТИЖЕНИЕ ───
@@ -544,9 +541,6 @@ function Verdict({ plan, unit, traits }) {
           <span style={{ flex: 1, minWidth: 0 }}>{c.name}</span>
           <span style={{ color: WARN }}>уйдёт ещё {nm(Math.round(c.real * 10) / 10)}</span>
         </div>))}
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-        Слева — названная цена, справа — та, что выходит по модели.
-      </div>
     </>)}
   </Form>);
 }
@@ -702,11 +696,6 @@ function Schedule({ plan }) {
         <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
           …и ещё {rows.length - shown.length}; последняя — {dt(rows[rows.length - 1].start)}.
         </div>)}
-      {rows.length > 40 && (
-        <div style={{ fontSize: 11, color: WARN, marginTop: 4, lineHeight: 1.5 }}>
-          Это много задач сразу. Может быть, цель стоит разбить на меньшие
-          или растянуть срок.
-        </div>)}
     </div>);
 }
 
@@ -785,9 +774,6 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
         <span style={S.lbl}>цели</span>
         <span style={{ flex: 1 }} />
         <button style={btn(false)} onClick={add} disabled={!traits.length}>+ цель</button>
-      </div>
-      <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>
-        Цель — условие на ресурс со сроком, темпом и ценой. Модель отвечает, сколько это работы и успеет ли.
       </div>
       {!goals.length && (
         <div style={{ fontSize: 11.5, color: C.muted }}>

@@ -545,7 +545,7 @@ function TaskList({ steps = [], before = [], actual, personName, traitName }) {
       ]} />
       {!any && (
         <div style={{ fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-          Задач по этому разделу ещё не заведено — пока это только прогноз.
+          Задач по этому разделу ещё не заведено.
         </div>)}
       {!!before.length && (<>
         <div style={{ ...S.lbl, margin: "8px 0 2px" }}>как эти вещи появились</div>
@@ -841,9 +841,6 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
         <span style={{ fontSize: 11, color: C.muted }}>{shownAll ? "▾" : "▸"}</span>
       </button>
       {shownAll && (<>
-      <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-        Все единицы ресурсов — из сдач и загруженные руками. Нажмите на актив, потом на ресурс.
-      </div>
       {!entities.length && (
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>
           Активов в схеме пока нет.</div>)}
@@ -905,7 +902,7 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
                                   traitName={traitName} unitNo={unitNo} />))}
                             </div>
                             : <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
-                              Единиц пока нет: их сдают в задачах или загружают здесь.</div>)}
+                              Единиц пока нет.</div>)}
                         </div>)}
                     </div>);
                 })}

@@ -79,7 +79,7 @@ describe("сдача: по вещи на каждую единицу", () => {
     // Одна приложенная вещь из десяти — это не сданная работа.
     await attachUnit(1, "договор-1.pdf");
     expect(screen.getByText("1 из 10")).toBeInTheDocument();
-    expect(screen.getByText(/пока не приложено: договоры/)).toBeInTheDocument();
+    expect(screen.getByText(/Не приложено: договоры/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
     for (let i = 2; i <= 10; i += 1) {
       // eslint-disable-next-line no-await-in-loop
@@ -146,7 +146,7 @@ describe("сдача: по вещи на каждую единицу", () => {
     openUnit(1);
     expect(screen.getByLabelText("уникальный код 1: договоры")).toHaveAttribute("readonly");
     expect(screen.queryByLabelText("результат 1: договоры")).toBeNull();
-    expect(screen.getByText(/без него работа не сдаётся/)).toBeInTheDocument();
+    expect(screen.getByText(/нет подтверждения/)).toBeInTheDocument();
     await attach("подтверждение выдачи", "акт.pdf");
     write();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);

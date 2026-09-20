@@ -1849,10 +1849,6 @@ export default function SystemModel(){
                 <span style={{color:C.muted,whiteSpace:"nowrap"}}>
                   {st.startHours>0?`с ${durText(st.startHours)}`:"сразу"}</span>
               </div>))}
-            <div style={{fontSize:10.5,color:C.muted,marginTop:6,lineHeight:1.5}}>
-              Функция не начинается раньше, чем созреют её входы, — поэтому
-              это очередь, а не список вперемешку.
-            </div>
           </div>)}
 
         {/* Цели: сколько, чего, к какому сроку, каким темпом и какой ценой.
@@ -1932,9 +1928,6 @@ export default function SystemModel(){
 
         <div style={{...S.card,marginBottom:10}}>
           <div style={S.lbl}>нагрузка исполнителей</div>
-          <div style={{fontSize:11.5,color:C.muted,marginTop:6,lineHeight:1.6}}>
-            Часы в месяц по функциям человека; на нескольких исполнителей делятся поровну.
-          </div>
           {Object.keys(workload).length===0
             ? <div style={{fontSize:11.5,color:C.muted,marginTop:8}}>
                 Исполнители на функции ещё не назначены.</div>

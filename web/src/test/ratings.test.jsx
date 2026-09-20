@@ -85,7 +85,7 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
        (владелец, 2026-09-20). */
     openUnitForm();
     expect(screen.getByText("Загрузить файл")).toBeInTheDocument();
-    expect(screen.getByText(/Задача не выполнена, пока не приложено: заявки/)).toBeInTheDocument();
+    expect(screen.getByText(/Не приложено: заявки/)).toBeInTheDocument();
   });
 
   it("пока отчёт не написан и вещь не приложена — ни оценки, ни «Сдать», а слова о том, чего нет", async () => {
@@ -94,12 +94,12 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
     // Единственная «Сдать» — на карточке в колонке; в форме её нет.
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
-    expect(screen.getByText(/Напишите отчёт словами/)).toBeInTheDocument();
-    expect(screen.getByText(/Задача не выполнена, пока не приложено: заявки/)).toBeInTheDocument();
+    expect(screen.getByText(/Отчёт не написан/)).toBeInTheDocument();
+    expect(screen.getByText(/Не приложено: заявки/)).toBeInTheDocument();
     // Вещь приложена, отчёта нет — всё ещё не готово, и сказано, что не так.
     await attachResult("результат 1: заявки");
-    expect(screen.queryByText(/Задача не выполнена/)).toBeNull();
-    expect(screen.getByText(/Напишите отчёт словами/)).toBeInTheDocument();
+    expect(screen.queryByText(/Не приложено:/)).toBeNull();
+    expect(screen.getByText(/Отчёт не написан/)).toBeInTheDocument();
     expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
   });
 
@@ -137,7 +137,7 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     openUnitForm("спрос");
     expect(screen.getByText("Загрузить файл")).toBeInTheDocument();
     // Держит только обязательная: «спрос» в списке недостающего нет.
-    expect(screen.getByText(/пока не приложено: заявки\./)).toBeInTheDocument();
+    expect(screen.getByText(/Не приложено: заявки\./)).toBeInTheDocument();
   });
 });
 

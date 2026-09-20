@@ -131,7 +131,7 @@ describe("вкладки по роли", () => {
     const { container } = await fresh();
     await waitFor(() => expect(screen.getByText(/Вступить в модель/)).toBeTruthy());
     expect(tabNames(container)).toEqual([]);
-    expect(screen.getByText(/подписав договор роли/)).toBeTruthy();
+    expect(screen.getByText(/Вступить в модель/)).toBeTruthy();
   });
 
   it("роль удалили — человек это видит, а не гадает", async () => {

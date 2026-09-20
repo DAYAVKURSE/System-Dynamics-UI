@@ -220,28 +220,16 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
 
   return (
     <div>
-      <div style={{ fontSize: 11.5, color: C.muted, margin: "0 0 10px", lineHeight: 1.6 }}>
-        Участником человек становится, подписав договор роли: он открывает
-        приложение, выбирает роль, читает договор и присылает подписанный
-        экземпляр — роль выдаётся сама. Ниже три формы: кто участвует, какие
-        есть роли и что они открывают (права сотрудников), какие есть договоры, о чём
-        спрашивают анкеты.
-      </div>
-
       {/* ═══ 1. УЧАСТНИКИ ═══ */}
       <div style={card} aria-label="участники">
         {title("участники", org.users.length)}
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
-          Люди и агенты с их ролями. Роли ставятся и снимаются отметками; ✓ — договор подписан.
-        </div>
         {people.map(userRow)}
         {!!agents.length && (
           <div style={{ ...S.lbl, marginTop: 8 }}>агенты</div>)}
         {agents.map(userRow)}
         {org.users.length <= 1 && (
           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-            Кроме вас пока никого. Перешлите боту сообщение от человека —
-            он предложит выбрать роль. Агентов заводят во вкладке «Агенты».
+            Кроме вас пока никого.
           </div>)}
       </div>
 
@@ -250,10 +238,6 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
       {/* Форма называется «роли» (владелец, 2026-09-18), прежде — «права сотрудников». */}
       <div style={card} aria-label="роли">
         {title("роли", org.roles.length)}
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, lineHeight: 1.5 }}>
-          У роли — договор, анкета и вкладки, которые она открывает. Роль действует, пока
-          действует подписанный договор; «Пригласить участника» выдаёт договор роли.
-        </div>
         {org.roles.map((r) => (
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
             borderRadius: 8, padding: 8, marginBottom: 6 }}>
@@ -315,9 +299,6 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
           <button style={btn(true)} disabled={busy || !newRole.trim()}
             onClick={() => act(async () => { await addRole(newRole.trim()); setNewRole(""); })}>
             + роль</button>
-        </div>
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-          Новая роль открывает только «Задачи» — остальное добавьте кнопками выше.
         </div>
       </div>
 

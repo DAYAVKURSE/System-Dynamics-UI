@@ -136,10 +136,6 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
         </div>
       </button>
       {open && (<>
-        <div style={{ fontSize: 10.5, color: C.muted, margin: "6px 0", lineHeight: 1.5 }}>
-          Перетащите человека на актив. Возьмёт тот актив, у которого есть
-          функция с его ролью.
-        </div>
         <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
           {loose.map((p) => (
             <div key={p.id} role="button" tabIndex={0}

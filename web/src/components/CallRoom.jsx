@@ -717,11 +717,6 @@ export default function CallRoom({
           <div style={{ fontSize: 11, color: ACC, marginTop: 6, wordBreak: "break-all",
             fontFamily: "ui-monospace, Menlo, monospace" }}>
             {callLink(meeting.id)}</div>
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-            Кому дали ссылку — тот и войдёт. Приглашение удобнее отправлять из
-            чата: наберите имя бота и время встречи — у собеседника звонок откроется
-            отдельным окном на пол-экрана.
-          </div>
         </div>)}
     </div>);
 }

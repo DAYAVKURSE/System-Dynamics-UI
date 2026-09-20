@@ -75,7 +75,7 @@ describe("регистрация по договору", () => {
     await waitFor(() => expect(screen.getByLabelText("роль: гость")).toBeTruthy());
     fireEvent.click(screen.getByLabelText("роль: гость"));
     expect(screen.queryByLabelText("подписанный договор")).toBeNull();
-    expect(screen.getByText(/договора нет — подписывать нечего/)).toBeTruthy();
+    expect(screen.getByText(/У этой роли договора нет/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Вступить" }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toEqual({ roleId: "guest" });

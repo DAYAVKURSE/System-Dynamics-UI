@@ -383,7 +383,6 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
   const name = (id) => (nameOf ? nameOf(id) : id);
   return (
     <Section title="воркеры актива"
-      hint="Кто работает в активе. Какую работу он берёт, решает его роль."
       empty={people.length ? null : "Людей ещё нет — заведите их во вкладке «Люди и роли»."}>
       {people.length > 0 && (<>
         {/* ─── воркеры ───
@@ -410,7 +409,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
             <div style={{ ...S.lbl, marginBottom: 4 }}>должности актива</div>
             {!positions.length && (
               <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
-                Должностей ещё нет — заведите их в «Правах сотрудников».</div>)}
+                Должностей ещё нет.</div>)}
             <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
               {positions.map((p) => {
                 const on = hasPost(p.id);
@@ -424,10 +423,6 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                     onClick={() => act(() => onTogglePost(p.id))}>
                     {p.name}{other ? <span style={{ fontSize: 10, opacity: 0.8 }}> · {other.name}</span> : null}</button>);
               })}
-            </div>
-            <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-              Отметьте должности, которые работают в этом активе. Одна должность —
-              у одного актива. Ниже — сотрудники с этими должностями.
             </div>
             {posMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{posMsg}</div>}
           </div>)}
@@ -1248,9 +1243,6 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               <Form title="задачи функции">
                 <button style={{ ...btn(false), fontSize: 12 }}
                   aria-label={`добавить задачу в функцию ${gName}`} onClick={() => addTask(g)}>+ задача</button>
-                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-                  Задачи идут по порядку: следующая берёт то, что выдала предыдущая.
-                </div>
               </Form>)}
 
             {/* ─── рынок услуг ───
@@ -1315,7 +1307,6 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
   };
   return (
     <Section title="факторы актива"
-      hint="Фактор — вероятность: сезон, износ, курс. Он задаёт конверсию функции."
       empty={mine.length ? null : "Факторов пока нет."}>
       {mine.map((x) => {
         const chance = x.chance == null ? 100 : x.chance;
@@ -1396,9 +1387,6 @@ export function Kinds({ kinds, onUp, onAdd, onDel, msg }) {
         <span style={{ fontSize: 10.5, color: C.muted }}> · {kinds.length}</span>
       </button>
       {open && (<>
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-          Классификация задаёт значок и цвет. Удаление переводит её ресурсы в первую оставшуюся.
-        </div>
         <div style={{ marginTop: 8 }}>
           {kinds.map((k) => (
             <div key={k.id} className="flex flex-wrap gap-2"
@@ -1561,9 +1549,6 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                     onClick={() => { const z = toggleKind(t, x.id); up(t.id, { ks: z.ks, k: z.k }); }}>
                     {x.sign} {x.name}</button>);
               })}
-            </div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
-              Ресурс меняют функции. Цель по нему ставится в «Прогнозе».
             </div>
             </Form>
             {/* «Принять» — как у функции: слово человека, что ресурс описан

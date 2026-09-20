@@ -250,11 +250,6 @@ function NewDocForm({ busy, act, onDone }) {
         <input type="file" accept=".docx" style={{ display: "none" }} aria-label="файл договора"
           onChange={(e) => setFile(e.target.files?.[0] || null)} />
       </label>
-      <div style={{ ...hint, marginTop: 6 }}>
-        Плейсхолдеры вида [(ключ): описание] найдутся в документе сами и появятся полями под ним.
-        Обязательные: [(sum): …], [(start): …], [(end): …] — сумма и срок действия.
-        Рамка сплошной линией — место подписи стороны 1, пунктирной — стороны 2.
-      </div>
       <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !file || !title.trim()}
           aria-label="загрузить договор"
@@ -329,7 +324,6 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
         <div style={{ marginTop: 4 }} onBlur={saveValues}>
           <PlaceholderFields placeholders={ver?.placeholders || []} values={values} onChange={setValues}
             label={`поле ${doc.name}`} />
-          <div style={hint}>Заполнять все не обязательно; при выдаче договора пустые дозаполняются.</div>
         </div>)}
 
       {/* «Загрузить новый» — перед списком версий. */}
@@ -441,11 +435,6 @@ export function DocsSection({ docs = [], busy, act }) {
   if (cur && edit && cur !== edit.doc) { cur._html = edit.doc._html; }
   return (
     <div style={{ marginTop: 4 }}>
-      <div style={{ ...hint, marginBottom: 8 }}>
-        Договоры — документы Word с историей версий. «Редактировать» открывает документ на весь экран;
-        сохранить, отменить и свернуть — значками на самом документе. Какой договор подписывают по роли,
-        выбирается у роли.
-      </div>
       {docs.map((d) => (
         <DocCard key={d.id} doc={d} opened={edit?.doc.id === d.id} onEdit={openEdit} busy={busy} act={act}
           html={edit?.doc.id === d.id ? html : null} setHtml={setHtml} viewer={openVersion}

@@ -536,9 +536,6 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
       {!view && <div style={{ ...hint, marginBottom: 8 }}>{msg || "Загружаю…"}</div>}
 
       {sub === "orders" && view && (<>
-        <div style={{ ...hint, marginBottom: 6 }}>
-          Заказ видят все; предложения по нему — только вы. Открыть предложение — открыть чат.
-        </div>
         {adding?.kind === "order" ? (
           <OrderForm initial={adding.initial} services={services} busy={busy}
             onSave={(f) => act(() => addOrder(f)).then((r) => { if (r) setAdding(null); })}
@@ -553,9 +550,6 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
       </>)}
 
       {sub === "services" && view && (<>
-        <div style={{ ...hint, marginBottom: 6 }}>
-          Услуга — что вы делаете: что берёте, что выдаёте и за сколько. Заказчик выберет её в заказе.
-        </div>
         {adding?.kind === "service" ? (
           <ServiceForm initial={adding.initial} busy={busy}
             onSave={(f) => act(() => addService(f)).then((r) => { if (r) setAdding(null); })}

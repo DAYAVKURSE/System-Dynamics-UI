@@ -177,31 +177,19 @@ function Block({ block, depth = 0 }) {
       {block.broken && (
         <div style={{ fontSize: 11, color: WARN, marginTop: 5, lineHeight: 1.5 }}>
           До этого звена цепочка не доходит: между ним и ресурсом разрыв.</div>)}
-      {/* Определённая вещь не выбрана — это ПРОГНОЗ, а не отчёт о
-          сделанном. Сказать это надо прямо: иначе прогноз прочитается как
-          обещание по конкретной вещи. */}
-      {block.hypothetical && !!block.from && (
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-          Определённая единица не выбрана: это прогноз — что произойдёт, когда
-          она появится в системе. Работы по ней пока нет.</div>)}
-
       {/* Те же пять разделов, что и у владельца (ReportsPanel, `Part`):
           заказчик должен видеть ровно то, что видит владелец, — иначе
           разговор пойдёт про разное. */}
-      <Part n={1} title="Ресурсы — что изменится"
-        hint="Насколько изменится каждый ресурс. Прогноз — вилка, факт — по принятым задачам.">
+      <Part n={1} title="Ресурсы">
         {changes.length
           ? changes.map((c) => (
             <ChangeRow key={c.trait} c={c}
               made={(block.made || []).filter((r) => r.trait === c.trait)} />))
           : <div style={{ fontSize: 11, color: C.muted }}>Ресурсы по этой цепочке не меняются.</div>}
-        {!!changes.length && !!(block.made || []).length && (
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-            Нажмите на ресурс — откроются сами вещи, которые по нему вышли.</div>)}
       </Part>
 
       <Part n={2} title="Сроки и трудозатраты"
-        hint="Сколько продлится вся цепочка и сколько часов работы людей потребует — по прогнозу и по факту.">
+        >
         <Facts rows={[
           { label: "Займёт времени — вся цепочка", color: WARN,
             value: `${hoursText(plan.calendarHours[0])}–${hoursText(plan.calendarHours[1])}` },
@@ -222,14 +210,14 @@ function Block({ block, depth = 0 }) {
       </Part>
 
       <Part n={3} title="Задачи — что уже сделано"
-        hint="Задачи по этой цепочке: срок, состояние, часы по факту и что вышло.">
+        >
         <Facts rows={[
           { label: "Задач принято", color: act.done ? OK : C.muted,
             value: act.done ? `${nm(act.done)} из ${nm(act.total)}` : "ни одной" },
         ]} />
         {!(block.before || []).length && !plan.steps.some((s2) => (s2.tasks || []).length) && (
           <div style={{ fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
-            Задач по этому разделу ещё не заведено — пока это только прогноз.</div>)}
+            Задач по этому разделу ещё не заведено.</div>)}
         {!!(block.before || []).length && (<>
           <div style={{ ...S.lbl, margin: "8px 0 2px" }}>как эти вещи появились</div>
           {block.before.map((t, k) => (<Task key={`${t.title}-b${k}`} t={t} />))}

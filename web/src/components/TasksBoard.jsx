@@ -566,7 +566,7 @@ function FuncCard({func,entities,traitName,bare=false}){
   if(!func){
     return (
       <div style={{fontSize:11,color:WARN,margin:"6px 0 8px",lineHeight:1.5}}>
-        Задача без функции ничего не уточняет: их заводят из целей.
+        Задача без функции.
       </div>);
   }
   return (
@@ -829,14 +829,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
           <input type="datetime-local" style={S.inp} value={task.end||""}
             aria-label="закончить"
             onChange={e=>commit({end:e.target.value||null,endBy:"hand"})}/>
-          <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
-            По умолчанию — верхняя граница выполнения. В расчёт идёт то, сколько ушло.
-          </div>
         </div>
-      </div>
-
-      <div style={{fontSize:10.5,color:C.muted,marginBottom:8,lineHeight:1.5}}>
-        Напоминание пришлёт бот; «за сколько» исполнитель выбирает сам.
       </div>
 
       {task.status==="wait"?(<>
@@ -1311,7 +1304,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       {proof&&(<span style={{fontSize:10.5,color:ACC}}>
         📎 {proof.name} · {Math.round((proof.size||0)/1024)} КБ</span>)}
       {!proof&&(<span style={{fontSize:10,color:WARN}}>
-        один файл на все выданные коды — без него работа не сдаётся</span>)}
+        нет подтверждения</span>)}
       {proofErr&&(<span style={{fontSize:10.5,color:BAD}}>{proofErr}</span>)}
     </div>);
 
@@ -1466,14 +1459,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                     {!ready&&(
                       <div style={{fontSize:10.5,color:WARN,marginTop:2,lineHeight:1.5}}>
                         {!!missing.length&&(<div>
-                          Задача не выполнена, пока не приложено:{" "}
-                          {missing.map(p=>traitName(p.trait)).join(", ")}. Это
-                          результат работы, а не отчёт о ней.</div>)}
+                          Не приложено:{" "}
+                          {missing.map(p=>traitName(p.trait)).join(", ")}.</div>)}
                         {needsProof&&!proof&&(<div>
-                          Приложите подтверждение — один файл на все выданные
-                          коды.</div>)}
+                          Нет подтверждения.</div>)}
                         {!written&&(<div>
-                          Напишите отчёт словами — без него сдачи нет.</div>)}
+                          Отчёт не написан.</div>)}
                       </div>)}
                     <div className="flex flex-wrap gap-2" style={{alignItems:"center",
                       marginTop:6}}>

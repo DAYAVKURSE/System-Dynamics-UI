@@ -205,7 +205,7 @@ describe("сдача записывает факт выполнения", () => 
     fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 
     writeReport();
-    expect(screen.getByText(/Задача не выполнена, пока не приложено/))
+    expect(screen.getByText(/Не приложено:/))
       .toBeInTheDocument();
     /* «Сдать» в форме нет вовсе — не неактивная кнопка, а слова о том,
        чего не хватает. Единственная «Сдать» — на карточке в колонке, и она
@@ -216,7 +216,7 @@ describe("сдача записывает факт выполнения", () => 
     expect(screen.queryByText(/взято: спрос/)).toBeNull();
 
     await attachResult("результат 1: заявки");
-    expect(screen.queryByText(/Задача не выполнена, пока не приложено/)).toBeNull();
+    expect(screen.queryByText(/Не приложено:/)).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);
     expect(screen.getByText(/взято: спрос/)).toBeInTheDocument();
   });
@@ -237,7 +237,7 @@ describe("сдача записывает факт выполнения", () => 
       fireEvent.click(screen.getByText("Задача B"));
       fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 
-      expect(screen.queryByText(/Задача не выполнена, пока не приложено/)).toBeNull();
+      expect(screen.queryByText(/Не приложено:/)).toBeNull();
       // Форма ресурса есть и у необязательной вещи — просто не держит сдачу.
       openUnitForm();
       expect(screen.getByLabelText("количество: заявки")).toBeInTheDocument();
@@ -415,7 +415,7 @@ describe("очередь постановки", () => {
 
   it("ничего не ждёт — сказано, откуда задачи вообще берутся", () => {
     render(<Review tasks={[]} />);
-    expect(screen.getByText(/задачи приходят из применённых целей/))
+    expect(screen.getByText(/Ничего не ждёт постановки/))
       .toBeInTheDocument();
   });
 

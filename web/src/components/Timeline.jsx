@@ -195,12 +195,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
 
       {!!undated.length && (
         <div style={{ ...S.card, marginBottom: 10 }}>
-          <div style={S.lbl}>без сроков — на оси им не место</div>
-          <div style={{ fontSize: 10.5, color: C.muted, margin: "5px 0 7px",
-            lineHeight: 1.5 }}>
-            Начало не задано, и сдач ещё не было. Поставить их на ось значило
-            бы придумать дату.
-          </div>
+          <div style={S.lbl}>без сроков</div>
           {undated.map(({ t }) => {
             const st = STATUSES.find((x) => x.id === t.status) || { color: NEU, name: "—" };
             return (

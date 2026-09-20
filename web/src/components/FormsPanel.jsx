@@ -112,10 +112,6 @@ export function FormsSection({ forms, busy, act }) {
   };
   return (
     <div style={{ marginTop: 4 }}>
-      <div style={{ fontSize: 11, color: C.muted, margin: "0 0 8px", lineHeight: 1.5 }}>
-        Список вопросов, на которые человек отвечает в своей анкете. Какую
-        анкету заполнять, говорит роль — выберите её у роли выше.
-      </div>
       {(forms || []).map((f) => <FormCard key={f.id} form={f} busy={busy} act={act} />)}
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <TxtField value={name} placeholder="название новой анкеты"
@@ -129,10 +125,6 @@ export function FormsSection({ forms, busy, act }) {
       {open && (
         <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
           padding: 8, marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, marginBottom: 6 }}>
-            Пронумерованный список: каждая строка — «1. вопрос». Строка без
-            номера продолжает предыдущий вопрос. Название — в поле выше.
-          </div>
           <textarea aria-label="текст анкеты" value={text}
             placeholder={"1. Ваш стек\n2. Уровень"}
             onChange={(e) => setText(e.target.value)}

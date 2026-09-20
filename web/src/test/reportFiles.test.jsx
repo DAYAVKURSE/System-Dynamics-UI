@@ -166,7 +166,7 @@ describe("файл отчёта — на диске, ссылка в сцена�
     /* Отказ не проглатывается молча — и сдача не проходит: функция обещала
        выдать «заявки», а результата нет. Сказано словами, а не пустой
        кнопкой: «Сдать» в форме не появляется, единственная — на карточке. */
-    expect(screen.getByText(/Задача не выполнена, пока не приложено/))
+    expect(screen.getByText(/Не приложено:/))
       .toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Сдать" })).toHaveLength(1);
     fireEvent.click(screen.getAllByRole("button", { name: "Сдать" })[0]);

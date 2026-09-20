@@ -196,7 +196,7 @@ export default function AgentsPanel({ me, onChanged }) {
               </div>
               {providers.length === 0 && (
                 <div style={{ ...hint, marginBottom: 8 }}>
-                  Провайдеров нет — агентам нечем думать. Добавьте первого: вид API, адрес и ключ.
+                  Провайдеров нет.
                 </div>)}
               {current === "new" && (
                 <NewProvider form={providerForm} setForm={setProviderForm} kinds={view.kinds || []}
@@ -245,10 +245,6 @@ function NewProvider({ form, setForm, kinds, busy, onAdd }) {
   return (
     <div style={{ background: C.panel, borderRadius: 8, padding: 10, marginBottom: 6 }}>
       <div style={S.lbl}>новый провайдер</div>
-      <div style={{ ...hint, margin: "4px 0 8px" }}>
-        Вид API говорит, как с ним разговаривать; адрес — куда. OpenRouter, Groq и
-        подобные — вид «совместимый с OpenAI» со своим адресом.
-      </div>
       <input aria-label="название провайдера" style={{ ...S.inp, marginBottom: 6 }}
         placeholder="название — как вы его называете: «Мой OpenRouter»"
         value={form.name} onChange={set("name")} />

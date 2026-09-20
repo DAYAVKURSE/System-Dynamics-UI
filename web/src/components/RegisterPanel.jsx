@@ -146,20 +146,13 @@ export default function RegisterPanel({ me, onDone }) {
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
         {me?.pending ? "Вас позвали — осталось подписать договор" : "Вступить в модель"}
       </div>
-      <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
-        Участником вы становитесь, подписав договор роли: выберите роль,
-        прочитайте договор и пришлите подписанный экземпляр. Роль выдастся
-        сама — ждать ничьего разрешения не нужно.
-      </div>
-
       {/* ─── 1. роль ─── */}
       <div style={step}>1 · какая роль</div>
       {roles === null && (
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Загружаю…</div>)}
       {roles !== null && !roles.length && (
         <div style={{ fontSize: 11.5, color: WARN, marginTop: 4, lineHeight: 1.6 }}>
-          Ролей ещё нет — вступать не во что. Попросите владельца завести
-          роль и приложить к ней договор.
+          Ролей ещё нет.
         </div>)}
       <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
         {(roles || []).map((r) => (
@@ -185,7 +178,7 @@ export default function RegisterPanel({ me, onDone }) {
           </div>
         ) : (
           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
-            У этой роли договора нет — подписывать нечего, она выдаётся сразу.
+            У этой роли договора нет.
           </div>)}
 
         {/* ─── 3. подписанный экземпляр ─── */}
@@ -201,10 +194,6 @@ export default function RegisterPanel({ me, onDone }) {
             </label>
             {file && <span style={{ fontSize: 11, color: OK }}>📎 {file.name}</span>}
           </div>
-          {!file && (
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>
-              Без него роль не выдаётся: договор и есть согласие.
-            </div>)}
         </>)}
 
         {/* ─── 4. отправка ─── */}
@@ -213,15 +202,10 @@ export default function RegisterPanel({ me, onDone }) {
             disabled={!ready || busy} onClick={send}>
             {busy ? "Отправляю…" : "Вступить"}</button>
           <span style={{ fontSize: 10.5, color: C.muted }}>
-            {ready ? "договор уйдёт владельцу, роль откроется сразу"
-              : "приложите подписанный договор"}</span>
+            {ready ? "" : "нет подписанного договора"}</span>
         </div>
       </>)}
 
       {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: 8 }}>{msg}</div>}
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 10, lineHeight: 1.6 }}>
-        Не нашли свою роль? Её заводит владелец — попросите его добавить
-        роль и приложить к ней договор.
-      </div>
     </div>);
 }

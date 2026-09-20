@@ -87,11 +87,6 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
               setTitle(""); setAt(""); onOpenCall(m.id);
             })}>Создать и войти</button>
         </div>
-        <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5 }}>
-          Позвать собеседника проще из чата: наберите имя бота и время —
-          «@бот завтра 15:00 разбор прогноза», — и отправьте карточку со
-          ссылкой. Здесь то же самое, но со списком.
-        </div>
         {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: 6 }}>{msg}</div>}
       </div>
 
@@ -101,7 +96,7 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
           Загружаю…</div>}
         {list && !list.length && (
           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-            Встреч пока нет. Заведите первую выше или прямо из чата.</div>)}
+            Встреч пока нет.</div>)}
         {(list || []).map((m) => (
           <div key={m.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
             borderRadius: 8, padding: 9, marginTop: 6 }}>
@@ -136,7 +131,7 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
           Загружаю…</div>}
         {recs && !recs.length && (
           <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
-            Записей пока нет. Во время звонка нажмите «⏺» — запись ляжет сюда.</div>)}
+            Записей пока нет.</div>)}
         {(recs || []).map((r) => (
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
             borderRadius: 8, padding: 9, marginTop: 6 }}>
