@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { DiffForms } from "../components/ContractsPanel.jsx";
-import { WARN } from "../components/ui.jsx";
+import { BAD, OK, WARN } from "../components/ui.jsx";
+import { userTone } from "../components/PeoplePanel.jsx";
 import { changeForms } from "../lib/docdiff.js";
 
 /* ДОГОВОРЫ: документы с версиями, «права сотрудников», приглашение с
@@ -116,6 +117,46 @@ const rgb = (hex) => {
   return `rgb(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)})`;
 };
 
+/* ПОЛОСКА УЧАСТНИКА (владелец, 2026-09-20): красная — договора нет, срок
+   не начался или вышел; жёлтая — до конца меньше двух недель; зелёная —
+   действует. */
+describe("цвет полоски по сроку договора", () => {
+  const NOW = Date.parse("2026-03-01T12:00:00Z");
+  const agr = (start, end) => ({ agreements: [{ id: "a", roleId: "r", start, end }] });
+
+  it("договора нет — красная", () => {
+    expect(userTone({}, NOW)).toBe(BAD);
+    expect(userTone({ agreements: [], contracts: {} }, NOW)).toBe(BAD);
+  });
+  it("срок ещё не начался или уже вышел — красная", () => {
+    expect(userTone(agr("2026-06-01", "2026-12-31"), NOW)).toBe(BAD);
+    expect(userTone(agr("2025-01-01", "2026-02-28"), NOW)).toBe(BAD);
+  });
+  it("действует, до конца больше двух недель — зелёная", () => {
+    expect(userTone(agr("2026-01-01", "2026-12-31"), NOW)).toBe(OK);
+    // День окончания — включительно: ровно две недели это ещё не «меньше».
+    expect(userTone(agr("2026-01-01", "2026-03-16"), NOW)).toBe(OK);
+  });
+  it("до конца меньше двух недель — жёлтая", () => {
+    expect(userTone(agr("2026-01-01", "2026-03-05"), NOW)).toBe(WARN);
+    expect(userTone(agr("2026-01-01", "2026-03-01"), NOW)).toBe(WARN);
+  });
+  it("подписанный экземпляр без сроков — договор есть, полоска зелёная", () => {
+    expect(userTone({ contracts: { executor: { name: "п.pdf" } } }, NOW)).toBe(OK);
+  });
+
+  it("полоска стоит слева у карточки участника", async () => {
+    ownerServer();
+    render(<PeoplePanel me={ME} />);
+    // У Петра договор кончился 30.06.2026 — красная.
+    const petr = await screen.findByLabelText("участник Пётр");
+    expect(petr.style.borderLeftWidth).toBe("4px");
+    expect(petr.style.borderLeftColor).toBe(rgb(BAD));
+    // У Новичка подписанный экземпляр — зелёная.
+    expect(screen.getByLabelText("участник Новичок").style.borderLeftColor).toBe(rgb(OK));
+  });
+});
+
 describe("заявка на участие и договоры участника", () => {
   it("роль с подписанным договором — жёлтая, и нажатие спрашивает, добавлять ли", async () => {
     const calls = ownerServer();
@@ -144,12 +185,12 @@ describe("заявка на участие и договоры участник�
     expect(list.textContent).not.toContain("файл");
     // Пока не нажали — ни скачивания, ни просмотра.
     expect(screen.queryByLabelText(/скачать договор исполнитель/)).toBeNull();
-    fireEvent.click(screen.getByLabelText("договор исполнитель · подписан.pdf"));
-    expect(screen.getByLabelText("скачать договор исполнитель · подписан.pdf"))
+    fireEvent.click(screen.getByLabelText("договор исполнитель · подписан.pdf · срок не указан"));
+    expect(screen.getByLabelText("скачать договор исполнитель · подписан.pdf · срок не указан"))
       .toHaveAttribute("href", "/api/reports/s/f7");
 
     // Просмотр — то же окно, что и правка документа, но без правки.
-    fireEvent.click(screen.getByLabelText("посмотреть договор исполнитель · подписан.pdf"));
+    fireEvent.click(screen.getByLabelText("посмотреть договор исполнитель · подписан.pdf · срок не указан"));
     const win = await screen.findByRole("dialog", { name: /документ/ });
     expect(within(win).getByLabelText("текст документа"))
       .toHaveAttribute("contenteditable", "false");

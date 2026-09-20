@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
-import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, roleOf, whyNotSet }
+import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, lackOf, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { timeLeft } from "../lib/funcs.js";
@@ -416,8 +416,16 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
      но нет ни людей, ни содержимого — это и предстоит назвать. Владельцу
      видно всё непоставленное (в задаче из цели постановщик ещё не назван),
      остальным — то, где постановщик они. */
+  /* Ждут постановки только те, что поставить МОЖНО и НУЖНО (владелец,
+     2026-09-20). «Нужно» — задача ещё не поставлена и ставит её этот
+     человек. «Можно» — ресурсов на неё хватает: пока их нет, ставить
+     нечего, и строка с «не хватает ресурсов» была не очередью, а списком
+     того, чего сейчас сделать нельзя. Незаполненность (люди, срок,
+     содержимое) задачу не прячет: её тут и заполняют. */
   const toSet = useMemo(() => tasks.filter((t) => t.status === "wait"
-    && (isOwner || String(roleOf(t, "setter") || "") === String(meId))), [tasks, meId, isOwner]);
+    && (isOwner || String(roleOf(t, "setter") || "") === String(meId))
+    && !lackOf(t, funcs, traits, tasks, factors).length),
+  [tasks, meId, isOwner, funcs, traits, factors]);
   const setup = toSet.find((t) => t.id === setupId) || null;
 
   return (

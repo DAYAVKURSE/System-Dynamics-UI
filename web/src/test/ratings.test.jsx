@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import TasksBoard, { TaskSetup, canSeeComment, newSubmission, newTask }
   from "../components/TasksBoard.jsx";
@@ -30,10 +30,10 @@ const nameOf = (id) => PEOPLE.find((p) => p.id === String(id))?.name || String(i
 const task = (over = {}) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
   setter: "1", assignee: "2", reviewer: "3", status: "progress", ...over });
 
-function Board({ tasks: t0, meId = "2", onSubmit, onComment }) {
+function Board({ tasks: t0, meId = "2", onSubmit, onComment, funcs = FUNCS }) {
   const [tasks, setTasks] = React.useState(t0);
   const [openId, setOpenId] = React.useState(null);
-  return (<TasksBoard funcs={FUNCS} entities={ENTITIES} traits={TRAITS}
+  return (<TasksBoard funcs={funcs} entities={ENTITIES} traits={TRAITS}
     tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
     nameOf={nameOf} meId={meId} onSubmit={onSubmit} onComment={onComment} />);
 }
@@ -103,8 +103,43 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     expect(screen.queryByText(/оценка постановки задачи/)).toBeNull();
   });
 
-  /* ПЛАШКА ФУНКЦИИ НА ФОРМЕ ЗАДАЧИ (владелец, 2026-09-20): выход подписан
-     «ожидается», а над ним стоит «Описание задачи». */
+  /* ПОСЛЕ СДАЧИ ФОРМА ЗАКРЫТА (владелец, 2026-09-20): ни «Сдать», ни
+     комментария — работа ушла проверяющему. */
+  it("сдана — «Сдать» на форме нет и комментарий не написать", () => {
+    const handed = task({ status: "review",
+      submissions: [newSubmission({ hours: 2, text: "сделал" })] });
+    render(<Board tasks={[handed]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.queryByRole("button", { name: "СДАТЬ" })).toBeNull();
+    expect(screen.queryByPlaceholderText(/написать комментарий/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+  });
+
+  it("в работе — «Сдать» и комментарий на месте", () => {
+    render(<Board tasks={[task()]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByRole("button", { name: "СДАТЬ" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/написать комментарий/)).toBeInTheDocument();
+  });
+
+  /* ПЛАШКА ЗАДАЧИ НА ФОРМЕ ЗАДАЧИ (владелец, 2026-09-20): выход подписан
+     «ожидается», над ним «Описание задачи», ниже — критерии проверки, а
+     ожидаемого результата в ней нет: он у функции. */
+  it("плашка называется «выполняемая задача»: критерии в ней, результата нет", () => {
+    const f = [{ ...FUNCS[0], checks: ["есть ссылка"],
+      chain: { id: "c1", name: "Ц", step: 1, of: 1, result: "лид передан" } }];
+    render(<Board tasks={[task()]} funcs={f} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByText("выполняемая задача")).toBeInTheDocument();
+    expect(screen.queryByText("выполняемая функция")).toBeNull();
+    const plate = [...document.querySelectorAll("div")]
+      .find((d) => d.textContent.startsWith("Сбор заявок"));
+    expect(plate.textContent).not.toMatch(/Ожидаемый результат/);
+    expect(plate.textContent).toMatch(/Критерии проверки:/);
+    expect(within(plate).getByText("есть ссылка")).toBeInTheDocument();
+  });
+
+
   it("в плашке задачи описание стоит над «ожидается», и «выдаёт» там нет", () => {
     render(<Board tasks={[task({ body: "собрать заявки за неделю" })]} />);
     fireEvent.click(screen.getByText("Задача A"));

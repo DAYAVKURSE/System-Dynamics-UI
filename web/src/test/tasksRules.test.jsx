@@ -361,12 +361,25 @@ describe("назначения берутся из воркеров актива
 describe("очередь постановки", () => {
   const waiting = { ...newTask({ funcId: "f1", title: "Задача из цели" }),
     goalId: "g1", end: "2030-01-01T10:00" };
-  const Review = ({ tasks: t0, meId = "1", isOwner = true }) => {
+  const Review = ({ tasks: t0, meId = "1", isOwner = true, traits = TRAITS }) => {
     const [tasks, setTasks] = React.useState(t0);
-    return (<ReviewBoard tasks={tasks} setTasks={setTasks} funcs={FUNCS} traits={TRAITS}
+    return (<ReviewBoard tasks={tasks} setTasks={setTasks} funcs={FUNCS} traits={traits}
       entities={ENTITIES} people={PEOPLE} meId={meId} isOwner={isOwner}
       nameOf={(id) => id} onAccept={() => {}} onReturn={() => {}} />);
   };
+
+  /* ЖДУТ ПОСТАНОВКИ ТОЛЬКО ТЕ, ЧТО МОЖНО И НУЖНО ПОСТАВИТЬ (владелец,
+     2026-09-20): задача, на которую не хватает ресурсов, из очереди
+     убрана — ставить её сейчас нельзя. */
+  it("на что не хватает ресурсов — в очереди не показывается", () => {
+    const poor = TRAITS.map((t) => (t.id === "t1" ? { ...t, have: 0 } : t));
+    render(<Review tasks={[waiting]} traits={poor} />);
+    expect(screen.queryByText("Задача из цели")).toBeNull();
+    expect(screen.getByText(/Ничего не ждёт постановки/)).toBeInTheDocument();
+    // Ресурс появился — задача вернулась в очередь.
+    render(<Review tasks={[waiting]} />);
+    expect(screen.getByText("Задача из цели")).toBeInTheDocument();
+  });
 
   it("непоставленные задачи ждут здесь, и сказано, чего им не хватает", () => {
     /* У функции названа должность исполнителя — про исполнителя не

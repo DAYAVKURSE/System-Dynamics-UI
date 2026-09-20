@@ -41,6 +41,33 @@ const TAB_NAMES = {
   reports: "Отчёты", tools: "Инструменты",
 };
 
+/* ─── ПОЛОСКА УЧАСТНИКА (владелец, 2026-09-20) ───
+
+   Слева у каждого — цвет его договора. КРАСНАЯ: договора нет, срок ещё не
+   начался или уже вышел. ЖЁЛТАЯ: действует, но до конца меньше двух
+   недель. ЗЕЛЁНАЯ: действует. Так видно, с кем продлевать, не открывая
+   каждого. Подписанный экземпляр без сроков — договор есть, а срока у него
+   нет: он действует, пока его не отозвали. */
+const DAY = 86400000;
+const SOON = 14 * DAY;
+const dayMs = (v) => { const t = Date.parse(String(v || "")); return Number.isFinite(t) ? t : null; };
+const inForce = (a, now) => {
+  const from = dayMs(a.start), to = dayMs(a.end);
+  if (from != null && now < from) return false;
+  if (to != null && now > to + DAY - 1) return false;
+  return true;
+};
+export const userTone = (u = {}, now = Date.now()) => {
+  const live = (u.agreements || []).filter((a) => inForce(a, now));
+  if (live.length) {
+    const ends = live.map((a) => dayMs(a.end)).filter((t) => t != null);
+    if (ends.length < live.length) return OK;   // хоть один бессрочный
+    return Math.min(...ends) + DAY - 1 - now < SOON ? WARN : OK;
+  }
+  if (Object.keys(u.contracts || {}).length) return OK;
+  return BAD;
+};
+
 /* Не Word — показываем сам файл тем же окном: картинку картинкой,
    остальное — страницей внутри окна. */
 const fileHtml = (url, type) => (/^image\//.test(String(type || ""))
@@ -184,7 +211,9 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
          договоры), и черта между ними не отделяла одного от другого. */
       <div key={u.id} className="flex flex-wrap gap-2" aria-label={`участник ${u.name}`}
         style={{ alignItems: "center", padding: 8, marginBottom: 6,
-          background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8 }}>
+          background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
+          /* Владельцу и агенту договор не нужен — полоски у них нет. */
+          borderLeft: `4px solid ${owner || u.agent ? C.line : userTone(u)}` }}>
         <span style={{ fontSize: 12.5, flex: "1 1 130px" }}>
           {u.name}
           {u.username ? <span style={{ color: C.muted }}> @{u.username}</span> : null}
@@ -247,7 +276,11 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
               {!!Object.keys(u.contracts || {}).filter((rid) => !(u.agreements || []).some((a) => a.roleId === rid)).length && (
                 <div style={{ flexBasis: "100%" }} aria-label={`подписанные договоры: ${u.name}`}>
                   {Object.entries(u.contracts || {}).filter(([rid]) => !(u.agreements || []).some((a) => a.roleId === rid)).map(([rid, f]) => {
-                    const label = `${roleName(rid) || rid}${f?.name ? ` · ${f.name}` : ""}`;
+                    /* Сроки — у каждого пункта (владелец, 2026-09-20). У
+                       подписанного экземпляра их нет: его принесли файлом,
+                       без дат, — так и сказано. */
+                    const label = `${roleName(rid) || rid}${f?.name ? ` · ${f.name}` : ""}`
+                      + " · срок не указан";
                     return docRow(`${u.id}:${rid}`, { label, tone: ACC,
                       url: reportSrc(f), name: f?.name,
                       view: () => openDoc(label, () => contractHtml(u.id, rid)) });

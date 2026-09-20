@@ -609,14 +609,27 @@ function FuncCard({func,entities,traitName,bare=false,about=""}){
       <div style={{color:C.muted,marginTop:4}}>
         Срок: <b style={{color:WARN}}>{nm(func.dur)} {func.durUnit}</b> на одно выполнение
       </div>
-      {/* Ожидаемый результат — последним, под остальными полями (владелец,
-          2026-09-20). Не назван — так и сказано, и сказано где его ставят:
-          пустая строка читалась бы как «результата у этой работы нет». */}
-      <div style={{color:C.muted,marginTop:4}}>
-        Ожидаемый результат: {result
-          ? <span style={{color:C.text}}>{result}</span>
-          : <span>не назван</span>}
-      </div>
+      {/* Ожидаемый результат — у ФУНКЦИИ, и потому только на форме
+          постановки (владелец, 2026-09-20: «убери оттуда ожидаемый
+          результат, если это задача»). Не назван — так и сказано: пустая
+          строка читалась бы как «результата у этой работы нет». */}
+      {bare&&(
+        <div style={{color:C.muted,marginTop:4}}>
+          Ожидаемый результат: {result
+            ? <span style={{color:C.text}}>{result}</span>
+            : <span>не назван</span>}
+        </div>)}
+      {/* Критерии проверки — у ЗАДАЧИ, и стоят в её же плашке (владелец,
+          2026-09-20: «туда же добавь список критериев проверки»). */}
+      {!bare&&(
+        <div aria-label="критерии проверки" style={{marginTop:4}}>
+          <div style={{color:C.muted}}>Критерии проверки:</div>
+          {(func.checks||[]).length
+            ? (<ul style={{margin:"2px 0 0",paddingLeft:18,lineHeight:1.6}}>
+                {func.checks.map((c,i)=>(<li key={`${i}:${c}`}>{c}</li>))}
+              </ul>)
+            : (<div style={{color:C.muted}}>нет</div>)}
+        </div>)}
       {/* Описания функции на плашке нет (владелец, 2026-09-20: «убери
           описание функции из тех. процесса и с плашки функции на форме
           постановки задач; описание должно быть только у задачи»). Оно
@@ -977,6 +990,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 
   const func=funcs.find(f=>f.id===task.funcId)||null;
   const subs=task.submissions||[];
+  /* СДАНА — значит, здесь больше нечего делать (владелец, 2026-09-20:
+     «после сдачи задачи появляется плашка с кнопкой „Сдать", которой здесь
+     быть не должно; комментарии писать после сдачи тоже нельзя»). Работа
+     ушла проверяющему: и вторая сдача, и слова к ней — уже не к этой
+     форме. Вернут на доработку — статус снова рабочий, и форма оживёт. */
+  const handed=task.status==="review"||task.status==="done";
   const traitName=(id)=>traits.find(t=>t.id===id)?.l||"(ресурс удалён)";
   const who=(id)=>(id?(nameOf?nameOf(id):id):"не назначен");
   /* Номера единиц, которые получились из сдач. Сдача — это не «плюс одна
@@ -1330,9 +1349,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         <div>срок: {task.end?fmtDT(task.end):"не назначен"}</div>
       </div>
 
-      {/* Описание задачи стоит В ПЛАШКЕ, над «ожидается» (владелец,
-          2026-09-20), а не отдельным блоком над ней. */}
-      <div style={S.lbl}>выполняемая функция</div>
+      {/* На форме задачи плашка называется «выполняемая задача» (владелец,
+          2026-09-20: «у меня написана задача, а не функция»). Описание и
+          критерии стоят В НЕЙ, а не отдельными блоками. */}
+      <div style={S.lbl}>выполняемая задача</div>
       <FuncCard func={func} entities={entities} traitName={traitName}
         about={task.body}/>
 
@@ -1352,17 +1372,6 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                 label={`материалы на входе: ${traitName(g.trait)}`}/>
             </div>))}
         </div></>)}
-
-      {/* Критерии — у ЗАДАЧИ, своим разделом перед сдачей (владелец,
-          2026-09-20). */}
-      <div aria-label="критерии проверки" style={{marginBottom:8}}>
-        <div style={S.lbl}>критерии проверки</div>
-        {(func?.checks||[]).length
-          ? (<ul style={{margin:"3px 0 0",paddingLeft:18,fontSize:12,lineHeight:1.6}}>
-              {func.checks.map((c,i)=>(<li key={`${i}:${c}`}>{c}</li>))}
-            </ul>)
-          : (<div style={{fontSize:11.5,color:C.muted,marginTop:3}}>нет</div>)}
-      </div>
 
       <div style={S.lbl}>сдача задачи</div>
       <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
@@ -1409,7 +1418,9 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               📎 {sb.file.name} · {Math.round((sb.file.size||0)/1024)} КБ</div>}
           </div>))}
 
-        {!handing
+        {handed
+          ? null
+          : !handing
           ? <div className="flex flex-wrap gap-2">
               <button style={btn(true,OK)} disabled={!func} onClick={startHanding}>
                 СДАТЬ</button>
@@ -1507,7 +1518,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       {/* Комментарии — единственное, что исполнитель здесь пишет помимо
           сдачи: спросить, уточнить, сказать, что мешает. */}
       <div style={S.lbl}>комментарии</div>
-      <Comments task={task} meId={meId} nameOf={nameOf} isOwner={isOwner}
+      <Comments task={task} meId={meId} nameOf={nameOf} isOwner={isOwner} readOnly={handed}
         onAdd={(c)=>{ up("comments",[...(task.comments||[]),newComment(c,meId)]);
           onComment?.(task,c); }}
         onDrop={(id)=>{ up("comments",(task.comments||[]).filter(c=>c.id!==id));
