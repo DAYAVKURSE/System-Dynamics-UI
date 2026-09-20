@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
-import TasksBoard, { TaskSetup, canSeeComment, newSubmission, newTask }
+import TasksBoard, { TaskSetup, newSubmission, newTask }
   from "../components/TasksBoard.jsx";
 import ReviewBoard from "../components/ReviewBoard.jsx";
 
@@ -30,12 +30,12 @@ const nameOf = (id) => PEOPLE.find((p) => p.id === String(id))?.name || String(i
 const task = (over = {}) => ({ ...newTask({ funcId: "f1", title: "Задача A" }),
   setter: "1", assignee: "2", reviewer: "3", status: "progress", ...over });
 
-function Board({ tasks: t0, meId = "2", onSubmit, onComment, funcs = FUNCS }) {
+function Board({ tasks: t0, meId = "2", onSubmit, onSay, funcs = FUNCS }) {
   const [tasks, setTasks] = React.useState(t0);
   const [openId, setOpenId] = React.useState(null);
   return (<TasksBoard funcs={funcs} entities={ENTITIES} traits={TRAITS}
     tasks={tasks} setTasks={setTasks} openId={openId} setOpenId={setOpenId}
-    nameOf={nameOf} meId={meId} onSubmit={onSubmit} onComment={onComment} />);
+    nameOf={nameOf} meId={meId} onSubmit={onSubmit} onSay={onSay} />);
 }
 
 /* Результат работы прикладывается файлом: без него сдачи нет. */
@@ -111,15 +111,14 @@ describe("форма сдачи: отчёт словами, вещи кнопк�
     render(<Board tasks={[handed]} />);
     fireEvent.click(screen.getByText("Задача A"));
     expect(screen.queryByRole("button", { name: "СДАТЬ" })).toBeNull();
-    expect(screen.queryByPlaceholderText(/написать комментарий/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull();
+    // Обсуждение сданной задачи закрыто: кнопка есть, но неактивна.
+    expect(screen.getByRole("button", { name: "обсуждение: Задача A" })).toBeDisabled();
   });
 
-  it("в работе — «Сдать» и комментарий на месте", () => {
+  it("в работе — «Сдать» на месте", () => {
     render(<Board tasks={[task()]} />);
     fireEvent.click(screen.getByText("Задача A"));
     expect(screen.getByRole("button", { name: "СДАТЬ" })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/написать комментарий/)).toBeInTheDocument();
   });
 
   /* ПЛАШКА ЗАДАЧИ НА ФОРМЕ ЗАДАЧИ (владелец, 2026-09-20): выход подписан
@@ -274,50 +273,64 @@ describe("оценка постановки при сдаче", () => {
   });
 });
 
-describe("комментарии в задаче", () => {
-  it("комментарий — всем участникам: ни адресата, ни скрытости у него нет", () => {
-    /* Сказать что-то лично о человеке — это отзыв, а не комментарий: у
-       отзыва своя скрытость. Поле «кому» превращало разговор в переписку
-       через третьего. */
-    const said = [];
-    render(<Board tasks={[task()]} onComment={(t, c) => said.push(c)} />);
-    fireEvent.click(screen.getByText("Задача A"));
-    expect(screen.queryByLabelText("адресат комментария")).toBeNull();
-    expect(screen.queryByRole("button", { name: /скрытый/ })).toBeNull();
-    commit(screen.getByPlaceholderText(/написать комментарий/), "всем");
-    fireEvent.click(screen.getByRole("button", { name: "Добавить" }));
-    expect(said).toEqual([{ text: "всем", to: null, hidden: false }]);
-    // Пометка «скрытый · …» бывает только у прежних скрытых.
-    expect(screen.queryByText(/скрытый ·/)).toBeNull();
-  });
-
-  const talked = () => task({ comments: [
-    { id: "c1", text: "тайна", at: "2026-01-01T10:00:00Z", by: "3", to: "1", hidden: true },
-    { id: "c2", text: "открыто", at: "2026-01-01T10:00:00Z", by: "3", to: null, hidden: false },
+/* ОБСУЖДЕНИЕ ЗАДАЧИ (владелец, 2026-09-20): один общий разговор
+   постановщика, исполнителя и проверяющего — окном, как в мессенджере.
+   Комментариев с адресатом и скрытостью больше нет вовсе. */
+describe("обсуждение задачи", () => {
+  const talked = () => task({ chat: [
+    { id: "m1", text: "когда начнёшь?", at: "2026-01-01T10:00:00Z", by: "1" },
+    { id: "m2", text: "завтра", at: "2026-01-01T11:00:00Z", by: "2" },
   ] });
 
-  /* Прежние скрытые комментарии остаются скрытыми: их писали как личные,
-     и рассекречивать их задним числом нельзя. */
-  it("чужой скрытый не виден, публичный — виден", () => {
-    render(<Board tasks={[talked()]} meId="2" />);
+  it("кнопка вместо комментариев; окно — с датой, ролью и именем автора", () => {
+    render(<Board tasks={[talked()]} />);
     fireEvent.click(screen.getByText("Задача A"));
-    expect(screen.queryByText("тайна")).toBeNull();
-    expect(screen.getByText("открыто")).toBeInTheDocument();
+    // Прежних комментариев нет ни следа.
+    expect(screen.queryByPlaceholderText(/написать комментарий/)).toBeNull();
+    expect(screen.queryByText("комментарии")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "обсуждение: Задача A" }));
+    const talk = screen.getByLabelText("обсуждение");
+    expect(within(talk).getByText("когда начнёшь?")).toBeInTheDocument();
+    expect(within(talk).getByText(/Владелец · постановщик/)).toBeInTheDocument();
+    expect(within(talk).getByText(/Иван · исполнитель/)).toBeInTheDocument();
+    expect(within(talk).getAllByText(/01\.01\.26/).length).toBe(2);
   });
 
-  it("адресату скрытый виден с пометкой «только вам»", () => {
-    render(<Board tasks={[talked()]} meId="1" />);
+  it("написанное уходит наружу и ложится в разговор", () => {
+    const said = [];
+    render(<Board tasks={[talked()]} onSay={(t, text) => said.push(text)} />);
     fireEvent.click(screen.getByText("Задача A"));
-    expect(screen.getByText("тайна")).toBeInTheDocument();
-    expect(screen.getByText("скрытый · только вам")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "обсуждение: Задача A" }));
+    commit(screen.getByLabelText("сообщение"), "уже делаю");
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    expect(said).toEqual(["уже делаю"]);
+    expect(within(screen.getByLabelText("обсуждение")).getByText("уже делаю"))
+      .toBeInTheDocument();
   });
 
-  it("canSeeComment — одно правило: скрытое автору и адресату, остальное всем", () => {
-    const c = { hidden: true, by: "3", to: "1" };
-    expect(canSeeComment(c, "3")).toBe(true);
-    expect(canSeeComment(c, "1")).toBe(true);
-    expect(canSeeComment(c, "2")).toBe(false);
-    expect(canSeeComment({ ...c, hidden: false }, "2")).toBe(true);
+  it("непрочитанные — красным кружком, и открытие обсуждения их снимает", () => {
+    render(<Board tasks={[talked()]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    // Иван (meId 2) не читал сообщение постановщика.
+    expect(screen.getByLabelText("непрочитанных сообщений: 1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "обсуждение: Задача A" }));
+    expect(screen.queryByLabelText(/непрочитанных сообщений/)).toBeNull();
+  });
+
+  it("кнопка неактивна, пока задача не поставлена, и после сдачи", () => {
+    const button = () => screen.getByRole("button", { name: "обсуждение: Задача A" });
+    render(<Board tasks={[task({ status: "wait" })]} />);
+    // Непоставленной задачи на доске исполнителя нет вовсе — смотрим сданную.
+    render(<Board tasks={[task({ status: "review",
+      submissions: [newSubmission({ hours: 1, text: "сдал" })] })]} />);
+    fireEvent.click(screen.getAllByText("Задача A")[0]);
+    expect(button()).toBeDisabled();
+  });
+
+  it("в работе кнопка активна", () => {
+    render(<Board tasks={[task()]} />);
+    fireEvent.click(screen.getByText("Задача A"));
+    expect(screen.getByRole("button", { name: "обсуждение: Задача A" })).not.toBeDisabled();
   });
 });
 

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
-import { HiddenSwitch, STATUSES, TaskSetup, canSeeComment, funcLabel, lackOf, roleOf, whyNotSet }
+import { ChatButton, Discussion, HiddenSwitch, STATUSES, TaskSetup, funcLabel, lackOf,
+  newMessage, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
 import { MARK_MAX, MARK_MIN, inTime, lastSubmission } from "../lib/workers.js";
 import { leftInUnit, timeLeft } from "../lib/funcs.js";
@@ -147,7 +148,7 @@ function Delete({ t, can, killId, setKillId, onKill, isOwner = false }) {
    она пересоздавалась бы каждый раз, и поле комментария теряло бы фокус
    на каждой букве. */
 function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden, setHidden,
-  funcs, traits, entities, nameOf, meId, onAccept, onReturn, extra = null, units = [] }) {
+  funcs, traits, entities, nameOf, meId, onAccept, onReturn, onChat, extra = null, units = [] }) {
     const on = openId === t.id;
     const sub = lastOf(t);
     const unitName = (id) => traits.find((x) => x.id === id)?.unit || "ед.";
@@ -166,6 +167,10 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
           {sub && <span style={{ fontSize: 11, color: OK }}>
             сдано за {nm(sub.hours)} ч</span>}
           <span style={{ fontSize: 10.5, color: C.muted }}>{sub ? fmtDT(sub.at) : st?.name}</span>
+          {/* Обсуждение — на самой плашке (владелец, 2026-09-20): чтобы
+              увидеть непрочитанное, задачу не надо раскрывать. */}
+          <ChatButton task={t} meId={meId} onOpen={onChat}
+            style={{ padding: "2px 8px", fontSize: 10.5 }} />
           <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
         </div>
 
@@ -303,29 +308,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
                       setHidden(false); setOpenId(null); }}>
                     Вернуть в бэклог</button>
                 </div>
-                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
-                  «Принять» переводит задачу в «Готово» — её числа идут в
-                  расчёт как фактическое выполнение функции, а оценка и
-                  отзыв — в историю исполнителя. Без оценки и без слов
-                  принять нельзя: оценка без слов не говорит, что исправить, а
-                  слова без оценки не складываются в историю. Оценка
-                  публикуется без вашего имени и только когда её нельзя
-                  вычислить. «Вернуть» — в бэклог с текстом доработки.
-                </div>
               </>)}
-            {/* Чужие скрытые слова здесь не читаются: скрытое — автору и
-                адресату. Пометка «только вам» — у адресованных мне. */}
-            {!!(t.comments || []).filter((c) => canSeeComment(c, meId)).length && (
-              <div style={{ marginTop: 8 }}>
-                <div style={S.lbl}>комментарии</div>
-                {(t.comments || []).filter((c) => canSeeComment(c, meId)).map((c) => (
-                  <div key={c.id} style={{ fontSize: 11.5, color: C.muted,
-                    marginTop: 4, lineHeight: 1.5 }}>
-                    {c.text} <span style={{ fontSize: 10 }}>
-                      {c.by && nameOf ? `· ${nameOf(c.by)} ` : ""}· {fmtDT(c.at)}
-                      {c.hidden ? (String(c.to) === String(meId)
-                        ? " · скрытый · только вам" : " · скрытый") : ""}</span></div>))}
-              </div>)}
             {extra}
           </div>)}
       </div>);
@@ -333,9 +316,30 @@ function Card({ t, dim, openId, setOpenId, note, setNote, mark, setMark, hidden,
 
 export default function ReviewBoard({ tasks = [], traits = [], entities = [], funcs = [],
   meId, isOwner, onAccept, onReturn, nameOf, setTasks, people = [], canAssign = true,
-  published, onComment, onDropComment, onSetup, onDelete, factors = [], materials = [],
+  published, onSay, onSeen, onSetup, onDelete, factors = [], materials = [],
   ratings = null }) {
   const [openId, setOpenId] = useState(null);
+  /* ─── обсуждение ───
+     Разговор один на задачу и открывается с её плашки. Открыли —
+     непрочитанного больше нет, и метка уезжает на сервер: считаться она
+     должна одинаково на всех устройствах. */
+  const [chatId, setChatId] = useState(null);
+  const chatTask = tasks.find((t) => t.id === chatId) || null;
+  const mark_ = (t) => ({ ...(t.seenBy || {}),
+    ...(meId == null ? {} : { [String(meId)]: new Date().toISOString() }) });
+  const openChat = (t) => {
+    setChatId(t.id);
+    setTasks?.((p) => p.map((x) => (x.id === t.id ? { ...x, seenBy: mark_(x) } : x)));
+    onSeen?.(t);
+  };
+  const say = (t, text) => {
+    const m = newMessage(text, meId);
+    setTasks?.((p) => p.map((x) => (x.id === t.id
+      ? { ...x, chat: [...(x.chat || []), m],
+        seenBy: { ...(x.seenBy || {}), ...(meId == null ? {} : { [String(meId)]: m.at }) } }
+      : x)));
+    onSay?.(t, text);
+  };
   /* Единицы считаются один раз на всю вкладку: карточек много, а список
      у них общий — по нему ищут и взятое, и выданное. */
   const units = useMemo(() => unitsOf({ tasks, funcs, materials }), [tasks, funcs, materials]);
@@ -463,6 +467,10 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                 <span style={{ fontSize: 10.5, color: C.muted }}>
                   {funcLabel(funcs.find((f) => f.id === t.funcId), entities)}</span>
                 {why && <span style={{ fontSize: 10.5, color: WARN }}>{why}</span>}
+                {/* Кнопка есть и здесь — неактивная: обсуждение
+                    открывается, когда задачу поставят. */}
+                <ChatButton task={t} meId={meId} onOpen={openChat}
+                  style={{ padding: "2px 8px", fontSize: 10.5 }} />
                 <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
               </div>
               {on && setup && (
@@ -495,7 +503,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         hidden={hidden} setHidden={setHidden} meId={meId}
         funcs={funcs} traits={traits} entities={entities}
         nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-        extra={killRow(t)} />)}
+        onChat={openChat} extra={killRow(t)} />)}
 
       {restGroups.filter((g) => g.rows.length).map((g) => (
         <React.Fragment key={g.id}>
@@ -509,7 +517,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
               hidden={hidden} setHidden={setHidden} meId={meId}
               funcs={funcs} traits={traits} entities={entities}
               nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-              extra={<>{recallRow(t)}{killRow(t)}</>} />))}
+              onChat={openChat} extra={<>{recallRow(t)}{killRow(t)}</>} />))}
         </React.Fragment>))}
 
       {/* ─── готовые ───
@@ -526,7 +534,13 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
             hidden={hidden} setHidden={setHidden} meId={meId}
             funcs={funcs} traits={traits} entities={entities}
             nameOf={nameOf} onAccept={onAccept} onReturn={onReturn} units={units}
-            extra={killRow(t)} />)}
+            onChat={openChat} extra={killRow(t)} />)}
         </>)}
+
+      {/* Обсуждение — окном поверх вкладки: разговор один на задачу, и
+          открывается он с её плашки. */}
+      {chatTask && (
+        <Discussion task={chatTask} meId={meId} nameOf={nameOf}
+          onSend={(text) => say(chatTask, text)} onClose={() => setChatId(null)} />)}
     </div>);
 }

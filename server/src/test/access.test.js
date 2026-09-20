@@ -428,14 +428,13 @@ describe("сдача и приём через сервер", () => {
     expect(res.body.submissions[0].setterRating).toBeNull();
   });
 
-  it("у решения проверяющего хранится «скрытый», и слова уходят в ленту с адресатом", async () => {
+  it("у решения проверяющего хранится «скрытый», а слова уходят в обсуждение", async () => {
     await saveModel();
     await invite(300, "reviewer", "Пётр");
     const res = await request(app).post("/api/workspace/tasks/tk1/review")
       .set(as(300)).send({ accept: true, comment: "лично", mark: 5, hidden: true });
     expect(res.body.reviews[0]).toMatchObject({ hidden: true, mark: 5 });
-    expect(res.body.comments[0]).toMatchObject({ text: "лично", by: "300", to: "200",
-      hidden: true });
+    expect(res.body.chat[0]).toMatchObject({ text: "лично", by: "300" });
   });
 });
 
@@ -503,95 +502,66 @@ describe("рейтинги через сервер", () => {
 /* ─────── комментарии ───────
 
    Скрытый — только автору и адресату; публичный — всем участникам. */
-describe("комментарии к задаче", () => {
-  const comment = (who, body) => request(app).post("/api/workspace/tasks/tk1/comments")
+describe("обсуждение задачи", () => {
+  /* Разговор постановщика, исполнителя и проверяющего — один на задачу и
+     ОБЩИЙ (владелец, 2026-09-20): скрытых слов и адресатов у сообщений
+     нет, убрать сказанное нельзя. */
+  const say = (who, body) => request(app).post("/api/workspace/tasks/tk1/chat")
     .set(as(who)).send(body);
-
-  it("участник пишет, скрытое видят только автор и адресат", async () => {
-    await saveModel();
-    await invite(200, "executor", "Иван");
-    await invite(300, "reviewer", "Пётр");
-    const res = await comment(300, { text: "между нами", to: "200", hidden: true });
-    expect(res.status).toBe(201);
-    expect(res.body.comment).toMatchObject({ text: "между нами", by: "300", to: "200",
-      hidden: true });
-    // Адресат видит, а постановщик (владелец) — свою модель целиком; чужой
-    // участник — нет. Проверяем через срез третьего участника.
-    const asIvan = await request(app).get("/api/workspace").set(as(200));
-    expect(asIvan.body.tasks[0].comments.map((c) => c.text)).toEqual(["между нами"]);
-  });
-
-  it("публичный виден всем участникам, а посторонний писать не может", async () => {
-    await saveModel();
-    await invite(200, "executor", "Иван");
-    await invite(300, "reviewer", "Пётр");
-    await invite(500, "executor", "Чужой");
-    expect((await comment(200, { text: "всем", to: null, hidden: false })).status).toBe(201);
-    expect((await comment(500, { text: "мимо" })).status).toBe(403);
-    const asPetr = await request(app).get("/api/workspace").set(as(300));
-    expect(asPetr.body.tasks[0].comments.map((c) => c.text)).toEqual(["всем"]);
-  });
-
-  it("скрытому нужен адресат, и адресат — из участников", async () => {
-    await saveModel();
-    await invite(200, "executor", "Иван");
-    expect((await comment(200, { text: "тайна", hidden: true })).status).toBe(400);
-    expect((await comment(200, { text: "тайна", to: "999", hidden: true })).status).toBe(400);
-    expect((await comment(200, { text: "   " })).status).toBe(400);
-  });
-
-  /* Убрать комментарий — операция сервера, а не окна: иначе после
-     перезагрузки он возвращался бы. Владелец убирает любой, остальные —
-     только свой. */
-  const drop = (who, cid) => request(app)
-    .delete(`/api/workspace/tasks/tk1/comments/${cid}`).set(as(who));
   const texts = async (who) => (await request(app).get("/api/workspace").set(as(who)))
-    .body.tasks[0].comments.map((c) => c.text);
+    .body.tasks[0].chat.map((m) => m.text);
 
-  it("автор убирает свой комментарий, и после перечитывания его нет", async () => {
+  it("пишет участник, и сообщение видно всем, кому видна задача", async () => {
     await saveModel();
     await invite(200, "executor", "Иван");
-    const mine = (await comment(200, { text: "передумал" })).body.comment;
-    const res = await drop(200, mine.id);
+    await invite(300, "reviewer", "Пётр");
+    const res = await say(300, { text: "когда начнёшь?" });
+    expect(res.status).toBe(201);
+    expect(res.body.message).toMatchObject({ text: "когда начнёшь?", by: "300" });
+    expect(res.body.message.to).toBeUndefined();
+    expect(res.body.message.hidden).toBeUndefined();
+    expect(await texts(200)).toEqual(["когда начнёшь?"]);
+    expect(await texts(300)).toEqual(["когда начнёшь?"]);
+  });
+
+  it("посторонний не пишет, пустое не принимается", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    await invite(500, "executor", "Чужой");
+    expect((await say(500, { text: "мимо" })).status).toBe(403);
+    expect((await say(200, { text: "   " })).status).toBe(400);
+    expect((await request(app).post("/api/workspace/tasks/нет/chat")
+      .set(as(100)).send({ text: "в пустоту" })).status).toBe(404);
+  });
+
+  it("убрать сказанное нельзя — маршрута удаления нет", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    const m = (await say(200, { text: "сказал" })).body.message;
+    expect((await request(app).delete(`/api/workspace/tasks/tk1/chat/${m.id}`)
+      .set(as(200))).status).toBe(404);
+    expect(await texts(200)).toEqual(["сказал"]);
+  });
+
+  /* Непрочитанное считается по метке «когда открывал»: своё сообщение
+     непрочитанным не бывает, чужое — до открытия обсуждения. */
+  it("метка прочтения ставится своим сообщением и открытием обсуждения", async () => {
+    await saveModel();
+    await invite(200, "executor", "Иван");
+    await invite(300, "reviewer", "Пётр");
+    await say(300, { text: "вопрос" });
+    const before = (await request(app).get("/api/workspace").set(as(200)))
+      .body.tasks[0];
+    expect(before.seenBy?.["200"]).toBeUndefined();
+    expect(before.seenBy["300"]).toBeTruthy();
+
+    const res = await request(app).post("/api/workspace/tasks/tk1/chat/seen").set(as(200));
     expect(res.status).toBe(200);
-    expect(res.body.comments).toEqual([]);
-    expect(await texts(200)).toEqual([]);
-  });
-
-  it("чужой комментарий участнику не убрать — 403, и он остаётся", async () => {
-    await saveModel();
-    await invite(200, "executor", "Иван");
-    await invite(300, "reviewer", "Пётр");
-    const petrs = (await comment(300, { text: "замечание", to: "200" })).body.comment;
-    expect((await drop(200, petrs.id)).status).toBe(403);
-    expect(await texts(200)).toEqual(["замечание"]);
-  });
-
-  it("владелец убирает любой", async () => {
-    await saveModel();
-    await invite(300, "reviewer", "Пётр");
-    const petrs = (await comment(300, { text: "замечание", to: "200" })).body.comment;
-    expect((await drop(100, petrs.id)).status).toBe(200);
-    expect(await texts(300)).toEqual([]);
-  });
-
-  it("нет задачи или комментария — 404", async () => {
-    await saveModel();
-    await invite(200, "executor", "Иван");
-    expect((await drop(200, "нет-такого")).status).toBe(404);
-    expect((await request(app).delete("/api/workspace/tasks/нет/comments/c1")
-      .set(as(100))).status).toBe(404);
-  });
-
-  it("в ответе на удаление — срез: чужих скрытых слов участник не получает", async () => {
-    await saveModel();
-    await invite(200, "executor", "Иван");
-    await invite(300, "reviewer", "Пётр");
-    await comment(100, { text: "только Петру", to: "300", hidden: true });
-    const mine = (await comment(200, { text: "своё" })).body.comment;
-    const res = await drop(200, mine.id);
-    expect(res.status).toBe(200);
-    expect(JSON.stringify(res.body)).not.toContain("только Петру");
+    expect(res.body.seenBy["200"]).toBeTruthy();
+    // Посторонний метку не ставит.
+    await invite(500, "executor", "Чужой");
+    expect((await request(app).post("/api/workspace/tasks/tk1/chat/seen")
+      .set(as(500))).status).toBe(403);
   });
 });
 
@@ -604,35 +574,28 @@ describe("что приходит в ответ на нажатие", () => {
   const post = (who, action, body = {}) => request(app)
     .post(`/api/workspace/tasks/tk1/${action}`).set(as(who)).send(body);
   const marks = (task) => task.reviews.map((r) => r.mark);
-  const hiddenNotMine = (task, me) => task.comments
-    .filter((c) => c.hidden && String(c.by) !== me && String(c.to) !== me);
 
-  it("исполнитель в ответах на «взять», «отложить» и сдачу не видит оценок и чужих скрытых слов", async () => {
+  it("исполнитель в ответах на «взять», «отложить» и сдачу не видит чужих оценок", async () => {
     await saveModel();
     await invite(200, "executor", "Иван");
     await invite(300, "reviewer", "Пётр");
-    // Проверяющий вернул задачу с оценкой; владелец шепнул проверяющему.
+    // Проверяющий вернул задачу с оценкой и словами.
     expect((await post(300, "review", { accept: false, comment: "доработать", mark: 2 })).status)
       .toBe(200);
-    await post(100, "comments", { text: "между нами", to: "300", hidden: true });
 
     const defer = await post(200, "defer");
     expect(defer.status).toBe(200);
     expect(marks(defer.body)).toEqual([null]);
-    expect(hiddenNotMine(defer.body, "200")).toEqual([]);
-    // Публичные слова возврата исполнителю видны — они ему и адресованы.
-    expect(defer.body.comments.map((c) => c.text)).toEqual(["доработать"]);
+    // Слова возврата исполнителю видны — они в обсуждении задачи.
+    expect(defer.body.chat.map((m) => m.text)).toEqual(["доработать"]);
 
     const take = await post(200, "take");
     expect(take.status).toBe(200);
     expect(marks(take.body)).toEqual([null]);
-    expect(hiddenNotMine(take.body, "200")).toEqual([]);
 
     const submit = await post(200, "submit", { hours: 1, text: "готово" });
     expect(submit.status).toBe(200);
     expect(marks(submit.body)).toEqual([null]);
-    expect(hiddenNotMine(submit.body, "200")).toEqual([]);
-    expect(JSON.stringify(submit.body)).not.toContain("между нами");
   });
 
   it("постановщик-проверяющий в ответе на приём не видит оценки своей постановки", async () => {
@@ -661,10 +624,10 @@ describe("что приходит в ответ на нажатие", () => {
     await invite(200, "executor", "Иван");
     await invite(300, "reviewer", "Пётр");
     await post(300, "review", { accept: false, comment: "доработать", mark: 2, hidden: true });
-    const res = await post(100, "comments", { text: "вижу всё" });
+    const res = await post(100, "chat", { text: "вижу всё" });
     expect(res.status).toBe(201);
     expect(res.body.task.reviews[0].mark).toBe(2);
-    expect(res.body.task.comments.map((c) => c.text)).toEqual(["доработать", "вижу всё"]);
+    expect(res.body.task.chat.map((m) => m.text)).toEqual(["доработать", "вижу всё"]);
   });
 });
 

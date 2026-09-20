@@ -16,9 +16,9 @@ const TASK = {
   ],
   submissions: [{ id: "sb1", at: "2026-01-01T00:00:00Z", hours: 1,
     setterRating: { mark: 3, comment: "срок тесный", hidden: true } }],
-  comments: [
-    { id: "c1", text: "тайна", by: "300", to: "200", hidden: true },
-    { id: "c2", text: "открыто", by: "300", to: null, hidden: false },
+  chat: [
+    { id: "m1", text: "когда начнёшь?", by: "300", at: "2026-01-01T00:00:00Z" },
+    { id: "m2", text: "завтра", by: "200", at: "2026-01-01T01:00:00Z" },
   ],
 };
 
@@ -51,14 +51,17 @@ describe("taskViewFor: скрытая отметка и скрытые слов�
     expect(taskViewFor(TASK, "300").submissions[0].setterRating).toBeNull();
   });
 
-  it("скрытый комментарий — автору и адресату, публичный — всем", () => {
-    expect(taskViewFor(TASK, "100").comments.map((c) => c.text)).toEqual(["открыто"]);
-    expect(taskViewFor(TASK, "200").comments.map((c) => c.text)).toEqual(["тайна", "открыто"]);
-    expect(taskViewFor(TASK, "300").comments.map((c) => c.text)).toEqual(["тайна", "открыто"]);
+  /* Обсуждение — общее: кому видна задача, тому видны все сообщения
+     (владелец, 2026-09-20). Скрытых слов в нём нет вовсе. */
+  it("обсуждение видно целиком всем, кому видна задача", () => {
+    ["100", "200", "300"].forEach((who) => {
+      expect(taskViewFor(TASK, who).chat.map((m) => m.text))
+        .toEqual(["когда начнёшь?", "завтра"]);
+    });
   });
 
   it("пустая задача не ломает срез: списки остаются списками", () => {
     const v = taskViewFor({ id: "t0" }, "200");
-    expect(v).toMatchObject({ id: "t0", reviews: [], submissions: [], comments: [] });
+    expect(v).toMatchObject({ id: "t0", reviews: [], submissions: [] });
   });
 });

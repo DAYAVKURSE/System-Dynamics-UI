@@ -385,7 +385,7 @@ export function taskOf(order, offer, svc) {
     setter: String(order.by), assignee: String(offer.by), reviewer: String(order.by),
     start: start.toISOString(), end: end ? end.toISOString() : null, endBy: "hand",
     market: { orderId: order.id, offerId: offer.id },
-    submissions: [], reviews: [], comments: [],
+    submissions: [], reviews: [], chat: [],
   };
 }
 const rowText = (r) => (r.qty != null ? `${r.name} × ${r.qty}` : r.name);

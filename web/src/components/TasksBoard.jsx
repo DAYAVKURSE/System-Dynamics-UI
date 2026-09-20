@@ -7,6 +7,7 @@ import { pickByOrderOf, pickOrder } from "../lib/pickOrder.js";
 import { heldBy, kindOfTrait, newCode, unitsOf, unitLabel, unitTitle } from "../lib/units.js";
 import { inputCount, inputUnits } from "../lib/taskUnits.js";
 import { putReportFile, reportSrc, MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
+import Modal from "./Modal.jsx";
 
 /* ════════════════════════════════════════════════════════════════
    ЗАДАЧИ · выполнения функций
@@ -884,19 +885,111 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
             : ""}. Правки отсюда видит и он.
         </div>)}
 
-      {/* Только чтение: слова к постановке пишет исполнитель при сдаче,
-          а постановщику здесь показывают то, что адресовано ему или всем. */}
-      <div style={{...S.lbl,marginTop:10}}>что сказали в задаче</div>
-      <Comments task={task} meId={meId} nameOf={nameOf} isOwner={canAssign} readOnly/>
     </div>);
 }
 
-/* Комментарий в задаче — с автором и адресатом: это разговор, а не
-   суждение о человеке (оно — в оценке, и та без имени). Скрытый видят
-   только автор и адресат. */
-export const newComment=({text,to=null,hidden=false},by)=>({
-  id:uid("c"),text:String(text||"").trim(),at:new Date().toISOString(),
-  by:by==null?null:String(by),to:to==null||to===""?null:String(to),hidden:!!hidden});
+/* ─────── ОБСУЖДЕНИЕ ЗАДАЧИ ───────
+
+   Разговор постановщика, исполнителя и проверяющего — один на задачу и
+   общий (владелец, 2026-09-20). Комментариев с адресатом и скрытостью
+   больше нет вовсе: сказать что-то лично о человеке — это ОТЗЫВ, и у
+   него своё место.
+
+   Обсуждение идёт, пока идёт работа: открывается, когда постановщик
+   поставил задачу, и закрывается, когда её сдали. */
+export const newMessage=(text,by)=>({
+  id:uid("m"),text:String(text||"").trim(),at:new Date().toISOString(),
+  by:by==null?null:String(by)});
+
+/** Кем человек приходится ЭТОЙ задаче — словом, как в подписи сообщения. */
+export const roleInTask=(task,id)=>{
+  if(id==null||id==="") return "";
+  const same=(v)=>v!=null&&String(v)===String(id);
+  if(same(roleOf(task,"assignee"))) return "исполнитель";
+  if(same(roleOf(task,"setter"))) return "постановщик";
+  if(same(roleOf(task,"reviewer"))) return "проверяющий";
+  return "";
+};
+
+/** Сколько в обсуждении сообщений, которых этот человек ещё не видел. */
+export const unreadOf=(task,meId)=>{
+  const me=meId==null?null:String(meId);
+  if(!me) return 0;
+  const seen=Date.parse(task?.seenBy?.[me]||"")||0;
+  return (task?.chat||[]).filter(m=>String(m.by)!==me
+    &&(Date.parse(m.at)||0)>seen).length;
+};
+
+/** Идёт ли обсуждение: с постановки и до сдачи. */
+export const chatOpen=(task)=>!isCanceled(task)
+  &&["backlog","deferred","progress","deadline"].includes(task?.status);
+
+/**
+ * Кнопка «Обсуждение» с красным кружком непрочитанных.
+ *
+ * Стоит там же, где прежде стояли комментарии: на форме задачи и на
+ * плашках «Проверки». Неактивна, пока задача не поставлена и после того,
+ * как её сдали.
+ */
+export function ChatButton({task,meId,onOpen,style}){
+  const n=unreadOf(task,meId);
+  const on=chatOpen(task);
+  return (
+    <button type="button" disabled={!on} aria-label={`обсуждение: ${task.title}`}
+      style={{...btn(false),opacity:on?1:0.5,...style}}
+      onClick={e=>{e.stopPropagation(); if(on) onOpen?.(task);}}>
+      Обсуждение
+      {!!n&&(
+        <span aria-label={`непрочитанных сообщений: ${n}`}
+          style={{marginLeft:6,display:"inline-block",minWidth:16,height:16,
+            lineHeight:"16px",borderRadius:8,background:BAD,color:C.ink,fontSize:10,
+            fontWeight:700,textAlign:"center",padding:"0 4px"}}>{n}</span>)}
+    </button>);
+}
+
+/** Само обсуждение — окном, как разговор в мессенджере. */
+export function Discussion({task,meId,nameOf,onSend,onClose}){
+  const [text,setText]=useState("");
+  const me=meId==null?null:String(meId);
+  const who=(id)=>(id==null||id===""?"":(nameOf?nameOf(id):String(id)));
+  const list=task.chat||[];
+  const send=()=>{
+    const body=text.trim();
+    if(!body) return;
+    onSend?.(body);
+    setText("");
+  };
+  return (
+    <Modal title={`Обсуждение · ${task.title}`} onClose={onClose}>
+      <div aria-label="обсуждение" style={{display:"flex",flexDirection:"column",gap:6,
+        maxHeight:"52dvh",overflowY:"auto",padding:"2px 0"}}>
+        {!list.length&&(
+          <div style={{fontSize:11.5,color:C.muted}}>Пока пусто.</div>)}
+        {list.map(m=>{
+          const mine=me!=null&&String(m.by)===me;
+          const role=roleInTask(task,m.by);
+          return (
+            <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"88%",
+              background:mine?`${ACC}22`:C.panel2,
+              border:`1px solid ${mine?ACC:C.line}`,borderRadius:10,padding:"6px 9px"}}>
+              {/* Дата, роль и имя — у каждого сообщения (владелец,
+                  2026-09-20): в задаче говорят трое, и кто именно сказал,
+                  должно быть видно, не считая по аватаркам. */}
+              <div style={{fontSize:10,color:C.muted,marginBottom:2}}>
+                {who(m.by)||"—"}{role?` · ${role}`:""} · {fmtDT(m.at)}</div>
+              <div style={{fontSize:12.5,lineHeight:1.5,whiteSpace:"pre-wrap"}}>
+                {m.text}</div>
+            </div>);
+        })}
+      </div>
+      <div className="flex gap-2" style={{marginTop:8}}>
+        <TxtField value={text} placeholder="сообщение" aria-label="сообщение"
+          onCommit={setText}/>
+        <button style={btn(true,OK)} disabled={!text.trim()} onClick={send}>
+          Отправить</button>
+      </div>
+    </Modal>);
+}
 
 /* ═══ КАРТОЧКА ЗАДАЧИ У ИСПОЛНИТЕЛЯ ═══
 
@@ -956,7 +1049,7 @@ export function HiddenSwitch({hidden,onChange,whoElse}){
 }
 
 export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials=[],setTasks,
-  onClose,nameOf,meId,isOwner=true,onComment,onDropComment,onSubmit,onTake}){
+  onClose,nameOf,meId,isOwner=true,onSay,onSeen,onSubmit,onTake}){
   const upMany=(patch)=>setTasks(p=>p.map(t=>t.id===task.id?{...t,...patch}:t));
   const up=(f,v)=>upMany({[f]:v});
   const [handing,setHanding]=useState(false);
@@ -999,6 +1092,21 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
      нажать на задачу, которая в бэклоге, у неё есть кнопка „Сдать" —
      вместо неё должна быть „Взять в работу"»). Условие то же, что у
      кнопки на карточке в колонке. */
+  /* Обсуждение: открыли — непрочитанного больше нет, и метка уезжает на
+     сервер, чтобы считалось одинаково на всех устройствах. */
+  const [chat,setChat]=useState(false);
+  const openChat=()=>{
+    setChat(true);
+    upMany({seenBy:{...(task.seenBy||{}),
+      ...(meId==null?{}:{[String(meId)]:new Date().toISOString()})}});
+    onSeen?.(task);
+  };
+  const say=(text)=>{
+    const m=newMessage(text,meId);
+    upMany({chat:[...(task.chat||[]),m],
+      seenBy:{...(task.seenBy||{}),...(meId==null?{}:{[String(meId)]:m.at})}});
+    onSay?.(task,text);
+  };
   const toTake=!isCanceled(task)&&!isTaken(task)
     &&(BACKLOG_STATES.includes(task.status)||task.status==="deadline");
   const traitName=(id)=>traits.find(t=>t.id===id)?.l||"(ресурс удалён)";
@@ -1535,14 +1643,14 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
             </div>}
       </div>
 
-      {/* Комментарии — единственное, что исполнитель здесь пишет помимо
-          сдачи: спросить, уточнить, сказать, что мешает. */}
-      <div style={S.lbl}>комментарии</div>
-      <Comments task={task} meId={meId} nameOf={nameOf} isOwner={isOwner} readOnly={handed}
-        onAdd={(c)=>{ up("comments",[...(task.comments||[]),newComment(c,meId)]);
-          onComment?.(task,c); }}
-        onDrop={(id)=>{ up("comments",(task.comments||[]).filter(c=>c.id!==id));
-          onDropComment?.(task,id); }}/>
+      {/* Обсуждение — там же, где прежде были комментарии, и вместо них
+          (владелец, 2026-09-20): кнопка, за ней окно разговора. */}
+      <div className="flex gap-2" style={{marginTop:10}}>
+        <ChatButton task={task} meId={meId} onOpen={openChat}/>
+      </div>
+      {chat&&(
+        <Discussion task={task} meId={meId} nameOf={nameOf}
+          onSend={say} onClose={()=>setChat(false)}/>)}
     </div>);
 }
 
@@ -1550,84 +1658,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 export const TASK_PEOPLE=[["setter","постановщик"],["assignee","исполнитель"],
   ["reviewer","проверяющий"]];
 
-/**
- * Видно ли комментарий этому человеку: скрытый — только автору и
- * адресату. Сервер режет то же самое для не-владельцев; здесь правило
- * повторено, чтобы владелец, у которого модель целиком, тоже не читал
- * чужих скрытых слов — они не ему.
- */
-export const canSeeComment=(c,meId)=>!c?.hidden
-  ||(meId!=null&&(String(c.by)===String(meId)||String(c.to)===String(meId)));
-
-/* ─────── комментарии в задаче ───────
-
-   Комментарий — это разговор в задаче, и видят его ВСЕ её участники,
-   всегда. Ни адресата, ни скрытости у него больше нет: сказать что-то
-   лично о человеке — это не комментарий, а ОТЗЫВ, и у отзыва своё место
-   и своя скрытость (оценка постановки у исполнителя при сдаче, решение
-   проверяющего на «Проверке»). Поле «кому» превращало разговор в
-   переписку через третьего, и половина сказанного терялась для тех, кому
-   задача тоже поручена.
-
-   Прежние скрытые комментарии остаются скрытыми: их писали как личные,
-   и рассекречивать их задним числом нельзя (`canSeeComment`).
-
-   Убрать комментарий может владелец — любой, остальные — только свой:
-   то же правило, что и на сервере (DELETE …/comments/:cid). Показывать
-   ✕ шире значило бы обещать то, что после перезагрузки не сбудется. */
-function Comments({task,meId,nameOf,isOwner=true,onAdd,onDrop,readOnly=false}){
-  const [text,setText]=useState("");
-  const me=meId==null?null:String(meId);
-  const who=(id)=>(id==null||id===""?"":(nameOf?nameOf(id):String(id)));
-  const list=(task.comments||[]).filter(c=>canSeeComment(c,me));
-  const canAdd=!!text.trim();
-  // Только чтение (форма постановки): ни формы, ни ✕ — писать здесь некому.
-  const mayDrop=(c)=>!readOnly&&typeof onDrop==="function"
-    &&(isOwner||(me!=null&&String(c.by)===me));
-  const add=()=>{
-    if(!canAdd) return;
-    onAdd({text:text.trim(),to:null,hidden:false});
-    setText("");
-  };
-  /* Пометка — только у скрытых: адресату «только вам», автору — кому. */
-  const tag=(c)=>(!c.hidden?""
-    :String(c.to)===me?"скрытый · только вам"
-      :`скрытый · только ${who(c.to)||"адресату"}`);
-  return (
-    <div style={{margin:"6px 0"}}>
-      {!list.length&&<div style={{fontSize:11.5,color:C.muted}}>
-        {readOnly?"Пока ничего не сказано.":"Пока нет."}</div>}
-      {list.map(c=>(
-        <div key={c.id} style={{background:C.panel2,border:`1px solid ${C.line}`,
-          borderRadius:6,padding:7,marginBottom:5,
-          borderLeft:c.hidden?`2px solid ${WARN}`:`1px solid ${C.line}`}}>
-          <div style={{fontSize:12,lineHeight:1.5}}>{c.text}</div>
-          <div className="flex flex-wrap items-center gap-2" style={{marginTop:3}}>
-            <span style={{fontSize:10,color:C.muted,flex:1}}>
-              {who(c.by)?`${who(c.by)} `:""}
-              {c.to?`→ ${who(c.to)} · `:""}
-              {fmtDT(c.at)}</span>
-            {c.hidden&&<span style={{fontSize:10,color:WARN}}>{tag(c)}</span>}
-            {mayDrop(c)&&<button style={{...btn(false),padding:"2px 6px"}}
-              aria-label="убрать комментарий" onClick={()=>onDrop(c.id)}>✕</button>}
-          </div>
-        </div>))}
-      {!readOnly&&(<>
-      <div className="flex gap-2" style={{marginTop:6}}>
-        <TxtField value={text} placeholder="написать комментарий — видят все участники"
-          onCommit={setText}/>
-        <button style={btn(false)} disabled={!canAdd} onClick={add}>Добавить</button>
-      </div>
-      </>)}
-    </div>);
-}
-
 /* ─────── доска ───────
    Слева — функции модели: под каждой заводятся её выполнения. Справа —
    канбан по статусам. Так видно и то, что делается, и то, ЧТО именно из
    модели этим уточняется. */
 export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],factors=[],tasks,setTasks,
-  openId,setOpenId,nameOf,onTake,onDrop,meId,canAssign=true,onComment,onDropComment,onSubmit}){
+  openId,setOpenId,nameOf,onTake,onDrop,meId,canAssign=true,onSay,onSeen,onSubmit}){
   const shown=tasks.filter(t=>t.status!=="wait");
   const open=shown.find(t=>t.id===openId)||null;
   /* Двигать задачи по доске нельзя, и стрелок здесь нет. У исполнителя два
@@ -1689,7 +1725,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
       {open&&(
         <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
           entities={entities} meId={meId} isOwner={canAssign}
-          onComment={onComment} onDropComment={onDropComment} onSubmit={onSubmit}
+          onSay={onSay} onSeen={onSeen} onSubmit={onSubmit}
           onTake={take}
           nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}
 

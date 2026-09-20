@@ -248,7 +248,7 @@ describe("что видно в общей модели", () => {
 describe("что можно изменить", () => {
   const seed = () => writeModel({
     tasks: [{ id: "tk1", assignee: "200", reviewer: "300", status: "progress",
-      submissions: [], comments: [] }],
+      submissions: [], chat: [] }],
   });
 
   it("исполнитель сдаёт свою задачу, и она уходит на проверку", async () => {
@@ -268,7 +268,7 @@ describe("что можно изменить", () => {
        самому себе то, что он и так знает. Правило то же, что в интерфейсе:
        разойдись они — бот и доска говорили бы разное про одну задачу. */
     await writeModel({ tasks: [{ id: "tk2", assignee: "200", reviewer: "200",
-      status: "progress", submissions: [], comments: [] }] });
+      status: "progress", submissions: [], chat: [] }] });
     const r = await submitTask("200", "tk2", { hours: 3 });
     expect(r.task.status).toBe("done");
     expect(r.task.submissions).toHaveLength(1);
@@ -286,14 +286,15 @@ describe("что можно изменить", () => {
     const r = await reviewTask("300", "tk1",
       { accept: true, comment: "принято", mark: 5 });
     expect(r.task.status).toBe("done");
-    expect(r.task.comments).toHaveLength(1);
+    // Слова решения ложатся в обсуждение задачи.
+    expect(r.task.chat).toHaveLength(1);
   });
 
   it("возврат отчёта отправляет задачу в бэклог с текстом доработки", async () => {
     await seed();
     const r = await reviewTask("300", "tk1", { accept: false, comment: "не хватает цифр" });
     expect(r.task.status).toBe("backlog");
-    expect(r.task.comments[0].text).toBe("не хватает цифр");
+    expect(r.task.chat[0].text).toBe("не хватает цифр");
   });
 
   it("вернуть без текста доработки нельзя — исполнителю нечего исправлять", async () => {

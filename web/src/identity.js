@@ -190,19 +190,17 @@ export const submitTaskRemote = (id, submission) =>
 export const reviewTaskRemote = (id, { accept, comment, mark, hidden = false }) =>
   json(`/api/workspace/tasks/${encodeURIComponent(id)}/review`,
     { method: "POST", body: JSON.stringify({ accept, comment, mark, hidden }) });
-/* Комментарий к задаче: скрытый — только автору и адресату. Своя
-   операция, как у сдачи и приёма: модель целиком пишет владелец, а сказать
-   в задаче должен уметь любой её участник. */
-export const commentTaskRemote = (id, { text, to = null, hidden = false }) =>
-  json(`/api/workspace/tasks/${encodeURIComponent(id)}/comments`,
-    { method: "POST", body: JSON.stringify({ text, to, hidden }) });
-/* Убрать комментарий — своя операция по той же причине: у позванного
-   нажатие ✕ иначе жило бы только в окне и комментарий возвращался бы с
-   перезагрузкой. Сервер разрешает владельцу любой, остальным — только
-   свой; интерфейс показывает ✕ по тому же правилу. */
-export const dropCommentRemote = (taskId, commentId) =>
-  json(`/api/workspace/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`,
-    { method: "DELETE" });
+/* Сообщение в обсуждение задачи. Своя операция, как у сдачи и приёма:
+   модель целиком пишет владелец, а сказать в задаче должен уметь любой,
+   кому она видна. Убрать сказанное нельзя — маршрута нет. */
+export const messageTaskRemote = (id, text) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(id)}/chat`,
+    { method: "POST", body: JSON.stringify({ text }) });
+/* Обсуждение открыли — непрочитанного в нём для этого человека больше
+   нет. Метка живёт у задачи, а не в браузере: непрочитанное должно
+   считаться одинаково на всех устройствах. */
+export const seeChatRemote = (id) =>
+  json(`/api/workspace/tasks/${encodeURIComponent(id)}/chat/seen`, { method: "POST" });
 /* Поручения — то, в чём человека выбрали, по всем активам сразу.
    Отдельным запросом, потому что модель позванный не видит: список
    собирает сервер по своим правилам, а не интерфейс по срезу. */

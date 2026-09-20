@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { identify, listOrg } from "../lib/orgStore.js";
-import { addComment, deferTask, dropComment, dropTask, dutyFor, peopleOf, readModel,
+import { addMessage, deferTask, dropTask, dutyFor, peopleOf, readModel, seeChat,
   refuseFunc, reviewTask, setupTask, submitTask, takeTask, taskViewFor, viewFor,
   withModel, writeModel } from "../lib/workspaceStore.js";
 import { publishStep, viewRatingsFor } from "../lib/ratings.js";
@@ -178,25 +178,23 @@ router.post("/tasks/:id/submit", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* Комментарий пишет любой участник задачи (или владелец). В ответе —
-   задача глазами писавшего: чужих скрытых слов в ней нет. */
-router.post("/tasks/:id/comments", async (req, res, next) => {
+/* Сообщение в обсуждение задачи пишет любой, кому видна задача: её
+   участники и владелец. Убрать сказанное нельзя — сказанное сказано. */
+router.post("/tasks/:id/chat", async (req, res, next) => {
   try {
-    const r = await addComment(req.telegramUserId, req.params.id, req.body || {},
+    const r = await addMessage(req.telegramUserId, req.params.id, req.body || {},
       { isOwner: req.me.isOwner });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error === "not yours") return res.status(403).json({ error: r.error });
     if (r.error) return res.status(400).json({ error: r.error });
-    res.status(201).json({ comment: r.comment, task: seen(req, r.task) });
+    res.status(201).json({ message: r.message, task: seen(req, r.task) });
   } catch (e) { next(e); }
 });
 
-/* Убрать комментарий: владелец — любой, остальные — только свой. Ответ —
-   задача глазами убравшего, как и у остальных нажатий. */
-router.delete("/tasks/:id/comments/:cid", async (req, res, next) => {
+/* Обсуждение открыли — непрочитанного в нём для этого человека больше нет. */
+router.post("/tasks/:id/chat/seen", async (req, res, next) => {
   try {
-    const r = await dropComment(req.telegramUserId, req.params.id, req.params.cid,
-      { isOwner: req.me.isOwner });
+    const r = await seeChat(req.telegramUserId, req.params.id, { isOwner: req.me.isOwner });
     if (r.error === "not found") return res.status(404).json({ error: r.error });
     if (r.error) return res.status(403).json({ error: r.error });
     res.json(seen(req, r.task));

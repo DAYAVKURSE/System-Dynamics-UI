@@ -26,12 +26,12 @@ beforeEach(async () => {
 
 const task = (id, status = "backlog") => ({
   id, assignee: "200", reviewer: "300", setter: "100", title: `Задача ${id}`,
-  status, submissions: [], comments: [], reviews: [],
+  status, submissions: [], chat: [], reviews: [],
 });
 const ids = (n, prefix) => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 
 describe("одновременные правки модели", () => {
-  it("сто параллельных «взять», «отложить» и комментариев не теряют ни одной записи", async () => {
+  it("сто параллельных «взять», «отложить» и сообщений не теряют ни одной записи", async () => {
     const toTake = ids(40, "take");
     const toDefer = ids(30, "defer");
     await store.writeModel({
@@ -41,7 +41,7 @@ describe("одновременные правки модели", () => {
     const results = await Promise.all([
       ...toTake.map((id) => store.takeTask("200", id)),
       ...toDefer.map((id) => store.deferTask("200", id)),
-      ...ids(30, "слово ").map((text) => store.addComment("300", "talk", { text, to: null })),
+      ...ids(30, "слово ").map((text) => store.addMessage("300", "talk", { text })),
     ]);
     results.forEach((r) => expect(r.error).toBeUndefined());
 
@@ -49,22 +49,20 @@ describe("одновременные правки модели", () => {
     const byId = Object.fromEntries(model.tasks.map((t) => [t.id, t]));
     toTake.forEach((id) => expect(byId[id]).toMatchObject({ taken: true, status: "progress" }));
     toDefer.forEach((id) => expect(byId[id]).toMatchObject({ taken: false, status: "deferred" }));
-    expect(byId.talk.comments.map((c) => c.text).sort())
+    expect(byId.talk.chat.map((m) => m.text).sort())
       .toEqual(ids(30, "слово ").sort());
   });
 
-  it("сдача, приём и удаление комментария тоже стоят в той же очереди", async () => {
+  it("сдача, приём и отметки прочтения тоже стоят в той же очереди", async () => {
     await store.writeModel({
       tasks: [task("s1", "progress"), task("s2", "progress"), task("r1", "review"),
-        { ...task("d1", "progress"),
-          comments: ids(20, "c").map((id) => ({ id, text: id, at: "2026-01-01T00:00:00Z",
-            by: "300", to: null, hidden: false })) }],
+        task("d1", "progress")],
     });
     const results = await Promise.all([
       store.submitTask("200", "s1", { hours: 1 }),
       store.submitTask("200", "s2", { hours: 2 }),
       store.reviewTask("300", "r1", { accept: true, mark: 4, comment: "принято" }),
-      ...ids(20, "c").map((cid) => store.dropComment("300", "d1", cid, { isOwner: false })),
+      ...ids(20, "x").map(() => store.seeChat("300", "d1", { isOwner: false })),
     ]);
     results.forEach((r) => expect(r.error).toBeUndefined());
 
@@ -74,7 +72,9 @@ describe("одновременные правки модели", () => {
     expect(byId.s2.submissions).toHaveLength(1);
     expect(byId.r1).toMatchObject({ status: "done" });
     expect(byId.r1.reviews).toHaveLength(1);
-    expect(byId.d1.comments).toEqual([]);
+    // Решение проверяющего ложится в обсуждение задачи.
+    expect(byId.r1.chat.map((m) => m.text)).toEqual(["принято"]);
+    expect(byId.d1.seenBy["300"]).toBeTruthy();
   });
 
   it("withModel выполняет работы по очереди, а не вперемешку", async () => {
@@ -125,34 +125,30 @@ describe("запись файла модели", () => {
   });
 });
 
-describe("удаление комментария", () => {
-  const withComments = () => store.writeModel({
-    tasks: [{ ...task("t1"),
-      comments: [
-        { id: "c1", text: "своё", at: "2026-01-01T00:00:00Z", by: "200", to: null, hidden: false },
-        { id: "c2", text: "чужое", at: "2026-01-01T00:00:00Z", by: "300", to: "200", hidden: true },
-      ] }],
-  });
-
-  it("автор убирает своё, а чужое — нет", async () => {
-    await withComments();
-    expect(await store.dropComment("200", "t1", "c2", { isOwner: false }))
+/* ОБСУЖДЕНИЕ ЗАДАЧИ (владелец, 2026-09-20): общий разговор, убрать
+   сказанное нельзя, метка прочтения — у каждого своя. */
+describe("обсуждение задачи", () => {
+  it("пишет участник и владелец, посторонний — нет; пустое не принимается", async () => {
+    await store.writeModel({ tasks: [task("t1", "progress")] });
+    expect(await store.addMessage("999", "t1", { text: "мимо" }))
       .toEqual({ error: "not yours" });
-    const r = await store.dropComment("200", "t1", "c1", { isOwner: false });
-    expect(r.task.comments.map((c) => c.id)).toEqual(["c2"]);
-    expect((await store.readModel()).tasks[0].comments.map((c) => c.id)).toEqual(["c2"]);
+    expect((await store.addMessage("999", "t1", { text: "я владелец" },
+      { isOwner: true })).message.text).toBe("я владелец");
+    expect(await store.addMessage("200", "t1", { text: "  " }))
+      .toEqual({ error: "text required" });
+    const r = await store.addMessage("200", "t1", { text: "завтра" });
+    expect(r.message).toMatchObject({ text: "завтра", by: "200" });
+    // Своё сообщение непрочитанным не бывает: метка двигается сама.
+    expect(r.task.seenBy["200"]).toBe(r.message.at);
+    expect((await store.readModel()).tasks[0].chat).toHaveLength(2);
   });
 
-  it("владелец убирает любое", async () => {
-    await withComments();
-    const r = await store.dropComment("100", "t1", "c2", { isOwner: true });
-    expect(r.task.comments.map((c) => c.id)).toEqual(["c1"]);
-  });
-
-  it("нет задачи или комментария — «не найдено», а не тихий успех", async () => {
-    await withComments();
-    expect(await store.dropComment("100", "нет", "c1", { isOwner: true })).toEqual({ error: "not found" });
-    expect(await store.dropComment("100", "t1", "нет", { isOwner: true })).toEqual({ error: "not found" });
+  it("метку прочтения ставит только тот, кому задача видна", async () => {
+    await store.writeModel({ tasks: [task("t1", "progress")] });
+    expect(await store.seeChat("999", "t1")).toEqual({ error: "not yours" });
+    expect(await store.seeChat("200", "нет")).toEqual({ error: "not found" });
+    const r = await store.seeChat("300", "t1");
+    expect(r.task.seenBy["300"]).toBeTruthy();
   });
 });
 
@@ -190,7 +186,7 @@ describe("подразумеваемые роли", () => {
 describe("отзыв задачи", () => {
   const lying = (over = {}) => ({ id: "r1", funcId: "f1", title: "Лежит", status: "backlog",
     setter: "100", assignee: "200", reviewer: "300", end: "2030-03-01T11:00",
-    submissions: [], reviews: [], comments: [], ...over });
+    submissions: [], reviews: [], chat: [], ...over });
 
   it("из бэклога — в «ждут постановки», с пометкой «отозвана»", async () => {
     await store.writeModel({ tasks: [lying()], funcs: [], entities: [] });

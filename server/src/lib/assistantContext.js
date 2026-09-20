@@ -241,10 +241,9 @@ export function describeTasks(tasks = [], { funcs = [], nameOf = (id) => String(
       const canRead = !r.hidden || String(r.by) === me || String(t.assignee || "") === me;
       out.push(`  решение проверяющего ${when(r.at)}: ${r.accept ? "принято" : "возвращено на доработку"}${canRead && str(r.comment) ? ` — «${str(r.comment).slice(0, 500)}»` : ""}`);
     });
-    (t.comments || []).forEach((c) => {
-      const canRead = !c.hidden || String(c.by) === me || String(c.to || "") === me;
-      if (!canRead) return;
-      out.push(`  комментарий ${when(c.at)} от ${nameOf(c.by)}${c.hidden ? " (скрытый, только вам)" : ""}: «${str(c.text).slice(0, 500)}»`);
+    // Обсуждение задачи — общее: кому видна задача, тому видны все слова.
+    (t.chat || []).forEach((m) => {
+      out.push(`  обсуждение ${when(m.at)} — ${nameOf(m.by)}: «${str(m.text).slice(0, 500)}»`);
     });
   });
   return out.join("\n");

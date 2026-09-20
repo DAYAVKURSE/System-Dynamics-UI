@@ -4,7 +4,7 @@ import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   forgetScenario, savedRoom, listScenarioVersions, getScenarioVersion } from "../storage.js";
 import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addRole, removeRole, setUserRoles,
-  takeTaskRemote, dropTaskRemote, submitTaskRemote, commentTaskRemote, dropCommentRemote,
+  takeTaskRemote, dropTaskRemote, submitTaskRemote, messageTaskRemote, seeChatRemote,
   getRatings, resetIdentity,
   setupTaskRemote }
   from "../identity.js";
@@ -1345,10 +1345,11 @@ export default function SystemModel(){
       // иначе она вернулась бы уже взятой и «Взять в работу» не появилось.
       taken:accept?t.taken:false,
       reviews:[...(t.reviews||[]),review],
-      comments:note?[...(t.comments||[]),
-        {id:"c"+Date.now().toString(36),text:note,at,by:me.id??null,
-          to:t.assignee==null?null:String(t.assignee),hidden:!!hidden}]
-        :(t.comments||[]),
+      // Те же слова — и в обсуждение задачи: возврат читают как «что
+      // доработать», а не ищут в решениях.
+      chat:note?[...(t.chat||[]),
+        {id:"m"+Date.now().toString(36),text:note,at,by:me.id??null}]
+        :(t.chat||[]),
     }:t));
     reviewTaskRemote(task.id,{accept,comment:note,mark:review.mark,hidden:!!hidden}).then(pullNow,()=>{});
   },[setTasks,me.id,pullNow]);
@@ -1660,8 +1661,8 @@ export default function SystemModel(){
           meId={me.id}
           /* У владельца сдача и комментарий уезжают в составе модели через
              putWorkspace; POST'ить их ещё раз значило бы записать дважды. */
-          onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).then(pullNow,()=>{}); }}
-          onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).then(pullNow,()=>{}); }}
+          onSay={(t,text)=>{ if(!me.isOwner) messageTaskRemote(t.id,text).then(pullNow,()=>{}); }}
+          onSeen={(t)=>{ if(!me.isOwner) seeChatRemote(t.id).then(()=>{},()=>{}); }}
           onSubmit={(t,sb)=>{ if(!me.isOwner) submitTaskRemote(t.id,sb).then(pullNow,()=>{}); }}/>)}
 
       {/* ═══ ПРОВЕРКА ═══ */}
@@ -1671,8 +1672,8 @@ export default function SystemModel(){
           meId={me.id} isOwner={me.isOwner} nameOf={personName}
           setTasks={setTasks} people={people} canAssign={me.isOwner}
           published={published}
-          onComment={(t,c)=>{ if(!me.isOwner) commentTaskRemote(t.id,c).then(pullNow,()=>{}); }}
-          onDropComment={(t,id)=>{ if(!me.isOwner) dropCommentRemote(t.id,id).then(pullNow,()=>{}); }}
+          onSay={(t,text)=>{ if(!me.isOwner) messageTaskRemote(t.id,text).then(pullNow,()=>{}); }}
+          onSeen={(t)=>{ if(!me.isOwner) seeChatRemote(t.id).then(()=>{},()=>{}); }}
           /* Постановка у владельца уезжает в составе модели через
              putWorkspace; у позванного постановщика модель не пишется —
              каждая правка формы и «Поставить» идут своей операцией, и

@@ -139,7 +139,9 @@ export const tasksFor = (model, userId) => {
  * · Оценка постановки в сдаче — только тому, кто её поставил: она про
  *   постановщика и доходит до него по правилам публикации (средние — как
  *   у всех, скрытые слова — сразу, через `commentsFor`), а не из сдачи.
- * · Скрытый комментарий — только автору и адресату.
+ * · Обсуждение задачи (`chat`) видно ВСЕМ, кому видна сама задача
+ *   (владелец, 2026-09-20): это общий разговор постановщика, исполнителя
+ *   и проверяющего, а не переписка по углам.
  *
  * Режет сервер, а не интерфейс: спрятанное кнопкой видно в любом
  * отладчике. Владелец получает модель целиком — она его; правило про
@@ -158,7 +160,6 @@ export function taskViewFor(task, userId) {
     }),
     submissions: (task.submissions || []).map((sb) => (
       mine(task.assignee) || !sb.setterRating ? sb : { ...sb, setterRating: null })),
-    comments: (task.comments || []).filter((c) => !c.hidden || mine(c.by) || mine(c.to)),
   };
 }
 
@@ -582,12 +583,11 @@ export const reviewTask = (userId, taskId, { accept, comment, mark, hidden }) =>
     hidden: !!hidden,
   }];
   if (comment) {
-    // Те же слова — и в ленте задачи, с автором и адресатом: возврат
-    // читают как «что доработать», а не ищут в решениях.
-    task.comments = [...(task.comments || []), {
-      id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    // Те же слова — и в обсуждение задачи: возврат читают как «что
+    // доработать», а не ищут в решениях.
+    task.chat = [...(task.chat || []), {
+      id: "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       text: String(comment), at: new Date().toISOString(), by: String(userId),
-      to: task.assignee == null ? null : String(task.assignee), hidden: !!hidden,
     }];
   }
   await writeModel(model);
@@ -724,51 +724,42 @@ export const setupTask = (userId, taskId, fields = {}, { isOwner = false, rolesO
     return { task };
   });
 
-/**
- * Комментарий к задаче — от любого из её участников (или владельца).
- *
- * Скрытый — только автору и адресату, поэтому без адресата он ничей и не
- * принимается: писать «никому» скрытно значит писать себе. Публичный —
- * всем, кто видит задачу; адресат у него — обращение, а не граница.
- * Автор у комментария есть всегда (в отличие от оценки): это разговор в
- * задаче, а не суждение о человеке.
- */
-export const addComment = (userId, taskId, { text, to, hidden } = {},
+/* ─────── ОБСУЖДЕНИЕ ЗАДАЧИ ───────
+
+   Разговор постановщика, исполнителя и проверяющего — один на задачу и
+   общий (владелец, 2026-09-20). Прежних комментариев с адресатом и
+   скрытостью больше нет: скрытое слово в общем разговоре — это не
+   разговор, а записка мимо него, и отзывы для этого есть свои.
+
+   Сообщение пишет любой, кому видна задача: её участники и владелец.
+   Убрать сказанное нельзя — сказанное сказано. */
+export const addMessage = (userId, taskId, { text } = {},
   { isOwner = false } = {}) => withModel(async (model) => {
   const task = (model.tasks || []).find((t) => t.id === taskId);
   if (!task) return { error: "not found" };
   const me = String(userId);
-  const people = participants(task);
-  if (!isOwner && !people.includes(me)) return { error: "not yours" };
+  if (!isOwner && !participants(task).includes(me)) return { error: "not yours" };
   const body = String(text || "").trim();
   if (!body) return { error: "text required" };
-  const addressee = to == null || to === "" ? null : String(to);
-  if (addressee != null && !people.includes(addressee)) return { error: "bad addressee" };
-  if (hidden && addressee == null) return { error: "addressee required" };
-  const comment = {
-    id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    text: body, at: new Date().toISOString(), by: me, to: addressee, hidden: !!hidden,
+  const message = {
+    id: "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    text: body, at: new Date().toISOString(), by: me,
   };
-  task.comments = [...(task.comments || []), comment];
+  task.chat = [...(task.chat || []), message];
+  /* Своё же сообщение непрочитанным быть не может: метка двигается сама. */
+  task.seenBy = { ...(task.seenBy || {}), [me]: message.at };
   await writeModel(model);
-  return { task, comment };
+  return { task, message };
 });
 
-/**
- * Убирает комментарий из ленты задачи: владелец — любой (модель его),
- * остальные — только свой. Чужие слова не твои, даже если они тебе
- * адресованы: убрать их значило бы переписать чужую реплику в разговоре.
- * Нет задачи или комментария — «не найдено», а не тихий успех: кнопка в
- * интерфейсе должна знать, что сервер ничего не сделал.
- */
-export const dropComment = (userId, taskId, commentId, { isOwner = false } = {}) =>
+/** Обсуждение открыли — непрочитанного в нём для этого человека больше нет. */
+export const seeChat = (userId, taskId, { isOwner = false } = {}) =>
   withModel(async (model) => {
     const task = (model.tasks || []).find((t) => t.id === taskId);
     if (!task) return { error: "not found" };
-    const comment = (task.comments || []).find((c) => c && c.id === commentId);
-    if (!comment) return { error: "not found" };
-    if (!isOwner && String(comment.by ?? "") !== String(userId)) return { error: "not yours" };
-    task.comments = task.comments.filter((c) => c !== comment);
+    const me = String(userId);
+    if (!isOwner && !participants(task).includes(me)) return { error: "not yours" };
+    task.seenBy = { ...(task.seenBy || {}), [me]: new Date().toISOString() };
     await writeModel(model);
-    return { task, comment };
+    return { task };
   });

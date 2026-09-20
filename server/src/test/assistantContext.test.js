@@ -63,17 +63,16 @@ const MODEL = {
   tasks: [
     { id: "tk1", funcId: "f1", title: "Задача Ивана", status: "progress", end: "2026-09-10T18:00",
       setter: "100", assignee: "200", reviewer: "300", submissions: [], reviews: [],
-      comments: [
-        { id: "c1", text: "публично: не спешите", at: "2026-09-07T10:00:00Z", by: "100", to: null, hidden: false },
-        { id: "c2", text: "скрыто Ивану", at: "2026-09-07T10:01:00Z", by: "100", to: "200", hidden: true },
-        { id: "c3", text: "скрыто Петру", at: "2026-09-07T10:02:00Z", by: "100", to: "300", hidden: true },
+      chat: [
+        { id: "m1", text: "не спешите", at: "2026-09-07T10:00:00Z", by: "100" },
+        { id: "m2", text: "понял", at: "2026-09-07T10:01:00Z", by: "200" },
       ] },
     { id: "tk2", funcId: "f1", title: "Задача Петра", status: "backlog", end: null,
       setter: "100", assignee: "300", reviewer: "100", submissions: [],
       reviews: [{ id: "r1", at: "2026-09-06T10:00:00Z", by: "100", accept: true, mark: 5,
-        comment: "отлично", hidden: false }], comments: [] },
+        comment: "отлично", hidden: false }], chat: [] },
     { id: "tk9", funcId: "f2", title: "Задача владельца", status: "done",
-      setter: "100", assignee: "100", reviewer: "100", submissions: [], reviews: [], comments: [] },
+      setter: "100", assignee: "100", reviewer: "100", submissions: [], reviews: [], chat: [] },
   ],
 };
 
@@ -124,14 +123,16 @@ describe("не-владелец", () => {
     expect(ctx).not.toContain("тайна Петра");
   });
 
-  it("скрытый комментарий — только адресату и автору", async () => {
+  /* Обсуждение задачи — общее: кому видна задача, тому видны все слова
+     (владелец, 2026-09-20). Скрытых слов в нём нет вовсе. */
+  it("обсуждение задачи попадает в контекст целиком", async () => {
     const ivan = await contextFor("200");
-    expect(ivan).toContain("публично: не спешите");
-    expect(ivan).toContain("скрыто Ивану");
-    expect(ivan).not.toContain("скрыто Петру");
+    expect(ivan).toContain("не спешите");
+    expect(ivan).toContain("понял");
+    // Проверяющий той же задачи читает тот же разговор целиком.
     const petr = await contextFor("300");
-    expect(petr).toContain("скрыто Петру");
-    expect(petr).not.toContain("скрыто Ивану");
+    expect(petr).toContain("не спешите");
+    expect(petr).toContain("понял");
   });
 
   it("свои оценки не видит: решение — да, отметку — нет", async () => {
