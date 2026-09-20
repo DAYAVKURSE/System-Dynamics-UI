@@ -40,6 +40,9 @@ const PURPLE = "#C9A0FF";
 const ROLE_COLOR = { setter: WARN, doer: ACC, checker: OK };
 const SIDE = { take: ACC, give: OK };
 const LINE_H = 1.9;
+/* Высота места под подсказки в правке: шапка и список на 150 px, как и
+   было, — только теперь место не дышит (владелец, 2026-09-20). */
+const HINT_H = 178;
 
 /* ─────── подложка ───────
    Плашка — без отступов: цвет и кольцо `box-shadow` вокруг слова, чтобы
@@ -319,14 +322,33 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
     setCaretRow(v.slice(0, at).split("\n").length - 1);
     setMenuActive(!editingRef.current);
   };
+  /* Подмена текста поля — сразу в узле, вместе с курсором и прокруткой
+     (владелец, 2026-09-20: «меня кидает по странице то вверх, то вниз,
+     когда я удаляю какую-то строку или добавляю её»). Прежде новый текст
+     ставил React при перерисовке: браузер при замене значения уводит курсор
+     в конец, прокручивает поле к нему, а на телефоне за курсором едет и
+     страница; курсор возвращался на место следующим тиком — уже после
+     прыжка. Теперь значение, курсор и прокрутка поля ставятся одним махом
+     внутри события, React находит в узле то же значение и не трогает его. */
+  const putText = (next, caret) => {
+    const el = inp.current;
+    if (el && el.value !== next) {
+      const top = el.scrollTop;
+      el.value = next;
+      el.setSelectionRange(caret, caret);
+      el.scrollTop = top;
+    } else if (el) el.setSelectionRange(caret, caret);
+    setText(next);
+    place(next, caret);
+  };
   const apply = (raw, rawCaret) => {
     const { text: next, caret } = reflow(raw, rawCaret);
-    setText(next);
-    setTimeout(() => keepScroll(() => {
-      inp.current?.focus({ preventScroll: true });
-      inp.current?.setSelectionRange(caret, caret);
-      place(next, caret);
-    }), 0);
+    keepScroll(() => {
+      /* Подстановка из подсказки: фокус мог уйти на неё — вернуть без
+         прокрутки, и уже потом ставить текст с курсором. */
+      if (document.activeElement !== inp.current) inp.current?.focus({ preventScroll: true });
+      putText(next, caret);
+    });
   };
   const onChange = (e) => {
     const v = e.target.value;
@@ -334,19 +356,11 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
     /* Имя новой сущности начинается с большой буквы (владелец, 2026-09-18):
        поднимаем только что введённый первый символ значения строки. */
     const big = capFirstTyped(text, v, at);
-    if (big) {
-      setText(big);
-      setTimeout(() => { inp.current?.setSelectionRange(at, at); place(big, at); }, 0);
-      return;
-    }
+    if (big) { putText(big, at); return; }
     /* Отступы — сразу при наборе: и после перевода строки, и как только в
        новой строке появился первый символ (владелец, 2026-09-18). */
     const { text: next, caret } = reflow(v, at);
-    if (next !== v) {
-      setText(next);
-      setTimeout(() => { inp.current?.setSelectionRange(caret, caret); place(next, caret); }, 0);
-      return;
-    }
+    if (next !== v) { putText(next, caret); return; }
     setText(v); place(v, at);
   };
   const onMove = (e) => place(text, e.target.selectionStart ?? text.length);
@@ -635,9 +649,14 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
   const wrap = useRef(null);
   const [menuPos, setMenuPos] = useState(null);
   const drag = useRef(null);
+  /* Тащили ли меню рукой: только тогда его место своё. Иначе оно встаёт у
+     той строки, на которую нажали (владелец, 2026-09-20: «контекстное меню
+     появляется в самом верху, а не там, где я нажал») — прежде место
+     считалось один раз, при первом появлении, и дальше не менялось. */
+  const dragged = useRef(false);
   const menuKey = funcRow >= 0 ? `func:${funcRow}` : taskRow >= 0 ? `task:${taskRow}` : whoRow >= 0 ? `who:${whoRow}` : res ? `res:${resKey}` : "";
   useEffect(() => {
-    if (!menuKey || menuPos) return;
+    if (!menuKey || (menuPos && dragged.current)) return;
     /* Всплывает рядом со строкой, но всегда в видимой части экрана: если
        снизу не помещается — поднимается выше (владелец, 2026-09-18). */
     const r = wrap.current?.getBoundingClientRect?.() || { right: 0, top: 0, bottom: 0 };
@@ -656,6 +675,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
      не приходит. */
   const dragFrom = (x, y) => {
     setMenuActive(true);
+    dragged.current = true;
     const cur = menuPos || (() => { const r = document.querySelector("[data-proc-menu]")?.getBoundingClientRect(); return r ? { x: r.left, y: r.top } : { x: 8, y: 8 }; })();
     if (!menuPos) setMenuPos(cur);
     drag.current = { dx: x - cur.x, dy: y - cur.y };
@@ -687,7 +707,13 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
   const menuTitle = funcRow >= 0 ? `функция «${funcName || "без названия"}»`
     : taskRow >= 0 ? `задача «${taskName || "без названия"}»` : whoRow >= 0 ? `${rowKind === "to" ? "кому" : rowKind === "from" ? "от кого" : "участник"} «${whoName}»` : res ? (resRef ? `закреплённый ресурс «${res.varName}»` : `ресурс «${res.name}»`) : "";
   return (
-    <div style={{ position: "relative" }}>
+    /* overflow-anchor: none (владелец, 2026-09-20: «кидает по странице то
+       вверх, то вниз, когда удаляю или добавляю строку»). Когда поле видно
+       не целиком — на телефоне за клавиатурой, — якорь прокрутки браузера
+       цепляется за строку подложки внутри поля: строка выше якоря
+       добавилась — страница едет вниз, удалилась — вверх. Поле с
+       подсказками якорем не служит. */
+    <div style={{ position: "relative", overflowAnchor: "none" }}>
       <div ref={wrap} style={{ position: "relative", background: C.ink, borderRadius: field.borderRadius }}>
         <Backdrop text={text} paint={paint} style={field} activeRow={whoRow} caretRow={focus ? caretRow : -1} noteGap={0} backRef={back} />
         <style>{`textarea[data-proc-text]::placeholder{color:${NEU};opacity:1}
@@ -722,16 +748,23 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
           <div aria-hidden="true" style={{ position: "absolute", right: 8, top: 4, fontSize: 10, color: C.muted, pointerEvents: "none", zIndex: 2 }}>
             двойное нажатие — правка</div>)}
       </div>
-      {/* Подсказки — под полем, в потоке: ничего не заслоняют (владелец, 2026-09-18). */}
-      {pick && editing && (
+      {/* Подсказки — под полем, в потоке: ничего не заслоняют (владелец, 2026-09-18).
+          Место под них — постоянной высоты на всё время правки (владелец,
+          2026-09-20): прежде блок рос и сжимался на каждой клавише
+          (210 → 93 px за одно слово), документ под полем дышал, и у низа
+          страницы прокрутку подрезало — страница дёргалась. */}
+      {editing && (
+        <div style={{ height: HINT_H, marginTop: 4 }}>
+        {pick && (
         <div role="dialog" aria-label="подсказка процесса"
           onMouseDown={(e) => { if (e.target.tagName !== "INPUT") e.preventDefault(); }}
           onTouchStart={touchStart} onTouchEnd={(e) => touchEnd(e, null)} onTouchCancel={() => { touch.current = null; hold.current = false; }}
-          style={{ marginTop: 4, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6 }}>
-          <div style={{ padding: "5px 8px", fontSize: 10.5, color: C.muted, borderBottom: `1px solid ${C.line}` }}>
+          style={{ height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box",
+            background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6 }}>
+          <div style={{ padding: "5px 8px", fontSize: 10.5, color: C.muted, borderBottom: `1px solid ${C.line}`, flex: "none" }}>
             {header}<span style={{ opacity: 0.7 }}> · нажмите пункт · Enter — новая строка</span>
           </div>
-          <div role="listbox" aria-label="подсказки процесса" style={{ maxHeight: 150, overflowY: "auto" }}>
+          <div role="listbox" aria-label="подсказки процесса" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
             {items.filter((i) => !i.info).map((it, i) => (
               <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={i === cursor}
                 onClick={() => choose(it)}
@@ -748,6 +781,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                 {pick.query ? `«${pick.query}» — своё имя; дальше — Enter или пункт «↵»` : "введите своё"}
               </div>)}
           </div>
+        </div>)}
         </div>)}
       {/* Плавающее меню сущности: участник или ресурс. */}
       {(whoRow >= 0 || res || taskRow >= 0 || funcRow >= 0) && (

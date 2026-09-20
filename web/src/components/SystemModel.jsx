@@ -694,8 +694,11 @@ export default function SystemModel(){
   const [procs,setProcs]=useState([]);
   /* Считать ли гипотетически принятые процессы. Состояние интерфейса, не
      документа: галочка — вопрос «а что если», и в сохранённую модель ответ
-     на него не уезжает. */
-  const [hypoOn,setHypoOn]=useState(false);
+     на него не уезжает. Включена с самого начала (владелец, 2026-09-20:
+     «гипотезы должны быть включены по умолчанию»): процесс принимают
+     гипотетически, чтобы увидеть его в прогнозе, а не чтобы ещё раз
+     включать. */
+  const [hypoOn,setHypoOn]=useState(true);
   /* Пространство вкладки задач — часть документа наравне с отчётами:
      положение блоков, стрелки и заметки живут с моделью, а не в браузере.
      У позванного оно своё и уезжает на сервер отдельно (см. ниже). */
@@ -1528,8 +1531,12 @@ export default function SystemModel(){
             disabled={savedBusy} onClick={saveNow} icon={ICON.save}/>)}
       </div>
 
-      {/* Страница вкладки: въезжает с той стороны, откуда пришли. */}
-      <div style={{transform:`translateX(${slide}px)`,opacity:slide?0.4:1,
+      {/* Страница вкладки: въезжает с той стороны, откуда пришли. В покое
+          transform снят вовсе, а не «translateX(0)»: любой transform на
+          обёртке делает её опорой для position:fixed потомков, и плавающие
+          меню с окнами вставали относительно страницы, а не экрана —
+          «в самом верху, а не там, где нажал» (владелец, 2026-09-20). */}
+      <div style={{transform:slide?`translateX(${slide}px)`:"none",opacity:slide?0.4:1,
         transition:slide?"none":"transform .22s ease-out, opacity .22s ease-out"}}>
       {recovery && (me.solo||me.isOwner) && (
         <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
@@ -1688,6 +1695,16 @@ export default function SystemModel(){
                 style={{flex:1,minWidth:60}}/>
               <span style={{fontSize:11,color:ACC,minWidth:34}}>{simMonth} мес</span>
             </div>
+            {/* Галочка гипотез — здесь, под ползунком прогноза (владелец,
+                2026-09-20: «этот чекбокс должен быть на форме прогноза, под
+                полоской прокрутки прогноза»), и только когда есть что
+                включать: без гипотетических процессов она — мебель. */}
+            {anyHypo && (
+              <label className="flex items-center gap-2"
+                style={{fontSize:11.5,color:hypoOn?WARN:C.muted,marginTop:4,cursor:"pointer"}}>
+                <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
+                включить гипотезы
+              </label>)}
           </div>
         </div>
 
@@ -1758,16 +1775,6 @@ export default function SystemModel(){
             /* Задачи по снятым функциям процесса — как при удалении актива:
                выполнять больше нечего. */
             onDropFuncs={ids=>setTasks(p=>p.filter(t=>!ids.includes(t.funcId)))}/>)}
-
-        {/* Галочка стоит НАД «Деятельностью» и «Прогнозом» и только когда
-            есть что включать: гипотетический процесс — вопрос «а что
-            если», и ответ на него смотрят в тех же двух разделах. */}
-        {(under==="time"||under==="sim") && anyHypo && (
-          <label className="flex items-center gap-2"
-            style={{fontSize:12,color:hypoOn?WARN:C.muted,margin:"0 0 8px",cursor:"pointer"}}>
-            <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
-            включить гипотезы
-          </label>)}
 
         {under==="time" && (
           <Timeline tasks={myTasks} funcs={liveFuncs} traits={traitsLive} entities={entities}

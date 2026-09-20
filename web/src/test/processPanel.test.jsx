@@ -574,3 +574,39 @@ describe("заголовок процесса сворачивает карто�
     expect(head.querySelector("[data-proc-name]").textContent).toBe("Передача заказчика фриланс-партнёром и приём оффера");
   });
 });
+
+/* ГИПОТЕЗЫ ВКЛЮЧЕНЫ С САМОГО НАЧАЛА, ГАЛОЧКА — НА ФОРМЕ ПРОГНОЗА (владелец,
+   2026-09-20: «гипотезы должны быть включены по умолчанию, и этот чекбокс
+   должен быть на форме прогноза, под полоской прокрутки прогноза»). */
+describe("галочка гипотез", () => {
+  it("стоит под ползунком прогноза и включена, как только появился гипотетический процесс", async () => {
+    const area = addProc();
+    write(area, TEXT);
+    // Пока гипотетических процессов нет — включать нечего, галочки нет.
+    expect(screen.queryByLabelText("включить гипотезы")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Принято гипотетически" }));
+    const sim = screen.getByLabelText("прогноз на схеме");
+    const box = await waitFor(() => within(sim).getByLabelText("включить гипотезы"));
+    expect(box).toBeChecked();
+    // Под ползунком, а не над ним.
+    const slider = within(sim).getByLabelText("месяц на схеме");
+    expect(slider.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Нигде больше её нет.
+    expect(screen.getAllByLabelText("включить гипотезы").length).toBe(1);
+  });
+});
+
+/* МЕСТО ПОД ПОДСКАЗКИ НЕ ДЫШИТ (владелец, 2026-09-20: «кидает по странице
+   то вверх, то вниз, когда удаляю или добавляю строку»). */
+describe("подсказки в правке", () => {
+  it("занимают одно и то же место, есть подсказка или нет", () => {
+    const area = addProc();
+    write(area, TEXT);
+    edit(area);
+    const box = () => screen.getByLabelText("текст процесса").parentElement.parentElement.querySelector("div[style*='height: 178px']");
+    expect(box()).not.toBeNull();
+    fireEvent.click(area, { target: { selectionStart: area.value.length } });
+    expect(screen.getByRole("dialog", { name: "подсказка процесса" })).toBeInTheDocument();
+    expect(box()).not.toBeNull();
+  });
+});
