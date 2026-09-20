@@ -19,6 +19,99 @@ export const S={
     fontFamily:"ui-monospace, Menlo, monospace"},
   card:{background:C.panel,border:`1px solid ${C.line}`,borderRadius:10,padding:12},
 };
+/* ─────── полоса прокрутки над широким рядом ───────
+   Доска задач шире экрана: колонки статусов уезжают вправо, и по самой
+   доске не видно, что за краем есть ещё (владелец, 2026-09-20: «нужно
+   сделать линию прокрутки… над задачами, которая будет визуально
+   показывать, что движение должно происходить вправо или влево»).
+
+   Полоса — та же линия, что и рамки карточек, с бегунком цвета акцента:
+   где бегунок — там сейчас окно, сколько он занимает — столько видно.
+   Стрелки по краям горят, пока в ту сторону есть что показать, и гаснут
+   у края. Нажатие на стрелку везёт на шаг, нажатие по линии — туда,
+   бегунок можно тянуть. Когда ряд помещается целиком, полосы нет: ей
+   нечего показывать.
+
+   Полоса возит ОКНО, а не задачи: колонка — ответ на вопрос «что с
+   работой», и переложить задачу отсюда нельзя (см. TasksBoard). */
+export function ScrollRail({ target, label = "прокрутка", step = 200 }) {
+  const [st, setSt] = useState({ frac: 0, size: 1, left: 0, max: 0 });
+  const track = useRef(null);
+  const drag = useRef(null);
+  useEffect(() => {
+    const el = target?.current;
+    if (!el) return undefined;
+    const read = () => {
+      const max = Math.max(0, el.scrollWidth - el.clientWidth);
+      const size = el.scrollWidth > 0 ? Math.min(1, el.clientWidth / el.scrollWidth) : 1;
+      const left = Math.min(max, Math.max(0, el.scrollLeft));
+      setSt({ frac: max > 0 ? left / max : 0, size, left, max });
+    };
+    read();
+    el.addEventListener("scroll", read, { passive: true });
+    let ro = null;
+    if (typeof ResizeObserver === "function") { ro = new ResizeObserver(read); ro.observe(el); }
+    window.addEventListener("resize", read);
+    return () => { el.removeEventListener("scroll", read); ro?.disconnect(); window.removeEventListener("resize", read); };
+  }, [target]);
+  if (st.max <= 0) return null;
+  const go = (left) => {
+    const el = target?.current;
+    if (!el) return;
+    const x = Math.min(st.max, Math.max(0, left));
+    if (typeof el.scrollTo === "function") el.scrollTo({ left: x, behavior: "smooth" });
+    else el.scrollLeft = x;
+  };
+  /* Нажатие по линии — окно уезжает так, чтобы бегунок встал под палец. */
+  const atTrack = (clientX) => {
+    const r = track.current?.getBoundingClientRect();
+    if (!r || !(r.width > 0)) return 0;
+    const share = (clientX - r.left) / r.width - st.size / 2;
+    return (share / (1 - st.size || 1)) * st.max;
+  };
+  const onTrack = (e) => { if (!drag.current) go(atTrack(e.clientX)); };
+  const onThumbDown = (e) => {
+    e.stopPropagation();
+    drag.current = { x0: e.clientX, left0: st.left };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onThumbMove = (e) => {
+    if (!drag.current) return;
+    const r = track.current?.getBoundingClientRect();
+    if (!r || !(r.width > 0)) return;
+    const el = target?.current;
+    if (!el) return;
+    const px = (e.clientX - drag.current.x0) / (r.width * (1 - st.size) || 1) * st.max;
+    el.scrollLeft = Math.min(st.max, Math.max(0, drag.current.left0 + px));
+  };
+  const onThumbUp = (e) => { drag.current = null; e.currentTarget.releasePointerCapture?.(e.pointerId); };
+  const canL = st.left > 0.5, canR = st.left < st.max - 0.5;
+  const arrow = (dir, on) => (
+    <button type="button" aria-label={dir < 0 ? "левее" : "правее"} disabled={!on}
+      onClick={() => go(st.left + dir * step)}
+      style={{ background: "transparent", border: "none", padding: "2px 4px", cursor: on ? "pointer" : "default",
+        color: on ? ACC : C.muted, fontSize: 14, lineHeight: 1, opacity: on ? 1 : 0.35 }}>
+      {dir < 0 ? "‹" : "›"}
+    </button>);
+  return (
+    <div className="flex items-center" style={{ gap: 4, margin: "0 2px 6px" }} data-noswipe="">
+      {arrow(-1, canL)}
+      <div ref={track} role="scrollbar" aria-label={label} aria-orientation="horizontal"
+        aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(st.frac * 100)}
+        onPointerDown={onTrack}
+        style={{ flex: 1, height: 12, display: "flex", alignItems: "center", cursor: "pointer", touchAction: "none" }}>
+        <div style={{ position: "relative", width: "100%", height: 3, borderRadius: 2, background: C.line }}>
+          <div aria-label="бегунок" onPointerDown={onThumbDown} onPointerMove={onThumbMove}
+            onPointerUp={onThumbUp} onPointerCancel={onThumbUp}
+            style={{ position: "absolute", top: -2, height: 7, borderRadius: 4, background: ACC,
+              left: `${st.frac * (1 - st.size) * 100}%`, width: `${Math.max(st.size * 100, 8)}%`,
+              boxShadow: `0 0 0 1px ${C.ink}`, transition: drag.current ? "none" : "left .12s" }} />
+        </div>
+      </div>
+      {arrow(1, canR)}
+    </div>);
+}
+
 /* Карточка-спойлер: заголовок сворачивает содержимое нажатием (владелец,
    2026-09-19: «в анкете все формы должны скрываться под спойлерами при
    нажатии»). Открыта по умолчанию — свернуть решает человек. */

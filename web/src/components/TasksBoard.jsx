@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, NumField, TxtField, ScrollRail } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson, uniqPorts } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
@@ -1632,6 +1632,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
      в работе). Сданную и принятую тоже не отменяют: первую проверяют,
      вторую уже сделали. */
   const [dropId,setDropId]=useState(null);
+  const boardRef=useRef(null);
   /* Назад в бэклог: работы больше нет, но задача осталась — её возьмёт
      кто-то другой или тот же, но позже. Взятие снимается, иначе она
      висела бы «в работе» у того, кто от неё отказался. */
@@ -1662,7 +1663,12 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
           onComment={onComment} onDropComment={onDropComment} onSubmit={onSubmit}
           nameOf={nameOf} setTasks={setTasks} onClose={()=>setOpenId(null)}/>)}
 
-      <div className="flex gap-2" style={{overflowX:"auto",alignItems:"flex-start"}}>
+      {/* Полоса над доской говорит, что колонки уезжают за край и куда
+          ещё можно подвинуть окно; сама доска помечена как «своё
+          движение», чтобы протяжка по ней возила колонки, а не вкладки. */}
+      <ScrollRail target={boardRef} label="прокрутка доски" step={198}/>
+      <div ref={boardRef} data-pannable="" className="flex gap-2"
+        style={{overflowX:"auto",alignItems:"flex-start"}}>
         {BOARD.map(st=>{
           const list=shown.filter(t=>st.states.includes(t.status));
           return (
