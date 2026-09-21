@@ -215,6 +215,26 @@ export async function sendDocument(chatId, { blob, bytes, name, type, caption = 
 }
 
 /**
+ * Отправляет картинку в чат — как фото, а не как файл: снимок экрана
+ * должен быть виден в переписке сразу, без скачивания.
+ */
+export async function sendPhoto(chatId, { bytes, name = "screen.png", caption = "" },
+  token = process.env.TELEGRAM_BOT_TOKEN) {
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
+  if (!bytes?.length) throw new Error("картинка пуста");
+  const form = new FormData();
+  form.set("chat_id", String(chatId));
+  if (caption) form.set("caption", caption.slice(0, 1024));
+  form.set("photo", new Blob([bytes], { type: "image/png" }), name);
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+    method: "POST", body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw telegramError(data.description, res.status);
+  return data.result;
+}
+
+/**
  * Состоит ли человек в чате — прямо сейчас, по слову Telegram.
  *
  * Спрашивается перед тем, как сообщения группы попадут в контекст его

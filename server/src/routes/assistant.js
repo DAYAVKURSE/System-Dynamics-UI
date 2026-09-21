@@ -11,7 +11,11 @@ import {
 import { listTools } from "../lib/mcp.js";
 import { listRegistry } from "../lib/mcpRegistry.js";
 import { listModels } from "../lib/aiProviders.js";
-import { ask, find } from "../lib/assistantQueue.js";
+import { ask, askNow, cancel as cancelAsk, find } from "../lib/assistantQueue.js";
+import { askFromApp } from "../lib/botAssistant.js";
+import * as memory from "../lib/memoryStore.js";
+import { editMessage, sendPhoto, sendWithKeyboard } from "../lib/telegram.js";
+import { readSchedule } from "../lib/scheduleStore.js";
 import {
   DEFAULT_AGENT, MAX_MEMORY_FILE_BYTES, addMemory, listMemory, removeMemory,
 } from "../lib/memoryStore.js";
@@ -248,6 +252,58 @@ router.post("/ask", (req, res, next) => {
     const { id } = ask({ userId: req.me.id, question, context, task });
     return res.status(202).json({ id });
   } catch (e) {
+    if (/required/.test(e.message)) return res.status(400).json({ error: e.message });
+    return next(e);
+  }
+});
+
+/* ─────── ВОПРОС ИЗ ПРИЛОЖЕНИЯ — ОТВЕТ В ЧАТ (владелец, 2026-09-21) ───────
+
+   Волшебная палочка в шапке. Вместе с вопросом приходит то, что человек
+   видел: `screen` — экран словами, `log` — последние действия, `shot` —
+   снимок экрана (PNG в base64). Экран и действия уходят модели
+   подсказкой; снимок — в чат, чтобы было видно, о чём спрашивали. Ответ
+   приходит в чат бота, продолжают там же («Уточнить»).
+
+   Данные о модели и коде модели и так доступны: контекст помощника
+   собирается на сервере из данных человека, как и на любой вопрос. */
+const MAX_SCREEN = 12000;
+const MAX_LOG = 3000;
+const MAX_SHOT_B64 = 2 * 1024 * 1024;
+const APP_DEPS = {
+  assistant: { ask: askNow, cancel: cancelAsk, memory },
+  send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
+  edit: (chatId, messageId, text, keyboard) => editMessage(chatId, messageId, text, keyboard),
+  tg: { sendPhoto },
+  log: (m) => console.warn(`[wand] ${m}`),
+};
+export const appContextOf = ({ screen = "", log = "" } = {}) => {
+  const parts = [];
+  const sc = String(screen || "").trim().slice(0, MAX_SCREEN);
+  const lg = String(log || "").trim().slice(0, MAX_LOG);
+  if (sc) parts.push(`## Что человек видел на экране приложения в момент вопроса\n${sc}`);
+  if (lg) parts.push(`## Последние действия человека в приложении\n${lg}`);
+  return parts.join("\n\n");
+};
+router.post("/ask-from-app", async (req, res, next) => {
+  try {
+    const { question, screen, log, shot } = req.body || {};
+    if (!String(question || "").trim()) return res.status(400).json({ error: "question is required" });
+    if (!process.env.TELEGRAM_BOT_TOKEN) {
+      return res.status(503).json({ error: "Бот не подключён — ответу некуда прийти" });
+    }
+    let bytes = null;
+    if (typeof shot === "string" && shot) {
+      const b64 = shot.replace(/^data:image\/\w+;base64,/, "");
+      if (b64.length > MAX_SHOT_B64) return res.status(413).json({ error: "Снимок экрана слишком большой" });
+      try { bytes = Buffer.from(b64, "base64"); } catch { bytes = null; }
+    }
+    const chatId = (await readSchedule(req.me.id).catch(() => null))?.chatId || req.me.id;
+    const r = await askFromApp(APP_DEPS, { userId: req.me.id, chatId, question,
+      context: appContextOf({ screen, log }), shot: bytes });
+    return res.status(202).json({ id: r?.id || null });
+  } catch (e) {
+    if (e?.userMessage) return res.status(400).json({ error: e.userMessage });
     if (/required/.test(e.message)) return res.status(400).json({ error: e.message });
     return next(e);
   }

@@ -86,6 +86,12 @@ export const setMcpAuth = (id, auth) =>
    Ничего не хранит: спрашивает сервер приложения и отдаёт как есть. */
 export const mcpRegistry = () => json("/api/assistant/mcp/registry");
 
+/* ─────── вопрос из приложения (волшебная палочка) ───────
+   Вопрос вместе с тем, что человек видел: экран словами, действия,
+   снимок. Ответ приходит в чат бота, здесь ничего не ждём. */
+export const askFromApp = (payload) =>
+  json("/api/assistant/ask-from-app", { method: "POST", body: JSON.stringify(payload) });
+
 /* ─────── вопрос ───────
 
    В два шага: поставить вопрос и опрашивать ответ короткими запросами.

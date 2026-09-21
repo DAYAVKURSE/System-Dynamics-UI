@@ -512,3 +512,41 @@ describe("mcp: сервер требует входа", () => {
     expect(empty.body.error).toMatch(/[Кк]люч/);
   });
 });
+
+/* ВОПРОС ИЗ ПРИЛОЖЕНИЯ (владелец, 2026-09-21): маршрут принимает вопрос,
+   экран, действия и снимок; вопрос и снимок уходят в чат Telegram, ответ
+   — туда же. Здесь Telegram подменён: смотрим, что ему послали. */
+describe("вопрос из приложения", () => {
+  it("202, в чат уходят вопрос и снимок, экран с действиями идут в подсказку", async () => {
+    const tg = [];
+    globalThis.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes("api.telegram.org")) {
+        const body = opts.body instanceof FormData ? Object.fromEntries([...opts.body.entries()].map(([k, v]) => [k, typeof v === "string" ? v : `<${v.size || 0}>`])) : JSON.parse(opts.body || "{}");
+        tg.push({ method: u.split("/").pop(), body });
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: { message_id: tg.length } }) };
+      }
+      return { ok: false, status: 500, json: async () => ({}), text: async () => "" };
+    };
+    const shot = `data:image/png;base64,${Buffer.from("png-bytes").toString("base64")}`;
+    const r = await request(app).post("/api/assistant/ask-from-app").set(as(200))
+      .send({ question: "Почему тут пусто?", screen: "Вкладки: [Задачи]\nПРОГНОЗ", log: "12:00 кнопка «сохранить»", shot });
+    expect(r.status).toBe(202);
+    await new Promise((res) => setTimeout(res, 50));
+    const texts = tg.filter((c) => c.method === "sendMessage").map((c) => c.body.text);
+    expect(texts[0]).toBe("Вопрос из приложения:\nПочему тут пусто?");
+    const photo = tg.find((c) => c.method === "sendPhoto");
+    expect(photo.body.photo).toBe("<9>");
+    expect(photo.body.caption).toBe("Экран в момент вопроса");
+    // Пустой вопрос — 400.
+    expect((await request(app).post("/api/assistant/ask-from-app").set(as(200)).send({ question: " " })).status).toBe(400);
+  });
+
+  it("экран и действия складываются в подсказку модели отдельными разделами", async () => {
+    const { appContextOf } = await import("../routes/assistant.js");
+    const ctx = appContextOf({ screen: "ПРОГНОЗ\nмесяцы: 3", log: "12:00 кнопка «сохранить»" });
+    expect(ctx).toMatch(/## Что человек видел на экране приложения в момент вопроса\nПРОГНОЗ\nмесяцы: 3/);
+    expect(ctx).toMatch(/## Последние действия человека в приложении\n12:00 кнопка «сохранить»/);
+    expect(appContextOf({})).toBe("");
+  });
+});

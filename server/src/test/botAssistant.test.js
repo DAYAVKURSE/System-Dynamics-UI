@@ -3,8 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  KEEP_DONE_MS, REFINE_PROMPT, onAssistantButton, onAssistantMessage, resetAssistantState, splitMessage,
-  CLOCKS, TICK_MS, tickText,
+  APP_LEAD, KEEP_DONE_MS, REFINE_PROMPT, askFromApp, onAssistantButton, onAssistantMessage,
+  resetAssistantState, splitMessage, CLOCKS, TICK_MS, tickText,
 } from "../lib/botAssistant.js";
 import { NOT_CONFIGURED } from "../lib/assistantSettings.js";
 import { CANCELLED_ERROR, createQueue } from "../lib/assistantQueue.js";
@@ -672,5 +672,50 @@ describe("вход на MCP-сервер, присланный в чат", () =>
     expect(r.answered).toBe("queued");
     await r.done;
     expect(asked[0].q).toBe("ключ от квартиры: где деньги лежат");
+  });
+});
+
+/* ВОПРОС ИЗ ПРИЛОЖЕНИЯ (владелец, 2026-09-21): волшебная палочка. Сам
+   вопрос и снимок — в чат, экран словами — модели, ответ — в чат, и
+   «Уточнить» продолжает разговор с тем же экраном перед глазами. */
+describe("вопрос из приложения", () => {
+  it("вопрос и снимок уходят в чат, экран — в подсказку модели, ответ — в чат", async () => {
+    const d = deps();
+    const seen = [];
+    d.assistant.ask = (userId, q, ctx) => { seen.push({ q, ctx }); return Promise.resolve("вот ответ"); };
+    const photos = [];
+    d.tg = { sendPhoto: async (chatId, p) => { photos.push({ chatId, name: p.name, size: p.bytes.length }); } };
+    const r = await askFromApp(d, { userId: "200", chatId: 200, question: "Почему тут пусто?",
+      context: "## Экран\nВкладки: [Задачи]", shot: Buffer.from("png") });
+    await r.done;
+    expect(sent[0].text).toBe(`${APP_LEAD}\nПочему тут пусто?`);
+    expect(photos).toEqual([{ chatId: 200, name: "screen.png", size: 3 }]);
+    expect(seen).toEqual([{ q: "Почему тут пусто?", ctx: "## Экран\nВкладки: [Задачи]" }]);
+    expect(sent.map((m) => m.text)).toContain("вот ответ");
+  });
+
+  it("без снимка обходится, а пустой вопрос — отказ", async () => {
+    const d = deps();
+    const r = await askFromApp(d, { userId: "200", chatId: 200, question: "Что это?", context: "" });
+    await r.done;
+    expect(sent[0].text).toBe(`${APP_LEAD}\nЧто это?`);
+    await expect(askFromApp(d, { userId: "200", chatId: 200, question: "  " })).rejects.toThrow(/required/);
+  });
+
+  it("«Уточнить» продолжает разговор с тем же экраном", async () => {
+    const d = deps();
+    const seen = [];
+    d.assistant.ask = (userId, q, ctx) => { seen.push({ q, ctx }); return Promise.resolve("ответ"); };
+    d.answer = async () => {};
+    d.edit = async () => {};
+    const r = await askFromApp(d, { userId: "200", chatId: 200, question: "Что это?", context: "ЭКРАН" });
+    await r.done;
+    // Нажали «Уточнить» под ответом и прислали дополнение.
+    await onAssistantButton({ id: "cb1", data: `ai:refine:${r.id}`, from,
+      message: { message_id: 1, chat: { id: 200 } } }, from, d);
+    const r2 = await onAssistantMessage({ text: "а подробнее" }, from, d);
+    await r2.done;
+    expect(seen[1].q).toMatch(/Что это\?\n\nУточнение: а подробнее/);
+    expect(seen[1].ctx).toBe("ЭКРАН");
   });
 });

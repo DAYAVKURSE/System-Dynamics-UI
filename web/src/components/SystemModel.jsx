@@ -57,6 +57,9 @@ import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 import Modal from "./Modal.jsx";
 import ProfilePanel, { RemindersCard, warnMinOf } from "./ProfilePanel.jsx";
 import IssuesPanel, { IssueModal } from "./IssuesPanel.jsx";
+import { WandModal, captureScreen } from "./WandModal.jsx";
+import { askFromApp } from "../assistant.js";
+import { record as recordAction } from "../lib/appLog.js";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { countKind, dropKind } from "../lib/traits.js";
@@ -826,6 +829,16 @@ export default function SystemModel(){
      2026-09-21). Оно ни от чего не зависит и ничего не ждёт: человек
      говорит, что сломалось, и возвращается к работе. */
   const [issueOpen,setIssueOpen]=useState(false);
+  /* Волшебная палочка (владелец, 2026-09-21): что человек видел, снимается
+     в момент нажатия, до открытия окна, — иначе в снимок попало бы само
+     окно. null — закрыто, "taking" — снимаем, объект — открыто. */
+  const [wand,setWand]=useState(null);
+  const openWand=async()=>{
+    if(wand) return;
+    setWand("taking");
+    const seen=await captureScreen();
+    setWand(seen);
+  };
   useEffect(()=>{ if(openCall && me.tabs.includes("tools")) { setTab("tools"); setTool("calls"); } },
     [openCall,me.tabs]);
 
@@ -1654,6 +1667,7 @@ export default function SystemModel(){
   const [slide,setSlide]=useState(0);
   const goTab=(next)=>{
     if(next===tab) return;
+    recordAction(`открыта вкладка «${(TAB_LIST.find(([k])=>k===next)||[])[1]||next}»`);
     const keys=tabsShown.map(([k])=>k);
     const dir=keys.indexOf(next)>keys.indexOf(tab)?1:-1;
     setTab(next);
@@ -1806,6 +1820,10 @@ export default function SystemModel(){
             где рука уже находится. */}
         <IconButton label="сообщить об ошибке" title="Сообщить об ошибке"
           onClick={()=>setIssueOpen(true)} icon={ICON.alert}/>
+        {/* Волшебная палочка — между «!» и «Отменить» (владелец,
+            2026-09-21): вопрос ассистенту о том, что сейчас на экране. */}
+        <IconButton label="вопрос ассистенту" title="Вопрос ассистенту"
+          disabled={wand==="taking"} onClick={openWand} icon={ICON.wand}/>
         <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
           disabled={!hist.canUndo} onClick={hist.undo} icon={ICON.undo}/>
         <IconButton label="вернуть" title="Вернуть отменённое (Ctrl+Shift+Z)"
@@ -2387,6 +2405,8 @@ export default function SystemModel(){
           шапке, и уходить за ним никуда не нужно. */}
       {issueOpen && (
         <IssueModal onClose={()=>setIssueOpen(false)} onSend={sendIssue}/>)}
+      {wand && wand!=="taking" && (
+        <WandModal seen={wand} onClose={()=>setWand(null)} onSend={askFromApp}/>)}
 
       {/* ═══ КАРТОЧКА ЧЕЛОВЕКА ═══
           Окном поверх того, что человек сейчас делает, а не переходом на

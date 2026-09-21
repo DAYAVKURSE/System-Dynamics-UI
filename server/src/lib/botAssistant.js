@@ -194,12 +194,15 @@ async function setStatus(deps, e, text, keyboard) {
  * Возвращает { answered: "queued", id, done }: done — обещание, что ответ
  * или ошибка уже ушли в чат; бот его не ждёт, тесты — ждут.
  */
-async function askQuestion(deps, { userId, chatId, question }) {
+async function askQuestion(deps, { userId, chatId, question, context = "" }) {
   const a = deps.assistant || deps;
   const send = deps.send || a.send;
   sweep();
-  const e = { id: "", queueId: null, userId, chatId, question, messageId: null, done: false,
-    at: Date.now(), tick: 0, timer: null, chain: Promise.resolve() };
+  /* `context` — что человек видел в приложении, когда спросил (кнопка с
+     волшебной палочкой, владелец 2026-09-21). Хранится при вопросе, чтобы
+     «Уточнить» продолжало разговор с тем же экраном перед глазами. */
+  const e = { id: "", queueId: null, userId, chatId, question, context: String(context || ""),
+    messageId: null, done: false, at: Date.now(), tick: 0, timer: null, chain: Promise.resolve() };
   /* Такт может прийти раньше, чем Telegram вернёт номер сообщения-статуса:
      часы заводятся вместе с вопросом. Поэтому правки идут цепочкой по
      порядку — иначе поздний такт перезаписал бы «Готово». */
@@ -254,7 +257,7 @@ async function askQuestion(deps, { userId, chatId, question }) {
 
   let raw;
   try {
-    raw = a.ask(userId, question.slice(0, MAX_QUESTION), "",
+    raw = a.ask(userId, question.slice(0, MAX_QUESTION), e.context,
       { task: BOT_TASK, onConfirm, onAuthNeeded });
   } catch (err) {
     raw = Promise.reject(err);
@@ -443,6 +446,29 @@ export async function onAssistantButton(cb, from, deps = {}) {
   return { ignored: "unknown callback" };
 }
 
+/* ─────── ВОПРОС ИЗ ПРИЛОЖЕНИЯ (владелец, 2026-09-21) ───────
+
+   Кнопка с волшебной палочкой в шапке: человек пишет вопрос в окне, а
+   ответ приходит в чат бота — там же он и продолжает разговор кнопкой
+   «Уточнить». Вместе с вопросом приходит то, что он видел на экране:
+   текстом — в подсказку модели, картинкой — в чат, чтобы было видно, о
+   чём спрашивали. Сам вопрос тоже кладётся в чат: ответ без вопроса
+   читался бы как реплика ниоткуда. */
+export const APP_LEAD = "Вопрос из приложения:";
+export async function askFromApp(deps, { userId, chatId, question, context = "", shot = null }) {
+  const a = deps.assistant || deps;
+  const send = deps.send || a.send;
+  const q = String(question || "").trim();
+  if (!q) throw new Error("question is required");
+  if (!send || !a.ask) throw new Error("Помощник здесь не подключён");
+  await send(chatId, `${APP_LEAD}\n${q}`);
+  if (shot?.length && deps.tg?.sendPhoto) {
+    try { await deps.tg.sendPhoto(chatId, { bytes: shot, name: "screen.png", caption: "Экран в момент вопроса" }); }
+    catch (err) { logOf(deps)(`снимок экрана не отправлен: ${err.message}`); }
+  }
+  return askQuestion(deps, { userId, chatId, question: q, context });
+}
+
 /**
  * @param msg   сообщение Telegram
  * @param from  кто пишет
@@ -497,7 +523,7 @@ export async function onAssistantMessage(msg, from, deps = {}) {
       await a.cancel(prev.queueId ?? prev.id, userId);
     }
     const question = `${prev.question}\n\nУточнение: ${text}`;
-    const r = await askQuestion(deps, { userId, chatId, question });
+    const r = await askQuestion(deps, { userId, chatId, question, context: prev.context || "" });
     return { ...r, refined: refineId };
   }
 
