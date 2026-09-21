@@ -155,17 +155,17 @@ button {
    Только ряды, где нет ничего, кроме кнопок с надписями: ряд «имя и
    карандаш» или «подпись и поле» так раскидывать нельзя, а капсулы со
    значками (под шапкой) должны стоять справа своего размера. */
-.flex.gap-1:not(:has(> :not(button))):not(:has(svg)),
-.flex.gap-2:not(:has(> :not(button))):not(:has(svg)),
-.flex.gap-3:not(:has(> :not(button))):not(:has(svg)) {
+.flex.gap-1:not(:has(:not(button))):not(:has(svg)),
+.flex.gap-2:not(:has(:not(button))):not(:has(svg)),
+.flex.gap-3:not(:has(:not(button))):not(:has(svg)) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--cell, 150px)), 1fr));
   gap: var(--gap) var(--gap-x);
   align-items: stretch;
 }
-.flex.gap-1:not(:has(> :not(button))):not(:has(svg)) > button,
-.flex.gap-2:not(:has(> :not(button))):not(:has(svg)) > button,
-.flex.gap-3:not(:has(> :not(button))):not(:has(svg)) > button {
+.flex.gap-1:not(:has(:not(button))):not(:has(svg)) > button,
+.flex.gap-2:not(:has(:not(button))):not(:has(svg)) > button,
+.flex.gap-3:not(:has(:not(button))):not(:has(svg)) > button {
   width: 100%;
   white-space: normal !important;
   text-align: center;
@@ -191,4 +191,24 @@ button {
     --surface-glass-strong: #1b2432;
   }
   [style*="backdrop-filter"] { backdrop-filter: none !important; }
+}
+
+/* Красный кружок с числом справа от надписи кнопки (владелец, 2026-09-21:
+   непрочитанные на «Issues»). Через data-badge, а не вложенным элементом:
+   ряд из одних кнопок должен остаться сеткой. */
+button[data-badge]::after {
+  content: attr(data-badge);
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent-coral);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  vertical-align: middle;
 }

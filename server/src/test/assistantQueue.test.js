@@ -300,8 +300,7 @@ describe("отмена", () => {
     const calls = [];
     const { q } = make({ complete: abortable(calls) });
     const p = q.askNow("200", "?");
-    await tick(); await tick();
-    expect(calls).toHaveLength(1);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].signal.aborted).toBe(false);
     expect(q.cancel(p.id, "200")).toBe(true);
     expect(calls[0].signal.aborted).toBe(true);

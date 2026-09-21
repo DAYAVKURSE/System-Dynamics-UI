@@ -31,7 +31,7 @@ describe("формы над схемой", () => {
     expect(within(scale).queryByText("масштаб")).toBeNull();
     expect(within(scale).getByRole("button", { name: "уменьшить" })).toBeInTheDocument();
     expect(within(scale).getByRole("button", { name: "увеличить" })).toBeInTheDocument();
-    expect(within(scale).getByRole("button", { name: "⌗ выровнять" })).toBeInTheDocument();
+    expect(within(scale).getByRole("button", { name: "выровнять" })).toBeInTheDocument();
     expect(within(scale).getByRole("button", { name: "+ актив" })).toBeInTheDocument();
     expect(within(scale).queryByText("месяц")).toBeNull();
     const sim = screen.getByLabelText("прогноз на схеме");
@@ -39,9 +39,9 @@ describe("формы над схемой", () => {
     expect(within(sim).getByLabelText("месяц на схеме")).toBeInTheDocument();
     // Под прогнозом никаких подписей (владелец, 2026-09-13).
     expect(within(sim).queryByText(/На блоке/)).toBeNull();
-    // Обе формы — в одном ряду, друг под другом (владелец, 2026-09-21).
+    // Обе формы — в одной строке, друг за другом (владелец, 2026-09-21).
     expect(scale.parentElement).toBe(sim.parentElement);
-    expect(scale.parentElement.style.flexWrap).toBe("wrap");
+    expect(scale.parentElement.style.flexWrap).toBe("nowrap");
   });
 });
 

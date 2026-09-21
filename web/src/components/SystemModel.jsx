@@ -2105,15 +2105,16 @@ export default function SystemModel(){
         {/* Одной строкой и одной высоты (владелец, 2026-09-13): без
             переноса, обе тянутся по высоте строки; под прогнозом никаких
             подписей. */}
-        {/* Две формы одной высоты, каждая — одной строкой (владелец,
-            2026-09-21: «кнопки в ряд, вторую отрегулируй по высоте»). */}
-        <div className="flex gap-2" style={{marginBottom: "var(--space-8)",alignItems:"stretch",flexWrap:"wrap"}}>
-          <div style={{...S.card,padding: "var(--space-4) var(--space-8)",marginBottom: 0,flex:"1 1 100%",minWidth:0,
-            display:"flex",alignItems:"center",minHeight:"calc(var(--control-h) + var(--space-8))"}}
+        {/* Две формы В ОДНУ СТРОКУ, друг за другом, одной высоты (владелец,
+            2026-09-21: «формы должны быть расположены горизонтально»;
+            кнопки внутри могут идти в две строки). */}
+        <div className="flex gap-2" style={{marginBottom: "var(--space-8)",alignItems:"stretch",flexWrap:"nowrap"}}>
+          {/* Левая шире правой: «выровнять» и «+ актив» должны вставать
+              целиком, а ползунку хватит и меньшего. */}
+          <div style={{...S.card,padding: "var(--space-4) var(--space-8)",marginBottom: 0,flex:"1.3 1 0",minWidth:0,
+            display:"flex",alignItems:"center"}}
             aria-label="масштаб">
-            {/* Без класса gap-2 нарочно: ряд из одних кнопок сетка растянула
-                бы по ячейкам, а здесь они должны стоять в одну строку. */}
-            <div className="flex items-center" style={{flexWrap:"nowrap",width:"100%",gap:"var(--gap-x)"}}>
+            <div className="flex items-center gap-2 flex-wrap" style={{width:"100%","--cell":"80px","--btn-px":"4px"}}>
               <button style={btn(false)} aria-label="уменьшить"
                 onClick={()=>schemeRef.current?.zoomBy(1/1.25)}>−</button>
               <button style={btn(false)} aria-label="увеличить"
@@ -2121,22 +2122,23 @@ export default function SystemModel(){
               {mayEdit(me,"scheme:edit")&&(<>
                 <button style={btn(false)} onClick={alignGrid}
                   title="Расставит блоки по сетке, сохранив расстановку по рядам">
-                  ⌗ выровнять</button>
+                  выровнять</button>
                 <button style={btn(true,OK)} onClick={addEntity}>+ актив</button>
               </>)}
             </div>
           </div>
-          <div style={{...S.card,padding: "var(--space-4) var(--space-8)",marginBottom: 0,flex:"1 1 100%",minWidth:0,
-            display:"flex",alignItems:"center",minHeight:"calc(var(--control-h) + var(--space-8))"}}
+          <div style={{...S.card,padding: "var(--space-4) var(--space-8)",marginBottom: 0,flex:"1 1 0",minWidth:0,
+            display:"flex",flexDirection:"column",justifyContent:"center"}}
             aria-label="прогноз на схеме">
-            <div className="flex items-center gap-2" style={{marginTop: 0,width:"100%",flexWrap:"nowrap"}}>
-            <span style={S.lbl}>прогноз</span>
+            <div style={S.lbl}>прогноз</div>
+            <div className="flex items-center gap-2" style={{marginTop: 0}}>
               <input type="range" min={0} max={span} value={simMonth}
                 aria-label="месяц на схеме"
                 title="На блоке — сколько ресурса будет к этому месяцу, вилкой"
                 onChange={e=>setSimMonth(Number(e.target.value))}
                 style={{flex:1,minWidth:60}}/>
               <span style={{fontSize:"var(--fs-hint)",color:ACC,minWidth:34}}>{simMonth} мес</span>
+            </div>
             {/* Галочка гипотез — здесь, под ползунком прогноза (владелец,
                 2026-09-20: «этот чекбокс должен быть на форме прогноза, под
                 полоской прокрутки прогноза»), и ВСЕГДА (владелец,
@@ -2145,11 +2147,10 @@ export default function SystemModel(){
                 пропадала на одной схеме, возвращаясь на другой: человек
                 искал переключатель там, где его только что видел. */}
             <label className="flex items-center gap-2"
-              style={{fontSize:"var(--fs-hint)",color:hypoOn?WARN:C.muted,marginTop:0,cursor:"pointer",whiteSpace:"nowrap"}}>
+              style={{fontSize:"var(--fs-hint)",color:hypoOn?WARN:C.muted,marginTop: "var(--space-4)",cursor:"pointer"}}>
               <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
-              гипотезы
+              включить гипотезы
             </label>
-            </div>
           </div>
         </div>
 
@@ -2431,16 +2432,13 @@ export default function SystemModel(){
             .map(([k,t])=>(
               <button key={k} style={{...btn(tool===k,OK),
                   opacity:tabLocked(me,`tools:${k}`)?0.35:undefined}}
-                disabled={tabLocked(me,`tools:${k}`)} aria-label={t}
-                onClick={()=>setTool(k)}>{t}
-                {/* Непрочитанные сообщения об ошибках — красным кружком
-                    справа от названия (владелец, 2026-09-21). */}
-                {k==="issues"&&issuesUnread>0&&(
-                  <span aria-label={`непрочитанных: ${issuesUnread}`}
-                    style={{display:"inline-block",marginLeft:6,minWidth:18,height:18,lineHeight:"18px",
-                      borderRadius:9,background:BAD,color:"#fff",fontSize:"11px",fontWeight:700,
-                      padding:"0 5px",textAlign:"center",verticalAlign:"middle"}}>{issuesUnread}</span>)}
-              </button>))}
+                disabled={tabLocked(me,`tools:${k}`)}
+                /* Непрочитанные сообщения об ошибках — красным кружком справа
+                   от названия (владелец, 2026-09-21): рисует CSS по
+                   data-badge, чтобы ряд остался рядом из одних кнопок. */
+                aria-label={k==="issues"&&issuesUnread>0?`${t}, непрочитанных: ${issuesUnread}`:t}
+                data-badge={k==="issues"&&issuesUnread>0?String(issuesUnread):undefined}
+                onClick={()=>setTool(k)}>{t}</button>))}
         </div>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="people" && (

@@ -263,8 +263,7 @@ describe("статус и кнопки под ним", () => {
     const status2 = sent[sent.length - 1];
     expect(status2.text).toBe(tickText(0));
     expect(keys(status2.keyboard)[0][1]).toBe(`ai:cancel:${r2.id}`);
-    await settle();
-    expect(calls).toHaveLength(2);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1].messages[0].content).toBe("что по заявкам?\n\nУточнение: за сентябрь");
     release("вот");
     expect(await r2.done).toMatchObject({ answered: true });
@@ -272,12 +271,12 @@ describe("статус и кнопки под ним", () => {
 
   it("уточнить можно и отвеченный вопрос — отменять нечего, просто спрашивается заново", async () => {
     const r = await onAssistantMessage({ text: "что по заявкам?" }, from, live());
-    await settle();
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
     release("ок");
     await r.done;
     await press(`ai:refine:${r.id}`);
     const r2 = await onAssistantMessage({ text: "подробнее" }, from, live());
-    await settle();
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
     expect(calls[1].messages[0].content).toBe("что по заявкам?\n\nУточнение: подробнее");
     release("подробно");
     expect(await r2.done).toMatchObject({ answered: true });

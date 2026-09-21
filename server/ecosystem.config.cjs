@@ -46,6 +46,7 @@ module.exports = {
         // потом из файла (его кладёт туда команда /adminbot).
         ENV_FILE: path.join(__dirname, ".env"),
         OWNER_TELEGRAM_ID: env.OWNER_TELEGRAM_ID || "",
+        ORG_DIR: env.ORG_DIR || path.join(__dirname, "data", "org"),
         PUBLIC_URL: env.PUBLIC_URL || "",
         TONCENTER_API_KEY: env.TONCENTER_API_KEY || "",
       },

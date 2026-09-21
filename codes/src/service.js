@@ -69,7 +69,8 @@ export const setHooks = (h) => Object.assign(hooks, h);
 const adminOnly = (headers = {}) => {
   const token = hooks.adminToken();
   const owner = String(hooks.ownerId() || "").trim();
-  if (!token || !owner) throw new Bad(503, "админ-бот не настроен");
+  if (!token) throw new Bad(503, "токен админ-бота не задан: пришлите основному боту /adminbot <токен>");
+  if (!owner) throw new Bad(503, "владелец не определён: задайте OWNER_TELEGRAM_ID или откройте приложение владельцем");
   const init = String(headers["x-admin-init-data"] || headers["X-Admin-Init-Data"] || "");
   const r = verifyInitData(init, token);
   if (!r.ok) throw new Bad(401, "нужен вход через админ-бота");

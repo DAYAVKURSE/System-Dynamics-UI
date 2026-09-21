@@ -27,7 +27,7 @@ describe("стрелка и полоски", () => {
 describe("ряд из одних кнопок — по ширине", () => {
   it("ряд из одних кнопок — сетка равных ячеек с зазором 3 мм, капсулы со значками не трогает", () => {
     const css = fs.readFileSync(path.resolve(process.cwd(), "src/index.css"), "utf8");
-    expect(css).toMatch(/\.flex\.gap-2:not\(:has\(> :not\(button\)\)\):not\(:has\(svg\)\)[^{]*\{\s*display:\s*grid/);
+    expect(css).toMatch(/\.flex\.gap-2:not\(:has\(:not\(button\)\)\):not\(:has\(svg\)\)[^{]*\{\s*display:\s*grid/);
     expect(css).toMatch(/--gap-x:\s*12px/);          // 3 мм между кнопками
     // Кнопку саму при этом не растягивают.
     expect(css).not.toMatch(/>\s*button\s*\{\s*flex:\s*1\s+1/);

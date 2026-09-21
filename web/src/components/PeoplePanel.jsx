@@ -371,11 +371,11 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                 то, кем он здесь является. */}
             <RoleFormPick role={r} forms={org.forms || []} busy={busy} act={act} />
             <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginBottom: "var(--space-4)" }}>открывает вкладки:</div>
-            {/* Один шрифт на все вкладки и ровные ряды: ячейки равные
-                (владелец, 2026-09-21). На телефоне по две в ряд: в трёх
-                «Деятельность» и «Напоминания» не помещаются, а ломать
-                слово или мельчить шрифт нельзя. */}
-            <div className="flex flex-wrap gap-2">
+            {/* Один шрифт на все вкладки и ровные ряды по три в ряд
+                (владелец, 2026-09-21: «вкладки были хорошо организованы в
+                три ряда»). Ячейка уже, боковой отступ кнопки меньше —
+                чтобы длинные слова вставали целиком. */}
+            <div className="flex flex-wrap gap-2" style={{ "--cell": "86px", "--btn-px": "3px" }}>
               {ALL_TABS.map((t) => {
                 const acc = accessIn(r, t);
                 return (
