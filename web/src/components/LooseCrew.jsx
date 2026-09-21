@@ -123,22 +123,22 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
 
   if (!loose.length) return null;
   return (
-    <div style={{ ...S.card, marginBottom: "var(--space-8)", borderColor: WARN,
-      /* Подложка по ширине своего текста, рамка в 2–3 мм от него, а не
-         форма на всю ширину (владелец, 2026-09-21). */
-      width: "fit-content", maxWidth: "100%", padding: "10px" }}>
-      <button style={{ background: "none", border: "none", padding: 0, width: "100%",
-        textAlign: "left", cursor: "pointer", color: C.text }}
-        aria-label={`не добавленные участники: ${loose.length}`}
-        onClick={() => setOpen((v) => !v)}>
-        <div className="flex items-center gap-2" style={{ whiteSpace: "nowrap" }}>
-          <span style={{ ...S.lbl, color: WARN }}>не добавленные участники</span>
-          <span style={{ fontSize: "var(--fs-body)", fontWeight: 700 }}>{loose.length}</span>
-          <span style={{ fontSize: "var(--fs-hint)", color: C.muted, marginLeft: "var(--space-4)" }}>{open ? "свернуть" : "показать"}</span>
-        </div>
-      </button>
+    <div style={{ ...S.card, marginBottom: "var(--space-8)", borderColor: WARN }}
+      aria-label="не добавленные участники">
+      {/* Форма по сетке (владелец, 2026-09-21): под формами схемы, по их
+          общей ширине, тех же отступов и высоты — заголовок, под ним
+          кнопка. */}
+      <div className="flex items-center gap-2">
+        <span style={{ ...S.lbl, color: WARN }}>не добавленные участники</span>
+        <span style={{ fontSize: "var(--fs-body)", fontWeight: 700 }}>{loose.length}</span>
+      </div>
+      <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
+        <button type="button" style={btn(open)}
+          aria-label={`не добавленные участники: ${loose.length}`}
+          onClick={() => setOpen((v) => !v)}>{open ? "свернуть" : "показать"}</button>
+      </div>
       {open && (<>
-        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)", maxWidth: 320 }}>
+        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
           {loose.map((p) => (
             <div key={p.id} role="button" tabIndex={0}
               aria-label={`не добавленный участник: ${p.name}`}
