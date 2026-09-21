@@ -261,7 +261,7 @@ router.post("/mcp/:id/tools", async (req, res, next) => {
           ? await discover(m.url, e.hint || "").then(Boolean).catch(() => false) : false;
         return res.status(401).json({ error: "Сервер требует входа", needsAuth: true,
           where: e.where || "", scheme: e.scheme || "", realm: e.realm || "",
-          hint: e.hint || "", server: m.name, oauth });
+          hint: e.hint || "", said: e.said || "", server: m.name, oauth });
       }
       return res.status(502).json({ error: String(e?.message || e).slice(0, 300) });
     }

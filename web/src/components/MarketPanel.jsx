@@ -781,9 +781,12 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
   const [findService, setFindService] = useState("");
   const [pickService, setPickService] = useState(null);
   const [adding, setAdding] = useState(null);   // null | {kind, initial}
-  /* Сортировка и фильтры — одни на обе вкладки (владелец, 2026-09-21). */
+  /* Сортировка — одна на обе вкладки; фильтры — у каждой свои: настроенные
+     для услуг не включаются в заказах, и наоборот (владелец, 2026-09-21). */
   const [sort, setSort] = useState("");
-  const [flt, setFlt] = useState(emptyFilter);
+  const [flts, setFlts] = useState(() => ({ orders: emptyFilter(), services: emptyFilter() }));
+  const flt = flts[sub] || emptyFilter();
+  const setFlt = (v) => setFlts((p) => ({ ...p, [sub]: v }));
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const solo = Boolean(me?.solo);

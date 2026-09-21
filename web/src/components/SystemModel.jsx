@@ -526,7 +526,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
           const ts=traits.filter(t=>t.e===e.id);
           const fs=funcs.filter(f=>f.e===e.id);
           const ok=assetOk(e.id);
-          /* `data-entity` — метка для подложки «участники без актива»:
+          /* `data-entity` — метка для подложки «не добавленные участники»:
              человека отпускают НА БЛОК, и спросить надо именно тот, что
              под пальцем (`elementFromPoint`), а не ближайший. */
           return (<g key={e.id} data-entity={e.id} onPointerDown={ev=>down(ev,e)}
@@ -2186,7 +2186,9 @@ export default function SystemModel(){
             технологические процессы — там же, первыми, под спойлером),
             потом смотрят, что по ней делали («Деятельность») и куда она
             идёт («Прогноз»). */}
-        <div className="flex gap-2" style={{margin: "var(--space-8) 0",overflowX:"auto"}}>
+        {/* Три кнопки — в одну строку и на телефоне (владелец, 2026-09-21):
+            ячейка ýже, отступ внутри кнопки меньше. */}
+        <div className="flex gap-2" style={{margin: "var(--space-8) 0","--cell":"80px","--btn-px":"4px"}}>
           {/* Внутренние вкладки — по праву роли (владелец, 2026-09-20):
               роль, назвавшая «Деятельность», открывает её одну. */}
           {tabShown(me,"scheme","edit")&&(

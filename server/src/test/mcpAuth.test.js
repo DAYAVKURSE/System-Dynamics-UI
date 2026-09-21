@@ -56,7 +56,10 @@ describe("что запросил сервер", () => {
     expect(askedFrom("OAuth realm=x").scheme).toBe("oauth");
   });
   it("сервер промолчал — схемы нет, а подсказка — дословно и не длиннее 300", () => {
-    expect(askedFrom("")).toEqual({ scheme: "", realm: "", where: "", hint: "" });
+    expect(askedFrom("")).toEqual({ scheme: "", realm: "", where: "", hint: "", said: "" });
+    // Слова сервера (error_description) — отдельно от сырого заголовка.
+    expect(askedFrom('Bearer realm="Blopus", error="invalid_token", error_description="Provide a Blopus API key as Authorization: Bearer blp_..."'))
+      .toMatchObject({ scheme: "bearer", realm: "Blopus", said: "Provide a Blopus API key as Authorization: Bearer blp_..." });
     expect(askedFrom("Custom token").scheme).toBe("custom");
     expect(askedFrom(`Bearer ${"x".repeat(500)}`).hint).toHaveLength(300);
   });

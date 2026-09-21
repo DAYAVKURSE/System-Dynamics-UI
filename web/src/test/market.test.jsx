@@ -360,6 +360,35 @@ describe("поиск на рынке", () => {
     expect(names()).toHaveLength(2);
   });
 
+  /* ФИЛЬТРЫ У КАЖДОЙ ВКЛАДКИ СВОИ (владелец, 2026-09-21: «фильтры,
+     настроенные для услуг, не должны включаться в заказах, и наоборот»). */
+  it("фильтр, включённый в услугах, не действует в заказах, и наоборот", async () => {
+    const s = marketServer({ people: { 200: "Заказчик", 300: "Мастер", 400: "Новичок" } });
+    s.state.services.push(
+      { id: "s1", by: "300", name: "Разработка", text: "", takes: [], gives: [], days: 3, at: "2026-09-13T10:00:00Z" },
+      { id: "s2", by: "400", name: "Уборка", text: "", takes: [], gives: [], days: 1, at: "2026-09-14T10:00:00Z" });
+    s.state.orders.push(
+      { id: "o1", by: "300", name: "Сайт", text: "", resources: [], offers: [], status: "open", at: "2026-09-13T10:00:00Z" },
+      { id: "o2", by: "400", name: "Окна", text: "", resources: [], offers: [], status: "open", at: "2026-09-14T10:00:00Z" });
+    s.faces = { 300: { status: "off" }, 400: { status: "ready" } };
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    await screen.findByLabelText("услуга Разработка");
+    fireEvent.click(screen.getByRole("button", { name: "фильтры" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "на рабочем месте" }));
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
+    expect(screen.getAllByLabelText(/^услуга /)).toHaveLength(1);
+    // В заказах — все, и кнопка без счётчика.
+    fireEvent.click(screen.getByRole("tab", { name: /Заказы/ }));
+    await screen.findByLabelText("заказ Сайт");
+    expect(screen.getAllByLabelText(/^заказ /)).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "фильтры" }).textContent).toBe("Фильтры");
+    // А назад в услугах фильтр по-прежнему включён.
+    fireEvent.click(screen.getByRole("tab", { name: /Услуги/ }));
+    expect(await screen.findAllByLabelText(/^услуга /)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "фильтры" }).textContent).toBe("Фильтры · 1");
+  });
+
   it("ресурсы в окне фильтров — из найденного, с чекбоксом и диапазоном у каждого", async () => {
     const s = marketServer();
     s.state.services.push(

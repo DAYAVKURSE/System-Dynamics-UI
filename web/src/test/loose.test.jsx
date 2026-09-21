@@ -51,7 +51,7 @@ describe("подложка участников без актива", () => {
 
   it("появляется, когда такие есть, и исчезает, когда все добавлены", () => {
     const { container, rerender } = show();
-    expect(screen.getByLabelText("участники без актива: 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("не добавленные участники: 2")).toBeInTheDocument();
     rerender(<LooseCrew people={PEOPLE} funcs={FUNCS} roleName={roleName}
       entities={[{ id: "a", name: "Бюро", crew: ["2", "3", "4"] }]} />);
     // Никого не осталось — и блока нет вовсе: пустой блок это мебель.
@@ -60,9 +60,9 @@ describe("подложка участников без актива", () => {
 
   it("нажатие раскрывает облако: имена и роли", () => {
     show();
-    expect(screen.queryByLabelText("участник без актива: Иван")).toBeNull();
-    fireEvent.click(screen.getByLabelText("участники без актива: 2"));
-    expect(screen.getByLabelText("участник без актива: Иван")).toBeInTheDocument();
+    expect(screen.queryByLabelText("не добавленный участник: Иван")).toBeNull();
+    fireEvent.click(screen.getByLabelText("не добавленные участники: 2"));
+    expect(screen.getByLabelText("не добавленный участник: Иван")).toBeInTheDocument();
     expect(screen.getByText("дизайнер")).toBeInTheDocument();
     expect(screen.getByText("редактор")).toBeInTheDocument();
   });
@@ -70,16 +70,16 @@ describe("подложка участников без актива", () => {
   it("перетащили на актив со своей ролью — человек добавлен", () => {
     const got = [];
     show({ onAdd: (pid, eid) => got.push([pid, eid]) });
-    fireEvent.click(screen.getByLabelText("участники без актива: 2"));
-    dragTo("участник без актива: Иван", "a");
+    fireEvent.click(screen.getByLabelText("не добавленные участники: 2"));
+    dragTo("не добавленный участник: Иван", "a");
     expect(got).toEqual([["2", "a"]]);
   });
 
   it("роль в активе не спрашивают — предупреждение, а не молчаливый отказ", () => {
     const got = [];
     show({ onAdd: (pid, eid) => got.push([pid, eid]) });
-    fireEvent.click(screen.getByLabelText("участники без актива: 2"));
-    dragTo("участник без актива: Иван", "b");
+    fireEvent.click(screen.getByLabelText("не добавленные участники: 2"));
+    dragTo("не добавленный участник: Иван", "b");
     expect(got).toEqual([]);
     expect(screen.getByText(/«Склад» спрашивает роли: редактор/)).toBeInTheDocument();
     expect(screen.getByText(/У Иван их нет — дизайнер/)).toBeInTheDocument();
@@ -88,8 +88,8 @@ describe("подложка участников без актива", () => {
   it("отпустили мимо активов — ничего не случилось и никто не ругается", () => {
     const got = [];
     show({ onAdd: (pid, eid) => got.push([pid, eid]) });
-    fireEvent.click(screen.getByLabelText("участники без актива: 2"));
-    dragTo("участник без актива: Иван", "");
+    fireEvent.click(screen.getByLabelText("не добавленные участники: 2"));
+    dragTo("не добавленный участник: Иван", "");
     expect(got).toEqual([]);
     expect(screen.queryByText(/спрашивает роли/)).toBeNull();
   });
@@ -97,8 +97,8 @@ describe("подложка участников без актива", () => {
   it("у актива нет функций с ролями — так и сказано", () => {
     const got = [];
     show({ funcs: [], onAdd: (pid, eid) => got.push([pid, eid]) });
-    fireEvent.click(screen.getByLabelText("участники без актива: 2"));
-    dragTo("участник без актива: Иван", "a");
+    fireEvent.click(screen.getByLabelText("не добавленные участники: 2"));
+    dragTo("не добавленный участник: Иван", "a");
     expect(got).toEqual([]);
     expect(screen.getByText(/ни одна функция не называет роль/)).toBeInTheDocument();
   });
@@ -111,8 +111,8 @@ describe("нажатие на участника без актива", () => {
     const opened = [];
     const added = [];
     show({ onOpen: (id) => opened.push(id), onAdd: (pid, eid) => added.push([pid, eid]) });
-    fireEvent.click(screen.getByLabelText("участники без актива: 2"));
-    const chip = screen.getByLabelText("участник без актива: Иван");
+    fireEvent.click(screen.getByLabelText("не добавленные участники: 2"));
+    const chip = screen.getByLabelText("не добавленный участник: Иван");
     fireEvent.pointerDown(chip, { clientX: 10, clientY: 10 });
     fireEvent.pointerUp(window, { clientX: 12, clientY: 11 });
     expect(opened).toEqual(["2"]);

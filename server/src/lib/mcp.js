@@ -81,6 +81,7 @@ export class NeedsAuth extends Error {
     this.scheme = asked.scheme || "";
     this.realm = asked.realm || "";
     this.hint = asked.hint || "";
+    this.said = asked.said || "";
   }
 }
 
@@ -104,6 +105,9 @@ export function askedFrom(value) {
   const first = raw.match(/^([A-Za-z][A-Za-z0-9_-]*)/);
   const word = first ? first[1].toLowerCase() : "";
   const realm = (raw.match(/realm="([^"]*)"/i) || raw.match(/realm=([^\s,]+)/i) || [])[1] || "";
+  /* `said` — что сервер сказал словами (error_description): это его
+     собственная фраза, и на экране она нужнее сырого заголовка. */
+  const said = (raw.match(/error_description="([^"]*)"/i) || [])[1] || "";
   let scheme = "";
   if (word === "bearer") scheme = "bearer";
   else if (word === "basic") scheme = "basic";
@@ -111,7 +115,7 @@ export function askedFrom(value) {
   else if (/oauth|resource_metadata|authorization_uri/i.test(raw)) scheme = "oauth";
   else if (word) scheme = word;
   if (scheme === "bearer" && /resource_metadata|authorization_uri/i.test(raw)) scheme = "oauth";
-  return { scheme, realm, where, hint: raw.slice(0, 300) };
+  return { scheme, realm, where, hint: raw.slice(0, 300), said: said.slice(0, 300) };
 }
 
 let seq = 0;

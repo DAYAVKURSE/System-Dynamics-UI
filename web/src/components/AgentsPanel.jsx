@@ -829,7 +829,12 @@ function McpLogin({ rec, busy, onSave, onClose, onOauth = null, onCheck = null, 
     <Modal title={title} onClose={onClose}>
       <div style={{ fontSize: "var(--fs-hint)", color: C.muted }} aria-label="сервер запросил">
         сервер запросил: <span style={{ color: C.text }}>{asked}</span></div>
-      {rec.hint && (
+      {/* Сказал ли сервер словами (error_description) — показываем его
+          фразу; иначе — заголовок как есть. */}
+      {rec.said ? (
+        <div style={{ fontSize: "var(--fs-hint)", color: C.text, marginTop: "var(--space-4)", lineHeight: 1.5 }}
+          aria-label="слова сервера">{rec.said}</div>)
+        : rec.hint && (
         <div style={{ fontSize: "var(--fs-hint)", color: C.muted, wordBreak: "break-all",
           marginTop: "var(--space-4)", fontFamily: "var(--font-mono, monospace)" }}
           aria-label="заголовок сервера">{rec.hint}</div>)}
