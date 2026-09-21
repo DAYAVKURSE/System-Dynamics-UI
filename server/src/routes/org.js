@@ -3,6 +3,7 @@ import { telegramUser } from "../middleware/telegramUser.js";
 import * as codes from "../lib/codes.js";
 import { PLAN_TABS } from "../lib/plans.js";
 import { findStorage, inStorage, storagesOf } from "../lib/storages.js";
+import { noteWork } from "../lib/marketStore.js";
 import { renameRole,
   addForm, addRole, addUser, contractHtml, identify, listOrg, openRoles, registerUser, removeForm,
   removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
@@ -315,6 +316,17 @@ router.post("/join", async (req, res, next) => {
       }
       if (r.error) return res.status(404).json({ error: "ссылка не открывается" });
       const me = await identify(r.user.id, {});
+      /* У вступившего в своём хранилище появляется услуга: работа у этого
+         владельца (владелец, 2026-09-21). Не вышло — вступление не
+         отменяется. */
+      try {
+        const org = await listOrg();
+        const roleId = (r.user.roles || [])[0] || r.user.pending || null;
+        const role = roleId ? (org.roles || []).find((x) => x.id === roleId) : null;
+        const owner = (org.users || []).find((u) => String(u.id) === String(org.ownerId));
+        await noteWork(req.telegramRealId, { name: role?.name || "участие",
+          text: owner?.name ? `у: ${owner.name}` : "", customer: org.ownerId, storage: sid, roleId });
+      } catch (e) { console.error(`[join] услуга вступившего: ${e.message}`); }
       me.storage = sid;
       me.ownStorage = req.ownStorage;
       me.storages = await storagesOf(req.telegramRealId);

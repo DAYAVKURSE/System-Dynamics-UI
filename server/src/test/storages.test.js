@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { inStorage, listStorages, memberOf, ownStorageOf, storagesOf } from "../lib/storages.js";
 import { readModel, writeModel } from "../lib/workspaceStore.js";
-import { addVirtualUser, listOrg, readOrg } from "../lib/orgStore.js";
+import { addRole, addVirtualUser, listOrg, readOrg } from "../lib/orgStore.js";
+import { readMarket } from "../lib/marketStore.js";
 import { scheduleFor } from "../lib/scheduleTasks.js";
 
 /* Личные хранилища (владелец, 2026-09-21): прежняя модель — хранилище
@@ -32,6 +33,7 @@ beforeAll(async () => {
   process.env.ORG_DIR = path.join(tmp, "org");
   process.env.WORKSPACE_DIR = path.join(tmp, "ws");
   process.env.SCHEDULES_DIR = path.join(tmp, "sch");
+  process.env.MARKET_DIR = path.join(tmp, "market");
   process.env.NODE_ENV = "production";
   process.env.TELEGRAM_BOT_TOKEN = TOKEN;
   const { createApp } = await import("../app.js");
@@ -47,6 +49,7 @@ beforeEach(async () => {
   delete process.env.OWNER_TELEGRAM_ID;
   await fs.rm(process.env.ORG_DIR, { recursive: true, force: true });
   await fs.rm(process.env.WORKSPACE_DIR, { recursive: true, force: true });
+  await fs.rm(process.env.MARKET_DIR, { recursive: true, force: true });
   // Первый вошедший — владелец MAIN.
   await request(app).get("/api/org/me").set(as(100, "Владелец"));
 });
@@ -142,5 +145,88 @@ describe("чужое хранилище", () => {
     const his = await inStorage("200", () => readOrg());
     expect(his.ownerId).toBe("200");
     expect((await readOrg()).ownerId).toBe("100");
+  });
+});
+
+describe("рынок между хранилищами", () => {
+  it("сделка: задача и роль — в хранилище заказчика, приватная услуга — у исполнителя", async () => {
+    // Иван и Пётр — каждый в своём хранилище; Пётр в MAIN не участник.
+    await request(app).get("/api/org/me").set(as(200, "Иван"));
+    await request(app).get("/api/org/me").set(as(300, "Пётр"));
+    const role = await inStorage("200", () => addRole({ name: "верстальщик", tabs: ["tasks"] }));
+
+    // Без роли соискателя заказ не оставить.
+    const bad = await request(app).post("/api/market/orders").set(as(200, "Иван"))
+      .send({ name: "Сайт", text: "три страницы", price: 100 });
+    expect(bad.status).toBe(400);
+    const ord = await request(app).post("/api/market/orders").set(as(200, "Иван"))
+      .send({ name: "Сайт", text: "три страницы", price: 100, roleId: role.id });
+    expect(ord.status).toBe(201);
+    expect(ord.body.roleId).toBe(role.id);
+    expect(ord.body.storage).toBe("200");
+
+    // Пётр видит заказ на общем рынке и откликается из своего хранилища.
+    const seen = await request(app).get("/api/market").set(as(300, "Пётр"));
+    expect(seen.body.orders.map((o) => o.id)).toContain(ord.body.id);
+    const off = await request(app).post(`/api/market/orders/${ord.body.id}/offers`)
+      .set(as(300, "Пётр")).send({ text: "сделаю" });
+    expect(off.status).toBe(201);
+    const base = `/api/market/orders/${ord.body.id}/offers/${off.body.id}`;
+    await request(app).put(`${base}/brief`).set(as(300, "Пётр"))
+      .send({ gets: { name: "сайт", qty: 1 }, days: 5 }).expect(200);
+    const acc = await request(app).post(`${base}/accept`).set(as(200, "Иван"));
+    expect(acc.status).toBe(200);
+
+    // Задача — в хранилище Ивана, не в MAIN и не у Петра.
+    const ivan = await inStorage("200", () => readModel());
+    expect(ivan.tasks.map((t) => t.id)).toContain(acc.body.task.id);
+    expect((await readModel()).tasks).toEqual([]);
+    expect((await inStorage("300", () => readModel())).tasks).toEqual([]);
+    // Пётр — участник хранилища Ивана с ролью соискателя.
+    const org = await inStorage("200", () => readOrg());
+    expect(org.users.find((u) => u.id === "300")).toMatchObject({ roles: [role.id] });
+    expect(await memberOf("200", "300")).toBe(true);
+    const there = await request(app).get("/api/workspace").set(as(300, "Пётр")).set("X-Storage", "200");
+    expect(there.status).toBe(200);
+    expect(there.body.tasks.map((t) => t.id)).toEqual([acc.body.task.id]);
+
+    // У Петра в своём хранилище — приватная услуга с этой работой и
+    // функция в активе «Владелец».
+    const m = await readMarket();
+    const svc = m.services.find((s) => s.by === "300" && s.orderId === ord.body.id);
+    expect(svc).toMatchObject({ private: true, customer: "200", storage: "200",
+      taskId: acc.body.task.id, name: "Сайт" });
+    const petr = await inStorage("300", () => readModel());
+    expect(petr.funcs.find((f) => f.id === svc.funcId)).toMatchObject({ e: "owner", name: "Сайт" });
+    // Приватную услугу видят исполнитель и заказчик, а владелец MAIN — нет.
+    const byPetr = await request(app).get("/api/market").set(as(300, "Пётр"));
+    expect(byPetr.body.services.map((s) => s.id)).toContain(svc.id);
+    const byIvan = await request(app).get("/api/market").set(as(200, "Иван"));
+    expect(byIvan.body.services.map((s) => s.id)).toContain(svc.id);
+    const byOwner = await request(app).get("/api/market").set(as(100, "Владелец"));
+    expect(byOwner.body.services.map((s) => s.id)).not.toContain(svc.id);
+  });
+
+  it("услуга приватна по умолчанию; открытую видят все", async () => {
+    await request(app).get("/api/org/me").set(as(300, "Пётр"));
+    const priv = await request(app).post("/api/market/services").set(as(300, "Пётр")).send({ name: "Вёрстка" });
+    expect(priv.body.private).toBe(true);
+    const pub = await request(app).post("/api/market/services").set(as(300, "Пётр"))
+      .send({ name: "Дизайн", private: false });
+    const byOwner = await request(app).get("/api/market").set(as(100, "Владелец"));
+    expect(byOwner.body.services.map((s) => s.name)).toEqual(["Дизайн"]);
+    expect(pub.body.private).toBe(false);
+  });
+
+  it("вступивший по ссылке получает услугу «работа у владельца» в своём хранилище", async () => {
+    await request(app).get("/api/org/me").set(as(200, "Иван"));
+    const role = await addRole({ name: "курьер", tabs: ["tasks"] });
+    const v = await addVirtualUser({ roleId: role.id, addedBy: "100" });
+    await request(app).post("/api/org/join").set(as(200, "Иван")).send({ token: v.token }).expect(200);
+    const m = await readMarket();
+    const svc = m.services.find((s) => s.by === "200" && s.storage === "main");
+    expect(svc).toMatchObject({ private: true, customer: "100", name: "курьер", roleId: role.id });
+    const ivan = await inStorage("200", () => readModel());
+    expect(ivan.funcs.find((f) => f.id === svc.funcId)).toMatchObject({ e: "owner", name: "курьер" });
   });
 });

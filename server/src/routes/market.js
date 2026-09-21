@@ -183,6 +183,13 @@ const tellWorker = async (svcBy, order, task) => {
 
 router.post("/orders", async (req, res, next) => {
   try {
+    /* Роль соискателя — из своей схемы (владелец, 2026-09-21): нанятый
+       получит её в этом хранилище. Без роли ему тут нечего открыть. */
+    const roleId = String(req.body?.roleId || "").trim();
+    const roles = (await listOrg()).roles || [];
+    if (!roleId || !roles.some((r) => r.id === roleId)) {
+      return res.status(400).json({ error: "Выберите роль соискателя" });
+    }
     const order = await addOrder(req.me.id, req.body || {});
     let deal = null;
     try { deal = await autoAccept(order, req.me); }

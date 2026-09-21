@@ -85,10 +85,10 @@ const cleanRows = (rows) => rows.map((r) => ({ name: String(r.name || "").trim()
 
 /* ─────── форма заказа: слова, цена, ресурсы, подходящие услуги ─────── */
 
-function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
+function OrderForm({ initial, services, orders = [], roles = [], busy, onSave, onCancel,
   saveLabel = "Оставить заказ" }) {
   const [f, setF] = useState({ name: "", text: "", price: "",
-    serviceId: null, funcId: null, ...initial,
+    serviceId: null, funcId: null, roleId: initial?.roleId || (roles[0]?.id ?? ""), ...initial,
     resources: initial?.resources?.length ? initial.resources : [emptyRow()] });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
   /* Подходящие услуги — сразу, по мере набора: заказчик видит, кто уже
@@ -113,6 +113,17 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
       </div>
       <div style={{ ...S.lbl, marginTop: "var(--space-4)" }}>другие предоставляемые ресурсы</div>
       <Rows rows={f.resources} onChange={(rows) => up({ resources: rows })} label="ресурс заказа" />
+
+      {/* Роль соискателя — из своей схемы (владелец, 2026-09-21): нанятый
+          получит её в хранилище заказчика. */}
+      {!!roles.length && (<>
+        <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>роль соискателя</div>
+        <select aria-label="роль соискателя" value={f.roleId || ""}
+          onChange={(e) => up({ roleId: e.target.value })}
+          style={{ ...S.inp, marginTop: "var(--space-4)" }}>
+          {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+      </>)}
 
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>подходящие услуги</div>
       {!services.length && <div style={hint}>Услуг пока никто не выложил.</div>}
@@ -140,7 +151,8 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
       <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !f.name.trim()}
           onClick={() => onSave({ name: f.name.trim(), text: f.text, price: f.price,
-            resources: cleanRows(f.resources), serviceId: f.serviceId, funcId: f.funcId })}>
+            resources: cleanRows(f.resources), serviceId: f.serviceId, funcId: f.funcId,
+            ...(f.roleId ? { roleId: f.roleId } : {}) })}>
           {saveLabel}</button>
         <button type="button" style={btn(false)} onClick={onCancel}>Отмена</button>
       </div>
@@ -153,7 +165,9 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
 function ServiceForm({ initial, services = [], busy, onSave, onCancel,
   saveLabel = "Выложить услугу" }) {
   const [f, setF] = useState({ name: "", text: "", takes: [], gives: [], funcId: null,
-    ...initial, days: initial?.days ?? "", auto: initial?.auto === true });
+    ...initial, days: initial?.days ?? "", auto: initial?.auto === true,
+    // Приватна по умолчанию (владелец, 2026-09-21).
+    private: initial?.private !== false });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
   return (
     <div style={form} aria-label="форма услуги">
@@ -181,11 +195,17 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
           onChange={(e) => up({ auto: e.target.checked })} style={{ accentColor: OK }} />
         Принять автоматически в рабочее время
       </label>
+      <label className="flex items-center gap-2"
+        style={{ marginTop: "var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer" }}>
+        <input type="checkbox" checked={f.private} aria-label="приватная услуга"
+          onChange={(e) => up({ private: e.target.checked })} style={{ accentColor: OK }} />
+        Приватная
+      </label>
       <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !f.name.trim()}
           onClick={() => onSave({ name: f.name.trim(), text: f.text, takes: cleanRows(f.takes),
             gives: cleanRows(f.gives), days: f.days === "" ? null : f.days, funcId: f.funcId,
-            auto: f.auto })}>
+            auto: f.auto, private: f.private })}>
           {saveLabel}</button>
         <button type="button" style={btn(false)} onClick={onCancel}>Отмена</button>
       </div>
@@ -503,7 +523,7 @@ function PersonModal({ id, me, onClose }) {
 /* ─────── карточка заказа ─────── */
 
 function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, act, isOwner,
-  picked = false }) {
+  picked = false, roles = [] }) {
   const [edit, setEdit] = useState(false);
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState("");
@@ -528,7 +548,7 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
         {order.offerCount ? ` · откликов: ${order.offerCount}` : ""}
       </div>
       {edit ? (
-        <OrderForm initial={order} services={services} busy={busy} saveLabel="Сохранить"
+        <OrderForm initial={order} services={services} roles={roles} busy={busy} saveLabel="Сохранить"
           onSave={(f) => act(() => updateOrder(order.id, f)).then(() => setEdit(false))}
           onCancel={() => setEdit(false)} />
       ) : (<>
@@ -593,7 +613,7 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
 /* ─────── карточка услуги ─────── */
 
 function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
-  picked = false }) {
+  picked = false, onOpenStorage }) {
   const [edit, setEdit] = useState(false);
   const mineSvc = String(s.by) === String(me);
   // Статус считает сервер: график лежит у него, и он же знает часовой пояс.
@@ -627,6 +647,13 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
             <Dot color={OK} />
             <span style={{ fontSize: "var(--fs-hint)", color: OK }}>Принимает заказ автоматически</span>
           </div>)}
+        {(s.private || s.customer) && (
+          <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-4)" }}>
+            {s.private && <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>приватная</span>}
+            {s.customer && (
+              <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
+                заказчик: {nameOf(s.customer)}</span>)}
+          </div>)}
         {s.text && <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{s.text}</div>}
         <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
           <div><b>берёт:</b> {rowsLine(s.takes) || "—"}</div>
@@ -635,6 +662,11 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
         </div>
         {(mineSvc || isOwner) && (
           <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
+            {/* Работа для другого делается в ЕГО хранилище (владелец,
+                2026-09-21): туда и ведёт услуга. */}
+            {mineSvc && s.storage && onOpenStorage && (
+              <button type="button" style={btn(true, ACC)} disabled={busy}
+                onClick={() => onOpenStorage(s.storage)}>Открыть у заказчика</button>)}
             {mineSvc && <button type="button" style={btn(false)} disabled={busy} onClick={() => setEdit(true)}>Правка</button>}
             <button type="button" style={{ ...btn(true, BAD) }} disabled={busy}
               aria-label={`удалить услугу ${s.name}`} onClick={() => act(() => dropService(s.id))}>Удалить</button>
@@ -716,7 +748,8 @@ function SortFilterBar({ found, sort, onSort, flt, onFlt }) {
 
 /* ─────── вкладка ─────── */
 
-export default function MarketPanel({ me, traits = [], draft = null, onDraftDone }) {
+export default function MarketPanel({ me, traits = [], draft = null, onDraftDone, roles = [],
+  onOpenStorage }) {
   const [view, setView] = useState(null);
   const [card, setCard] = useState(null);
   const [sub, setSub] = useState("orders");
@@ -811,13 +844,13 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
         <SortFilterBar found={orderedBy(pickOrder, orders.slice().reverse())}
           sort={sort} onSort={setSort} flt={flt} onFlt={setFlt} />
         {adding?.kind === "order" && (
-          <OrderForm initial={adding.initial} services={services} orders={orders} busy={busy}
+          <OrderForm initial={adding.initial} services={services} orders={orders} roles={roles} busy={busy}
             onSave={(f) => act(() => addOrder(f)).then((r) => { if (r) setAdding(null); })}
             onCancel={() => setAdding(null)} />)}
         {!orders.length && <div style={hint}>Заказов пока нет.</div>}
         {sortItems(filterItems(orderedBy(pickOrder, orders.slice().reverse()), flt, { faceOf, services }),
           sort, { faceOf, picked: pickedRes(flt) }).map((o) => (
-          <OrderCard key={o.id} order={o} me={view.me} nameOf={nameOf} faceOf={faceOf}
+          <OrderCard key={o.id} order={o} me={view.me} nameOf={nameOf} faceOf={faceOf} roles={roles}
             onOpenPerson={setCard} services={services} picked={o.id === pickOrder}
             busy={busy} act={act} isOwner={Boolean(me?.isOwner)} />))}
       </>)}
@@ -840,7 +873,7 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
         {!services.length && <div style={hint}>Услуг пока нет.</div>}
         {sortItems(filterItems(orderedBy(pickService, services.slice().reverse()), flt, { faceOf, services }),
           sort, { faceOf, picked: pickedRes(flt) }).map((s) => (
-          <ServiceCard key={s.id} s={s} me={view.me} nameOf={nameOf} faceOf={faceOf}
+          <ServiceCard key={s.id} s={s} me={view.me} nameOf={nameOf} faceOf={faceOf} onOpenStorage={onOpenStorage}
             onOpenPerson={setCard} busy={busy} act={act} picked={s.id === pickService}
             isOwner={Boolean(me?.isOwner)} />))}
       </>)}

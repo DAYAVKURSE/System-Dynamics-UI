@@ -56,7 +56,7 @@ beforeEach(async () => {
 });
 
 const order = (who = 200, fields = {}) => request(app).post("/api/market/orders").set(as(who))
-  .send({ name: "Сайт-визитка", text: "три страницы", price: 30000,
+  .send({ name: "Сайт-визитка", text: "три страницы", price: 30000, roleId: role.id,
     resources: [{ name: "логотип", qty: 1 }, { name: "тексты", qty: 3 }], ...fields });
 
 describe("заказы и услуги", () => {
@@ -94,7 +94,7 @@ describe("заказы и услуги", () => {
   it("услуга: название, описание, берёт, выдаёт, срок, функция", async () => {
     const r = await request(app).post("/api/market/services").set(as(300)).send({
       name: "Вёрстка", text: "по макету", takes: [{ name: "макет", qty: 1 }],
-      gives: [{ name: "страница", qty: 3 }], days: 5, funcId: "f_1" });
+      gives: [{ name: "страница", qty: 3 }], days: 5, funcId: "f_1", private: false });
     expect(r.status).toBe(201);
     expect(r.body).toMatchObject({ name: "Вёрстка", days: 5, funcId: "f_1", by: "300" });
     const list = await request(app).get("/api/market").set(as(200));
@@ -264,7 +264,7 @@ describe("принимает заказ автоматически", () => {
     status: "ready" });
   const never = () => setProfile("300", { days: [], from: "", to: "" });
   const service = (auto) => request(app).post("/api/market/services").set(as(300))
-    .send({ name: "Вёрстка", text: "сверстаю", gives: [{ name: "макет", qty: 1 }],
+    .send({ private: false, name: "Вёрстка", text: "сверстаю", gives: [{ name: "макет", qty: 1 }],
       days: 3, auto });
 
   it("отметка хранится у услуги и видна заказчику", async () => {

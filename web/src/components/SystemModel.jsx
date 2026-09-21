@@ -12,6 +12,7 @@ import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
 import CodeGate, { PlanCard } from "./CodeGate.jsx";
 import { tabLocked } from "../plans.js";
+import { setStorage } from "../session.js";
 import { FACTORS_ON } from "../lib/flags.js";
 import { diffDocs } from "../lib/scenarioDiff.js";
 import LooseCrew from "./LooseCrew.jsx";
@@ -810,6 +811,15 @@ export default function SystemModel(){
     if(o?.users) setPeople(o.users);
     if(o?.roles) setRoles(o.roles);
   }).catch(()=>{}),[]);
+  /* Перейти в другое хранилище (lib session.js): модель, люди, история —
+     всё другое, поэтому страница открывается заново, а не подменяется. */
+  const openStorage=(sid)=>{
+    setStorage(sid||"");
+    resetIdentity();
+    if(typeof window!=="undefined"&&window.location&&typeof window.location.reload==="function"
+      &&import.meta.env.MODE!=="test") window.location.reload();
+    else whoAmI().then(m=>setMe(m)).catch(()=>{});
+  };
   useEffect(()=>{ let live=true;
     whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
     return ()=>{ live=false; };
@@ -1896,6 +1906,15 @@ export default function SystemModel(){
             disabled={savedBusy} onClick={saveNow} icon={ICON.save}/>)}
       </div>
 
+      {/* Чужое хранилище (владелец, 2026-09-21): чьё оно — и путь в своё. */}
+      {!me.solo&&me.storage&&me.ownStorage&&me.storage!==me.ownStorage&&(
+        <div className="flex items-center gap-2" style={{marginBottom: "var(--space-8)"}}
+          aria-label="чужое хранилище">
+          <span style={{...S.lbl,flex:1}}>
+            хранилище: {(me.storages||[]).find(s=>s.id===me.storage)?.owner||me.storage}</span>
+          <button style={btn(false,ACC)} onClick={()=>openStorage("")}>В своё хранилище</button>
+        </div>)}
+
       {/* Ушли из регистрации «Назад» — путь обратно остаётся на виду. */}
       {needReg&&(
         <div className="flex" style={{marginBottom: "var(--space-8)"}}>
@@ -1956,7 +1975,8 @@ export default function SystemModel(){
           Из настроек функции сюда приводят «Сделать заказ» и «Сделать
           услугой» — с формой, заполненной словами функции. */}
       {tab==="market" && (
-        <MarketPanel me={me} traits={traitsLive} draft={marketDraft}
+        <MarketPanel me={me} traits={traitsLive} draft={marketDraft} roles={roles}
+          onOpenStorage={openStorage}
           onDraftDone={()=>setMarketDraft(null)}/>)}
 
       {/* ═══ АНКЕТА · страница человека ═══

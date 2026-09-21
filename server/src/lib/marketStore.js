@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { withModel, writeModel } from "./workspaceStore.js";
+import { MAIN, current, inStorage, ownStorageOf } from "./storages.js";
+import { addUser, readOrg } from "./orgStore.js";
 
 /* ════════════════════════════════════════════════════════════════
    РЫНОК УСЛУГ · заказы, услуги, отклики, чат, бриф, сделка
@@ -49,6 +51,20 @@ import { withModel, writeModel } from "./workspaceStore.js";
    ════════════════════════════════════════════════════════════════ */
 
 export const ORDER_STATUS = ["open", "deal", "done"];
+
+/* ─── МЕЖДУ ХРАНИЛИЩАМИ (владелец, 2026-09-21) ───
+
+   Рынок — одно место на всех, а работа — в хранилище ЗАКАЗЧИКА: заказ
+   помнит, в каком хранилище его оставили (`storage`), и сделка заводит
+   задачу там. Заказчик выбирает РОЛЬ СОИСКАТЕЛЯ из своей схемы
+   (`roleId`): нанятый получает эту роль в хранилище заказчика и, если у
+   роли есть договор, — договор на подпись.
+
+   У исполнителя в его собственном хранилище появляется УСЛУГА —
+   приватная, видная только ему и заказчику, — и функция в активе
+   «Владелец»: так у каждого в услугах есть то, что он делает для
+   других. Услуги приватны по умолчанию; открыть услугу всем — выбор
+   автора на форме. */
 
 const MAX_NAME = 120;
 const MAX_TEXT = 4000;
@@ -137,11 +153,15 @@ export function orderViewFor(order, userId) {
   };
 }
 
+/** Видна ли услуга: открытая — всем, приватная — автору и заказчику. */
+export const canSeeService = (s, userId) => s.private !== true
+  || mine(s.by, userId) || (s.customer != null && mine(s.customer, userId));
+
 export async function viewFor(userId) {
   const m = await readMarket();
   return {
     orders: m.orders.map((o) => orderViewFor(o, userId)),
-    services: m.services,
+    services: m.services.filter((s) => canSeeService(s, userId)),
   };
 }
 
@@ -172,6 +192,7 @@ export function addOrder(userId, fields = {}) {
       name, text: str(fields.text, MAX_TEXT), price: num(fields.price),
       resources: rows(fields.resources),
       funcId: sid(fields.funcId), serviceId: sid(fields.serviceId),
+      roleId: sid(fields.roleId), storage: current(),
       status: "open", offers: [],
     };
     m.orders.push(order);
@@ -195,6 +216,7 @@ export function updateOrder(userId, id, fields = {}) {
     if ("price" in fields) order.price = num(fields.price);
     if ("resources" in fields) order.resources = rows(fields.resources);
     if ("serviceId" in fields) order.serviceId = sid(fields.serviceId);
+    if ("roleId" in fields) order.roleId = sid(fields.roleId);
     await writeMarket(m);
     return orderViewFor(order, userId);
   });
@@ -227,6 +249,8 @@ export function addService(userId, fields = {}) {
          заказ по такой услуге не ждёт отклика — он его получает сам.
          Рабочее время проверяет маршрут: часы лежат в анкете. */
       auto: fields.auto === true,
+      // Приватна по умолчанию (владелец, 2026-09-21): открывают нарочно.
+      private: fields.private !== false,
     };
     m.services.push(s);
     await writeMarket(m);
@@ -249,6 +273,7 @@ export function updateService(userId, id, fields = {}) {
     if ("gives" in fields) s.gives = rows(fields.gives);
     if ("days" in fields) s.days = num(fields.days);
     if ("auto" in fields) s.auto = fields.auto === true;
+    if ("private" in fields) s.private = fields.private !== false;
     await writeMarket(m);
     return s;
   });
@@ -354,20 +379,78 @@ export function acceptBrief(userId, orderId, offerId) {
     if (mine(offer.brief.by, userId)) throw new BadInput("Это ваше предложение — принять его должна другая сторона");
     if (order.status !== "open") throw new BadInput("По заказу уже договорились с другим исполнителем");
     const svc = m.services.find((s) => s.id === (offer.serviceId || order.serviceId));
-    const task = await withModel(async (model) => {
+    /* Задача — в хранилище заказчика: там, где заказ оставили. */
+    const storage = order.storage || MAIN;
+    const task = await inStorage(storage, () => withModel(async (model) => {
       const t = taskOf(order, offer, svc);
       model.tasks = [...(model.tasks || []), t];
       await writeModel(model);
       return t;
-    });
+    }));
     offer.accepted = true;
     offer.acceptedBy = String(userId);
     offer.acceptedAt = now();
     offer.taskId = task.id;
     order.status = "deal";
     await writeMarket(m);
+    /* Найм: роль соискателя в хранилище заказчика (с договором, если он
+       у роли есть) и услуга у исполнителя. Ошибка тут сделку не
+       отменяет: задача уже заведена, и без неё было бы хуже. Рынок уже
+       в руках (`m`) — очередь второй раз не берётся. */
+    try { await hire(m, order, offer, task); }
+    catch (e) { console.error(`[market] найм по заказу ${order.id}: ${e.message}`); }
     return { offer, task };
   });
+}
+
+/* ─────── найм и услуга исполнителя ─────── */
+
+async function hire(m, order, offer, task) {
+  const storage = order.storage || MAIN;
+  if (order.roleId) {
+    await inStorage(storage, async () => {
+      const org = await readOrg();
+      if (!org.roles.some((r) => r.id === order.roleId)) return;
+      const was = org.users.find((u) => u.id === String(offer.by));
+      const name = was?.name || `участник ${offer.by}`;
+      /* addUser: роль с договором-файлом ложится в `pending` — человек
+         подпишет его, войдя в хранилище заказчика. */
+      await addUser({ id: offer.by, name, roleId: order.roleId, addedBy: order.by });
+    });
+  }
+  await noteWorkIn(m, offer.by, { name: order.name, text: order.text, customer: order.by,
+    storage, taskId: task.id, orderId: order.id, roleId: order.roleId || null });
+}
+
+/**
+ * Работа для другого — у исполнителя в СВОЁМ хранилище: приватная
+ * услуга (видна ему и заказчику) и функция в активе «Владелец».
+ * Одна на заказ: повторный вызов ничего не дублирует.
+ */
+export const noteWork = (executorId, fields = {}) =>
+  withMarket((m) => noteWorkIn(m, executorId, fields));
+
+async function noteWorkIn(m, executorId, { name, text = "", customer, storage, taskId = null,
+  orderId = null, roleId = null } = {}) {
+  const key = (s) => s.by === String(executorId) && s.storage === storage
+    && (orderId ? s.orderId === orderId : (!s.orderId && s.roleId === roleId));
+  let s = m.services.find(key);
+  if (s) return s;
+  const own = await ownStorageOf(executorId);
+  const funcId = uid("fn");
+  await inStorage(own, () => withModel(async (model) => {
+    model.funcs = [...(model.funcs || []), { id: funcId, e: "owner", name: str(name, MAX_NAME),
+      about: str(text, MAX_TEXT), takes: [], gives: [],
+      market: { storage, taskId, orderId, roleId } }];
+    await writeModel(model);
+  }));
+  s = { id: uid("svc"), by: String(executorId), at: now(),
+    name: str(name, MAX_NAME), text: str(text, MAX_TEXT), takes: [], gives: [],
+    days: null, funcId, auto: false, private: true,
+    customer: String(customer), storage, taskId, orderId, roleId };
+  m.services.push(s);
+  await writeMarket(m);
+  return s;
 }
 
 /* Задача сделки: постановка уже была — это бриф, поэтому сразу в бэклог.

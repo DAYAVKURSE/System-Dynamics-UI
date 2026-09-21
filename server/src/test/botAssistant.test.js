@@ -167,14 +167,18 @@ describe("разбиение под лимит Telegram", () => {
    помощник работает с НАСТОЯЩЕЙ очередью (createQueue на заглушках): отмена
    должна доходить до fetch, а не до слов. */
 describe("статус и кнопки под ним", () => {
-  let edits, answered, queue, release, calls;
+  let edits, answered, queue, calls, pending;
   const MODEL = { kind: "openai", key: "sk-test-0123456789", model: "gpt-4o-mini", providerName: "OpenAI" };
-  // Модель, слушающая signal, как настоящий fetch: отвечает, когда отпустят, или падает по отмене.
+  /* Модель, слушающая signal, как настоящий fetch: отвечает, когда
+     отпустят, или падает по отмене. Отпускаются ВСЕ ждущие вызовы, а не
+     последний: под нагрузкой второй вызов модели успевает встать до
+     «отпустить», и первый иначе висел бы вечно. */
   const complete = (p) => new Promise((resolve, reject) => {
     calls.push(p);
-    release = resolve;
+    pending.push(resolve);
     p.signal.addEventListener("abort", () => reject(new Error("Запрос отменён")));
   });
+  const release = (text) => { pending.splice(0).forEach((r) => r(text)); };
   const live = () => ({
     assistant: { ask: queue.askNow, cancel: queue.cancel, memory },
     send: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); return { message_id: sent.length }; },
@@ -187,7 +191,7 @@ describe("статус и кнопки под ним", () => {
   const settle = () => new Promise((r) => setTimeout(r, 5));
 
   beforeEach(() => {
-    edits = []; answered = []; calls = []; release = null;
+    edits = []; answered = []; calls = []; pending = [];
     queue = createQueue({ complete, modelFor: () => MODEL, contextFor: async () => "ctx", log: () => {} });
   });
 
@@ -344,6 +348,9 @@ describe("статус и кнопки под ним", () => {
       const r = await onAssistantMessage({ text: "что у меня?" }, from, live());
       // Время фальшивое — «дать всему улечься» тоже приходится вручную.
       await vi.advanceTimersByTimeAsync(5);
+      /* Пока модель не спросили, отпускать нечего: на загруженной машине
+         очередь доходит до неё позже пяти фальшивых миллисекунд. */
+      await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
       edits.length = 0;
       await vi.advanceTimersByTimeAsync(3000);
       // Три секунды — три правки, и каждая своим циферблатом.
@@ -357,7 +364,7 @@ describe("статус и кнопки под ним", () => {
       await vi.advanceTimersByTimeAsync(3000);
       expect(edits).toHaveLength(after);
     } finally { vi.useRealTimers(); }
-  });
+  }, 20000);
 
   /* ПОДТВЕРЖДЕНИЕ — ОТДЕЛЬНЫМ СООБЩЕНИЕМ С КНОПКАМИ (владелец,
      2026-09-21): «мне должно прийти сообщение с тем, что будет сделано, и
@@ -424,18 +431,19 @@ describe("«Уточнить» — срок ожидания", () => {
 
   it("дополнение через минуту — уточнение; через десять с лишним — обычный новый вопрос", async () => {
     const r = await onAssistantMessage({ text: "что по заявкам?" }, from, live());
-    await settle();
+    // Ждём именно вызова модели: пяти миллисекунд под нагрузкой не хватает.
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
     release("ок");
     await r.done;
     await refine(r.id);
     tick(KEEP_DONE_MS + 1000);
     const r2 = await onAssistantMessage({ text: "какие у меня задачи на завтра?" }, from, live());
-    await settle();
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
     expect(r2.refined).toBeUndefined();
     expect(r2.answered).toBe("queued");
     expect(calls[1].messages[0].content).toBe("какие у меня задачи на завтра?");
     expect(sent.map((m) => m.text)).not.toContain("Тот вопрос уже не помню — задаю ваш текст как новый вопрос.");
-  });
+  }, 20000);
 
   it("вопрос уже забыт, а «Уточнить» ещё нет — текст задаётся новым вопросом, а не выбрасывается", async () => {
     const r = await onAssistantMessage({ text: "что по заявкам?" }, from, live());

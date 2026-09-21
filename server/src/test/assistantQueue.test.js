@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { vi, describe, expect, it } from "vitest";
 import {
   CANCELLED_ERROR, MAX_CLIENT_CONTEXT, STALE_ERROR, SYSTEM_PROMPT, TTL_MS, WAITED_ERROR, createQueue,
 } from "../lib/assistantQueue.js";
@@ -136,6 +136,10 @@ describe("очередь вопросов", () => {
     });
     const a = q.ask({ userId: "200", question: "1" });
     const b = q.ask({ userId: "200", question: "2" });
+    /* Ждём, пока первый дойдёт до модели: два «тика» на загруженной
+       машине не гарантируют этого. Второй при этом стоит — это и
+       проверяется. */
+    await vi.waitFor(() => expect(order).toEqual(["start 1"]));
     await tick(); await tick();
     expect(order).toEqual(["start 1"]);
     release();

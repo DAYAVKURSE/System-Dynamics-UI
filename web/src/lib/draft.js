@@ -12,6 +12,7 @@
    Черновик — не версия сценария: он один, безымянный и живёт до тех пор,
    пока работа не сохранена или не отброшена. */
 import { getTelegram } from "../telegram.js";
+import { currentStorage } from "../session.js";
 
 /* Версия черновика поднята трижды: сперва документ стал другим (вместо
    стрелок и OKR — функции), затем у функций появилось расписание, а перенос
@@ -25,7 +26,10 @@ const BASE_KEY = "sd_draft";
    должен всплывать у другого, поэтому ключ разделён по пользователю. */
 export function draftKey() {
   const id = getTelegram()?.initDataUnsafe?.user?.id;
-  return id ? `${BASE_KEY}:${id}` : BASE_KEY;
+  /* И по хранилищу (владелец, 2026-09-21): черновик чужой модели не
+     должен всплыть поверх своей. */
+  const st = currentStorage();
+  return `${id ? `${BASE_KEY}:${id}` : BASE_KEY}${st ? `@${st}` : ""}`;
 }
 
 export function saveDraft(doc, meta = {}) {
