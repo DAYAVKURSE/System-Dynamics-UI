@@ -229,17 +229,17 @@ export default function Pomodoro({ taskId, meId }) {
         <div className="flex gap-2" style={{ flex: "0 0 auto" }}>
           <button type="button" aria-label="запустить" title="Запустить"
             disabled={running} onClick={play}
-            style={{ ...btn(true, ACC), padding: "var(--space-4) var(--space-8)", opacity: running ? 0.5 : 1 }}>
+            style={{ ...btn(true, ACC), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", opacity: running ? 0.5 : 1 }}>
             <Icon d={PLAY} /></button>
           <button type="button" aria-label="пауза" title="Пауза"
             disabled={!running} onClick={pause}
-            style={{ ...btn(false), padding: "var(--space-4) var(--space-8)", opacity: running ? 1 : 0.5 }}>
+            style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", opacity: running ? 1 : 0.5 }}>
             <Icon d={PAUSE} /></button>
           <button type="button" aria-label="сброс"
             title={st.mode === "work" ? "Сбросить и перейти к перерыву"
               : "Сбросить и перейти к работе"}
             onClick={reset}
-            style={{ ...btn(false), padding: "var(--space-4) var(--space-8)" }}>
+            style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>
             <Icon d={RESET} line /></button>
         </div>
       </div>

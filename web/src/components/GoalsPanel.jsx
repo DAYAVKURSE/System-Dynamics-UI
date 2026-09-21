@@ -123,7 +123,7 @@ function Conds({ goal, traits, traitName, st, up }) {
               aria-label={i ? `операция ${i + 1}` : "сколько ресурса"}
               onCommit={(v) => set(i, v)} />
             {shown.length > 1 && (
-              <button style={{ ...btn(true, BAD), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+              <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                 aria-label={`убрать операцию ${i + 1}`}
                 onClick={() => drop(i)}>✕</button>)}
             {mine && mine.met != null && !mine.error && (
@@ -132,7 +132,7 @@ function Conds({ goal, traits, traitName, st, up }) {
           </div>);
       })}
       <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)", alignItems: "center" }}>
-        <button style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+        <button style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
           onClick={add}>+ операция</button>
         <span style={{ fontSize: 10.5, color: C.muted }}>
           {st.target != null && st.cap != null
@@ -260,10 +260,10 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
           </span>)}
         {/* «Отозвать» — рядом с «удалить» (владелец, 2026-09-20): у
             непринятой цели отзывать нечего, и кнопка не нажимается. */}
-        <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)",
+        <button style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)",
           opacity: goal.appliedAt ? 1 : 0.5 }} aria-label="отозвать цель"
           disabled={!goal.appliedAt} onClick={() => setRecall(true)}>отозвать</button>
-        <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }} aria-label="удалить цель"
+        <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }} aria-label="удалить цель"
           onClick={() => onDel(goal.id)}>удалить</button>
       </div>
       {/* Отзыв спрашивает об одном: стирать ли сделанное. «Нет» убирает
@@ -319,9 +319,9 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
       <div className="flex gap-2" style={{ alignItems: "flex-end",
         flexWrap: "nowrap" }}>
         <div className="flex gap-2" style={{ flex: "0 0 auto" }}>
-          <button style={{ ...btn(goal.dueKind === DUE_IN), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+          <button style={{ ...btn(goal.dueKind === DUE_IN), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
             onClick={() => up({ dueKind: DUE_IN })}>через</button>
-          <button style={{ ...btn(goal.dueKind === DUE_ON), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+          <button style={{ ...btn(goal.dueKind === DUE_ON), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
             onClick={() => up({ dueKind: DUE_ON })}>к дате</button>
         </div>
         {goal.dueKind === DUE_IN ? (<>
@@ -438,7 +438,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
           const on = (goal.days || []).includes(d.id);
           return (
             <button key={d.id} aria-label={`день ${d.short}`} disabled={!capped}
-              style={{ ...btn(on && capped), fontSize: 11, padding: "var(--space-4) var(--space-8)",
+              style={{ ...btn(on && capped), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",
                 cursor: capped ? "pointer" : "default" }}
               onClick={() => up({ days: on ? goal.days.filter((x) => x !== d.id)
                 : [...(goal.days || []), d.id] })}>{d.short}</button>);

@@ -32,3 +32,33 @@ describe("ряд из одних кнопок — по ширине", () => {
     expect(css).not.toMatch(/>\s*button\s*\{\s*flex:\s*1\s+1/);
   });
 });
+
+/* НА 15 % МЕНЬШЕ, НО НЕ БЛИЖЕ 2 ММ К БУКВАМ (владелец, 2026-09-21).
+   Размеры заданы токенами в одном месте — их и проверяем: по ширине
+   полные 15 %, по высоте — сколько позволяют 2 мм (7,6 px) до буквы. */
+describe("размеры на 15 % меньше", () => {
+  const css = fs.readFileSync(path.resolve(process.cwd(), "src/index.css"), "utf8");
+  const token = (name) => Number((css.match(new RegExp(`${name}:\\s*([\\d.]+)px`)) || [])[1]);
+  it("кнопка: по ширине −15 %, по высоте — до буквы не меньше 2 мм", () => {
+    expect(token("--btn-px")).toBe(10);                 // 12 − 15 %
+    const h = token("--control-h");
+    expect(h).toBeLessThan(28);
+    // Прописная 10 px: до рамки с каждой стороны остаётся ≥ 7,6 px.
+    expect((h - 10) / 2).toBeGreaterThanOrEqual(7.6);
+    expect(token("--btn-py") * 2 + 18 + 2).toBe(h);     // отступы собирают ту же высоту
+  });
+  it("поле и форма — на 15 %", () => {
+    expect(token("--inp-py") * 2 + 20 + 2).toBeLessThanOrEqual(38 * 0.85 + 0.5);
+    expect(token("--inp-px")).toBe(10);
+    expect(token("--card-p")).toBe(17);                 // 20 − 15 %
+  });
+  it("кнопка и поле берут размеры из токенов, а шрифт — прежний", async () => {
+    const { S, btn } = await import("../components/ui.jsx");
+    expect(btn(false).paddingLeft).toBe("var(--btn-px)");
+    expect(btn(false).paddingTop).toContain("var(--btn-py)");
+    expect(btn(false).fontSize).toBe(13);
+    expect(S.inp.padding).toBe("var(--inp-py) var(--inp-px)");
+    expect(S.inp.fontSize).toBe(14);
+    expect(S.card.padding).toBe("var(--card-p)");
+  });
+});

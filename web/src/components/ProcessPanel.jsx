@@ -861,7 +861,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                     onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                 </div>)}
               <button type="button" aria-label="добавить критерий" onClick={() => setNewCheck("")}
-                style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)" }}>+ критерий</button>
+                style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>+ критерий</button>
             </Fold>
             <Fold title="срок" open={fold === "dur"} onToggle={() => setFold(fold === "dur" ? "" : "dur")}
               value={durText(taskTime)}>
@@ -995,7 +995,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                   {MATERIAL_KINDS.map((k) => (
                     <button key={k.id} type="button" aria-pressed={traitKind(resTrait) === k.id}
                       aria-label={`${k.name}: ${res.name}`} onClick={() => onTrait(resTrait.id, { kind: k.id })}
-                      style={{ ...btn(traitKind(resTrait) === k.id, traitKind(resTrait) === k.id ? ACC : null), fontSize: 11, padding: "0 var(--space-4)" }}>
+                      style={{ ...btn(traitKind(resTrait) === k.id, traitKind(resTrait) === k.id ? ACC : null), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}>
                       {k.name}</button>))}
                 </div>
               </Fold>
@@ -1006,7 +1006,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                   {kinds.map((x) => (
                     <button key={x.id} type="button" aria-pressed={hasKind(resTrait, x.id)} aria-label={`${x.name}: ${res.name}`}
                       onClick={() => { const z = toggleKind(resTrait, x.id); onTrait(resTrait.id, { ks: z.ks, k: z.k }); }}
-                      style={{ ...btn(hasKind(resTrait, x.id), x.color), fontSize: 11, padding: "0 var(--space-4)" }}>
+                      style={{ ...btn(hasKind(resTrait, x.id), x.color), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}>
                       {x.sign} {x.name}</button>))}
                 </div>
               </Fold>
@@ -1070,12 +1070,12 @@ function Chip({ name, kind, state, tail = "", open, onOpen, onAccept, acceptWhy,
         <span style={{ marginLeft: "var(--space-4)", whiteSpace: "nowrap" }}>
           {onAccept && (
             <button type="button" aria-label={`принять ${WORD[kind]} «${name}»`} disabled={!!acceptWhy} title={acceptWhy || ""}
-              style={{ ...btn(true, OK), fontSize: 11, padding: "0 var(--space-8)", opacity: acceptWhy ? 0.5 : 1 }}
+              style={{ ...btn(true, OK), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", opacity: acceptWhy ? 0.5 : 1 }}
               onClick={onAccept}>Принять</button>)}
           {onAccept && " "}
           {rejected
-            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`} style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)" }} onClick={onRestore}>Вернуть</button>
-            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`} style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-8)" }} onClick={onReject}>Отклонить</button>}
+            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`} style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={onRestore}>Вернуть</button>
+            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`} style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={onReject}>Отклонить</button>}
         </span>)}
     </span>);
 }
@@ -1142,7 +1142,7 @@ function Versions({ proc, model, onSave }) {
       <div className="flex items-center gap-2">
         <input value={note} onChange={(e) => setNote(e.target.value)} aria-label="что изменилось" placeholder="что изменилось"
           style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "var(--space-4) var(--space-4)" }} />
-        <button type="button" style={{ ...btn(dirty), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} disabled={!dirty}
+        <button type="button" style={{ ...btn(dirty), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} disabled={!dirty}
           aria-label="сохранить версию" onClick={() => { onSave(note.trim()); setNote(""); }}>Сохранить версию</button>
       </div>
       {/* «Прошлые версии» — на всю ширину формы (владелец, 2026-09-18). */}
@@ -1391,7 +1391,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                     <span data-proc-name="" title="двойное нажатие — переименовать"
                       style={{ flex: 1, minWidth: 0, color: p.name ? C.text : C.muted, fontSize: 13.5, fontWeight: 700,
                         lineHeight: 1.3, whiteSpace: "normal", overflowWrap: "anywhere" }}>{label}</span>)}
-                  <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }}
+                  <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}
                     aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
                 </div>
                 <div className="flex items-center gap-2" style={{ marginTop: 0 }}>
@@ -1454,22 +1454,22 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   </div>);
               })}
               <button type="button" aria-label="добавить функцию процесса" onClick={() => addPart(p)}
-                style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)", marginBottom: "var(--space-4)" }}>+ функция</button>
+                style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", marginBottom: "var(--space-4)" }}>+ функция</button>
 
               {/* Карты процесса — справа под полем (владелец, 2026-09-18). */}
               <div className="flex items-center gap-2" style={{ marginTop: "var(--space-4)", justifyContent: "flex-end" }}>
                 <button type="button" aria-label="таймлайн процесса" title="таймлайн: когда идут задачи"
                   onClick={() => setMaps({ proc: p, mode: "timeline" })}
-                  style={{ ...btn(false), fontSize: 14, padding: "0 var(--space-8)", lineHeight: 1.4 }}>▤</button>
+                  style={{ ...btn(false), fontSize: 14, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", lineHeight: 1.4 }}>▤</button>
                 <button type="button" aria-label="майнд-карта процесса" title="майнд-карта: что куда уходит"
                   onClick={() => setMaps({ proc: p, mode: "mind" })}
-                  style={{ ...btn(false), fontSize: 14, padding: "0 var(--space-8)", lineHeight: 1.4 }}>⛭</button>
+                  style={{ ...btn(false), fontSize: 14, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", lineHeight: 1.4 }}>⛭</button>
               </div>
 
               <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
-                <button type="button" style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} aria-label="выгрузить техпроцесс"
+                <button type="button" style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="выгрузить техпроцесс"
                   onClick={() => setModal({ proc: p, mode: "export", text: exportText(p.text) })}>Выгрузить</button>
-                <button type="button" style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} aria-label="загрузить техпроцесс"
+                <button type="button" style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="загрузить техпроцесс"
                   onClick={() => setModal({ proc: p, mode: "import", text: "" })}>Загрузить</button>
               </div>
 

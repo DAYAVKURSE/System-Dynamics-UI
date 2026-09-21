@@ -250,11 +250,11 @@ function Pannable({ label, children, wide = 1200, tall = 700, view, onView, onRe
       </div>
       <div className="flex items-center gap-2" style={{ position: "absolute", right: 6, bottom: 6, zIndex: 2 }}>
         <button type="button" aria-label="мельче" onClick={() => zoom(-0.2)}
-          style={{ ...btn(false), fontSize: 12, padding: "0 var(--space-8)" }}>−</button>
+          style={{ ...btn(false), fontSize: 12, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>−</button>
         <button type="button" aria-label="крупнее" onClick={() => zoom(0.2)}
-          style={{ ...btn(false), fontSize: 12, padding: "0 var(--space-8)" }}>+</button>
+          style={{ ...btn(false), fontSize: 12, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>+</button>
         <button type="button" aria-label="в начало" onClick={() => { setAt({ x: 0, y: 0 }); setK(1); onView?.({ x: 0, y: 0, k: 1 }); onReset?.(); }}
-          style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)" }}>сброс</button>
+          style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>сброс</button>
       </div>
     </div>);
 }
@@ -812,7 +812,7 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
         <div className="flex items-center gap-2">
           <span style={S.lbl}>{mode === "timeline" ? "таймлайн" : "майнд-карта"}</span>
           <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700 }}>{proc?.name || "процесс"}</span>
-          <button type="button" style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} aria-label="закрыть карту" onClick={onClose}>✕</button>
+          <button type="button" style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="закрыть карту" onClick={onClose}>✕</button>
         </div>
         {/* Две формы одна под другой (владелец, 2026-09-20): движение
             ресурсов — одно, взаимодействие сотрудников — другое. */}

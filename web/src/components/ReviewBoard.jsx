@@ -102,16 +102,16 @@ function Delete({ t, can, killId, setKillId, onKill, isOwner = false }) {
         <span style={{ fontSize: 10.5, color: BAD }}>
           {killStarted(t) ? "удалить вместе со сдачами, оценками и выданными единицами?"
             : "удалить насовсем?"}</span>
-        <button style={{ ...btn(true, BAD), padding: "0 var(--space-8)", fontSize: 10.5 }}
+        <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", fontSize: 10.5 }}
           aria-label={`да, удалить ${t.title}`}
           onClick={(e) => { e.stopPropagation(); onKill(t); }}>Да</button>
-        <button style={{ ...btn(false), padding: "0 var(--space-8)", fontSize: 10.5 }}
+        <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", fontSize: 10.5 }}
           aria-label={`оставить ${t.title}`}
           onClick={(e) => { e.stopPropagation(); setKillId(null); }}>Оставить</button>
       </span>);
   }
   return (
-    <button style={{ ...btn(false), padding: "0 var(--space-8)", fontSize: 10.5, color: BAD,
+    <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", fontSize: 10.5, color: BAD,
       borderColor: DANGER_LINE }}
       aria-label={`удалить задачу ${t.title}`}
       onClick={(e) => { e.stopPropagation(); setKillId(t.id); }}>Удалить</button>);
@@ -328,7 +328,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
   const recallRow = (t) => (recallable(t) ? (
     <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
       <span style={{ flex: 1 }} />
-      <button style={{ ...btn(false), padding: "0 var(--space-8)", fontSize: 10.5 }}
+      <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", fontSize: 10.5 }}
         aria-label={`отозвать задачу ${t.title}`}
         onClick={(e) => { e.stopPropagation(); recall(t); }}>Отозвать</button>
     </div>) : null);

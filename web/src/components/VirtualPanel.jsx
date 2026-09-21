@@ -237,7 +237,7 @@ export default function VirtualPanel({ me, onEnter }) {
                   return (
                     <button key={r.id} type="button" aria-pressed={has} disabled={busy}
                       aria-label={`роль «${r.name}»: ${u.name}`}
-                      style={{ ...btn(has, has ? OK : undefined), fontSize: 11, padding: "0 var(--space-8)" }}
+                      style={{ ...btn(has, has ? OK : undefined), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                       onClick={() => act(() => setVirtualRoles(u.id, has
                         ? (u.roles || []).filter((x) => x !== r.id)
                         : [...(u.roles || []), r.id]))}>

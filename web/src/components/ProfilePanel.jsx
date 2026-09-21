@@ -133,7 +133,7 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
             <button key={x.id} aria-label={`статус: ${x.name}`} aria-pressed={sc.status === x.id}
               style={{ ...btn(sc.status === x.id,
                 sc.status === x.id ? statusColor(x.id) : null),
-              fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+              fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
               /* Метка момента: выбор приоритетнее графика до следующей
                  смены по нему (lib/workers.js, liveStatus). */
               onClick={() => setDraft((p) => ({ ...p, status: x.id,
@@ -160,7 +160,7 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
               <button key={d.id} aria-label={`рабочий день ${d.short}`}
                 aria-pressed={on}
                 style={{ ...btn(on, edit ? WARN : null), fontSize: 11,
-                  padding: "var(--space-4) var(--space-8)", touchAction: "manipulation",
+                  paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", touchAction: "manipulation",
                   ...(edit ? { color: WARN, borderColor: WARN } : {}),
                   ...(view ? { outline: `2px solid ${ACC}`, outlineOffset: 1 } : {}) }}
                 onClick={() => tap(d.id)}
@@ -209,7 +209,7 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
         {set.length > 0 && (
           <div style={{ marginTop: "var(--space-4)" }}>
             <button aria-label="принять: часы дня"
-              style={{ ...btn(true, WARN), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+              style={{ ...btn(true, WARN), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
               onClick={accept}>Принять</button>
             {!allOn && (
               <span style={{ fontSize: 10.5, color: C.muted, marginLeft: "var(--space-8)" }}>
@@ -410,7 +410,7 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
                 <button disabled={busy}
                   aria-label={`${d.off ? "вернуть" : "отказаться"}: ${d.name}`}
                   style={{ ...btn(d.off, d.off ? null : BAD), fontSize: 11,
-                    padding: "0 var(--space-8)" }}
+                    paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                   onClick={() => onRefuse(d.func, !d.off)}>
                   {d.off ? "Вернуть" : "Отказаться"}</button>)}
             </div>))}
@@ -722,7 +722,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
             <button type="button" aria-label="изменить имя" title="Изменить имя"
               disabled={busy} onClick={() => { setNaming(true); setMsg(""); }}
               style={{ ...btn(false), flex: "0 0 auto", fontSize: 12,
-                padding: "0 var(--space-8)" }}>✎</button>)}
+                paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>✎</button>)}
         </>)}
       </div>
       {nameMsg && (
@@ -825,7 +825,7 @@ export function ReminderList({ known }) {
       marginTop: "var(--space-8)" }} aria-label="список напоминаний">
       <div className="flex items-center gap-2">
         <span style={{ ...S.lbl, flex: 1 }}>список напоминаний</span>
-        <button type="button" style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)" }} onClick={load}>
+        <button type="button" style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={load}>
           Обновить</button>
       </div>
       {list === null && !err && <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>Загружаю…</div>}
@@ -853,7 +853,7 @@ export function ReminderList({ known }) {
           <button type="button" disabled={busy === r.id}
             aria-label={`удалить напоминание ${r.title}`}
             style={{ ...btn(true, BAD), fontSize: 11,
-              padding: "var(--space-4) var(--space-8)", marginTop: "var(--space-4)" }}
+              paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", marginTop: "var(--space-4)" }}
             onClick={() => drop(r.id)}>{busy === r.id ? "Удаляю…" : "Удалить"}</button>
         </div>))}
     </div>);

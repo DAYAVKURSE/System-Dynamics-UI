@@ -30,7 +30,7 @@ function Head({ title, onBack }) {
   return (
     <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
       {onBack && (
-        <button type="button" style={{ ...btn(false), padding: "0 var(--space-8)" }}
+        <button type="button" style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
           aria-label="назад" onClick={onBack}>← Назад</button>)}
       <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{title}</span>
     </div>);

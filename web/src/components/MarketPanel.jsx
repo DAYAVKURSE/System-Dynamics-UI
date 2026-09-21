@@ -69,7 +69,7 @@ function Rows({ rows, onChange, label, single = false }) {
             style={{ ...S.inp, flex: "1 1 60px", maxWidth: 90 }} placeholder="сколько"
             value={r.qty ?? ""} onChange={(e) => set(i, { qty: e.target.value })} />
           {!single && (
-            <button type="button" style={{ ...btn(false), padding: "var(--space-4) var(--space-8)" }}
+            <button type="button" style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
               aria-label={`${label}: убрать строку`} onClick={() => drop(i)}>✕</button>)}
         </div>))}
       {!single && (

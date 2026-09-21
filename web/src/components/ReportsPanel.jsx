@@ -444,7 +444,7 @@ function AnchorLink({ href, label }) {
   };
   return (
     <span className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-      <button style={{ ...btn(false), fontSize: 10, padding: "0 var(--space-4)" }}
+      <button style={{ ...btn(false), fontSize: 10, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}
         aria-label={`ссылка на раздел отчёта: ${label}`} onClick={go}>🔗</button>
       {copied && (<span style={{ fontSize: 10, color: ACC, wordBreak: "break-all" }}>
         {copied}</span>)}
@@ -1186,7 +1186,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
                   {picked.map((id) => {
                     const u = units.find((x) => x.id === id);
                     return (
-                      <button key={id} style={{ ...btn(true, ACC), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+                      <button key={id} style={{ ...btn(true, ACC), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                         aria-label={`убрать единицу: ${u ? `№${u.no}` : id}`}
                         onClick={() => setD({ units: picked.filter((x) => x !== id) })}>
                         {u ? `№${u.no} ${u.title || "без названия"}` : "единица удалена"}

@@ -1406,7 +1406,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
           <div className="flex flex-wrap gap-2" style={{marginTop: "var(--space-4)"}}>
             {own.slice(0,12).map(u=>(
               <button key={u.id} style={{...btn(on(u.id),on(u.id)?ACC:null),
-                fontSize:10.5,padding: "0 var(--space-4)"}}
+                fontSize:10.5,paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)"}}
                 aria-label={`взял ${traitName(port.trait)} №${u.no}`}
                 onClick={()=>flip(u.id)}>
                 №{u.no} {unitLabel(u)}</button>))}
@@ -1473,7 +1473,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
           <div style={{padding: "0 var(--space-8) var(--space-8)"}}>
             {k==="file"&&(
               <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-                <label style={{...btn(false),fontSize:11,padding: "var(--space-4) var(--space-8)",
+                <label style={{...btn(false),fontSize:11,paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",
                   cursor:busy?"default":"pointer",opacity:busy?0.6:1}}>
                   {busy?"Загружаю…":u?.file?"Заменить файл":"Загрузить файл"}
                   <input type="file" style={{display:"none"}} disabled={busy}
@@ -1546,7 +1546,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
      подтверждают не каждый ключ отдельно, а то, что партию выдали. */
   const proofRow=()=>(
     <div key="proof" className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom: "var(--space-8)"}}>
-      <label style={{...btn(false),fontSize:11,padding: "var(--space-4) var(--space-8)",
+      <label style={{...btn(false),fontSize:11,paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",
         cursor:proofBusy?"default":"pointer",opacity:proofBusy?0.6:1,
         borderColor:proof?undefined:DANGER_LINE}}>
         {proofBusy?"Загружаю…":proof?"Заменить подтверждение":"Загрузить подтверждение"}
@@ -1890,14 +1890,14 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                       alignItems:"center"}}>
                       {!ro&&!isCanceled(t)&&!isTaken(t)&&(BACKLOG_STATES.includes(t.status)
                         ||t.status==="deadline")&&(
-                        <button style={{...btn(true,ACC),padding: "var(--space-4) var(--space-8)",fontSize:11}}
+                        <button style={{...btn(true,ACC),paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",fontSize:11}}
                           onClick={e=>{e.stopPropagation();take(t);}}>
                           Взять в работу</button>)}
                       {/* У отменённой кнопок работы нет: её не берут и не
                           сдают, пока решение не отменили обратно. */}
                       {!ro&&!isCanceled(t)&&isTaken(t)
                         &&(t.status==="progress"||t.status==="deadline")&&(
-                        <button style={{...btn(true,OK),padding: "var(--space-4) var(--space-8)",fontSize:11}}
+                        <button style={{...btn(true,OK),paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",fontSize:11}}
                           onClick={e=>{e.stopPropagation();hand(t);}}>
                           Сдать</button>)}
                       {!isCanceled(t)&&t.status==="review"&&(
@@ -1907,7 +1907,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                         <span style={{fontSize:10.5,color:OK}}>принято</span>)}
                       <span style={{flex:1}}/>
                       {!ro&&canAssign&&isCanceled(t)&&(
-                        <button style={{...btn(false),padding: "var(--space-4) var(--space-8)",fontSize:11}}
+                        <button style={{...btn(false),paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",fontSize:11}}
                           aria-label={`вернуть задачу ${t.title}`}
                           onClick={e=>{e.stopPropagation();undrop(t);}}>
                           Вернуть</button>)}
@@ -1916,7 +1916,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                           не делает; сданную проверяют, принятую сделали. */}
                       {!ro&&!isCanceled(t)&&dropId!==t.id&&isTaken(t)
                         &&(t.status==="progress"||t.status==="deadline")&&(
-                        <button style={{...btn(false),padding: "var(--space-4) var(--space-8)",fontSize:11,
+                        <button style={{...btn(false),paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",fontSize:11,
                           color:BAD,borderColor:DANGER_LINE,whiteSpace:"nowrap"}}
                           aria-label={`отменить работу ${t.title}`}
                           onClick={e=>{e.stopPropagation();setDropId(t.id);}}>
@@ -1932,10 +1932,10 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                           но позже. Сама задача никуда не денется.
                         </div>
                         <div className="flex gap-2">
-                          <button style={{...btn(true,BAD),padding: "var(--space-4) var(--space-8)",fontSize:11}}
+                          <button style={{...btn(true,BAD),paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",fontSize:11}}
                             onClick={e=>{e.stopPropagation();drop(t);}}>
                             Да, вернуть в бэклог</button>
-                          <button style={{...btn(false),padding: "var(--space-4) var(--space-8)",fontSize:11}}
+                          <button style={{...btn(false),paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",fontSize:11}}
                             onClick={e=>{e.stopPropagation();setDropId(null);}}>
                             Оставить</button>
                         </div>

@@ -48,7 +48,7 @@ export function Section({ title, hint, addLabel, onAdd, empty, children, count }
         {count != null && <span style={{ fontSize: 10.5, color: C.muted }}>{count}</span>}
         <span style={{ flex: 1 }} />
         {onAdd && (
-          <button style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} onClick={onAdd}>
+          <button style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={onAdd}>
             {addLabel}</button>)}
       </div>
       {hint && (
@@ -80,7 +80,7 @@ export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle
         <NameField value={title} onCommit={onTitle}
           style={{ fontSize: 12.5, fontWeight: 600 }}
           aria-label={`название ${titleLabel}`} />
-        <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }} onClick={onDelete}>удалить</button>
+        <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }} onClick={onDelete}>удалить</button>
       </div>
       {mark && <div style={{ marginTop: 0 }}>{mark}</div>}
       {summary && (
@@ -247,7 +247,7 @@ function Posts({ title, ids, positions, who, nameOf, legacy, empty, onToggle }) 
           const on = ids.includes(p.id);
           return (
             <button key={p.id} aria-pressed={on} aria-label={`${title}: ${p.name}`}
-              style={{ ...btn(on, on ? ACC : null), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+              style={{ ...btn(on, on ? ACC : null), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
               onClick={() => onToggle(p.id)}>{p.name}</button>);
         })}
       </div>
@@ -273,7 +273,7 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
           const on = ids.includes(p.id);
           return (
             <button key={p.id} style={{ ...btn(on, on ? ACC : null), fontSize: 11,
-              padding: "var(--space-4) var(--space-8)" }} onClick={() => onToggle(p.id)}>
+              paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={() => onToggle(p.id)}>
               {nameOf ? nameOf(p.id) : (p.name || p.id)}</button>);
         })}
       </div>
@@ -377,7 +377,7 @@ function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, r
               return (
                 <button key={p.id} aria-pressed={has}
                   aria-label={`роль «${p.name}»: ${name}`}
-                  style={{ ...btn(has, has ? ACC : null), fontSize: 11, padding: "0 var(--space-8)" }}
+                  style={{ ...btn(has, has ? ACC : null), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                   onClick={() => act(() => onSetRoles(pid, has
                     ? roles.filter((x) => String(x) !== p.id)
                     : [...roles, p.id]))}>
@@ -393,7 +393,7 @@ function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, r
             {reachable.map((f) => (
               <button key={f.id} aria-pressed={off(f)}
                 aria-label={`исключение «${f.name || "без названия"}»: ${name}`}
-                style={{ ...btn(off(f), BAD), fontSize: 11, padding: "0 var(--space-8)" }}
+                style={{ ...btn(off(f), BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                 onClick={() => onToggleFunc && onToggleFunc(pid, f.id)}>
                 {off(f) ? "✕ " : ""}{f.name || "без названия"}</button>))}
           </div>)}
@@ -498,7 +498,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                   <button key={p.id} type="button" aria-pressed={on}
                     aria-label={`должность актива «${p.name}»`}
                     title={other ? `сейчас у актива «${other.name}» — нажатие переведёт сюда` : ""}
-                    style={{ ...btn(on, on ? "#C9A0FF" : null), fontSize: 11, padding: "0 var(--space-8)",
+                    style={{ ...btn(on, on ? "#C9A0FF" : null), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",
                       opacity: other ? 0.6 : 1 }}
                     onClick={() => act(() => onTogglePost(p.id))}>
                     {p.name}{other ? <span style={{ fontSize: 10, opacity: 0.8 }}> · {other.name}</span> : null}</button>);
@@ -670,7 +670,7 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
                           <span style={{ color: ACC, fontSize: 11 }}>
                             {out ? " → «" : " ← «"}{assetName(at.e)}»</span>)}
                       </span>
-                      <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)",
+                      <button style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)",
                         color: BAD, borderColor: DANGER_LINE }}
                         aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
                         onClick={() => onDel(p.id)}>×</button>
@@ -948,11 +948,11 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                   <TxtField value={c} aria-label={`критерий ${i + 1}`} style={{ flex: 1, fontSize: 12 }}
                     onCommit={(v) => setChecksOf(f, (f.checks || []).map((y, k) => (k === i ? v : y)).filter((y) => String(y).trim()))} />
-                  <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }}
+                  <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}
                     aria-label={`убрать критерий ${i + 1}`}
                     onClick={() => setChecksOf(f, (f.checks || []).filter((y, k) => k !== i))}>✕</button>
                 </div>))}
-              <button style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} aria-label="добавить критерий"
+              <button style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="добавить критерий"
                 onClick={() => setChecksOf(f, [...(f.checks || []), " "])}>+ критерий</button>
             </Form>
 
@@ -1012,7 +1012,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   <span style={{ color: C.muted }}>
                     {" · "}{factorChance(factors.find((x) => x.id === id))}%</span>
                 </span>
-                <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)",
+                <button style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)",
                   color: BAD }} aria-label={`убрать фактор ${factorName(id)}`}
                   onClick={() => up(f.id, (x) => ({ ...x,
                     factors: factorsOf(x).filter((_, j) => j !== i) }))}>×</button>
@@ -1342,7 +1342,7 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
                 onCommit={(v) => up(x.id, { name: v })} />
               <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
                 {used(x.id) ? `функций: ${used(x.id)}` : "не используется"}</span>
-              <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }} aria-label={`удалить фактор ${x.name}`}
+              <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }} aria-label={`удалить фактор ${x.name}`}
                 onClick={() => del(x.id)}>✕</button>
             </div>
             {/* Та же подпись, что у функции и ресурса: красная, пока человек
@@ -1542,7 +1542,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                 return (
                   <button key={k.id} aria-pressed={on}
                     aria-label={`${k.name}: ${t.l || "без названия"}`}
-                    style={{ ...btn(on, on ? ACC : null), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+                    style={{ ...btn(on, on ? ACC : null), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                     onClick={() => up(t.id, { kind: k.id })}>{k.name}</button>);
               })}
             </div>
@@ -1564,7 +1564,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                 return (
                   <button key={x.id} aria-pressed={on}
                     aria-label={`${x.name}: ${t.l || "без названия"}`}
-                    style={{ ...btn(on, x.color), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
+                    style={{ ...btn(on, x.color), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                     onClick={() => { const z = toggleKind(t, x.id); up(t.id, { ks: z.ks, k: z.k }); }}>
                     {x.sign} {x.name}</button>);
               })}
@@ -1595,7 +1595,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
           style={{ flex: "1 1 160px" }} onCommit={setDraft} />
         {kinds.map((k) => (
           <button key={k.id} style={{ ...btn(false), borderColor: k.color, color: k.color,
-            fontSize: 11, padding: "var(--space-4) var(--space-8)" }} onClick={() => add(k.id)}>
+            fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={() => add(k.id)}>
             + {k.sign} {k.name}</button>))}
       </div>
       {onUpKind && (

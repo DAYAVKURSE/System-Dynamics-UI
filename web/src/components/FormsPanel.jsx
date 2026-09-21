@@ -75,7 +75,7 @@ function FormCard({ form, busy, act }) {
                 send(qs.map((x) => (x.id === q.id ? { id: x.id, text: v } : x)));
               }
             }} />
-          <button style={{ ...btn(true, BAD), padding: "0 var(--space-8)" }} disabled={busy}
+          <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} disabled={busy}
             aria-label={`убрать вопрос ${i + 1} анкеты «${form.name}»`}
             onClick={() => send(qs.filter((x) => x.id !== q.id))}>✕</button>
         </div>))}

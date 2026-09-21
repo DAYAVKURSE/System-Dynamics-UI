@@ -110,7 +110,7 @@ function Contract({ role, busy, onSet }) {
           style={{ fontSize: 11, color: ACC }}>{role.contract.name || "файл"}</a>
         : <span style={{ fontSize: 10.5, color: WARN }}>
           нет — роль выдаётся без акцепта</span>}
-      <label style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)",
+      <label style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",
         cursor: load || busy ? "default" : "pointer", opacity: load || busy ? 0.6 : 1 }}>
         {load ? "Загружаю…" : role.contract ? "Заменить" : "Загрузить договор"}
         <input type="file" style={{ display: "none" }} disabled={load || busy}
@@ -118,7 +118,7 @@ function Contract({ role, busy, onSet }) {
           onChange={(e) => pick(e.target.files?.[0])} />
       </label>
       {role.contract && (
-        <button style={{ ...btn(false), fontSize: 10.5, padding: "0 var(--space-4)", color: BAD }}
+        <button style={{ ...btn(false), fontSize: 10.5, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)", color: BAD }}
           disabled={load || busy} aria-label={`убрать договор роли «${role.name}»`}
           onClick={() => onSet(null)}>×</button>)}
       {err && <span style={{ fontSize: 10.5, color: BAD }}>{err}</span>}
@@ -209,7 +209,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
             aria-label={`скачать договор ${label}`}
             style={{ fontSize: 10.5, padding: "0 var(--space-8)" }} />
           <button type="button" aria-label={`посмотреть договор ${label}`}
-            style={{ ...btn(false), fontSize: 10.5, padding: "0 var(--space-8)" }}
+            style={{ ...btn(false), fontSize: 10.5, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
             onClick={view}>Посмотреть</button>
           {docErr[key] && (
             <span style={{ fontSize: 10.5, color: BAD }}>{docErr[key]}</span>)}
@@ -260,7 +260,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                     <button key={r.id} aria-pressed={has} disabled={busy}
                       aria-label={`роль «${r.name}»: ${u.name}`}
                       style={{ ...btn(has || asks, has ? OK : asks ? WARN : undefined),
-                        fontSize: 11, padding: "0 var(--space-8)" }}
+                        fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                       onClick={() => (asks ? setAdd({ user: u, role: r })
                         : act(() => setUserRoles(u.id, has
                           ? (u.roles || []).filter((x) => x !== r.id)
@@ -380,7 +380,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                   <button key={t} disabled={busy}
                     aria-label={`вкладка ${TAB_NAMES[t] || t}: ${acc || "закрыта"}`}
                     style={{ ...btn(!!acc, acc === "rw" ? OK : acc === "r" ? WARN : undefined),
-                      ...(inner ? { fontSize: 10.5, padding: "var(--space-4) var(--space-8)" } : {}) }}
+                      ...(inner ? { fontSize: 10.5, paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" } : {}) }}
                     onClick={() => act(() => setRoleTabs(r.id, (() => {
                       const map = {};
                       ALL_TABS.forEach((x) => { const a = accessIn(r, x); if (a) map[x] = a; });

@@ -251,13 +251,13 @@ export const S = {
      лежит ВНУТРИ панели, и спорить с ней материалом ему незачем. */
   inp: { background: "var(--surface-glass)", border: "1px solid var(--border-glass)",
     color: C.text, borderRadius: "var(--radius-sm)",
-    padding: "var(--space-8) var(--space-12)", fontSize: 14, lineHeight: "20px",
+    padding: "var(--inp-py) var(--inp-px)", fontSize: 14, lineHeight: "20px",
     width: "100%", fontFamily: "var(--font-sans)",
     outline: "none" },
   /* Надзаголовок — `eyebrow`: капс с разрядкой, самый тихий читаемый цвет. */
   lbl: { color: C.muted, fontSize: 11.5, lineHeight: "14px", fontWeight: 700,
     letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--font-sans)" },
-  card: { ...glass("md"), borderRadius: "var(--radius-lg)", padding: "var(--space-20)",
+  card: { ...glass("md"), borderRadius: "var(--radius-lg)", padding: "var(--card-p)",
     color: C.text },
 };
 /* ─────── три плашки разницы версий: «+», «±», «−» ───────
@@ -443,9 +443,9 @@ export const btn = (on, col, { solid = false } = {}) => {
   const base = { borderRadius: "var(--radius-md)",
     /* Вертикальные отступы разные ровно на оптическую поправку: строка
        опускается, высота кнопки та же (lib/capShift.js). */
-    paddingTop: "calc(var(--space-4) + var(--text-nudge))",
-    paddingBottom: "calc(var(--space-4) - var(--text-nudge))",
-    paddingLeft: "var(--space-12)", paddingRight: "var(--space-12)",
+    paddingTop: "calc(var(--btn-py) + var(--text-nudge))",
+    paddingBottom: "calc(var(--btn-py) - var(--text-nudge))",
+    paddingLeft: "var(--btn-px)", paddingRight: "var(--btn-px)",
     minHeight: "var(--control-h)",
     fontSize: 13, lineHeight: "18px", fontWeight: 600, fontFamily: "var(--font-sans)",
     cursor: "pointer", whiteSpace: "nowrap",
@@ -565,9 +565,9 @@ export const tab = (on) => {
     color: on ? t.text : C.muted,
     boxShadow: on ? t.glow : "none",
     fontWeight: 600, fontSize: 13, lineHeight: "18px",
-    paddingTop: "calc(var(--space-4) + var(--text-nudge))",
-    paddingBottom: "calc(var(--space-4) - var(--text-nudge))",
-    paddingLeft: "var(--space-12)", paddingRight: "var(--space-12)",
+    paddingTop: "calc(var(--btn-py) + var(--text-nudge))",
+    paddingBottom: "calc(var(--btn-py) - var(--text-nudge))",
+    paddingLeft: "var(--btn-px)", paddingRight: "var(--btn-px)",
     minHeight: "var(--control-h)",
     cursor: "pointer", whiteSpace: "nowrap",
     fontFamily: "var(--font-sans)",
