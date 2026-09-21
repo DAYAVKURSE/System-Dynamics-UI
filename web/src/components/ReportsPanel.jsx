@@ -1,6 +1,6 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, Grip, NameField, S, btn, nm, NumField, TxtField, useRowDrag, DANGER_LINE } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, Arrow, Grip, NameField, S, btn, nm, NumField, TxtField, useRowDrag, DANGER_LINE } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc, textHref } from "../storage.js";
 import { getTelegram } from "../telegram.js";
@@ -1100,9 +1100,8 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
         {/* Три полоски слева: за них раздел перетаскивают и меняют местами
             с соседями (владелец, 2026-09-20). */}
         <Grip label={`переставить ${node.name || "без названия"}`} bind={drag.bind} />
-        <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)" }}
-          aria-label={`${open ? "свернуть" : "развернуть"} ${node.name || "блок"}`}
-          onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button>
+        <Arrow open={open} label={`${open ? "свернуть" : "развернуть"} ${node.name || "блок"}`}
+          onClick={() => setOpen(!open)} />
         {/* Имя правится двойным нажатием, как у техпроцессов; слова
             «проект» в шапке больше нет (владелец, 2026-09-19). */}
         <NameField value={node.name} aria-label={root ? "название отчёта" : "название раздела"}

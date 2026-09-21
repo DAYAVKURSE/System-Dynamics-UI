@@ -823,6 +823,49 @@ describe("первый раздел отчёта", () => {
       .toHaveAttribute("data-off", "1");
   });
 
+  /* КАСКАД (владелец, 2026-09-21): «если я убираю чекбокс с какого-либо
+     ресурса — дальнейшие расчёты тоже должны корректироваться: исчезать
+     задачи, уменьшаться трудозатраты и время». Сняли «макет» — шаг «Собрать
+     макет» живёт только ради него: он уходит, с ним его задачи и часы. */
+  it("снятый ресурс уносит шаг, его задачи и часы; строка остаётся серой", () => {
+    // Прослеживается заявка №1: её сделал tk0, из неё вырос макет (tk1).
+    const NODE = { ...TRACED[0], units: ["s0~t1"] };
+    const on = reportOf(MODEL, NODE, [NODE], {});
+    const off = reportOf(MODEL, { ...NODE, off: ["t2"] }, [NODE], {});
+    expect(on.steps.map((s) => s.func)).toEqual(["f1"]);
+    expect(off.steps).toEqual([]);
+    expect(on.plan.hi.workHours).toBeGreaterThan(0);
+    expect(off.plan.hi.workHours).toBe(0);
+    expect(off.plan.lo.workHours).toBe(0);
+    // Задач по снятому шагу нет нигде — ни в шагах, ни «до цепочки»; а
+    // работа, в которой выбранная вещь родилась, остаётся.
+    const tasksOf = (d) => [...d.steps.flatMap((s) => s.tasks), ...d.before].map((t) => t.id);
+    expect(tasksOf(on)).toContain("tk1");
+    expect(tasksOf(off)).not.toContain("tk1");
+    expect(tasksOf(off)).toContain("tk0");
+    // И созданного снятым шагом в отчёте нет; сама вещь — есть.
+    expect(on.made.map((u) => u.id)).toContain("s1~t2");
+    expect(off.made.map((u) => u.id)).not.toContain("s1~t2");
+    expect(off.made.map((u) => u.id)).toContain("s0~t1");
+    // Строка самого ресурса осталась — серой, чтобы галочку можно было вернуть.
+    const row = off.changes.find((c) => c.trait === "t2");
+    expect(row).toMatchObject({ off: true });
+    expect(row.hi).toBe(on.changes.find((c) => c.trait === "t2").hi);
+    // Вернули галочку — всё на месте.
+    const back = reportOf(MODEL, { ...NODE, off: [] }, [NODE], {});
+    expect(back.steps.map((s) => s.func)).toEqual(["f1"]);
+  });
+
+  it("на экране: снятая галочка убирает задачи шага из отчёта", () => {
+    render(<Panel2 nodes={[{ ...TRACED[0], units: ["s0~t1"] }]} />);
+    expect(screen.getAllByText("Макет главной").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByLabelText("прослеживать макет"));
+    expect(screen.queryAllByText("Макет главной")).toHaveLength(0);
+    // Галочка на месте, серая строка тоже — вернуть можно.
+    fireEvent.click(screen.getByLabelText("прослеживать макет"));
+    expect(screen.getAllByText("Макет главной").length).toBeGreaterThan(0);
+  });
+
   it("исключённый ресурс не идёт и в файл", () => {
     const off = [{ ...TRACED[0], off: ["t1"] }];
     const html = reportHtml(reportOf(MODEL, off[0], off, {}), {

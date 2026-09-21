@@ -1,6 +1,6 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useState } from "react";
-import { C, OK, BAD, ACC, WARN, Grip, NameField, S, Stars, btn, nm, TxtField, useRowDrag, DANGER_LINE , statusEdge} from "./ui.jsx";
+import { C, OK, BAD, ACC, WARN, Arrow, Grip, NameField, S, Stars, btn, nm, TxtField, useRowDrag, DANGER_LINE , statusEdge} from "./ui.jsx";
 import ExprField from "./ExprField.jsx";
 import { evalPorts, letterOf } from "../lib/expr.js";
 import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWorkers,
@@ -74,9 +74,8 @@ export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle
       padding: "var(--space-12)", marginBottom: "var(--space-8)",
       ...statusEdge(accent) }}>
       <div className="flex items-center gap-2">
-        <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)" }}
-          onClick={onToggle} aria-label={open ? `свернуть ${titleLabel}` : `развернуть ${titleLabel}`}>
-          {open ? "▾" : "▸"}</button>
+        <Arrow open={open} onClick={onToggle}
+          label={open ? `свернуть ${titleLabel}` : `развернуть ${titleLabel}`} />
         {/* Название формы правится двойным нажатием (владелец, 2026-09-19). */}
         <NameField value={title} onCommit={onTitle}
           style={{ fontSize: 12.5, fontWeight: 600 }}
@@ -363,9 +362,8 @@ function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, r
         title="график, статус, анкета и рейтинг — окном, не уходя со схемы">
         <WorkerLine pid={pid} name={name} person={person} roleNames={roleNames} />
       </button>
-      <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)" }}
-        aria-label={`${open ? "свернуть" : "развернуть"} воркера: ${name}`}
-        onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button>
+      <Arrow open={open} label={`${open ? "свернуть" : "развернуть"} воркера: ${name}`}
+        onClick={() => setOpen(!open)} />
 
       {open && (<>
         {/* Отметки, а не выпадающий список: ролей у человека несколько, и

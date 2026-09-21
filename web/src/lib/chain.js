@@ -279,6 +279,35 @@ export function estimateRange(model, chain, { runsOf, qty = 1 } = {}) {
 }
 
 /**
+ * Цепочка без ресурсов, которые решили не прослеживать (владелец,
+ * 2026-09-21: «если я убираю чекбокс с ресурса — дальнейшие расчёты тоже
+ * должны корректироваться: исчезать задачи, уменьшаться трудозатраты и
+ * время»).
+ *
+ * Шаг остаётся, только если берёт хоть один живой ресурс цепочки и выдаёт
+ * хоть один живой (или сам является звеном `upto`). Ресурс остаётся живым,
+ * только если его выдаёт оставшийся шаг — или он исходный. Одно тянет
+ * другое, поэтому считается до тех пор, пока ничего не меняется.
+ */
+export function pruneChain(chain = {}, off = []) {
+  const dead = new Set((off || []).map(String));
+  const from = chain.from || "";
+  let live = new Set((chain.traits || []).filter((t) => !dead.has(String(t))));
+  let steps = chain.steps || [];
+  for (;;) {
+    const kept = steps.filter((f) => (f.takes || []).some((p) => live.has(p.trait))
+      && ((f.gives || []).some((g) => live.has(g.trait)) || f.id === chain.upto));
+    const made = new Set([from, ...kept.flatMap((f) => (f.gives || []).map((g) => g.trait))]);
+    const next = new Set([...live].filter((t) => made.has(t)));
+    const same = kept.length === steps.length && next.size === live.size;
+    steps = kept;
+    live = next;
+    if (same) break;
+  }
+  return { ...chain, traits: (chain.traits || []).filter((t) => live.has(t)), steps };
+}
+
+/**
  * Факторы, которые на цепочку влияют.
  *
  * Фактор — то, что меняет ресурсы без человека. Если он трогает хоть один

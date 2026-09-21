@@ -215,12 +215,28 @@ export function Stars({value=0,onPick,label="оценка"}){
     </div>);
 }
 
-/** Три полоски: за них строку и тянут. */
+/** Стрелка «свернуть/развернуть» — просто стрелка, а не кнопка в рамке
+    (владелец, 2026-09-21: «везде, где рисуется эта стрелочка, она должна
+    выглядеть не как кнопка, а просто как стрелка»). Нажимается — да,
+    рамки и фона у неё нет. */
+export function Arrow({open,label,onClick,size=11,style}){
+  return (
+    <button type="button" aria-label={label} aria-expanded={open} onClick={onClick}
+      data-arrow=""
+      style={{background:"transparent",border:0,padding:"0 var(--space-4)",
+        color:C.muted,cursor:"pointer",fontSize:size,lineHeight:"18px",
+        fontFamily:"var(--font-sans)",flex:"0 0 auto",...style}}>
+      {open?"▾":"▸"}</button>);
+}
+
+/** Три полоски: за них строку и тянут. Промежуток между полосками — свой,
+    2 px: на шкале отступов такого нет, а без него три полоски сливаются в
+    одну (владелец, 2026-09-21). */
 export function Grip({label,bind,style}){
   return (
     <span data-drag="" role="button" tabIndex={0} aria-label={label} {...bind}
       style={{display:"inline-flex",flexDirection:"column",justifyContent:"center",
-        gap: 0,padding: "var(--space-4) 0",cursor:"grab",touchAction:"none",flex:"0 0 auto",
+        gap: 2,padding: "var(--space-4) 0",cursor:"grab",touchAction:"none",flex:"0 0 auto",
         ...style}}>
       {[0,1,2].map(i=>(
         <span key={i} style={{width:12,height:2,borderRadius: "var(--radius-sm)",background:C.muted}}/>))}

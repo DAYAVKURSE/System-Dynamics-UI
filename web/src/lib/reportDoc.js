@@ -19,7 +19,7 @@
    неизвестно, какой настоящий.
    ════════════════════════════════════════════════════════════════ */
 
-import { actualOf, chainOf, estimateRange, factorsIn } from "./chain.js";
+import { actualOf, chainOf, estimateRange, factorsIn, pruneChain } from "./chain.js";
 import { childrenOf, pathOf, pickedOf, stepAnchor, scopeOf } from "./reports.js";
 import { descendantsOf, hasLineage, parentsOf, unitsOf } from "./units.js";
 import { fromHours, portSpends } from "./funcs.js";
@@ -49,11 +49,21 @@ export function reportOf(model0 = {}, node, nodes = [], { runsOf, deep = true } 
      2026-09-20). Границы ставятся ОДИН раз, здесь: разойдись они, цепочка
      и факт считали бы разные схемы. */
   const model = scopeOf(model0, node);
-  const chain = chainOf(model, { from: node.trait, upto: node.upto });
+  const whole = chainOf(model, { from: node.trait, upto: node.upto });
+  /* Ресурсы, которые решено не прослеживать (галочка в разделе «Ресурсы»),
+     выпадают из цепочки ВМЕСТЕ с шагами, что живут только ради них
+     (владелец, 2026-09-21): дальше — задачи, часы и сроки — считается по
+     обрезанной цепочке. Полная нужна ещё для одного: строки снятых
+     ресурсов должны остаться на экране серыми, иначе галочку не вернуть. */
+  const offTraits = new Set((Array.isArray(node.off) ? node.off : []).map(String));
+  const chain = offTraits.size ? pruneChain(whole, [...offTraits]) : whole;
+  const dropped = new Set(whole.steps.filter((f) => !chain.steps.includes(f)).map((f) => f.id));
   const picked = pickedOf(node);
+  const qty = picked.length || node.qty || 1;
   const plan = estimateRange(model, chain, { runsOf,
     // Выбраны конкретные единицы — считаем на них; иначе на заданное число.
-    qty: picked.length || node.qty || 1 });
+    qty });
+  const wholePlan = offTraits.size ? estimateRange(model, whole, { runsOf, qty }) : plan;
 
   /* ─── отчёт про ОДНУ единицу ───
 
@@ -90,7 +100,11 @@ export function reportOf(model0 = {}, node, nodes = [], { runsOf, deep = true } 
 
      Прежде здесь стояло `only ? … : все задачи функций цепочки`, и вот
      этот «иначе» и подмешивал в отчёт весь поток по функциям. */
-  const onlyTasks = new Set((family || []).map((u) => u.task).filter(Boolean));
+  /* Задачи выброшенных шагов не идут в отчёт даже у прослеживаемой
+     единицы: ресурс сняли — и работы по нему в отчёте нет. */
+  const funcOfTask = new Map((model.tasks || []).map((t) => [t.id, t.funcId]));
+  const onlyTasks = new Set((family || []).map((u) => u.task)
+    .filter((id) => id && !dropped.has(funcOfTask.get(id))));
   const traced = !chosen.length
     || family.length > chosen.length
     || chosen.some((u) => hasLineage(all, u.id));
@@ -114,28 +128,39 @@ export function reportOf(model0 = {}, node, nodes = [], { runsOf, deep = true } 
   /* Новое сверху: у списка созданного порядок «свежее — выше», и таким же
      его показывает снимок на сервере. Разный порядок в двух местах читался
      бы как разные списки. */
-  const made = [...(family || [])].sort((a, b) => (b.no || 0) - (a.no || 0));
+  /* Созданное шагом, которого в отчёте больше нет (ресурс сняли), тоже не
+     показывается: сама выбранная единица остаётся всегда. */
+  const chosenIds = new Set(chosen.map((u) => u.id));
+  const made = [...(family || [])]
+    .filter((u) => chosenIds.has(u.id) || !dropped.has(funcOfTask.get(u.task)))
+    .sort((a, b) => (b.no || 0) - (a.no || 0));
   const factors = factorsIn(model, chain);
 
   /* Ресурсы, о которых в разделе вообще есть что сказать: те, что цепочка
      меняет по плану, и те, что она изменила на деле. Показывать ресурс, с
      которым ничего не происходит, значит рисовать пустую строку. */
   const ids = [...new Set([
+    ...Object.keys(wholePlan.hi.delta || {}),
+    ...Object.keys(wholePlan.lo.delta || {}),
     ...Object.keys(plan.hi.delta || {}),
     ...Object.keys(plan.lo.delta || {}),
     ...Object.keys(actual.delta || {}),
   ])];
   /* Ресурсы, которые решено не прослеживать (галочка в разделе «Ресурсы»,
      владелец 2026-09-19): на экране строка сереет, а в файл и в снимок она
-     не идёт вовсе. */
-  const offTraits = new Set((Array.isArray(node.off) ? node.off : []).map(String));
-  const changes = ids.map((id) => ({
-    trait: id,
-    lo: num(plan.lo.delta?.[id]),
-    hi: num(plan.hi.delta?.[id]),
-    fact: actual.any ? num(actual.delta?.[id]) : null,
-    off: offTraits.has(String(id)),
-  })).sort((a, b) => Math.abs(b.hi) - Math.abs(a.hi));
+     не идёт вовсе. Числа у серой строки — из полной цепочки: у обрезанной
+     их уже нет, а строка должна остаться, чтобы галочку можно было вернуть. */
+  const changes = ids.map((id) => {
+    const off = offTraits.has(String(id));
+    const src = off ? wholePlan : plan;
+    return {
+      trait: id,
+      lo: num(src.lo.delta?.[id]),
+      hi: num(src.hi.delta?.[id]),
+      fact: actual.any ? num(actual.delta?.[id]) : null,
+      off,
+    };
+  }).sort((a, b) => Math.abs(b.hi) - Math.abs(a.hi));
 
   /* ─── шаг и его работа — одно место, а не два списка ───
 

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, S, btn, durText, nm, NumField, Arrow } from "./ui.jsx";
 import { DUE_IN, DUE_ON, RATES, WEEK, actionsOf, budgetHours, copyGoal, newGoal,
   checkGoal, exprText, exprsOf, goalState, goalText, planGoal, plannable, rateOf }
   from "../lib/goals.js";
@@ -242,9 +242,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
       {/* Заголовок — имя цели, если его дали, иначе сама цель словами.
           Имя правится двойным нажатием (владелец, 2026-09-19). */}
       <div className="flex items-center gap-2">
-        <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)" }}
-          aria-label={`${open ? "свернуть" : "развернуть"} цель`}
-          onClick={onToggle}>{open ? "▾" : "▸"}</button>
+        <Arrow open={open} label={`${open ? "свернуть" : "развернуть"} цель`} onClick={onToggle} />
         {naming ? (
           <input autoFocus aria-label="название цели" defaultValue={goal.name || ""}
             placeholder={ready ? goalText(goal, traitName) : "название цели"}
