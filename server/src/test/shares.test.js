@@ -22,7 +22,7 @@ function initDataFor(id, name = "Кто-то") {
   const hash = crypto.createHmac("sha256", secret).update(check).digest("hex");
   return new URLSearchParams({ ...params, hash }).toString();
 }
-const as = (id, name) => ({ "X-Telegram-Init-Data": initDataFor(id, name) });
+const as = (id, name) => ({ "X-Telegram-Init-Data": initDataFor(id, name), "X-Storage": "main" });
 
 const MODEL = {
   entities: [{ id: "e1", name: "Мы" }],

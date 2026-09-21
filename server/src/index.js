@@ -20,6 +20,12 @@ import { recordGroupMessage } from "./lib/chatStore.js";
 import { bindLatestAgreement, claimAgreement } from "./lib/contractStore.js";
 import { resumeTranscripts } from "./lib/transcribe.js";
 import * as assistantSettings from "./lib/assistantSettings.js";
+import { findStorage, inStorage, inTaskStorage, listStorages } from "./lib/storages.js";
+import { readModel } from "./lib/workspaceStore.js";
+
+/* В каком хранилище задача — там и работаем (lib/storages.js). */
+const hasTask = async (id) => ((await readModel()).tasks || []).some((t) => t && t.id === id);
+const atTask = (userId, taskId, fn) => inTaskStorage(userId, taskId, hasTask, fn);
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -57,9 +63,11 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       /* Попытка публикации оценок — на каждом тике: то, что стало
          анонимным (два разных автора), публикуется, не дожидаясь чтения
          рейтинга. Не больше одной за тик — две сразу назвали бы обоих. */
-      await withModel(async (model) => {
-        if (publishStep(model).changed) await writeModel(model);
-      });
+      for (const st of await listStorages()) {
+        await inStorage(st.id, () => withModel(async (model) => {
+          if (publishStep(model).changed) await writeModel(model);
+        }));
+      }
     } catch (e) {
       // Планировщик не должен ронять процесс: приложение важнее напоминаний.
       console.error(`[scheduler] тик не выполнен: ${e.message}`);
@@ -149,22 +157,24 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
                  работы — там же, где её двигает нажатие на доске. «Отложено
                  до» ставится в расписание сразу: бот отложил — бот и напомнит,
                  не дожидаясь, пока владелец выгрузит модель заново. */
+              /* Задача лежит в одном из хранилищ человека (lib/storages.js):
+                 каждое действие бота идёт в том, где она есть. */
               work: {
-                take: async (u, id, o) => {
+                take: (u, id, o) => atTask(u, id, async () => {
                   const r = await takeTask(u, id, o);
                   if (!r.error) await store.setDeferredUntil(u, id, null).catch(() => {});
                   return r;
-                },
-                defer: async (u, id, o) => {
+                }),
+                defer: (u, id, o) => atTask(u, id, async () => {
                   const r = await deferTask(u, id, o);
                   if (!r.error) await store.setDeferredUntil(u, id, r.task.deferredUntil).catch(() => {});
                   return r;
-                },
-                submit: submitTask,
-                taskFor,
+                }),
+                submit: (u, id, sub) => atTask(u, id, () => submitTask(u, id, sub)),
+                taskFor: (u, id) => atTask(u, id, () => taskFor(u, id)),
                 // «Готово» под напоминанием о постановке: спрашиваем склад,
                 // а не верим нажатию.
-                setupState: setupStateFor,
+                setupState: (u, id) => atTask(u, id, () => setupStateFor(u, id)),
               },
               /* Висящие напоминания: нажатие гасит повтор, «Отложить»
                  переносит его на срок, выбранный тут же, под кнопкой. */
@@ -201,7 +211,15 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
               /* Договоры: «/start agr_<токен>» привязывает соглашение к
                  пришедшему; добавление по пересылке — к ждущему договору
                  роли (lib/contractStore.js). */
-              contracts: { claim: claimAgreement, bind: bindLatestAgreement },
+              contracts: {
+                /* Ссылка на договор ведёт в чьё-то хранилище: ищем, в чьё. */
+                claim: async (token, who) => {
+                  const sid = await findStorage(async () => (await org.listOrg()).agreements
+                    .some((a) => a.token === String(token || "")));
+                  return inStorage(sid || "main", () => claimAgreement(token, who));
+                },
+                bind: bindLatestAgreement,
+              },
               send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard),
               answer: answerCallback,
               answerInline,

@@ -4,6 +4,7 @@ import { aliasOf } from "./alias.js";
 import path from "node:path";
 import { getReport } from "./reportStore.js";
 import { docxToHtml } from "./docx.js";
+import { isMain, scopedDir } from "./storages.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЛЮДИ И РОЛИ
@@ -142,9 +143,9 @@ const userRoles = (u = {}) => roleIds([
 ]);
 
 function baseDir() {
-  return process.env.ORG_DIR
+  return scopedDir(process.env.ORG_DIR
     ? path.resolve(process.env.ORG_DIR)
-    : path.resolve(process.cwd(), "data", "org");
+    : path.resolve(process.cwd(), "data", "org"));
 }
 const file = () => path.join(baseDir(), "org.json");
 
@@ -224,7 +225,9 @@ export const envOwner = () =>
  */
 export async function identify(userId, profile = {}, { claim = true } = {}) {
   const org = await readOrg();
-  const env = envOwner();
+  /* Владелец из переменной — только у MAIN: у личного хранилища
+     владелец записан при его заведении (lib/storages.js). */
+  const env = isMain() ? envOwner() : null;
   let changed = false;
 
   if (env && org.ownerId !== env) { org.ownerId = env; changed = true; }

@@ -2170,8 +2170,11 @@ export default function SystemModel(){
             <div className="flex items-center gap-2" style={{marginBottom: "var(--space-4)"}}>
               <span style={S.lbl}>актив</span>
               <span style={{flex:1}}/>
-              <button style={{ ...btn(true, BAD) }}
-                onClick={()=>delEntity(selE.id)}>Удалить актив</button>
+              {/* «Владелец» и «Система» не удаляются (владелец,
+                  2026-09-21): без них хранилищу негде принимать работу. */}
+              {!selE.fixed&&(
+                <button style={{ ...btn(true, BAD) }}
+                  onClick={()=>delEntity(selE.id)}>Удалить актив</button>)}
             </div>
             {/* Название — двойным нажатием (владелец, 2026-09-19). */}
             <div style={{marginBottom: "var(--space-4)"}}>

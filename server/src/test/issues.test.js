@@ -30,7 +30,7 @@ function initDataFor(id, name = "Кто-то") {
   return new URLSearchParams({ ...params, hash }).toString();
 }
 const NAMES = { 100: "Владелец", 200: "Иван", 300: "Чужой" };
-const as = (id) => ({ "X-Telegram-Init-Data": initDataFor(id, NAMES[id]) });
+const as = (id) => ({ "X-Telegram-Init-Data": initDataFor(id, NAMES[id]), "X-Storage": "main" });
 
 beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sd-issues-"));

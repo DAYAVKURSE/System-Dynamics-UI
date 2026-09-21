@@ -1,4 +1,5 @@
 import { readModel } from "./workspaceStore.js";
+import { inStorage, storagesOf } from "./storages.js";
 import { identify } from "./orgStore.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -86,7 +87,12 @@ export async function scheduleTasksFor(userId, { model = null, warn = null, dead
  * она новее и есть всегда.
  */
 export async function scheduleFor(userId, saved = null) {
-  const tasks = await scheduleTasksFor(userId);
+  /* Задачи — из ВСЕХ хранилищ, где человек есть (lib/storages.js): и
+     своих, и тех, куда позвали. Напоминание не знает границ хранилищ. */
+  const tasks = [];
+  for (const s of await storagesOf(userId)) {
+    tasks.push(...await inStorage(s.id, () => scheduleTasksFor(userId)));
+  }
   return {
     chatId: saved?.chatId ?? String(userId),
     tzOffset: Number.isFinite(Number(saved?.tzOffset)) ? Number(saved.tzOffset) : 0,

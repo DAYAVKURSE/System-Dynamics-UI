@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { scopedDir } from "./storages.js";
 
 const MAX_NAME_LEN = 120;
 const MAX_SCENARIOS_PER_USER = 200;
@@ -10,9 +11,9 @@ const MAX_SCENARIOS_PER_USER = 200;
 const MAX_VERSIONS = 30;
 
 function baseDir() {
-  return process.env.SCENARIOS_DIR
+  return scopedDir(process.env.SCENARIOS_DIR
     ? path.resolve(process.env.SCENARIOS_DIR)
-    : path.resolve(process.cwd(), "data", "scenarios");
+    : path.resolve(process.cwd(), "data", "scenarios"));
 }
 
 // Каталоги пользователей именуются по telegram user id, прогнанному через

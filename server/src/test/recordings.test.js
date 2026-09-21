@@ -36,7 +36,7 @@ function initDataFor(id) {
   const hash = crypto.createHmac("sha256", secret).update(check).digest("hex");
   return new URLSearchParams({ ...params, hash }).toString();
 }
-const as = (id) => ({ "X-Telegram-Init-Data": initDataFor(id) });
+const as = (id) => ({ "X-Telegram-Init-Data": initDataFor(id), "X-Storage": "main" });
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
 
 const upload = (who, bytes, { name = "звонок.webm", type = "video/webm", kind = "call" } = {}) => {

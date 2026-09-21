@@ -22,7 +22,7 @@ function initDataFor(id, name = "Кто-то") {
   const hash = crypto.createHmac("sha256", secret).update(check).digest("hex");
   return new URLSearchParams({ ...params, hash }).toString();
 }
-const as = (id, name) => ({ "X-Telegram-Init-Data": initDataFor(id, name) });
+const as = (id, name) => ({ "X-Telegram-Init-Data": initDataFor(id, name), "X-Storage": "main" });
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
 
 const AI_VARS = ["AI_PROVIDER", "AI_MODEL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HF_API_KEY"];

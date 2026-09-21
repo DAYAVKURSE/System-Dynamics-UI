@@ -2,6 +2,7 @@ import { verifyInitData } from "../lib/telegramAuth.js";
 import { mayActAs, recordIdFor } from "../lib/orgStore.js";
 import * as codes from "../lib/codes.js";
 import { bindUid, recordOfUid } from "../lib/identityStore.js";
+import { ensureStorage, inStorage, memberOf, ownStorageOf } from "../lib/storages.js";
 
 const DEV_USER_ID = "dev-user";
 
@@ -78,25 +79,43 @@ async function actAs(req, res, next) {
       return res.status(401).json({ error: "code token is required", needsCode: true });
     }
     req.code = code;
-    const asked = String(req.header("X-Act-As") || "").trim();
-    if (asked) {
-      if (!(await mayActAs(req.telegramUserId, asked))) {
-        return res.status(403).json({ error: "not your page" });
-      }
-      req.telegramUserId = asked;
-      req.actingAs = asked;
-      // Анкета из Telegram — не про эту страницу: она чужая.
-      req.telegramProfile = { name: "", username: "" };
-      return next();
-    }
-    req.telegramUserId = await recordIdFor(req.telegramUserId);
     /* Код ведёт к записи (lib/identityStore.js): вошли с другого
        Telegram — работаем под той же записью, что и всегда. Первый вход
-       с кодом привязывает его к записи, под которой человек был. */
+       с кодом привязывает его к записи, под которой человек был. Это
+       ГЛОБАЛЬНОЕ имя человека — одно на все хранилища. */
     if (code) {
       req.telegramUserId = await bindUid(code.uid, req.telegramUserId, req.telegramRealId);
+      req.telegramRealId = req.telegramUserId;
     }
-    return next();
+    /* ─── В КАКОМ ХРАНИЛИЩЕ (lib/storages.js) ───
+       Своё — по умолчанию, чужое — по заголовку `X-Storage`, и только
+       туда, где человек участник. Дальше весь запрос идёт в контексте
+       этого хранилища: сторы сами берут его каталог. */
+    const own = await ownStorageOf(req.telegramRealId);
+    const wanted = String(req.header("X-Storage") || "").trim() || own;
+    if (wanted !== own && !guestRoute(req) && !(await memberOf(wanted, req.telegramRealId))) {
+      return res.status(403).json({ error: "not a member of this storage" });
+    }
+    req.storage = wanted;
+    req.ownStorage = own;
+    if (wanted === own) await ensureStorage(req.telegramRealId, { name: req.telegramProfile?.name });
+    return inStorage(wanted, async () => {
+      const asked = String(req.header("X-Act-As") || "").trim();
+      if (asked) {
+        if (!(await mayActAs(req.telegramUserId, asked))) {
+          return res.status(403).json({ error: "not your page" });
+        }
+        req.telegramUserId = asked;
+        req.actingAs = asked;
+        // Анкета из Telegram — не про эту страницу: она чужая.
+        req.telegramProfile = { name: "", username: "" };
+        return next();
+      }
+      /* Страница виртуального сотрудника — в ЭТОМ хранилище: в каждом
+         человек может быть записан под своей страницей. */
+      req.telegramUserId = await recordIdFor(req.telegramUserId);
+      return next();
+    });
   } catch (e) { return next(e); }
 }
 
@@ -109,6 +128,13 @@ async function actAs(req, res, next) {
    знало, что его надо получить. Сервис выключен — кодов нет, и всё
    работает по одному Telegram, как прежде. */
 const isWhoAmI = (req) => req.baseUrl === "/api/org" && req.path === "/me";
+/* Куда пускают и НЕ участника чужого хранилища: спросить «кто я» (ответ —
+   «не позван»), посмотреть роли с договорами, зарегистрироваться по
+   договору, вступить по ссылке. Это и есть вход в чужое хранилище —
+   закрыть его для не-участников значило бы, что вступить нельзя. */
+const guestRoute = (req) => req.baseUrl === "/api/org"
+  && (req.path === "/me" || req.path === "/register" || req.path.startsWith("/join")
+    || (req.method === "GET" && req.path === "/roles"));
 async function checkCode(req) {
   if (!codes.enabled()) return null;
   const token = String(req.header("X-User-Token") || "").trim();

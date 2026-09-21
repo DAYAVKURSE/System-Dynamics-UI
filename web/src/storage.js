@@ -1,5 +1,5 @@
 import { getTelegram, getInitData } from "./telegram.js";
-import { codeHeader } from "./codes.js";
+import { sessionHeaders } from "./session.js";
 import { actingAs } from "./identity.js";
 
 /* Под чужой страницей — и здесь: «Войти под его именем» меняет не одну
@@ -301,7 +301,7 @@ export async function putReportFile(file, { kind = "", meeting = "" } = {}) {
         // Встреча, к которой относится запись: по ней расшифровка ложится
         // и к встрече, а не только к файлу (routes/reports.js).
         ...(meeting ? { "X-Report-Meeting": String(meeting) } : {}),
-        "X-Telegram-Init-Data": getInitData(), ...codeHeader(),
+        "X-Telegram-Init-Data": getInitData(), ...sessionHeaders(),
         ...actHeader(),
       },
       body: file,
@@ -329,7 +329,7 @@ export const reportSrc = (f) => (f ? (f.url || f.data || "") : "");
 export async function deliverFile({ url, text, name } = {}) {
   const r = await fetch("/api/reports/deliver", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": getInitData(), ...codeHeader(),
+    headers: { "Content-Type": "application/json", "X-Telegram-Init-Data": getInitData(), ...sessionHeaders(),
       ...actHeader() },
     body: JSON.stringify({ url, text, name }),
   });
@@ -347,7 +347,7 @@ export const textHref = (text) => `data:text/plain;charset=utf-8,${encodeURIComp
 
 const apiHeaders = () => ({
   "Content-Type": "application/json",
-  "X-Telegram-Init-Data": getInitData(), ...codeHeader(),
+  "X-Telegram-Init-Data": getInitData(), ...sessionHeaders(),
   ...actHeader(),
 });
 

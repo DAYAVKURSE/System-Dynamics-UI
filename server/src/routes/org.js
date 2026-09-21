@@ -2,6 +2,7 @@ import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import * as codes from "../lib/codes.js";
 import { PLAN_TABS } from "../lib/plans.js";
+import { findStorage, inStorage, storagesOf } from "../lib/storages.js";
 import { renameRole,
   addForm, addRole, addUser, contractHtml, identify, listOrg, openRoles, registerUser, removeForm,
   removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
@@ -68,6 +69,11 @@ router.get("/me", async (req, res, next) => {
       me.plan = req.code.plan;
       me.planTabs = [...(PLAN_TABS[req.code.plan] || PLAN_TABS.free)];
     }
+    /* Хранилища (lib/storages.js): в каком мы сейчас, какое своё и
+       куда ещё позвали — с именем владельца, чтобы было что показать. */
+    me.storage = req.storage;
+    me.ownStorage = req.ownStorage;
+    me.storages = await storagesOf(req.telegramRealId);
     if (req.actingAs) {
       const org = await listOrg();
       const owner = String(org.ownerId || "") === String(req.telegramRealId || "");
@@ -267,8 +273,17 @@ router.post("/virtual/:id/link", async (req, res, next) => {
 
 /* Что за страница ждёт по ссылке — ДО входа: человеку показывают роль и
    договор, которые ему предлагают, а не пустой экран с кнопкой. */
+/* Ссылка ведёт на страницу в ЧЬЁМ-ТО хранилище: ищем, в каком (lib/
+   storages.js), и дальше работаем в нём. Вступивший становится
+   участником того хранилища, а не своего. */
+const storageByJoinToken = (token) =>
+  findStorage(async () => !!(await virtualByToken(token)));
+
 router.get("/join/:token", async (req, res, next) => {
   try {
+    const sid = await storageByJoinToken(req.params.token);
+    if (!sid) return res.status(404).json({ error: "ссылка не открывается" });
+    return inStorage(sid, async () => {
     const user = await virtualByToken(req.params.token);
     if (!user) return res.status(404).json({ error: "ссылка не открывается" });
     const org = await listOrg();
@@ -280,6 +295,8 @@ router.get("/join/:token", async (req, res, next) => {
       // Что за него уже заполнили: человеку не нужно вводить это заново.
       profile: profileOf(user),
       forms: formsFor(org, user),
+      storage: sid,
+    });
     });
   } catch (e) { return next(e); }
 });
@@ -288,13 +305,21 @@ router.get("/join/:token", async (req, res, next) => {
    есть, тот получает отказ словами (владелец, 2026-09-20). */
 router.post("/join", async (req, res, next) => {
   try {
-    const r = await claimVirtual(req.body?.token, req.telegramRealId || req.telegramUserId,
-      req.telegramProfile || {});
-    if (r.error === "already registered") {
-      return res.status(409).json({ error: "Вы уже зарегистрированы в системе" });
-    }
-    if (r.error) return res.status(404).json({ error: "ссылка не открывается" });
-    return res.json(await identify(r.user.id, {}));
+    const sid = await storageByJoinToken(req.body?.token);
+    if (!sid) return res.status(404).json({ error: "ссылка не открывается" });
+    return inStorage(sid, async () => {
+      const r = await claimVirtual(req.body?.token, req.telegramRealId || req.telegramUserId,
+        req.telegramProfile || {});
+      if (r.error === "already registered") {
+        return res.status(409).json({ error: "Вы уже зарегистрированы в системе" });
+      }
+      if (r.error) return res.status(404).json({ error: "ссылка не открывается" });
+      const me = await identify(r.user.id, {});
+      me.storage = sid;
+      me.ownStorage = req.ownStorage;
+      me.storages = await storagesOf(req.telegramRealId);
+      return res.json(me);
+    });
   } catch (e) { return next(e); }
 });
 

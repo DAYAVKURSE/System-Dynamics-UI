@@ -29,7 +29,7 @@ function initDataFor(id, name = "Кто-то") {
   const hash = crypto.createHmac("sha256", secret).update(check).digest("hex");
   return new URLSearchParams({ ...params, hash }).toString();
 }
-const as = (id, name) => ({ "X-Telegram-Init-Data": initDataFor(id, name) });
+const as = (id, name) => ({ "X-Telegram-Init-Data": initDataFor(id, name), "X-Storage": "main" });
 /* Номер хозяина нарочно длинный и ни на что не похожий. Проверка «номер
    не утёк» ищет его во ВСЁМ ответе — это её сила, но короткое «100»
    находилось в самом ответе само собой: миллисекунды в `createdAt`

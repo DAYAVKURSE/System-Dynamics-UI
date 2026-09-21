@@ -1,5 +1,6 @@
 import { getInitData } from "./telegram.js";
-import { codeHeader, ensureToken } from "./codes.js";
+import { ensureToken } from "./codes.js";
+import { currentStorage, sessionHeaders, setStorage } from "./session.js";
 
 /* ════════════════════════════════════════════════════════════════
    КТО Я И ЧТО МНЕ ВИДНО
@@ -90,7 +91,7 @@ const headers = () => {
     "X-Telegram-Init-Data": getInitData(),
     ...(act ? { "X-Act-As": act } : {}),
     // Токен сервиса кодов (codes.js): без него хранилище не отвечает.
-    ...codeHeader(),
+    ...sessionHeaders(),
   };
 };
 
@@ -115,7 +116,13 @@ export async function whoAmI() {
         tabs: [], access: {} };
       return cached;
     }
-    const r = await fetch("/api/org/me", { headers: headers() });
+    let r = await fetch("/api/org/me", { headers: headers() });
+    /* Чужое хранилище, куда больше не пускают (или которого нет), —
+       возвращаемся в своё, а не показываем пустоту. */
+    if (r.status === 403 && currentStorage()) {
+      setStorage("");
+      r = await fetch("/api/org/me", { headers: headers() });
+    }
     if (!r.ok) { cached = { ...SOLO, solo: false, isOwner: false, known: false, tabs: [], access: {} }; return cached; }
     const me = await r.json();
     cached = { ...me, solo: false };

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { assetWorkers, fixedPerson, funcExecutors, handMate, roleOf, whyNotSet } from "./taskRules.js";
+import { scopedDir } from "./storages.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОБЩАЯ МОДЕЛЬ
@@ -55,11 +56,30 @@ const PARTS = ["entities", "traits", "kinds", "tasks", "funcs", "goals", "factor
 const EMPTY = Object.fromEntries(PARTS.map((k) => [k, []]));
 
 function baseDir() {
-  return process.env.WORKSPACE_DIR
+  return scopedDir(process.env.WORKSPACE_DIR
     ? path.resolve(process.env.WORKSPACE_DIR)
-    : path.resolve(process.cwd(), "data", "workspace");
+    : path.resolve(process.cwd(), "data", "workspace"));
 }
 const file = () => path.join(baseDir(), "model.json");
+
+/* ─────── АКТИВЫ ПО УМОЛЧАНИЮ (владелец, 2026-09-21) ───────
+
+   У каждого хранилища два актива, которые нельзя удалить: «Владелец» —
+   сам человек, в нём появляются услуги и задачи, которые он делает для
+   других; «Система» — рынок: все стрелки наружу идут в неё, отдельных
+   блоков заказчиков нет. Дописываются при каждом чтении, если их нет:
+   так они есть и в прежней модели, и в только что заведённой. */
+export const FIXED_ASSETS = [
+  { id: "owner", name: "Владелец", color: "#5EEAD4", x: 24, y: 300, fixed: true },
+  { id: "system", name: "Система", color: "#FFD166", x: 24, y: 560, fixed: true },
+];
+export function withFixedAssets(model) {
+  const ents = Array.isArray(model.entities) ? model.entities : [];
+  const missing = FIXED_ASSETS.filter((f) => !ents.some((e) => e && e.id === f.id));
+  const entities = [...ents.map((e) => (FIXED_ASSETS.some((f) => f.id === e?.id)
+    ? { ...e, fixed: true } : e)), ...missing.map((f) => ({ ...f }))];
+  return { ...model, entities };
+}
 
 export async function readModel() {
   try {
@@ -67,9 +87,9 @@ export async function readModel() {
     const out = { ...EMPTY };
     PARTS.forEach((k) => { if (Array.isArray(parsed[k])) out[k] = parsed[k]; });
     out.savedAt = parsed.savedAt || null;
-    return out;
+    return withFixedAssets(out);
   } catch {
-    return { ...EMPTY, savedAt: null };
+    return withFixedAssets({ ...EMPTY, savedAt: null });
   }
 }
 
@@ -79,6 +99,7 @@ export async function writeModel(model) {
   }
   const out = { ...EMPTY };
   PARTS.forEach((k) => { if (Array.isArray(model[k])) out[k] = model[k]; });
+  out.entities = withFixedAssets(out).entities;
   /* Модель без реестра опубликованного (её присылает клиент владельца) не
      стирает реестр: опубликованное — это то, что случилось, и правка
      модели этого не отменяет. */

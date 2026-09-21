@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { scopedDir } from "./storages.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОБЩИЕ ССЫЛКИ НА БЛОКИ КАРТЫ ОТЧЁТОВ
@@ -30,9 +31,9 @@ import crypto from "node:crypto";
 const MAX_SHARES = 500;
 
 function baseDir() {
-  return process.env.SHARES_DIR
+  return scopedDir(process.env.SHARES_DIR
     ? path.resolve(process.env.SHARES_DIR)
-    : path.resolve(process.cwd(), "data", "shares");
+    : path.resolve(process.cwd(), "data", "shares"));
 }
 
 /* Токен — сама защита ссылки, поэтому он длинный и случайный: угадывать

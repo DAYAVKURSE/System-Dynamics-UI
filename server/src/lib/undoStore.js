@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { scopedDir } from "./storages.js";
 
 /* ════════════════════════════════════════════════════════════════
    ОТКАТ ИЗМЕНЕНИЯ, СДЕЛАННОГО ПОМОЩНИКОМ (владелец, 2026-09-21)
@@ -27,9 +28,9 @@ import path from "node:path";
 export const MAX_UNDO = 200;
 
 function baseDir() {
-  return process.env.UNDO_DIR
+  return scopedDir(process.env.UNDO_DIR
     ? path.resolve(process.env.UNDO_DIR)
-    : path.resolve(process.cwd(), "data", "undo");
+    : path.resolve(process.cwd(), "data", "undo"));
 }
 const file = () => path.join(baseDir(), "undo.json");
 

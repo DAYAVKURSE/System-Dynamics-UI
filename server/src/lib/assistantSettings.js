@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { envOwner } from "./orgStore.js";
 import { DEFAULT_BASE_URL, KINDS, isKind } from "./aiProviders.js";
+import { scopedDir } from "./storages.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЧЕМ ДУМАЕТ ПОМОЩНИК · у каждого своё
@@ -386,8 +387,8 @@ export function writeUserSettings(userId, rec) {
 function ownerId() {
   const env = envOwner();
   if (env) return env;
-  const dir = process.env.ORG_DIR ? path.resolve(process.env.ORG_DIR)
-    : path.resolve(process.cwd(), "data", "org");
+  const dir = scopedDir(process.env.ORG_DIR ? path.resolve(process.env.ORG_DIR)
+    : path.resolve(process.cwd(), "data", "org"));
   try {
     const parsed = JSON.parse(fs.readFileSync(path.join(dir, "org.json"), "utf8"));
     return parsed?.ownerId != null ? String(parsed.ownerId) : null;
