@@ -175,7 +175,7 @@ export async function runAgent({
             try {
               asked = onAuthNeeded
                 ? await onAuthNeeded({ server: tool.mcp.server, where: e.where || "",
-                  url: tool.mcp.url })
+                  scheme: e.scheme || "", realm: e.realm || "", url: tool.mcp.url })
                 : false;
             } catch { asked = false; }
             result = { ok: false, text: asked

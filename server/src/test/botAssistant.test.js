@@ -648,6 +648,25 @@ describe("вход на MCP-сервер, присланный в чат", () =>
     expect(sent[0].text).toMatch(/Не нашёл сервер «Погодка»/);
   });
 
+  it("что просить — по схеме сервера: Basic — логин и пароль, иначе ключ", async () => {
+    const seen = [];
+    const d = deps();
+    d.assistant.ask = (userId, q, ctx, opts) => { seen.push(opts); return Promise.resolve("ок"); };
+    const r = await onAssistantMessage({ text: "погода?" }, from, d);
+    await r.done;
+    expect(typeof seen[0].onAuthNeeded).toBe("function");
+    sent.length = 0;
+    await seen[0].onAuthNeeded({ server: "Погода", where: "", scheme: "basic", realm: "weather" });
+    expect(sent[0].text).toMatch(/«Погода» \(weather\) требует входа/);
+    expect(sent[0].text).toMatch(/логин Погода: <логин> <пароль>/);
+    expect(sent[0].text).not.toMatch(/ключ Погода/);
+    sent.length = 0;
+    await seen[0].onAuthNeeded({ server: "Погода", where: "https://x/login", scheme: "oauth" });
+    expect(sent[0].text).toMatch(/Войти: https:\/\/x\/login/);
+    expect(sent[0].text).toMatch(/ключ Погода: <ваш токен>/);
+    expect(sent[0].text).not.toMatch(/логин Погода/);
+  });
+
   it("без входа в зависимостях это обычный вопрос помощнику", async () => {
     const r = await onAssistantMessage({ text: "ключ от квартиры: где деньги лежат" }, from, deps());
     expect(r.answered).toBe("queued");

@@ -331,6 +331,9 @@ describe("агенты", () => {
     // Номер отказа на форме не показан — на него открыли окно.
     expect(within(box).queryByText(/401/)).toBeNull();
     expect(screen.getByRole("link", { name: "https://x/login" })).toBeInTheDocument();
+    // Схему сервер не назвал — просят ключ, логина с паролем не предлагают.
+    expect(screen.getByLabelText("сервер запросил").textContent).toMatch(/ключ/);
+    expect(screen.queryByLabelText("логин")).toBeNull();
 
     fireEvent.change(screen.getByLabelText("ключ"), { target: { value: "sk-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Войти" }));
@@ -343,16 +346,24 @@ describe("агенты", () => {
     await waitFor(() => expect(asked).toBe(2));
   });
 
-  it("логин и пароль уходят тем же окном", async () => {
+  /* ЧТО СПРАШИВАТЬ — РЕШИЛ СЕРВЕР (владелец, 2026-09-21: «ввод данных
+     должен зависеть от того, что запросил сервер»): Basic — логин и
+     пароль, и никакого выбора «чем войти» у человека нет. */
+  it("сервер сказал Basic — окно просит логин и пароль, и только их", async () => {
     const { log } = settingsServer([P1], [ASSISTANT], { mcp: [WEATHER],
       "POST /api/assistant/mcp/mcp1/tools": () => ({ status: 401,
-        body: { error: "Сервер требует входа", needsAuth: true, where: "", server: "Погода" } }),
+        body: { error: "Сервер требует входа", needsAuth: true, where: "", server: "Погода",
+          scheme: "basic", realm: "weather", hint: 'Basic realm="weather"' } }),
       "PUT /api/assistant/mcp/mcp1/auth": () => ({ ...WEATHER, auth: "basic", hasAuth: true }) });
     render(<AgentsPanel me={IVAN} />);
     const box = await screen.findByLabelText("mcp-серверы агента");
     fireEvent.click(within(box).getByRole("button", { name: /^mcp Погода/ }));
-    await screen.findByText("Вход в «Погода»");
-    fireEvent.click(screen.getByRole("tab", { name: "Логин и пароль" }));
+    await screen.findByText("Вход в «Погода» · weather");
+    // Ровно то, что запросил сервер: логин и пароль, ключа не предлагают.
+    expect(screen.getByLabelText("сервер запросил").textContent).toMatch(/логин и пароль/);
+    expect(screen.getByLabelText("заголовок сервера").textContent).toBe('Basic realm="weather"');
+    expect(screen.queryByLabelText("ключ")).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Логин/ })).toBeNull();
     fireEvent.change(screen.getByLabelText("логин"), { target: { value: "ivan" } });
     fireEvent.change(screen.getByLabelText("пароль"), { target: { value: "s3cret" } });
     fireEvent.click(screen.getByRole("button", { name: "Войти" }));

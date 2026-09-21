@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { authHeader, listTools } from "../lib/mcp.js";
+import { askedFrom, authHeader, listTools } from "../lib/mcp.js";
 import { addMcp, mcpFor, setMcpAuth, settingsView } from "../lib/assistantSettings.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -43,6 +43,25 @@ describe("заголовок входа", () => {
   });
 });
 
+/* ЧЕМ ВХОДИТЬ — ГОВОРИТ СЕРВЕР (владелец, 2026-09-21: «ввод данных должен
+   зависеть от того, что запросил сервер»). Всё — из `WWW-Authenticate`. */
+describe("что запросил сервер", () => {
+  it("Bearer — ключ; Basic и Digest — логин с паролем; OAuth — ключ со ссылкой", () => {
+    expect(askedFrom('Bearer realm="api"')).toMatchObject({ scheme: "bearer", realm: "api", where: "" });
+    expect(askedFrom('Basic realm="weather"')).toMatchObject({ scheme: "basic", realm: "weather" });
+    expect(askedFrom('Digest realm="x", nonce="1"').scheme).toBe("basic");
+    const o = askedFrom('Bearer resource_metadata="https://x/.well-known/oauth", scope="read"');
+    expect(o.scheme).toBe("oauth");
+    expect(o.where).toBe("https://x/.well-known/oauth");
+    expect(askedFrom("OAuth realm=x").scheme).toBe("oauth");
+  });
+  it("сервер промолчал — схемы нет, а подсказка — дословно и не длиннее 300", () => {
+    expect(askedFrom("")).toEqual({ scheme: "", realm: "", where: "", hint: "" });
+    expect(askedFrom("Custom token").scheme).toBe("custom");
+    expect(askedFrom(`Bearer ${"x".repeat(500)}`).hint).toHaveLength(300);
+  });
+});
+
 describe("сервер требует входа", () => {
   const reply = (status, headers = {}) => {
     const sent = [];
@@ -61,6 +80,8 @@ describe("сервер требует входа", () => {
     expect(e?.needsAuth).toBe(true);
     expect(e.status).toBe(401);
     expect(e.where).toBe("https://x/login");
+    expect(e.scheme).toBe("oauth");
+    expect(e.realm).toBe("x");
     expect(e.message).toMatch(/401/);
   });
 

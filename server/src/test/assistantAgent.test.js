@@ -230,7 +230,8 @@ describe("MCP", () => {
       system: "S", model: {}, complete, ask: false,
       onAuthNeeded: async (r) => { asked.push(r); return true; },
       servers: [{ id: "mcp1", name: "Погода", url: "https://x/mcp", tools: ["forecast"] }] });
-    expect(asked).toEqual([{ server: "Погода", where: "https://x/login", url: "https://x/mcp" }]);
+    expect(asked).toEqual([{ server: "Погода", where: "https://x/login", url: "https://x/mcp",
+      scheme: "oauth", realm: "" }]);
     const said = seen[1].messages.find((m) => m.role === "tool").content;
     expect(said).toMatch(/требует входа/);
     expect(said).toMatch(/не зови этот инструмент снова/);

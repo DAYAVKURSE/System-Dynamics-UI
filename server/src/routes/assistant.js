@@ -227,7 +227,8 @@ router.post("/mcp/:id/tools", async (req, res, next) => {
          полем, а не угадыванием по тексту. */
       if (e?.needsAuth) {
         return res.status(401).json({ error: "Сервер требует входа", needsAuth: true,
-          where: e.where || "", server: m.name });
+          where: e.where || "", scheme: e.scheme || "", realm: e.realm || "",
+          hint: e.hint || "", server: m.name });
       }
       return res.status(502).json({ error: String(e?.message || e).slice(0, 300) });
     }

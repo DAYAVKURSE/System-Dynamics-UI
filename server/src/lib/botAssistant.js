@@ -234,17 +234,17 @@ async function askQuestion(deps, { userId, chatId, question }) {
      страницу для логина». Спрашиваем сообщением — модель об этом только
      узнаёт. Что прислать, человек решает сам: ключ или пару логин/пароль;
      адрес страницы входа шлём, если сервер его назвал. */
-  const onAuthNeeded = async ({ server, where }) => {
+  const onAuthNeeded = async ({ server, where, scheme = "", realm = "" }) => {
     try {
-      await send(chatId, [
-        `«${server}» требует входа — без него инструмент не отвечает.`,
-        where ? `Войти: ${where}` : "",
-        "",
-        "Пришлите сюда одним сообщением:",
-        `ключ ${server}: <ваш токен>`,
-        "или",
-        `логин ${server}: <логин> <пароль>`,
-      ].filter(Boolean).join("\n"));
+      /* Что просить — по тому, что запросил сервер (владелец, 2026-09-21):
+         логин с паролем — только если он сказал Basic; иначе ключ. */
+      const what = realm ? ` (${realm})` : "";
+      const lines = [`«${server}»${what} требует входа — без него инструмент не отвечает.`];
+      if (where) lines.push(`Войти: ${where}`);
+      lines.push("", "Пришлите сюда одним сообщением:");
+      if (scheme === "basic") lines.push(`логин ${server}: <логин> <пароль>`);
+      else lines.push(`ключ ${server}: <ваш токен>`);
+      await send(chatId, lines.join("\n"));
       return true;
     } catch (err) {
       logOf(deps)(`не спросил вход: ${err.message}`);

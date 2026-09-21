@@ -670,7 +670,8 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth }) {
     catch (e) {
       if (e?.needsAuth) {
         const m = servers.find((x) => x.id === id);
-        setLogin({ id, name: e.server || m?.name || "", where: e.where || "" });
+        setLogin({ id, name: e.server || m?.name || "", where: e.where || "",
+          scheme: e.scheme || "", realm: e.realm || "", hint: e.hint || "" });
       } else setErr(e.message);
     }
     finally { setAsking(""); }
@@ -780,38 +781,50 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth }) {
    Сервер ответил 401 — окно с выбором: ключ или логин с паролем. Уходит
    на сервер приложения и обратно не возвращается. */
 function McpLogin({ rec, busy, onSave, onClose }) {
-  const [kind, setKind] = useState("bearer");
+  /* ЧТО СПРАШИВАТЬ — РЕШИЛ СЕРВЕР (владелец, 2026-09-21: «ввод данных
+     должен зависеть от того, что запросил сервер»). Схему он назвал в
+     заголовке отказа, сервер приложения её разобрал (lib/mcp.js):
+     Basic — логин и пароль, всё остальное — ключ; OAuth и просто адрес —
+     ключ плюс ссылка, откуда его принести. Выбора «чем войти» у человека
+     нет: не он решает, чем входить, а сервер. */
+  const basic = rec.scheme === "basic";
   const [token, setToken] = useState("");
   const [user, setUser] = useState("");
   const [pass, setPass] = useState("");
-  const ready = kind === "bearer" ? Boolean(token.trim()) : Boolean(user.trim() || pass);
+  const ready = basic ? Boolean(user.trim() || pass) : Boolean(token.trim());
+  const title = `Вход в «${rec.name}»${rec.realm ? ` · ${rec.realm}` : ""}`;
+  const asked = basic ? "логин и пароль"
+    : rec.scheme === "oauth" ? "ключ (OAuth)"
+      : rec.scheme === "bearer" ? "ключ (Bearer)"
+        : rec.scheme ? `ключ (${rec.scheme})` : "ключ";
   return (
-    <Modal title={`Вход в «${rec.name}»`} onClose={onClose}>
+    <Modal title={title} onClose={onClose}>
+      <div style={{ fontSize: 12, color: C.muted }} aria-label="сервер запросил">
+        сервер запросил: <span style={{ color: C.text }}>{asked}</span></div>
+      {rec.hint && (
+        <div style={{ fontSize: 11, color: C.muted, wordBreak: "break-all",
+          marginTop: "var(--space-4)", fontFamily: "var(--font-mono, monospace)" }}
+          aria-label="заголовок сервера">{rec.hint}</div>)}
       {rec.where && (
         <a href={rec.where} target="_blank" rel="noreferrer"
-          style={{ fontSize: 12, color: ACC, wordBreak: "break-all" }}>{rec.where}</a>)}
-      <div className="flex gap-2" style={{ margin: "var(--space-8) 0" }} role="tablist"
-        aria-label="вид входа">
-        <button type="button" role="tab" aria-selected={kind === "bearer"}
-          style={btn(kind === "bearer")} onClick={() => setKind("bearer")}>Ключ</button>
-        <button type="button" role="tab" aria-selected={kind === "basic"}
-          style={btn(kind === "basic")} onClick={() => setKind("basic")}>Логин и пароль</button>
+          style={{ fontSize: 12, color: ACC, wordBreak: "break-all", display: "inline-block",
+            marginTop: "var(--space-4)" }}>{rec.where}</a>)}
+      <div style={{ marginTop: "var(--space-8)" }}>
+        {basic ? (<>
+          <input aria-label="логин" value={user} autoComplete="off"
+            style={{ ...S.inp, width: "100%", marginBottom: "var(--space-4)" }}
+            onChange={(e) => setUser(e.target.value)} />
+          <input aria-label="пароль" type="password" value={pass} autoComplete="off"
+            style={{ ...S.inp, width: "100%" }} onChange={(e) => setPass(e.target.value)} />
+        </>) : (
+          <input aria-label="ключ" type="password" value={token} autoComplete="off"
+            style={{ ...S.inp, width: "100%" }} onChange={(e) => setToken(e.target.value)} />)}
       </div>
-      {kind === "bearer" ? (
-        <input aria-label="ключ" type="password" value={token} autoComplete="off"
-          style={{ ...S.inp, width: "100%" }} onChange={(e) => setToken(e.target.value)} />
-      ) : (<>
-        <input aria-label="логин" value={user} autoComplete="off"
-          style={{ ...S.inp, width: "100%", marginBottom: "var(--space-4)" }}
-          onChange={(e) => setUser(e.target.value)} />
-        <input aria-label="пароль" type="password" value={pass} autoComplete="off"
-          style={{ ...S.inp, width: "100%" }} onChange={(e) => setPass(e.target.value)} />
-      </>)}
       <div className="flex gap-2" style={{ marginTop: "var(--space-12)" }}>
         <button type="button" style={btn(ready, ready ? OK : undefined)}
           disabled={busy || !ready}
-          onClick={() => onSave(kind === "bearer" ? { kind: "bearer", token: token.trim() }
-            : { kind: "basic", login: user.trim(), password: pass })}>Войти</button>
+          onClick={() => onSave(basic ? { kind: "basic", login: user.trim(), password: pass }
+            : { kind: "bearer", token: token.trim() })}>Войти</button>
         <button type="button" style={btn(false)} onClick={onClose}>Отмена</button>
       </div>
     </Modal>);

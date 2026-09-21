@@ -71,22 +71,48 @@ export function authHeader(auth) {
   return {};
 }
 
-/** Отказ «нужен вход»: с адресом, куда идти, если сервер его назвал. */
+/** Отказ «нужен вход»: чем именно входить и куда идти — как сказал сервер. */
 export class NeedsAuth extends Error {
-  constructor(status, where = "") {
+  constructor(status, asked = {}) {
     super(`MCP-сервер ответил ${status}: нужен вход`);
     this.status = status;
     this.needsAuth = true;
-    this.where = where;
+    this.where = asked.where || "";
+    this.scheme = asked.scheme || "";
+    this.realm = asked.realm || "";
+    this.hint = asked.hint || "";
   }
 }
 
-/* Из `WWW-Authenticate` достаём адрес, по которому сервер описывает, как
-   к нему входить. Формат разный, поэтому берём первую ссылку. */
-const whereFrom = (value) => {
-  const m = String(value || "").match(/https?:\/\/[^\s",]+/);
-  return m ? m[0] : "";
-};
+/* ЧЕМ ВХОДИТЬ — ГОВОРИТ СЕРВЕР (владелец, 2026-09-21: «ввод данных
+   должен зависеть от того, что запросил сервер»). Всё это он и пишет в
+   `WWW-Authenticate`: схему (Bearer, Basic, OAuth, Digest…), realm —
+   имя области, и часто адрес, где описано, как получить ключ. Мы это
+   разбираем и отдаём наверх как есть; окно на экране строится по схеме:
+
+   · Bearer — одно поле, ключ (токен);
+   · Basic  — логин и пароль;
+   · OAuth / адрес без схемы — ссылка «войти» и поле для ключа, который
+     оттуда принесут;
+   · сервер промолчал — ключ: так входят почти все MCP-серверы.
+
+   `hint` — сама строка заголовка без лишнего, чтобы человек видел
+   дословно, что от него хотят. */
+export function askedFrom(value) {
+  const raw = String(value || "").trim();
+  const where = (raw.match(/https?:\/\/[^\s",]+/) || [""])[0];
+  const first = raw.match(/^([A-Za-z][A-Za-z0-9_-]*)/);
+  const word = first ? first[1].toLowerCase() : "";
+  const realm = (raw.match(/realm="([^"]*)"/i) || raw.match(/realm=([^\s,]+)/i) || [])[1] || "";
+  let scheme = "";
+  if (word === "bearer") scheme = "bearer";
+  else if (word === "basic") scheme = "basic";
+  else if (word === "digest") scheme = "basic";
+  else if (/oauth|resource_metadata|authorization_uri/i.test(raw)) scheme = "oauth";
+  else if (word) scheme = word;
+  if (scheme === "bearer" && /resource_metadata|authorization_uri/i.test(raw)) scheme = "oauth";
+  return { scheme, realm, where, hint: raw.slice(0, 300) };
+}
 
 let seq = 0;
 async function rpc(url, method, params, { session = "", signal, auth = null } = {}) {
@@ -105,7 +131,7 @@ async function rpc(url, method, params, { session = "", signal, auth = null } = 
   if (res.status === 401 || res.status === 403) {
     /* Не ошибка, а развилка: человеку надо показать окно входа, а не
        строчку с номером. Куда идти за ключом — из заголовка сервера. */
-    throw new NeedsAuth(res.status, whereFrom(res.headers.get("www-authenticate")));
+    throw new NeedsAuth(res.status, askedFrom(res.headers.get("www-authenticate")));
   }
   if (!res.ok) {
     throw new Error(`MCP-сервер ответил ${res.status}${res.status === 404 ? ": проверьте адрес" : ""}`);

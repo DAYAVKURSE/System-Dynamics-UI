@@ -475,6 +475,9 @@ describe("mcp: сервер требует входа", () => {
     expect(no.body.needsAuth).toBe(true);
     expect(no.body.where).toBe("https://x/login");
     expect(no.body.server).toBe("Погода");
+    // Схема — как сказал сервер: окно на экране строится по ней.
+    expect(no.body.scheme).toBe("oauth");
+    expect(no.body.hint).toBe('Bearer resource_metadata="https://x/login"');
 
     const put = await request(app).put(`/api/assistant/mcp/${id}/auth`).set(as(200))
       .send({ kind: "bearer", token: "sk-1" });
