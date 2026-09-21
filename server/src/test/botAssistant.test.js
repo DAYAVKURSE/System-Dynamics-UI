@@ -606,3 +606,52 @@ describe("подтверждение изменения", () => {
     expect(answered2[1].text).toMatch(/уже не действует/);
   });
 });
+
+/* ВХОД НА MCP-СЕРВЕР ИЗ ЧАТА (владелец, 2026-09-21): «Ассистент или агент
+   должен сам запрашивать логин и пароль в чате… если это требуется
+   непосредственно при выполнении задачи». Ответ человека — обычное
+   сообщение, и разбирается оно РАНЬШЕ «запомни:» и самого помощника:
+   это ответ на вопрос бота, а не новый вопрос. */
+describe("вход на MCP-сервер, присланный в чат", () => {
+  const withAuth = (saved = { id: "mcp1", name: "Погода" }) => {
+    const d = deps();
+    const got = [];
+    d.assistant.mcpAuth = async (userId, name, auth) => { got.push({ userId, name, auth }); return saved; };
+    return { d, got };
+  };
+
+  it("«ключ <сервер>: <токен>» запоминается, а сообщение с ключом удаляется", async () => {
+    const { d, got } = withAuth();
+    const killed = [];
+    d.tg = { deleteMessage: async (chatId, id) => { killed.push({ chatId, id }); } };
+    const r = await onAssistantMessage({ text: "ключ Погода: sk-1", message_id: 77 }, from, d);
+    expect(r).toEqual({ mcpAuth: "mcp1" });
+    expect(got).toEqual([{ userId: "200", name: "Погода", auth: { kind: "bearer", token: "sk-1" } }]);
+    // Ключ в переписке не остаётся.
+    expect(killed).toEqual([{ chatId: 200, id: 77 }]);
+    expect(sent[0].text).toMatch(/Запомнил вход в «Погода»/);
+    // Помощника не звали: это ответ боту, а не вопрос.
+    expect(asked).toEqual([]);
+  });
+
+  it("«логин <сервер>: <логин> <пароль>» — то же самое", async () => {
+    const { d, got } = withAuth();
+    await onAssistantMessage({ text: "логин Погода: ivan s3cret" }, from, d);
+    expect(got[0].auth).toEqual({ kind: "basic", login: "ivan", password: "s3cret" });
+    expect(asked).toEqual([]);
+  });
+
+  it("сервера с таким названием нет — говорит об этом, а не молчит", async () => {
+    const { d } = withAuth(null);
+    const r = await onAssistantMessage({ text: "ключ Погодка: sk-1" }, from, d);
+    expect(r.error).toBe("no server");
+    expect(sent[0].text).toMatch(/Не нашёл сервер «Погодка»/);
+  });
+
+  it("без входа в зависимостях это обычный вопрос помощнику", async () => {
+    const r = await onAssistantMessage({ text: "ключ от квартиры: где деньги лежат" }, from, deps());
+    expect(r.answered).toBe("queued");
+    await r.done;
+    expect(asked[0].q).toBe("ключ от квартиры: где деньги лежат");
+  });
+});

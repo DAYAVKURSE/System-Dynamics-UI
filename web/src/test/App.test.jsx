@@ -14,7 +14,7 @@ describe("App", () => {
   it("рендерит схему жизнеспособности без ошибок", () => {
     render(<App />);
     // Шапка — имя приложения (владелец, 2026-09-19).
-    expect(screen.getByLabelText("Blocktree")).toBeInTheDocument();
+    expect(screen.getByLabelText("blockTree")).toBeInTheDocument();
     expect(screen.getByText("Задачи")).toBeInTheDocument();
     expect(screen.getByText("Схема")).toBeInTheDocument();
     expect(screen.getByText("Инструменты")).toBeInTheDocument();
@@ -27,7 +27,7 @@ describe("App", () => {
     // «Подключиться»: параметры Telegram — во фрагменте.
     setUrl("#tgWebAppData=user%3D%7B%7D&tgWebAppStartParam=call_abc123");
     render(<App />);
-    expect(screen.queryByLabelText("Blocktree")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("blockTree")).not.toBeInTheDocument();
     expect(screen.queryByText("Инструменты")).not.toBeInTheDocument();
     expect(screen.queryByText("Схема")).not.toBeInTheDocument();
     // Именно кнопка входа, а не любое слово «звонок» на странице: их там

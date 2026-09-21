@@ -4,6 +4,7 @@ import { telegramUser } from "../middleware/telegramUser.js";
 import { addAgentUser, agentUserId, identify, removeUser, renameAgentUser } from "../lib/orgStore.js";
 import {
   TASKS, addAgent, addMcp, addProvider, agentFor, isBadInput, kindsView, mcpFor, providerFor,
+  setMcpAuth,
   removeAgent, removeMcp, removeProvider, setTasks, settingsView, updateAgent, updateMcp,
   updateProvider,
 } from "../lib/assistantSettings.js";
@@ -182,6 +183,16 @@ router.put("/mcp/:id", (req, res, next) => {
   } catch (e) { return badInput(e, res, next); }
 });
 
+/* Вход на сервер: ключ или логин с паролем. Наружу он не возвращается —
+   ответ говорит только, что вход теперь есть. */
+router.put("/mcp/:id/auth", (req, res, next) => {
+  try {
+    const m = setMcpAuth(req.me.id, req.params.id, req.body || {});
+    if (!m) return res.status(404).json({ error: "MCP-сервер не найден" });
+    return res.json(m);
+  } catch (e) { return badInput(e, res, next); }
+});
+
 router.delete("/mcp/:id", (req, res, next) => {
   try {
     if (!removeMcp(req.me.id, req.params.id)) {
@@ -209,8 +220,17 @@ router.post("/mcp/:id/tools", async (req, res, next) => {
     const m = mcpFor(req.me.id, req.params.id);
     if (!m) return res.status(404).json({ error: "MCP-сервер не найден" });
     let tools = [];
-    try { tools = await listTools(m.url); }
-    catch (e) { return res.status(502).json({ error: String(e?.message || e).slice(0, 300) }); }
+    try { tools = await listTools(m.url, { auth: m.auth || null }); }
+    catch (e) {
+      /* «Нужен вход» — не поломка, а развилка: экран на неё открывает окно
+         входа, а не показывает строчку с номером. Отдаём это отдельным
+         полем, а не угадыванием по тексту. */
+      if (e?.needsAuth) {
+        return res.status(401).json({ error: "Сервер требует входа", needsAuth: true,
+          where: e.where || "", server: m.name });
+      }
+      return res.status(502).json({ error: String(e?.message || e).slice(0, 300) });
+    }
     const saved = updateMcp(req.me.id, m.id, { tools: tools.map((t) => t.name) });
     return res.json({ ...saved, offered: tools });
   } catch (e) { return badInput(e, res, next); }

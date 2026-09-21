@@ -19,6 +19,7 @@ import * as memory from "./lib/memoryStore.js";
 import { recordGroupMessage } from "./lib/chatStore.js";
 import { bindLatestAgreement, claimAgreement } from "./lib/contractStore.js";
 import { resumeTranscripts } from "./lib/transcribe.js";
+import * as assistantSettings from "./lib/assistantSettings.js";
 
 const app = createApp();
 const PORT = process.env.PORT || 3000;
@@ -184,7 +185,16 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
                  прерывает запрос к модели, а не прячет ответ. Статус —
                  «🕐 Думаю…» с идущими часами, и правит его `edit` выше.
                  Память — та же, что в приложении. */
-              assistant: { ask: askNow, cancel: cancelAsk, memory },
+              assistant: { ask: askNow, cancel: cancelAsk, memory,
+                /* Вход на MCP-сервер, присланный в чат: ищем сервер по
+                   названию среди СВОИХ — чужих у человека и нет. */
+                mcpAuth: async (userId, name, auth) => {
+                  const mine = assistantSettings.settingsView(userId).mcp || [];
+                  const want = String(name).trim().toLowerCase();
+                  const m = mine.find((x) => String(x.name).toLowerCase() === want)
+                    || mine.find((x) => String(x.name).toLowerCase().includes(want));
+                  return m ? assistantSettings.setMcpAuth(userId, m.id, auth) : null;
+                } },
               /* Группы бот только слушает: сообщение ложится в хранилище чатов,
                  ответа в группу нет никакого (lib/chatStore.js). */
               chats: { record: recordGroupMessage },

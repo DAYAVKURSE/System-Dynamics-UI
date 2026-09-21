@@ -696,9 +696,12 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
         ) : (<>
           <span style={{ fontSize: 15, fontWeight: 700 }}>{name || "—"}</span>
           {mine && (
+            /* Карандаш — значок рядом с именем, а не кнопка в ряду:
+               растягивать его по ширине формы незачем. */
             <button type="button" aria-label="изменить имя" title="Изменить имя"
               disabled={busy} onClick={() => { setNaming(true); setMsg(""); }}
-              style={{ ...btn(false), fontSize: 12, padding: "0 var(--space-8)" }}>✎</button>)}
+              style={{ ...btn(false), flex: "0 0 auto", fontSize: 12,
+                padding: "0 var(--space-8)" }}>✎</button>)}
         </>)}
       </div>
       {nameMsg && (

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ACC, BAD, C, OK, S, WARN, btn, TxtField } from "./ui.jsx";
+import { ACC, BAD, C, OK, S, WARN, btn, tintOf, TxtField } from "./ui.jsx";
 import Modal from "./Modal.jsx";
 import {
   addAgent, addMcp, addMemory, addProvider, dropAgent, dropMcp, dropMemory, dropProvider,
-  getAssistantSettings, listMemory, mcpRegistry, mcpTools, providerModels, updateAgent,
-  updateProvider,
+  getAssistantSettings, listMemory, mcpRegistry, mcpTools, providerModels, setMcpAuth,
+  updateAgent, updateProvider,
 } from "../assistant.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -271,6 +271,7 @@ export default function AgentsPanel({ me, onChanged }) {
                 MCP-серверов ниже. */}
             <AgentMcp key={`mcp-${agent.id}`} agent={agent} servers={servers} busy={busy}
               onAsk={(id) => runRaw(() => mcpTools(id))}
+              onAuth={(id, auth) => runRaw(() => setMcpAuth(id, auth))}
               onPick={(map) => runRaw(() => updateAgent(agent.id, { mcp: map }))} />
 
             {/* ═══ удалить ═══ */}
@@ -385,7 +386,7 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
             {m.repo && <div>репозиторий: {m.repo}</div>}
             {!!(m.tools || []).length && <div>умеет: {m.tools.join(", ")}</div>}
           </div>
-          {/* «Спросить инструменты» отсюда ушла на форму агента (владелец,
+          {/* «Опросить» отсюда ушла на форму агента (владелец,
               2026-09-21): спрашивают их тогда, когда выбирают, — и отказ
               сервера человек должен читать там же, где нажал. */}
           <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
@@ -609,8 +610,14 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
 
    Список — своя форма с ограниченной высотой и прокруткой внутри:
    инструментов бывает под сотню, и без предела форма агента уезжала бы на
-   три экрана. Первые кнопки в нём — «Выделить всё» и «Снять выделение»:
-   чаще всего нужно именно это, а не перебирать по одному.
+   три экрана. Каждая строка списка — отметка с checkbox слева, и первые
+   две строки в нём — «Выделить всё» и «Снять выделение»: чаще всего нужно
+   именно это, а не перебирать по одному.
+
+   Сервер ответил «нужен вход» — открывается окно с ключом или логином и
+   паролем; после входа список спрашивается заново. Если вход понадобился
+   не здесь, а посреди работы, агент просит его словами в чате
+   (server/lib/botAssistant.js).
    ════════════════════════════════════════════════════════════════ */
 
 /* Что выбрано у сервера: ничего, часть или всё. Сервер, который ещё не
@@ -624,10 +631,34 @@ export function pickState(all = [], on = []) {
 const STATE_MARK = { all: "✓", some: "●", none: "○" };
 const STATE_TONE = { all: OK, some: WARN, none: undefined };
 
-function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
+/* Строка списка инструментов: checkbox слева, название справа. Строкой, а
+   не кнопкой (владелец, 2026-09-21): выбор — это отметка, и выглядеть он
+   должен отметкой. «Выделить всё» и «Снять выделение» — такие же первые
+   строки этого же списка. */
+function ToolRow({ label, checked, disabled, onChange, ariaLabel }) {
+  const t = tintOf(OK);
+  return (
+    <label style={{ display: "flex", alignItems: "center", gap: "var(--space-8)",
+      width: "100%", padding: "var(--space-4) var(--space-8)", marginBottom: "var(--space-4)",
+      borderRadius: "var(--radius-sm)", cursor: disabled ? "default" : "pointer",
+      minHeight: "var(--control-h)", boxSizing: "border-box",
+      background: checked ? t.bg : "transparent",
+      border: `1px solid ${checked ? t.line : C.line}`,
+      color: checked ? t.text : C.text, fontSize: 12, lineHeight: "18px" }}>
+      <input type="checkbox" checked={checked} disabled={disabled}
+        aria-label={ariaLabel} onChange={onChange}
+        style={{ flex: "0 0 auto", width: 14, height: 14, margin: 0, cursor: "inherit" }} />
+      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+    </label>);
+}
+
+function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth }) {
   const [open, setOpen] = useState("");
   const [asking, setAsking] = useState("");
   const [err, setErr] = useState("");
+  /* Сервер потребовал входа — окно, а не строчка с номером (владелец,
+     2026-09-21). Что за сервер и куда он зовёт — в этом же значении. */
+  const [login, setLogin] = useState(null);
 
   const picked = agent.mcp && typeof agent.mcp === "object" && !Array.isArray(agent.mcp)
     ? agent.mcp : {};
@@ -636,7 +667,12 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
   const ask = async (id) => {
     setAsking(id); setErr("");
     try { await onAsk(id); }
-    catch (e) { setErr(e.message); }
+    catch (e) {
+      if (e?.needsAuth) {
+        const m = servers.find((x) => x.id === id);
+        setLogin({ id, name: e.server || m?.name || "", where: e.where || "" });
+      } else setErr(e.message);
+    }
     finally { setAsking(""); }
   };
 
@@ -653,6 +689,17 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
     setErr("");
     try { await onPick({ ...picked, [id]: list }); }
     catch (e) { setErr(e.message); }
+  };
+
+  /* Вошли — и сразу спрашиваем снова: человек нажимал «Опросить», а не
+     «сохранить пароль». */
+  const saveAuth = async (auth) => {
+    const id = login.id;
+    setErr("");
+    try { await onAuth(id, auth); }
+    catch (e) { setErr(e.message); return; }
+    setLogin(null);
+    await ask(id);
   };
 
   return (
@@ -689,31 +736,27 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
                   <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                     <span style={{ ...S.lbl, flex: 1 }}>инструменты</span>
                     <button type="button" style={btn(false)} disabled={busy || asking === m.id}
-                      aria-label={`спросить инструменты ${m.name}`}
+                      aria-label={`опросить ${m.name}`}
                       onClick={() => ask(m.id)}>
-                      {asking === m.id ? "Спрашиваю…" : "Спросить инструменты"}</button>
+                      {asking === m.id ? "Спрашиваю…" : "Опросить"}</button>
                   </div>
 
                   {/* Высота ограничена, прокрутка внутри: инструментов
                       у сервера бывает под сотню. */}
-                  <div className="flex flex-wrap gap-2"
-                    style={{ maxHeight: 160, overflowY: "auto" }}>
-                    <button type="button" style={btn(false, OK)} disabled={busy || !all.length}
-                      aria-label={`выделить всё: ${m.name}`}
-                      onClick={() => set(m.id, [...all])}>Выделить всё</button>
-                    <button type="button" style={btn(false)} disabled={busy || !on.length}
-                      aria-label={`снять выделение: ${m.name}`}
-                      onClick={() => set(m.id, [])}>Снять выделение</button>
+                  <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                    <ToolRow label="Выделить всё" checked={state === "all"}
+                      disabled={busy || !all.length} ariaLabel={`выделить всё: ${m.name}`}
+                      onChange={() => set(m.id, [...all])} />
+                    <ToolRow label="Снять выделение" checked={state === "none"}
+                      disabled={busy || !on.length} ariaLabel={`снять выделение: ${m.name}`}
+                      onChange={() => set(m.id, [])} />
                     {all.map((t) => {
                       const has = on.includes(t);
                       return (
-                        <button key={t} type="button" role="checkbox" aria-checked={has}
-                          disabled={busy} aria-label={`инструмент ${t}`}
-                          style={{ ...btn(has, has ? OK : undefined), fontSize: 11,
-                            padding: "0 var(--space-8)" }}
-                          onClick={() => set(m.id, has ? on.filter((x) => x !== t)
-                            : [...on, t])}>
-                          {has ? "✓ " : ""}{t}</button>);
+                        <ToolRow key={t} label={t} checked={has} disabled={busy}
+                          ariaLabel={`инструмент ${t}`}
+                          onChange={() => set(m.id, has ? on.filter((x) => x !== t)
+                            : [...on, t])} />);
                     })}
                   </div>
                   {!all.length && asking !== m.id && (
@@ -725,9 +768,53 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
       </div>
 
       {/* Отказ — здесь же, под кнопкой, а не в чужой карточке наверху:
-          именно поэтому «Спросить инструменты» и выглядела нерабочей. */}
+          именно поэтому «Опросить» и выглядела нерабочей. */}
       {err && <div role="status" style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
+
+      {login && (
+        <McpLogin rec={login} busy={busy} onSave={saveAuth} onClose={() => setLogin(null)} />)}
     </div>);
+}
+
+/* ─────── ВХОД НА MCP-СЕРВЕР (владелец, 2026-09-21) ───────
+   Сервер ответил 401 — окно с выбором: ключ или логин с паролем. Уходит
+   на сервер приложения и обратно не возвращается. */
+function McpLogin({ rec, busy, onSave, onClose }) {
+  const [kind, setKind] = useState("bearer");
+  const [token, setToken] = useState("");
+  const [user, setUser] = useState("");
+  const [pass, setPass] = useState("");
+  const ready = kind === "bearer" ? Boolean(token.trim()) : Boolean(user.trim() || pass);
+  return (
+    <Modal title={`Вход в «${rec.name}»`} onClose={onClose}>
+      {rec.where && (
+        <a href={rec.where} target="_blank" rel="noreferrer"
+          style={{ fontSize: 12, color: ACC, wordBreak: "break-all" }}>{rec.where}</a>)}
+      <div className="flex gap-2" style={{ margin: "var(--space-8) 0" }} role="tablist"
+        aria-label="вид входа">
+        <button type="button" role="tab" aria-selected={kind === "bearer"}
+          style={btn(kind === "bearer")} onClick={() => setKind("bearer")}>Ключ</button>
+        <button type="button" role="tab" aria-selected={kind === "basic"}
+          style={btn(kind === "basic")} onClick={() => setKind("basic")}>Логин и пароль</button>
+      </div>
+      {kind === "bearer" ? (
+        <input aria-label="ключ" type="password" value={token} autoComplete="off"
+          style={{ ...S.inp, width: "100%" }} onChange={(e) => setToken(e.target.value)} />
+      ) : (<>
+        <input aria-label="логин" value={user} autoComplete="off"
+          style={{ ...S.inp, width: "100%", marginBottom: "var(--space-4)" }}
+          onChange={(e) => setUser(e.target.value)} />
+        <input aria-label="пароль" type="password" value={pass} autoComplete="off"
+          style={{ ...S.inp, width: "100%" }} onChange={(e) => setPass(e.target.value)} />
+      </>)}
+      <div className="flex gap-2" style={{ marginTop: "var(--space-12)" }}>
+        <button type="button" style={btn(ready, ready ? OK : undefined)}
+          disabled={busy || !ready}
+          onClick={() => onSave(kind === "bearer" ? { kind: "bearer", token: token.trim() }
+            : { kind: "basic", login: user.trim(), password: pass })}>Войти</button>
+        <button type="button" style={btn(false)} onClick={onClose}>Отмена</button>
+      </div>
+    </Modal>);
 }
 
 /* ─────── ИНСТРУКЦИИ АГЕНТА · СКИЛЛ (владелец, 2026-09-20) ───────

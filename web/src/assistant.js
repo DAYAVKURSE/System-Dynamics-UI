@@ -25,7 +25,16 @@ const headers = () => ({
 
 const json = async (url, opts) => {
   const r = await fetch(url, { headers: headers(), ...opts });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Сервер ответил ${r.status}`);
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    const e = new Error(body.error || `Сервер ответил ${r.status}`);
+    /* Тело отказа едет вместе с ним: «нужен вход» — развилка, на которую
+       экран открывает окно, а не строчка с номером. Угадывать это по
+       тексту сообщения нельзя. */
+    e.status = r.status;
+    Object.assign(e, body);
+    throw e;
+  }
   return r.status === 204 ? null : r.json();
 };
 
@@ -69,6 +78,10 @@ export const dropMcp = (id) =>
   json(`/api/assistant/mcp/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const mcpTools = (id) =>
   json(`/api/assistant/mcp/${encodeURIComponent(id)}/tools`, { method: "POST" });
+/* Вход на сервер: ключ или логин с паролем. Обратно приходит только вид
+   входа — ни ключ, ни пароль в браузер не возвращаются. */
+export const setMcpAuth = (id, auth) =>
+  json(`/api/assistant/mcp/${encodeURIComponent(id)}/auth`, { method: "PUT", body: JSON.stringify(auth) });
 /* Реестр — общий каталог серверов: форма показывает его и умеет обновить.
    Ничего не хранит: спрашивает сервер приложения и отдаёт как есть. */
 export const mcpRegistry = () => json("/api/assistant/mcp/registry");

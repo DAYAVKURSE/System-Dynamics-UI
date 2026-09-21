@@ -192,7 +192,10 @@ export function createQueue({
       ? agent.mcp : {};
     const servers = Object.entries(picked)
       .map(([id, tools]) => {
-        const m = (view.mcp || []).find((x) => x.id === id);
+        /* Берём ПОЛНУЮ запись (`mcpFor`), а не экранную: в ней лежит вход
+           на сервер, и без него чужой сервер ответит 401. Наружу она не
+           уходит — только в вызов инструмента. */
+        const m = settings.mcpFor(it.userId, id);
         return m && tools.length ? { ...m, tools: [...tools] } : null;
       })
       .filter(Boolean);
@@ -213,6 +216,9 @@ export function createQueue({
         /* Показать подтверждение человеку умеет тот, кто спросил, а не
            очередь: бот — кнопками, приложение — ничем. */
         onConfirm: it.onConfirm,
+        /* Чужой сервер требует входа посреди работы — спросить человека
+           умеет тот, кто с ним говорит. */
+        onAuthNeeded: it.onAuthNeeded,
       }), answerTimeoutMs, `Модель не ответила за ${Math.round(answerTimeoutMs / 60000)} мин`);
       progress(it, "answer");
       finish(it, { status: "done", text });
@@ -242,7 +248,7 @@ export function createQueue({
 
   /** Кладёт вопрос. Ответ — по id, у того же человека. */
   function ask({ userId, question, context = "", task = DEFAULT_TASK, onProgress = null,
-    onConfirm = null }) {
+    onConfirm = null, onAuthNeeded = null }) {
     sweep();
     const q = String(question || "").trim().slice(0, MAX_QUESTION);
     if (!q) throw new Error("question is required");
@@ -254,6 +260,7 @@ export function createQueue({
       abort: new AbortController(),
       onProgress: typeof onProgress === "function" ? onProgress : null,
       onConfirm: typeof onConfirm === "function" ? onConfirm : null,
+      onAuthNeeded: typeof onAuthNeeded === "function" ? onAuthNeeded : null,
     };
     it.promise = new Promise((resolve, reject) => { it.resolve = resolve; it.reject = reject; });
     // Никто не ждёт обещание — отказ не должен становиться необработанным.
@@ -293,8 +300,8 @@ export function createQueue({
       по нему бот рисует кнопку «Отменить». `signal` снаружи — тот же
       cancel, но от AbortController вызывающего. */
   function askNow(userId, question, context = "", {
-    task = DEFAULT_TASK, onProgress, onConfirm, signal } = {}) {
-    const { id } = ask({ userId, question, context, task, onProgress, onConfirm });
+    task = DEFAULT_TASK, onProgress, onConfirm, onAuthNeeded, signal } = {}) {
+    const { id } = ask({ userId, question, context, task, onProgress, onConfirm, onAuthNeeded });
     const it = items.get(id);
     if (signal) {
       if (signal.aborted) cancel(id, userId);

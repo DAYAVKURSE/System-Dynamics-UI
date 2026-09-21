@@ -452,3 +452,60 @@ describe("агенты", () => {
     expect((await request(app).get(`/api/assistant/memory?agent=${a.id}`).set(as(200))).body).toHaveLength(1);
   });
 });
+
+/* ВХОД НА MCP-СЕРВЕР (владелец, 2026-09-21): «MCP-сервер ответил 401: он
+   требует авторизации, а войти в него приложение пока не умеет. Вход
+   должен появляться в виде модального окна». Отказ «нужен вход» приходит
+   отдельным признаком: экран открывает на него окно, а не показывает
+   строчку с номером. */
+describe("mcp: сервер требует входа", () => {
+  it("401 приходит признаком, вход сохраняется, и после него инструменты спрашиваются", async () => {
+    const add = await request(app).post("/api/assistant/mcp").set(as(200))
+      .send({ name: "Погода", url: "https://x/mcp" });
+    expect(add.status).toBe(201);
+    const id = add.body.id;
+    expect(add.body.auth).toBe("none");
+
+    globalThis.fetch = async () => ({ ok: false, status: 401,
+      headers: { get: (k) => (String(k).toLowerCase() === "www-authenticate"
+        ? 'Bearer resource_metadata="https://x/login"' : null) },
+      json: async () => ({}), text: async () => "" });
+    const no = await request(app).post(`/api/assistant/mcp/${id}/tools`).set(as(200));
+    expect(no.status).toBe(401);
+    expect(no.body.needsAuth).toBe(true);
+    expect(no.body.where).toBe("https://x/login");
+    expect(no.body.server).toBe("Погода");
+
+    const put = await request(app).put(`/api/assistant/mcp/${id}/auth`).set(as(200))
+      .send({ kind: "bearer", token: "sk-1" });
+    expect(put.status).toBe(200);
+    expect(put.body).toMatchObject({ id, auth: "bearer", hasAuth: true });
+    // Ключ обратно не приходит ни здесь, ни в общих настройках.
+    expect(JSON.stringify(put.body)).not.toContain("sk-1");
+    const view = await request(app).get("/api/assistant/settings").set(as(200));
+    expect(JSON.stringify(view.body)).not.toContain("sk-1");
+
+    const sent = [];
+    globalThis.fetch = async (url, opts = {}) => {
+      sent.push({ url: String(url), headers: opts.headers || {} });
+      return { ok: true, status: 200, headers: { get: () => "application/json" },
+        json: async () => ({ jsonrpc: "2.0", id: 1,
+          result: { tools: [{ name: "forecast", description: "погода" }] } }),
+        text: async () => "" };
+    };
+    const ok = await request(app).post(`/api/assistant/mcp/${id}/tools`).set(as(200));
+    expect(ok.status).toBe(200);
+    expect(ok.body.tools).toEqual(["forecast"]);
+    // Ключ ушёл серверу — заголовком, в каждом запросе.
+    expect(sent.every((r) => r.headers.Authorization === "Bearer sk-1")).toBe(true);
+
+    // Чужому сервера не видно.
+    expect((await request(app).put(`/api/assistant/mcp/${id}/auth`).set(as(100))
+      .send({ kind: "bearer", token: "sk-2" })).status).toBe(404);
+    // Пустой ключ — отказ словами, а не молчаливое «вошли».
+    const empty = await request(app).put(`/api/assistant/mcp/${id}/auth`).set(as(200))
+      .send({ kind: "bearer", token: "   " });
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toMatch(/[Кк]люч/);
+  });
+});

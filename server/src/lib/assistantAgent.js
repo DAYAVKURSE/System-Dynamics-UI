@@ -122,7 +122,7 @@ function toolList({ isOwner, servers }) {
         name: mcpToolName(s.id, name),
         description: `${s.name}: ${typeof t === "string" ? name : (t.description || name)}`,
         schema: (typeof t === "object" && t?.schema) || { type: "object", properties: {} },
-        mcp: { url: s.url, tool: name, server: s.name },
+        mcp: { url: s.url, tool: name, server: s.name, auth: s.auth || null },
       });
     });
   });
@@ -138,7 +138,7 @@ function toolList({ isOwner, servers }) {
 export async function runAgent({
   userId, agentId, question, system, model, complete,
   isOwner = false, ask = true, servers = [], signal = null, rounds = MAX_ROUNDS,
-  onConfirm = null,
+  onConfirm = null, onAuthNeeded = null,
 }) {
   const tools = toolList({ isOwner, servers });
   const messages = [{ role: "user", content: String(question || "") }];
@@ -161,10 +161,30 @@ export async function runAgent({
         result = { ok: false, text: `Нет такого инструмента: ${call.name}.` };
       } else if (tool.mcp) {
         try {
-          const r = await callTool(tool.mcp.url, tool.mcp.tool, call.args);
+          const r = await callTool(tool.mcp.url, tool.mcp.tool, call.args,
+            { auth: tool.mcp.auth });
           result = { ok: r.ok, text: r.text };
         } catch (e) {
-          result = { ok: false, text: `${tool.mcp.server} не ответил: ${String(e?.message || e).slice(0, 200)}` };
+          if (e?.needsAuth) {
+            /* ВХОД ПОСРЕДИ РАБОТЫ (владелец, 2026-09-21): «агент должен сам
+               запрашивать логин и пароль в чате, или отправлять в чат
+               страницу для логина». Спрашивает тот, кто говорит с
+               человеком, — бот сообщением; модель об этом только узнаёт и
+               не выдумывает, будто сделала. */
+            let asked = false;
+            try {
+              asked = onAuthNeeded
+                ? await onAuthNeeded({ server: tool.mcp.server, where: e.where || "",
+                  url: tool.mcp.url })
+                : false;
+            } catch { asked = false; }
+            result = { ok: false, text: asked
+              ? `${tool.mcp.server} требует входа. Человека уже спросили — жди, пока он пришлёт ключ,`
+                + " и не зови этот инструмент снова."
+              : `${tool.mcp.server} требует входа, а ключа у меня нет.` };
+          } else {
+            result = { ok: false, text: `${tool.mcp.server} не ответил: ${String(e?.message || e).slice(0, 200)}` };
+          }
         }
       } else {
         result = await runAction(call.name, call.args,

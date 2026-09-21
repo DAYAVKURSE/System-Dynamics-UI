@@ -1585,12 +1585,40 @@ export default function SystemModel(){
             себе. «Отчёты» — владельцу: карту пишет он, а остальным сервер
             её и не отдаёт — рисовать пустую карту с кнопками, которые
             ничего не сохранят, значило бы обещать работу, которой не
-            будет. Наружу отчёт уходит ссылкой. */}
-        <div ref={tabsBox} className="flex gap-2"
-          style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"center"}}>
-          {tabsShown.map(([k,t])=>(
-            <button key={k} data-tab={k} style={tabStyle(tab===k)}
-              onClick={()=>goTab(k)}>{t}</button>))}
+            будет. Наружу отчёт уходит ссылкой.
+
+            ЖЁЛОБ ВКЛАДОК — ТЕМНЕЕ БАРА (владелец, 2026-09-21): знак с
+            именем лежат на стекле, вкладки — в углублении под ним. Разница
+            в тоне и показывает, что вкладки едут, а знак стоит.
+
+            `data-noswipe` — чтобы прокрутка вкладок НЕ меняла вкладку:
+            свайп по странице листает разделы, и без этой метки движение
+            пальца по самому ряду читалось бы как переход (владелец,
+            2026-09-21). */}
+        <div className="flex items-center" data-noswipe=""
+          style={{flex:1,minWidth:0,gap:"var(--space-4)",
+            background:"rgba(5,7,12,.55)",border:"1px solid var(--border-glass-soft)",
+            borderRadius:"var(--radius-pill)",padding:"var(--space-4)"}}>
+          <div ref={tabsBox} className="flex gap-2 no-bar"
+            style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"center"}}>
+            {tabsShown.map(([k,t])=>(
+              <button key={k} data-tab={k} style={tabStyle(tab===k)}
+                onClick={()=>goTab(k)}>{t}</button>))}
+          </div>
+          {/* Стрелка вместо полосы прокрутки: полосу убрали, а знать, что
+              вкладки продолжаются, надо. Нажатие листает ряд на экран. */}
+          <button type="button" aria-label="следующие вкладки"
+            onClick={()=>{ const b=tabsBox.current; if(b) b.scrollBy(
+              {left:Math.max(120,b.clientWidth-60),behavior:"smooth"}); }}
+            style={{width:22,height:22,flex:"0 0 auto",padding:0,
+              borderRadius:"var(--radius-pill)",display:"flex",
+              alignItems:"center",justifyContent:"center",cursor:"pointer",
+              background:"var(--surface-glass-strong)",
+              border:"1px solid var(--border-glass)",color:C.second}}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+              stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
+              strokeLinejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
         </div>
       </div>
 

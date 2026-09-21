@@ -58,6 +58,21 @@ describe("свайп по экрану", () => {
     expect(screen.queryByText(/ждут постановки/i)).toBeNull();
   });
 
+  /* ПРОКРУТКА РЯДА ВКЛАДОК — НЕ СМЕНА ВКЛАДКИ (владелец, 2026-09-21:
+     «когда я скролю вкладки — у меня меняется вкладка как при скролле по
+     странице. Скролл по вкладкам не должен менять вкладку»). */
+  it("движение пальцем по самому ряду вкладок вкладку не меняет", () => {
+    const { container } = render(<SystemModel />);
+    const root = container.firstChild;
+    const W = window.innerWidth;
+    const row = screen.getByRole("button", { name: "Схема" }).closest("[data-noswipe]");
+    expect(row).not.toBeNull();
+    // Палец начинает НА ряду — движение той же длины, что и переключающее.
+    touch(row, "touchStart", W - 20);
+    touch(root, "touchEnd", 20);
+    expect(screen.queryByText(/ждут постановки/i)).toBeNull();
+  });
+
   it("короткого движения мало: вкладка остаётся", () => {
     const { container } = render(<SystemModel />);
     const root = container.firstChild;

@@ -125,6 +125,25 @@ const LEGACY = {
   hf: { kind: "hf", name: "Hugging Face", model: "meta-llama/Llama-3.1-8B-Instruct" },
 };
 
+/* Вход на MCP-сервер: ключ («bearer») либо логин с паролем («basic»).
+   Чужой формы здесь быть не может — что не узнали, то «входа нет». */
+export const AUTH_KINDS = ["none", "bearer", "basic"];
+const AUTH_LIMIT = 4096;
+function authOf(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const kind = AUTH_KINDS.includes(String(raw.kind)) ? String(raw.kind) : "none";
+  if (kind === "bearer") {
+    const token = String(raw.token || "").trim().slice(0, AUTH_LIMIT);
+    return token ? { kind, token } : null;
+  }
+  if (kind === "basic") {
+    const login = String(raw.login || "").trim().slice(0, 300);
+    const password = String(raw.password || "").slice(0, AUTH_LIMIT);
+    return login || password ? { kind, login, password } : null;
+  }
+  return null;
+}
+
 /** Ошибка ввода: маршрут отвечает ею 400 словами, а не 500. */
 class BadInput extends Error {
   constructor(message) { super(message); this.status = 400; }
@@ -249,6 +268,10 @@ function normalize(raw) {
       tools: (Array.isArray(m.tools) ? m.tools : [])
         .map((t) => String(t || "").trim().slice(0, MODEL_LIMIT)).filter(Boolean).slice(0, 100),
       at: String(m.at || "") || null,
+      /* Вход на сервер: ключ или логин с паролем. Наружу не отдаётся
+         никогда — только `hasAuth` (см. `mcpView`), как у ключей
+         провайдеров. */
+      auth: authOf(m.auth),
     });
     if (rec.mcp.length >= MAX_MCP) break;
   }
@@ -431,7 +454,10 @@ const agentView = (a) => ({
   skill: String(a.skill || ""),
 });
 const mcpView = (m) => ({ id: m.id, name: m.name, url: m.url, repo: m.repo,
-  tools: [...(m.tools || [])], at: m.at || null });
+  tools: [...(m.tools || [])], at: m.at || null,
+  /* Что за вход настроен — словом, без самого ключа: экран спрашивает
+     «входили ли», а не «чем». */
+  auth: m.auth?.kind || "none", hasAuth: Boolean(m.auth?.kind && m.auth.kind !== "none") });
 
 /** Что видно человеку на экране: его провайдеры без ключей, агенты и таблица. */
 export function settingsView(userId) {
@@ -762,6 +788,19 @@ export function updateMcp(userId, id, { name, url, repo, tools } = {}) {
   }
   writeUserSettings(userId, rec);
   return mcpView(rec.mcp.find((x) => x.id === m.id));
+}
+
+/** Запомнить вход на сервер. `{kind:"none"}` — забыть его. */
+export function setMcpAuth(userId, id, auth) {
+  const rec = readUserSettings(userId);
+  const m = rec.mcp.find((x) => x.id === String(id));
+  if (!m) return null;
+  const clean = authOf(auth);
+  if (auth && String(auth.kind) === "bearer" && !clean) throw new BadInput("Ключ пустой");
+  if (auth && String(auth.kind) === "basic" && !clean) throw new BadInput("Логин и пароль пустые");
+  m.auth = clean;
+  writeUserSettings(userId, rec);
+  return mcpView(readUserSettings(userId).mcp.find((x) => x.id === m.id));
 }
 
 export function removeMcp(userId, id) {

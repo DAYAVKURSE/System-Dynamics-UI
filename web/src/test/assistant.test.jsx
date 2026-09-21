@@ -231,10 +231,11 @@ describe("агенты", () => {
      2026-09-21) ═══
 
      «Клик по кнопке MCP-сервера обновляет список инструментов и
-     раскрывает список с ними. Повторный клик скрывает список»; «первыми
-     кнопками в списке должны быть „Выделить всё" и „Снять выделение"»;
-     «при выборе всех — зелёная с галочкой, части — жёлтая с кружком, ни
-     одного — серая с пустым кружочком». */
+     раскрывает список с ними. Повторный клик скрывает список»; «кнопки
+     выделить всё и снять выделение должны быть не кнопками, а первыми
+     строками в списке инструментов. У каждого элемента списка должен быть
+     checkbox слева»; «при выборе всех — зелёная с галочкой, части —
+     жёлтая с кружком, ни одного — серая с пустым кружочком». */
   const WEATHER = { id: "mcp1", name: "Погода", url: "https://x/mcp", repo: "",
     tools: ["forecast", "alerts"] };
 
@@ -250,10 +251,20 @@ describe("агенты", () => {
     // Заодно спросили у сервера заново: список мог смениться.
     await waitFor(() => expect(log.some((r) => r.method === "POST"
       && r.url === "/api/assistant/mcp/mcp1/tools")).toBe(true));
-    // Первые кнопки списка — «Выделить всё» и «Снять выделение».
-    const names = [...tools.querySelectorAll("button")].map((b) => b.textContent);
-    expect(names.slice(0, 3)).toEqual(["Спросить инструменты", "Выделить всё", "Снять выделение"]);
-    expect(names).toContain("forecast");
+    // Первые СТРОКИ списка — «Выделить всё» и «Снять выделение», и у
+    // каждой строки checkbox слева.
+    const rows = [...tools.querySelectorAll("label")];
+    expect(rows.map((r) => r.textContent).slice(0, 3))
+      .toEqual(["Выделить всё", "Снять выделение", "forecast"]);
+    rows.forEach((r) => {
+      const box = r.querySelector("input[type=checkbox]");
+      expect(box).not.toBeNull();
+      // «Слева» — checkbox идёт в строке первым.
+      expect(r.firstElementChild).toBe(box);
+    });
+    // Кнопкой в форме осталась одна — «Опросить».
+    expect([...tools.querySelectorAll("button")].map((b) => b.textContent))
+      .toEqual(["Опросить"]);
 
     fireEvent.click(within(box).getByRole("button", { name: /^mcp Погода/ }));
     await waitFor(() => expect(screen.queryByLabelText("инструменты Погода")).toBeNull());
@@ -275,12 +286,12 @@ describe("агенты", () => {
     await waitFor(() => expect(pick().textContent).toContain("●"));
     expect(pick()).toHaveAttribute("aria-label", "mcp Погода: часть инструментов");
 
-    fireEvent.click(screen.getByRole("button", { name: "выделить всё: Погода" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "выделить всё: Погода" }));
     await waitFor(() => expect(state.agents[0].mcp).toEqual({ mcp1: ["forecast", "alerts"] }));
     await waitFor(() => expect(pick().textContent).toContain("✓"));
     expect(pick()).toHaveAttribute("aria-label", "mcp Погода: все инструменты");
 
-    fireEvent.click(screen.getByRole("button", { name: "снять выделение: Погода" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "снять выделение: Погода" }));
     await waitFor(() => expect(state.agents[0].mcp).toEqual({ mcp1: [] }));
     await waitFor(() => expect(pick().textContent).toContain("○"));
     expect(log.filter((r) => r.method === "PUT").length).toBeGreaterThan(2);
@@ -298,14 +309,66 @@ describe("агенты", () => {
     expect(log.some((r) => r.url === "/api/assistant/mcp/mcp1/tools")).toBe(true);
   });
 
-  it("«Спросить инструменты» стоит на форме агента, а не в форме MCP-серверов", async () => {
+  /* ВХОД — ОКНОМ (владелец, 2026-09-21: «вход должен появляться в виде
+     модального окна при нажатии кнопки… на форме управления ассистентом
+     или агентами»). 401 с признаком needsAuth — не строчка с номером. */
+  it("сервер требует входа: окно, ключ уходит на сервер, список спрашивается заново", async () => {
+    let asked = 0;
+    const { log } = settingsServer([P1], [ASSISTANT], { mcp: [WEATHER],
+      "POST /api/assistant/mcp/mcp1/tools": () => {
+        asked += 1;
+        return asked === 1
+          ? { status: 401, body: { error: "Сервер требует входа", needsAuth: true,
+            where: "https://x/login", server: "Погода" } }
+          : { ...WEATHER };
+      },
+      "PUT /api/assistant/mcp/mcp1/auth": () => ({ ...WEATHER, auth: "bearer", hasAuth: true }) });
+    render(<AgentsPanel me={IVAN} />);
+    const box = await screen.findByLabelText("mcp-серверы агента");
+    fireEvent.click(within(box).getByRole("button", { name: /^mcp Погода/ }));
+
+    await screen.findByText("Вход в «Погода»");
+    // Номер отказа на форме не показан — на него открыли окно.
+    expect(within(box).queryByText(/401/)).toBeNull();
+    expect(screen.getByRole("link", { name: "https://x/login" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("ключ"), { target: { value: "sk-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
+    await waitFor(() => expect(log.some((r) => r.method === "PUT"
+      && r.url === "/api/assistant/mcp/mcp1/auth")).toBe(true));
+    expect(JSON.parse(log.find((r) => r.url === "/api/assistant/mcp/mcp1/auth").body))
+      .toEqual({ kind: "bearer", token: "sk-1" });
+    // Окно закрылось, и инструменты спросили ещё раз.
+    await waitFor(() => expect(screen.queryByText("Вход в «Погода»")).toBeNull());
+    await waitFor(() => expect(asked).toBe(2));
+  });
+
+  it("логин и пароль уходят тем же окном", async () => {
+    const { log } = settingsServer([P1], [ASSISTANT], { mcp: [WEATHER],
+      "POST /api/assistant/mcp/mcp1/tools": () => ({ status: 401,
+        body: { error: "Сервер требует входа", needsAuth: true, where: "", server: "Погода" } }),
+      "PUT /api/assistant/mcp/mcp1/auth": () => ({ ...WEATHER, auth: "basic", hasAuth: true }) });
+    render(<AgentsPanel me={IVAN} />);
+    const box = await screen.findByLabelText("mcp-серверы агента");
+    fireEvent.click(within(box).getByRole("button", { name: /^mcp Погода/ }));
+    await screen.findByText("Вход в «Погода»");
+    fireEvent.click(screen.getByRole("tab", { name: "Логин и пароль" }));
+    fireEvent.change(screen.getByLabelText("логин"), { target: { value: "ivan" } });
+    fireEvent.change(screen.getByLabelText("пароль"), { target: { value: "s3cret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
+    await waitFor(() => expect(log.some((r) => r.url === "/api/assistant/mcp/mcp1/auth")).toBe(true));
+    expect(JSON.parse(log.find((r) => r.url === "/api/assistant/mcp/mcp1/auth").body))
+      .toEqual({ kind: "basic", login: "ivan", password: "s3cret" });
+  });
+
+  it("«Опросить» стоит на форме агента, а не в форме MCP-серверов", async () => {
     settingsServer([P1], [ASSISTANT], { mcp: [WEATHER] });
     render(<AgentsPanel me={IVAN} />);
     const list = await screen.findByLabelText("mcp-серверы");
-    expect(within(list).queryByLabelText(/спросить инструменты/)).toBeNull();
+    expect(within(list).queryByLabelText(/опросить/)).toBeNull();
     const box = screen.getByLabelText("mcp-серверы агента");
     fireEvent.click(within(box).getByRole("button", { name: /^mcp Погода/ }));
-    expect(await within(box).findByLabelText("спросить инструменты Погода")).toBeInTheDocument();
+    expect(await within(box).findByLabelText("опросить Погода")).toBeInTheDocument();
   });
 
   /* РЕЕСТР ВМЕСТО ПОЛЕЙ (владелец, 2026-09-20: «убери описание и все три

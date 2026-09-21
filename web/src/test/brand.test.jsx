@@ -13,12 +13,14 @@ import React from "react";
 describe("шапка", () => {
   it("в шапке имя приложения со знаком, а не перечень того, что внутри", () => {
     const { container } = render(<SystemModel />);
-    expect(screen.getByLabelText("Blocktree")).toBeInTheDocument();
-    expect(screen.getByText("Blocktree")).toBeInTheDocument();
+    expect(screen.getByLabelText("blockTree")).toBeInTheDocument();
+    // Имя пишется «blockTree» — заглавная T в середине (владелец,
+    // 2026-09-21), поэтому слово разбито на два узла.
+    expect(screen.getByLabelText("blockTree").textContent).toBe("blockTree");
     expect(screen.queryByText(/Активы: воркеры/)).toBeNull();
     /* Знак — картинка, присланная владельцем (2026-09-19), рядом с именем.
        Логотип стоит только здесь. */
-    expect(screen.getByLabelText("Blocktree").querySelector("img")).toBeTruthy();
+    expect(screen.getByLabelText("blockTree").querySelector("img")).toBeTruthy();
     expect(container.textContent).not.toMatch(/горизонт/i);
   });
 
@@ -42,11 +44,16 @@ describe("шапка", () => {
 
   it("вкладки стоят справа от знака и выглядят вкладками, а не кнопками", () => {
     render(<SystemModel />);
-    const brand = screen.getByLabelText("Blocktree");
+    const brand = screen.getByLabelText("blockTree");
     const tab = screen.getByRole("button", { name: "Схема" });
     // Знак и вкладки — в одной строке, знак первым.
     expect(brand.compareDocumentPosition(tab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(brand.closest("div").parentElement).toBe(tab.closest("div").parentElement);
+    /* Жёлоб вкладок — ТЕМНЕЕ бара (владелец, 2026-09-21): знак лежит на
+       стекле, вкладки — в углублении рядом с ним, в той же строке. */
+    const bar = brand.closest("div").parentElement;
+    const trough = tab.closest("[data-noswipe]");
+    expect(trough.parentElement).toBe(bar);
+    expect(trough.style.background).toBe("rgba(5, 7, 12, 0.55)");
     /* Вкладка — КАПСУЛА на стеклянном баре (дизайн-система Blocktree
        Liquid Glass): папок с подрезанным низом больше нет. */
     expect(tab.style.borderRadius).toBe("var(--radius-pill)");

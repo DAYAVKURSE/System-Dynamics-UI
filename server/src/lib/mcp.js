@@ -42,8 +42,54 @@ async function readBody(res) {
   return res.json().catch(() => null);
 }
 
+/* ─────── ВХОД НА ЧУЖОЙ СЕРВЕР (владелец, 2026-09-21) ───────
+
+   Почти все серверы реестра пускают только после входа и отвечают 401.
+   Способов войти два, и оба сводятся к одному заголовку:
+
+   · КЛЮЧ — `Authorization: Bearer <токен>`. Так устроено большинство:
+     выдали строку в личном кабинете, её и шлём;
+   · ЛОГИН И ПАРОЛЬ — `Authorization: Basic <base64>`. Реже, но бывает.
+
+   Полноценный OAuth с переходом в браузер сюда не влезает: ему нужен
+   адрес возврата, обмен кодом и обновление токена. Что сервер ХОЧЕТ
+   именно OAuth, видно по заголовку `WWW-Authenticate` — его мы и
+   передаём наверх, чтобы человеку показали, куда идти за ключом, а не
+   молчали.
+
+   Сам ключ наружу не уходит никогда: он живёт в настройках человека, как
+   ключи провайдеров, и подставляется здесь. */
+export function authHeader(auth) {
+  if (!auth || typeof auth !== "object") return {};
+  if (auth.kind === "bearer" && auth.token) {
+    return { Authorization: `Bearer ${auth.token}` };
+  }
+  if (auth.kind === "basic" && (auth.login || auth.password)) {
+    const raw = `${auth.login || ""}:${auth.password || ""}`;
+    return { Authorization: `Basic ${Buffer.from(raw, "utf8").toString("base64")}` };
+  }
+  return {};
+}
+
+/** Отказ «нужен вход»: с адресом, куда идти, если сервер его назвал. */
+export class NeedsAuth extends Error {
+  constructor(status, where = "") {
+    super(`MCP-сервер ответил ${status}: нужен вход`);
+    this.status = status;
+    this.needsAuth = true;
+    this.where = where;
+  }
+}
+
+/* Из `WWW-Authenticate` достаём адрес, по которому сервер описывает, как
+   к нему входить. Формат разный, поэтому берём первую ссылку. */
+const whereFrom = (value) => {
+  const m = String(value || "").match(/https?:\/\/[^\s",]+/);
+  return m ? m[0] : "";
+};
+
 let seq = 0;
-async function rpc(url, method, params, { session = "", signal } = {}) {
+async function rpc(url, method, params, { session = "", signal, auth = null } = {}) {
   seq += 1;
   const res = await fetch(url, {
     method: "POST",
@@ -51,19 +97,18 @@ async function rpc(url, method, params, { session = "", signal } = {}) {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
       ...(session ? { "Mcp-Session-Id": session } : {}),
+      ...authHeader(auth),
     },
     body: JSON.stringify({ jsonrpc: "2.0", id: seq, method, params: params || {} }),
     signal,
   });
+  if (res.status === 401 || res.status === 403) {
+    /* Не ошибка, а развилка: человеку надо показать окно входа, а не
+       строчку с номером. Куда идти за ключом — из заголовка сервера. */
+    throw new NeedsAuth(res.status, whereFrom(res.headers.get("www-authenticate")));
+  }
   if (!res.ok) {
-    /* Чаще всего это 401: почти все серверы реестра пускают только после
-       входа, и «ответил 401» человеку ничего не объясняет — он видит
-       кнопку, которая «не работает». Говорим, что именно случилось. */
-    const why = res.status === 404 ? ": проверьте адрес"
-      : (res.status === 401 || res.status === 403)
-        ? ": он требует авторизации, а войти в него приложение пока не умеет"
-        : "";
-    throw new Error(`MCP-сервер ответил ${res.status}${why}`);
+    throw new Error(`MCP-сервер ответил ${res.status}${res.status === 404 ? ": проверьте адрес" : ""}`);
   }
   const body = await readBody(res);
   if (body?.error) throw new Error(str(body.error.message || "ошибка MCP-сервера", 300));
@@ -81,12 +126,12 @@ const withTimeout = async (job) => {
 };
 
 /** Здороваемся и получаем ключ сессии, если сервер его выдаёт. */
-async function hello(url, signal) {
+async function hello(url, signal, auth = null) {
   const { session } = await rpc(url, "initialize", {
     protocolVersion: PROTOCOL,
     capabilities: {},
-    clientInfo: { name: "Blocktree", version: "1.0" },
-  }, { signal });
+    clientInfo: { name: "blockTree", version: "1.0" },
+  }, { signal, auth });
   return session;
 }
 
@@ -94,10 +139,10 @@ async function hello(url, signal) {
  * Что умеет сервер: имя, описание и схема входа каждого инструмента.
  * Схема нужна модели, чтобы позвать инструмент правильно.
  */
-export async function listTools(url) {
+export async function listTools(url, { auth = null } = {}) {
   return withTimeout(async (signal) => {
-    const session = await hello(url, signal);
-    const { result } = await rpc(url, "tools/list", {}, { session, signal });
+    const session = await hello(url, signal, auth);
+    const { result } = await rpc(url, "tools/list", {}, { session, signal, auth });
     const tools = Array.isArray(result?.tools) ? result.tools : [];
     return tools.slice(0, MAX_TOOLS).map((t) => ({
       name: str(t?.name, 120),
@@ -108,12 +153,12 @@ export async function listTools(url) {
 }
 
 /** Зовём инструмент. Результат — текстом: агенту он приходит как данные. */
-export async function callTool(url, name, args = {}) {
+export async function callTool(url, name, args = {}, { auth = null } = {}) {
   return withTimeout(async (signal) => {
-    const session = await hello(url, signal);
+    const session = await hello(url, signal, auth);
     const { result } = await rpc(url, "tools/call",
       { name: String(name), arguments: args && typeof args === "object" ? args : {} },
-      { session, signal });
+      { session, signal, auth });
     const parts = Array.isArray(result?.content) ? result.content : [];
     const text = parts
       .map((c) => (c?.type === "text" ? String(c.text || "")

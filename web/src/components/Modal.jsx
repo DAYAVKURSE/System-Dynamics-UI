@@ -57,7 +57,7 @@ export default function Modal({ title, children, onClose }) {
           {/* Закрыть — иконная капсула, как в верхней панели: контурная
               иконка, не эмодзи и не крестик текстом. */}
           <button type="button" aria-label="закрыть" onClick={onClose}
-            style={{ width: 30, height: 30, borderRadius: "var(--radius-pill)",
+            style={{ width: 30, height: 30, borderRadius: "var(--radius-pill)", flex: "0 0 auto",
               display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
               background: "var(--surface-glass)", border: "1px solid var(--border-glass)",
               color: C.text, padding: 0, cursor: "pointer" }}>

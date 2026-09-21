@@ -57,6 +57,11 @@ import { undoById } from "./undoStore.js";
    ════════════════════════════════════════════════════════════════ */
 
 const REMEMBER = /^запомни\s*[:\-—]\s*/iu;
+/* Ответ на «требуется вход»: «ключ <сервер>: <токен>» или
+   «логин <сервер>: <логин> <пароль>». Имя сервера — как его зовут в
+   настройках; регистр не важен. */
+const MCP_KEY = /^ключ\s+(.+?)\s*[:\-—]\s*(\S[\s\S]*)$/iu;
+const MCP_LOGIN = /^логин\s+(.+?)\s*[:\-—]\s*(\S+)\s+(\S[\s\S]*)$/iu;
 const MAX_QUESTION = 4000;
 export const BOT_TASK = "bot";
 
@@ -224,9 +229,33 @@ async function askQuestion(deps, { userId, chatId, question }) {
     }
   };
 
+  /* ВХОД НА ЧУЖОЙ СЕРВЕР ПОСРЕДИ РАБОТЫ (владелец, 2026-09-21): «агент
+     должен сам запрашивать логин и пароль в чате, или отправлять в чат
+     страницу для логина». Спрашиваем сообщением — модель об этом только
+     узнаёт. Что прислать, человек решает сам: ключ или пару логин/пароль;
+     адрес страницы входа шлём, если сервер его назвал. */
+  const onAuthNeeded = async ({ server, where }) => {
+    try {
+      await send(chatId, [
+        `«${server}» требует входа — без него инструмент не отвечает.`,
+        where ? `Войти: ${where}` : "",
+        "",
+        "Пришлите сюда одним сообщением:",
+        `ключ ${server}: <ваш токен>`,
+        "или",
+        `логин ${server}: <логин> <пароль>`,
+      ].filter(Boolean).join("\n"));
+      return true;
+    } catch (err) {
+      logOf(deps)(`не спросил вход: ${err.message}`);
+      return false;
+    }
+  };
+
   let raw;
   try {
-    raw = a.ask(userId, question.slice(0, MAX_QUESTION), "", { task: BOT_TASK, onConfirm });
+    raw = a.ask(userId, question.slice(0, MAX_QUESTION), "",
+      { task: BOT_TASK, onConfirm, onAuthNeeded });
   } catch (err) {
     raw = Promise.reject(err);
   }
@@ -470,6 +499,33 @@ export async function onAssistantMessage(msg, from, deps = {}) {
     const question = `${prev.question}\n\nУточнение: ${text}`;
     const r = await askQuestion(deps, { userId, chatId, question });
     return { ...r, refined: refineId };
+  }
+
+  /* ─── ВХОД НА MCP-СЕРВЕР, ПРИСЛАННЫЙ В ЧАТ (владелец, 2026-09-21) ───
+
+     Раньше «запомни» и помощника: это ответ на вопрос бота, а не новый
+     вопрос. Сообщение с ключом удаляем сразу же, если бот вправе: ключ
+     не должен лежать в переписке. */
+  const mcpAuth = a.mcpAuth || deps.mcpAuth;
+  const key = text && text.match(MCP_KEY);
+  const pair = text && text.match(MCP_LOGIN);
+  if ((key || pair) && mcpAuth) {
+    const name = String((key || pair)[1]).trim();
+    const auth = key
+      ? { kind: "bearer", token: String(key[2]).trim() }
+      : { kind: "basic", login: String(pair[2]).trim(), password: String(pair[3]).trim() };
+    let saved = null;
+    try { saved = await mcpAuth(userId, name, auth); }
+    catch (e) { await send(chatId, `Не вышло: ${e.message}`); return { error: e.message }; }
+    if (deps.tg?.deleteMessage && msg.message_id != null) {
+      try { await deps.tg.deleteMessage(chatId, msg.message_id); } catch { /* не вышло — не беда */ }
+    }
+    if (!saved) {
+      await send(chatId, `Не нашёл сервер «${name}» среди ваших. Проверьте название.`);
+      return { error: "no server" };
+    }
+    await send(chatId, `Запомнил вход в «${saved.name}». Спросите снова — теперь получится.`);
+    return { mcpAuth: saved.id };
   }
 
   /* ─── «запомни: …» ─── */

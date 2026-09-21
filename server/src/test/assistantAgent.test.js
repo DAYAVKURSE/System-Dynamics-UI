@@ -213,6 +213,44 @@ describe("MCP", () => {
     vi.unstubAllGlobals();
   });
 
+  /* ВХОД ПОСРЕДИ РАБОТЫ (владелец, 2026-09-21): «ассистент или агент
+     должен сам запрашивать логин и пароль в чате… если это требуется
+     непосредственно при выполнении задачи». Спрашивает тот, кто говорит с
+     человеком; модель об этом только узнаёт — и не выдумывает, будто
+     сделала. */
+  it("сервер потребовал входа — человека спрашивают, а модели велят не звать снова", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 401,
+      headers: { get: () => 'Bearer resource_metadata="https://x/login"' },
+      json: async () => ({}), text: async () => "" })));
+    const asked = [];
+    const { complete, seen } = scripted([
+      { text: "", calls: [{ id: "c1", name: "mcp__mcp1__forecast", args: {} }] },
+      { text: "Жду ключ.", calls: [] }]);
+    await agentMod.runAgent({ userId: "200", agentId: "assistant", question: "погода?",
+      system: "S", model: {}, complete, ask: false,
+      onAuthNeeded: async (r) => { asked.push(r); return true; },
+      servers: [{ id: "mcp1", name: "Погода", url: "https://x/mcp", tools: ["forecast"] }] });
+    expect(asked).toEqual([{ server: "Погода", where: "https://x/login", url: "https://x/mcp" }]);
+    const said = seen[1].messages.find((m) => m.role === "tool").content;
+    expect(said).toMatch(/требует входа/);
+    expect(said).toMatch(/не зови этот инструмент снова/);
+    vi.unstubAllGlobals();
+  });
+
+  it("спросить некому — модель узнаёт и это, а не «сервер не ответил»", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403,
+      headers: { get: () => null }, json: async () => ({}), text: async () => "" })));
+    const { complete, seen } = scripted([
+      { text: "", calls: [{ id: "c1", name: "mcp__mcp1__forecast", args: {} }] },
+      { text: "Не вышло.", calls: [] }]);
+    await agentMod.runAgent({ userId: "200", agentId: "assistant", question: "погода?",
+      system: "S", model: {}, complete, ask: false,
+      servers: [{ id: "mcp1", name: "Погода", url: "https://x/mcp", tools: ["forecast"] }] });
+    expect(seen[1].messages.find((m) => m.role === "tool").content)
+      .toMatch(/требует входа, а ключа у меня нет/);
+    vi.unstubAllGlobals();
+  });
+
   it("список серверов уходит в подсказку", () => {
     expect(agentMod.mcpNote([{ id: "m", name: "Погода", tools: ["forecast"] }]))
       .toContain("Погода: forecast");

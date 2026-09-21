@@ -452,11 +452,12 @@ export const btn = (on, col, { solid = false } = {}) => {
    Логотип стоит ТОЛЬКО здесь: на формах его нет. */
 export function Brand({ size = 26, color = OK }) {
   return (
-    <span className="flex items-center gap-2" aria-label="Blocktree">
+    <span className="flex items-center gap-2" aria-label="blockTree">
       <img src={logoUrl} alt="" aria-hidden="true" width={size} height={size}
         style={{ display: "block", flex: "0 0 auto" }} />
       <span style={{ fontFamily: BRAND_FONT, fontSize: Math.round(size * 0.72),
-        fontWeight: 500, letterSpacing: "0.06em", color }}>Blocktree</span>
+        fontWeight: 600, letterSpacing: "0.04em", color }}>
+        block<span style={{ color: C.text }}>Tree</span></span>
     </span>);
 }
 
@@ -487,7 +488,7 @@ export function IconButton({ icon, label, title, onClick, disabled, on = false, 
     <button type="button" aria-label={label} title={title || label} onClick={onClick}
       disabled={disabled}
       style={{ width: "var(--control-h)", height: "var(--control-h)",
-        borderRadius: "var(--radius-pill)",
+        borderRadius: "var(--radius-pill)", flex: "0 0 auto",
         display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
         background: t ? t.bg : "var(--surface-glass)",
         border: `1px solid ${t ? t.line : "var(--border-glass)"}`,
@@ -679,5 +680,5 @@ export function Avatar({ src = "", name = "", size = 36, logo = false, onClick, 
   }
   return (
     <button type="button" aria-label={title || `лицо: ${name || "—"}`} onClick={onClick}
-      style={{ ...round, cursor: "pointer" }}>{inside}</button>);
+      style={{ ...round, cursor: "pointer", flex: "0 0 auto" }}>{inside}</button>);
 }
