@@ -84,6 +84,16 @@ export default function AgentsPanel({ me, onChanged }) {
   };
   useEffect(() => { loadSettings(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
+  /* Правка, отказ от которой разбирает ВЫЗЫВАЮЩИЙ: `run` ловит ошибку и
+     кладёт её в общее сообщение внизу карточки агентов — далеко от места,
+     где нажали. Для MCP это и выглядело как «кнопка не работает»
+     (владелец, 2026-09-21), поэтому там отказ нужен на руках. */
+  const runRaw = async (job) => {
+    setBusy(true); setMsg("");
+    try { const out = await job(); await loadSettings(); return out; }
+    finally { setBusy(false); }
+  };
+
   /* Одна обёртка на все правки: занято → сделать → перечитать → сказать. */
   const run = async (job, done) => {
     setBusy(true); setMsg("");
@@ -259,25 +269,9 @@ export default function AgentsPanel({ me, onChanged }) {
             {/* ═══ MCP-серверы агента ═══ Сразу после памяти (владелец,
                 2026-09-20): выбирают из коллекции, а собирают её в форме
                 MCP-серверов ниже. */}
-            <div style={form}>
-              <div style={S.lbl}>3 · MCP-серверы</div>
-              {!servers.length && (
-                <div style={{ ...hint, marginTop: 4 }}>
-                  Серверов нет — добавьте их в форме ниже.</div>)}
-              <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
-                {servers.map((m) => {
-                  const on = (agent.mcp || []).includes(m.id);
-                  return (
-                    <button key={m.id} type="button" role="checkbox" aria-checked={on}
-                      disabled={busy} aria-label={`mcp ${m.name}`}
-                      style={btn(on, on ? OK : undefined)}
-                      onClick={() => run(() => updateAgent(agent.id, {
-                        mcp: on ? (agent.mcp || []).filter((x) => x !== m.id)
-                          : [...(agent.mcp || []), m.id] }))}>
-                      {on ? "✓ " : ""}{m.name}</button>);
-                })}
-              </div>
-            </div>
+            <AgentMcp key={`mcp-${agent.id}`} agent={agent} servers={servers} busy={busy}
+              onAsk={(id) => runRaw(() => mcpTools(id))}
+              onPick={(map) => runRaw(() => updateAgent(agent.id, { mcp: map }))} />
 
             {/* ═══ удалить ═══ */}
             {!agent.builtin && (
@@ -341,15 +335,13 @@ export default function AgentsPanel({ me, onChanged }) {
       <McpForm servers={servers} busy={busy}
         onAdd={(rec) => run(() => addMcp(rec),
           (m) => `Сервер «${m.name}» добавлен — спросите его инструменты.`)}
-        onTools={(id) => run(() => mcpTools(id),
-          (m) => `${m.name}: инструментов — ${(m.tools || []).length}.`)}
         onDrop={(m) => run(() => dropMcp(m.id), `Сервер «${m.name}» удалён.`)} />)}
   </>);
 }
 
 /* ─────── MCP-серверы: адрес, репозиторий и что сервер умеет ─────── */
 
-function McpForm({ servers, busy, onAdd, onTools, onDrop }) {
+function McpForm({ servers, busy, onAdd, onDrop }) {
   const [kill, setKill] = useState(null);
   const [list, setList] = useState(null);
   const [open, setOpen] = useState("");
@@ -375,6 +367,10 @@ function McpForm({ servers, busy, onAdd, onTools, onDrop }) {
           {loading ? "…" : "Обновить"}</button>
       </div>
 
+      {/* Высота формы ограничена, прокрутка внутри (владелец, 2026-09-21):
+          в реестре под две сотни серверов, и без предела форма уезжала бы
+          на десяток экранов. */}
+      <div style={{ maxHeight: 360, overflowY: "auto", marginTop: 6 }}>
       {servers.map((m) => (
         <div key={m.id} aria-label={`mcp-сервер ${m.name}`}
           style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
@@ -389,11 +385,10 @@ function McpForm({ servers, busy, onAdd, onTools, onDrop }) {
             {m.repo && <div>репозиторий: {m.repo}</div>}
             {!!(m.tools || []).length && <div>умеет: {m.tools.join(", ")}</div>}
           </div>
+          {/* «Спросить инструменты» отсюда ушла на форму агента (владелец,
+              2026-09-21): спрашивают их тогда, когда выбирают, — и отказ
+              сервера человек должен читать там же, где нажал. */}
           <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
-            <button type="button" style={btn(false)} disabled={busy}
-              aria-label={`спросить инструменты ${m.name}`}
-              onClick={() => onTools(m.id)}>
-              {(m.tools || []).length ? "Обновить инструменты" : "Спросить инструменты"}</button>
             <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
               disabled={busy} aria-label={`удалить сервер ${m.name}`}
               onClick={() => setKill(m)}>Удалить</button>
@@ -446,6 +441,7 @@ function McpForm({ servers, busy, onAdd, onTools, onDrop }) {
                 </div>)}
             </div>);
         })}
+      </div>
       </div>
 
       {kill && (
@@ -591,6 +587,147 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
       {listMsg && <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{listMsg}</div>}
     </div>
   );
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MCP-СЕРВЕРЫ АГЕНТА · выбор ИНСТРУМЕНТОВ (владелец, 2026-09-21)
+
+   Прежде агент отмечал СЕРВЕР целиком. Но сервер — это не одно умение, а
+   десяток: у одного и поиск, и запись, и удаление. Разрешать их скопом
+   значит разрешать последнее ради первого.
+
+   Поэтому кнопка сервера теперь говорит ТРИ вещи, и цветом, и знаком:
+
+   · зелёная с галочкой — выбраны все его инструменты;
+   · жёлтая с кружком — выбрана часть;
+   · серая с пустым кружком — ни одного, и сервера у агента нет.
+
+   Нажатие на сервер спрашивает у него список инструментов заново и
+   раскрывает его; второе нажатие — сворачивает. Заново — потому что
+   список у сервера свой, он меняется, и показывать вчерашний значило бы
+   предлагать выбрать то, чего уже нет.
+
+   Список — своя форма с ограниченной высотой и прокруткой внутри:
+   инструментов бывает под сотню, и без предела форма агента уезжала бы на
+   три экрана. Первые кнопки в нём — «Выделить всё» и «Снять выделение»:
+   чаще всего нужно именно это, а не перебирать по одному.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Что выбрано у сервера: ничего, часть или всё. Сервер, который ещё не
+   спрашивали, своих инструментов не знает — тогда «часть» честнее «всего»:
+   обещать, что выбрано ВСЁ, не зная, сколько всего, нельзя. */
+export function pickState(all = [], on = []) {
+  if (!on.length) return "none";
+  if (all.length && on.length >= all.length) return "all";
+  return "some";
+}
+const STATE_MARK = { all: "✓", some: "●", none: "○" };
+const STATE_TONE = { all: OK, some: WARN, none: undefined };
+
+function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
+  const [open, setOpen] = useState("");
+  const [asking, setAsking] = useState("");
+  const [err, setErr] = useState("");
+
+  const picked = agent.mcp && typeof agent.mcp === "object" && !Array.isArray(agent.mcp)
+    ? agent.mcp : {};
+  const toolsOf = (id) => picked[id] || [];
+
+  const ask = async (id) => {
+    setAsking(id); setErr("");
+    try { await onAsk(id); }
+    catch (e) { setErr(e.message); }
+    finally { setAsking(""); }
+  };
+
+  /* Нажатие делает ДВА дела: раскрывает список и спрашивает его заново.
+     Раскрыть, не спросив, значило бы показать вчерашний список. */
+  const toggle = (m) => {
+    if (open === m.id) { setOpen(""); return; }
+    setOpen(m.id);
+    setErr("");
+    ask(m.id);
+  };
+
+  const set = async (id, list) => {
+    setErr("");
+    try { await onPick({ ...picked, [id]: list }); }
+    catch (e) { setErr(e.message); }
+  };
+
+  return (
+    <div style={form} aria-label="mcp-серверы агента">
+      <div style={S.lbl}>3 · MCP-серверы</div>
+      {!servers.length && (
+        <div style={{ ...hint, marginTop: 4 }}>
+          Серверов нет — добавьте их в форме ниже.</div>)}
+
+      {/* Высота ограничена, прокрутка внутри: серверов может быть двадцать. */}
+      <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 6 }}>
+        {servers.map((m) => {
+          const all = m.tools || [];
+          const on = toolsOf(m.id);
+          const state = pickState(all, on);
+          const shown = open === m.id;
+          return (
+            <div key={m.id} style={{ marginBottom: 6 }}>
+              <button type="button" aria-expanded={shown} disabled={busy}
+                aria-label={`mcp ${m.name}: ${state === "all" ? "все инструменты"
+                  : state === "some" ? "часть инструментов" : "ни одного инструмента"}`}
+                style={{ ...btn(state !== "none", STATE_TONE[state]), width: "100%",
+                  textAlign: "left" }}
+                onClick={() => toggle(m)}>
+                {STATE_MARK[state]} {m.name}
+                <span style={{ color: C.muted, fontSize: 10.5 }}>
+                  {" "}· {on.length}{all.length ? ` из ${all.length}` : ""}</span>
+              </button>
+
+              {shown && (
+                <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
+                  borderRadius: 8, padding: 8, marginTop: 4 }}
+                  aria-label={`инструменты ${m.name}`}>
+                  <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+                    <span style={{ ...S.lbl, flex: 1 }}>инструменты</span>
+                    <button type="button" style={btn(false)} disabled={busy || asking === m.id}
+                      aria-label={`спросить инструменты ${m.name}`}
+                      onClick={() => ask(m.id)}>
+                      {asking === m.id ? "Спрашиваю…" : "Спросить инструменты"}</button>
+                  </div>
+
+                  {/* Высота ограничена, прокрутка внутри: инструментов
+                      у сервера бывает под сотню. */}
+                  <div className="flex flex-wrap gap-2"
+                    style={{ maxHeight: 160, overflowY: "auto" }}>
+                    <button type="button" style={btn(false, OK)} disabled={busy || !all.length}
+                      aria-label={`выделить всё: ${m.name}`}
+                      onClick={() => set(m.id, [...all])}>Выделить всё</button>
+                    <button type="button" style={btn(false)} disabled={busy || !on.length}
+                      aria-label={`снять выделение: ${m.name}`}
+                      onClick={() => set(m.id, [])}>Снять выделение</button>
+                    {all.map((t) => {
+                      const has = on.includes(t);
+                      return (
+                        <button key={t} type="button" role="checkbox" aria-checked={has}
+                          disabled={busy} aria-label={`инструмент ${t}`}
+                          style={{ ...btn(has, has ? OK : undefined), fontSize: 11,
+                            padding: "2px 7px" }}
+                          onClick={() => set(m.id, has ? on.filter((x) => x !== t)
+                            : [...on, t])}>
+                          {has ? "✓ " : ""}{t}</button>);
+                    })}
+                  </div>
+                  {!all.length && asking !== m.id && (
+                    <div style={{ ...hint, marginTop: 6 }}>
+                      Инструменты ещё не известны.</div>)}
+                </div>)}
+            </div>);
+        })}
+      </div>
+
+      {/* Отказ — здесь же, под кнопкой, а не в чужой карточке наверху:
+          именно поэтому «Спросить инструменты» и выглядела нерабочей. */}
+      {err && <div role="status" style={{ fontSize: 11.5, color: BAD, marginTop: 6 }}>{err}</div>}
+    </div>);
 }
 
 /* ─────── ИНСТРУКЦИИ АГЕНТА · СКИЛЛ (владелец, 2026-09-20) ───────

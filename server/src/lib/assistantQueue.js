@@ -184,8 +184,18 @@ export function createQueue({
     try { who = await identify(it.userId, {}, { claim: false }); } catch { /* гость */ }
     const agent = settings.agentFor(it.userId, settings.BUILTIN_AGENT_ID) || {};
     const view = settings.settingsView(it.userId);
-    const servers = (agent.mcp || [])
-      .map((id) => (view.mcp || []).find((m) => m.id === id)).filter(Boolean);
+    /* Серверы агента — с УРЕЗАННЫМ списком инструментов: агент выбирает
+       не сервер целиком, а инструменты (владелец, 2026-09-21). Сервер без
+       единого выбранного инструмента агенту не показывается вовсе: звать
+       ему там нечего. */
+    const picked = agent.mcp && typeof agent.mcp === "object" && !Array.isArray(agent.mcp)
+      ? agent.mcp : {};
+    const servers = Object.entries(picked)
+      .map(([id, tools]) => {
+        const m = (view.mcp || []).find((x) => x.id === id);
+        return m && tools.length ? { ...m, tools: [...tools] } : null;
+      })
+      .filter(Boolean);
     const system = [
       SYSTEM_PROMPT,
       modelsNote(agent, view.providers || []),

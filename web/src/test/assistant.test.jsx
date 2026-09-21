@@ -227,18 +227,85 @@ describe("агенты", () => {
     expect(JSON.parse(log.find((r) => r.body?.includes("ask")).body)).toEqual({ ask: false });
   });
 
-  it("MCP-серверы: форма внизу, а у агента — галочки, какие ему разрешены", async () => {
-    const { log } = settingsServer([P1], [ASSISTANT], {
-      mcp: [{ id: "mcp1", name: "Погода", url: "https://x/mcp", repo: "", tools: ["forecast"] }],
-    });
+  /* ═══ MCP У АГЕНТА: ВЫБИРАЮТ ИНСТРУМЕНТЫ, А НЕ СЕРВЕР (владелец,
+     2026-09-21) ═══
+
+     «Клик по кнопке MCP-сервера обновляет список инструментов и
+     раскрывает список с ними. Повторный клик скрывает список»; «первыми
+     кнопками в списке должны быть „Выделить всё" и „Снять выделение"»;
+     «при выборе всех — зелёная с галочкой, части — жёлтая с кружком, ни
+     одного — серая с пустым кружочком». */
+  const WEATHER = { id: "mcp1", name: "Погода", url: "https://x/mcp", repo: "",
+    tools: ["forecast", "alerts"] };
+
+  it("нажатие на сервер спрашивает инструменты и раскрывает список; второе — скрывает", async () => {
+    const { log } = settingsServer([P1], [ASSISTANT], { mcp: [WEATHER] });
     render(<AgentsPanel me={IVAN} />);
-    const box = await screen.findByLabelText("mcp-серверы");
-    expect(within(box).getByLabelText("mcp-сервер Погода").textContent).toContain("forecast");
-    const pick = screen.getByRole("checkbox", { name: "mcp Погода" });
-    expect(pick).toHaveAttribute("aria-checked", "false");
+    const box = await screen.findByLabelText("mcp-серверы агента");
+    const pick = within(box).getByRole("button", { name: /^mcp Погода/ });
+    expect(screen.queryByLabelText("инструменты Погода")).toBeNull();
+
     fireEvent.click(pick);
-    await waitFor(() => expect(log.some((r) => r.body?.includes("mcp"))).toBe(true));
-    expect(JSON.parse(log.find((r) => r.body?.includes("mcp")).body)).toEqual({ mcp: ["mcp1"] });
+    const tools = await screen.findByLabelText("инструменты Погода");
+    // Заодно спросили у сервера заново: список мог смениться.
+    await waitFor(() => expect(log.some((r) => r.method === "POST"
+      && r.url === "/api/assistant/mcp/mcp1/tools")).toBe(true));
+    // Первые кнопки списка — «Выделить всё» и «Снять выделение».
+    const names = [...tools.querySelectorAll("button")].map((b) => b.textContent);
+    expect(names.slice(0, 3)).toEqual(["Спросить инструменты", "Выделить всё", "Снять выделение"]);
+    expect(names).toContain("forecast");
+
+    fireEvent.click(within(box).getByRole("button", { name: /^mcp Погода/ }));
+    await waitFor(() => expect(screen.queryByLabelText("инструменты Погода")).toBeNull());
+  });
+
+  it("цвет кнопки сервера: ни одного — пустой кружок, часть — кружок, все — галочка", async () => {
+    const { log, state } = settingsServer([P1], [ASSISTANT], { mcp: [WEATHER] });
+    render(<AgentsPanel me={IVAN} />);
+    const box = await screen.findByLabelText("mcp-серверы агента");
+    const pick = () => within(box).getByRole("button", { name: /^mcp Погода/ });
+    // Ни одного: пустой кружок.
+    expect(pick().textContent).toContain("○");
+    expect(pick()).toHaveAttribute("aria-label", "mcp Погода: ни одного инструмента");
+
+    fireEvent.click(pick());
+    await screen.findByLabelText("инструменты Погода");
+    fireEvent.click(screen.getByRole("checkbox", { name: "инструмент forecast" }));
+    await waitFor(() => expect(state.agents[0].mcp).toEqual({ mcp1: ["forecast"] }));
+    await waitFor(() => expect(pick().textContent).toContain("●"));
+    expect(pick()).toHaveAttribute("aria-label", "mcp Погода: часть инструментов");
+
+    fireEvent.click(screen.getByRole("button", { name: "выделить всё: Погода" }));
+    await waitFor(() => expect(state.agents[0].mcp).toEqual({ mcp1: ["forecast", "alerts"] }));
+    await waitFor(() => expect(pick().textContent).toContain("✓"));
+    expect(pick()).toHaveAttribute("aria-label", "mcp Погода: все инструменты");
+
+    fireEvent.click(screen.getByRole("button", { name: "снять выделение: Погода" }));
+    await waitFor(() => expect(state.agents[0].mcp).toEqual({ mcp1: [] }));
+    await waitFor(() => expect(pick().textContent).toContain("○"));
+    expect(log.filter((r) => r.method === "PUT").length).toBeGreaterThan(2);
+  });
+
+  it("отказ сервера читается там, где нажали, а не в чужой карточке", async () => {
+    const { log } = settingsServer([P1], [ASSISTANT], { mcp: [WEATHER],
+      "POST /api/assistant/mcp/mcp1/tools": () => ({ status: 502,
+        body: { error: "MCP-сервер ответил 401: он требует авторизации" } }) });
+    render(<AgentsPanel me={IVAN} />);
+    const box = await screen.findByLabelText("mcp-серверы агента");
+    fireEvent.click(within(box).getByRole("button", { name: /^mcp Погода/ }));
+    const said = await within(box).findByText(/401/);
+    expect(said.textContent).toMatch(/требует авторизации/);
+    expect(log.some((r) => r.url === "/api/assistant/mcp/mcp1/tools")).toBe(true);
+  });
+
+  it("«Спросить инструменты» стоит на форме агента, а не в форме MCP-серверов", async () => {
+    settingsServer([P1], [ASSISTANT], { mcp: [WEATHER] });
+    render(<AgentsPanel me={IVAN} />);
+    const list = await screen.findByLabelText("mcp-серверы");
+    expect(within(list).queryByLabelText(/спросить инструменты/)).toBeNull();
+    const box = screen.getByLabelText("mcp-серверы агента");
+    fireEvent.click(within(box).getByRole("button", { name: /^mcp Погода/ }));
+    expect(await within(box).findByLabelText("спросить инструменты Погода")).toBeInTheDocument();
   });
 
   /* РЕЕСТР ВМЕСТО ПОЛЕЙ (владелец, 2026-09-20: «убери описание и все три

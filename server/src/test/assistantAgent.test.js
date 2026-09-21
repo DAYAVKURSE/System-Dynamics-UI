@@ -232,16 +232,31 @@ describe("назначения в настройках", () => {
   it("MCP-сервер заводится, спрашивается и убирается вместе с правом агента", () => {
     const m = settings.addMcp("7", { name: "Погода", url: "https://x/mcp", repo: "https://git/x" });
     expect(m).toMatchObject({ name: "Погода", url: "https://x/mcp", tools: [] });
-    expect(settings.updateAgent("7", "assistant", { mcp: [m.id] }).mcp).toEqual([m.id]);
     settings.updateMcp("7", m.id, { tools: ["forecast", "alerts"] });
     expect(settings.settingsView("7").mcp[0].tools).toEqual(["forecast", "alerts"]);
+    /* АГЕНТ ВЫБИРАЕТ ИНСТРУМЕНТЫ, А НЕ СЕРВЕР ЦЕЛИКОМ (владелец,
+       2026-09-21): карта «сервер → разрешённые инструменты». */
+    expect(settings.updateAgent("7", "assistant", { mcp: { [m.id]: ["forecast"] } }).mcp)
+      .toEqual({ [m.id]: ["forecast"] });
+    // Список id — прежняя форма записи: «разрешены все инструменты».
+    expect(settings.updateAgent("7", "assistant", { mcp: [m.id] }).mcp)
+      .toEqual({ [m.id]: ["forecast", "alerts"] });
     expect(settings.removeMcp("7", m.id)).toBe(true);
-    expect(settings.agentFor("7", "assistant").mcp).toEqual([]);
+    expect(settings.agentFor("7", "assistant").mcp).toEqual({});
+  });
+
+  it("ни одного инструмента — сервера у агента нет: звать там нечего", () => {
+    const m = settings.addMcp("7", { name: "Погода", url: "https://x/mcp" });
+    settings.updateMcp("7", m.id, { tools: ["forecast"] });
+    const a = settings.updateAgent("7", "assistant", { mcp: { [m.id]: [] } });
+    expect(a.mcp).toEqual({ [m.id]: [] });
   });
 
   it("адрес MCP-сервера обязателен, и чужого id агенту не дают", () => {
     expect(() => settings.addMcp("7", { name: "Без адреса" })).toThrow(/Адрес/);
     expect(() => settings.updateAgent("7", "assistant", { mcp: ["нет-такого"] }))
+      .toThrow(/Нет такого MCP/);
+    expect(() => settings.updateAgent("7", "assistant", { mcp: { "нет-такого": ["x"] } }))
       .toThrow(/Нет такого MCP/);
   });
 });

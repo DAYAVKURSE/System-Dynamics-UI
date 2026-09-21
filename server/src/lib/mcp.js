@@ -56,7 +56,14 @@ async function rpc(url, method, params, { session = "", signal } = {}) {
     signal,
   });
   if (!res.ok) {
-    throw new Error(`MCP-сервер ответил ${res.status}${res.status === 404 ? ": проверьте адрес" : ""}`);
+    /* Чаще всего это 401: почти все серверы реестра пускают только после
+       входа, и «ответил 401» человеку ничего не объясняет — он видит
+       кнопку, которая «не работает». Говорим, что именно случилось. */
+    const why = res.status === 404 ? ": проверьте адрес"
+      : (res.status === 401 || res.status === 403)
+        ? ": он требует авторизации, а войти в него приложение пока не умеет"
+        : "";
+    throw new Error(`MCP-сервер ответил ${res.status}${why}`);
   }
   const body = await readBody(res);
   if (body?.error) throw new Error(str(body.error.message || "ошибка MCP-сервера", 300));

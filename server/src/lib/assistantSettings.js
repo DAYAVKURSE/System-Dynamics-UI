@@ -67,6 +67,9 @@ export const USES = [
 ];
 export const USE_IDS = USES.map((u) => u.id);
 export const MAX_MCP = 20;
+/* Инструментов у сервера бывает много; предел тот же, что у списка
+   инструментов в `lib/mcp.js`. */
+export const MAX_TOOLS_PER_SERVER = 100;
 
 /* Одна фраза на все места — бот, очередь: кто бы ни
    спросил ненастроенного помощника, ответ обязан звучать одинаково и
@@ -85,7 +88,7 @@ const emptyUses = () => Object.fromEntries(USE_IDS.map((u) => [u, null]));
    спрашиваем: молча менять чужую работу — не то, чего ждут от первого
    же вопроса. */
 const builtinAgent = () => ({ id: BUILTIN_AGENT_ID, name: "Ассистент", builtin: true,
-  models: [], transcribe: null, uses: emptyUses(), mcp: [], ask: true, skill: "" });
+  models: [], transcribe: null, uses: emptyUses(), mcp: {}, ask: true, skill: "" });
 
 /* ─────── ИНСТРУКЦИЯ АГЕНТА · СКИЛЛ (владелец, 2026-09-20) ───────
 
@@ -249,9 +252,33 @@ function normalize(raw) {
     });
     if (rec.mcp.length >= MAX_MCP) break;
   }
-  const mcpOf = (ids) => (Array.isArray(ids) ? ids : [])
-    .map((x) => String(x)).filter((x, i, all) => all.indexOf(x) === i)
-    .filter((x) => rec.mcp.some((m) => m.id === x));
+  /* ─── КАКИЕ ИНСТРУМЕНТЫ РАЗРЕШЕНЫ АГЕНТУ (владелец, 2026-09-21) ───
+
+     Прежде агент выбирал СЕРВЕР целиком: список его id, и всё. Теперь
+     выбирают инструменты — «Выделить всё», «Снять выделение» или руками
+     по одному, — поэтому здесь карта «сервер → его разрешённые
+     инструменты».
+
+     Прежняя запись (список id) читается как «разрешены все инструменты
+     этого сервера»: так оно и работало, и отнимать у агента то, что у
+     него было вчера, из-за смены формы записи нельзя. */
+  const mcpOf = (raw2) => {
+    const known = new Map(rec.mcp.map((m) => [m.id, m]));
+    const out = {};
+    const put = (id, tools) => {
+      const m = known.get(String(id));
+      if (!m || out[m.id]) return;
+      out[m.id] = (Array.isArray(tools) ? tools : [])
+        .map((t) => String(t || "").trim().slice(0, MODEL_LIMIT)).filter(Boolean)
+        .filter((t, i, a) => a.indexOf(t) === i)
+        .slice(0, MAX_TOOLS_PER_SERVER);
+    };
+    if (Array.isArray(raw2)) raw2.forEach((id) => put(id, known.get(String(id))?.tools || []));
+    else if (raw2 && typeof raw2 === "object") {
+      Object.entries(raw2).forEach(([id, tools]) => put(id, tools));
+    }
+    return out;
+  };
   /* Назначения: пара «провайдер + модель» на каждое умение, и только та,
      что и правда отмечена у провайдера. */
   const usesOf = (raw2) => {
@@ -399,7 +426,7 @@ const agentView = (a) => ({
   models: a.models.map((m) => ({ ...m })),
   transcribe: a.transcribe ? { ...a.transcribe } : null,
   uses: Object.fromEntries(USE_IDS.map((u) => [u, a.uses?.[u] ? { ...a.uses[u] } : null])),
-  mcp: [...(a.mcp || [])],
+  mcp: Object.fromEntries(Object.entries(a.mcp || {}).map(([id, t]) => [id, [...t]])),
   ask: a.ask !== false,
   skill: String(a.skill || ""),
 });
@@ -658,10 +685,26 @@ export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, a
     }
   }
   if (mcp !== undefined) {
-    const ids = (Array.isArray(mcp) ? mcp : []).map(String);
-    const bad = ids.find((x) => !rec.mcp.some((m) => m.id === x));
-    if (bad) throw new BadInput(`Нет такого MCP-сервера: «${bad}»`);
-    a.mcp = ids.filter((x, i) => ids.indexOf(x) === i);
+    /* Карта «сервер → разрешённые инструменты». Список id тоже принимаем —
+       это «все инструменты этих серверов»: так шлют прежние читатели.
+       Имена инструментов не сверяются со списком сервера: список мог
+       устареть между опросом и сохранением, и отказ из-за этого выглядел
+       бы поломкой там, где человек просто нажал кнопку. */
+    const asMap = Array.isArray(mcp)
+      ? Object.fromEntries(mcp.map((id) => [String(id),
+        (rec.mcp.find((m) => m.id === String(id))?.tools || [])]))
+      : (mcp && typeof mcp === "object" ? mcp : {});
+    const next = {};
+    for (const [id, tools] of Object.entries(asMap)) {
+      if (!rec.mcp.some((m) => m.id === String(id))) {
+        throw new BadInput(`Нет такого MCP-сервера: «${id}»`);
+      }
+      next[String(id)] = (Array.isArray(tools) ? tools : [])
+        .map((t) => String(t || "").trim().slice(0, MODEL_LIMIT)).filter(Boolean)
+        .filter((t, i, all) => all.indexOf(t) === i)
+        .slice(0, MAX_TOOLS_PER_SERVER);
+    }
+    a.mcp = next;
   }
   if (ask !== undefined) a.ask = ask !== false;
   /* Инструкция-скилл: пустая строка — «удалить», это одно и то же
@@ -727,7 +770,9 @@ export function removeMcp(userId, id) {
   if (!m) return false;
   rec.mcp = rec.mcp.filter((x) => x.id !== m.id);
   // И у агентов он больше не разрешён: ссылка на то, чего нет, — не право.
-  rec.agents.forEach((a) => { a.mcp = (a.mcp || []).filter((x) => x !== m.id); });
+  rec.agents.forEach((a) => {
+    if (a.mcp && typeof a.mcp === "object") delete a.mcp[m.id];
+  });
   writeUserSettings(userId, rec);
   return true;
 }
