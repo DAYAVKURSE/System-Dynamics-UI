@@ -104,6 +104,25 @@ describe("подложка участников без актива", () => {
   });
 });
 
+describe("карточка под пальцем", () => {
+  /* Пока ведут — карточка с именем лежит в body, поверх схемы, а не
+     внутри полосы (владелец, 2026-09-21: «отрисовывается сзади схемы»). */
+  it("живёт в body, а не в полосе, и исчезает, когда отпустили", () => {
+    show();
+    fireEvent.click(screen.getByLabelText("не добавленные участники: 2"));
+    const chip = screen.getByLabelText("не добавленный участник: Иван");
+    fireEvent.pointerDown(chip, { clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(window, { clientX: 200, clientY: 200 });
+    const ghost = document.querySelector("[data-drag-ghost]");
+    expect(ghost).toBeTruthy();
+    expect(ghost.parentElement).toBe(document.body);
+    expect(ghost).toHaveTextContent("Иван");
+    document.elementFromPoint = () => ({ closest: () => null });
+    fireEvent.pointerUp(window, { clientX: 300, clientY: 300 });
+    expect(document.querySelector("[data-drag-ghost]")).toBeNull();
+  });
+});
+
 describe("нажатие на участника без актива", () => {
   it("отпустили, не сдвинув, — открывается его страница; сдвинули — это перетаскивание", () => {
     /* Владелец (2026-09-13): «при нажатии на участника, у которого нет

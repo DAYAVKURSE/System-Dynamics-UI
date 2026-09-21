@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { C, OK, WARN, BAD, ACC, S, btn } from "./ui.jsx";
 
 /* ════════════════════════════════════════════════════════════════
@@ -161,10 +162,17 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
         <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)", lineHeight: 1.5 }}>{msg}</div>)}
       {/* Пока ведут — под пальцем едет сам человек: без этого жест
           выглядит как ничего не происходящее нажатие. */}
-      {drag && (
-        <div style={{ position: "fixed", left: drag.x + 8, top: drag.y + 8, zIndex: 50,
-          pointerEvents: "none", background: C.panel, border: `1px solid ${ACC}`,
-          borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", color: C.text }}>
-          {drag.name}</div>)}
+      {/* Карточка под пальцем живёт в body, а не в полосе: у полосы своё
+          стекло (backdrop-filter) — свой слой, и внутри него никакой
+          z-index не поднимет карточку над схемой, которая стоит ниже по
+          дереву (владелец, 2026-09-21: «отрисовывается сзади схемы»). */}
+      {drag && (() => {
+        const ghost = (
+          <div data-drag-ghost="" style={{ position: "fixed", left: drag.x + 8, top: drag.y + 8, zIndex: 1000,
+            pointerEvents: "none", background: C.panel, border: `1px solid ${ACC}`,
+            borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", color: C.text }}>
+            {drag.name}</div>);
+        return typeof document === "undefined" ? ghost : createPortal(ghost, document.body);
+      })()}
     </div>);
 }
