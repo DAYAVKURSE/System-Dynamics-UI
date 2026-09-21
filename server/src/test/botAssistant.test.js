@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   KEEP_DONE_MS, REFINE_PROMPT, onAssistantButton, onAssistantMessage, resetAssistantState, splitMessage,
   CLOCKS, TICK_MS, tickText,
@@ -453,27 +456,48 @@ describe("«Уточнить» — срок ожидания", () => {
   });
 });
 
-/* ─────── КНОПКИ ПОДТВЕРЖДЕНИЯ (владелец, 2026-09-21) ───────
+/* ─────── КНОПКИ ПОДТВЕРЖДЕНИЯ И ОТКАТА (владелец, 2026-09-21) ───────
 
-   Отложенное изменение живёт отдельно от вопроса: оно переживает и ответ
-   помощника, и десять минут памяти о вопросе. Нажимает тот, кому его
-   показали, — чужую кнопку нажать нельзя. */
+   «При нажатии „Подтвердить" эта кнопка должна меняться на „Отменить
+   изменения". Даже если я нажму на неё в дальнейшем, неважно, через какое
+   время, ассистент должен откатить ровно те изменения, которые внёс».
+
+   Отложенное живёт отдельно от вопроса и принадлежит тому, кому его
+   показали; откат живёт файлом и срока не имеет вовсе. */
 describe("подтверждение изменения", () => {
   let actions;
-  let sent2, answered2;
+  let ws;
+  let undo;
+  let dir;
+  let sent2, answered2, edits2;
   const from2 = { id: 200, first_name: "Иван" };
   const deps2 = () => ({
     assistant: { ask: async () => "ответ", memory },
     send: async (chatId, text) => { sent2.push({ chatId, text }); },
+    edit: async (chatId, messageId, text, keyboard) => {
+      edits2.push({ chatId, messageId, text, keyboard });
+    },
     answer: async (id, text) => { answered2.push({ id, text }); },
     org: { identify: async () => ({ isOwner: false }) },
   });
 
+  const TASK = { id: "tk1", title: "Сверстать", status: "backlog", assignee: "200",
+    setter: "100", reviewer: "100", submissions: [], reviews: [], chat: [] };
+
   beforeEach(async () => {
-    sent2 = []; answered2 = [];
+    sent2 = []; answered2 = []; edits2 = [];
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "sd-undo-"));
+    process.env.WORKSPACE_DIR = path.join(dir, "ws");
+    process.env.UNDO_DIR = path.join(dir, "undo");
+    vi.resetModules();
     actions = await import("../lib/assistantActions.js");
+    ws = await import("../lib/workspaceStore.js");
+    undo = await import("../lib/undoStore.js");
+    await undo.resetUndo();
     actions.resetPendingActions();
+    await ws.writeModel({ tasks: [{ ...TASK }] });
   });
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
 
   /* Откладываем настоящим путём — через runAction: так проверяется то, что
      и работает, а не отдельная выдумка теста. */
@@ -485,38 +509,100 @@ describe("подтверждение изменения", () => {
     return held;
   };
 
-  const press = (data, who = from2) => onAssistantButton(
-    { id: "cb1", data, from: who, message: { message_id: 1, chat: { id: who.id } } },
-    who, deps2());
+  const press = async (data, who = from2) => {
+    const mod = await import("../lib/botAssistant.js");
+    return mod.onAssistantButton(
+      { id: "cb1", data, from: who,
+        message: { message_id: 7, chat: { id: who.id } } }, who, deps2());
+  };
 
-  it("«Отменить» снимает изменение и говорит, что именно отменено", async () => {
+  it("«Отменить» снимает изменение и переписывает то же сообщение", async () => {
     const p = await hold();
     const r = await press(`ai:no:${p.id}`);
     expect(r).toEqual({ cancelled: p.id });
     expect(answered2[0].text).toBe("Отменено");
-    expect(sent2[0].text).toMatch(/Отменил: взять задачу tk1 в работу/);
+    // Кнопки сняты с ТОГО ЖЕ сообщения, а не уехали новым.
+    expect(edits2[0]).toMatchObject({ messageId: 7, keyboard: null });
+    expect(edits2[0].text).toMatch(/Изменение отменено:[\s\S]*взять задачу tk1 в работу/);
     expect(actions.pendingById(p.id)).toBeNull();
+    expect((await ws.readModel()).tasks[0].status).toBe("backlog");
   });
 
-  it("«Подтвердить» применяет его и отчитывается результатом хранилища", async () => {
+  it("«Подтвердить» делает дело, и кнопка становится «Отменить изменения»", async () => {
     const p = await hold();
     const r = await press(`ai:ok:${p.id}`);
-    expect(r.applied).toBe(p.id);
-    // Задачи tk1 в пустой модели нет — значит отказ, и он сказан словами.
-    expect(sent2[0].text).toMatch(/задачи нет/i);
-    expect(actions.pendingById(p.id)).toBeNull();
+    expect(r).toMatchObject({ applied: p.id, ok: true });
+    expect((await ws.readModel()).tasks[0].status).toBe("progress");
+    // На месте двух кнопок — одна, обратная, под тем же описанием.
+    const keys2 = (k) => (k?.inline_keyboard || []).flat().map((b) => [b.text, b.callback_data]);
+    expect(edits2[0].messageId).toBe(7);
+    expect(edits2[0].text).toMatch(/Изменение внесено:/);
+    expect(keys2(edits2[0].keyboard)).toEqual([["↩ Отменить изменения", `ai:undo:${p.id}`]]);
   });
 
-  it("чужую кнопку нажать нельзя, а забытую — «уже не действует»", async () => {
+  it("«Отменить изменения» возвращает ровно то, что было", async () => {
+    const before = (await ws.readModel()).tasks[0];
+    const p = await hold();
+    await press(`ai:ok:${p.id}`);
+    expect((await ws.readModel()).tasks[0].status).toBe("progress");
+
+    const r = await press(`ai:undo:${p.id}`);
+    expect(r).toEqual({ undone: p.id });
+    expect(answered2[answered2.length - 1].text).toBe("Откатил");
+    // Задача вернулась ровно в прежний вид, до последнего поля.
+    expect((await ws.readModel()).tasks[0]).toEqual(before);
+    expect(edits2[edits2.length - 1]).toMatchObject({ keyboard: null });
+    expect(edits2[edits2.length - 1].text).toMatch(/Изменение откачено:/);
+  });
+
+  it("откат переживает перезапуск: он лежит файлом, а не в памяти", async () => {
+    const before = (await ws.readModel()).tasks[0];
+    const p = await hold();
+    await press(`ai:ok:${p.id}`);
+    // Перезапуск: модули заново, память процесса пуста.
+    vi.resetModules();
+    actions = await import("../lib/assistantActions.js");
+    ws = await import("../lib/workspaceStore.js");
+    expect(actions.pendingById(p.id)).toBeNull();
+    await press(`ai:undo:${p.id}`);
+    expect((await ws.readModel()).tasks[0]).toEqual(before);
+  });
+
+  it("откатывают один раз; чужой откат не нажать", async () => {
+    const p = await hold();
+    await press(`ai:ok:${p.id}`);
+    await press(`ai:undo:${p.id}`);
+    // Второй раз откатывать нечего — и это ответ, а не поломка.
+    expect(await press(`ai:undo:${p.id}`)).toEqual({ stale: true });
+
+    const p2 = await hold();
+    await press(`ai:ok:${p2.id}`);
+    const foreign = await press(`ai:undo:${p2.id}`, { id: 999, first_name: "Чужой" });
+    expect(foreign).toEqual({ stale: true });
+    expect((await ws.readModel()).tasks[0].status).toBe("progress");
+  });
+
+  it("правки человека после подтверждения откат не трогает", async () => {
+    const p = await hold();
+    await press(`ai:ok:${p.id}`);
+    // Человек завёл вторую задачу руками — она к изменению отношения не имеет.
+    const m = await ws.readModel();
+    await ws.writeModel({ ...m, tasks: [...m.tasks, { ...TASK, id: "tk2", title: "Другое" }] });
+    await press(`ai:undo:${p.id}`);
+    const after = await ws.readModel();
+    expect(after.tasks.map((t) => t.id).sort()).toEqual(["tk1", "tk2"]);
+    expect(after.tasks.find((t) => t.id === "tk1").status).toBe("backlog");
+    expect(after.tasks.find((t) => t.id === "tk2").title).toBe("Другое");
+  });
+
+  it("чужую кнопку подтверждения нажать нельзя, а забытую — «уже не действует»", async () => {
     const p = await hold("999");
-    const r = await press(`ai:ok:${p.id}`);
-    expect(r).toEqual({ stale: true });
+    expect(await press(`ai:ok:${p.id}`)).toEqual({ stale: true });
     expect(answered2[0].text).toMatch(/не ваше/);
     expect(actions.pendingById(p.id)).toBeTruthy();
 
     actions.resetPendingActions();
-    const r2 = await press("ai:ok:нет-такого");
-    expect(r2).toEqual({ stale: true });
+    expect(await press("ai:ok:нет-такого")).toEqual({ stale: true });
     expect(answered2[1].text).toMatch(/уже не действует/);
   });
 });

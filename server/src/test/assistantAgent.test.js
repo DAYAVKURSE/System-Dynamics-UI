@@ -286,3 +286,41 @@ describe("назначения в настройках", () => {
       .toThrow(/Нет такого MCP/);
   });
 });
+
+/* ─────── ОТКАТ: РОВНО ТО, ЧТО ВНЕСЛИ (владелец, 2026-09-21) ───────
+
+   Разница считается по записям, а не по всей модели: вернуть модель
+   целиком значило бы отменить заодно всё, что человек сделал руками
+   после подтверждения. */
+describe("разница и откат", () => {
+  it("видит изменённое, добавленное и удалённое — и кладёт назад", async () => {
+    const before = { tasks: [{ id: "a", s: 1 }, { id: "b", s: 2 }], published: ["x"] };
+    const after = { tasks: [{ id: "a", s: 9 }, { id: "c", s: 3 }], published: ["x", "y"] };
+    const d = actions.diffOf(before, after);
+    expect(d.lists.tasks.added).toEqual(["c"]);
+    expect(d.lists.tasks.changed).toEqual({ a: { id: "a", s: 1 }, b: { id: "b", s: 2 } });
+    // Список строк разбирать по записям нечем — он возвращается целиком.
+    expect(d.fields.published).toEqual({ has: true, value: ["x"] });
+
+    const back = actions.restoreDiff(after, d);
+    expect(back.tasks.map((t) => t.id).sort()).toEqual(["a", "b"]);
+    expect(back.tasks.find((t) => t.id === "a").s).toBe(1);
+    expect(back.published).toEqual(["x"]);
+  });
+
+  it("чего действие не трогало, того откат не касается", async () => {
+    const before = { tasks: [{ id: "a", s: 1 }] };
+    const after = { tasks: [{ id: "a", s: 2 }] };
+    const d = actions.diffOf(before, after);
+    // Человек добавил своё уже после.
+    const later = { tasks: [{ id: "a", s: 2 }, { id: "z", s: 7 }], goals: [{ id: "g" }] };
+    const back = actions.restoreDiff(later, d);
+    expect(back.tasks).toEqual([{ id: "a", s: 1 }, { id: "z", s: 7 }]);
+    expect(back.goals).toEqual([{ id: "g" }]);
+  });
+
+  it("ничего не изменилось — и откатывать нечего", () => {
+    expect(actions.diffEmpty(actions.diffOf({ tasks: [] }, { tasks: [] }))).toBe(true);
+    expect(actions.diffEmpty(actions.diffOf({ a: 1 }, { a: 2 }))).toBe(false);
+  });
+});

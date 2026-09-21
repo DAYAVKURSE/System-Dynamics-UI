@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { CANCELLED_ERROR } from "./assistantQueue.js";
-import { applyPending, cancelPending, pendingById } from "./assistantActions.js";
+import { applyPending, cancelPending, pendingById, undoApplied } from "./assistantActions.js";
+import { undoById } from "./undoStore.js";
 
 /* ════════════════════════════════════════════════════════════════
    ПОМОЩНИК В ЧАТЕ БОТА
@@ -68,6 +69,10 @@ export const AI_REFINE = `${P}refine:`;
    «Отменить» под отдельным сообщением о том, что будет сделано. */
 export const AI_OK = `${P}ok:`;
 export const AI_NO = `${P}no:`;
+/* «Отменить изменения» — та же кнопка, что была «Подтвердить», после
+   нажатия (владелец, 2026-09-21). Живёт столько же, сколько сам откат:
+   без срока. */
+export const AI_UNDO = `${P}undo:`;
 export const isAssistantAction = (data) => String(data || "").startsWith(P);
 
 export const THINKING = "Думаю…";
@@ -124,11 +129,20 @@ export const tickText = (n = 0) =>
    и человек должен видеть ровно одно ясное предложение с ответом в одно
    нажатие. */
 export const CONFIRM_LEAD = "Подтвердите изменение:";
+export const APPLIED_LEAD = "Изменение внесено:";
+export const UNDONE_LEAD = "Изменение откачено:";
+export const REFUSED_LEAD = "Изменение отменено:";
 export const confirmKeyboard = (id) => ({
   inline_keyboard: [[
     { text: "✅ Подтвердить", callback_data: AI_OK + id },
     { text: "✖ Отменить", callback_data: AI_NO + id },
   ]],
+});
+/* Подтвердили — на месте тех же кнопок остаётся одна, обратная. Не второе
+   сообщение: откатывают именно ТО изменение, и кнопка должна стоять под
+   его описанием, а не под чем попало. */
+export const undoKeyboard = (id) => ({
+  inline_keyboard: [[{ text: "↩ Отменить изменения", callback_data: AI_UNDO + id }]],
 });
 
 export const statusKeyboard = (id) => ({
@@ -312,6 +326,17 @@ export async function onAssistantButton(cb, from, deps = {}) {
      переживает и ответ помощника, и десять минут памяти о вопросе. Кто
      нажал — тот и подтверждает: id человека хранится вместе с самим
      изменением, и чужую кнопку нажать нельзя. */
+  /* Правка ТОГО ЖЕ сообщения: кнопки меняются под своим описанием, а не
+     уезжают вниз новым сообщением. Не вышло поправить — не беда: о самом
+     деле человек узнаёт из ответа на кнопку и из сообщения ниже. */
+  const restyle = async (text, keyboard) => {
+    const edit = deps.edit;
+    const mid = cb?.message?.message_id;
+    if (!edit || mid == null) return;
+    try { await edit(cb.message.chat?.id ?? chatId, mid, text, keyboard); }
+    catch { /* сообщение не поправилось */ }
+  };
+
   if (data.startsWith(AI_OK) || data.startsWith(AI_NO)) {
     const yes = data.startsWith(AI_OK);
     const pid = data.slice((yes ? AI_OK : AI_NO).length);
@@ -323,7 +348,7 @@ export async function onAssistantButton(cb, from, deps = {}) {
     if (!yes) {
       cancelPending(pid);
       await answer(cb.id, "Отменено");
-      await send(chatId, `Отменил: ${p.words}.`);
+      await restyle(`${REFUSED_LEAD}\n${p.words}`, null);
       return { cancelled: pid };
     }
     let who = { isOwner: false };
@@ -331,8 +356,30 @@ export async function onAssistantButton(cb, from, deps = {}) {
     catch { /* гость: права решит само хранилище */ }
     const r = await applyPending(pid, { isOwner: !!who.isOwner });
     await answer(cb.id, r?.ok ? "Готово" : "Не вышло");
+    /* Получилось — на месте «Подтвердить» встаёт «Отменить изменения», и
+       стоит она без срока: откат лежит файлом и переживает перезапуск. */
+    if (r?.ok && r.undoId) await restyle(`${APPLIED_LEAD}\n${p.words}`, undoKeyboard(r.undoId));
+    else await restyle(`${p.words}`, null);
     await send(chatId, r?.text || "Изменение уже не действует.");
     return { applied: pid, ok: !!r?.ok };
+  }
+
+  if (data.startsWith(AI_UNDO)) {
+    const uid = data.slice(AI_UNDO.length);
+    const r = await undoApplied(uid, { userId });
+    if (!r) {
+      await answer(cb.id, "Откатывать уже нечего");
+      await restyle(`${APPLIED_LEAD}\n${(await undoById(uid))?.words || ""}`.trim(), null);
+      return { stale: true };
+    }
+    if (r.foreign) {
+      await answer(cb.id, "Это не ваше изменение");
+      return { stale: true };
+    }
+    await answer(cb.id, "Откатил");
+    await restyle(`${UNDONE_LEAD}\n${r.words}`, null);
+    await send(chatId, r.text);
+    return { undone: uid };
   }
 
   const id = data.startsWith(AI_CANCEL) ? data.slice(AI_CANCEL.length)

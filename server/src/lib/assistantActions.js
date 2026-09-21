@@ -1,6 +1,7 @@
 import { listOrg } from "./orgStore.js";
 import { addMessage, deferTask, dropTask, readModel, reviewTask, setupTask, submitTask,
   takeTask, withModel, writeModel } from "./workspaceStore.js";
+import { addUndo, takeUndo, undoById } from "./undoStore.js";
 
 /* ════════════════════════════════════════════════════════════════
    ЧТО ПОМОЩНИК УМЕЕТ ДЕЛАТЬ (владелец, 2026-09-20)
@@ -344,13 +345,104 @@ export async function runAction(name, args, {
 /** Что именно откладывали — словами, для сообщения с кнопками. */
 export const pendingWords = (id) => pendingById(id)?.words || "";
 
+/* ─────── ОТКАТ: ЧТО БЫЛО ДО (владелец, 2026-09-21) ───────
+
+   «Ассистент должен откатить ровно те изменения, которые внёс, и вернуть
+   значения, которые были до внесения изменений».
+
+   Ровно те — значит не всю модель: вернуть её целиком значило бы отменить
+   заодно всё, что человек сделал руками после. Поэтому снимается РАЗНИЦА
+   между моделью до и после, запись за записью по их id, и откат кладёт
+   назад только эти записи.
+
+   Списки записей с id (задачи, процессы, ресурсы, функции, активы)
+   сравниваются поштучно; всё остальное — целиком: обратного разбора у
+   него нет, а прежнее значение есть всегда. */
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const byId = (v) => Array.isArray(v) && v.every((x) => x && typeof x === "object" && x.id != null);
+
+export function diffOf(before = {}, after = {}) {
+  const lists = {};
+  const fields = {};
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  for (const k of keys) {
+    const b = before?.[k];
+    const a = after?.[k];
+    if (same(a, b)) continue;
+    if (byId(b) && byId(a)) {
+      const was = new Map(b.map((x) => [String(x.id), x]));
+      const now = new Map(a.map((x) => [String(x.id), x]));
+      const changed = {};
+      const added = [];
+      now.forEach((v, id) => {
+        if (!was.has(id)) added.push(id);
+        else if (!same(was.get(id), v)) changed[id] = was.get(id);
+      });
+      was.forEach((v, id) => { if (!now.has(id)) changed[id] = v; });
+      if (added.length || Object.keys(changed).length) lists[k] = { changed, added };
+    } else {
+      fields[k] = { has: b !== undefined, value: b === undefined ? null : b };
+    }
+  }
+  return { lists, fields };
+}
+
+export const diffEmpty = (d) =>
+  !Object.keys(d?.lists || {}).length && !Object.keys(d?.fields || {}).length;
+
+/** Вернуть модели те значения, что были до. */
+export function restoreDiff(model = {}, d = {}) {
+  const next = { ...model };
+  Object.entries(d.lists || {}).forEach(([k, { changed = {}, added = [] }]) => {
+    const drop = new Set(added.map(String));
+    const left = new Map(Object.entries(changed));
+    const out = (Array.isArray(next[k]) ? next[k] : [])
+      .filter((x) => !drop.has(String(x?.id)))
+      .map((x) => {
+        const was = left.get(String(x?.id));
+        if (was === undefined) return x;
+        left.delete(String(x?.id));
+        return was;
+      });
+    /* Что действие удалило — возвращается в конец списка: где именно оно
+       стояло, разница не помнит, а потерять запись нельзя. */
+    left.forEach((v) => out.push(v));
+    next[k] = out;
+  });
+  Object.entries(d.fields || {}).forEach(([k, { has, value }]) => {
+    if (has) next[k] = value; else delete next[k];
+  });
+  return next;
+}
+
 /** Применить отложенное — человек нажал «Подтвердить». */
 export async function applyPending(id, { isOwner = false } = {}) {
   const p = pendingById(id);
   if (!p) return null;
   forgetPending(id);
-  return runAction(p.name, p.args,
+  const before = await readModel();
+  const r = await runAction(p.name, p.args,
     { userId: p.userId, agentId: p.agentId, isOwner, ask: false });
+  if (!r?.ok) return r;
+  /* Снимаем разницу СРАЗУ после действия: чем позже, тем больше чужого
+     попадёт в откат. */
+  const diff = diffOf(before, await readModel());
+  if (diffEmpty(diff)) return r;
+  try {
+    await addUndo({ id, userId: p.userId, agentId: p.agentId, words: p.words, diff });
+  } catch { return r; }   // не записали откат — само изменение уже сделано
+  return { ...r, undoId: id };
+}
+
+/** Откатить сделанное — человек нажал «Отменить изменения». */
+export async function undoApplied(id, { userId = null } = {}) {
+  const rec = await undoById(id);
+  if (!rec) return null;
+  if (userId != null && String(rec.userId) !== String(userId)) return { foreign: true };
+  const taken = await takeUndo(id);
+  if (!taken) return null;
+  await withModel(async (model) => writeModel(restoreDiff(model, taken.diff)));
+  return { ok: true, words: taken.words, text: `Откатил: ${taken.words}.` };
 }
 
 /** Отменить отложенное — человек нажал «Отменить». */

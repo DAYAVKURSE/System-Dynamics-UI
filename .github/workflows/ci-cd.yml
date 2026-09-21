@@ -256,6 +256,9 @@ jobs:
           # жалобы исчезали бы при каждом обновлении.
           MARKET_DIR=${DEPLOY_PATH_R}/data/market
           ISSUES_DIR=${DEPLOY_PATH_R}/data/issues
+          # Откаты изменений помощника: кнопка «Отменить изменения» не
+          # имеет срока, значит и запись должна пережить деплой.
+          UNDO_DIR=${DEPLOY_PATH_R}/data/undo
           AI_PROVIDER=${AI_PROVIDER:-}
           AI_MODEL=${AI_MODEL:-}
           OPENAI_API_KEY=${OPENAI_API_KEY:-}
