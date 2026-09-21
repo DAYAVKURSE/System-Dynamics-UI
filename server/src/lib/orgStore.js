@@ -40,7 +40,7 @@ export const TABS = ["market", "me", "tasks", "review",
   "scheme", "scheme:edit", "scheme:time", "scheme:sim",
   "reports",
   "tools", "tools:people", "tools:assistant", "tools:virtual", "tools:reminders",
-  "tools:calls", "tools:export"];
+  "tools:calls", "tools:issues", "tools:export"];
 /* Право на вкладке: «r» — только смотреть, «rw» — ещё и править
    (владелец, 2026-09-20: одно нажатие — жёлтая «r», второе — зелёная
    «rw»). Прежние роли хранили просто список вкладок — он читается как

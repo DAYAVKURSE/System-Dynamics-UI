@@ -11,6 +11,7 @@ import sharesRouter from "./routes/shares.js";
 import callsRouter from "./routes/calls.js";
 import assistantRouter from "./routes/assistant.js";
 import marketRouter from "./routes/market.js";
+import issuesRouter from "./routes/issues.js";
 import { callLinkEnv, callLinkFor } from "./lib/links.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -152,6 +153,9 @@ export function createApp() {
   /* Рынок услуг: заказы, услуги, отклики и сделки — всем зарегистрированным
      (см. lib/marketStore.js). */
   app.use("/api/market", marketRouter);
+  /* Сообщения об ошибках: пишет любой позванный кнопкой в шапке, читает и
+     удаляет тот, кому открыта вкладка «issues» (см. lib/issuesStore.js). */
+  app.use("/api/issues", issuesRouter);
 
   // Собранный фронтенд (web build) кладётся сюда шагом деплоя — см. docs/DEPLOYMENT.md.
   // Локально в dev-режиме этой папки обычно нет: фронтенд поднимается отдельно

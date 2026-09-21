@@ -6,7 +6,7 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   addRole, removeRole, setUserRoles,
   takeTaskRemote, dropTaskRemote, submitTaskRemote, messageTaskRemote, markTaskRemote, seeChatRemote,
   getRatings, resetIdentity, mayEdit, tabShown, actingAs, setActingAs, joinFromLocation,
-  setupTaskRemote }
+  sendIssue, setupTaskRemote }
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
@@ -45,6 +45,7 @@ import { useHistory, sameDoc } from "../lib/history.js";
 import { readDraft, saveDraft, clearDraft } from "../lib/draft.js";
 import Modal from "./Modal.jsx";
 import ProfilePanel, { RemindersCard, warnMinOf } from "./ProfilePanel.jsx";
+import IssuesPanel, { IssueModal } from "./IssuesPanel.jsx";
 import ReportsPanel from "./ReportsPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { countKind, dropKind } from "../lib/traits.js";
@@ -800,6 +801,10 @@ export default function SystemModel(){
     return ()=>{ live=false; };
   },[me.known,me.solo]);
   const [tool,setTool]=useState("people");
+  /* Окно «Напишите сообщение об ошибке» — значком в шапке (владелец,
+     2026-09-21). Оно ни от чего не зависит и ничего не ждёт: человек
+     говорит, что сломалось, и возвращается к работе. */
+  const [issueOpen,setIssueOpen]=useState(false);
   useEffect(()=>{ if(openCall && me.tabs.includes("tools")) { setTab("tools"); setTool("calls"); } },
     [openCall,me.tabs]);
 
@@ -1589,6 +1594,11 @@ export default function SystemModel(){
             onClick={()=>{ setActingAs(""); resetIdentity();
               whoAmI().then(m=>{ setMe(m); setTab("me"); }).catch(()=>{}); }}>
             Вернуться на свою страницу</button>)}
+        {/* Сообщить об ошибке — слева от «Отменить» (владелец, 2026-09-21):
+            ошибку замечают посреди работы, и значок должен быть там же,
+            где рука уже находится. */}
+        <IconButton label="сообщить об ошибке" title="Сообщить об ошибке"
+          onClick={()=>setIssueOpen(true)} icon={ICON.alert}/>
         <IconButton label="отменить" title="Отменить последнее изменение модели (Ctrl+Z)"
           disabled={!hist.canUndo} onClick={hist.undo} icon={ICON.undo}/>
         <IconButton label="вернуть" title="Вернуть отменённое (Ctrl+Shift+Z)"
@@ -2045,7 +2055,8 @@ export default function SystemModel(){
       {tab==="tools" && me.tabs.includes("tools") && (
         <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
           {[["people","Роли"],["assistant","Агенты"],["virtual","Виртуальные сотрудники"],
-            ["reminders","Напоминания"],["calls","Звонки"],["export","Выгрузка"]]
+            ["reminders","Напоминания"],["calls","Звонки"],["issues","Issues"],
+            ["export","Выгрузка"]]
             // «Люди и роли» — дело владельца. «Выгрузка» тоже: схем у
             // не-владельца не бывает, у него одна — та, где его назначили.
             // «Люди и роли» и «Выгрузка» — дело владельца; остальные —
@@ -2097,6 +2108,11 @@ export default function SystemModel(){
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="reminders" && (
         <RemindersCard me={me} onSaved={p=>{ setMe(m=>({...m,profile:p})); }}/>)}
+
+      {/* Issues — сообщения об ошибках, присланные значком из шапки
+          (владелец, 2026-09-21): список и «Удалить» рядом с каждым. */}
+      {tab==="tools" && me.tabs.includes("tools") && tool==="issues" && (
+        <IssuesPanel me={me}/>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="calls" && (
         <CallsBoard me={me} people={people} openCall={openCall}
@@ -2159,6 +2175,11 @@ export default function SystemModel(){
             {savedMsg&&<div style={{fontSize:12,color:C.muted}}>{savedMsg}</div>}
           </div>
         </div>)}
+
+      {/* Окно сообщения об ошибке — поверх любой вкладки: значок стоит в
+          шапке, и уходить за ним никуда не нужно. */}
+      {issueOpen && (
+        <IssueModal onClose={()=>setIssueOpen(false)} onSend={sendIssue}/>)}
 
       {/* ═══ КАРТОЧКА ЧЕЛОВЕКА ═══
           Окном поверх того, что человек сейчас делает, а не переходом на

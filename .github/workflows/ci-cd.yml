@@ -250,6 +250,12 @@ jobs:
           MEMORY_DIR=${DEPLOY_PATH_R}/data/memory
           ASSISTANT_DIR=${DEPLOY_PATH_R}/data/assistant
           CHATS_DIR=${DEPLOY_PATH_R}/data/chats
+          # Рынок и сообщения об ошибках — в том же переживающем деплой
+          # data/. Без этих двух строк они легли бы в app/server/data, а
+          # app/ каждый деплой переписывается rsync --delete: заказы и
+          # жалобы исчезали бы при каждом обновлении.
+          MARKET_DIR=${DEPLOY_PATH_R}/data/market
+          ISSUES_DIR=${DEPLOY_PATH_R}/data/issues
           AI_PROVIDER=${AI_PROVIDER:-}
           AI_MODEL=${AI_MODEL:-}
           OPENAI_API_KEY=${OPENAI_API_KEY:-}

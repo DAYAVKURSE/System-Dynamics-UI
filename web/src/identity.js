@@ -21,7 +21,7 @@ export const ALL_TABS = ["market", "me", "tasks", "review",
   "scheme", "scheme:edit", "scheme:time", "scheme:sim",
   "reports",
   "tools", "tools:people", "tools:assistant", "tools:virtual", "tools:reminders",
-  "tools:calls", "tools:export"];
+  "tools:calls", "tools:issues", "tools:export"];
 
 /* Имена вкладок — те же слова, что на их кнопках в приложении: роль
    открывает «Отчёты», и называться она должна «Отчёты», а не «reports».
@@ -35,7 +35,7 @@ export const TAB_NAMES = {
   "tools:people": "Роли", "tools:assistant": "Агенты",
   "tools:virtual": "Виртуальные сотрудники",
   "tools:reminders": "Напоминания", "tools:calls": "Звонки",
-  "tools:export": "Выгрузка",
+  "tools:issues": "Issues", "tools:export": "Выгрузка",
 };
 export const tabName = (t) => TAB_NAMES[t] || t;
 
@@ -219,6 +219,15 @@ export const setUserRole = (id, roleId) =>
     { method: "PUT", body: JSON.stringify({ roleId }) });
 export const removeUser = (id) =>
   json(`/api/org/users/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/* ─────── сообщения об ошибках ───────
+   Пишет любой позванный — кнопкой со значком в шапке; читает и удаляет
+   тот, кому открыта вкладка «Issues». */
+export const sendIssue = (text) =>
+  json("/api/issues", { method: "POST", body: JSON.stringify({ text }) });
+export const listIssues = () => json("/api/issues").then((r) => r.issues || []);
+export const dropIssue = (id) =>
+  json(`/api/issues/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 /* ─────── виртуальные сотрудники ───────
    Страница, за которой ещё нет человека: её заводит рекрутер, заполняет
