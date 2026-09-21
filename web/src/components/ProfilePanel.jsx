@@ -128,7 +128,10 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
             : work ? "· по графику сейчас рабочее время" : "· по графику сейчас нерабочее время"}</span>
       </div>
       {mine ? (<>
-        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
+        {/* Статусы — капсулами своей ширины, сколько влезет в строку, а не
+            сеткой на всю ширину (владелец, 2026-09-21): без класса gap-2
+            нарочно, чтобы ряд из одних кнопок не стал сеткой. */}
+        <div className="flex flex-wrap" style={{ marginTop: "var(--space-4)", gap: "var(--gap) var(--gap-x)" }}>
           {WORK_STATUSES.map((x) => (
             <button key={x.id} aria-label={`статус: ${x.name}`} aria-pressed={sc.status === x.id}
               style={{ ...btn(sc.status === x.id,
