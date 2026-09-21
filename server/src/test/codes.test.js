@@ -87,16 +87,19 @@ describe("сервис кодов", () => {
     expect(again.body.uid).toBe(r.body.uid);
   });
 
-  it("платный план требует способ оплаты; платёж считается полученным", async () => {
+  it("платный план требует способ оплаты; регистрируют free, план включает оплата", async () => {
     const no = await handle("POST", "/register", { plan: "pro" });
     expect(no.status).toBe(400);
-    const ok = await handle("POST", "/register", { plan: "max", method: "ton" });
+    const ok = await handle("POST", "/register", { plan: "max", method: "stars" });
     expect(ok.status).toBe(201);
-    expect(ok.body.plan).toBe("max");
+    expect(ok.body.plan).toBe("free");
+    expect(ok.body.payment).toMatchObject({ planId: "max", method: "stars", currency: "XTR", status: "pending" });
     const users = JSON.parse(await fs.readFile(path.join(process.env.CODES_DIR, "users.json"), "utf8"));
-    expect(users[0].payments[0]).toMatchObject({ plan: "max", method: "ton", status: "paid", mocked: true });
     // Сам ключ на диске не лежит — только его хэш.
     expect(JSON.stringify(users)).not.toContain(ok.body.key);
+    const paid = await handle("POST", "/internal/paid", { id: ok.body.payment.id, tx: "tg-charge" });
+    expect(paid.status).toBe(200);
+    expect(decodeToken((await handle("POST", "/token", { key: ok.body.key })).body.token).plan).toBe("max");
   });
 
   it("чужой ключ, чужая подпись и истёкший срок не проходят", async () => {
@@ -112,9 +115,11 @@ describe("сервис кодов", () => {
 
   it("смена плана и новый ключ взамен прежнего", async () => {
     const r = await register();
-    const up = await handle("POST", "/plan", { key: r.key, plan: "pro", method: "usdt" });
+    const up = await handle("POST", "/plan", { key: r.key, plan: "pro", method: "stars" });
     expect(up.status).toBe(200);
-    expect(decodeToken(up.body.token).plan).toBe("pro");
+    expect(up.body.payment).toMatchObject({ planId: "pro", status: "pending" });
+    await handle("POST", "/internal/paid", { id: up.body.payment.id });
+    expect(decodeToken((await handle("POST", "/token", { key: r.key })).body.token).plan).toBe("pro");
     const rot = await handle("POST", "/rotate", { key: r.key });
     expect(rot.status).toBe(200);
     expect(rot.body.key).not.toBe(r.key);
@@ -147,14 +152,17 @@ describe("сервер хранилища с включённым сервисо
   });
 
   it("с токеном узнаёт человека по подписи и говорит его план", async () => {
-    const r = await register("pro", "stars");
+    const r0 = await register("pro", "stars");
+    await handle("POST", "/internal/paid", { id: r0.payment.id });
+    const r = { ...r0, ...(await handle("POST", "/token", { key: r0.key })).body };
     const me = await request(app).get("/api/org/me")
       .set(as(100, "Владелец")).set("X-User-Token", r.token);
     expect(me.status).toBe(200);
     expect(me.body.needsCode).toBeUndefined();
     expect(me.body.isOwner).toBe(true);
     expect(me.body.plan).toBe("pro");
-    expect(me.body.code).toEqual({ uid: r.uid, plan: "pro" });
+    expect(me.body.code).toMatchObject({ uid: r.uid, plan: "pro", planId: "pro" });
+    expect(Date.parse(me.body.code.until)).toBeGreaterThan(Date.now());
     expect(me.body.planTabs).toEqual(PLAN_TABS.pro);
     // Отозванный — не проходит.
     await request(app).get("/api/workspace").set(as(100)).set("X-User-Token", r.token).expect(200);

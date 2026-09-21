@@ -319,3 +319,38 @@ describe("кнопки помощника под статусом", () => {
     expect(cancelled).toEqual([]);
   });
 });
+
+/* ─────── оплата звёздами и токен админ-бота (владелец, 2026-09-21) ─────── */
+describe("звёзды и админ-бот", () => {
+  it("на pre_checkout отвечает «да», успешная оплата уходит в сервис кодов", async () => {
+    const pre = [];
+    const paid = [];
+    const d = { ...deps, billing: {
+      preCheckout: async (id, ok) => pre.push([id, ok]),
+      paid: async (id, tx) => { paid.push([id, tx]); return { ok: true, plan: "pro", planName: "Pro", days: 30 }; },
+    } };
+    expect(await handleUpdate({ update_id: 5, pre_checkout_query: { id: "q1", from: forwarded } }, d))
+      .toEqual({ preCheckout: "q1" });
+    expect(pre).toEqual([["q1", true]]);
+    const r = await handleUpdate(msg(forwarded, { successful_payment: { invoice_payload: "pay_1",
+      telegram_payment_charge_id: "ch_1", total_amount: 500, currency: "XTR" } }), d);
+    expect(r).toEqual({ paid: "pay_1" });
+    expect(paid).toEqual([["pay_1", "ch_1"]]);
+    expect(lastText()).toContain("план Pro на 30 дн.");
+  });
+
+  it("/adminbot: токен сохраняет только владелец, и только похожий на токен", async () => {
+    const saved = [];
+    const d = { ...deps, settings: { setAdminBot: async (t) => saved.push(t) } };
+    await handleUpdate(msg(guest, { text: "/adminbot 123456:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }), d);
+    expect(saved).toEqual([]);
+    expect(lastText()).toBe("Эта команда — только владельцу.");
+    await handleUpdate(msg(owner, { text: "/adminbot нет" }), d);
+    expect(saved).toEqual([]);
+    expect(lastText()).toContain("/adminbot 123456:токен");
+    const r = await handleUpdate(msg(owner, { text: "/adminbot 123456:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }), d);
+    expect(r).toEqual({ adminBot: true });
+    expect(saved).toEqual(["123456:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]);
+    expect(lastText()).toContain("сохранён");
+  });
+});

@@ -66,7 +66,8 @@ router.get("/me", async (req, res, next) => {
     if (req.code) {
       /* План — с кем вошли, тому и открыто: вкладки роли остаются, а
          те, что не в плане, гаснут (lib/plans.js). */
-      me.code = { uid: req.code.uid, plan: req.code.plan };
+      me.code = { uid: req.code.uid, plan: req.code.plan, planId: req.code.planId || req.code.plan,
+        until: req.code.until || null };
       me.plan = req.code.plan;
       me.planTabs = [...(PLAN_TABS[req.code.plan] || PLAN_TABS.free)];
     }

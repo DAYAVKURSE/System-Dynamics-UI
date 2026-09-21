@@ -4,8 +4,9 @@ import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { scheduleFor } from "./lib/scheduleTasks.js";
 import { store } from "./lib/scheduleStore.js";
-import { answerCallback, answerInline, editMessage, getFile, getMe, getUpdates, sendWithKeyboard }
-  from "./lib/telegram.js";
+import { answerCallback, answerInline, answerPreCheckout, editMessage, getFile, getMe, getUpdates,
+  sendWithKeyboard } from "./lib/telegram.js";
+import * as codes from "./lib/codes.js";
 import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
@@ -44,6 +45,32 @@ resumeTranscripts()
   })
   .catch((e) => console.error(`[transcribe] восстановление после перезапуска не удалось: ${e.message}`));
 
+/* ─── ПОДПИСКА ЗАКАНЧИВАЕТСЯ (владелец, 2026-09-21) ───
+   За 5, 3 и 1 день — сообщение в основном боте, по одному разу на
+   каждый срок. Кого спросить — знает сервис кодов; кому слать — его
+   Telegram (с какого регистрировались). Раз в десять минут: чаще
+   незачем, дни — не минуты. */
+let remindedAt = 0;
+async function remindSubscriptions() {
+  if (!codes.enabled() || Date.now() - remindedAt < 10 * 60 * 1000) return;
+  remindedAt = Date.now();
+  const r = await codes.expiring();
+  if (r.status >= 400) return;
+  const url = (process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+  const keyboard = url ? { inline_keyboard: [[{ text: "Продлить в приложении", web_app: { url } }]] } : null;
+  for (const x of r.body?.expiring || []) {
+    const chat = x.tg?.id;
+    if (!chat) { await codes.reminded(x.uid, x.mark); continue; }
+    const days = x.daysLeft === 1 ? "1 день" : x.daysLeft < 5 ? `${x.daysLeft} дня` : `${x.daysLeft} дней`;
+    try {
+      await sendWithKeyboard(chat, `Подписка «${x.planName}» заканчивается через ${days}. Продлите её, чтобы вкладки не погасли.`, keyboard);
+      await codes.reminded(x.uid, x.mark);
+    } catch (e) {
+      console.error(`[billing] напоминание ${x.uid}: ${e.message}`);
+    }
+  }
+}
+
 /* Планировщик напоминаний: раз в минуту смотрит расписания всех
    пользователей и отправляет то, чему пришло время. Без токена бота слать
    некуда, поэтому не запускается вовсе. */
@@ -68,6 +95,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
           if (publishStep(model).changed) await writeModel(model);
         }));
       }
+      await remindSubscriptions();
     } catch (e) {
       // Планировщик не должен ронять процесс: приложение важнее напоминаний.
       console.error(`[scheduler] тик не выполнен: ${e.message}`);
@@ -126,6 +154,8 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     // (почему — в lib/links.js). Команда «/callmain on».
     getCallMain: () => (process.env.TELEGRAM_CALL_MAIN || "").trim() === "1",
     setCallMain: (on) => setSetting("TELEGRAM_CALL_MAIN", on ? "1" : ""),
+    // Токен админ-бота подписок — командой «/adminbot» (lib/bot.js).
+    setAdminBot: (token) => setSetting("ADMIN_BOT_TOKEN", token),
     // Заведено ли главное приложение на самом деле. null — Telegram не
     // ответил; включать на таком ответе нельзя, иначе приглашение
     // перестанет открывать вообще что-либо.
@@ -211,6 +241,16 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
               /* Договоры: «/start agr_<токен>» привязывает соглашение к
                  пришедшему; добавление по пересылке — к ждущему договору
                  роли (lib/contractStore.js). */
+              /* Оплата звёздами и подписки — сервис кодов (lib/codes.js). */
+              billing: {
+                preCheckout: (id, ok) => answerPreCheckout(id, ok),
+                paid: async (id, tx) => {
+                  const r = await codes.paid(id, tx);
+                  return r.status < 400
+                    ? { ok: true, plan: r.body.plan, planName: r.body.payment?.planName, days: r.body.payment?.days }
+                    : { ok: false, error: r.body?.error || `сервис кодов ответил ${r.status}` };
+                },
+              },
               contracts: {
                 /* Ссылка на договор ведёт в чьё-то хранилище: ищем, в чьё. */
                 claim: async (token, who) => {

@@ -139,7 +139,7 @@ async function checkCode(req) {
   if (!codes.enabled()) return null;
   const token = String(req.header("X-User-Token") || "").trim();
   const seen = token ? await codes.verify(token) : null;
-  if (seen) return { uid: seen.uid, plan: seen.plan, exp: seen.exp };
+  if (seen) return { uid: seen.uid, plan: seen.plan, planId: seen.planId, until: seen.until, exp: seen.exp };
   return isWhoAmI(req) ? null : false;
 }
 

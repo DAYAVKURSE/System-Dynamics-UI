@@ -125,7 +125,8 @@ export async function getUpdates(offset, timeout = 25,
     // edited_message — ради чатов групп: правка сообщения ложится в
     // хранилище новой строкой (lib/chatStore.js), иначе помощник цитировал
     // бы то, что человек уже исправил.
-    + encodeURIComponent(JSON.stringify(["message", "edited_message", "callback_query", "inline_query"]));
+    + // pre_checkout_query — оплата звёздами: без ответа на него платёж не пройдёт.
+    + encodeURIComponent(JSON.stringify(["message", "edited_message", "callback_query", "inline_query", "pre_checkout_query"]));
   const res = await fetch(url);
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.description || `Telegram ответил ${res.status}`);
@@ -275,4 +276,33 @@ export async function getMe(token = process.env.TELEGRAM_BOT_TOKEN) {
   const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
   const data = await res.json().catch(() => ({}));
   return data.ok ? data.result : null;
+}
+
+/* ─────── оплата звёздами (владелец, 2026-09-21) ───────
+   Инвойс в Telegram Stars: валюта XTR, цена — в звёздах, `payload` —
+   id платежа в сервисе кодов. Ссылку открывает мини-приложение
+   (`openInvoice`); после оплаты Telegram присылает боту
+   `pre_checkout_query` (надо ответить «ок») и `successful_payment`. */
+export async function createInvoiceLink({ title, description, payload, amount },
+  token = process.env.TELEGRAM_BOT_TOKEN) {
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
+  const res = await fetch(`https://api.telegram.org/bot${token}/createInvoiceLink`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: String(title).slice(0, 32), description: String(description || title).slice(0, 255),
+      payload: String(payload), currency: "XTR", prices: [{ label: String(title).slice(0, 32), amount: Math.max(1, Math.round(amount)) }] }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw telegramError(data.description, res.status);
+  return data.result;
+}
+export async function answerPreCheckout(id, ok = true, error = "",
+  token = process.env.TELEGRAM_BOT_TOKEN) {
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
+  const res = await fetch(`https://api.telegram.org/bot${token}/answerPreCheckoutQuery`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pre_checkout_query_id: id, ok, ...(ok ? {} : { error_message: error }) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw telegramError(data.description, res.status);
+  return data.result;
 }

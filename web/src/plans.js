@@ -10,12 +10,18 @@
    ════════════════════════════════════════════════════════════════ */
 import { ALL_TABS } from "./identity.js";
 
+/* Уровни — что открывает план. Сами планы (название, цена, срок) —
+   с сервера (`fetchPlans` в codes.js): их правит владелец; здесь — то,
+   с чем приложение живёт до ответа сервера. */
 export const PLANS = ["free", "pro", "max"];
 export const PLAN_NAMES = { free: "Free", pro: "Pro", max: "Max" };
-/* Цена в месяц, в долларах; в валюту способа оплаты пересчитывает сам
-   способ. Та же таблица — в codes/src/plans.js. */
+export const DEFAULT_PLANS = [
+  { id: "free", name: "Free", price: 0, days: 0, level: "free" },
+  { id: "pro", name: "Pro", price: 10, days: 30, level: "pro" },
+  { id: "max", name: "Max", price: 30, days: 30, level: "max" },
+];
 export const PRICE = { free: 0, pro: 10, max: 30 };
-export const METHODS = ["usdt", "ton", "stars"];
+export const METHODS = ["stars", "ton", "usdt"];
 export const METHOD_NAMES = { usdt: "USDT (TON)", ton: "TON", stars: "Telegram Stars" };
 export const PLAN_TABS = {
   free: ["me", "market", "tasks"],

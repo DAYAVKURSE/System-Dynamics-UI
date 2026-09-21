@@ -83,11 +83,28 @@ export async function ensureToken() {
   }
 }
 
-/** Регистрация: план, способ оплаты (для платных) → ключ. */
+/** Регистрация: план, способ оплаты (для платных) → ключ и, если план
+    платный, платёж, который надо провести (payments.js). */
 export async function registerCode(plan, method) {
   const j = await call("/register", { plan, ...(method ? { method } : {}) });
   take(j, j.key);
-  return { key: j.key, uid: j.uid, plan: j.plan };
+  return { key: j.key, uid: j.uid, plan: j.plan, payment: j.payment || null };
+}
+/** Планы и способы — с сервера: их правит владелец в админ-панели. */
+export async function fetchPlans() {
+  const r = await fetch("/api/codes/plans", { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`Сервер ответил ${r.status}`);
+  return r.json();
+}
+/** Платёж: статус; оплачен — обновляем токен по ключу. */
+export async function paymentStatus(id) {
+  const r = await fetch(`/api/codes/payment/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Сервер ответил ${r.status}`);
+  if (j.payment?.status === "paid" && savedKey()) {
+    try { take(await call("/token", { key: savedKey() })); } catch { /* токен обновится позже */ }
+  }
+  return j.payment;
 }
 /** Вход по ключу, сохранённому раньше. */
 export async function loginWithKey(key) {
@@ -95,10 +112,13 @@ export async function loginWithKey(key) {
   const j = await call("/token", { key: k });
   return take(j, k);
 }
+/** Смена плана: бесплатный — сразу, платный — платёж на проведение. */
 export async function changePlan(plan, method) {
   const key = savedKey();
   if (!key) throw new Error("нет ключа");
-  return take(await call("/plan", { key, plan, ...(method ? { method } : {}) }));
+  const j = await call("/plan", { key, plan, ...(method ? { method } : {}) });
+  take(j);
+  return { uid: j.uid, plan: j.plan, payment: j.payment || null };
 }
 /** Новый ключ взамен прежнего: прежний перестаёт действовать. */
 export async function rotateKey() {

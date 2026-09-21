@@ -152,6 +152,14 @@ const NOT_PARSED = "Не разобрал. Напишите словами — �
  */
 export async function handleUpdate(update, deps) {
   const { org, send, answer } = deps;
+  /* ─── оплата звёздами (владелец, 2026-09-21) ───
+     Telegram спрашивает перед списанием — отвечаем «да»: сумму и план
+     проверил сервис кодов, когда выписывал инвойс. */
+  const pre = update?.pre_checkout_query;
+  if (pre) {
+    if (deps.billing?.preCheckout) await deps.billing.preCheckout(pre.id, true);
+    return { preCheckout: pre.id };
+  }
   const msg = update?.message;
   const edited = update?.edited_message;
   const cb = update?.callback_query;
@@ -203,6 +211,37 @@ export async function handleUpdate(update, deps) {
   if (msg && /^\/id\b/.test(String(msg.text || "").trim())) {
     await send(from.id, `Ваш id: ${from.id}`);
     return { told: String(from.id) };
+  }
+
+  /* Звёзды списаны: платёж — сервису кодов, он включает подписку. Ответ
+     человеку — словами, что открылось. */
+  if (msg?.successful_payment && deps.billing?.paid) {
+    const sp = msg.successful_payment;
+    const r = await deps.billing.paid(sp.invoice_payload, sp.telegram_payment_charge_id);
+    if (r?.ok) {
+      await send(from.id, `Оплата получена: план ${r.planName || r.plan} на ${r.days} дн. Откройте приложение — вкладки уже открыты.`);
+      return { paid: sp.invoice_payload };
+    }
+    await send(from.id, `Оплата получена, но подписку включить не удалось: ${r?.error || "сервис кодов не ответил"}. Напишите владельцу.`);
+    return { paid: sp.invoice_payload, error: r?.error || "codes" };
+  }
+
+  /* «/adminbot <токен>» — владелец присылает токен админ-бота подписок
+     (владелец, 2026-09-21: «скажи мне, куда отправить токен бота, но
+     чтобы не было сильно сложно»). Сервер кладёт его в .env, сервис
+     кодов подхватывает в течение минуты. Только владельцу и только в
+     личном чате — токен даёт власть над панелью. */
+  const adminTok = msg && String(msg.text || "").trim().match(/^\/adminbot(?:\s+(\S+))?$/);
+  if (adminTok) {
+    if (!me.isOwner) { await send(from.id, "Эта команда — только владельцу."); return { ignored: "not owner" }; }
+    const token = adminTok[1] || "";
+    if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) {
+      await send(from.id, "Пришлите так: /adminbot 123456:токен_из_BotFather");
+      return { ignored: "bad token" };
+    }
+    if (deps.settings?.setAdminBot) await deps.settings.setAdminBot(token);
+    await send(from.id, "Токен админ-бота сохранён. Через минуту откройте того бота и нажмите /start — он пришлёт кнопку панели.");
+    return { adminBot: true };
   }
 
   /* ─── кнопки под уведомлением о задаче ───

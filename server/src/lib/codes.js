@@ -73,26 +73,25 @@ export async function verify(token, now = Date.now()) {
     if (!j || typeof j !== "object" || !j.uid) return null;
     if (Number(j.exp) * 1000 <= now) return null;
     if ((await revokedSet()).has(String(j.uid))) return null;
-    return { uid: String(j.uid), plan: String(j.plan || "free"), exp: Number(j.exp) };
+    return { uid: String(j.uid), plan: String(j.plan || "free"), planId: String(j.planId || j.plan || "free"),
+      until: j.until ? String(j.until) : null, exp: Number(j.exp) };
   } catch { return null; }
 }
 
 /* Что из сервиса можно дёргать через основной сервер (/api/codes/…):
-   ровно то, что нужно приложению. Список отозванных наружу не отдаётся —
-   он для хранилищ. */
-export const PROXIED = { GET: ["/public-key", "/plans"],
-  POST: ["/register", "/token", "/plan", "/rotate"] };
+   ровно то, что нужно приложению. Список отозванных и внутренние
+   маршруты наружу не отдаются. */
+export const PROXIED = { GET: [/^\/public-key$/, /^\/plans$/, /^\/payment\/[A-Za-z0-9_-]+$/],
+  POST: [/^\/register$/, /^\/token$/, /^\/plan$/, /^\/rotate$/] };
 
-/** Переслать запрос приложения сервису кодов как есть. */
-export async function proxy(method, path, body) {
-  const allowed = PROXIED[method] || [];
-  if (!allowed.includes(path)) return { status: 404, body: { error: "not found" } };
+/** Запрос к сервису кодов (localhost). `headers` — что пробросить. */
+export async function call(method, path, body, headers = {}) {
   if (!enabled()) return { status: 503, body: { error: "codes service is off" } };
   try {
     const r = await fetch(`${codesUrl()}${path}`, {
       method,
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      ...(method === "POST" ? { body: JSON.stringify(body || {}) } : {}),
+      headers: { "Content-Type": "application/json", Accept: "application/json", ...headers },
+      ...(method === "GET" || method === "DELETE" ? {} : { body: JSON.stringify(body || {}) }),
     });
     const j = await r.json().catch(() => ({}));
     return { status: r.status, body: j };
@@ -100,3 +99,28 @@ export async function proxy(method, path, body) {
     return { status: 502, body: { error: `codes service: ${e.message}` } };
   }
 }
+
+/** Переслать запрос приложения сервису кодов как есть. */
+export async function proxy(method, path, body) {
+  const allowed = PROXIED[method] || [];
+  if (!allowed.some((re) => re.test(path))) return { status: 404, body: { error: "not found" } };
+  return call(method, path, body);
+}
+
+/* Админ-панель подписок (владелец, 2026-09-21): страница и её API живут
+   в сервисе кодов, наружу их выводит этот сервер под /admin и
+   /api/admin. Подпись — админ-бота, проверяет её сам сервис. */
+export const adminProxy = (method, path, body, initData) =>
+  call(method, `/admin${path}`, body, { "X-Admin-Init-Data": String(initData || "") });
+export async function adminPage() {
+  if (!enabled()) return null;
+  try {
+    const r = await fetch(`${codesUrl()}/admin/`);
+    return r.ok ? await r.text() : null;
+  } catch { return null; }
+}
+
+/* Stars оплачены — сервису кодов: подписка включается там. */
+export const paid = (id, tx) => call("POST", "/internal/paid", { id, tx });
+export const expiring = () => call("GET", "/internal/expiring");
+export const reminded = (uid, mark) => call("POST", "/internal/reminded", { uid, mark });

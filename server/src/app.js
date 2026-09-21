@@ -14,6 +14,21 @@ import marketRouter from "./routes/market.js";
 import issuesRouter from "./routes/issues.js";
 import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import * as codes from "./lib/codes.js";
+import { verifyInitData } from "./lib/telegramAuth.js";
+import { createInvoiceLink } from "./lib/telegram.js";
+
+/* Кто прислал запрос — по подписи Telegram, без обязательности: нет
+   подписи или она негодна — просто «никто». */
+function tgOf(req) {
+  const initData = req.header("X-Telegram-Init-Data") || "";
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!initData || !token) return null;
+  const r = verifyInitData(initData, token);
+  if (!r.ok) return null;
+  const u = r.user || {};
+  return { id: String(r.userId), username: String(u.username || ""),
+    name: [u.first_name, u.last_name].filter(Boolean).join(" ") };
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -145,7 +160,33 @@ export function createApp() {
      войти, и с любого аккаунта. */
   app.all("/api/codes/*", async (req, res) => {
     const path = req.path.replace(/^\/api\/codes/, "");
-    const out = await codes.proxy(req.method, path, req.body);
+    /* Кто регистрируется — из подписи Telegram, если она есть: по ней
+       админ-панель узнаёт человека по имени, а инвойс за звёзды уходит
+       в его чат. Подделать нельзя — подпись проверяется. */
+    const body = { ...(req.body || {}) };
+    const who = tgOf(req);
+    if (who && (path === "/register" || path === "/token" || path === "/plan")) body.tg = who;
+    const out = await codes.proxy(req.method, path, body);
+    /* Оплата звёздами: инвойс выписывает ОСНОВНОЙ бот — у него токен.
+       Ссылку открывает мини-приложение. */
+    const pay = out.body?.payment;
+    if (out.status < 400 && pay && pay.method === "stars" && pay.status === "pending") {
+      try {
+        out.body.payment.invoiceLink = await createInvoiceLink({ title: `План ${pay.planName}`,
+          description: `${pay.planName} на ${pay.days} дн.`, payload: pay.id, amount: pay.amount });
+      } catch (e) { out.body.payment.invoiceError = e.message; }
+    }
+    res.status(out.status).json(out.body);
+  });
+  /* Панель подписок админ-бота: страница и API (см. lib/codes.js). */
+  app.get(["/admin", "/admin/"], async (_req, res) => {
+    const html = await codes.adminPage();
+    if (!html) return res.status(404).send("панель не настроена");
+    res.set("Content-Type", "text/html; charset=utf-8").set("Cache-Control", "no-store").send(html);
+  });
+  app.all("/api/admin/*", async (req, res) => {
+    const path = req.path.replace(/^\/api\/admin/, "");
+    const out = await codes.adminProxy(req.method, path, req.body, req.header("X-Admin-Init-Data"));
     res.status(out.status).json(out.body);
   });
 

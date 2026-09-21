@@ -17,11 +17,12 @@ const baseDir = () => (process.env.CODES_DIR
   : path.resolve(process.cwd(), "data", "codes"));
 const keysFile = () => path.join(baseDir(), "keys.json");
 const usersFile = () => path.join(baseDir(), "users.json");
+export const dataFile = (name) => path.join(baseDir(), name);
 
-async function readJson(file, fallback) {
+export async function readJson(file, fallback) {
   try { return JSON.parse(await fs.readFile(file, "utf8")); } catch { return fallback; }
 }
-async function writeJson(file, data) {
+export async function writeJson(file, data) {
   await fs.mkdir(baseDir(), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
@@ -61,15 +62,25 @@ export const normKey = (v) => String(v || "").toUpperCase().replace(/[^0-9A-Z]/g
 export const hashKey = (v) => crypto.createHash("sha256").update(normKey(v)).digest("hex");
 
 const q = { p: Promise.resolve() };
-/** Правка списка людей — по очереди, чтобы две регистрации не затёрли друг друга. */
+/** Любая правка файлов сервиса — по одной очереди: два платежа в одну
+    секунду не должны затирать друг друга. */
+export function serial(fn) {
+  const run = q.p.then(fn);
+  q.p = run.catch(() => {});
+  return run;
+}
+/** Правка списка людей — по очереди, чтобы две регистрации не затёрли друг
+    друга. Очередь СВОЯ, не общая с `serial`: биллинг правит людей изнутри
+    своей очереди (оплата → подписка), и одна очередь на двоих встала бы. */
+const qu = { p: Promise.resolve() };
 export function withUsers(fn) {
-  const run = q.p.then(async () => {
+  const run = qu.p.then(async () => {
     const users = await readJson(usersFile(), []);
     const out = await fn(Array.isArray(users) ? users : []);
     if (out?.write) await writeJson(usersFile(), out.users);
     return out?.result;
   });
-  q.p = run.catch(() => {});
+  qu.p = run.catch(() => {});
   return run;
 }
 export const readUsers = async () => {

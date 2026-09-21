@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Подписки</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --line:rgba(255,255,255,.12); --text:#e8edf2; --muted:#8a96a3;
+    --mint:#5eead4; --amber:#ffd166; --coral:#ff5a78; --cyan:#4fd1ff; --fs:13px; --r:12px; --h:26px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:var(--fs)/20px -apple-system,Inter,Segoe UI,Roboto,sans-serif; padding:12px 16px 32px; }
+  h1 { font-size:15px; margin:0 0 8px; }
+  .tabs { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr)); gap:8px 12px; margin-bottom:12px; }
+  button { font:inherit; font-weight:700; color:var(--text); background:transparent; border:1px solid var(--line); border-radius:999px; height:var(--h); padding:0 10px; cursor:pointer; white-space:normal; }
+  button.on { border-color:var(--mint); background:rgba(94,234,212,.12); }
+  button.acc { border-color:var(--cyan); background:rgba(79,209,255,.12); }
+  button.bad { border-color:var(--coral); color:var(--coral); }
+  button:disabled { opacity:.4; cursor:default; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--r); padding:16px; margin-bottom:8px; }
+  .lbl { color:var(--muted); font-size:11.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  .row { display:flex; gap:8px 12px; align-items:center; flex-wrap:wrap; }
+  .grow { flex:1; min-width:0; }
+  input, select { font:inherit; color:var(--text); background:rgba(255,255,255,.04); border:1px solid var(--line); border-radius:8px; height:32px; padding:0 10px; width:100%; outline:none; }
+  .bar { height:6px; border-radius:3px; background:rgba(255,255,255,.08); margin-top:4px; overflow:hidden; }
+  .bar > i { display:block; height:100%; background:var(--mint); }
+  .mono { font-family:ui-monospace,Menlo,monospace; letter-spacing:.1em; word-break:break-all; }
+  .muted { color:var(--muted); }
+  .warn { color:var(--amber); }
+  .btns { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr)); gap:8px 12px; margin-top:8px; }
+  .hist { margin-top:8px; font-size:11.5px; color:var(--muted); }
+  .hist div { display:flex; gap:8px; justify-content:space-between; }
+  .fold { width:100%; text-align:left; border:0; height:auto; padding:0; display:flex; gap:8px; align-items:center; font-weight:700; }
+  .fold b { flex:1; font-size:14px; }
+  .field { margin-top:8px; }
+</style>
+</head>
+<body>
+<h1>Подписки</h1>
+<div class="tabs" id="tabs"></div>
+<div id="view"></div>
+<div id="msg" class="warn"></div>
+<script>
+(() => {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+  const initData = (tg && tg.initData) || "";
+  const $ = (s, r = document) => r.querySelector(s);
+  const el = (tag, attrs = {}, ...kids) => {
+    const e = document.createElement(tag);
+    Object.entries(attrs).forEach(([k, v]) => {
+      if (k === "class") e.className = v; else if (k.startsWith("on")) e[k] = v; else if (v != null) e.setAttribute(k, v);
+    });
+    kids.flat().forEach((k) => e.append(k == null ? "" : k.nodeType ? k : String(k)));
+    return e;
+  };
+  const say = (t, ok) => { const m = $("#msg"); m.textContent = t || ""; m.style.color = ok ? "var(--mint)" : "var(--amber)"; };
+  const api = async (method, path, body) => {
+    const r = await fetch(`/api/admin${path}`, { method, headers: { "Content-Type": "application/json", "X-Admin-Init-Data": initData },
+      body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Сервер ответил ${r.status}`);
+    return j;
+  };
+  const day = (iso) => iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
+  const who = (u) => u.tg ? (u.tg.name || "") + (u.tg.username ? ` @${u.tg.username}` : "") || String(u.tg.id) : u.uid;
+  const money = (n, c) => n == null ? "—" : `${n} ${c === "XTR" ? "⭐" : c || ""}`;
+  const CUR = { ton: "TON", usdt: "USDT" };
+  const LEVELS = { free: "free", pro: "pro", max: "max" };
+
+  const TABS = [["users", "Участники"], ["plans", "Планы"], ["issue", "Выдать подписку"], ["pay", "Способы оплаты"]];
+  let tab = "users";
+  const drawTabs = () => {
+    const box = $("#tabs"); box.innerHTML = "";
+    TABS.forEach(([k, t]) => box.append(el("button", { class: tab === k ? "on" : "", onclick: () => { tab = k; render(); } }, t)));
+  };
+
+  /* ─── участники ─── */
+  async function users() {
+    const { users: list } = await api("GET", "/users");
+    const v = $("#view"); v.innerHTML = "";
+    if (!list.length) v.append(el("div", { class: "card muted" }, "Пока никого."));
+    list.forEach((u) => {
+      const total = u.days || 0, left = u.daysLeft;
+      const pct = total && left != null ? Math.max(0, Math.min(100, Math.round(left / total * 100))) : 0;
+      const card = el("div", { class: "card" },
+        el("div", { class: "row" }, el("b", { class: "grow" }, who(u)), el("span", { class: "muted" }, u.planName)),
+        el("div", { class: "bar" }, el("i", { style: `width:${pct}%` })),
+        el("div", { class: "row muted", style: "margin-top:4px" },
+          el("span", { class: "grow" }, u.until ? `до ${day(u.until)} · осталось ${left} дн.` : (u.level === "free" ? "бессрочно" : "—")),
+          el("span", {}, money(u.price, u.currency))),
+        el("div", { class: "field" }, el("div", { class: "lbl" }, "код"), el("div", { class: "mono" }, u.uid)),
+        el("div", { class: "btns" }, el("button", { class: "bad", disabled: u.level === "free" ? "" : null,
+          onclick: async () => { try { await api("POST", `/users/${u.uid}/cancel`); say("Подписка отменена.", true); users(); } catch (e) { say(e.message); } } },
+        "Отменить подписку")));
+      v.append(card);
+    });
+  }
+
+  /* ─── планы ─── */
+  async function plans() {
+    const { plans: list } = await api("GET", "/plans");
+    const v = $("#view"); v.innerHTML = "";
+    list.forEach((p) => {
+      const name = el("input", { value: p.name, "aria-label": "название" });
+      const price = el("input", { value: p.price, inputmode: "decimal", "aria-label": "стоимость" });
+      const days = el("input", { value: p.days, inputmode: "numeric", "aria-label": "срок, дней" });
+      const level = el("select", { "aria-label": "доступ" }, ...Object.keys(LEVELS).map((k) => el("option", { value: k, selected: p.level === k ? "" : null }, k)));
+      v.append(el("div", { class: "card" },
+        el("div", { class: "field" }, el("div", { class: "lbl" }, "название"), name),
+        el("div", { class: "row" },
+          el("div", { class: "grow field" }, el("div", { class: "lbl" }, "стоимость, $"), price),
+          el("div", { class: "grow field" }, el("div", { class: "lbl" }, "срок, дней"), days),
+          el("div", { class: "grow field" }, el("div", { class: "lbl" }, "доступ"), level)),
+        el("div", { class: "btns" },
+          el("button", { class: "on", onclick: async () => { try { await api("PUT", `/plans/${p.id}`, { name: name.value, price: price.value, days: days.value, level: level.value }); say("Применено.", true); plans(); } catch (e) { say(e.message); } } }, "Применить"),
+          el("button", { class: "bad", disabled: p.id === "free" ? "" : null, onclick: async () => { try { await api("DELETE", `/plans/${p.id}`); say("Удалено.", true); plans(); } catch (e) { say(e.message); } } }, "Удалить"))));
+    });
+    v.append(el("div", { class: "btns" }, el("button", { class: "acc", onclick: async () => { try { await api("POST", "/plans"); plans(); } catch (e) { say(e.message); } } }, "Добавить")));
+  }
+
+  /* ─── выдать подписку ─── */
+  async function issue() {
+    const { plans } = await api("GET", "/plans");
+    const v = $("#view"); v.innerHTML = "";
+    const user = el("input", { placeholder: "@username или id", "aria-label": "пользователь" });
+    const sel = el("select", { "aria-label": "план" }, ...plans.map((p) => el("option", { value: p.id }, p.name)));
+    const price = el("input", { inputmode: "decimal", "aria-label": "стоимость" });
+    const days = el("input", { inputmode: "numeric", "aria-label": "срок, дней" });
+    const fill = () => { const p = plans.find((x) => x.id === sel.value); if (p) { price.value = p.price; days.value = p.days; } };
+    sel.onchange = fill; fill();
+    v.append(el("div", { class: "card" },
+      el("div", { class: "field" }, el("div", { class: "lbl" }, "пользователь"), user),
+      el("div", { class: "field" }, el("div", { class: "lbl" }, "план"), sel),
+      el("div", { class: "row" },
+        el("div", { class: "grow field" }, el("div", { class: "lbl" }, "стоимость, $"), price),
+        el("div", { class: "grow field" }, el("div", { class: "lbl" }, "срок, дней"), days)),
+      el("div", { class: "btns" }, el("button", { class: "on", onclick: async () => {
+        try { const r = await api("POST", "/issue", { user: user.value, planId: sel.value, price: price.value, days: days.value });
+          say(`Выдано: ${who(r.user)} — ${r.user.planId} до ${day(r.user.until) }.`, true); } catch (e) { say(e.message); } } }, "Выдать подписку"))));
+  }
+
+  /* ─── способы оплаты ─── */
+  const open = new Set();
+  async function pay() {
+    const w = await api("GET", "/wallets");
+    const v = $("#view"); v.innerHTML = "";
+    const hist = (list) => el("div", { class: "hist" }, ...(list.length ? list.map((h) => el("div", {},
+      el("span", {}, `${day(h.at)} · ${h.tg && h.tg.username ? "@" + h.tg.username : (h.tg && h.tg.name) || h.uid}`),
+      el("span", {}, money(h.amount, h.currency)))) : [el("div", { class: "muted" }, "Платежей ещё не было.")]));
+    const fold = (id, head, body) => {
+      const on = open.has(id);
+      const b = el("button", { class: "fold", "aria-expanded": on, onclick: () => { on ? open.delete(id) : open.add(id); pay(); } }, ...head, el("span", { class: "muted" }, on ? "▾" : "▸"));
+      return el("div", { class: "card" }, b, on ? body() : null);
+    };
+    // Stars
+    v.append(fold("stars", [el("b", {}, w.stars.name), el("span", { class: "muted" }, "XTR"), el("span", {}, money(w.stars.balance, "XTR"))], () => {
+      const name = el("input", { value: w.stars.name, "aria-label": "название" });
+      const rate = el("input", { value: w.stars.starsPerUsd, inputmode: "decimal", "aria-label": "звёзд за 1 $" });
+      return el("div", {},
+        el("div", { class: "field" }, el("div", { class: "lbl" }, "название"), name),
+        el("div", { class: "field" }, el("div", { class: "lbl" }, "звёзд за 1 $"), rate),
+        el("div", { class: "btns" }, el("button", { class: "on", onclick: async () => { try { await api("PUT", "/stars", { name: name.value, starsPerUsd: rate.value }); say("Применено.", true); pay(); } catch (e) { say(e.message); } } }, "Применить")),
+        hist(w.stars.history));
+    }));
+    ["ton", "usdt"].forEach((cur) => {
+      w.wallets.filter((x) => x.currency === cur).forEach((x) => {
+        v.append(fold(x.id, [el("b", {}, x.name), el("span", { class: "muted" }, CUR[cur]), el("span", {}, x.balance == null ? "—" : `${x.balance} ${CUR[cur]}`)], () => {
+          const name = el("input", { value: x.name, "aria-label": "название" });
+          const addr = el("input", { value: x.address || "", "aria-label": "адрес", class: "mono" });
+          return el("div", {},
+            el("div", { class: "field" }, el("div", { class: "lbl" }, "название"), name),
+            el("div", { class: "field" }, el("div", { class: "lbl" }, "адрес"), addr),
+            el("div", { class: "btns" },
+              el("button", { class: "on", onclick: async () => { try { await api("PUT", `/wallets/${x.id}`, { name: name.value, address: addr.value }); say("Применено.", true); pay(); } catch (e) { say(e.message); } } }, "Применить"),
+              el("button", { class: "bad", onclick: async () => { try { await api("DELETE", `/wallets/${x.id}`); say("Удалено.", true); pay(); } catch (e) { say(e.message); } } }, "Удалить")),
+            hist(x.history));
+        }));
+      });
+      v.append(el("div", { class: "btns" }, el("button", { class: "acc", onclick: async () => { try { const r = await api("POST", "/wallets", { currency: cur }); open.add(r.wallet.id); pay(); } catch (e) { say(e.message); } } }, `+ кошелёк ${CUR[cur]}`)));
+    });
+  }
+
+  const render = async () => {
+    drawTabs(); say("");
+    try { await ({ users, plans, issue, pay })[tab](); }
+    catch (e) { $("#view").innerHTML = ""; say(e.message); }
+  };
+  render();
+})();
+</script>
+</body>
+</html>

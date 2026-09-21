@@ -42,6 +42,12 @@ module.exports = {
         CODES_PORT: env.CODES_PORT || "3010",
         CODES_HOST: env.CODES_HOST || "127.0.0.1",
         CODES_DIR: env.CODES_DIR || path.join(__dirname, "data", "codes"),
+        // Админ-бот и цепочка: токен читается и из .env при запуске, и
+        // потом из файла (его кладёт туда команда /adminbot).
+        ENV_FILE: path.join(__dirname, ".env"),
+        OWNER_TELEGRAM_ID: env.OWNER_TELEGRAM_ID || "",
+        PUBLIC_URL: env.PUBLIC_URL || "",
+        TONCENTER_API_KEY: env.TONCENTER_API_KEY || "",
       },
     },
   ],
