@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import i18nBabel from "./i18n-babel.js";
 
 // На GitHub Pages сайт живёт не в корне домена, а в /<имя-репозитория>/ —
 // путь приходит из шага actions/configure-pages. Локально и на своём сервере
@@ -9,7 +10,8 @@ const base = (process.env.BASE_PATH || "/").replace(/\/?$/, "/");
 
 export default defineConfig({
   base,
-  plugins: [react()],
+  // Перевод интерфейса: текст в JSX оборачивается вызовом t (см. i18n-babel.js).
+  plugins: [react({ babel: { plugins: [i18nBabel] } })],
   // Две страницы: модель (index.html) и отдельное окно звонка (call.html →
   // /call). У звонка свой бандл: ему не нужны схема, прогноз и задачи.
   build: {

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import logoUrl from "../assets/logo.png";
 import { deliverFile } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { leftInUnit, timeLeft } from "../lib/funcs.js";
@@ -478,11 +477,49 @@ export const btn = (on, col, { solid = false } = {}) => {
    прозрачный фон инструментом для картинок — не перерисована.
 
    Логотип стоит ТОЛЬКО здесь: на формах его нет. */
+/* ─────── ЛОГОТИП (владелец, 2026-09-21) ───────
+
+   Куб-каркас с деревом внутри: ствол, ветви и восемь кубиков-плодов.
+   Монохромный, мятный — того же цвета, что «block» в имени; вектор,
+   поэтому одинаково резок и в шапке 26 px, и в кружке-заглушке.
+   Кубики — три грани одного цвета разной плотности: объём читается, а
+   цвет остаётся одним. */
+export function Logo({ size = 26, color = OK }) {
+  const cube = (cx, cy, s = 6.4) => {
+    const w = 0.87 * s;
+    const h = s / 2;
+    return (
+      <g key={`${cx}-${cy}`}>
+        <polygon points={`${cx},${cy - s} ${cx + w},${cy - h} ${cx},${cy} ${cx - w},${cy - h}`} fill={color} />
+        <polygon points={`${cx - w},${cy - h} ${cx},${cy} ${cx},${cy + s} ${cx - w},${cy + h}`} fill={color} opacity=".72" />
+        <polygon points={`${cx + w},${cy - h} ${cx},${cy} ${cx},${cy + s} ${cx + w},${cy + h}`} fill={color} opacity=".5" />
+      </g>);
+  };
+  const line = { stroke: color, strokeWidth: 3.4, strokeLinecap: "round", strokeLinejoin: "round", fill: "none" };
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true"
+      style={{ display: "block", flex: "0 0 auto" }}>
+      {/* каркас куба: шестигранник и четыре короткие рёбра к середине */}
+      <polygon points="50,6 87,27.5 87,72.5 50,94 13,72.5 13,27.5" {...line} />
+      <path d="M13 27.5 31 38M87 27.5 69 38M13 72.5 26 65M87 72.5 74 65" {...line} />
+      {/* ствол и ветви */}
+      <path d="M50 94V27" {...line} />
+      <path d="M50 37 39 30.5M50 37 61 30.5M50 60 28 48.5M50 60 72 48.5" {...line} />
+      {/* черенки плодов */}
+      <path d="M40 41v4M60 41v4M34 58v4M66 58v4" {...{ ...line, strokeWidth: 2.8 }} />
+      {/* плоды */}
+      {cube(50, 25)}
+      {cube(37, 28)}{cube(63, 28)}
+      {cube(40, 50)}{cube(60, 50)}
+      {cube(24, 47)}{cube(76, 47)}
+      {cube(34, 67)}{cube(66, 67)}
+    </svg>);
+}
+
 export function Brand({ size = 26, color = OK }) {
   return (
     <span className="flex items-center gap-2" aria-label="blockTree">
-      <img src={logoUrl} alt="" aria-hidden="true" width={size} height={size}
-        style={{ display: "block", flex: "0 0 auto" }} />
+      <Logo size={size} color={color} />
       <span style={{ fontFamily: BRAND_FONT, fontSize: Math.round(size * 0.72),
         fontWeight: 600, letterSpacing: "0.04em", color }}>
         block<span style={{ color: C.text }}>Tree</span></span>
@@ -511,6 +548,10 @@ export const ICON = {
   /* Волшебная палочка — вопрос ассистенту (владелец, 2026-09-21): палочка
      наискось и три искры у кончика. */
   wand: "M4 20 14 10M14 10l2.5-2.5M18 3v3M16.5 4.5h3M20.5 9v2M19.5 10h2M13 3.5v1.5M12.25 4.25h1.5",
+  /* Карандаш — правка имени; шестерёнка — настройки (владелец,
+     2026-09-21): те же линии, что у остальных значков. */
+  pencil: "M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 8.5l3 3",
+  gear: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
 };
 /* Размер и прозрачность — владелец (2026-09-19): «в 1,5 раза меньше и на
    30% прозрачнее»: значок стоит в стороне от работы и не должен спорить с
@@ -708,8 +749,7 @@ export function Avatar({ src = "", name = "", size = 36, logo = false, onClick, 
     padding: 0, lineHeight: 1,
   };
   const inside = logo
-    ? <img src={logoUrl} alt="" aria-hidden="true" width={Math.round(size * 0.72)}
-      height={Math.round(size * 0.72)} style={{ display: "block" }} />
+    ? <Logo size={Math.round(size * 0.72)} />
     : src
       ? <img src={src} alt="" aria-hidden="true" width={size} height={size}
         style={{ display: "block", width: "100%", height: "100%", objectFit: "cover" }} />

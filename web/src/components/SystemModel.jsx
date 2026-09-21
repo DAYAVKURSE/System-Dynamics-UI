@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from "react";
+import { tx } from "../i18n/t.js";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
   forgetScenario, savedRoom, listScenarioVersions, getScenarioVersion } from "../storage.js";
@@ -11,7 +12,8 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
 import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
 import { issuesUnread as issuesUnread_ } from "../identity.js";
-import CodeGate, { PlanCard } from "./CodeGate.jsx";
+import CodeGate from "./CodeGate.jsx";
+import SettingsModal from "./SettingsModal.jsx";
 import { tabLocked } from "../plans.js";
 import { setStorage } from "../session.js";
 import { ForeignPlacards, ForeignStrips, useForeignSchemes } from "./ForeignSchemes.jsx";
@@ -751,6 +753,7 @@ export default function SystemModel(){
     reportFromLocation(typeof window==="undefined"?"":window.location.search)
       ?"reports":"tasks"));
   const [sel,setSel]=useState("usr");
+  const [settingsOpen,setSettingsOpen]=useState(false);
   const [why,setWhy]=useState(null);
   /* Что попросили открыть в карточке актива — например, функцию, которая
      рисует стрелку передачи. Метка `n` нужна, чтобы повторное нажатие на ту
@@ -1891,7 +1894,9 @@ export default function SystemModel(){
                   {/* Буква за буквой: каждая встаёт на свою точку дуги —
                       так и виден изгиб внутри слова. Пробел — тоже буква,
                       иначе слово из двух половин сомкнётся. */}
-                  {[...t].map((ch,j)=>(
+                  {/* Имя вкладки переводится ДО разбиения на буквы: иначе
+                      буквы уходили бы в словарь по одной. */}
+                  {[...tx(t)].map((ch,j)=>(
                     <span key={j} data-letter="" style={{display:"inline-block",
                       whiteSpace:"pre",transformOrigin:"50% 50%",
                       backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden"}}>{ch}</span>))}
@@ -2030,6 +2035,7 @@ export default function SystemModel(){
         <ProfilePanel me={me} personId={person} people={people}
           tasks={tasks} funcs={funcs} published={published} ratings={ratings}
           entities={entities} rolesOf={rolesOf}
+          onSettings={person?undefined:()=>setSettingsOpen(true)}
           onRefuseFunc={me.isOwner?refuseFuncHere:undefined}
           traitName={id=>traits.find(t=>t.id===id)?.l||"ресурс удалён"}
           onSaved={p=>{
@@ -2039,9 +2045,10 @@ export default function SystemModel(){
             setMe(m=>({...m,profile:p,...(p?.name?{name:p.name}:{})}));
             setPeople(list=>list.map(u=>(String(u.id)===String(me.id)?{...u,...p}:u)));
           }}/>)}
-      {/* «Мой план» — последней формой анкеты (владелец, 2026-09-21). */}
-      {tab==="me" && !person && me.code && (
-        <PlanCard me={me}
+      {/* Настройки — окном с шестерёнки на анкете (владелец, 2026-09-21):
+          язык и «мой план». */}
+      {settingsOpen && (
+        <SettingsModal me={me} onClose={()=>setSettingsOpen(false)}
           onChanged={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); }}/>)}
 
       {/* ═══ ОТЧЁТЫ · карта проектов ═══

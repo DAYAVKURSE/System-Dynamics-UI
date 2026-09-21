@@ -202,6 +202,8 @@ jobs:
           # Сервис кодов (codes/) едет рядом: без зависимостей, второе
           # приложение в том же ecosystem.config.cjs.
           cp -r codes deploy_pkg/codes
+          # Словари интерфейса и бота (locales/): сервер читает их с диска.
+          cp -r locales deploy_pkg/locales
           cp -r web/dist/. deploy_pkg/public/
 
           # .env для сервера собирается здесь, из секретов Actions. В репозитории

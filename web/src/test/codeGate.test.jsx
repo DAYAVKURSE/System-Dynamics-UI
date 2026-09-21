@@ -142,10 +142,14 @@ describe("план гасит вкладки", () => {
     await waitFor(() => expect(review).toHaveAttribute("aria-disabled", "true"));
     expect(screen.getByRole("button", { name: "Схема" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: "Задачи" })).not.toHaveAttribute("aria-disabled");
-    // «План и ключ» — в анкете.
+    // «Мой план» — в настройках, за шестерёнкой на анкете (владелец, 2026-09-21).
     const { openTab } = await import("./openTab.js");
     openTab("Анкета");
-    expect(await screen.findByRole("button", { name: "мой план" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "мой план" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "настройки" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("combobox", { name: "язык" })).toHaveValue("ru");
+    expect(await within(dialog).findByRole("button", { name: "мой план" })).toBeInTheDocument();
   });
 
   it("на pro в инструментах открыты только звонки и агенты", async () => {

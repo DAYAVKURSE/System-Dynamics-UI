@@ -1,4 +1,5 @@
 import { getInitData } from "./telegram.js";
+import { syncLang } from "./i18n/t.js";
 import { ensureToken } from "./codes.js";
 import { currentStorage, sessionHeaders, setStorage } from "./session.js";
 
@@ -126,6 +127,9 @@ export async function whoAmI() {
     if (!r.ok) { cached = { ...SOLO, solo: false, isOwner: false, known: false, tabs: [], access: {} }; return cached; }
     const me = await r.json();
     cached = { ...me, solo: false };
+    // Язык из анкеты сильнее запомненного здесь: смена в настройках
+    // кладёт его на сервер, и с другого телефона он приходит оттуда.
+    syncLang(me?.profile?.lang);
     return cached;
   } catch {
     cached = SOLO;

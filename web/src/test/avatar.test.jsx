@@ -122,8 +122,9 @@ describe("лицо на рынке", () => {
       marketServer();
       render(<MarketPanel me={ME} />);
       const dot = await screen.findByRole("button", { name: "страница: wise oyster" });
-      // Знак приложения — картинка, но не лицо: у незнакомца его нет.
-      expect(dot.querySelector("img")).toBeTruthy();
+      // Знак приложения (вектор), но не лицо: у незнакомца его нет.
+      expect(dot.querySelector("svg")).toBeTruthy();
+      expect(dot.querySelector("img")).toBeNull();
       expect(screen.getByText(/wise oyster/)).toBeInTheDocument();
     });
 

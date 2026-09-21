@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { langOf, setUserLang } from "./i18n.js";
 import fs from "node:fs/promises";
 import { aliasOf } from "./alias.js";
 import path from "node:path";
@@ -394,6 +395,8 @@ function pendingAgreementFor(org, user) {
    человека, а не модели, и переезжать из сценария в сценарий вместе с
    моделью ей незачем. */
 export const PROFILE_FIELDS = ["about"];
+/* Язык интерфейса и бота (владелец, 2026-09-21) — в анкете; чат с ботом
+   читает его из lib/i18n.js, куда он кладётся тут же. */
 
 /* ─────── рабочий график и статус ───────
 
@@ -541,7 +544,8 @@ export const profileOf = (user = {}) => {
   /* Имя едет вместе с анкетой: его правят там же, и везде, где приложение
      показывает человека, оно берётся отсюда (владелец, 2026-09-20). */
   return { name: String(user.name || ""), ...avatarOf(user),
-    about: about || old.join("\n"), ...scheduleOf(user), answers: answersOf(user) };
+    about: about || old.join("\n"), ...scheduleOf(user), answers: answersOf(user),
+    ...(user.lang ? { lang: langOf(user.lang) } : {}) };
 };
 
 /** Свою анкету человек пишет сам. Чужую — никто. */
@@ -567,6 +571,10 @@ export async function setProfile(userId, patch = {}) {
     if (patch[k] == null) return;
     user[k] = String(patch[k]).slice(0, LIMIT);
   });
+  if (patch.lang != null) {
+    user.lang = langOf(patch.lang);
+    await setUserLang(id, user.lang);
+  }
   /* График и статус разбираются, а не берутся как есть: сюда приходит то,
      что прислал браузер, и «понедельник» или «25:00» в записи человека
      означали бы график, по которому нельзя сказать ничего. */

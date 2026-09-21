@@ -66,8 +66,8 @@ describe("вкладка «Виртуальные»", () => {
     const row = await screen.findByLabelText("виртуальный wise oyster");
     expect(row.textContent).toContain("wise oyster");
     expect(row.textContent).toContain("человека ещё нет");
-    // Вместо лица — знак приложения: человека за страницей нет.
-    expect(row.querySelector("img")).toBeTruthy();
+    // Вместо лица — знак приложения (вектор): человека за страницей нет.
+    expect(row.querySelector("svg")).toBeTruthy();
   });
 
   it("роли — кнопками, как у обычного участника, и их несколько", async () => {

@@ -19,9 +19,9 @@ describe("шапка", () => {
     // 2026-09-21), поэтому слово разбито на два узла.
     expect(screen.getByLabelText("blockTree").textContent).toBe("blockTree");
     expect(screen.queryByText(/Активы: воркеры/)).toBeNull();
-    /* Знак — картинка, присланная владельцем (2026-09-19), рядом с именем.
-       Логотип стоит только здесь. */
-    expect(screen.getByLabelText("blockTree").querySelector("img")).toBeTruthy();
+    /* Знак — вектор в цвете «block» (владелец, 2026-09-21), рядом с
+       именем. Логотип стоит только здесь. */
+    expect(screen.getByLabelText("blockTree").querySelector("svg")).toBeTruthy();
     expect(container.textContent).not.toMatch(/горизонт/i);
   });
 

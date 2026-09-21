@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Avatar, C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField, FoldCard, DANGER_LINE } from "./ui.jsx";
+import { Avatar, C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField, FoldCard, DANGER_LINE, ICON, IconButton } from "./ui.jsx";
 import PersonStats from "./PersonStats.jsx";
 import Modal from "./Modal.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
@@ -466,7 +466,7 @@ export function AvatarModal({ src, name, mine, busy, msg, onPick, onDrop, onClos
     </Modal>);
 }
 
-export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = NONE,
+export default function ProfilePanel({ me, personId, people = [], tasks = [], funcs = NONE, onSettings = null,
   entities = NONE, rolesOf, traitName, onSaved, published, ratings, onRefuseFunc,
   anon = false }) {
   // Чья анкета открыта. По умолчанию — своя: с себя человек и начинает.
@@ -720,12 +720,14 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
         ) : (<>
           <span style={{ fontSize: "var(--fs-title)", fontWeight: 700 }}>{name || "—"}</span>
           {mine && (
-            /* Карандаш — значок рядом с именем, а не кнопка в ряду:
-               растягивать его по ширине формы незачем. */
-            <button type="button" aria-label="изменить имя" title="Изменить имя"
-              disabled={busy} onClick={() => { setNaming(true); setMsg(""); }}
-              style={{ ...btn(false), flex: "0 0 auto",
-                paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>✎</button>)}
+            /* Карандаш — значок рядом с именем, а не кнопка в ряду; справа
+               от него — шестерёнка настроек (владелец, 2026-09-21): те же
+               капсулы, что у значков шапки. */
+            <IconButton icon={ICON.pencil} label="изменить имя" title="Изменить имя"
+              disabled={busy} dim={1} onClick={() => { setNaming(true); setMsg(""); }} />)}
+          {mine && onSettings && (
+            <IconButton icon={ICON.gear} label="настройки" title="Настройки"
+              dim={1} onClick={onSettings} />)}
         </>)}
       </div>
       {nameMsg && (

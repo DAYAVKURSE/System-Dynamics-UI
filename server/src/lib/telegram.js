@@ -1,9 +1,16 @@
+import { trFor, trKeyboardFor } from "./i18n.js";
+
 /* Отправка обычных текстовых сообщений через Bot API.
    Напоминания приходят как простое сообщение от бота — без разметки и
-   кнопок, поэтому произвольный текст задачи ничего не может сломать. */
+   кнопок, поэтому произвольный текст задачи ничего не может сломать.
 
-export async function sendMessage(chatId, text, token = process.env.TELEGRAM_BOT_TOKEN) {
+   Всё исходящее — на языке получателя (lib/i18n.js, владелец,
+   2026-09-21): текст и подписи кнопок переводятся здесь, в одном месте,
+   а сам бот пишет по-русски. */
+
+export async function sendMessage(chatId, text0, token = process.env.TELEGRAM_BOT_TOKEN) {
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
+  const text = trFor(chatId, text0);
 
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
@@ -21,9 +28,11 @@ export async function sendMessage(chatId, text, token = process.env.TELEGRAM_BOT
 /* Клавиатура нужна только приглашению из бота, поэтому отдельным
    аргументом: обычные напоминания как были простым текстом, так и
    остались — произвольный текст задачи ничего не может сломать. */
-export async function sendWithKeyboard(chatId, text, keyboard,
+export async function sendWithKeyboard(chatId, text0, keyboard0,
   token = process.env.TELEGRAM_BOT_TOKEN) {
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
+  const text = trFor(chatId, text0);
+  const keyboard = trKeyboardFor(chatId, keyboard0);
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -46,9 +55,11 @@ export async function sendWithKeyboard(chatId, text, keyboard,
  * `keyboard` = null убирает кнопки. Ответ «message is not modified» — не
  * ошибка: показано ровно то, что и хотели.
  */
-export async function editMessage(chatId, messageId, text, keyboard = null,
+export async function editMessage(chatId, messageId, text0, keyboard0 = null,
   token = process.env.TELEGRAM_BOT_TOKEN) {
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
+  const text = trFor(chatId, text0);
+  const keyboard = trKeyboardFor(chatId, keyboard0);
   const sameText = text == null || text === "";
   const method = sameText ? "editMessageReplyMarkup" : "editMessageText";
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
