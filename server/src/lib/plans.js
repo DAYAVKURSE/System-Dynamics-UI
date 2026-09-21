@@ -12,9 +12,12 @@
 import { TABS } from "./orgStore.js";
 
 export const PLANS = ["free", "pro", "max"];
+/* В порядке вкладок приложения — как и список у плана в токене
+   (codes/src/plans.js): сравнивать их можно как есть. */
+const inOrder = (list) => TABS.filter((t) => list.includes(t));
 export const PLAN_TABS = {
-  free: ["me", "market", "tasks"],
-  pro: ["me", "market", "tasks", "review", "tools", "tools:calls", "tools:assistant"],
+  free: inOrder(["me", "market", "tasks"]),
+  pro: inOrder(["me", "market", "tasks", "review", "tools", "tools:calls", "tools:assistant"]),
   max: [...TABS],
 };
 export const planOf = (v) => (PLANS.includes(String(v)) ? String(v) : null);

@@ -33,6 +33,8 @@
   .fold { width:100%; text-align:left; border:0; height:auto; padding:0; display:flex; gap:8px; align-items:center; font-weight:700; }
   .fold b { flex:1; font-size:14px; }
   .field { margin-top:8px; }
+  .chk { display:inline-flex; align-items:center; gap:6px; font-size:13px; padding:4px 0; }
+  .chk input { width:auto; margin:0; }
 </style>
 </head>
 <body>
@@ -98,19 +100,28 @@
 
   /* ─── планы ─── */
   async function plans() {
-    const { plans: list } = await api("GET", "/plans");
+    const { plans: list, tabs: allTabs = [] } = await api("GET", "/plans");
     const v = $("#view"); v.innerHTML = "";
     list.forEach((p) => {
       const name = el("input", { value: p.name, "aria-label": "название" });
       const price = el("input", { value: p.price, inputmode: "decimal", "aria-label": "стоимость" });
       const days = el("input", { value: p.days, inputmode: "numeric", "aria-label": "срок, дней" });
+      /* Вкладки, которые открывает план (владелец, 2026-09-21): галочка на
+         каждой; вложенная («Звонки») сама тянет за собой родителя. */
+      const has = new Set(Array.isArray(p.tabs) ? p.tabs : []);
+      const boxes = allTabs.map((t) => el("input", { type: "checkbox", value: t.id, checked: has.has(t.id) ? "" : null,
+        "aria-label": `вкладка ${t.name}` }));
+      const tabsBox = el("div", { class: "row", "aria-label": "вкладки плана" },
+        ...allTabs.map((t, i) => el("label", { class: "chk" }, boxes[i], t.id.includes(":") ? `· ${t.name}` : t.name)));
+      const picked = () => boxes.filter((b) => b.checked).map((b) => b.value);
       v.append(el("div", { class: "card" },
         el("div", { class: "field" }, el("div", { class: "lbl" }, "название"), name),
         el("div", { class: "row" },
           el("div", { class: "grow field" }, el("div", { class: "lbl" }, "стоимость, $"), price),
           el("div", { class: "grow field" }, el("div", { class: "lbl" }, "срок, дней"), days)),
+        el("div", { class: "field" }, el("div", { class: "lbl" }, "вкладки"), tabsBox),
         el("div", { class: "btns" },
-          el("button", { class: "on", onclick: async () => { try { await api("PUT", `/plans/${p.id}`, { name: name.value, price: price.value, days: days.value }); say("Применено.", true); plans(); } catch (e) { say(e.message); } } }, "Применить"),
+          el("button", { class: "on", onclick: async () => { try { await api("PUT", `/plans/${p.id}`, { name: name.value, price: price.value, days: days.value, tabs: picked() }); say("Применено.", true); plans(); } catch (e) { say(e.message); } } }, "Применить"),
           el("button", { class: "bad", disabled: p.id === "free" ? "" : null, onclick: async () => { try { await api("DELETE", `/plans/${p.id}`); say("Удалено.", true); plans(); } catch (e) { say(e.message); } } }, "Удалить"))));
     });
     v.append(el("div", { class: "btns" }, el("button", { class: "acc", onclick: async () => { try { await api("POST", "/plans"); plans(); } catch (e) { say(e.message); } } }, "Добавить")));

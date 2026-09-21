@@ -74,7 +74,9 @@ export async function verify(token, now = Date.now()) {
     if (Number(j.exp) * 1000 <= now) return null;
     if ((await revokedSet()).has(String(j.uid))) return null;
     return { uid: String(j.uid), plan: String(j.plan || "free"), planId: String(j.planId || j.plan || "free"),
-      until: j.until ? String(j.until) : null, exp: Number(j.exp) };
+      until: j.until ? String(j.until) : null, exp: Number(j.exp),
+      // Вкладки плана — как выбрал владелец в панели; нет в токене — по уровню.
+      tabs: Array.isArray(j.tabs) ? j.tabs.map(String) : null };
   } catch { return null; }
 }
 

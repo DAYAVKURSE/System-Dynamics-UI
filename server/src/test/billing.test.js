@@ -53,6 +53,19 @@ describe("планы", () => {
     expect((await adm("DELETE", "/admin/plans/free")).status).toBe(400);
     expect((await handle("GET", "/plans")).body.plans).toHaveLength(3);
   });
+  /* Вкладки плана (владелец, 2026-09-21): выбираются в панели, вложенная
+     тянет родителя, чужие имена — вон; не задали — по уровню. */
+  it("у плана свои вкладки: по уровню, пока не выбрали; вложенная тянет родителя", async () => {
+    const list = await billing.listPlans();
+    expect(list.find((p) => p.id === "free").tabs).toEqual(["market", "me", "tasks"]);
+    expect(list.find((p) => p.id === "max").tabs).toHaveLength(17);
+    const saved = await billing.savePlan("pro", { tabs: ["tools:calls", "me", "nope"] });
+    expect(saved.tabs).toEqual(["me", "tools", "tools:calls"]);
+    // Правка без вкладок их не трогает.
+    expect((await billing.savePlan("pro", { name: "Pro+" })).tabs).toEqual(["me", "tools", "tools:calls"]);
+    expect((await billing.savePlan("pro", { tabs: [] })).tabs).toEqual([]);
+  });
+
   it("панель — только владельцу и только с подписью админ-бота", async () => {
     expect((await handle("GET", "/admin/plans")).status).toBe(401);
     expect((await adm("GET", "/admin/plans", {}, 8)).status).toBe(403);

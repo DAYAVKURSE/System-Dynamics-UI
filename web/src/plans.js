@@ -23,9 +23,10 @@ export const DEFAULT_PLANS = [
 export const PRICE = { free: 0, pro: 10, max: 30 };
 export const METHODS = ["stars", "ton", "usdt"];
 export const METHOD_NAMES = { usdt: "USDT (TON)", ton: "TON", stars: "Telegram Stars" };
+const inOrder = (list) => ALL_TABS.filter((t) => list.includes(t));
 export const PLAN_TABS = {
-  free: ["me", "market", "tasks"],
-  pro: ["me", "market", "tasks", "review", "tools", "tools:calls", "tools:assistant"],
+  free: inOrder(["me", "market", "tasks"]),
+  pro: inOrder(["me", "market", "tasks", "review", "tools", "tools:calls", "tools:assistant"]),
   max: [...ALL_TABS],
 };
 export const planOf = (v) => (PLANS.includes(String(v)) ? String(v) : null);
@@ -35,5 +36,15 @@ export const planAllows = (plan, tab) => {
   if (!p) return true;
   return PLAN_TABS[p].includes(String(tab));
 };
-/** Погашена ли вкладка для этого человека: есть у роли, нет у плана. */
-export const tabLocked = (me, tab) => !!me && !me.solo && !!me.plan && !planAllows(me.plan, tab);
+/** Что открывает план: список вкладок, выбранный владельцем в панели, а
+ *  без него — по уровню. */
+export const planTabsOf = (p = {}) => (Array.isArray(p.tabs) ? p.tabs
+  : (PLAN_TABS[p.level] || PLAN_TABS.free));
+/** Погашена ли вкладка для этого человека: есть у роли, нет у плана.
+ *  Сервер присылает `planTabs` из токена (вкладки плана, как их выбрал
+ *  владелец); нет — по уровню. */
+export const tabLocked = (me, tab) => {
+  if (!me || me.solo || !me.plan) return false;
+  if (Array.isArray(me.planTabs)) return !me.planTabs.includes(String(tab));
+  return !planAllows(me.plan, tab);
+};

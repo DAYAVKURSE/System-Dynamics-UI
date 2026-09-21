@@ -57,7 +57,7 @@ afterEach(() => { vi.restoreAllMocks(); delete global.fetch; resetIdentity(); })
 
 describe("планы", () => {
   it("free — анкета, рынок, задачи; pro добавляет проверку, звонки и агентов; max — всё", () => {
-    expect(PLAN_TABS.free).toEqual(["me", "market", "tasks"]);
+    expect(PLAN_TABS.free).toEqual(["market", "me", "tasks"]);
     expect(planAllows("free", "review")).toBe(false);
     expect(planAllows("pro", "review")).toBe(true);
     expect(planAllows("pro", "tools:assistant")).toBe(true);
@@ -66,6 +66,9 @@ describe("планы", () => {
     // Без плана (сервис кодов выключен) ничего не гаснет.
     expect(tabLocked({ tabs: [] }, "review")).toBe(false);
     expect(tabLocked({ plan: "free" }, "review")).toBe(true);
+    // Вкладки плана, выбранные владельцем (planTabs с сервера), важнее уровня.
+    expect(tabLocked({ plan: "free", planTabs: ["me", "review"] }, "review")).toBe(false);
+    expect(tabLocked({ plan: "max", planTabs: ["me"] }, "review")).toBe(true);
   });
   it("ключ приводится к одному виду", () => {
     expect(normKey(" abcd efgh-jkmn ")).toBe("ABCD-EFGH-JKMN");

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { handle } from "../../../codes/src/service.js";
 import { resetKeys } from "../../../codes/src/store.js";
+import { savePlan } from "../../../codes/src/billing.js";
 import { decodeToken, verifyToken } from "../../../codes/src/token.js";
 import * as codes from "../lib/codes.js";
 import { PLAN_TABS, planAllows } from "../lib/plans.js";
@@ -130,7 +131,7 @@ describe("сервис кодов", () => {
 
 describe("планы", () => {
   it("free — анкета, рынок, задачи; pro — плюс проверка, звонки и агенты; max — всё", () => {
-    expect(PLAN_TABS.free).toEqual(["me", "market", "tasks"]);
+    expect(PLAN_TABS.free).toEqual(["market", "me", "tasks"]);
     expect(planAllows("free", "review")).toBe(false);
     expect(planAllows("pro", "review")).toBe(true);
     expect(planAllows("pro", "tools:calls")).toBe(true);
@@ -167,6 +168,16 @@ describe("сервер хранилища с включённым сервисо
     // Отозванный — не проходит.
     await request(app).get("/api/workspace").set(as(100)).set("X-User-Token", r.token).expect(200);
     await request(app).get("/api/workspace").set(as(100)).set("X-User-Token", `${r.token}x`).expect(401);
+  });
+
+  it("вкладки плана из панели едут в токене и приходят в «кто я»", async () => {
+    await savePlan("free", { tabs: ["me", "scheme:edit"] });
+    const r = await register();
+    expect(r.tabs).toEqual(["me", "scheme", "scheme:edit"]);
+    expect(decodeToken(r.token).tabs).toEqual(["me", "scheme", "scheme:edit"]);
+    const me = await request(app).get("/api/org/me")
+      .set(as(100, "Владелец")).set("X-User-Token", r.token);
+    expect(me.body.planTabs).toEqual(["me", "scheme", "scheme:edit"]);
   });
 
   it("код ведёт к той же записи с любого Telegram", async () => {

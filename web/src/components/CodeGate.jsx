@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { C, OK, WARN, ACC, BAD, S, btn, Download, FoldCard, DANGER_LINE } from "./ui.jsx";
-import { TAB_NAMES } from "../identity.js";
-import { DEFAULT_PLANS, METHODS, METHOD_NAMES, PLAN_TABS } from "../plans.js";
+import { TAB_NAMES, ALL_TABS } from "../identity.js";
+import { DEFAULT_PLANS, METHODS, METHOD_NAMES, planTabsOf } from "../plans.js";
 import { changePlan, fetchPlans, forgetKey, loginWithKey, registerCode, savedKey } from "../codes.js";
 import PayScreen from "./PayScreen.jsx";
 
@@ -21,8 +21,17 @@ import PayScreen from "./PayScreen.jsx";
    перечислены названиями вкладок, чтобы выбирать было из чего.
    ════════════════════════════════════════════════════════════════ */
 
-const topTabs = (level) => (PLAN_TABS[level] || PLAN_TABS.free).filter((t) => !t.includes(":"));
-const innerTabs = (level) => (PLAN_TABS[level] || PLAN_TABS.free).filter((t) => t.includes(":"));
+const topTabs = (p) => planTabsOf(p).filter((t) => !t.includes(":"));
+/* Вложенные вкладки — строкой под родителем, и только если план открывает
+   не все его разделы: иначе строка повторяла бы родителя. */
+const innerLines = (p) => {
+  const tabs = planTabsOf(p);
+  return ["scheme", "tools"].filter((parent) => tabs.includes(parent)).map((parent) => {
+    const all = ALL_TABS.filter((t) => t.startsWith(`${parent}:`));
+    const has = all.filter((t) => tabs.includes(t));
+    return has.length < all.length ? { parent, tabs: has } : null;
+  }).filter(Boolean);
+};
 const priceText = (p) => (p.price ? `${p.price} $ за ${p.days} дн.` : "0 $");
 
 /* Планы и способы — с сервера (их правит владелец); до ответа — те, что
@@ -59,10 +68,10 @@ export function PlanPick({ plans = DEFAULT_PLANS, plan, onPick, current = null, 
         <div aria-label={`план ${chosen.name}`}
           style={{ fontSize: "var(--fs-body)", lineHeight: "20px" }}>
           <div><span style={{ color: C.muted }}>{priceText(chosen)}</span></div>
-          <div>{topTabs(chosen.level).map((t) => TAB_NAMES[t]).join(", ")}</div>
-          {chosen.level !== "max" && innerTabs(chosen.level).length > 0 && (
-            <div style={{ color: C.muted }}>
-              {TAB_NAMES.tools}: {innerTabs(chosen.level).map((t) => TAB_NAMES[t]).join(", ")}</div>)}
+          <div>{topTabs(chosen).map((t) => TAB_NAMES[t]).join(", ")}</div>
+          {innerLines(chosen).map(({ parent, tabs }) => (
+            <div key={parent} style={{ color: C.muted }}>
+              {TAB_NAMES[parent]}: {tabs.length ? tabs.map((t) => TAB_NAMES[t]).join(", ") : "—"}</div>))}
         </div>)}
     </div>);
 }

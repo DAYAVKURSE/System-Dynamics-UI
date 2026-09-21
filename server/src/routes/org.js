@@ -69,7 +69,8 @@ router.get("/me", async (req, res, next) => {
       me.code = { uid: req.code.uid, plan: req.code.plan, planId: req.code.planId || req.code.plan,
         until: req.code.until || null };
       me.plan = req.code.plan;
-      me.planTabs = [...(PLAN_TABS[req.code.plan] || PLAN_TABS.free)];
+      me.planTabs = Array.isArray(req.code.tabs) ? [...req.code.tabs]
+        : [...(PLAN_TABS[req.code.plan] || PLAN_TABS.free)];
     }
     /* Хранилища (lib/storages.js): в каком мы сейчас, какое своё и
        куда ещё позвали — с именем владельца, чтобы было что показать. */

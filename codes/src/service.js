@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { METHODS, levelOf } from "./plans.js";
+import { METHODS, TABS, TAB_NAMES, levelOf } from "./plans.js";
 import { hashKey, newKey, newUid, normKey, readUsers, serviceKeys, withUsers } from "./store.js";
 import { TOKEN_TTL_S, signToken } from "./token.js";
 import * as billing from "./billing.js";
@@ -44,10 +44,15 @@ const tgOf = (b) => (b?.tg && typeof b.tg === "object" && b.tg.id
 
 async function issueToken(u, now) {
   const { privateKey, kid } = await serviceKeys();
+  const planId = u.planId || u.plan || "free";
+  /* Вкладки плана — в токене: их выбирает владелец в панели, и приложению
+     не нужен второй запрос за ними. Плана нет (удалили) — по уровню. */
+  const plan = await billing.planById(planId);
+  const tabs = Array.isArray(plan?.tabs) ? plan.tabs : null;
   // В токене — и план, и срок: приложению не нужен второй запрос за ними.
-  const token = signToken({ uid: u.uid, plan: u.plan || "free", planId: u.planId || u.plan || "free",
-    until: u.until || null, kid }, privateKey, now);
-  return { uid: u.uid, plan: u.plan || "free", planId: u.planId || u.plan || "free", until: u.until || null,
+  const token = signToken({ uid: u.uid, plan: u.plan || "free", planId,
+    until: u.until || null, ...(tabs ? { tabs } : {}), kid }, privateKey, now);
+  return { uid: u.uid, plan: u.plan || "free", planId, until: u.until || null, tabs,
     token, exp: Math.floor(now / 1000) + TOKEN_TTL_S };
 }
 /** Запомнить, с какого Telegram пришли: по нему админ узнаёт человека. */
@@ -178,7 +183,11 @@ export async function handle(method, url, body = {}, now = Date.now(), headers =
         await billing.cancel(cancel[1]);
         return { status: 200, body: { user: (await billing.adminUsers()).find((u) => u.uid === cancel[1]) || null } };
       }
-      if (method === "GET" && rest === "/plans") return { status: 200, body: { plans: await billing.listPlans() } };
+      if (method === "GET" && rest === "/plans") {
+        // Вместе с планами — все вкладки с именами: из них в панели выбирают.
+        return { status: 200, body: { plans: await billing.listPlans(),
+          tabs: TABS.map((id) => ({ id, name: TAB_NAMES[id] || id })) } };
+      }
       if (method === "POST" && rest === "/plans") return { status: 201, body: { plan: await billing.addPlan() } };
       const plan = rest.match(/^\/plans\/([A-Za-z0-9_-]+)$/);
       if (method === "PUT" && plan) return { status: 200, body: { plan: await billing.savePlan(plan[1], b) } };
