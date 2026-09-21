@@ -276,7 +276,7 @@ export default function AgentsPanel({ me, onChanged }) {
             {/* ═══ удалить ═══ */}
             {!agent.builtin && (
               <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
-                <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+                <button type="button" style={{ ...btn(true, BAD) }}
                   disabled={busy} aria-label={`удалить агента ${agent.name}`}
                   onClick={() => setKilling(agent)}>Удалить</button>
               </div>)}
@@ -389,7 +389,7 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
               2026-09-21): спрашивают их тогда, когда выбирают, — и отказ
               сервера человек должен читать там же, где нажал. */}
           <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
-            <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+            <button type="button" style={{ ...btn(true, BAD) }}
               disabled={busy} aria-label={`удалить сервер ${m.name}`}
               onClick={() => setKill(m)}>Удалить</button>
           </div>
@@ -753,7 +753,7 @@ function Skill({ agent, busy, onSave }) {
       <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
         <button type="button" style={btn(dirty, dirty ? OK : undefined)}
           disabled={busy || !dirty} onClick={() => onSave(text.trim())}>Сохранить</button>
-        <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+        <button type="button" style={{ ...btn(true, BAD) }}
           disabled={busy || (!saved && !text)}
           onClick={() => { setText(""); onSave(""); }}>Удалить</button>
       </div>

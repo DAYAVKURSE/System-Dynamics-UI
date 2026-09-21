@@ -42,7 +42,8 @@ export default function Modal({ title, children, onClose }) {
 
   const node = (
     <div role="presentation" onClick={onClose}
-      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#0009",
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(5,7,12,.62)", backdropFilter: "blur(2px)",
         zIndex: 50, display: "flex", alignItems: "flex-start", justifyContent: "center",
         padding: 12, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
       <div role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}
@@ -50,15 +51,26 @@ export default function Modal({ title, children, onClose }) {
         style={{ ...S.card, maxWidth: 460, width: "100%", outline: "none",
           margin: "max(12px, 4dvh) 0", maxHeight: "calc(100dvh - 24px)", overflow: "auto",
           boxSizing: "border-box" }}>
-        <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{title}</span>
-          <button aria-label="закрыть" style={{ ...btn(false), padding: "2px 8px" }}
-            onClick={onClose}>✕</button>
+        <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-12)" }}>
+          <span style={{ fontSize: 17, lineHeight: "22px", fontWeight: 600, flex: 1 }}>
+            {title}</span>
+          {/* Закрыть — иконная капсула, как в верхней панели: контурная
+              иконка, не эмодзи и не крестик текстом. */}
+          <button type="button" aria-label="закрыть" onClick={onClose}
+            style={{ width: 30, height: 30, borderRadius: "var(--radius-pill)",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              background: "var(--surface-glass)", border: "1px solid var(--border-glass)",
+              color: C.text, padding: 0, cursor: "pointer" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
         </div>
         {/* Переносы строк сохраняются: объяснения устроены как определение
             и список условий под ним, а HTML схлопнул бы их в один абзац —
             и список перестал бы читаться списком. */}
-        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: C.text,
+        <div style={{ fontSize: 14, lineHeight: "20px", color: C.text,
           whiteSpace: "pre-line" }}>{children}</div>
       </div>
     </div>);

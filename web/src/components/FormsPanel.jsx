@@ -60,7 +60,7 @@ function FormCard({ form, busy, act }) {
           style={{ flex: "1 1 160px", fontWeight: 700, fontSize: 12.5 }}
           onCommit={retitle} />
         <span style={{ fontSize: 10, color: C.muted }}>вопросов: {qs.length}</span>
-        <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }} disabled={busy}
+        <button style={{ ...btn(true, BAD) }} disabled={busy}
           onClick={() => act(() => removeForm(form.id))}>Удалить анкету</button>
       </div>
       {qs.map((q, i) => (
@@ -75,8 +75,7 @@ function FormCard({ form, busy, act }) {
                 send(qs.map((x) => (x.id === q.id ? { id: x.id, text: v } : x)));
               }
             }} />
-          <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
-            padding: "2px 7px" }} disabled={busy}
+          <button style={{ ...btn(true, BAD), padding: "2px 7px" }} disabled={busy}
             aria-label={`убрать вопрос ${i + 1} анкеты «${form.name}»`}
             onClick={() => send(qs.filter((x) => x.id !== q.id))}>✕</button>
         </div>))}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm, DiffBoxes, WAS_STYLE } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm, DiffBoxes, WAS_STYLE , statusEdge} from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
 import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, tidyProcText } from "../lib/process.js";
@@ -35,7 +35,7 @@ import { MATERIAL_KINDS, traitKind } from "../lib/units.js";
    ════════════════════════════════════════════════════════════════ */
 
 const STATUS_TONE = { off: null, hypo: WARN, on: OK };
-const DARK = "#0E1420";
+const DARK = "var(--bg-base)";
 const PURPLE = "#C9A0FF";
 const ROLE_COLOR = { setter: WARN, doer: ACC, checker: OK };
 const SIDE = { take: ACC, give: OK };
@@ -295,7 +295,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
      участника сдвигаются вместе с текстом. */
   const [scrollTop, setScrollTop] = useState(0);
   const paint = paintOf(text, model, proc);
-  const field = { ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12,
+  const field = { ...S.inp, fontFamily: "var(--font-sans)", fontSize: 12,
     lineHeight: LINE_H, boxSizing: "border-box" };
   useEffect(() => { if (!focus) setText(value); }, [value, focus]);
 
@@ -1013,7 +1013,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             </>)}
             {!resRef && (<>
             <input value={opDraft} aria-label={`операция: ${res.name}`} placeholder="сколько / операция"
-              style={{ ...S.inp, fontSize: 12, padding: "3px 6px", fontFamily: "ui-monospace, Menlo, monospace" }}
+              style={{ ...S.inp, fontSize: 12, padding: "3px 6px", fontFamily: "var(--font-sans)" }}
               onFocus={() => { hold.current = true; opFocus.current = true; opAnchor(); }}
               onChange={(e) => opEdit(e.target.value)}
               onBlur={(e) => opDone(e.target.value)}
@@ -1100,7 +1100,7 @@ function TextModal({ title, value, onChange, onClose, onLoad }) {
         <div className="flex items-center gap-2"><span style={S.lbl}>{title}</span><span style={{ flex: 1 }} />
           <button type="button" style={{ ...btn(false), fontSize: 11 }} onClick={onClose} aria-label="закрыть окно">✕</button></div>
         <textarea aria-label={`текст: ${title}`} value={value} readOnly={!onLoad} onChange={(e) => onChange?.(e.target.value)}
-          style={{ ...S.inp, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12, lineHeight: 1.5, minHeight: 260, resize: "vertical" }} />
+          style={{ ...S.inp, fontFamily: "var(--font-sans)", fontSize: 12, lineHeight: 1.5, minHeight: 260, resize: "vertical" }} />
         <div className="flex flex-wrap items-center gap-2">
           {onLoad ? (<>
             <input type="file" accept=".txt,text/plain" aria-label="файл техпроцесса" onChange={file} style={{ fontSize: 11 }} />
@@ -1117,7 +1117,7 @@ function TextModal({ title, value, onChange, onClose, onLoad }) {
 const when = (iso) => { try { return new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
 /* Задача, которую переписали, — в жёлтой плашке целиком: сперва каким был
    её текст, потом каким стал (владелец, 2026-09-20). */
-const PRE = { margin: 0, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 11, whiteSpace: "pre-wrap" };
+const PRE = { margin: 0, fontFamily: "var(--font-sans)", fontSize: 11, whiteSpace: "pre-wrap" };
 function TaskDiff({ added = [], removed = [], changed = [] }) {
   const one = (t, sign) => (<>
     <div style={{ fontSize: 11.5, fontWeight: 600 }}>{t.func ? `${t.func} · ` : ""}{t.name}</div>
@@ -1370,8 +1370,9 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
           };
           return (
             <div key={p.id} data-lit={lit || undefined}
-              style={{ background: C.panel2, border: `1px solid ${lit ? ACC : C.line}`, borderRadius: 8, padding: 8, marginBottom: 8,
-                borderLeft: `2px solid ${STATUS_TONE[p.status] || C.line}`, boxShadow: lit ? `0 0 0 1px ${ACC}55` : "none" }}>
+              style={{ background: C.panel2, borderRadius: "var(--radius-md)",
+                padding: "var(--space-12)", marginBottom: "var(--space-8)",
+                ...statusEdge(lit ? ACC : STATUS_TONE[p.status]) }}>
               {/* Название — в самом верху формы и целиком: одинарное нажатие
                   сворачивает, двойное открывает правку (владелец, 2026-09-19). */}
               <div data-proc-head="" aria-label={`процесс «${label}»`} style={{ marginBottom: 6, cursor: "pointer" }}
@@ -1390,7 +1391,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                     <span data-proc-name="" title="двойное нажатие — переименовать"
                       style={{ flex: 1, minWidth: 0, color: p.name ? C.text : C.muted, fontSize: 13.5, fontWeight: 700,
                         lineHeight: 1.3, whiteSpace: "normal", overflowWrap: "anywhere" }}>{label}</span>)}
-                  <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11, padding: "2px 6px" }}
+                  <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }}
                     aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
                 </div>
                 <div className="flex items-center gap-2" style={{ marginTop: 2 }}>

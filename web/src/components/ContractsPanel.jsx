@@ -132,7 +132,7 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
   };
   return (
     <div role="dialog" aria-label={`документ ${title}`} aria-modal="true"
-      style={{ position: "fixed", inset: 0, zIndex: 60, background: "#0E1420",
+      style={{ position: "fixed", inset: 0, zIndex: 60, background: "var(--bg-base)",
         overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
       <div style={{ position: "fixed", top: 10, right: 12, zIndex: 61, display: "flex",
         flexDirection: "column", gap: 8 }}>
@@ -154,7 +154,7 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
           <button type="button" aria-label="сохранить документ" title={dirty ? "Сохранить новой версией" : "Правок нет"}
             disabled={!dirty || busy} onClick={onSave}
             style={roundBtn({ background: dirty ? "rgba(61,220,151,.85)" : "rgba(29,40,57,.72)",
-              color: dirty ? "#0E1420" : "#fff", opacity: dirty ? 1 : 0.55,
+              color: dirty ? "var(--on-mint)" : C.muted, opacity: dirty ? 1 : 0.55,
               display: "flex", alignItems: "center", justifyContent: "center" })}>
             <svg data-icon="save" width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
               <path d="M2 2h9l3 3v9H2z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
@@ -310,7 +310,7 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
           onClick={() => onEdit(doc)}>Редактировать</button>
         <a href={ver?.file?.url} download={ver?.file?.name || `${doc.name}.docx`}
           aria-label={`скачать ${doc.name}`} style={{ ...btn(false), textDecoration: "none" }}>Скачать</a>
-        <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }} disabled={busy}
+        <button type="button" style={{ ...btn(true, BAD) }} disabled={busy}
           aria-label={`удалить договор ${doc.name}`} onClick={() => onDrop(doc)}>Удалить</button>
       </div>
       {/* Текущие правки — формами, по одному месту в каждой. */}

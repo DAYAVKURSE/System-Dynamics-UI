@@ -75,7 +75,7 @@ export default function IssuesPanel({ me }) {
             {x.text}</div>
           <div className="flex gap-2" style={{ marginTop: 8 }}>
             <button type="button" disabled={busy}
-              style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+              style={{ ...btn(true, BAD) }}
               aria-label={`удалить сообщение от ${x.name}`}
               onClick={() => setKill(x)}>Удалить</button>
           </div>

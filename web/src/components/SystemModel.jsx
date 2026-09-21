@@ -17,7 +17,7 @@ import { handColor } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
 import { procFuncs as procFuncs2, replaceName, setFuncHead, setTaskChecks } from "../lib/proc2.js";
 import { Brand, C, OK, WARN, BAD, NEU, ACC, ICON, IconButton, NameField, S, TAB_LINE,
-  tab as tabStyle, btn, durText, nm, NumField, TxtField, DiffBoxes, WAS_STYLE } from "./ui.jsx";
+  tab as tabStyle, btn, durText, nm, NumField, TxtField, DiffBoxes, WAS_STYLE , VIO} from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
   crewOf,
   normalizeAssets,
@@ -77,8 +77,8 @@ import { normalizeMaterials, withStock } from "../lib/units.js";
 /* Как часто позванный переспрашивает свой срез, пока вкладка на виду. */
 const POLL_MS=30000;
 const KINDS0=[
-  {id:"res",sign:"◆",name:"ресурс",color:"#7CE0FF",dir:"up"},
-  {id:"growth",sign:"▲",name:"рост",color:"#3DDC97",dir:"up"},
+  {id:"res",sign:"◆",name:"ресурс",color:ACC,dir:"up"},
+  {id:"growth",sign:"▲",name:"рост",color:OK,dir:"up"},
   {id:"cost",sign:"▼",name:"затрата",color:"#FF9E64",dir:"down"},
 ];
 const NOKIND={id:"",sign:"?",name:"без типа",color:NEU,dir:"up"};
@@ -91,8 +91,8 @@ const NW=208,NH=126;
    из чего оно собрано. */
 const ENTITIES0=normalizeAssets([
   {id:"mkt",name:"Рынок услуг",color:"#FFD166",x:24,y:24},
-  {id:"usr",name:"Пользователи",color:"#7CE0FF",x:398,y:24},
-  {id:"vm",name:"Виртуальный менеджер",color:"#3DDC97",x:398,y:300},
+  {id:"usr",name:"Пользователи",color:ACC,x:398,y:24},
+  {id:"vm",name:"Виртуальный менеджер",color:OK,x:398,y:300},
 ]);
 const T=(id,e,k,l,unit)=>({id,e,k,l,unit});
 const TRAITS0=[
@@ -162,10 +162,10 @@ function Chart({lo,hi,fact,months,goalLine,cursorMonth}){
       {[0,.25,.5,.75,1].map((f,i)=>(<g key={i}>
         <line x1={PL} y1={y(max*f)} x2={W-PR} y2={y(max*f)} stroke={C.line}/>
         <text x={PL-6} y={y(max*f)+4} textAnchor="end" fontSize="10" fill={C.muted}
-          fontFamily="ui-monospace, monospace">{nm(max*f)}</text></g>))}
+          fontFamily="var(--font-sans)">{nm(max*f)}</text></g>))}
       {Array.from({length:months+1}).map((_,i)=>i%step===0&&(
         <text key={i} x={x(i)} y={H-8} textAnchor="middle" fontSize="10" fill={C.muted}
-          fontFamily="ui-monospace, monospace">{i}м</text>))}
+          fontFamily="var(--font-sans)">{i}м</text>))}
       {band&&<polygon points={band} fill={`${WARN}22`} stroke="none"/>}
       {!!HI.length&&<polyline fill="none" stroke={WARN} strokeWidth="1.6"
         points={HI.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}/>}
@@ -456,7 +456,12 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
         onPointerDown={downBg}>
         <defs>
           <marker id="aw" markerWidth="9" markerHeight="9" refX="8" refY="3"
-            orient="auto"><path d="M0,0 L8,3 L0,6 z" fill={ACC}/></marker></defs>
+            orient="auto"><path d="M0,0 L8,3 L0,6 z" fill={ACC}/></marker>
+          {/* Свечение узла: box-shadow в SVG нет, поэтому размываем копию
+              его рамки — тот же мягкий контур, что у карточек. */}
+          <filter id="nodeGlow" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="5"/>
+          </filter></defs>
 
         {/* Передачи между активами: сколько ресурса в месяц уезжает.
 
@@ -491,9 +496,10 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
             <path data-move="" d={arc} fill="none" stroke={ACC}
               strokeWidth="1.6" strokeDasharray="4 3" markerEnd="url(#aw)"
               strokeLinecap="round" strokeLinejoin="round" style={{pointerEvents:"none"}}/>
-            <rect x={mx-70} y={my-11} width="140" height="22" rx="6" fill={C.panel}
-              stroke={ACC} strokeWidth="1"/>
-            <text x={mx} y={my+3.5} textAnchor="middle" fontSize="9" fill={ACC}
+            <rect x={mx-70} y={my-11} width="140" height="22" rx="11"
+              fill="rgba(7,10,15,.9)" stroke="rgba(77,225,255,.45)" strokeWidth="1"/>
+            <text x={mx} y={my+3.5} textAnchor="middle" fontSize="9"
+              fill="var(--chip-cyan-text)"
               style={{pointerEvents:"none"}}>
               {txt.length>26?txt.slice(0,25)+"…":txt}</text></g>);})}
 
@@ -506,22 +512,26 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
              под пальцем (`elementFromPoint`), а не ближайший. */
           return (<g key={e.id} data-entity={e.id} onPointerDown={ev=>down(ev,e)}
             style={{cursor:onMoveEntity?"grab":"pointer",touchAction:live?"none":"pan-y"}}>
-            <rect x={e.x} y={e.y} width={NW} height={NH} rx="12" fill={C.panel}
-              stroke={sel===e.id?ACC:C.line} strokeWidth={sel===e.id?2.6:1.6}/>
-            {/* Полоска состояния — ВНУТРИ блока, ровная, как у функций в
-                карточке актива: зелёная — актив принят, красная — нет.
-                Прежняя полоса цвета актива лежала на рамке и на скруглении
-                выходила за неё (владелец, 2026-09-13). */}
-            <rect x={e.x+6} y={e.y+10} width="3" height={NH-20} rx="1.5"
-              fill={ok?OK:BAD} data-state={ok?"ok":"bad"}/>
-            <text x={e.x+14} y={e.y+26} fontSize="13.5" fontWeight="700" fill={C.text}>
+            {/* УЗЕЛ СХЕМЫ: состояние говорит КОНТУР и мягкое свечение, а
+                не полоска слева (дизайн-система Blocktree Liquid Glass).
+                Свечение рисуется отдельным прямоугольником под узлом:
+                box-shadow в SVG нет, а размытая копия рамки даёт тот же
+                эффект и не мешает нажатию. */}
+            <rect x={e.x} y={e.y} width={NW} height={NH} rx="16" fill="none"
+              stroke={ok?OK:BAD} strokeWidth="6" opacity="0.18"
+              filter="url(#nodeGlow)" style={{pointerEvents:"none"}}/>
+            <rect x={e.x} y={e.y} width={NW} height={NH} rx="16"
+              fill="var(--surface-glass-strong)"
+              stroke={sel===e.id?ACC:(ok?OK:BAD)} strokeWidth={sel===e.id?2.6:1.4}
+              data-state={ok?"ok":"bad"}/>
+            <text x={e.x+16} y={e.y+27} fontSize="14" fontWeight="600" fill={C.text}>
               {e.name.length>23?e.name.slice(0,22)+"…":e.name}</text>
-            <text x={e.x+14} y={e.y+44} fontSize="10.5" fill={ok?C.text:BAD}>актив</text>
+            <text x={e.x+16} y={e.y+45} fontSize="11" fill={ok?OK:BAD}>● актив</text>
             {!ok&&(<g style={{cursor:"help"}}
               onPointerDown={ev=>{ev.stopPropagation();}}
               onClick={ev=>{ev.stopPropagation();onWhy("asset",e.id);}}>
-              <circle cx={e.x+52} cy={e.y+40} r="7.5" fill="transparent" stroke={BAD}/>
-              <text x={e.x+52} y={e.y+43.5} textAnchor="middle" fontSize="9" fill={BAD}>?</text>
+              <circle cx={e.x+68} cy={e.y+41} r="7.5" fill="transparent" stroke={BAD}/>
+              <text x={e.x+68} y={e.y+44.5} textAnchor="middle" fontSize="9" fill={BAD}>?</text>
             </g>)}
             <text x={e.x+14} y={e.y+64} fontSize="10.5" fill={C.muted}>
               {countWorkers(e)} воркеров ·
@@ -529,7 +539,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
             {ts.slice(0,2).map((t,i)=>{
               const v=valuesFor(t.id);
               return (<text key={t.id} x={e.x+14} y={e.y+84+i*17} fontSize="10.5"
-                fill={C.muted} fontFamily="ui-monospace, monospace">
+                fill={C.muted} fontFamily="var(--font-sans)">
                 {(t.l.length>14?t.l.slice(0,13)+"…":t.l)}: {nm(v.lo)}–{nm(v.hi)}</text>);})}
           </g>);})}
 
@@ -878,7 +888,9 @@ export default function SystemModel(){
   const freshEntity=(name="Новый актив")=>{
     const id="en"+Date.now().toString(36)+entities.length.toString(36);
     const y=entities.length?Math.max(...entities.map(e=>e.y))+NH+40:24;
-    const palette=["#7CE0FF","#C792EA","#FFD166","#3DDC97","#FF9E64","#FF5C7A","#8B9DFF"];
+    /* Палитра серий — акценты системы по кругу: своих цветов график не
+       заводит, иначе привязка «цвет → смысл» держалась бы только на словах. */
+    const palette=[ACC,VIO,WARN,OK,BAD,"var(--chip-violet-text)","var(--chip-cyan-text)"];
     return {id,name,owners:[],reviewers:[],color:palette[entities.length%palette.length],x:24,y};
   };
   const addEntity=()=>{
@@ -1536,7 +1548,7 @@ export default function SystemModel(){
      решил, вступает он или нет, показывать ему приложение не из чего. */
   if(joinKey&&!me.solo) return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",
-      fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif"}}>
+      fontFamily:"var(--font-sans)"}}>
       <JoinPanel me={me} token={joinKey}
         onJoined={m=>{ setJoinKey(null); resetIdentity();
           if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); }}
@@ -1548,18 +1560,18 @@ export default function SystemModel(){
   const onRegDone=m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); };
   if(needReg&&!(regAway&&canSkip)) return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
-      fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif"}}>
+      fontFamily:"var(--font-sans)"}}>
       <div className="flex items-center gap-2"
-        style={{alignItems:"flex-end",...TAB_LINE,marginBottom:10}}>
-        <div style={{flex:"0 0 auto",paddingBottom:6}}><Brand size={20}/></div>
+        style={{...TAB_LINE,marginBottom:"var(--space-16)"}}>
+        <div style={{flex:"0 0 auto"}}><Brand size={22}/></div>
       </div>
       <RegisterPanel me={me} onDone={onRegDone}
         onBack={canSkip?()=>setRegAway(true):undefined}/>
     </div>);
 
   return (
-    <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
-      fontFamily:"Inter, 'Segoe UI', system-ui, sans-serif",
+    <div style={{color:C.text,minHeight:"100%",padding:"var(--space-16)",
+      fontFamily:"var(--font-sans)",
       /* Свайп вбок принадлежит вкладкам, а не истории браузера: иначе
          движение от края уносило бы со страницы назад. */
       overscrollBehaviorX:"contain"}}
@@ -1567,16 +1579,15 @@ export default function SystemModel(){
       {/* Шапка — одной строкой (владелец, 2026-09-19): знак слева, вкладки
           сразу за ним, значки — у правого края. Полоса под рядом и есть то,
           что делает вкладки вкладками: открытая её разрывает. */}
-      <div className="flex items-center gap-2"
-        style={{alignItems:"flex-end",...TAB_LINE}}>
-        <div style={{flex:"0 0 auto",paddingBottom:6}}><Brand size={20}/></div>
+      <div className="flex items-center gap-2" style={TAB_LINE}>
+        <div style={{flex:"0 0 auto"}}><Brand size={22}/></div>
         {/* «Анкета» — всем: это единственное место, где человек говорит о
             себе. «Отчёты» — владельцу: карту пишет он, а остальным сервер
             её и не отдаёт — рисовать пустую карту с кнопками, которые
             ничего не сохранят, значило бы обещать работу, которой не
             будет. Наружу отчёт уходит ссылкой. */}
-        <div ref={tabsBox} className="flex gap-1"
-          style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"flex-end"}}>
+        <div ref={tabsBox} className="flex gap-2"
+          style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"center"}}>
           {tabsShown.map(([k,t])=>(
             <button key={k} data-tab={k} style={tabStyle(tab===k)}
               onClick={()=>goTab(k)}>{t}</button>))}
@@ -1584,8 +1595,9 @@ export default function SystemModel(){
       </div>
 
       {/* Значки — ПОД линией шапки, у правого края (владелец, 2026-09-19). */}
-      <div className="flex items-center gap-1"
-        style={{justifyContent:"flex-end",marginBottom:8}}>
+      <div className="flex items-center gap-2"
+        style={{justifyContent:"flex-end",marginTop:"var(--space-12)",
+          marginBottom:"var(--space-16)"}}>
         {/* Работаем под чужой страницей — путь назад стоит первым, перед
             «Отменить» и «Вернуть» (владелец, 2026-09-20): человек должен
             видеть, что он не у себя, и уйти одним нажатием. */}
@@ -1764,7 +1776,7 @@ export default function SystemModel(){
                 <button style={btn(false)} onClick={alignGrid}
                   title="Расставит блоки по сетке, сохранив расстановку по рядам">
                   ⌗ выровнять</button>
-                <button style={btn(true)} onClick={addEntity}>+ актив</button>
+                <button style={btn(true,OK)} onClick={addEntity}>+ актив</button>
               </>)}
             </div>
           </div>
@@ -1880,7 +1892,7 @@ export default function SystemModel(){
             <div className="flex items-center gap-2" style={{marginBottom:6}}>
               <span style={S.lbl}>актив</span>
               <span style={{flex:1}}/>
-              <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
+              <button style={{ ...btn(true, BAD) }}
                 onClick={()=>delEntity(selE.id)}>Удалить актив</button>
             </div>
             {/* Название — двойным нажатием (владелец, 2026-09-19). */}
@@ -2136,7 +2148,7 @@ export default function SystemModel(){
             {jsonMsg&&<span style={{fontSize:12,color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}
           </div>
           <TxtField area value={json} style={{minHeight:300,
-            fontFamily:"ui-monospace, Menlo, monospace",fontSize:11.5}}
+            fontFamily:"var(--font-sans)",fontSize:11.5}}
             onCommit={setJson}/>
 
           {/* ═══ СОХРАНЕНИЕ НА ДИСКЕ СЕРВЕРА ═══ */}
@@ -2161,7 +2173,7 @@ export default function SystemModel(){
               </select>
               <button style={btn(false)} disabled={savedBusy} onClick={loadFromDisk}>
                 Загрузить</button>
-              <button style={{...btn(false),color:BAD,borderColor:"#5A2436"}}
+              <button style={{ ...btn(true, BAD) }}
                 disabled={savedBusy} onClick={deleteFromDisk}>Удалить</button>
             </div>
             <ScenarioVersions id={savedSel} when={whenText}

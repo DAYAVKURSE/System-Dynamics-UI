@@ -28,7 +28,7 @@ import { getInitData, getTelegram } from "../telegram.js";
    у собеседников подписана безымянная плитка.
    ════════════════════════════════════════════════════════════════ */
 
-const BG = "#0E1420";
+const BG = "var(--bg-base)";
 const NAME_KEY = "sd.call.name";
 
 /* ─── чем открыли окно, по словам самого Telegram ───

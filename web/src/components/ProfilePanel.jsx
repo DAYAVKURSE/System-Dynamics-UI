@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Avatar, C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField, FoldCard } from "./ui.jsx";
+import { Avatar, C, ACC, OK, WARN, BAD, NEU, S, btn, TxtField, FoldCard, DANGER_LINE } from "./ui.jsx";
 import PersonStats from "./PersonStats.jsx";
 import Modal from "./Modal.jsx";
 import { putReportFile, reportSrc } from "../storage.js";
@@ -376,7 +376,7 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
           {g.items.map((d) => (
             <div key={d.func} className="flex flex-wrap gap-2" data-duty={d.func}
               style={{ alignItems: "center", padding: "6px 8px", marginBottom: 6,
-                background: C.panel2, border: `1px solid ${d.off ? "#5A2436" : C.line}`,
+                background: C.panel2, border: `1px solid ${d.off ? DANGER_LINE : C.line}`,
                 borderRadius: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600,
                 textDecoration: d.off ? "line-through" : "none",
@@ -433,8 +433,7 @@ export function AvatarModal({ src, name, mine, busy, msg, onPick, onDrop, onClos
               onChange={(e) => onPick?.(e.target.files?.[0])} />
           </label>
           <button type="button" disabled={busy || !src}
-            style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
-              opacity: src ? 1 : 0.5 }}
+            style={{ ...btn(true, BAD), opacity: src ? 1 : 0.5 }}
             onClick={() => onDrop?.()}>Удалить</button>
         </div>)}
       {msg && (
@@ -829,7 +828,7 @@ export function ReminderList({ known }) {
                 : "раз в минуту, пока не нажмут кнопку"}</Field>)}
           <button type="button" disabled={busy === r.id}
             aria-label={`удалить напоминание ${r.title}`}
-            style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11,
+            style={{ ...btn(true, BAD), fontSize: 11,
               padding: "3px 9px", marginTop: 6 }}
             onClick={() => drop(r.id)}>{busy === r.id ? "Удаляю…" : "Удалить"}</button>
         </div>))}

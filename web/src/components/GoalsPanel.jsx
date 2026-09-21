@@ -123,8 +123,7 @@ function Conds({ goal, traits, traitName, st, up }) {
               aria-label={i ? `операция ${i + 1}` : "сколько ресурса"}
               onCommit={(v) => set(i, v)} />
             {shown.length > 1 && (
-              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
-                fontSize: 11, padding: "5px 8px" }}
+              <button style={{ ...btn(true, BAD), fontSize: 11, padding: "5px 8px" }}
                 aria-label={`убрать операцию ${i + 1}`}
                 onClick={() => drop(i)}>✕</button>)}
             {mine && mine.met != null && !mine.error && (
@@ -266,8 +265,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
         <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px",
           opacity: goal.appliedAt ? 1 : 0.5 }} aria-label="отозвать цель"
           disabled={!goal.appliedAt} onClick={() => setRecall(true)}>отозвать</button>
-        <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
-          fontSize: 11, padding: "2px 6px" }} aria-label="удалить цель"
+        <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }} aria-label="удалить цель"
           onClick={() => onDel(goal.id)}>удалить</button>
       </div>
       {/* Отзыв спрашивает об одном: стирать ли сделанное. «Нет» убирает

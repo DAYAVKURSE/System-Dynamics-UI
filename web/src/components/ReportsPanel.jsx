@@ -1,6 +1,6 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, Grip, NameField, S, btn, nm, NumField, TxtField, useRowDrag } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, Grip, NameField, S, btn, nm, NumField, TxtField, useRowDrag, DANGER_LINE } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
 import { putReportFile, reportSrc, textHref } from "../storage.js";
 import { getTelegram } from "../telegram.js";
@@ -142,7 +142,7 @@ export function ChangeChart({ rows = [], traitName, madeOf, off, onToggle }) {
       <div className="flex" style={{ alignItems: "flex-start", gap: 6 }}>
         {/* Шкала слева: без неё высота полосы — число без единиц. */}
         <div style={{ position: "relative", width: 34, height: H, flex: "0 0 34px",
-          fontSize: 9.5, color: C.muted, fontFamily: "ui-monospace, monospace" }}>
+          fontSize: 9.5, color: C.muted, fontFamily: "var(--font-sans)" }}>
           <span style={{ position: "absolute", right: 0, top: 0 }}>{nm(rawMax)}</span>
           <span style={{ position: "absolute", right: 0, top: zeroY - 6 }}>0</span>
           {rawMin < 0 && <span style={{ position: "absolute", right: 0, bottom: 0 }}>{nm(rawMin)}</span>}
@@ -597,7 +597,7 @@ function UnitRow({ u, unit, spent, nameOf, traitName, unitNo }) {
   const named = u.by != null && u.by !== "" && nameOf ? String(nameOf(u.by) ?? "") : "";
   const who = named && named !== String(u.by) ? named : "";
   const body = u.kind === "code" && u.code
-    ? <span style={{ fontFamily: "ui-monospace, monospace", letterSpacing: 1 }}>{u.code}</span>
+    ? <span style={{ fontFamily: "var(--font-sans)", letterSpacing: 1 }}>{u.code}</span>
     : u.file ? <span>{/^image\//.test(u.file.type || "") ? "🖼" : "📎"} {u.file.name}</span>
       : u.text && u.from === "material" ? <span style={{ whiteSpace: "pre-wrap" }}>{u.text}</span>
         : u.from === "task" ? <span style={{ color: C.muted }}>{u.title || "без названия"}</span>
@@ -780,14 +780,14 @@ function UploadMaterial({ trait, traitName, kind = "file", existing = [], meId,
           <div role="list" aria-label="уникальные коды" style={{ ...listBox, maxHeight: 180 }}>
             {codes.map((c, i) => (
               <input key={i} readOnly value={c} aria-label={`уникальный код ${i + 1}`}
-                style={{ ...field, fontFamily: "ui-monospace, monospace", letterSpacing: 1 }} />))}
+                style={{ ...field, fontFamily: "var(--font-sans)", letterSpacing: 1 }} />))}
           </div>
           <button style={{ ...btn(false), fontSize: 11, marginTop: 6 }} onClick={regen}>
             {n > 1 ? "другие коды" : "другой код"}</button>
           <div style={{ ...S.lbl, marginTop: 10 }}>подтверждение — один файл на все единицы</div>
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
             <label style={{ ...btn(false), fontSize: 11.5, cursor: proofBusy ? "default" : "pointer",
-              opacity: proofBusy ? 0.6 : 1, borderColor: proof ? undefined : "#5A2436" }}>
+              opacity: proofBusy ? 0.6 : 1, borderColor: proof ? undefined : DANGER_LINE }}>
               {proofBusy ? "Загружаю…" : proof ? "Заменить подтверждение" : "Загрузить подтверждение"}
               <input type="file" style={{ display: "none" }} disabled={proofBusy}
                 aria-label="подтверждение выдачи"
@@ -1113,7 +1113,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
         {/* «Удалить» — в шапке, чтобы было видно и у свёрнутого блока
             (владелец, 2026-09-20: «у отчёта должна быть видна кнопка
             „Удалить", если он свернут»). */}
-        <button style={{ ...btn(false), fontSize: 11, color: BAD, borderColor: "#5A2436",
+        <button style={{ ...btn(false), fontSize: 11, color: BAD, borderColor: DANGER_LINE,
           marginLeft: "auto", flex: "none" }}
           aria-label={`удалить ${root ? "отчёт" : "раздел"} ${node.name || "без названия"}`}
           onClick={() => setNodes((p) => dropNode(p, node.id))}>удалить</button>

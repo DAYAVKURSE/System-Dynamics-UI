@@ -4,13 +4,97 @@ import { deliverFile } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { leftInUnit, timeLeft } from "../lib/funcs.js";
 
-/* Общие примитивы интерфейса: палитра, стили и поля ввода.
-   Вынесены сюда, чтобы схема (SystemModel) и доска задач (TasksBoard)
-   выглядели одинаково и не дублировали одно и то же. */
+/* ════════════════════════════════════════════════════════════════
+   ПРИМИТИВЫ ИНТЕРФЕЙСА · Blocktree Liquid Glass
 
-export const C={ink:"#0E1420",panel:"#161F2E",panel2:"#1D2839",line:"#2A3852",
-  text:"#E6EDF7",muted:"#8FA0BC"};
-export const OK="#3DDC97",WARN="#FFB13D",BAD="#FF5C7A",NEU="#5A6B85",ACC="#7CE0FF";
+   Палитра, поверхности и кнопки живут здесь, и только здесь: схема,
+   доска задач и все панели берут их отсюда, а своих значений не заводят.
+   Поэтому смена дизайн-системы — правка этого файла, а не всех сорока.
+
+   Значения не выписаны числами, а взяты из `styles/tokens.css`: цвет,
+   радиус, отступ и тень — это `var(--…)`. Токен меняется в одном месте, и
+   приложение меняется целиком; выписанный руками #163049 так бы не смог.
+
+   ─── что такое «стекло» ───
+
+   Панель — не полупрозрачная плашка, а материал: заливка `surface-glass`,
+   граница `border-glass`, `backdrop-filter: blur() saturate(170%)` и тень
+   из трёх слоёв, где верхний блик и делает поверхность стеклом. Без
+   насыщенности под размытием получается мутное окно, а не стекло; без
+   блика — плоский прямоугольник.
+
+   Тонирование — сигнал, а не украшение: мята — актив, успех, главное
+   действие; циан — информация и фокус; коралл — опасность; янтарь —
+   предупреждение и выбранное; фиалковый — агент и виртуальный сотрудник.
+   Привязка цвета к смыслу одна на всё приложение.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Имена прежние — `C.ink`, `C.panel`, `OK`, `ACC` — потому что их зовут
+   из сорока файлов, а значения теперь токенные. Менять заодно и имена
+   значило бы делать две правки там, где нужна одна. */
+export const C = {
+  ink: "var(--bg-base)",
+  elevated: "var(--bg-elevated)",
+  panel: "var(--surface-glass)",
+  panel2: "var(--surface-glass-strong)",
+  line: "var(--border-glass)",
+  lineSoft: "var(--border-glass-soft)",
+  text: "var(--text-primary)",
+  second: "var(--text-secondary)",
+  muted: "var(--text-muted)",
+};
+export const OK = "var(--accent-mint)";
+export const WARN = "var(--accent-amber)";
+export const BAD = "var(--accent-coral)";
+export const ACC = "var(--accent-cyan)";
+export const VIO = "var(--accent-violet)";
+/* «Нейтральный» больше не отдельный серо-синий: тихое здесь — это тихий
+   текст, а не ещё один цвет. */
+export const NEU = "var(--text-muted)";
+
+/* Тонировка по смыслу: заливка 12–16%, граница 45–55%, свой текст и своё
+   свечение. Числа — из руководства по компонентам; собраны в одном месте,
+   чтобы чип, кнопка и вкладка тонировались одинаково. */
+export const TINT = {
+  [OK]: { bg: "rgba(60,242,160,.15)", line: "rgba(60,242,160,.5)",
+    text: "var(--chip-mint-text)", glow: "var(--shadow-glow-mint)" },
+  [ACC]: { bg: "rgba(77,225,255,.14)", line: "rgba(77,225,255,.5)",
+    text: "var(--chip-cyan-text)", glow: "var(--shadow-glow-cyan)" },
+  [WARN]: { bg: "rgba(255,196,77,.15)", line: "rgba(255,196,77,.55)",
+    text: "var(--chip-amber-text)", glow: "var(--shadow-glow-amber)" },
+  [BAD]: { bg: "rgba(255,90,120,.14)", line: "rgba(255,90,120,.5)",
+    text: "var(--chip-coral-text)", glow: "var(--shadow-glow-coral)" },
+  [VIO]: { bg: "rgba(180,140,255,.16)", line: "rgba(180,140,255,.5)",
+    text: "var(--chip-violet-text)", glow: "none" },
+};
+export const tintOf = (color) => TINT[color] || TINT[ACC];
+/* Граница опасного — тот же коралл на половине, что и у тонированной
+   кнопки: раньше в сорока местах стоял руками выписанный #5A2436. */
+export const DANGER_LINE = "rgba(255,90,120,.5)";
+
+/* ─────── СТАТУС БЕЗ ПОЛОСКИ СЛЕВА ───────
+
+   Бренд-бук: «откажитесь от цветной рамки слева как маркера статуса — это
+   решение из прошлой версии интерфейса. Вместо него используйте
+   тонированную капсулу, кольцо вокруг аватара или мягкое свечение по
+   контуру карточки».
+
+   Полоска говорила цветом, но только на своём краю: на узкой карточке её
+   видно, на широкой — она теряется. Свечение по контуру говорит тем же
+   цветом всей формой. `null` — состояния нет, и карточка остаётся
+   обычной. */
+export const statusEdge = (color) => (color
+  ? { border: `1px solid ${tintOf(color).line}`, boxShadow: tintOf(color).glow }
+  : { border: `1px solid ${C.line}` });
+
+/** Стекло: заливка, граница, размытие с насыщенностью и тень. */
+export const glass = (level = "md") => ({
+  background: "var(--surface-glass)",
+  border: "1px solid var(--border-glass)",
+  backdropFilter: `blur(var(--blur-${level})) saturate(175%)`,
+  WebkitBackdropFilter: `blur(var(--blur-${level})) saturate(175%)`,
+  boxShadow: level === "lg" ? "var(--shadow-glass-bar)" : "var(--shadow-glass-panel)",
+});
 
 /* ─────── «СКАЧАТЬ» ───────
 
@@ -146,12 +230,18 @@ export function Grip({label,bind,style}){
 export const nm=(n)=>!isFinite(n)?"—":
   (Math.abs(n)>=100?Math.round(n):Math.round(n*100)/100).toLocaleString("ru-RU");
 
-export const S={
-  inp:{background:C.ink,border:`1px solid ${C.line}`,color:C.text,borderRadius:5,
-    padding:"7px 8px",fontSize:13,width:"100%",fontFamily:"Inter, system-ui, sans-serif"},
-  lbl:{color:C.muted,fontSize:10,letterSpacing:"0.09em",textTransform:"uppercase",
-    fontFamily:"ui-monospace, Menlo, monospace"},
-  card:{background:C.panel,border:`1px solid ${C.line}`,borderRadius:10,padding:12},
+export const S = {
+  /* Поле ввода — мелкий элемент, значит `radius-sm` и стекло потише: оно
+     лежит ВНУТРИ панели, и спорить с ней материалом ему незачем. */
+  inp: { background: "var(--surface-glass)", border: "1px solid var(--border-glass)",
+    color: C.text, borderRadius: "var(--radius-sm)", padding: "9px 12px",
+    fontSize: 14, lineHeight: "20px", width: "100%", fontFamily: "var(--font-sans)",
+    outline: "none" },
+  /* Надзаголовок — `eyebrow`: капс с разрядкой, самый тихий читаемый цвет. */
+  lbl: { color: C.muted, fontSize: 11.5, lineHeight: "14px", fontWeight: 700,
+    letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--font-sans)" },
+  card: { ...glass("md"), borderRadius: "var(--radius-lg)", padding: "var(--space-20)",
+    color: C.text },
 };
 /* ─────── три плашки разницы версий: «+», «±», «−» ───────
    Владелец (2026-09-20): «везде, где есть гит-версионирование и зелёная и
@@ -310,9 +400,38 @@ export function durText(h){
   return `${nm(Math.round(n/730*10)/10)} мес`;
 }
 
-export const btn=(on,col)=>({background:on?(col||ACC)+"22":C.panel2,
-  border:`1px solid ${on?(col||ACC):C.line}`,color:on?(col||ACC):C.muted,borderRadius:6,
-  padding:"6px 10px",fontSize:12,cursor:"pointer",whiteSpace:"nowrap"});
+/* ─────── КНОПКА ───────
+
+   Подпись прежняя — `btn(on, col)`, — потому что её зовут отовсюду; а
+   вариантов теперь пять, как в дизайн-системе:
+
+   · выключенная — `ghost`: только граница, тихий текст, без заливки;
+   · включённая — тонированная по смыслу цвета: мята «успех», циан
+     «информация», коралл «опасность», янтарь «выбрано», фиалковый «агент»;
+   · `btn(true, OK, { solid: true })` — единственная сплошная в системе,
+     градиент мята→циан с текстом `on-mint`. Главное действие экрана, и
+     больше одной такой на экране не ставят.
+
+   Опасное действие тонируют, но сплошным не делают никогда: отказ не
+   должен визуально перевешивать основной поток. */
+export const btn = (on, col, { solid = false } = {}) => {
+  const base = { borderRadius: "var(--radius-md)", padding: "10px 18px",
+    fontSize: 14, lineHeight: "20px", fontWeight: 600, fontFamily: "var(--font-sans)",
+    cursor: "pointer", whiteSpace: "nowrap",
+    transition: "background .15s ease, border-color .15s ease, box-shadow .15s ease" };
+  if (solid) {
+    return { ...base, background: `linear-gradient(135deg, ${OK}, ${ACC})`,
+      border: "1px solid transparent", color: "var(--on-mint)", fontWeight: 700,
+      boxShadow: "var(--shadow-glow-mint)" };
+  }
+  if (!on) {
+    return { ...base, background: "transparent",
+      border: "1px solid var(--border-glass)", color: C.muted };
+  }
+  const t = tintOf(col || ACC);
+  return { ...base, background: t.bg, border: `1px solid ${t.line}`, color: t.text,
+    boxShadow: t.glow };
+};
 
 /* ─────── ЗНАК И ИМЯ ПРИЛОЖЕНИЯ ───────
 
@@ -349,13 +468,23 @@ export const ICON = {
 /* Размер и прозрачность — владелец (2026-09-19): «в 1,5 раза меньше и на
    30% прозрачнее»: значок стоит в стороне от работы и не должен спорить с
    ней за внимание. */
-export function IconButton({ icon, label, title, onClick, disabled, on = false, size = 12,
+export function IconButton({ icon, label, title, onClick, disabled, on = false, size = 14,
   dim = 0.7 }) {
+  /* Иконная кнопка тулбара — КАПСУЛА, а не квадрат: `radius-pill`,
+     стекло `blur-sm`. Размер 28×28 — как в руководстве. */
+  const t = on ? tintOf(ACC) : null;
   return (
     <button type="button" aria-label={label} title={title || label} onClick={onClick}
       disabled={disabled}
-      style={{ ...btn(on), padding: "3px 5px", lineHeight: 0,
-        opacity: disabled ? dim * 0.5 : dim, cursor: disabled ? "default" : "pointer" }}>
+      style={{ width: 30, height: 30, borderRadius: "var(--radius-pill)",
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        background: t ? t.bg : "var(--surface-glass)",
+        border: `1px solid ${t ? t.line : "var(--border-glass)"}`,
+        backdropFilter: "blur(var(--blur-sm)) saturate(175%)",
+        WebkitBackdropFilter: "blur(var(--blur-sm)) saturate(175%)",
+        boxShadow: t ? t.glow : "none",
+        color: t ? t.text : C.text, padding: 0, lineHeight: 0,
+        opacity: disabled ? 0.45 : dim, cursor: disabled ? "not-allowed" : "pointer" }}>
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true"
         stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <path d={icon} />
@@ -365,7 +494,10 @@ export function IconButton({ icon, label, title, onClick, disabled, on = false, 
 
 /* Шрифт имени — сдержанный техничный гротеск; подключён в `index.html`,
    а список запасных оставляет имя читаемым и без загрузки. */
-export const BRAND_FONT = "Orbitron, 'Exo 2', 'Segoe UI', Inter, system-ui, sans-serif";
+/* Шрифт имени — тот же системный стек, что и у всего остального: вторых
+   гарнитур дизайн-система не допускает. Техничность имени теперь держат
+   разрядка и вес, а не отдельная гарнитура. */
+export const BRAND_FONT = "var(--font-sans)";
 
 /* ─────── ВКЛАДКА ───────
 
@@ -373,17 +505,35 @@ export const BRAND_FONT = "Orbitron, 'Exo 2', 'Segoe UI', Inter, system-ui, sans
    как кнопки». Вкладка не обведена со всех сторон: у неё скруглён только
    верх, а низ сливается с полосой под рядом — открытая вкладка эту полосу
    разрывает и этим показывает, что страница ниже принадлежит ей. */
-export const TAB_LINE = { borderBottom: `1px solid ${C.line}` };
-export const tab = (on) => ({
-  background: on ? C.panel : "transparent",
-  border: `1px solid ${on ? C.line : "transparent"}`,
-  borderBottom: `1px solid ${on ? C.panel : C.line}`,
-  borderRadius: "8px 8px 0 0",
-  color: on ? ACC : C.muted,
-  fontWeight: on ? 600 : 400,
-  padding: "6px 10px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap",
-  marginBottom: -1,
-});
+/* ─────── ВЕРХНЯЯ ПАНЕЛЬ И ВКЛАДКИ ───────
+
+   Вкладки больше не «папки с подрезанной линией снизу»: это КАПСУЛЫ на
+   стеклянном баре. Активная — тонированная мятой с её свечением, текст
+   `chip-mint-text`; неактивная — без фона, тихий текст. Активной на
+   экране всегда ровно одна: тонировать две значило бы сказать, что
+   открыты обе.
+
+   Линия под рядом убрана вместе с папками — её роль теперь играет сам
+   бар: панель кончается там, где кончается стекло. */
+export const TAB_LINE = {
+  ...glass("lg"),
+  borderRadius: "var(--radius-lg)",
+  padding: "8px 12px",
+};
+export const tab = (on) => {
+  const t = tintOf(OK);
+  return {
+    background: on ? t.bg : "transparent",
+    border: `1px solid ${on ? t.line : "transparent"}`,
+    borderRadius: "var(--radius-pill)",
+    color: on ? t.text : C.muted,
+    boxShadow: on ? t.glow : "none",
+    fontWeight: 600, fontSize: 13, lineHeight: "18px",
+    padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap",
+    fontFamily: "var(--font-sans)",
+    transition: "background .15s ease, color .15s ease",
+  };
+};
 
 /* ─────── ПОЛЯ С ЧЕРНОВИКОМ ───────
    Значение уходит наружу по расфокусу или по Enter, поэтому пересчёт
@@ -491,11 +641,18 @@ export function TimeBar({ task, func }) {
    смотрящему незнаком, и лица у него для этого человека нет. */
 export function Avatar({ src = "", name = "", size = 36, logo = false, onClick, title }) {
   const letter = String(name || "").trim().slice(0, 1).toUpperCase();
+  /* КОЛЬЦО, А НЕ РАМКА (бренд-бук): тип участника передаётся кольцом
+     вокруг аватара — циан у человека, фиалковый у агента и виртуального
+     сотрудника. Цветная рамка слева осталась в прежней версии. */
+  const ring = logo ? VIO : ACC;
   const round = {
-    width: size, height: size, flex: `0 0 ${size}px`, borderRadius: "50%",
-    overflow: "hidden", background: C.panel2, border: `1px solid ${C.line}`,
+    width: size, height: size, flex: `0 0 ${size}px`, borderRadius: "var(--radius-pill)",
+    overflow: "hidden", background: "var(--surface-glass-strong)",
+    border: "1px solid var(--border-glass-soft)",
+    boxShadow: `0 0 0 2px ${ring}, ${logo ? "none" : "var(--shadow-glow-cyan)"}`,
     display: "flex", alignItems: "center", justifyContent: "center",
-    color: C.muted, fontSize: Math.round(size * 0.42), fontWeight: 700,
+    color: logo ? "var(--chip-violet-text)" : C.second,
+    fontSize: Math.round(size * 0.42), fontWeight: 700,
     padding: 0, lineHeight: 1,
   };
   const inside = logo

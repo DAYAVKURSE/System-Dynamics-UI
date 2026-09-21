@@ -32,7 +32,7 @@ export function UnitLine({ u, traitName, unitName }) {
         {/* Код — и есть имя вещи, но он должен читаться как код, а не как
             слово: моноширинно, с разрядкой. */}
         {u.code
-          ? <span style={{ fontFamily: "ui-monospace, monospace", letterSpacing: 1 }}>
+          ? <span style={{ fontFamily: "var(--font-sans)", letterSpacing: 1 }}>
               {u.code}</span>
           : unitLabel(u)}
       </span>

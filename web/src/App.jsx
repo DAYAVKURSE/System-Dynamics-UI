@@ -7,7 +7,7 @@ import ShareView, { shareFromLocation } from "./components/ShareView.jsx";
 
 // Тот же тёмный фон, что и в самой модели (C.ink) — Telegram красит им
 // системные элементы (шапку, safe area), чтобы WebApp не мигал белым при запуске.
-const BG = "#0E1420";
+const BG = "var(--bg-base)";
 
 export default function App() {
   // Ссылка на звонок открывает окно звонка, а не модель с вкладками: у звонка

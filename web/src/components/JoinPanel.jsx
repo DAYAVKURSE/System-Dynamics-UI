@@ -67,7 +67,7 @@ export default function JoinPanel({ me, token, onJoined, onSkip }) {
           {view && (<>
             <div style={{ fontSize: 12, lineHeight: 1.8, marginTop: 6 }}>
               <div><span style={{ color: C.muted }}>страница: </span>
-                <span style={{ fontFamily: "ui-monospace, monospace" }}>{view.name}</span></div>
+                <span style={{ fontFamily: "var(--font-sans)" }}>{view.name}</span></div>
               <div><span style={{ color: C.muted }}>роль: </span>
                 {view.role?.name || "не назначена"}</div>
               {view.profile?.about && (

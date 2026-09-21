@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { C, OK, BAD, ACC, S, btn, TxtField } from "./ui.jsx";
+import { C, OK, BAD, ACC, S, btn, TxtField, DANGER_LINE } from "./ui.jsx";
 import CallRoom from "./CallRoom.jsx";
 import {
   callLink, createMeeting, deleteMeeting, deleteRecording, listMeetings, listRecordings,
@@ -106,11 +106,11 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
               <span style={{ fontSize: 10.5, color: C.muted }}>
                 {m.at || fmt(m.createdAt)}</span>
               <button style={btn(true, OK)} onClick={() => onOpenCall(m.id)}>Войти</button>
-              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+              <button style={{ ...btn(true, BAD) }}
                 disabled={busy} onClick={() => act(() => deleteMeeting(m.id))}>✕</button>
             </div>
             <div style={{ fontSize: 10, color: ACC, marginTop: 5, wordBreak: "break-all",
-              fontFamily: "ui-monospace, Menlo, monospace" }}>
+              fontFamily: "var(--font-sans)" }}>
               {/* Ссылку собирает сервер: только он знает имя бота и
                   приложения звонка. Своя — на случай работы без сервера. */}
               {m.link || callLink(m.id)}</div>
@@ -163,7 +163,7 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
                     сервер сразу, на телефоне его не осталось, и час созвона
                     не должен исчезать от промаха пальцем. */}
                 <button style={{ ...btn(confirmDel === r.id, BAD), color: BAD,
-                  borderColor: "#5A2436" }} disabled={busy}
+                  borderColor: DANGER_LINE }} disabled={busy}
                   onClick={() => {
                     if (confirmDel !== r.id) { setConfirmDel(r.id); setRecMsg(""); return; }
                     setConfirmDel("");

@@ -672,8 +672,11 @@ describe("ресурс и фактор принимает человек — к�
   it("новый ресурс красный и подписан «не принят»; «Принять» делает его зелёным «ресурс»", () => {
     const card = addTrait("коробки");
     expect(within(card).getByText("не принят")).toBeInTheDocument();
-    // jsdom отдаёт цвет как rgb: #FF5C7A — это rgb(255, 92, 122).
-    expect(card.style.borderLeft).toContain("rgb(255, 92, 122)");
+    /* Состояние — свечением по контуру, а не полоской слева
+       (дизайн-система Blocktree Liquid Glass): коралл говорит «не
+       принят» всей формой карточки. */
+    expect(card.style.border).toContain("rgba(255, 90, 120");
+    expect(card.style.boxShadow).toContain("shadow-glow-coral");
     fireEvent.click(within(card).getByRole("button", { name: "принять ресурс коробки" }));
     expect(within(card).getByText("ресурс")).toBeInTheDocument();
     expect(within(card).queryByText("не принят")).toBeNull();

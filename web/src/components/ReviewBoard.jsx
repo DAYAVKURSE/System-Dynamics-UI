@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, TimeBar, btn, nm } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, TimeBar, btn, nm, DANGER_LINE } from "./ui.jsx";
 import { ChatButton, Discussion, RateButton, RateModal, STATUSES, TaskSetup, chatRoleAt,
   funcLabel, lackOf, markOf, newMark, newMessage, roleOf, whyNotSet }
   from "./TasksBoard.jsx";
@@ -112,7 +112,7 @@ function Delete({ t, can, killId, setKillId, onKill, isOwner = false }) {
   }
   return (
     <button style={{ ...btn(false), padding: "2px 8px", fontSize: 10.5, color: BAD,
-      borderColor: "#5A2436" }}
+      borderColor: DANGER_LINE }}
       aria-label={`удалить задачу ${t.title}`}
       onClick={(e) => { e.stopPropagation(); setKillId(t.id); }}>Удалить</button>);
 }
@@ -234,7 +234,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
                   <button style={btn(true, OK)}
                     onClick={() => { onAccept(t, note); setNote(""); setOpenId(null); }}>
                     Принять</button>
-                  <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+                  <button style={{ ...btn(true, BAD) }}
                     disabled={!note.trim()}
                     title={note.trim() ? "" : "Напишите, что доработать"}
                     onClick={() => { onReturn(t, note); setNote(""); setOpenId(null); }}>

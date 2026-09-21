@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, Stars, TimeBar, TxtField, ScrollRail } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, Stars, TimeBar, TxtField, ScrollRail, DANGER_LINE } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson, uniqPorts } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
@@ -1492,10 +1492,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               <input readOnly value={u?.code||""}
                 aria-label={`уникальный код ${i+1}: ${name}`}
                 style={{...S.inp,width:"100%",fontSize:11.5,
-                  fontFamily:"ui-monospace, monospace",letterSpacing:1}}/>)}
+                  fontFamily:"var(--font-sans)",letterSpacing:1}}/>)}
             {k!=="code"&&(
               <button type="button" style={{...btn(false),fontSize:10.5,color:BAD,
-                borderColor:"#5A2436",marginTop:5}}
+                borderColor:DANGER_LINE,marginTop:5}}
                 aria-label={`удалить единицу ${i+1}: ${name}`}
                 onClick={()=>dropUnit(port.trait,i)}>Удалить</button>)}
             {err&&(<div style={{fontSize:10.5,color:BAD,marginTop:4}}>{err}</div>)}
@@ -1515,7 +1515,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       setOpenUnit(`${port.trait}~${n}`);
     };
     return (
-      <div key={port.id} style={{border:`1px solid ${must&&done<n?"#5A2436":C.line}`,
+      <div key={port.id} style={{border:`1px solid ${must&&done<n?DANGER_LINE:C.line}`,
         borderRadius:8,marginBottom:6,background:C.panel2}}>
         <button type="button" aria-expanded={on} aria-label={`ресурс: ${name}`}
           onClick={()=>setOpenGive(on?"":port.trait)} className="flex items-center gap-2"
@@ -1548,7 +1548,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     <div key="proof" className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:8}}>
       <label style={{...btn(false),fontSize:11,padding:"4px 8px",
         cursor:proofBusy?"default":"pointer",opacity:proofBusy?0.6:1,
-        borderColor:proof?undefined:"#5A2436"}}>
+        borderColor:proof?undefined:DANGER_LINE}}>
         {proofBusy?"Загружаю…":proof?"Заменить подтверждение":"Загрузить подтверждение"}
         <input type="file" style={{display:"none"}} disabled={proofBusy}
           aria-label="подтверждение выдачи"
@@ -1917,7 +1917,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                       {!ro&&!isCanceled(t)&&dropId!==t.id&&isTaken(t)
                         &&(t.status==="progress"||t.status==="deadline")&&(
                         <button style={{...btn(false),padding:"3px 8px",fontSize:11,
-                          color:BAD,borderColor:"#5A2436",whiteSpace:"nowrap"}}
+                          color:BAD,borderColor:DANGER_LINE,whiteSpace:"nowrap"}}
                           aria-label={`отменить работу ${t.title}`}
                           onClick={e=>{e.stopPropagation();setDropId(t.id);}}>
                           Отменить</button>)}

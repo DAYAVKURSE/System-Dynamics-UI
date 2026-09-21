@@ -1,0 +1,116 @@
+/* Blocktree Liquid Glass — compiled design tokens */
+/* Сгенерировано из tokens.json, тема: dark (единственная) */
+:root, [data-theme="dark"] {
+  --bg-base: #05070c;
+  --bg-elevated: #0a0f18;
+  --surface-glass: rgba(255,255,255,0.055);
+  --surface-glass-strong: rgba(255,255,255,0.09);
+  --border-glass: rgba(255,255,255,0.14);
+  --border-glass-soft: rgba(255,255,255,0.08);
+  --text-primary: #F4F7F8;
+  --text-secondary: #9AA7B2;
+  --text-muted: #7A8892;
+  --accent-mint: #3CF2A0;
+  --accent-cyan: #49E1FF;
+  --accent-coral: #FF5A78;
+  --accent-amber: #FFC24D;
+  --accent-violet: #B48CFF;
+  --on-mint: #052013;
+  --on-cyan: #04202A;
+  --on-amber: #2A1900;
+  --on-danger: #2A0007;
+  --chip-mint-text: #DFFFF1;
+  --chip-cyan-text: #DFFBFF;
+  --chip-amber-text: #FFE9C2;
+  --chip-coral-text: #FFD9E1;
+  --chip-violet-text: #EADCFF;
+  --shadow-glass-panel: inset 0 1.5px 0 rgba(255,255,255,.5), inset 0 -1px 0 rgba(255,255,255,.06), 0 14px 34px rgba(0,0,0,.45);
+  --shadow-glass-bar: inset 0 1px 0 rgba(255,255,255,.4), 0 10px 26px rgba(0,0,0,.4);
+  --shadow-glow-mint: 0 0 16px rgba(60,242,160,.3);
+  --shadow-glow-cyan: 0 0 16px rgba(77,225,255,.3);
+  --shadow-glow-coral: 0 0 14px rgba(255,90,120,.25);
+  --shadow-glow-amber: 0 0 16px rgba(255,196,77,.25);
+}
+
+:root {
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+  --blur-sm: 12px;
+  --blur-md: 18px;
+  --blur-lg: 24px;
+  --font-sans: -apple-system, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+}
+
+.display-lg {
+  font-family: var(--font-sans);
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 700;
+}
+
+.title-lg {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.title-md {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 21px;
+  font-weight: 600;
+}
+
+.label-md {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.label-sm {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+}
+
+.body-md {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
+.body-sm {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+.caption {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}

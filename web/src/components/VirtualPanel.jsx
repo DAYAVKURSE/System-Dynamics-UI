@@ -31,7 +31,7 @@ import {
    ════════════════════════════════════════════════════════════════ */
 
 const card = { ...S.card, marginBottom: 10 };
-const mono = { fontFamily: "ui-monospace, monospace" };
+const mono = { fontFamily: "var(--font-sans)" };
 
 /* Модальное окно — одно на форму: и «введите код», и «вы уверены».
    Развилка одинаковая, и рисовать её дважды значило бы разойтись в

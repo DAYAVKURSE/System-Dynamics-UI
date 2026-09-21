@@ -27,12 +27,15 @@ describe("подпись на схеме", () => {
   it("у каждого актива под названием написано, что это актив", () => {
     scheme();
     const svg = container.querySelector("[data-scheme-box] svg");
-    const marks = [...svg.querySelectorAll("text")].filter((t) => t.textContent === "актив");
+    // Подпись узла — «● актив»: точка того же цвета, что и контур.
+    const marks = [...svg.querySelectorAll("text")]
+      .filter((t) => t.textContent === "● актив");
     expect(marks.length).toBeGreaterThan(0);
   });
 
   const reds = () => [...container.querySelectorAll("svg text")]
-    .filter((t) => t.textContent === "актив" && t.getAttribute("fill") !== "#E6EDF7").length;
+    .filter((t) => t.textContent === "● актив"
+      && t.getAttribute("fill") === "var(--accent-coral)").length;
 
   it("«?» стоит ровно у красных подписей, и красные в модели есть", () => {
     // Стартовая модель собрана верно, красных в ней нет — заводим свой

@@ -219,7 +219,7 @@ export default function Pomodoro({ taskId, meId }) {
           <div aria-label="часы томата" data-done={done ? "" : undefined}
             style={{ fontSize: 30, fontWeight: 700, lineHeight: 1.1,
               fontVariantNumeric: "tabular-nums",
-              fontFamily: "ui-monospace, monospace",
+              fontFamily: "var(--font-sans)",
               color: done ? OK : C.text }}>
             {clockText(left)}</div>
           <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>

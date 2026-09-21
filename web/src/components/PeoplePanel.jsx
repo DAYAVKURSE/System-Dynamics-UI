@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, Download, TxtField } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, S, btn, Download, TxtField , statusEdge} from "./ui.jsx";
 import { renameRole,
   ALL_TABS, TAB_NAMES, addRole, listOrg, removeRole, removeUser, setRoleContract, setRoleTabs,
   setUserRoles,
@@ -224,10 +224,12 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
          строкой с чертой снизу: у человека две-три строки (имя, роли,
          договоры), и черта между ними не отделяла одного от другого. */
       <div key={u.id} className="flex flex-wrap gap-2" aria-label={`участник ${u.name}`}
-        style={{ alignItems: "center", padding: 8, marginBottom: 6,
-          background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-          /* Полоска — у ВСЕХ (владелец, 2026-09-20). */
-          borderLeft: `4px solid ${userTone({ ...u, owner })}` }}>
+        style={{ alignItems: "center", padding: "var(--space-12)",
+          marginBottom: "var(--space-8)", background: C.panel2,
+          borderRadius: "var(--radius-md)",
+          /* Состояние участника — свечением по контуру, у ВСЕХ (владелец,
+             2026-09-20); полоска слева ушла вместе с прежним дизайном. */
+          ...statusEdge(userTone({ ...u, owner })) }}>
         <span style={{ fontSize: 12.5, flex: "1 1 130px" }}>
           {u.name}
           {u.username ? <span style={{ color: C.muted }}> @{u.username}</span> : null}
@@ -269,7 +271,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                   <span style={{ fontSize: 10.5, color: WARN }}>
                     ждёт договора: {roleName(u.pending) || u.pending}</span>)}
                 <span style={{ flex: 1 }} />
-                <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+                <button style={{ ...btn(true, BAD) }}
                   disabled={busy} aria-label={`убрать: ${u.name}`}
                   onClick={() => act(() => removeUser(u.id))}>✕</button>
               </div>
@@ -344,7 +346,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
               <span style={{ fontSize: 10, color: C.muted }}>
                 участников: {org.users.filter((u) => (u.roles || []).includes(r.id)).length}</span>
               {r.builtin && <span style={{ fontSize: 9.5, color: C.muted }}>встроенная</span>}
-              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+              <button style={{ ...btn(true, BAD) }}
                 disabled={busy || org.roles.length <= 1}
                 title={org.roles.length <= 1 ? "Последнюю роль удалить нельзя — позвать станет некого" : ""}
                 onClick={() => act(() => removeRole(r.id))}>Удалить роль</button>

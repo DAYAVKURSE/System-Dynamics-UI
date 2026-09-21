@@ -540,7 +540,7 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
           {mineOrder && order.status === "open" && (
             <button type="button" style={btn(false)} disabled={busy} onClick={() => setEdit(true)}>Правка</button>)}
           {(mineOrder || isOwner) && (
-            <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }} disabled={busy}
+            <button type="button" style={{ ...btn(true, BAD) }} disabled={busy}
               aria-label={`удалить заказ ${order.name}`}
               onClick={() => act(() => dropOrder(order.id))}>Удалить</button>)}
           {!mineOrder && order.status === "open" && !myOffer && !replying && (
@@ -634,7 +634,7 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
         {(mineSvc || isOwner) && (
           <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
             {mineSvc && <button type="button" style={btn(false)} disabled={busy} onClick={() => setEdit(true)}>Правка</button>}
-            <button type="button" style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }} disabled={busy}
+            <button type="button" style={{ ...btn(true, BAD) }} disabled={busy}
               aria-label={`удалить услугу ${s.name}`} onClick={() => act(() => dropService(s.id))}>Удалить</button>
           </div>)}
       </>)}

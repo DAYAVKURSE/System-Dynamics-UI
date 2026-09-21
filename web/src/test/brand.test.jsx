@@ -47,8 +47,9 @@ describe("шапка", () => {
     // Знак и вкладки — в одной строке, знак первым.
     expect(brand.compareDocumentPosition(tab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(brand.closest("div").parentElement).toBe(tab.closest("div").parentElement);
-    // Верх скруглён, низ — нет: вкладка сливается с полосой под рядом.
-    expect(tab.style.borderRadius).toBe("8px 8px 0 0");
+    /* Вкладка — КАПСУЛА на стеклянном баре (дизайн-система Blocktree
+       Liquid Glass): папок с подрезанным низом больше нет. */
+    expect(tab.style.borderRadius).toBe("var(--radius-pill)");
   });
 
   it("«сохранить» без имени сценария уводит туда, где его называют", () => {

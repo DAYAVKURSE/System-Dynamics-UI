@@ -129,7 +129,7 @@ export default function ExprField({ value = "", traits = [], ports = [], onCommi
           {(plain ? PLAIN_KEYS : KEYS).map((k) => (
             <button key={k} aria-label={`знак ${k}`} type="button"
               onMouseDown={(e) => { e.preventDefault(); put(k); }}
-              style={{ ...btn(false), fontFamily: "ui-monospace, Menlo, monospace",
+              style={{ ...btn(false), fontFamily: "var(--font-sans)",
                 fontSize: 12, padding: "2px 8px", minWidth: 26 }}>{k}</button>))}
         </div>)}
       {pick && !!items.length && (

@@ -1,6 +1,6 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useState } from "react";
-import { C, OK, BAD, ACC, WARN, Grip, NameField, S, Stars, btn, nm, TxtField, useRowDrag } from "./ui.jsx";
+import { C, OK, BAD, ACC, WARN, Grip, NameField, S, Stars, btn, nm, TxtField, useRowDrag, DANGER_LINE , statusEdge} from "./ui.jsx";
 import ExprField from "./ExprField.jsx";
 import { evalPorts, letterOf } from "../lib/expr.js";
 import { DUR_UNITS, WORKER_KINDS, byCrew, byPost, checkFunc, checkTrait, countWorkers,
@@ -65,12 +65,14 @@ export function Section({ title, hint, addLabel, onAdd, empty, children, count }
 export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle,
   onDelete, children, accent }) {
   return (
-    /* Полоса слева — состояние карточки одним взглядом, без чтения. В
-       списке из двадцати функций это единственный способ увидеть, где
-       недоделано: подпись под названием для этого приходится читать. */
-    <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-      padding: 8, marginBottom: 6,
-      borderLeft: `2px solid ${accent || C.line}` }}>
+    /* Состояние карточки одним взглядом, без чтения: свечение по контуру
+       в цвет состояния. В списке из двадцати функций это единственный
+       способ увидеть, где недоделано, — подпись под названием для этого
+       приходится читать. Прежде здесь была полоска слева; дизайн-система
+       от неё отказалась (`statusEdge` в ui.jsx). */
+    <div style={{ background: C.panel2, borderRadius: "var(--radius-md)",
+      padding: "var(--space-12)", marginBottom: "var(--space-8)",
+      ...statusEdge(accent) }}>
       <div className="flex items-center gap-2">
         <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
           onClick={onToggle} aria-label={open ? `свернуть ${titleLabel}` : `развернуть ${titleLabel}`}>
@@ -79,8 +81,7 @@ export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle
         <NameField value={title} onCommit={onTitle}
           style={{ fontSize: 12.5, fontWeight: 600 }}
           aria-label={`название ${titleLabel}`} />
-        <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
-          fontSize: 11, padding: "2px 6px" }} onClick={onDelete}>удалить</button>
+        <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }} onClick={onDelete}>удалить</button>
       </div>
       {mark && <div style={{ marginTop: 2 }}>{mark}</div>}
       {summary && (
@@ -672,7 +673,7 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
                             {out ? " → «" : " ← «"}{assetName(at.e)}»</span>)}
                       </span>
                       <button style={{ ...btn(false), fontSize: 11, padding: "0 5px",
-                        color: BAD, borderColor: "#5A2436" }}
+                        color: BAD, borderColor: DANGER_LINE }}
                         aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
                         onClick={() => onDel(p.id)}>×</button>
                     </div>
@@ -949,7 +950,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 4 }}>
                   <TxtField value={c} aria-label={`критерий ${i + 1}`} style={{ flex: 1, fontSize: 12 }}
                     onCommit={(v) => setChecksOf(f, (f.checks || []).map((y, k) => (k === i ? v : y)).filter((y) => String(y).trim()))} />
-                  <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436", fontSize: 11, padding: "2px 6px" }}
+                  <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }}
                     aria-label={`убрать критерий ${i + 1}`}
                     onClick={() => setChecksOf(f, (f.checks || []).filter((y, k) => k !== i))}>✕</button>
                 </div>))}
@@ -1334,17 +1335,16 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
         // Прежние записи пометки не знали: молчание — «не принят».
         const taken = x.accepted === true;
         return (
-          <div key={x.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 8, marginTop: 6,
-            borderLeft: `2px solid ${taken ? OK : BAD}` }}>
+          <div key={x.id} style={{ background: C.panel2,
+            borderRadius: "var(--radius-md)", padding: "var(--space-12)",
+            marginTop: "var(--space-8)", ...statusEdge(taken ? OK : BAD) }}>
             <div className="flex items-center gap-2">
               <NameField value={x.name} aria-label="название фактора"
                 style={{ flex: "1 1 140px", fontSize: 12.5 }}
                 onCommit={(v) => up(x.id, { name: v })} />
               <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
                 {used(x.id) ? `функций: ${used(x.id)}` : "не используется"}</span>
-              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436",
-                fontSize: 11, padding: "2px 6px" }} aria-label={`удалить фактор ${x.name}`}
+              <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }} aria-label={`удалить фактор ${x.name}`}
                 onClick={() => del(x.id)}>✕</button>
             </div>
             {/* Та же подпись, что у функции и ресурса: красная, пока человек
@@ -1420,7 +1420,7 @@ export function Kinds({ kinds, onUp, onAdd, onDel, msg }) {
               <input type="color" value={k.color} aria-label={`цвет ${k.name}`}
                 onChange={(e) => onUp(k.id, "color", e.target.value)}
                 style={{ width: 38, height: 30, background: "none", border: "none" }} />
-              <button style={{ ...btn(false), color: BAD, borderColor: "#5A2436" }}
+              <button style={{ ...btn(true, BAD) }}
                 onClick={() => onDel(k.id)}>✕</button>
             </div>))}
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { C, OK, BAD, ACC, S, btn } from "./ui.jsx";
+import { C, OK, BAD, ACC, S, btn, DANGER_LINE } from "./ui.jsx";
 import {
   RECORDER_OPTS, callLink, getIce, getLocalStream, getMeeting, getScreenStream, pollSignals,
   recorderMime, screenShareSupported, sendSignal,
@@ -595,7 +595,7 @@ export default function CallRoom({
         : <button aria-label="запись" title="записать" style={ctl(false)} onClick={startRec}>
           {fit ? "⏺" : "⏺ записать"}</button>)}
       <button aria-label="выйти" title="выйти из звонка"
-        style={ctl(false, null, { color: BAD, borderColor: "#5A2436" })} onClick={leave}>
+        style={ctl(false, null, { color: BAD, borderColor: DANGER_LINE })} onClick={leave}>
         {fit ? "✕" : "Выйти"}</button>
     </>);
 
@@ -715,7 +715,7 @@ export default function CallRoom({
         <div style={{ ...S.card }}>
           <div style={S.lbl}>ссылка на этот звонок</div>
           <div style={{ fontSize: 11, color: ACC, marginTop: 6, wordBreak: "break-all",
-            fontFamily: "ui-monospace, Menlo, monospace" }}>
+            fontFamily: "var(--font-sans)" }}>
             {callLink(meeting.id)}</div>
         </div>)}
     </div>);

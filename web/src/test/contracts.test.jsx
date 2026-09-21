@@ -153,17 +153,24 @@ describe("цвет полоски по сроку договора", () => {
     expect(userTone({ agent: true }, NOW)).toBe(OK);
   });
 
-  it("полоска стоит слева у карточки участника", async () => {
+  /* СВЕЧЕНИЕ ПО КОНТУРУ, А НЕ ПОЛОСКА СЛЕВА (дизайн-система Blocktree
+     Liquid Glass: «откажитесь от цветной рамки слева как маркера статуса»).
+     Цвет тот же и значит то же — говорит им вся форма карточки. */
+  it("срок договора виден по цвету контура карточки участника", async () => {
     ownerServer();
     render(<PeoplePanel me={ME} />);
-    // У Петра договор кончился 30.06.2026 — красная.
+    // У Петра договор кончился 30.06.2026 — коралл.
     const petr = await screen.findByLabelText("участник Пётр");
-    expect(petr.style.borderLeftWidth).toBe("4px");
-    expect(petr.style.borderLeftColor).toBe(rgb(BAD));
-    // У Новичка договор действует по 2027 год — зелёная.
-    expect(screen.getByLabelText("участник Новичок").style.borderLeftColor).toBe(rgb(OK));
-    // У владельца договора нет, но он бессрочный — тоже зелёная.
-    expect(screen.getByLabelText("участник Владелец").style.borderLeftColor).toBe(rgb(OK));
+    // Рамка ровная со всех сторон: левая ничем не выделена.
+    expect(petr.style.borderLeftWidth).toBe(petr.style.borderTopWidth);
+    expect(petr.style.border).toContain("rgba(255, 90, 120");
+    expect(petr.style.boxShadow).toContain("shadow-glow-coral");
+    // У Новичка договор действует по 2027 год — мята.
+    expect(screen.getByLabelText("участник Новичок").style.border)
+      .toContain("rgba(60, 242, 160");
+    // У владельца договора нет, но он бессрочный — тоже мята.
+    expect(screen.getByLabelText("участник Владелец").style.border)
+      .toContain("rgba(60, 242, 160");
   });
 });
 
@@ -172,7 +179,8 @@ describe("заявка на участие и договоры участник�
     const calls = ownerServer();
     render(<PeoplePanel me={ME} />);
     const role = await screen.findByLabelText("роль «исполнитель»: Новичок");
-    expect(role.style.color).toBe(rgb(WARN));
+    // Тонированная янтарём капсула: текст у неё свой — chip-amber-text.
+    expect(role.style.color).toBe("var(--chip-amber-text)");
     // Нажатие не впускает молча: сперва вопрос.
     fireEvent.click(role);
     expect(calls).toHaveLength(0);

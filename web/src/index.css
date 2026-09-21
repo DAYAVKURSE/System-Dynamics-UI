@@ -1,10 +1,88 @@
+/* Токены дизайн-системы Blocktree Liquid Glass — как они пришли из
+   дизайна, без правок: переменные, шкалы и текстовые стили. Всё
+   остальное в приложении ссылается на них и своих значений не заводит. */
+@import "./styles/tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ════════════════════════════════════════════════════════════════
+   ФОН ЭКРАНА
+
+   Бренд-бук: «радиальный градиент из bg-base (низ, доминирует) и
+   bg-elevated (верх/середина) с одним-двумя мягкими цветными бликами
+   accent-mint/accent-cyan на 12–20% прозрачности в углах — это должно
+   оставаться фоном, а не ярким пятном поверх контента».
+
+   Блики — на фиксированном слое под содержимым: при прокрутке они не
+   едут, и стекло панелей всё время проходит над ними, а не мимо.
+   ════════════════════════════════════════════════════════════════ */
 html,
 body,
 #root {
   height: 100%;
-  background: #0e1420;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--bg-elevated) 0%, var(--bg-base) 62%),
+    radial-gradient(46% 32% at 2% 0%, rgba(60, 242, 160, 0.20), transparent 70%),
+    radial-gradient(50% 34% at 100% 8%, rgba(77, 225, 255, 0.18), transparent 72%),
+    radial-gradient(60% 40% at 50% 100%, rgba(180, 140, 255, 0.10), transparent 70%),
+    var(--bg-base);
+}
+
+/* Родные чекбоксы и радио — в мяте и циане системы, а не в синем
+   браузера: дизайн-система требует ведомого состояния своим акцентом.
+   `accent-color` красит и галочку, и точку, не ломая доступность. */
+input[type="checkbox"] { accent-color: var(--accent-mint); }
+input[type="radio"] { accent-color: var(--accent-cyan); }
+input[type="range"] { accent-color: var(--accent-cyan); }
+
+/* Поля ввода и кнопки наследуют шрифт системы, а не браузерный. */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
+
+/* Полосы прокрутки внутри стекла: тонкие и тихие — иначе они спорят с
+   материалом, ради которого всё и затевалось. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-glass) transparent;
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--border-glass);
+  border-radius: var(--radius-pill);
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ─────── «УМЕНЬШИТЬ ПРОЗРАЧНОСТЬ» ───────
+   Доступность: «подменяйте surface-glass и backdrop-filter на
+   непрозрачный bg-elevated без размытия, сохраняя border-glass».
+   Материал не должен оставаться единственным способом отличить панель
+   от фона. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --surface-glass: #131a26;
+    --surface-glass-strong: #1b2432;
+  }
+  [style*="backdrop-filter"] { backdrop-filter: none !important; }
 }

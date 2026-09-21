@@ -44,31 +44,30 @@ describe("формы над схемой", () => {
   });
 });
 
-describe("полоски на блоках", () => {
-  it("ровная полоска внутри блока: зелёная у принятого актива, красная у непринятого", () => {
+/* СОСТОЯНИЕ УЗЛА — КОНТУРОМ, А НЕ ПОЛОСКОЙ (дизайн-система Blocktree
+   Liquid Glass: «откажитесь от цветной рамки слева как маркера статуса…
+   используйте мягкое свечение по контуру карточки»). */
+describe("состояние блока на схеме", () => {
+  it("цвет контура блока: мята у принятого актива, коралл у непринятого", () => {
     const blocks = container.querySelectorAll("[data-entity]");
     expect(blocks.length).toBeGreaterThan(0);
     blocks.forEach((g) => {
-      const frame = g.querySelector("rect");
-      const stripe = g.querySelector("rect[data-state]");
-      expect(stripe).not.toBeNull();
-      const fx = Number(frame.getAttribute("x")), fy = Number(frame.getAttribute("y"));
-      const fh = Number(frame.getAttribute("height"));
-      // Полоска не касается рамки: отступ и слева, и сверху, и снизу.
-      expect(Number(stripe.getAttribute("x"))).toBeGreaterThan(fx + 2);
-      expect(Number(stripe.getAttribute("y"))).toBeGreaterThan(fy + 2);
-      expect(Number(stripe.getAttribute("y")) + Number(stripe.getAttribute("height")))
-        .toBeLessThan(fy + fh - 2);
+      const frame = g.querySelector("rect[data-state]");
+      expect(frame).not.toBeNull();
+      // Рамка совпадает с самим узлом: полоски внутри больше нет.
+      expect(frame.getAttribute("width")).toBe(
+        g.querySelector("rect").getAttribute("width"));
+      expect(frame.getAttribute("fill")).toBe("var(--surface-glass-strong)");
     });
     const states = new Set(Array.from(container.querySelectorAll("rect[data-state]"))
       .map((r) => r.getAttribute("data-state")));
-    // В образце есть и принятые, и непринятые активы — оба цвета на месте.
     expect(states.has("ok") || states.has("bad")).toBe(true);
-    const okFill = container.querySelector('rect[data-state="ok"]')?.getAttribute("fill");
-    const badFill = container.querySelector('rect[data-state="bad"]')?.getAttribute("fill");
-    if (okFill && badFill) expect(okFill).not.toBe(badFill);
+    const okLine = container.querySelector('rect[data-state="ok"]')?.getAttribute("stroke");
+    const badLine = container.querySelector('rect[data-state="bad"]')?.getAttribute("stroke");
+    if (okLine && badLine) expect(okLine).not.toBe(badLine);
   });
 });
+
 
 /* Камера: viewBox svg. Окно в тестах не измеряется (0×0) — берётся
    запасной размер 1000×600, и масштаб = 1000 / ширина viewBox. */

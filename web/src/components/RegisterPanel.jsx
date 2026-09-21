@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, S, btn, DANGER_LINE } from "./ui.jsx";
 import { agreementHtml, openRoles, registerRemote, signAgreement } from "../identity.js";
 import { reportSrc } from "../storage.js";
 import { DocViewer, PlaceholderFields, dayText } from "./ContractsPanel.jsx";
@@ -222,7 +222,7 @@ export default function RegisterPanel({ me, onBack, onDone }) {
           <div style={step}>{invited ? "2 · подписанный экземпляр" : "3 · подписанный экземпляр"}</div>
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
             <label style={{ ...btn(false), fontSize: 12, cursor: busy ? "default" : "pointer",
-              opacity: busy ? 0.6 : 1, borderColor: file ? undefined : "#5A2436" }}>
+              opacity: busy ? 0.6 : 1, borderColor: file ? undefined : DANGER_LINE }}>
               {file ? "Заменить файл" : "Приложить подписанный договор"}
               <input type="file" style={{ display: "none" }} disabled={busy}
                 aria-label="подписанный договор"
