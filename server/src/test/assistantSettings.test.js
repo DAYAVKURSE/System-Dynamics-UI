@@ -143,6 +143,41 @@ describe("таблица «задача → модель» и modelFor", () => {
     expect(modelFor("200", "неизвестная задача").model).toBe("gpt-4o-mini");
   });
 
+  /* ЧЕМ ГОВОРИТЬ, А ЧЕМ СЛУШАТЬ (владелец, 2026-09-21: «Groq ответил 400:
+     The model whisper-large-v3 does not support chat completions. При этом
+     Whisper у меня установлен для расшифровки, а как основная — OpenRouter
+     free»). Назначенная расшифровке модель попадает и в коллекцию агента,
+     а разговор брал из коллекции первую — ею и оказывался Whisper. */
+  it("модель расшифровки не отвечает словами, даже если легла в коллекцию первой", () => {
+    const groq = withModels("200", { name: "Groq" }, ["whisper-large-v3", "llama-3.3-70b"]);
+    updateAgent("200", "assistant",
+      { uses: { transcribe: { providerId: groq.id, model: "whisper-large-v3" } } });
+    // Whisper теперь в коллекции и стоит первым — но в чат уходит не он.
+    expect(agentFor("200", "assistant").models[0]).toMatchObject({ model: "whisper-large-v3" });
+    expect(modelFor("200", "chat").model).toBe("llama-3.3-70b");
+    expect(modelFor("200", "transcribe").model).toBe("whisper-large-v3");
+  });
+
+  it("назначение «Основная» сильнее коллекции и не сбивается сменой расшифровки", () => {
+    const groq = withModels("200", { name: "Groq" }, ["whisper-large-v3"]);
+    const free = withModels("200", { name: "OpenRouter" }, ["llama-3.3-70b:free"]);
+    updateAgent("200", "assistant",
+      { uses: { transcribe: { providerId: groq.id, model: "whisper-large-v3" } } });
+    updateAgent("200", "assistant",
+      { uses: { main: { providerId: free.id, model: "llama-3.3-70b:free" } } });
+    expect(modelFor("200", "chat")).toMatchObject({ providerName: "OpenRouter",
+      model: "llama-3.3-70b:free" });
+    // Расшифровку переставили — разговор остался при своей модели.
+    updateAgent("200", "assistant",
+      { uses: { transcribe: { providerId: free.id, model: "llama-3.3-70b:free" } } });
+    expect(modelFor("200", "chat").model).toBe("llama-3.3-70b:free");
+  });
+
+  it("последний рубеж не хватает речевую модель: отличить её там нечем, кроме имени", () => {
+    withModels("200", { name: "Groq" }, ["whisper-large-v3", "llama-3.3-70b"]);
+    expect(modelFor("200", "chat").model).toBe("llama-3.3-70b");
+  });
+
   it("провайдер без моделей в умолчание не попадает — выбирать у него нечего", () => {
     add("200", { name: "Пустой" });
     expect(modelFor("200", "chat")).toBeNull();

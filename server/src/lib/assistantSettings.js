@@ -44,7 +44,7 @@ import { DEFAULT_BASE_URL, KINDS, isKind } from "./aiProviders.js";
 export const TASKS = [
   { id: "chat", name: "Помощник (по умолчанию)" },
   { id: "bot", name: "Помощник в чате бота" },
-  { id: "transcribe", name: "Расшифровка записей звонков" },
+  { id: "transcribe", name: "Расшифровка голоса" },
 ];
 export const TASK_IDS = TASKS.map((t) => t.id);
 
@@ -63,7 +63,7 @@ export const USES = [
   { id: "voice", name: "Отправка голосовых сообщений", what: "речь из текста" },
   { id: "draw", name: "Рисование изображений", what: "картинка по описанию" },
   { id: "vision", name: "Распознавание изображений", what: "что на картинке" },
-  { id: "transcribe", name: "Расшифровка записей звонков", what: "текст из записи" },
+  { id: "transcribe", name: "Расшифровка голоса", what: "текст из записи" },
 ];
 export const USE_IDS = USES.map((u) => u.id);
 export const MAX_MCP = 20;
@@ -422,14 +422,43 @@ export function agentFor(userId, id) {
 /** Виды API — для экрана: название и адрес по умолчанию. */
 export const kindsView = () => KINDS.map((k) => ({ ...k }));
 
+/* ─────── ЧЕМ ГОВОРИТЬ, А ЧЕМ СЛУШАТЬ (владелец, 2026-09-21) ───────
+
+   «Groq ответил 400: The model whisper-large-v3 does not support chat
+   completions. При этом Whisper у меня установлен для расшифровки, а как
+   основная — OpenRouter/free».
+
+   Вот как это выходило. У агента есть КОЛЛЕКЦИЯ моделей и есть
+   НАЗНАЧЕНИЯ: какая модель на что. Назначая модель умению, форма кладёт
+   её заодно и в коллекцию — чтобы назначенное всегда было и разрешённым.
+   А разговор брал ПЕРВУЮ модель коллекции, какой бы она ни была. Выбрал
+   Whisper для расшифровки — он лёг в коллекцию первым, и в чат уходил
+   он. Сменить назначение расшифровки это не чинило: из коллекции Whisper
+   никуда не девался, и первым оставался он же.
+
+   Теперь разговор спрашивает НАЗНАЧЕНИЕ «Основная». Коллекция остаётся
+   запасным путём — но из неё исключается всё, что назначено другим
+   умениям: модель, выбранная слушать голос, не должна отвечать словами.
+
+   Последний рубеж — «первый провайдер с ключом»: там назначений нет
+   вовсе, и единственное, чем можно отличить речевую модель от
+   разговорной, — её имя. Имя — не истина, поэтому оно решает только
+   здесь, где иначе решать нечем.
+*/
+const SPEECH_RE = /(whisper|tts|speech|voice|audio|transcrib|embed|rerank|moderation|diffusion|image|dall|flux|sdxl)/i;
+
 /**
- * Чем отвечать на задачу. Правило: коллекция ассистента (первая пара, у
- * чьего провайдера есть ключ) → своя строка таблицы → строка «помощник по
- * умолчанию» → первый провайдер с ключом и первой моделью из его списка →
- * null, и тогда помощник говорит NOT_CONFIGURED. Для расшифровки — пара
- * расшифровки ассистента, потом строка таблицы: коллекция моделей чата
- * записи не расшифровывает. Неизвестная задача считается «по умолчанию»,
- * а не ошибкой: новую задачу проще завести, чем ловить опечатку в id.
+ * Чем отвечать на задачу.
+ *
+ * Разговор: назначение «Основная» → коллекция агента без моделей,
+ * назначенных другим умениям → своя строка таблицы → строка «помощник по
+ * умолчанию» → первый провайдер с ключом и первой НЕречевой моделью из
+ * его списка → null, и тогда помощник говорит NOT_CONFIGURED.
+ *
+ * Расшифровка: назначение расшифровки, потом строка таблицы; коллекция
+ * моделей чата записи не расшифровывает. Неизвестная задача считается
+ * «по умолчанию», а не ошибкой: новую задачу проще завести, чем ловить
+ * опечатку в id.
  *
  * `fallback: false` — только своя строка, без отката. Так спрашивает
  * расшифровка: откат на модель чата отправлял бы десятки мегабайт записи
@@ -448,16 +477,37 @@ export function modelFor(userId, task, { fallback = true } = {}) {
       model: row.model, providerName: p.name } : null;
   };
   const assistant = rec.agents[0];
-  const byAgent = task === "transcribe"
-    ? pick(assistant.transcribe)
-    : assistant.models.map(pick).find(Boolean) || null;
+  const uses = assistant.uses || {};
+
+  if (task === "transcribe") {
+    const byAgent = pick(uses.transcribe || assistant.transcribe);
+    if (byAgent) return byAgent;
+    const own = pick(rec.tasks.transcribe);
+    return own || null;
+  }
+
+  const byUse = pick(uses.main);
+  if (byUse) return byUse;
+  /* Модели, занятые другими умениями: голос, рисунок, распознавание,
+     расшифровка. Они в коллекции есть, но разговор им не поручают. */
+  const taken = new Set(USE_IDS.filter((u) => u !== "main")
+    .map((u) => uses[u]).filter(Boolean)
+    .map((r) => `${r.providerId}|${r.model}`));
+  const byAgent = assistant.models
+    .filter((m) => !taken.has(`${m.providerId}|${m.model}`))
+    .map(pick).find(Boolean) || null;
   if (byAgent) return byAgent;
   const own = TASK_IDS.includes(task) ? pick(rec.tasks[task]) : null;
   if (own || !fallback) return own;
   const byChat = pick(rec.tasks.chat);
   if (byChat) return byChat;
-  const first = rec.providers.find((p) => p.key && p.models.length);
-  return first ? pick({ providerId: first.id, model: first.models[0] }) : null;
+  for (const p of rec.providers) {
+    if (!p.key) continue;
+    const m = p.models.find((x) => !SPEECH_RE.test(x)
+      && !taken.has(`${p.id}|${x}`));
+    if (m) return pick({ providerId: p.id, model: m });
+  }
+  return null;
 }
 
 /* ─────── правки ─────── */

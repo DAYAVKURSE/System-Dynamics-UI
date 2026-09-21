@@ -26,7 +26,7 @@ const USES = [
   { id: "voice", name: "Отправка голосовых сообщений" },
   { id: "draw", name: "Рисование изображений" },
   { id: "vision", name: "Распознавание изображений" },
-  { id: "transcribe", name: "Расшифровка записей звонков" },
+  { id: "transcribe", name: "Расшифровка голоса" },
 ];
 const NO_USES = { main: null, voice: null, draw: null, vision: null, transcribe: null };
 const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [],

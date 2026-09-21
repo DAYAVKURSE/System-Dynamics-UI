@@ -5,8 +5,8 @@ import path from "node:path";
 import { handleUpdate, resetPending } from "../lib/bot.js";
 import * as org from "../lib/orgStore.js";
 
-/* Бот умеет одно: владелец пересылает сообщение от человека и выбирает
-   роль. Всё остальное отклоняется. */
+/* Бот умеет одно: «/id». Всё остальное словами — помощнику; кнопки под
+   уведомлениями — сдача работы и ход вопроса. */
 
 let tmp;
 const sent = [];
@@ -39,275 +39,101 @@ const lastText = () => sent[sent.length - 1]?.text || "";
 const lastKeys = () => (sent[sent.length - 1]?.keyboard?.inline_keyboard || [])
   .flat().map((b) => b.text);
 
-describe("кому бот отвечает", () => {
-  it("постороннему — только отказ, без списка ролей", async () => {
-    const r = await handleUpdate(msg(guest, { text: "привет" }), deps);
-    expect(r.ignored).toBe("not owner");
-    expect(lastText()).toMatch(/только владельцу/);
+/* ════════════════════════════════════════════════════════════════
+   ОДНА КОМАНДА И ПОМОЩНИК (владелец, 2026-09-21)
+
+   «„Я умею одно: добавлять людей в модель…" — это сообщение удали. Оно не
+   должно отправляться, и все команды, которые с ним связаны, тоже. Должна
+   работать только команда /id из них. Если пользователь пишет что-то
+   словами, значит реагировать должен ассистент».
+   ════════════════════════════════════════════════════════════════ */
+
+describe("что осталось от команд", () => {
+  it("«/id» отвечает всем — и незваному, и владельцу", async () => {
+    // Безопасно: свой собственный id человек и так видит в любом клиенте.
+    expect(await handleUpdate(msg(guest, { text: "/id" }), deps)).toEqual({ told: "777" });
+    expect(lastText()).toBe("Ваш id: 777");
+    await handleUpdate(msg(owner, { text: "/id" }), deps);
+    expect(lastText()).toBe("Ваш id: 100");
+  });
+
+  it("подсказки «Я умею одно…» больше нет ни на одно сообщение", async () => {
+    await handleUpdate(msg(owner, { text: "привет" }), deps);
+    expect(lastText()).not.toMatch(/Я умею одно/);
+    expect(lastText()).not.toMatch(/Перешлите мне сообщение/);
     expect(lastKeys()).toEqual([]);
   });
 
-  it("посторонний не может добавить никого пересылкой", async () => {
-    await handleUpdate(msg(guest, { forward_from: forwarded }), deps);
+  it("пересылка больше никого не добавляет и ролей не показывает", async () => {
+    await handleUpdate(msg(owner, { forward_from: forwarded }), deps);
     expect((await org.listOrg()).users.map((u) => u.id)).not.toContain("200");
+    expect(lastKeys()).toEqual([]);
   });
 
-  it("владельцу без пересылки — подсказка, что делать", async () => {
-    await handleUpdate(msg(owner, { text: "привет" }), deps);
-    expect(lastText()).toMatch(/Перешлите мне сообщение/);
-  });
-});
-
-describe("приглашение пересылкой", () => {
-  it("бот показывает роли кнопками и предлагает завести новую", async () => {
-    await handleUpdate(msg(owner, { forward_from: forwarded }), deps);
-    expect(lastText()).toMatch(/Иван/);
-    expect(lastText()).toMatch(/id 200/);
-    expect(lastKeys()).toContain("исполнитель");
-    expect(lastKeys()).toContain("проверяющий");
-    expect(lastKeys()).toContain("+ новая роль");
+  it("«id 123 Имя» — обычные слова, а не команда: никого не заводит", async () => {
+    await handleUpdate(msg(owner, { text: "id 456 Пётр" }), deps);
+    expect((await org.listOrg()).users.map((u) => u.id)).not.toContain("456");
+    expect(lastKeys()).toEqual([]);
   });
 
-  it("выбор роли добавляет человека именно с ней", async () => {
-    await handleUpdate(msg(owner, { forward_from: forwarded }), deps);
-    await handleUpdate({ update_id: 2,
-      callback_query: { id: "cb1", from: owner, data: "r:reviewer" } }, deps);
-
-    const users = (await org.listOrg()).users;
-    const ivan = users.find((u) => u.id === "200");
-    expect(ivan.roles).toEqual(["reviewer"]);
-    expect(ivan.name).toBe("Иван");
-    expect(ivan.addedBy).toBe("100");
-    expect((await org.identify("200", {})).tabs).toEqual(["review"]);
+  it("«/callapp» и «/callmain» ничего не настраивают", async () => {
+    let stored = "";
+    const settings = { getCallApp: () => stored, setCallApp: (v) => { stored = v; return v; },
+      getCallMain: () => false, setCallMain: () => {}, mainAppReady: async () => true };
+    const d = { ...deps, settings, botName: "sdbot", publicUrl: "https://x.test" };
+    await handleUpdate(msg(owner, { text: "/callapp call" }), d);
+    expect(stored).toBe("");
+    expect(lastText()).not.toMatch(/newapp/);
+    await handleUpdate(msg(owner, { text: "/callmain on" }), d);
+    expect(lastText()).not.toMatch(/BotFather/);
   });
 
-  it("«новая роль» спрашивает название и заводит роль вместе с человеком", async () => {
-    await handleUpdate(msg(owner, { forward_from: forwarded }), deps);
-    await handleUpdate({ update_id: 2,
-      callback_query: { id: "cb1", from: owner, data: "newrole" } }, deps);
-    expect(lastText()).toMatch(/Как назвать роль/);
-
-    await handleUpdate(msg(owner, { text: "Дизайнер" }), deps);
-    const { roles, users } = await org.listOrg();
-    const role = roles.find((r) => r.name === "Дизайнер");
-    expect(role).toBeTruthy();
-    expect(users.find((u) => u.id === "200").roles).toEqual([role.id]);
-    expect(lastText()).toMatch(/Готово/);
-  });
-
-  it("занятое название роли не ломает приглашение — бот просит другое", async () => {
-    await handleUpdate(msg(owner, { forward_from: forwarded }), deps);
-    await handleUpdate({ update_id: 2,
-      callback_query: { id: "cb1", from: owner, data: "newrole" } }, deps);
-    await handleUpdate(msg(owner, { text: "исполнитель" }), deps);
-    expect(lastText()).toMatch(/Пришлите другое название/);
-    // Человек ещё не добавлен, и приглашение не потеряно.
-    expect((await org.listOrg()).users.map((u) => u.id)).not.toContain("200");
-    await handleUpdate(msg(owner, { text: "Дизайнер" }), deps);
-    expect((await org.listOrg()).users.map((u) => u.id)).toContain("200");
-  });
-
-  it("кнопка без начатого приглашения не добавляет никого", async () => {
+  it("кнопка выбора роли больше ничего не значит", async () => {
     const r = await handleUpdate({ update_id: 2,
       callback_query: { id: "cb1", from: owner, data: "r:executor" } }, deps);
-    expect(r.stale).toBe(true);
+    expect(r).toEqual({ ignored: "unknown callback" });
     expect((await org.listOrg()).users).toHaveLength(1);   // только владелец
   });
 });
 
-describe("когда пересылка не сообщает id", () => {
-  it("бот объясняет, что делать, а не молчит", async () => {
-    const r = await handleUpdate(msg(owner, { forward_sender_name: "Скрытный" }), deps);
-    expect(r.blocked).toBe("hidden");
-    // Ответ именно про этого человека, а не общая подсказка: в подсказке
-    // про закрытый перенос тоже сказано, и по одному слову их не отличить.
-    expect(lastText()).toMatch(/Скрытный/);
-    expect(lastText()).toMatch(/id 123456789 Имя/);
-    expect(lastKeys()).toEqual([]);
-  });
+describe("слова — помощнику, и владельцу тоже", () => {
+  const asked = [];
+  const assistant = { ask: async (q) => { asked.push(q); return { id: "q1" }; } };
 
-  it("запасной путь «id 123 Имя» доводит до тех же ролей", async () => {
-    await handleUpdate(msg(owner, { text: "id 456 Пётр" }), deps);
-    expect(lastKeys()).toContain("исполнитель");
-    await handleUpdate({ update_id: 2,
-      callback_query: { id: "cb1", from: owner, data: "r:executor" } }, deps);
-    const petr = (await org.listOrg()).users.find((u) => u.id === "456");
-    expect(petr.name).toBe("Пётр");
-  });
-
-  it("незваному бот сообщает его номер по /id — именно его об этом и просят", async () => {
-    // Безопасно: свой собственный id человек и так видит в любом клиенте,
-    // а ничего чужого ответ не содержит.
-    const r = await handleUpdate(msg(guest, { text: "/id" }), deps);
-    expect(r).toEqual({ told: "777" });
-    expect(lastText()).toBe("Ваш id: 777");
-    expect(lastText()).not.toMatch(/только владельцу/);
-    await handleUpdate(msg(owner, { text: "/id" }), deps);
-    expect(lastText()).toBe("Ваш id: 100");
-  });
-});
-
-/* ─────── позванный не-владелец ───────
-   Бот ему отвечает — кнопками, помощником, памятью, — поэтому «только
-   владельцу» на стикер или фото было бы неправдой. Незваному — по-прежнему
-   отказ без подробностей. */
-describe("позванному не-владельцу", () => {
-  const invited = { id: 200, first_name: "Иван" };
   beforeEach(async () => {
+    asked.length = 0;
     const roles = (await org.listOrg()).roles;
     await org.addUser({ id: "200", name: "Иван", roleId: roles[0].id, addedBy: "100" });
   });
 
-  it("на стикер — что бот умеет для него, а не «только владельцу»", async () => {
-    const r = await handleUpdate(msg(invited, { sticker: { file_id: "s1" } }), { ...deps, work: {} });
-    expect(r).toEqual({ helped: "invited" });
-    expect(lastText()).toMatch(/Отложить/);
-    expect(lastText()).toMatch(/помощник/);
-    expect(lastText()).toMatch(/запомни/);
-    expect(lastText()).not.toMatch(/только владельцу/);
+  it("владелец пишет словами — вопрос уходит помощнику, а не в подсказку", async () => {
+    const r = await handleUpdate(msg(owner, { text: "какие у меня задачи?" }), { ...deps, assistant });
+    expect(r).toBeTruthy();
+    expect(r.helped).toBeUndefined();
+    expect(asked).toHaveLength(1);
   });
 
-  it("незваному на тот же стикер — отказ без подробностей", async () => {
-    const r = await handleUpdate(msg(guest, { sticker: { file_id: "s1" } }), deps);
-    expect(r).toEqual({ ignored: "not owner" });
-    expect(lastText()).toMatch(/только владельцу/);
+  it("позванный — так же", async () => {
+    await handleUpdate(msg({ id: 200, first_name: "Иван" }, { text: "что мне делать?" }),
+      { ...deps, assistant });
+    expect(asked).toHaveLength(1);
+  });
+
+  it("незваному помощник не отвечает: отвечать ему не из чего", async () => {
+    const r = await handleUpdate(msg(guest, { text: "что тут у вас?" }), { ...deps, assistant });
+    expect(asked).toEqual([]);
+    expect(r).toEqual({ ignored: "not invited" });
+    expect(lastText()).toMatch(/только участникам/);
+  });
+
+  it("не слова — одна строка, а не список умений", async () => {
+    const r = await handleUpdate(msg(owner, { sticker: { file_id: "s1" } }), { ...deps, assistant });
+    expect(r).toEqual({ helped: true });
+    expect(lastText()).toMatch(/Напишите словами/);
     expect(lastText()).not.toMatch(/Отложить/);
   });
 });
 
-/* ─────── отдельное мини-приложение звонка ───────
-   Завести его можно только руками в @BotFather, а вот запомнить короткое
-   имя владелец может отсюда — не открывая GitHub и не трогая сервер. */
-
-describe("приложение звонка", () => {
-  let stored;
-  const settings = {
-    getCallApp: () => stored,
-    setCallApp: (v) => { stored = v; return v; },
-  };
-  const deps3 = { ...deps, settings, botName: "sdbot", publicUrl: "https://x.test" };
-
-  beforeEach(() => { stored = ""; });
-
-  it("«/callapp» без имени объясняет, что делать в @BotFather", async () => {
-    await handleUpdate(msg(owner, { text: "/callapp" }), deps3);
-    expect(lastText()).toMatch(/newapp/);
-    expect(lastText()).toContain("https://x.test/call");
-  });
-
-  it("имя запоминается и попадает в ссылку", async () => {
-    const r = await handleUpdate(msg(owner, { text: "/callapp call" }), deps3);
-    expect(r).toEqual({ callApp: "call" });
-    expect(stored).toBe("call");
-    expect(lastText()).toContain("t.me/sdbot/call");
-  });
-
-  it("негодное имя отклоняется с объяснением, а не молча", async () => {
-    await handleUpdate(msg(owner, { text: "/callapp зво нок" }), deps3);
-    expect(stored).toBe("");
-    expect(lastText()).toMatch(/латиница/i);
-  });
-
-  it("«/callapp» с уже заведённым именем показывает нынешнюю ссылку", async () => {
-    stored = "call";
-    await handleUpdate(msg(owner, { text: "/callapp" }), deps3);
-    expect(lastText()).toContain("t.me/sdbot/call?startapp=call_…");
-  });
-
-  it("удалённое приложение можно забыть — «/callapp -»", async () => {
-    // Приложение удаляют в @BotFather, и тогда прежнее имя — прямой путь к
-    // «приложение не найдено» вместо звонка.
-    stored = "call";
-    const r = await handleUpdate(msg(owner, { text: "/callapp -" }), deps3);
-    expect(r).toEqual({ callApp: "" });
-    expect(stored).toBe("");
-    expect(lastText()).toMatch(/забыл/i);
-  });
-
-  it("посторонний имя не меняет", async () => {
-    await handleUpdate(msg(guest, { text: "/callapp call" }), deps3);
-    expect(stored).toBe("");
-    expect(lastText()).toMatch(/только владельцу/);
-  });
-});
-
-/* ─────── звонок главным приложением бота ───────
-
-   Ради высоты окна: отдельное приложение Telegram открывает только на весь
-   экран (почему — в lib/links.js). Включать вслепую нельзя: если главного
-   приложения в @BotFather нет, ссылка t.me/<бот>?startapp=… открывает
-   просто чат с ботом, и по приглашению не открывается НИЧЕГО. Поэтому
-   сперва спрашиваем у Telegram. */
-
-describe("звонок главным приложением", () => {
-  let stored;
-  let main;
-  let ready;
-  const settings = {
-    getCallApp: () => stored,
-    setCallApp: (v) => { stored = v; return v; },
-    getCallMain: () => main,
-    setCallMain: (v) => { main = v; return v; },
-    mainAppReady: async () => ready,
-  };
-  const deps4 = { ...deps, settings, botName: "sdbot", publicUrl: "https://x.test" };
-
-  beforeEach(() => { stored = "call"; main = false; ready = true; });
-
-  it("«/callmain» без слова объясняет, зачем это и что нажать в @BotFather", async () => {
-    const r = await handleUpdate(msg(owner, { text: "/callmain" }), deps4);
-    expect(r).toEqual({ callMain: false });
-    expect(lastText()).toMatch(/Configure Mini App/);
-    expect(lastText()).toContain("https://x.test/call");
-    expect(main).toBe(false);
-  });
-
-  it("«on» включает — и приглашение начинает открывать пол-экрана", async () => {
-    const r = await handleUpdate(msg(owner, { text: "/callmain on" }), deps4);
-    expect(r).toEqual({ callMain: true });
-    expect(main).toBe(true);
-    expect(lastText()).toContain("t.me/sdbot?startapp=call_…");
-  });
-
-  it("если главного приложения нет — НЕ включает: иначе ссылка перестанет открывать что-либо",
-    async () => {
-      ready = false;
-      const r = await handleUpdate(msg(owner, { text: "/callmain on" }), deps4);
-      expect(r).toEqual({ error: "no main app" });
-      expect(main).toBe(false);
-      expect(lastText()).toMatch(/главного приложения у бота нет/i);
-      expect(lastText()).toMatch(/Configure Mini App/);
-    });
-
-  it("Telegram не ответил — тоже не включает, и говорит об этом", async () => {
-    ready = null;
-    const r = await handleUpdate(msg(owner, { text: "/callmain on" }), deps4);
-    expect(r).toEqual({ error: "no answer" });
-    expect(main).toBe(false);
-    expect(lastText()).toMatch(/повторите/i);
-  });
-
-  it("«off» возвращает отдельное приложение", async () => {
-    main = true;
-    const r = await handleUpdate(msg(owner, { text: "/callmain off" }), deps4);
-    expect(r).toEqual({ callMain: false });
-    expect(main).toBe(false);
-    expect(lastText()).toContain("t.me/sdbot/call");
-  });
-
-  it("включённое состояние показывается словами, а не молчанием", async () => {
-    main = true;
-    await handleUpdate(msg(owner, { text: "/callmain" }), deps4);
-    expect(lastText()).toContain("t.me/sdbot?startapp=call_…");
-    expect(lastText()).toMatch(/callmain off/);
-  });
-
-  it("посторонний ничего не включает", async () => {
-    await handleUpdate(msg(guest, { text: "/callmain on" }), deps4);
-    expect(main).toBe(false);
-    expect(lastText()).toMatch(/только владельцу/);
-  });
-});
 
 /* ─────── «Начать» и «Отложить» под уведомлением ───────
 

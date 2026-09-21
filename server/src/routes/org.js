@@ -57,6 +57,10 @@ router.get("/me", async (req, res, next) => {
       const owner = String(org.ownerId || "") === String(req.telegramRealId || "");
       const grant = await grantFor(req.telegramRealId, req.actingAs);
       me.actingAs = req.actingAs;
+      /* Кто на самом деле смотрит. Нужен не для прав — права уже решены
+         выше, — а для правила «свои оценки не показываются»: на чужой
+         странице смотрит не она, а тот, кто на неё зашёл. */
+      me.realId = String(req.telegramRealId || "");
       me.actingOwner = owner && !grant;
       me.actingGrant = grant ? { access: grant.access, until: grant.until } : null;
       if (grant) {

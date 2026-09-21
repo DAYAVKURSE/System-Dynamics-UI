@@ -59,7 +59,7 @@ const USES_FALLBACK = [
   { id: "voice", name: "Отправка голосовых сообщений" },
   { id: "draw", name: "Рисование изображений" },
   { id: "vision", name: "Распознавание изображений" },
-  { id: "transcribe", name: "Расшифровка записей звонков" },
+  { id: "transcribe", name: "Расшифровка голоса" },
 ];
 const DEFAULT_AGENT = { id: "assistant", name: "Ассистент", builtin: true, models: [],
   transcribe: null, uses: {}, mcp: [], ask: true };

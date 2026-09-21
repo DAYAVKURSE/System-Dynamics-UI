@@ -454,6 +454,16 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
   /* Анкеты по ролям: свои приходят с «кто я», чужие — со списком людей.
      Есть хоть одна — показываются её вопросы, а не одно большое поле. */
   const forms = (mine ? me?.forms : person?.forms) || [];
+  /* ─── КТО СМОТРИТ (владелец, 2026-09-20: «рейтинга в его форме вообще
+     нет») ───
+
+     Обычно смотрит сам человек, и тогда работает правило «свои оценки не
+     показываются». Но на странице ВИРТУАЛЬНОГО сотрудника («Войти под его
+     именем») за страницей никого нет: смотрит тот, кто её ведёт, и
+     прятать от него цифры не от кого. Анкету он при этом по-прежнему
+     правит — это `mine`, и оно здесь ни при чём. */
+  const viewerId = me?.actingAs ? (me?.realId || `real:${me.actingAs}`) : me?.id;
+  const managed = Boolean(me?.actingAs) && mine;
 
   /* ─── откуда берётся черновик ───
 
@@ -736,7 +746,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           отзывы, а не комментарии). Кто смотрит, карточке говорит `viewerId`. */}
       <FoldCard title="рейтинг и отзывы">
         <PersonStats tasks={tasks} funcs={funcs} personId={id} traitName={traitName}
-          published={published} viewerId={me?.id} ratings={ratings} />
+          published={published} viewerId={viewerId} ratings={ratings} managed={managed} />
       </FoldCard>
     </div>);
 }

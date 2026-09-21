@@ -4,7 +4,7 @@ import { identify, listOrg } from "../lib/orgStore.js";
 import { addMessage, deferTask, dropTask, dutyFor, peopleOf, rateTask, readModel, seeChat,
   refuseFunc, reviewTask, setupTask, submitTask, takeTask, taskViewFor, viewFor,
   withModel, writeModel } from "../lib/workspaceStore.js";
-import { publishStep, viewRatingsFor } from "../lib/ratings.js";
+import { publishStep, statsFor, viewRatingsFor } from "../lib/ratings.js";
 
 const router = Router();
 router.use(telegramUser);
@@ -94,7 +94,19 @@ router.get("/ratings", async (req, res, next) => {
       if (publishStep(m).changed) await writeModel(m);
       return m;
     });
-    res.json(viewRatingsFor(model, req.telegramUserId));
+    const view = viewRatingsFor(model, req.telegramUserId);
+    /* НА ЧУЖОЙ СТРАНИЦЕ СМОТРИТ НЕ ОНА (владелец, 2026-09-20: «рейтинга в
+       его форме вообще нет»). Правило «свои оценки не показываются»
+       написано для человека, который смотрит на себя; у виртуального
+       сотрудника за страницей никого нет, и смотрит на неё тот, кто её
+       ведёт. Поэтому её рейтинг отдаётся как рейтинг ДРУГОГО — с цифрами,
+       — а адресованные ей слова остаются при ней. */
+    if (req.actingAs) {
+      const page = String(req.actingAs);
+      view.others[page] = { ...statsFor(model, page), comments: view.mine.comments };
+      view.mine = { comments: [] };
+    }
+    res.json(view);
   } catch (e) { next(e); }
 });
 

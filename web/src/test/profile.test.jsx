@@ -182,7 +182,11 @@ describe("анкета", () => {
       tasks={rated()} published={["a~work~3"]}
       funcs={[{ id: "f1", name: "Сбор заявок" }]} />);
     expect(screen.getByText("рейтинг и отзывы")).toBeInTheDocument();
-    expect(screen.getByText("5/10")).toBeInTheDocument();
+    // Оценка — в сводке. В строке работы её больше нет (владелец,
+    // 2026-09-21): там только название, принято или нет, и срок.
+    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText(/средняя оценка/)).toBeInTheDocument();
+    expect(screen.queryByText("5/10")).toBeNull();
   });
 
   it("свои оценки не показываются — вместо них сказано, почему", () => {

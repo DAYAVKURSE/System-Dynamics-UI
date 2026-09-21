@@ -414,30 +414,33 @@ describe("карточка человека", () => {
     expect(screen.getByText("100%")).toBeInTheDocument();
   });
 
-  it("каждая оценка со своим комментарием — иначе непонятно, что исправлять", () => {
+  /* СТРОКА РАБОТЫ — ТРИ ВЕЩИ И НИЧЕГО БОЛЬШЕ (владелец, 2026-09-21: «в
+     строках работ должно быть написано только их название, статус:
+     принято или нет, и в срок или с задержкой. Если с задержкой, то с
+     какой. Остальную информацию о работах убери»). */
+  it("в строке работы — название, принято или нет, и срок", () => {
     show();
-    expect(screen.getByText("4/10")).toBeInTheDocument();
-    expect(screen.getByText(/мало заявок/)).toBeInTheDocument();
+    expect(screen.getAllByText("Сбор заявок")).toHaveLength(2);
+    expect(screen.getByText("принято")).toBeInTheDocument();
+    expect(screen.getByText("не принято")).toBeInTheDocument();
+    expect(screen.getByText("в срок")).toBeInTheDocument();
+    expect(screen.getByText("с задержкой: 3 дня")).toBeInTheDocument();
+  });
+
+  it("всего остального в строке нет: ни оценки, ни часов, ни ресурсов", () => {
+    show();
+    expect(screen.queryByText("4/10")).toBeNull();
+    expect(screen.queryByText(/мало заявок/)).toBeNull();
+    expect(screen.queryByText(/собрал/)).toBeNull();
+    expect(screen.queryByText(/−2 спрос/)).toBeNull();
+    expect(screen.queryByText("вернули")).toBeNull();
   });
 
   it("неопубликованная оценка так и подписана — это не «без оценки»", () => {
     show({ published: [] });
-    expect(screen.queryByText("4/10")).toBeNull();
-    expect(screen.getByText("оценка ещё не опубликована")).toBeInTheDocument();
+    // Счёт ждущих публикации стоит в сводке: строки об оценках молчат.
     expect(screen.getByText(/ждёт публикации/)).toBeInTheDocument();
-    // И слова до публикации не читаются: они выдали бы автора.
     expect(screen.queryByText(/мало заявок/)).toBeNull();
-  });
-
-  it("возвращённая сдача видна отдельно и в средние не идёт", () => {
-    show();
-    expect(screen.getByText("вернули")).toBeInTheDocument();
-    expect(screen.getByText(/не принята/)).toBeInTheDocument();
-  });
-
-  it("ресурсы выполнения названы по-человечески, а не идентификаторами", () => {
-    show();
-    expect(screen.getByText(/−2 спрос · \+1 заявки/)).toBeInTheDocument();
   });
 
   it("ничего не сдавал — так и сказано: это «неизвестно», а не «плохо»", () => {

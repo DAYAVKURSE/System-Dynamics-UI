@@ -33,19 +33,32 @@ import { MARK_MAX, commentsFor, kindName, visibleStats } from "../lib/workers.js
    смыслом, и список работ, по которому их можно проверить руками.
    ════════════════════════════════════════════════════════════════ */
 
-const two = (n) => String(n).padStart(2, "0");
-
-/** Дата коротко: «3 сен, 14:20». Год не пишем — история недлинная. */
-export function when(v) {
-  if (!v) return "—";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return "—";
-  const m = ["янв", "фев", "мар", "апр", "мая", "июн",
-    "июл", "авг", "сен", "окт", "ноя", "дек"][d.getMonth()];
-  return `${d.getDate()} ${m}, ${two(d.getHours())}:${two(d.getMinutes())}`;
-}
-
 const markColor = (m) => (m == null ? C.muted : m >= 4 ? OK : m >= 3 ? WARN : BAD);
+
+/* НА СКОЛЬКО ОПОЗДАЛИ (владелец, 2026-09-21: «в срок или с задержкой; если
+   с задержкой, то с какой»). Считается от срока до сдачи и пишется
+   крупными единицами: «2 дня 5 ч» понятнее, чем «53 ч», а минуты нужны
+   только тогда, когда часов нет вовсе. */
+const MINUTE = 60 * 1000;
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100;
+  const b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+export function lateBy(row) {
+  const end = Date.parse(row?.end || "");
+  const at = Date.parse(row?.at || "");
+  if (!Number.isFinite(end) || !Number.isFinite(at) || at <= end) return "";
+  const mins = Math.round((at - end) / MINUTE);
+  const days = Math.floor(mins / (60 * 24));
+  const hours = Math.floor((mins % (60 * 24)) / 60);
+  const rest = mins % 60;
+  if (days) return `${days} ${plural(days, "день", "дня", "дней")}${hours ? ` ${hours} ч` : ""}`;
+  if (hours) return `${hours} ч${rest ? ` ${rest} мин` : ""}`;
+  return `${mins} ${plural(mins, "минута", "минуты", "минут")}`;
+}
 const round1 = (v) => Math.round(v * 10) / 10;
 
 /** Фраза, которая заменяет человеку его же рейтинг. Одна на всё приложение. */
@@ -87,10 +100,9 @@ function Words({ list, empty }) {
  * в модели только свои задачи, и слова про его постановку лежат в чужих.
  */
 export default function PersonStats({ tasks = [], funcs = [], personId, traitName,
-  published, viewerId, ratings }) {
+  published, viewerId, ratings, managed = false }) {
   const model = { tasks, funcs, published };
   const s = visibleStats(model, personId, viewerId);
-  const tn = traitName || ((id) => id);
   const words = commentsFor(model, { viewer: viewerId });
   const remote = ratings?.others?.[String(personId)] || null;
 
@@ -138,6 +150,14 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
           <div style={{ ...S.lbl, marginBottom: 4 }}>о постановке задач</div>
           <Words list={aboutSetup} empty="" />
         </div>)}
+      {/* Страница, которую человек ВЕДЁТ (виртуальный сотрудник): слова,
+          адресованные ей, показываются целиком — читать их больше некому.
+          В строках работ они не покажутся: там зритель — посторонний. */}
+      {managed && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ ...S.lbl, marginBottom: 4 }}>отзывы о нём</div>
+          <Words list={remote?.comments || []} empty="Отзывов о нём пока нет." />
+        </div>)}
     </>)}
 
     {!s.total ? (
@@ -147,52 +167,20 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
           : "Ещё ничего не сдавал: ни оценки, ни срока — это «неизвестно», а не «плохо»."}
       </div>
     ) : (<>
-      {!!s.returned && (
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>
-          Ещё {s.returned} сдач{s.returned === 1 ? "а" : ""} не принята: в средние
-          они не идут — вернули, значит работы пока нет.
-        </div>)}
-
       <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase",
         letterSpacing: 0.4, marginBottom: 4 }}>работы</div>
 
       {s.rows.map((r) => (
         <div key={r.task} style={{ borderTop: `1px solid ${C.line}`, padding: "7px 0" }}>
-          <div className="flex items-center gap-2">
-            <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1 }}>{r.func}</span>
-            {r.done ? (
-              <span style={{ fontSize: 12, fontWeight: 700, color: markColor(r.mark) }}>
-                {r.mark != null ? `${r.mark}/${MARK_MAX}`
-                  : r.pending && !s.self ? "оценка ещё не опубликована" : "принято"}</span>
-            ) : (
-              <span style={{ fontSize: 11, color: WARN }}>вернули</span>)}
-          </div>
-          {r.title && r.title !== r.func && (
-            <div style={{ fontSize: 11.5, color: C.text }}>{r.title}</div>)}
-          <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.6 }}>
-            {when(r.start)} → сдано {when(r.at)}
-            {r.end ? ` · срок ${when(r.end)}` : " · срок не ставили"}
-            {" · "}{round1(r.hours)} ч
+          <div className="flex flex-wrap items-center gap-2">
+            <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
+              {r.title || r.func}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: r.done ? OK : WARN }}>
+              {r.done ? "принято" : "не принято"}</span>
           </div>
           {r.inTime !== null && (
-            <div style={{ fontSize: 10.5, color: r.inTime ? OK : BAD }}>
-              {r.inTime ? "в срок" : "после срока"}</div>)}
-          {r.text && (
-            <div style={{ fontSize: 11.5, marginTop: 3, whiteSpace: "pre-wrap" }}>{r.text}</div>)}
-          {(!!Object.keys(r.takes).length || !!Object.keys(r.gives).length) && (
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
-              {Object.entries(r.takes).map(([k, v]) => `−${v} ${tn(k)}`).join(", ")}
-              {Object.keys(r.takes).length && Object.keys(r.gives).length ? " · " : ""}
-              {Object.entries(r.gives).map(([k, v]) => `+${v} ${tn(k)}`).join(", ")}
-            </div>)}
-          {/* Слова проверяющего — без имени, как и оценка. Скрытые видит
-              только тот, кому их писали. */}
-          {r.comment && (
-            <div style={{ fontSize: 11.5, marginTop: 4, padding: "4px 7px",
-              background: C.panel2, borderRadius: 6, borderLeft: `2px solid ${markColor(r.mark)}` }}>
-              <span style={{ color: C.muted }}>проверяющий
-                {r.hidden ? " · скрытый · только вам" : ""}: </span>{r.comment}
-            </div>)}
+            <div style={{ fontSize: 11, color: r.inTime ? OK : BAD }}>
+              {r.inTime ? "в срок" : `с задержкой: ${lateBy(r)}`}</div>)}
         </div>))}
     </>)}
   </div>);
