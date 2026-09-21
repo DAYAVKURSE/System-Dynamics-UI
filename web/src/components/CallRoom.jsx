@@ -562,20 +562,45 @@ export default function CallRoom({
      увидят, а не гасить её потом на глазах у собеседников. Выбор,
      сделанный до входа, применяется к дорожкам сразу при получении
      доступа (см. join). */
+  /* Значки — те же линии, что у значков шапки (ui.jsx ICON): обводка 1.7,
+     скруглённые концы; эмодзи здесь смотрелись дёшево (владелец,
+     2026-09-21). Подпись рядом — в полной раскладке; в компактной один
+     значок, слово остаётся в aria-label и title. */
+  const Ico = ({ d, dot = false }) => (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden="true"
+      stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: "block", flex: "0 0 auto" }}>
+      <path d={d} />
+      {dot && <circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />}
+    </svg>);
+  const withIco = (d, text, dot = false) => (
+    <span className="flex items-center" style={{ gap: "var(--space-4)", justifyContent: "center" }}>
+      <Ico d={d} dot={dot} />{!fit && <span>{text}</span>}</span>);
+  const P = {
+    mic: "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM19 11a7 7 0 0 1-14 0M12 18v3M8.5 21h7",
+    micOff: "M3 3l18 18M15 9.5V6a3 3 0 0 0-5.6-1.5M9 9.5V12a3 3 0 0 0 5 2.2M17 15.2A7 7 0 0 1 5 11M19 11a7 7 0 0 1-.4 2.4M12 18v3M8.5 21h7",
+    cam: "M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5zM15 10l6-3v10l-6-3",
+    camOff: "M3 3l18 18M10.5 6h3A1.5 1.5 0 0 1 15 7.5V10l6-3v9M15 15v1.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5v-9A1.5 1.5 0 0 1 4.5 6H6",
+    screen: "M3 5.5A1.5 1.5 0 0 1 4.5 4h15A1.5 1.5 0 0 1 21 5.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 14.5zM8 20h8M12 16v4",
+    rec: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16",
+    stop: "M7 7h10v10H7z",
+  };
   const micCam = (
     <>
       <button aria-label="микрофон" title={mic ? "выключить микрофон" : "включить микрофон"}
         style={ctl(mic, mic ? OK : BAD)} onClick={toggleMic}>
-        {fit ? (mic ? "🎙" : "🔇") : (mic ? "🎙 микрофон вкл" : "🔇 микрофон выкл")}</button>
+        {withIco(mic ? P.mic : P.micOff, mic ? "микрофон вкл" : "микрофон выкл")}</button>
       <button aria-label="камера" title={cam ? "выключить камеру" : "включить камеру"}
         style={ctl(cam, cam ? OK : BAD)} onClick={toggleCam}>
-        {fit ? (cam ? "🎥" : "🚫") : (cam ? "🎥 камера вкл" : "🚫 камера выкл")}</button>
+        {withIco(cam ? P.cam : P.camOff, cam ? "камера вкл" : "камера выкл")}</button>
     </>);
 
   const controls = state === "idle" || state === "ended" ? (
     <>
       {micCam}
-      <button style={ctl(true, OK, fit ? { fontSize: "var(--fs-body)", padding: "var(--space-8) var(--space-16)", flex: 1 } : {})}
+      {/* «Войти» — во всю ширину формы (владелец, 2026-09-21): своим рядом
+          под микрофоном и камерой. */}
+      <button style={ctl(true, OK, { flex: "1 0 100%", width: "100%", fontSize: "var(--fs-body)" })}
         onClick={join}>
         {state === "ended" ? "Войти снова" : "Войти в звонок"}</button>
     </>
@@ -585,18 +610,20 @@ export default function CallRoom({
       {screenShareSupported() && (
         <button aria-label="экран" title={sharing ? "прекратить показ экрана" : "показать экран"}
           style={ctl(sharing, ACC)} onClick={shareScreen}>
-          {fit ? "🖥" : (sharing ? "🖥 экран показывается" : "🖥 показать экран")}</button>)}
+          {withIco(P.screen, sharing ? "экран показывается" : "показать экран")}</button>)}
       {/* Запись ложится в хранилище отчётов, а туда пускают только по
           подписи Telegram: гостю, вошедшему по ссылке, кнопку не рисуем —
           лучше её отсутствие, чем отказ сервера после сорока минут. */}
       {canRecord && (rec
         ? <button aria-label="запись" title="остановить запись" style={ctl(true, BAD)} onClick={stopRec}>
-          {fit ? "⏹" : "⏹ остановить запись"}</button>
+          {withIco(P.stop, "остановить запись")}</button>
         : <button aria-label="запись" title="записать" style={ctl(false)} onClick={startRec}>
-          {fit ? "⏺" : "⏺ записать"}</button>)}
+          {withIco(P.rec, "записать", true)}</button>)}
+      {/* «Выйти» — словом, и в компактной раскладке тоже (владелец,
+          2026-09-21). */}
       <button aria-label="выйти" title="выйти из звонка"
         style={ctl(false, null, { color: BAD, borderColor: DANGER_LINE })} onClick={leave}>
-        {fit ? "✕" : "Выйти"}</button>
+        Выйти</button>
     </>);
 
   const header = (
