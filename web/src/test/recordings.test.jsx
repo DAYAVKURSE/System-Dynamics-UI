@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import CallsBoard from "../components/CallsBoard.jsx";
 
-/* Записи созвонов на вкладке звонков: список, а по нажатию — «Скачать» и
-   «Удалить». «Скачать» — это отправка себе в чат с ботом: сохранить файл
+/* Записи созвонов на вкладке звонков: список, а по нажатию — форма записи
+   с кнопками «Скачать видеозапись» и «Удалить видеозапись» (и расшифровкой,
+   см. callsRecs.test.jsx). «Скачать» — это отправка себе в чат с ботом: сохранить файл
    прямо из мини-приложения Telegram не даёт, а из чата он открывается и
    пересылается штатно. */
 
@@ -52,20 +53,20 @@ describe("записи на вкладке звонков", () => {
   it("кнопки появляются по нажатию на запись, а не висят у каждой", async () => {
     board();
     await screen.findByText("звонок-1.webm");
-    expect(screen.queryByText("Скачать")).toBeNull();
+    expect(screen.queryByText("Скачать видеозапись")).toBeNull();
 
     fireEvent.click(screen.getByLabelText("запись звонок-1.webm"));
-    expect(screen.getByText("Скачать")).toBeInTheDocument();
-    expect(screen.getByText("Удалить")).toBeInTheDocument();
+    expect(screen.getByText("Скачать видеозапись")).toBeInTheDocument();
+    expect(screen.getByText("Удалить видеозапись")).toBeInTheDocument();
   });
 
   it("«Скачать» отправляет запись в чат с ботом и говорит об этом", async () => {
     board();
     await screen.findByText("звонок-1.webm");
     fireEvent.click(screen.getByLabelText("запись звонок-1.webm"));
-    fireEvent.click(screen.getByText("Скачать"));
+    fireEvent.click(screen.getByText("Скачать видеозапись"));
     await waitFor(() => expect(sent).toEqual(["r1"]));
-    expect(await screen.findByText(/Отправил запись в чат/)).toBeInTheDocument();
+    expect(await screen.findByText(/Отправил видеозапись в чат/)).toBeInTheDocument();
   });
 
   it("запись, которая не влезла в файл, уходит ссылкой — и это сказано словами", async () => {
@@ -79,7 +80,7 @@ describe("записи на вкладке звонков", () => {
     board();
     await screen.findByText("звонок-1.webm");
     fireEvent.click(screen.getByLabelText("запись звонок-1.webm"));
-    fireEvent.click(screen.getByText("Скачать"));
+    fireEvent.click(screen.getByText("Скачать видеозапись"));
     expect(await screen.findByText(/ссылку на неё/)).toBeInTheDocument();
   });
 
@@ -87,12 +88,12 @@ describe("записи на вкладке звонков", () => {
     board();
     await screen.findByText("звонок-1.webm");
     fireEvent.click(screen.getByLabelText("запись звонок-1.webm"));
-    fireEvent.click(screen.getByText("Удалить"));
+    fireEvent.click(screen.getByText("Удалить видеозапись"));
     // Первое нажатие ничего не стирает — только переспрашивает.
     expect(deleted).toEqual([]);
-    expect(screen.getByText("Удалить насовсем?")).toBeInTheDocument();
+    expect(screen.getByText("Удалить видеозапись насовсем?")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Удалить насовсем?"));
+    fireEvent.click(screen.getByText("Удалить видеозапись насовсем?"));
     await waitFor(() => expect(deleted).toEqual(["r1"]));
     await waitFor(() => expect(screen.queryByText("звонок-1.webm")).toBeNull());
     expect(screen.getByText("звонок-2.webm")).toBeInTheDocument();
@@ -103,8 +104,8 @@ describe("записи на вкладке звонков", () => {
     board();
     await screen.findByText("длинная.webm");
     fireEvent.click(screen.getByLabelText("запись длинная.webm"));
-    expect(screen.getByText("Прислать ссылку")).toBeInTheDocument();
-    expect(screen.queryByText("Скачать")).toBeNull();
+    expect(screen.getByText("Прислать ссылку на видеозапись")).toBeInTheDocument();
+    expect(screen.queryByText("Скачать видеозапись")).toBeNull();
   });
 
   it("без записей — не пустота, а что сделать", async () => {

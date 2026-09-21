@@ -218,6 +218,11 @@ describe("запись", () => {
   beforeEach(() => {
     recorders.length = 0; global.MediaRecorder = FakeRecorder; resetReportsAvailable();
   });
+  /* Сведённая запись — одна, видео; кроме неё — по звуковой дорожке на
+     участника (владелец, 2026-09-21). Проверки про запись целиком смотрят
+     на видео. */
+  const video = () => recorders.filter((r) => !String(r.opts?.mimeType || "").startsWith("audio/"));
+  const audio = () => recorders.filter((r) => String(r.opts?.mimeType || "").startsWith("audio/"));
 
   it("пишет ВСЕХ: в MediaRecorder уходит сведённый поток, а не свой", async () => {
     // Владелец увидел на записи только свой экран и свой голос — в
@@ -225,8 +230,8 @@ describe("запись", () => {
     // холст со всеми плитками и микшер со всеми голосами (recordMix.js).
     await join();
     fireEvent.click(await screen.findByLabelText("запись"));
-    await waitFor(() => expect(recorders).toHaveLength(1));
-    const got = recorders[0].stream;
+    await waitFor(() => expect(video()).toHaveLength(1));
+    const got = video()[0].stream;
 
     // У своего потока дорожки настоящие, у сведённого — холст и микшер.
     expect(got.getVideoTracks()).toHaveLength(1);
@@ -242,7 +247,7 @@ describe("запись", () => {
     signalsOnce = [hello("200", "Пётр")];
     await join();
     fireEvent.click(await screen.findByLabelText("запись"));
-    await waitFor(() => expect(recorders).toHaveLength(1));
+    await waitFor(() => expect(video()).toHaveLength(1));
     const before = made.mock.calls.length;
 
     const theirs = fakeStream();
@@ -278,12 +283,12 @@ describe("запись", () => {
   it("пишется умеренный битрейт, а у предела размера запись останавливается сама", async () => {
     await join();
     fireEvent.click(await screen.findByLabelText("запись"));
-    await waitFor(() => expect(recorders).toHaveLength(1));
-    expect(recorders[0].opts.videoBitsPerSecond).toBe(300000);
-    expect(recorders[0].state).toBe("recording");
-    act(() => { recorders[0].ondataavailable({ data: { size: MAX_RECORDING_BYTES } }); });
+    await waitFor(() => expect(video()).toHaveLength(1));
+    expect(video()[0].opts.videoBitsPerSecond).toBe(300000);
+    expect(video()[0].state).toBe("recording");
+    act(() => { video()[0].ondataavailable({ data: { size: MAX_RECORDING_BYTES } }); });
     // Остановилась сама и сразу ушла на сервер — без нажатия «стоп».
-    expect(recorders[0].state).toBe("inactive");
+    expect(video()[0].state).toBe("inactive");
     expect(await screen.findByText(/Запись сохранена/)).toBeInTheDocument();
     expect(global.fetch.mock.calls.some(([u, o]) => String(u).endsWith("/api/reports") && o?.method === "POST"))
       .toBe(true);
@@ -298,9 +303,9 @@ describe("запись", () => {
     const { container } = await join();
     const videoBefore = container.querySelector("video");
     fireEvent.click(await screen.findByLabelText("запись"));
-    await waitFor(() => expect(recorders).toHaveLength(1));
+    await waitFor(() => expect(video()).toHaveLength(1));
     for (const size of [400000, 400000, 400000]) {
-      act(() => { recorders[0].ondataavailable({ data: { size } }); });
+      act(() => { video()[0].ondataavailable({ data: { size } }); });
     }
     expect(container.querySelector("video")).toBe(videoBefore);
   });
@@ -319,12 +324,43 @@ describe("запись", () => {
     expect(recorders).toHaveLength(0);
   });
 
+  /* ГОЛОС ПОКАНАЛЬНО (владелец, 2026-09-21): своя дорожка и по дорожке на
+     собеседника, отдельными звуковыми MediaRecorder; после записи они
+     уезжают файлами вида «track» с подписью — чья дорожка, к какой записи
+     и с какой секунды. По ним расшифровка знает, кто говорит. */
+  it("кроме сведённой записи — по звуковой дорожке на каждого, и они уезжают к записи подписанными", async () => {
+    signalsOnce = [hello("200", "Пётр")];
+    await join();
+    await waitFor(() => expect(pcs).toHaveLength(1));
+    const theirs = fakeStream();
+    act(() => { pcs[0].ontrack({ streams: [theirs] }); });
+    fireEvent.click(await screen.findByLabelText("запись"));
+    await waitFor(() => expect(video()).toHaveLength(1));
+    // Своя дорожка и дорожка Петра — звуковые, только со звуковыми дорожками.
+    await waitFor(() => expect(audio()).toHaveLength(2));
+    expect(audio().every((r) => r.stream.getTracks().every((t) => t.kind === "audio"))).toBe(true);
+    act(() => { audio().forEach((r) => r.ondataavailable({ data: { size: 10 } })); });
+    act(() => { video()[0].ondataavailable({ data: { size: 100 } }); });
+    fireEvent.click(screen.getByLabelText("запись"));
+    expect(await screen.findByText(/Запись сохранена.*дорожек: 2/)).toBeInTheDocument();
+    const posts = global.fetch.mock.calls.filter(([u, o]) => String(u).endsWith("/api/reports") && o?.method === "POST");
+    // Первой — сама запись, за ней дорожки к ней.
+    expect(posts[0][1].headers["X-Report-Kind"]).toBe("call");
+    const tracks = posts.slice(1).map(([, o]) => ({ kind: o.headers["X-Report-Kind"],
+      meta: JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(o.headers["X-Report-Meta"]), (c) => c.charCodeAt(0)))) }));
+    expect(tracks).toHaveLength(2);
+    expect(tracks.every((t) => t.kind === "track" && t.meta.of === "r1")).toBe(true);
+    expect(tracks[0].meta.who).toMatchObject({ me: true, name: "Я" });
+    expect(tracks[1].meta.who).toMatchObject({ id: "200", name: "Пётр" });
+    expect(tracks[1].meta.offsetMs).toBeGreaterThanOrEqual(0);
+  });
+
   it("413 от сервера объясняется размером, а не кодом", async () => {
     reportStatus = 413;
     await join();
     fireEvent.click(await screen.findByLabelText("запись"));
-    await waitFor(() => expect(recorders).toHaveLength(1));
-    act(() => { recorders[0].ondataavailable({ data: { size: 5 * 1024 * 1024 } }); });
+    await waitFor(() => expect(video()).toHaveLength(1));
+    act(() => { video()[0].ondataavailable({ data: { size: 5 * 1024 * 1024 } }); });
     fireEvent.click(screen.getByLabelText("запись"));
     expect(await screen.findByText(/больше, чем принимает сервер/)).toBeInTheDocument();
   });

@@ -103,6 +103,14 @@ export const deleteRecording = (scope, id) =>
   json(`/api/reports/${encodeURIComponent(scope)}/${encodeURIComponent(id)}`,
     { method: "DELETE" });
 
+/* Расшифровка записи — по кнопке (владелец, 2026-09-21): моделью строки
+   «расшифровка» у ассистента; идёт в фоне, состояние спрашивают. */
+export const transcribeRecording = (id) =>
+  json(`/api/reports/${encodeURIComponent(id)}/transcribe`, { method: "POST" });
+export const getTranscript = (id) => json(`/api/reports/${encodeURIComponent(id)}/transcript`);
+export const deleteTranscript = (id) =>
+  json(`/api/reports/${encodeURIComponent(id)}/transcript`, { method: "DELETE" });
+
 /** Ссылка на страницу звонка — отдельную, без вкладок модели. */
 export const callLink = (id) => `${location.origin}/call?call=${encodeURIComponent(id)}`;
 

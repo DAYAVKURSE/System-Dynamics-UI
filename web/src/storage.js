@@ -281,7 +281,7 @@ const readAsDataUrl = (file) => new Promise((resolve, reject) => {
 
 /** Кладёт файл отчёта туда, где он переживёт перезагрузку, и возвращает
  *  запись для сдачи: `{name, type, size, url}` либо `{name, type, size, data}`. */
-export async function putReportFile(file, { kind = "", meeting = "" } = {}) {
+export async function putReportFile(file, { kind = "", meeting = "", meta: tag = null } = {}) {
   const meta = { name: file.name, type: file.type, size: file.size };
   if (await reportsAvailable()) {
     if (file.size > MAX_UPLOAD_REPORT_BYTES) {
@@ -301,6 +301,9 @@ export async function putReportFile(file, { kind = "", meeting = "" } = {}) {
         // Встреча, к которой относится запись: по ней расшифровка ложится
         // и к встрече, а не только к файлу (routes/reports.js).
         ...(meeting ? { "X-Report-Meeting": String(meeting) } : {}),
+        // Подпись к файлу (у звуковой дорожки — чья она и к какой записи):
+        // JSON в base64, как и имя, — в заголовке кириллице не место.
+        ...(tag ? { "X-Report-Meta": btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(tag)))) } : {}),
         "X-Telegram-Init-Data": getInitData(), ...sessionHeaders(),
         ...actHeader(),
       },

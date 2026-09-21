@@ -1,6 +1,6 @@
 import { modelFor } from "./assistantSettings.js";
 import { listPendingTranscripts, putTranscript, transcriptFor } from "./callStore.js";
-import { listReports, ownReport } from "./reportStore.js";
+import { listReports, ownReport, tracksOf } from "./reportStore.js";
 
 /* ════════════════════════════════════════════════════════════════
    РАСШИФРОВКА ЗАПИСЕЙ ЗВОНКОВ
@@ -67,7 +67,7 @@ const scrub = (text, key) => {
  *
  * @param {typeof fetch} doFetch — подменяется в тестах
  */
-export async function transcribeFile({ kind, baseUrl, key, model, bytes, name, type } = {},
+export async function transcribeFile({ kind, baseUrl, key, model, bytes, name, type, segments = false } = {},
   doFetch = globalThis.fetch) {
   if (String(kind || "") !== "openai") {
     throw new Error(`${NOT_SUPPORTED}: нужен провайдер вида «OpenAI» (у него есть /audio/transcriptions)`);
@@ -83,7 +83,10 @@ export async function transcribeFile({ kind, baseUrl, key, model, bytes, name, t
   const base = (String(baseUrl || "").trim().replace(/\/+$/, "") || DEFAULT_OPENAI_BASE);
   const form = new FormData();
   form.set("model", m);
-  form.set("response_format", "text");
+  /* Поканальная расшифровка просит verbose_json: в нём у каждого куска
+     есть секунда начала, и по ней реплики разных людей складываются в
+     один разговор по порядку. */
+  form.set("response_format", segments ? "verbose_json" : "text");
   form.set("language", "ru");
   form.set("file", new Blob([bytes], { type: type || "application/octet-stream" }),
     String(name || "запись"));
@@ -118,12 +121,59 @@ export async function transcribeFile({ kind, baseUrl, key, model, bytes, name, t
   // отвечают JSON {text}: разбираем и его, лишь бы не выдать фигурные
   // скобки за расшифровку.
   let text = raw.trim();
+  let parts = null;
   if (text.startsWith("{")) {
-    try { const data = JSON.parse(text); if (typeof data?.text === "string") text = data.text.trim(); }
-    catch { /* всё-таки текст */ }
+    try {
+      const data = JSON.parse(text);
+      if (typeof data?.text === "string") text = data.text.trim();
+      if (Array.isArray(data?.segments)) {
+        parts = data.segments
+          .map((s) => ({ start: Number(s?.start) || 0, end: Number(s?.end) || 0, text: String(s?.text || "").trim() }))
+          .filter((s) => s.text);
+      }
+    } catch { /* всё-таки текст */ }
   }
   if (!text) throw new Error("провайдер вернул пустую расшифровку");
+  if (segments) return { text, segments: parts || [{ start: 0, end: 0, text }] };
   return text;
+}
+
+/* ─────── кто говорит ───────
+
+   Голос пишется поканально — по дорожке на участника (CallRoom.jsx,
+   kind «track»; владелец, 2026-09-21: «в транскрибации должно быть
+   написано кто говорит»). Каждая дорожка расшифровывается отдельно, с
+   секундами начала кусков; куски всех дорожек складываются по времени
+   (плюс сдвиг дорожки: кто подключился позже, у того запись началась
+   позже), и перед каждой репликой — имя из анкеты и username Telegram. */
+const ss = (sec) => {
+  const s = Math.max(0, Math.round(sec));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+};
+/** Подпись говорящего: имя из анкеты и username; нет ни того, ни другого — «участник». */
+export const speakerLabel = (who = {}) => {
+  const name = String(who?.name || "").trim();
+  const user = String(who?.username || "").trim().replace(/^@/, "");
+  return [name, user ? `@${user}` : ""].filter(Boolean).join(" ") || "участник";
+};
+/**
+ * Дорожки → один текст. Реплики подряд одного человека — одной строкой.
+ * `tracks`: [{ label, offsetMs, segments: [{start, end, text}] }].
+ */
+export function mergeTracks(tracks = []) {
+  const all = [];
+  tracks.forEach((t) => {
+    const shift = (Number(t.offsetMs) || 0) / 1000;
+    (t.segments || []).forEach((s) => all.push({ start: (Number(s.start) || 0) + shift, label: t.label, text: s.text }));
+  });
+  all.sort((a, b) => a.start - b.start);
+  const lines = [];
+  all.forEach((s) => {
+    const last = lines[lines.length - 1];
+    if (last && last.label === s.label) { last.text += ` ${s.text}`; return; }
+    lines.push({ ...s });
+  });
+  return lines.map((l) => `[${ss(l.start)}] ${l.label}: ${l.text}`).join("\n");
 }
 
 /**
@@ -139,7 +189,7 @@ export async function transcribeFile({ kind, baseUrl, key, model, bytes, name, t
  *
  * `deps` — для тестов: выбор модели (`pick`) и сеть (`doFetch`).
  */
-export async function transcribeRecording({ userId, fileId, name, type, bytes, meetingId = null } = {},
+export async function transcribeRecording({ userId, fileId, name, type, bytes, meetingId = null, tracks = [] } = {},
   { pick = modelFor, doFetch = globalThis.fetch } = {}) {
   let chosen = null;
   try {
@@ -154,11 +204,33 @@ export async function transcribeRecording({ userId, fileId, name, type, bytes, m
   const label = [chosen.providerName, chosen.model].filter(Boolean).join(" / ");
   // Размер — до «идёт»: гонять 90 МБ до провайдера, чтобы получить 413,
   // незачем, а «идёт» на записи, которая никуда не уйдёт, — неправда.
-  const big = tooBig(bytes);
+  const chans = Array.isArray(tracks) ? tracks.filter((t) => t && t.bytes && t.bytes.length) : [];
+  const big = chans.length ? chans.map((t) => tooBig(t.bytes)).find(Boolean) : tooBig(bytes);
   if (big) return putTranscript({ fileId, by: userId, name, meetingId, status: "error", error: big, model: label });
   await putTranscript({ fileId, by: userId, name, meetingId, status: "pending", model: label });
   try {
-    const text = await transcribeFile({ ...chosen, bytes, name, type }, doFetch);
+    let text;
+    if (chans.length) {
+      /* По дорожке за раз: каждая — до 25 МБ в памяти, и все разом положили
+         бы сервер. Пустая дорожка (молчал весь звонок) — не ошибка: у
+         человека просто нет реплик. */
+      const done = [];
+      for (const t of chans) {
+        let r;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          r = await transcribeFile({ ...chosen, bytes: t.bytes, name: t.name, type: t.type, segments: true }, doFetch);
+        } catch (e) {
+          if (!/пустую расшифровку/.test(e.message)) throw e;
+          r = { text: "", segments: [] };
+        }
+        done.push({ label: speakerLabel(t.who), offsetMs: t.offsetMs, segments: r.segments });
+      }
+      text = mergeTracks(done);
+      if (!text) throw new Error("на дорожках не нашлось речи");
+    } else {
+      text = await transcribeFile({ ...chosen, bytes, name, type }, doFetch);
+    }
     return await putTranscript({ fileId, by: userId, name, meetingId, status: "done", text, model: label });
   } catch (e) {
     return putTranscript({ fileId, by: userId, name, meetingId, status: "error",
@@ -172,6 +244,26 @@ export async function transcribeRecording({ userId, fileId, name, type, bytes, m
    100 МБ в памяти, и десять разом положили бы сервер. Байты берутся из
    хранилища файлов того же человека (`ownReport`), а не хранятся у
    расшифровки: текст относится к встрече, байты — к файлу. */
+
+/**
+ * Дорожки записи с байтами и подписями говорящих. `names` — что о людях
+ * знает вызывающий (id → {name, username}): маршрут берёт их из анкет в
+ * контексте запроса; фону без контекста остаётся имя из «привета» звонка.
+ */
+export async function loadTracks(userId, fileId, names = {}) {
+  const out = [];
+  for (const t of await tracksOf(userId, fileId)) {
+    // eslint-disable-next-line no-await-in-loop
+    const f = await ownReport(userId, t.id);
+    if (!f) continue;
+    const who = t.meta?.who || {};
+    // Свежие имя и username — по участнику, которого узнали при загрузке.
+    const known = who.userId != null ? names[String(who.userId)] : null;
+    out.push({ bytes: f.bytes, name: f.name, type: f.type, offsetMs: Number(t.meta?.offsetMs) || 0,
+      who: { id: who.id, name: known?.name || who.name || "", username: known?.username || who.username || "" } });
+  }
+  return out;
+}
 
 /** «Идёт» дольше предела ожидания провайдера — это не идёт, это оборвано. */
 export const isStalePending = (t, now = Date.now()) => t?.status === "pending"
@@ -197,7 +289,9 @@ export async function retranscribeFor(userId, deps = {}) {
     if (!file) { out.push({ fileId: f.id, status: "missing" }); continue; }
     // eslint-disable-next-line no-await-in-loop
     const r = await transcribeRecording({ userId: id, fileId: f.id, name: file.name, type: file.type,
-      bytes: file.bytes, meetingId: t?.meetingId ?? null }, deps);
+      bytes: file.bytes, meetingId: t?.meetingId ?? file.meta?.meeting ?? null,
+      // eslint-disable-next-line no-await-in-loop
+      tracks: await loadTracks(id, f.id) }, deps);
     out.push({ fileId: f.id, status: r.status });
   }
   return out;
@@ -223,7 +317,8 @@ export async function resumeTranscripts(deps = {}) {
     }
     // eslint-disable-next-line no-await-in-loop
     const r = await transcribeRecording({ userId: t.by, fileId: t.fileId, name: file.name, type: file.type,
-      bytes: file.bytes, meetingId: t.meetingId }, deps);
+      // eslint-disable-next-line no-await-in-loop
+      bytes: file.bytes, meetingId: t.meetingId, tracks: await loadTracks(t.by, t.fileId) }, deps);
     if (r.status === "none") {
       // Модель с тех пор сняли: «идёт» врало бы, и «нет модели» тут точнее.
       // eslint-disable-next-line no-await-in-loop

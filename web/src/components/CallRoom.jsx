@@ -111,6 +111,7 @@ export default function CallRoom({
   const recRef = useRef(false);
   const [recBytes, setRecBytes] = useState(0);
   const [names, setNames] = useState({});          // id собеседника → имя из его «привет»
+  useEffect(() => { namesRef.current = names; }, [names]);
 
   const peers = useRef(new Map());        // id собеседника → RTCPeerConnection
   const [streams, setStreams] = useState({});   // id собеседника → MediaStream
@@ -131,6 +132,15 @@ export default function CallRoom({
   const mix = useRef(null);
   const chunks = useRef([]);
   const bytes = useRef(0);
+  /* ─── ГОЛОС ПОКАНАЛЬНО (владелец, 2026-09-21) ───
+     Кроме сведённой записи — по звуковой дорожке на каждого: свою и
+     каждого собеседника, отдельным MediaRecorder. По ним расшифровка
+     знает, кто говорит. Дорожка того, кто подключился позже, помнит, с
+     какой секунды записи началась (offsetMs). Ушедший из звонка — дорожка
+     останавливается, но не пропадает: уйдёт вместе с записью. */
+  const chans = useRef(new Map());   // ключ (me | id собеседника) → {rec, chunks, who, offsetMs, mime, done}
+  const recStart = useRef(0);
+  const namesRef = useRef({});
   const abort = useRef(null);
   const since = useRef(0);
   // Всегда свежий разбор сигналов для цикла опроса — см. listen().
@@ -452,7 +462,55 @@ export default function CallRoom({
   useEffect(() => {
     streamsRef.current = streams;
     mix.current?.sync();
-  }, [streams]);
+    // Дорожки — вслед за составом: пришедший получает свою, ушедшего — стоп.
+    if (recRef.current) {
+      Object.entries(streams).forEach(([id, st]) => startChan(id, st, { id, name: namesRef.current[id] || "" }));
+      [...chans.current.keys()].forEach((k) => { if (k !== "me" && !streams[k]) stopChan(k); });
+    }
+  }, [streams]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const audioMime = () => ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]
+    .find((m) => { try { return MediaRecorder.isTypeSupported(m); } catch { return false; } }) || "";
+  const startChan = (key, stream, who) => {
+    if (chans.current.has(key) || typeof MediaRecorder === "undefined") return;
+    const tracks = stream?.getAudioTracks?.() || [];
+    if (!tracks.length) return;
+    const mime = audioMime();
+    if (!mime) return;
+    try {
+      const only = typeof MediaStream === "function" ? new MediaStream(tracks) : stream;
+      const r = new MediaRecorder(only, { mimeType: mime, audioBitsPerSecond: 32000 });
+      const c = { rec: r, chunks: [], who, mime, offsetMs: Math.max(0, Date.now() - recStart.current) };
+      c.done = new Promise((res) => { r.onstop = () => res(); });
+      r.ondataavailable = (e) => { if (e.data?.size) c.chunks.push(e.data); };
+      r.start(1000);
+      chans.current.set(key, c);
+    } catch { /* без дорожки — расшифровка будет без имён, запись останется */ }
+  };
+  const stopChan = (key) => {
+    const c = chans.current.get(key);
+    if (c && c.rec.state === "recording") { try { c.rec.stop(); } catch { /* уже */ } }
+  };
+  /** Все дорожки — файлами к записи `ofId`; возвращает, сколько ушло. */
+  const uploadChans = async (ofId) => {
+    const all = [...chans.current.entries()];
+    chans.current = new Map();
+    let sent = 0;
+    for (const [key, c] of all) {
+      if (c.rec.state === "recording") { try { c.rec.stop(); } catch { /* уже */ } }
+      // eslint-disable-next-line no-await-in-loop
+      await c.done;
+      if (!c.chunks.length) continue;
+      const who = key === "me" ? { ...c.who, me: true } : { ...c.who, name: namesRef.current[key] || c.who.name || "" };
+      const file = new File(c.chunks, `дорожка-${(who.name || key).replace(/[^\wа-яА-ЯёЁ -]+/g, "")}${c.mime.includes("mp4") ? ".m4a" : ".webm"}`, { type: c.mime });
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await putReportFile(file, { kind: "track", meta: { of: ofId, who, offsetMs: c.offsetMs } });
+        sent += 1;
+      } catch { /* дорожка не доехала — запись есть, расшифровка будет без этого голоса */ }
+    }
+    return sent;
+  };
 
   /* ─── запись ─── */
   const startRec = async () => {
@@ -479,6 +537,10 @@ export default function CallRoom({
         streams: () => [local.current, ...Object.values(streamsRef.current || {})],
       });
       const r = new MediaRecorder(mix.current.stream, { mimeType: mime, ...RECORDER_OPTS });
+      recStart.current = Date.now();
+      chans.current = new Map();
+      startChan("me", local.current, { id: myId.current, name: myName });
+      Object.entries(streamsRef.current || {}).forEach(([id, st]) => startChan(id, st, { id, name: namesRef.current[id] || "" }));
       r.ondataavailable = (e) => {
         if (!e.data?.size) return;
         chunks.current.push(e.data);
@@ -511,8 +573,9 @@ export default function CallRoom({
             + (mime.includes("mp4") ? ".mp4" : ".webm");
           const file = new File([blob], name, { type: mime });
           const saved = await putReportFile(file, { kind: "call", meeting: meeting?.id });
+          const n = saved.id ? await uploadChans(saved.id) : 0;
           setRecNote(saved.url
-            ? `Запись сохранена: ${saved.name} (${mb(blob.size)})`
+            ? `Запись сохранена: ${saved.name} (${mb(blob.size)})${n ? `, дорожек: ${n}` : ""}`
             : `Запись готова (${mb(blob.size)}), но сервера нет — она осталась только здесь.`);
         } catch (e) {
           const why = /413/.test(e.message)

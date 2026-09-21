@@ -39,13 +39,14 @@ function initDataFor(id) {
 const as = (id) => ({ "X-Telegram-Init-Data": initDataFor(id), "X-Storage": "main" });
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
 
-const upload = (who, bytes, { name = "звонок.webm", type = "video/webm", kind = "call" } = {}) => {
+const upload = (who, bytes, { name = "звонок.webm", type = "video/webm", kind = "call", meta = null } = {}) => {
   const r = request(app).post("/api/reports")
     .set(as(who))
     .set("X-Report-Name", b64(name))
     .set("X-Report-Type", type)
     .set("Content-Type", "application/octet-stream");
   if (kind) r.set("X-Report-Kind", kind);
+  if (meta) r.set("X-Report-Meta", b64(JSON.stringify(meta)));
   return r.send(bytes);
 };
 
@@ -67,8 +68,8 @@ beforeAll(async () => {
   // на звонок, получал бы личное хранилище на нашем диске.
   process.env.OWNER_TELEGRAM_ID = "100";
   const org = await import("../lib/orgStore.js");
-  await org.identify("100", { name: "Хозяин" });
-  await org.addUser({ id: "200", name: "Иван", roleId: "executor", addedBy: "100" });
+  await org.identify("100", { name: "Хозяин", username: "boss" });
+  await org.addUser({ id: "200", name: "Иван", username: "ivan", roleId: "executor", addedBy: "100" });
   const { createApp } = await import("../app.js");
   app = createApp();
 });
@@ -258,7 +259,11 @@ describe("расшифровка после сохранения записи", 
     return calls;
   };
 
-  it("запись уходит в расшифровку в фоне — моделью того, кто сохранил, — и текст ложится у встречи", async () => {
+  /* РАСШИФРОВКА — ПО КНОПКЕ (владелец, 2026-09-21): «транскрибировать» на
+     форме записи, моделью строки «расшифровка» у ассистента того, кто
+     нажал. При сохранении ничего не запускается: дорожки приезжают
+     отдельными файлами после записи. */
+  it("«транскрибировать» расшифровывает моделью того, кто нажал; текст ложится у встречи и отдаётся форме", async () => {
     const { modelFor } = await import("../lib/assistantSettings.js");
     const { createMeeting, getMeeting } = await import("../lib/callStore.js");
     modelFor.mockClear();
@@ -267,12 +272,20 @@ describe("расшифровка после сохранения записи", 
     const m = await createMeeting({ title: "Разбор", by: "100" });
 
     const up = await upload(100, Buffer.from("видео"), { name: "звонок-р.webm" }).set("X-Report-Meeting", m.id);
-    // Ответ приходит сразу: расшифровку человек не ждёт.
     expect(up.status).toBe(201);
+    // Само сохранение ничего не расшифровывает.
+    await new Promise((r) => setTimeout(r, 80));
+    expect(calls.find((c) => c.url.includes("/audio/transcriptions"))).toBeFalsy();
+    expect((await request(app).get(`/api/reports/${up.body.id}/transcript`).set(as(100))).body).toEqual({ status: "none" });
+
+    const go = await request(app).post(`/api/reports/${up.body.id}/transcribe`).set(as(100));
+    // Ответ приходит сразу: расшифровку человек не ждёт.
+    expect(go.status).toBe(202);
+    expect(go.body).toMatchObject({ status: "pending", tracks: 0 });
 
     const t = await settled(up.body.id, "done");
     expect(t).toMatchObject({ by: "100", status: "done", text: "Договорились о скидке.", meetingId: m.id });
-    // Модель — того, кто сохранил, для задачи «расшифровка» и БЕЗ отката на
+    // Модель — того, кто нажал, для задачи «расшифровка» и БЕЗ отката на
     // модель чата: та записи не расшифровывает.
     expect(modelFor).toHaveBeenCalledWith("100", "transcribe", { fallback: false });
     const sent = calls.find((c) => c.url.includes("/audio/transcriptions"));
@@ -280,27 +293,39 @@ describe("расшифровка после сохранения записи", 
     expect(sent.headers.Authorization).toBe("Bearer sk-key-12345678");
     expect(sent.body.get("file").name).toBe("звонок-р.webm");
     expect((await getMeeting(m.id)).transcripts[0]).toMatchObject({ fileId: up.body.id, text: "Договорились о скидке." });
+    // Форма записи читает текст здесь — и без «by»: чьё, знает подпись.
+    const got = await request(app).get(`/api/reports/${up.body.id}/transcript`).set(as(100));
+    expect(got.body).toMatchObject({ status: "done", text: "Договорились о скидке." });
+    expect(got.body.by).toBeUndefined();
+    // Чужую расшифровку не прочитать даже по id.
+    expect((await request(app).get(`/api/reports/${up.body.id}/transcript`).set(as(200))).status).toBe(404);
+    // «Удалить транскрипцию» — текста нет, запись на месте.
+    expect((await request(app).delete(`/api/reports/${up.body.id}/transcript`).set(as(100))).status).toBe(204);
+    expect((await request(app).get(`/api/reports/${up.body.id}/transcript`).set(as(100))).body).toEqual({ status: "none" });
+    expect((await request(app).get("/api/reports?kind=call").set(as(100))).body.some((f) => f.id === up.body.id)).toBe(true);
   });
 
-  it("модель для расшифровки не выбрана — ничего не расшифровывается и в сеть не уходит", async () => {
+  it("модель для расшифровки не выбрана — кнопка отвечает словами, в сеть ничего не уходит", async () => {
     const { modelFor } = await import("../lib/assistantSettings.js");
     const { transcriptFor } = await import("../lib/callStore.js");
     modelFor.mockResolvedValue(null);
     const calls = fakeProviders("не должно случиться");
     const up = await upload(100, Buffer.from("видео"), { name: "звонок-без.webm" });
-    expect(up.status).toBe(201);
-    await new Promise((r) => setTimeout(r, 120));
+    const go = await request(app).post(`/api/reports/${up.body.id}/transcribe`).set(as(100));
+    expect(go.status).toBe(409);
+    expect(go.body.error).toMatch(/модель для задачи «расшифровка записей звонков» не выбрана/);
+    await new Promise((r) => setTimeout(r, 80));
     expect(await transcriptFor(up.body.id)).toBeNull();
     expect(calls.find((c) => c.url.includes("/audio/transcriptions"))).toBeFalsy();
   });
 
-  it("вложение к задаче — не запись, и в расшифровку не уходит", async () => {
+  it("вложение к задаче — не запись: расшифровывать нечего", async () => {
     const { modelFor } = await import("../lib/assistantSettings.js");
     modelFor.mockClear();
     modelFor.mockResolvedValue(GROQ);
     fakeProviders("");
-    await upload(100, Buffer.from("картинка"), { name: "снимок-2.png", type: "image/png", kind: "" });
-    await new Promise((r) => setTimeout(r, 80));
+    const up = await upload(100, Buffer.from("картинка"), { name: "снимок-2.png", type: "image/png", kind: "" });
+    expect((await request(app).post(`/api/reports/${up.body.id}/transcribe`).set(as(100))).status).toBe(404);
     expect(modelFor).not.toHaveBeenCalled();
   });
 
@@ -309,8 +334,66 @@ describe("расшифровка после сохранения записи", 
     modelFor.mockResolvedValue(GROQ);
     fakeProviders("текст");
     const up = await upload(100, Buffer.from("видео"), { name: "звонок-х.webm" }).set("X-Report-Meeting", "not-an/id?x=1");
+    expect(up.body.meta?.meeting).toBeUndefined();
+    await request(app).post(`/api/reports/${up.body.id}/transcribe`).set(as(100));
     const t = await settled(up.body.id, "done");
     expect(t.meetingId).toBeNull();
+  });
+
+  /* ГОЛОС ПОКАНАЛЬНО (владелец, 2026-09-21): дорожки уезжают файлами
+     вида «track» с подписью — чья и к какой записи. Чья — сервер узнаёт
+     при загрузке по псевдониму звонка (пока он жив) и подставляет имя из
+     анкеты и username; расшифровка идёт по дорожкам, реплики складываются
+     по времени, и перед каждой — кто говорит. */
+  it("по дорожкам: перед репликой — имя из анкеты и username; дорожки уходят вместе с записью", async () => {
+    const { modelFor } = await import("../lib/assistantSettings.js");
+    const { createMeeting, aliasFor } = await import("../lib/callStore.js");
+    modelFor.mockResolvedValue(GROQ);
+    const m = await createMeeting({ title: "Разбор", by: "100" });
+    // Провайдер отвечает verbose_json — по имени файла дорожки.
+    const calls = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, opts) => {
+      calls.push({ url: String(url), body: opts?.body });
+      if (String(url).includes("/audio/transcriptions")) {
+        const name = opts.body.get("file").name;
+        const segs = name.startsWith("дорожка-я")
+          ? [{ start: 0.2, end: 1.5, text: "Привет, Иван." }, { start: 6, end: 8, text: "Тогда до завтра." }]
+          : [{ start: 0.5, end: 2, text: "Здравствуй." }, { start: 1.2, end: 3, text: "Скидку дадим." }];
+        return { ok: true, status: 200, text: async () => JSON.stringify({ text: segs.map((x) => x.text).join(" "), segments: segs }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) };
+    });
+
+    const video = await upload(100, Buffer.from("видео"), { name: "звонок-д.webm" }).set("X-Report-Meeting", m.id);
+    const mine = await upload(100, Buffer.from("мой голос"), { name: "дорожка-я.webm", type: "audio/webm", kind: "track",
+      meta: { of: video.body.id, who: { id: "xx", name: "Я", me: true }, offsetMs: 0 } });
+    // Собеседник в звонке — псевдонимом; сервер узнаёт в нём участника 200.
+    const theirs = await upload(100, Buffer.from("его голос"), { name: "дорожка-п.webm", type: "audio/webm", kind: "track",
+      meta: { of: video.body.id, who: { id: aliasFor(m.id, "200"), name: "Иван из привета" }, offsetMs: 2000 } });
+    // Имя — из анкеты (её обновляет подпись Telegram: в тесте это «Кто-то»), username — оттуда же.
+    expect(mine.body.meta.who).toMatchObject({ userId: "100", name: "Кто-то", username: "boss" });
+    expect(theirs.body.meta.who).toMatchObject({ userId: "200", name: "Кто-то", username: "ivan" });
+    // Дорожки — не записи: во вкладке звонков их нет.
+    expect((await request(app).get("/api/reports?kind=call").set(as(100))).body.map((f) => f.id)).not.toContain(mine.body.id);
+
+    const go = await request(app).post(`/api/reports/${video.body.id}/transcribe`).set(as(100));
+    expect(go.body).toMatchObject({ status: "pending", tracks: 2 });
+    const t = await settled(video.body.id, "done");
+    // Сдвиг дорожки собеседника — две секунды: его «Здравствуй» на 2,5 с.
+    expect(t.text.split("\n")).toEqual([
+      "[00:00] Кто-то @boss: Привет, Иван.",
+      "[00:03] Кто-то @ivan: Здравствуй. Скидку дадим.",
+      "[00:06] Кто-то @boss: Тогда до завтра.",
+    ]);
+    const sent = calls.filter((c) => c.url.includes("/audio/transcriptions"));
+    expect(sent).toHaveLength(2);
+    expect(sent.every((c) => c.body.get("response_format") === "verbose_json")).toBe(true);
+
+    // Удаление видеозаписи уносит и дорожки, и текст.
+    const del = await request(app).delete(`/api/reports/${video.body.scope}/${video.body.id}`).set(as(100));
+    expect(del.status).toBe(204);
+    expect((await request(app).get("/api/reports?kind=track").set(as(100))).body).toEqual([]);
+    expect((await request(app).get(`/api/reports/${video.body.id}/transcript`).set(as(100))).status).toBe(404);
   });
 
   it("удаление записи уносит и расшифровку", async () => {
@@ -319,7 +402,8 @@ describe("расшифровка после сохранения записи", 
     modelFor.mockResolvedValue(GROQ);
     fakeProviders("удаляемый текст");
     const up = await upload(100, Buffer.from("видео"), { name: "звонок-у.webm" });
-    await settled(up.body.id, "done");
+    await request(app).post(`/api/reports/${up.body.id}/transcribe`).set(as(100));
+    expect((await settled(up.body.id, "done")).status).toBe("done");
     const del = await request(app).delete(`/api/reports/${up.body.scope}/${up.body.id}`).set(as(100));
     expect(del.status).toBe(204);
     expect(await transcriptFor(up.body.id)).toBeNull();

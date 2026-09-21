@@ -157,8 +157,18 @@ export function safeName(name) {
    не всё подряд, что человек когда-либо прикладывал. Держим её узкой —
    короткая латиница, — чтобы в манифест не уезжало что попало из заголовка. */
 export const safeKind = (k) => (/^[a-z]{1,16}$/.test(String(k || "")) ? String(k) : "");
+/* Сведения о файле от того, кто его прислал: у звуковой дорожки записи —
+   чья она (`who`), к какой записи (`of`) и с какой секунды (`offsetMs`);
+   у записи — встреча (`meeting`). Только плоский JSON и немного: это
+   подпись к файлу, а не второй файл. */
+const META_LIMIT = 2000;
+export const safeMeta = (m) => {
+  if (!m || typeof m !== "object" || Array.isArray(m)) return null;
+  const s = JSON.stringify(m);
+  return s.length <= META_LIMIT ? JSON.parse(s) : null;
+};
 
-export async function saveReport(userId, { name, type, bytes, kind } = {}) {
+export async function saveReport(userId, { name, type, bytes, kind, meta } = {}) {
   if (!bytes || !bytes.length) throw new Error("file is required");
   if (bytes.length > MAX_REPORT_BYTES) {
     throw new Error(`file must be at most ${Math.round(MAX_REPORT_BYTES / 1024 / 1024)} MB`);
@@ -171,6 +181,7 @@ export async function saveReport(userId, { name, type, bytes, kind } = {}) {
     id, name: safeName(name), type: safeType(type),
     size: bytes.length, savedAt: new Date().toISOString(),
     ...(safeKind(kind) ? { kind: safeKind(kind) } : {}),
+    ...(safeMeta(meta) ? { meta: safeMeta(meta) } : {}),
   };
   // Расширения у файла на диске нет намеренно: имя и тип живут в манифесте,
   // а статикой этот каталог не отдаётся — только через маршрут с проверкой.
@@ -217,6 +228,15 @@ export async function listReports(userId, { kind = "" } = {}) {
     .filter((m) => !want || (want === "call" ? looksLikeCall(m) : m.kind === want))
     .map((m) => ({ ...m, scope, url: `/api/reports/${scope}/${m.id}` }))
     .sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+}
+
+/** Звуковые дорожки одной записи звонка — по одной на участника (kind
+ *  «track», `meta.of` — id записи), в порядке, в каком их прислали. */
+export async function tracksOf(userId, videoId) {
+  const id = String(videoId || "");
+  return (await listReports(userId, { kind: "track" }))
+    .filter((m) => m.meta && String(m.meta.of || "") === id)
+    .sort((a, b) => String(a.savedAt).localeCompare(String(b.savedAt)));
 }
 
 /** Только описание файла, без байтов: чтобы решить про размер, читать сто

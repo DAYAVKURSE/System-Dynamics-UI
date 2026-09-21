@@ -3,13 +3,14 @@ import express from "express";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import { telegramUser } from "../middleware/telegramUser.js";
-import { identify } from "../lib/orgStore.js";
+import { identify, listOrg } from "../lib/orgStore.js";
 import {
-  MAX_REPORT_BYTES, saveReport, getReport, deleteReport, listReports, ownReportMeta,
+  MAX_REPORT_BYTES, saveReport, getReport, deleteReport, listReports, ownReportMeta, tracksOf,
 } from "../lib/reportStore.js";
 import { MAX_BOT_DOCUMENT_BYTES, sendDocument, sendMessage } from "../lib/telegram.js";
-import { transcribeRecording } from "../lib/transcribe.js";
-import { dropTranscript } from "../lib/callStore.js";
+import { NO_MODEL, loadTracks, transcribeRecording } from "../lib/transcribe.js";
+import { modelFor } from "../lib/assistantSettings.js";
+import { aliasFor, dropTranscript, transcriptFor } from "../lib/callStore.js";
 
 const router = Router();
 
@@ -50,6 +51,15 @@ function headerName(raw) {
 /* Id встречи у записи — короткая base64url-строка (см. callStore). Что-то
    иное в заголовке — не встреча, и в хранилище оно не попадает. */
 const safeMeetingId = (raw) => (/^[A-Za-z0-9_-]{6,64}$/.test(String(raw || "")) ? String(raw) : null);
+/* Подпись к файлу — base64 JSON в заголовке (заголовки latin-1, а в
+   имени говорящего кириллица); не разобралось — подписи нет. */
+const headerMeta = (raw) => {
+  if (!raw) return null;
+  try {
+    const m = JSON.parse(Buffer.from(String(raw), "base64").toString("utf8"));
+    return m && typeof m === "object" && !Array.isArray(m) ? m : null;
+  } catch { return null; }
+};
 
 // Тело принимаем сырыми байтами: multipart потребовал бы зависимости ради
 // одного поля, а файл здесь всегда один.
@@ -183,24 +193,36 @@ router.post("/", telegramUser, member,
   async (req, res, next) => {
     try {
       const bytes = Buffer.isBuffer(req.body) ? req.body : null;
+      /* Подпись к файлу от приложения (`X-Report-Meta`, base64 JSON): у
+         звуковой дорожки — чья она и к какой записи; у записи — встреча
+         (из `X-Report-Meeting`, если звонок шёл по заведённой). Расшифровка
+         запускается не здесь, а кнопкой «транскрибировать» (владелец,
+         2026-09-21): дорожки приезжают отдельными файлами после записи, и
+         текст с именами получается только когда они все на месте. */
+      const meta = headerMeta(req.header("X-Report-Meta")) || {};
+      const meeting = safeMeetingId(req.header("X-Report-Meeting"));
+      /* Дорожка: кто на ней — узнаём СЕЙЧАС, пока псевдоним звонка жив
+         (aliasFor считается на секрете процесса). Своя дорожка — тот, кто
+         прислал; чужая — участник хранилища с таким псевдонимом во
+         встрече; гость по ссылке остаётся с именем из «привета». */
+      if (String(req.header("X-Report-Kind") || "") === "track" && meta.who && typeof meta.who === "object") {
+        const video = meta.of ? await ownReportMeta(req.telegramUserId, String(meta.of)) : null;
+        const inMeeting = video?.meta?.meeting || null;
+        const users = (await listOrg()).users;
+        const me = users.find((u) => String(u.id) === String(req.telegramUserId));
+        const found = meta.who.me ? me
+          : inMeeting ? users.find((u) => aliasFor(inMeeting, String(u.id)) === String(meta.who.id)) : null;
+        meta.who = { id: String(meta.who.id ?? ""), name: String(found?.name || meta.who.name || "").slice(0, 80),
+          username: String(found?.username || "").slice(0, 64), ...(found ? { userId: String(found.id) } : {}) };
+      }
       const entry = await saveReport(req.telegramUserId, {
         name: headerName(req.header("X-Report-Name")),
         type: req.header("X-Report-Type") || req.header("Content-Type"),
         kind: req.header("X-Report-Kind"),
         bytes,
+        meta: { ...meta, ...(meeting ? { meeting } : {}) },
       });
       res.status(201).json(entry);
-      /* Запись звонка — в расшифровку, но ПОСЛЕ ответа и не дожидаясь:
-         текст делается минуты, а «запись сохранена» человек ждёт сейчас.
-         Итог (или причина, почему его нет) ложится в callStore и оттуда
-         попадает в контекст помощника. Встреча — из заголовка, если
-         звонок шёл по заведённой встрече; без него текст живёт при файле. */
-      if (entry.kind === "call") {
-        transcribeRecording({
-          userId: req.telegramUserId, fileId: entry.id, name: entry.name, type: entry.type,
-          bytes, meetingId: safeMeetingId(req.header("X-Report-Meeting")),
-        }).catch((e) => console.error(`[transcribe] запись ${entry.id}: ${e.message}`));
-      }
     } catch (e) {
       if (/required|at most|limit/.test(e.message)) {
         return res.status(400).json({ error: e.message });
@@ -208,6 +230,53 @@ router.post("/", telegramUser, member,
       next(e);
     }
   });
+
+/* ─────── РАСШИФРОВКА ПО КНОПКЕ (владелец, 2026-09-21) ───────
+
+   «Транскрибировать» на форме записи: моделью строки «расшифровка» у
+   ассистента того, кто нажал. Голос записан поканально — по дорожке на
+   участника (kind «track», meta.of = запись); имена берутся из анкет
+   ЭТОГО хранилища (имя и username), а у гостя по ссылке — из его
+   «привета» в звонке. Идёт в фоне, состояние — `GET /:id/transcript`. */
+const ownCall = async (req) => {
+  const meta = await ownReportMeta(req.telegramUserId, req.params.id);
+  return meta && (meta.kind === "call" || String(meta.type || "").startsWith("video/")) ? meta : null;
+};
+router.post("/:id/transcribe", telegramUser, member, async (req, res, next) => {
+  try {
+    const meta = await ownCall(req);
+    if (!meta) return res.status(404).json({ error: "not found" });
+    const chosen = await modelFor(req.telegramUserId, "transcribe", { fallback: false });
+    if (!chosen) return res.status(409).json({ error: NO_MODEL });
+    const names = Object.fromEntries((await listOrg()).users
+      .map((u) => [String(u.id), { name: u.name || "", username: u.username || "" }]));
+    const tracks = await loadTracks(req.telegramUserId, meta.id, names);
+    const bytes = tracks.length ? Buffer.alloc(0) : await fsp.readFile(meta.path);
+    res.status(202).json({ status: "pending", tracks: tracks.length });
+    transcribeRecording({
+      userId: req.telegramUserId, fileId: meta.id, name: meta.name, type: meta.type, bytes,
+      meetingId: meta.meta?.meeting || null, tracks,
+    }).catch((e) => console.error(`[transcribe] запись ${meta.id}: ${e.message}`));
+  } catch (e) { next(e); }
+});
+router.get("/:id/transcript", telegramUser, member, async (req, res, next) => {
+  try {
+    const meta = await ownCall(req);
+    if (!meta) return res.status(404).json({ error: "not found" });
+    const t = await transcriptFor(meta.id);
+    if (!t) return res.json({ status: "none" });
+    const { by, ...pub } = t;
+    return res.json(pub);
+  } catch (e) { next(e); }
+});
+router.delete("/:id/transcript", telegramUser, member, async (req, res, next) => {
+  try {
+    const meta = await ownCall(req);
+    if (!meta) return res.status(404).json({ error: "not found" });
+    await dropTranscript(meta.id);
+    return res.status(204).end();
+  } catch (e) { next(e); }
+});
 
 router.get("/:scope/:id", async (req, res, next) => {
   try {
@@ -235,6 +304,11 @@ router.delete("/:scope/:id", telegramUser, member, async (req, res, next) => {
     if (!ok) return res.status(404).json({ error: "not found" });
     // Расшифровка без записи — текст разговора, который человек стёр.
     await dropTranscript(req.params.id);
+    // И звуковые дорожки этой записи: без видео они никому не нужны.
+    for (const t of await tracksOf(req.telegramUserId, req.params.id)) {
+      // eslint-disable-next-line no-await-in-loop
+      await deleteReport(req.telegramUserId, t.id);
+    }
     res.status(204).end();
   } catch (e) {
     next(e);

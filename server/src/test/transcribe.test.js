@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import {
   DEFAULT_OPENAI_BASE, INTERRUPTED, MAX_TRANSCRIBE_BYTES, NO_MODEL, NOT_SUPPORTED, TRANSCRIBE_TIMEOUT_MS,
-  isStalePending, resumeTranscripts, retranscribeFor, transcribeFile, transcribeRecording,
+  isStalePending, mergeTracks, resumeTranscripts, retranscribeFor, speakerLabel, transcribeFile,
+  transcribeRecording,
 } from "../lib/transcribe.js";
 import {
   createMeeting, dropTranscript, getMeeting, listPendingTranscripts, listTranscripts, putTranscript,
@@ -42,6 +43,40 @@ const fail = (status, body) => ({ ok: false, status, text: async () => body });
 const file = (over = {}) => ({
   kind: "openai", baseUrl: "", key: KEY, model: "whisper-1",
   bytes: Buffer.from("webm-bytes"), name: "звонок.webm", type: "video/webm", ...over,
+});
+
+/* КТО ГОВОРИТ (владелец, 2026-09-21): по дорожке на участника, куски с
+   секундами, склейка по времени со сдвигом дорожки, подпись — имя из
+   анкеты и username. */
+describe("поканальная расшифровка", () => {
+  it("с segments просит verbose_json и отдаёт куски с секундами", async () => {
+    const doFetch = vi.fn(async () => ok(JSON.stringify({ text: "а б", segments: [
+      { start: 0.5, end: 1, text: " а " }, { start: 2, end: 3, text: "б" }, { start: 4, end: 5, text: "  " }] })));
+    const r = await transcribeFile(file({ segments: true }), doFetch);
+    expect(doFetch.mock.calls[0][1].body.get("response_format")).toBe("verbose_json");
+    expect(r).toEqual({ text: "а б", segments: [{ start: 0.5, end: 1, text: "а" }, { start: 2, end: 3, text: "б" }] });
+    // Голый текст без кусков — один кусок с нуля: расшифровка не пропадает.
+    expect(await transcribeFile(file({ segments: true }), vi.fn(async () => ok("просто текст"))))
+      .toEqual({ text: "просто текст", segments: [{ start: 0, end: 0, text: "просто текст" }] });
+  });
+  it("подпись говорящего — имя и @username; без обоих — «участник»", () => {
+    expect(speakerLabel({ name: "Иван", username: "ivan" })).toBe("Иван @ivan");
+    expect(speakerLabel({ name: "Иван" })).toBe("Иван");
+    expect(speakerLabel({ username: "@ivan" })).toBe("@ivan");
+    expect(speakerLabel({})).toBe("участник");
+  });
+  it("реплики складываются по времени со сдвигом дорожки; подряд одного — одной строкой", () => {
+    const text = mergeTracks([
+      { label: "Хозяин @boss", offsetMs: 0, segments: [{ start: 0, text: "Привет." }, { start: 1.4, text: "Как дела?" }, { start: 9, text: "Пока." }] },
+      { label: "Иван @ivan", offsetMs: 3000, segments: [{ start: 0.5, text: "Хорошо." }] },
+    ]);
+    expect(text.split("\n")).toEqual([
+      "[00:00] Хозяин @boss: Привет. Как дела?",
+      "[00:04] Иван @ivan: Хорошо.",
+      "[00:09] Хозяин @boss: Пока.",
+    ]);
+    expect(mergeTracks([])).toBe("");
+  });
 });
 
 describe("transcribeFile — запрос к /audio/transcriptions", () => {

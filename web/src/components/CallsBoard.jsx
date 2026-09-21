@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { C, OK, BAD, ACC, S, btn, TxtField, DANGER_LINE } from "./ui.jsx";
+import React, { useCallback, useEffect, useState } from "react";
+import { C, OK, BAD, ACC, S, btn, Download, TxtField, DANGER_LINE } from "./ui.jsx";
 import CallRoom from "./CallRoom.jsx";
 import {
-  callLink, createMeeting, deleteMeeting, deleteRecording, listMeetings, listRecordings,
-  sendRecording,
+  callLink, createMeeting, deleteMeeting, deleteRecording, deleteTranscript, getTranscript, listMeetings,
+  listRecordings, sendRecording, transcribeRecording,
 } from "../calls.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -120,7 +120,9 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
       {/* ─────── записи созвонов ───────
           Запись делает каждый свою и кладёт на сервер. Показываем их здесь,
           рядом со встречами: искать запись во вкладке отчётов по задачам
-          никому не придёт в голову.
+          никому не придёт в голову. Раскрытая запись — форма (владелец,
+          2026-09-21): текст расшифровки и пять кнопок — скачать и удалить
+          видеозапись, транскрибировать, скачать и удалить транскрипцию.
 
           «Скачать» — это отправка себе в чат с ботом, и так и подписано:
           сохранить файл прямо из мини-приложения Telegram не даёт, а из
@@ -150,33 +152,84 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
                 {mb(r.size)} · {fmt(r.savedAt)}</span>
             </button>
             {openRec === r.id && (
-              <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
-                <button style={btn(true, OK)} disabled={busy}
-                  onClick={() => actRec(async () => {
-                    const out = await sendRecording(r.id);
-                    setRecMsg(out?.sent === "link"
-                      ? "Запись великовата для файла — отправил в чат ссылку на неё."
-                      : "Отправил запись в чат с ботом.");
-                  })}>
-                  {r.size > MAX_BOT_FILE_BYTES ? "Прислать ссылку" : "Скачать"}</button>
-                {/* Удаление — в два касания. Другой копии нет: файл уехал на
-                    сервер сразу, на телефоне его не осталось, и час созвона
-                    не должен исчезать от промаха пальцем. */}
-                <button style={{ ...btn(confirmDel === r.id, BAD), color: BAD,
-                  borderColor: DANGER_LINE }} disabled={busy}
-                  onClick={() => {
-                    if (confirmDel !== r.id) { setConfirmDel(r.id); setRecMsg(""); return; }
-                    setConfirmDel("");
-                    actRec(async () => {
-                      await deleteRecording(r.scope, r.id);
-                      setOpenRec(""); setRecMsg("Запись удалена с сервера.");
-                    });
-                  }}>
-                  {confirmDel === r.id ? "Удалить насовсем?" : "Удалить"}</button>
-              </div>)}
+              <RecordingForm r={r} busy={busy} act={actRec} say={setRecMsg}
+                confirm={confirmDel} setConfirm={setConfirmDel}
+                onDeleted={() => setOpenRec("")} />)}
           </div>))}
         {recMsg && <div style={{ fontSize: "var(--fs-hint)", color: ACC, marginTop: "var(--space-8)", lineHeight: 1.5 }}>
           {recMsg}</div>}
       </div>
+    </div>);
+}
+
+
+/* ─────── ФОРМА ЗАПИСИ (владелец, 2026-09-21) ───────
+
+   Текст расшифровки — на форме, как только он есть; пока идёт — так и
+   сказано, не вышло — почему. Расшифровку делает модель строки
+   «расшифровка» у ассистента (Инструменты → Агенты): нет модели — сервер
+   говорит об этом словами, и они показываются здесь же. Голос записан
+   поканально, поэтому в тексте перед каждой репликой — кто говорит.
+
+   «Удалить» — в два касания, как и раньше: копии у записи нет. */
+function RecordingForm({ r, busy, act, say, confirm, setConfirm, onDeleted }) {
+  const [tr, setTr] = useState(null);   // null — ещё не спрашивали; {status: none|pending|done|error}
+  const refresh = useCallback(async () => {
+    try { setTr(await getTranscript(r.id)); } catch { setTr({ status: "none" }); }
+  }, [r.id]);
+  useEffect(() => { refresh(); }, [refresh]);
+  // Пока «идёт» — спрашиваем раз в пять секунд: расшифровка делается минуты.
+  useEffect(() => {
+    if (tr?.status !== "pending") return undefined;
+    const id = setInterval(refresh, 5000);
+    return () => clearInterval(id);
+  }, [tr?.status, refresh]);
+  const big = r.size > MAX_BOT_FILE_BYTES;
+  const pending = tr?.status === "pending";
+  const base = String(r.name || "запись").replace(/\.[a-z0-9]+$/i, "");
+  const twice = (key, label, ask, fn) => (
+    <button style={{ ...btn(confirm === key, BAD), color: BAD, borderColor: DANGER_LINE }} disabled={busy}
+      aria-label={label.toLowerCase()}
+      onClick={() => {
+        if (confirm !== key) { setConfirm(key); say(""); return; }
+        setConfirm("");
+        act(fn);
+      }}>{confirm === key ? ask : label}</button>);
+  return (
+    <div aria-label={`форма записи ${r.name}`}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
+        <button style={btn(true, OK)} disabled={busy} aria-label="скачать видеозапись"
+          onClick={() => act(async () => {
+            const out = await sendRecording(r.id);
+            say(out?.sent === "link"
+              ? "Запись великовата для файла — отправил в чат ссылку на неё."
+              : "Отправил видеозапись в чат с ботом.");
+          })}>
+          {big ? "Прислать ссылку на видеозапись" : "Скачать видеозапись"}</button>
+        {twice(`video:${r.id}`, "Удалить видеозапись", "Удалить видеозапись насовсем?", async () => {
+          await deleteRecording(r.scope, r.id);
+          onDeleted(); say("Видеозапись удалена с сервера.");
+        })}
+        <button style={btn(pending, ACC)} disabled={busy || pending} aria-label="транскрибировать"
+          onClick={() => act(async () => {
+            await transcribeRecording(r.id);
+            setTr({ status: "pending" });
+          })}>{pending ? "Транскрибирую…" : "Транскрибировать"}</button>
+        {tr?.status === "done" && (
+          <Download text={tr.text} name={`${base} — транскрипция.txt`} label="Скачать транскрипцию"
+            aria-label="скачать транскрипцию" />)}
+        {tr && tr.status !== "none" && twice(`text:${r.id}`, "Удалить транскрипцию", "Удалить транскрипцию насовсем?",
+          async () => { await deleteTranscript(r.id); setTr({ status: "none" }); say("Транскрипция удалена."); })}
+      </div>
+      {pending && (
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-8)" }}>
+          Расшифровка идёт{tr.model ? ` · ${tr.model}` : ""}…</div>)}
+      {tr?.status === "error" && (
+        <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)", lineHeight: 1.5 }}>
+          Расшифровка не удалась: {tr.error}</div>)}
+      {tr?.status === "done" && (
+        <div aria-label="транскрипция" style={{ fontSize: "var(--fs-hint)", lineHeight: 1.6, marginTop: "var(--space-8)",
+          whiteSpace: "pre-wrap", background: C.panel, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+          padding: "var(--space-8)", maxHeight: 320, overflowY: "auto" }}>{tr.text}</div>)}
     </div>);
 }
