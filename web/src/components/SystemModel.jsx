@@ -13,6 +13,7 @@ import RegisterPanel from "./RegisterPanel.jsx";
 import CodeGate, { PlanCard } from "./CodeGate.jsx";
 import { tabLocked } from "../plans.js";
 import { setStorage } from "../session.js";
+import { ForeignPlacards, ForeignStrips, useForeignSchemes } from "./ForeignSchemes.jsx";
 import { FACTORS_ON } from "../lib/flags.js";
 import { diffDocs } from "../lib/scenarioDiff.js";
 import LooseCrew from "./LooseCrew.jsx";
@@ -1073,6 +1074,11 @@ export default function SystemModel(){
     materials:w?.materials||[],
     procs:w?.procs||[],
   }),[]);
+  /* Чужие схемы — плакардами в окне схемы (владелец, 2026-09-21;
+     ForeignSchemes.jsx): срез участника, приведённый к виду документа. */
+  const foreignNorm=useCallback((w)=>({...fromWorkspace(w),
+    entities:normalizeAssets(w?.entities||[]),funcs:normalizeFuncs(w?.funcs||[])}),[fromWorkspace]);
+  const foreign=useForeignSchemes(me,{normalize:foreignNorm});
   /* Разобрались ли, что открывать. До этого момента на экране может стоять
      встроенная демонстрационная модель, и выгружать её на сервер нельзя. */
   const [ready,setReady]=useState(false);
@@ -2124,6 +2130,9 @@ export default function SystemModel(){
           onOpenFunc={openFuncCard}
           /* Руки правятся через текст процесса — единственный источник. */
           />
+        {/* Чужие схемы — плакардами под своей; свёрнутые — полосами внизу
+            окна схемы (владелец, 2026-09-21). */}
+        <ForeignPlacards items={foreign.open} Scheme={SchemeSVG} onToggle={foreign.toggle}/>
 
         {/* Под схемой три вкладки: чем схема собрана, куда она идёт и что
             по ней уже делали — «Деятельность»: слово «Timeline» называло
@@ -2362,6 +2371,7 @@ export default function SystemModel(){
         </div>
         </div>
         </div>)}
+        <ForeignStrips items={foreign.closed} onToggle={foreign.toggle}/>
       </>)}
 
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}

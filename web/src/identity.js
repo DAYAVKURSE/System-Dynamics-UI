@@ -302,6 +302,14 @@ export function joinFromLocation() {
 /* ─────── общая модель ─────── */
 
 export const getWorkspace = () => json("/api/workspace");
+/* Модель ЧУЖОГО хранилища — того, куда позвали (владелец, 2026-09-21):
+   срез, который сервер даёт участнику. Заголовок хранилища — свой на
+   этот запрос, а не на весь сеанс: своё хранилище остаётся своим. */
+export async function getWorkspaceIn(storageId) {
+  const r = await fetch("/api/workspace", { headers: { ...headers(), "X-Storage": String(storageId) } });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Сервер ответил ${r.status}`);
+  return r.json();
+}
 export const putWorkspace = (model) =>
   json("/api/workspace", { method: "PUT", body: JSON.stringify({ model }) });
 export const takeTaskRemote = (id) =>
