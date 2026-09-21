@@ -2297,7 +2297,7 @@ export default function SystemModel(){
 
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
-        <div className="flex gap-2" style={{marginBottom: "var(--space-8)","--cell":"100px"}}>
+        <div className="flex gap-2" style={{marginBottom: "var(--space-8)"}}>
           {[["people","Роли"],["assistant","Агенты"],["virtual","Виртуальные сотрудники"],
             ["reminders","Напоминания"],["calls","Звонки"],["issues","Issues"],
             ["export","Выгрузка"]]
