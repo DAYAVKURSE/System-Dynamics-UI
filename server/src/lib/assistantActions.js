@@ -32,26 +32,37 @@ const str = (v, limit = 2000) => String(v == null ? "" : v).slice(0, limit);
 const ok = (text) => ({ ok: true, text });
 const no = (text) => ({ ok: false, text });
 
-/* Отложенное действие ждёт ответа человека. По одному на человека и
-   агента: два висящих «вы уверены?» — это вопрос, на который непонятно,
-   что отвечает «да». */
+/* Отложенные изменения — по id: кнопка под сообщением называет именно то,
+   что подтверждают. Живут час и не больше сотни: это оперативная память
+   разговора, а не хранилище. */
 const pending = new Map();
-const pendKey = (userId, agentId) => `${userId}~${agentId || "assistant"}`;
-export const pendingFor = (userId, agentId) => pending.get(pendKey(userId, agentId)) || null;
-export const forgetPending = (userId, agentId) => pending.delete(pendKey(userId, agentId));
+export const PENDING_TTL_MS = 60 * 60 * 1000;
+const MAX_PENDING = 100;
 
-/* Граница слова тут своя, а не `\b`: в JavaScript `\b` считается по
-   `\w`, то есть по латинице, и «да» ему не слово вовсе — проверка молча
-   не срабатывала, а подтверждение не доходило. */
-const EDGE = "(?=$|[\\s.,!?;:…])";
-const YES = new RegExp(`^(да|ага|ок|окей|хорошо|давай|подтверждаю|применяй|применить|делай|go|ok|yes)${EDGE}`, "i");
-const NO = new RegExp(`^(нет|не надо|отмена|отменить|стоп|no|cancel)${EDGE}`, "i");
-/** Что человек ответил на «вы уверены?»: да, нет или не об этом. */
-export const answerToAsk = (text) => {
-  const t = String(text || "").trim();
-  if (YES.test(t)) return "yes";
-  if (NO.test(t)) return "no";
-  return "";
+const sweepPending = (now = Date.now()) => {
+  for (const [id, p] of pending) {
+    if (now - p.at > PENDING_TTL_MS) pending.delete(id);
+  }
+  while (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value);
+};
+
+export const pendingById = (id) => {
+  const p = pending.get(String(id));
+  if (!p) return null;
+  if (Date.now() - p.at > PENDING_TTL_MS) { pending.delete(String(id)); return null; }
+  return p;
+};
+export const forgetPending = (id) => pending.delete(String(id));
+export function resetPendingActions() { pending.clear(); }
+
+/** Сколько изменений ждёт подтверждения у этого человека. */
+export const pendingCount = (userId, agentId) => {
+  sweepPending();
+  let n = 0;
+  for (const p of pending.values()) {
+    if (p.userId === String(userId) && p.agentId === String(agentId || "assistant")) n += 1;
+  }
+  return n;
 };
 
 /* ─────── сами действия ─────── */
@@ -279,22 +290,49 @@ export const toolsFor = ({ isOwner = false } = {}) => ACTION_IDS
   .filter((id) => !ACTIONS[id].owner || isOwner)
   .map((id) => ({ name: id, description: ACTIONS[id].what, schema: ACTIONS[id].schema }));
 
+/* Слова подтверждения — одни на все места: и в сообщении человеку, и в
+   ответе инструменту. Расходиться им нельзя: человек подтверждает ровно
+   то, о чём отчитается помощник. */
+export const CONFIRM_ASKED = "Изменение НЕ сделано: человеку отправлено подтверждение кнопками."
+  + " Не проси разрешения словами, не зови это действие снова и не говори,"
+  + " что сделал. Скажи одной строкой, что ждёшь подтверждения.";
+
 /**
  * Выполнить действие от имени человека.
  *
- * `ask` — агент спрашивает перед изменением: тогда действие не делается, а
- * запоминается, и помощнику возвращается просьба описать его человеку.
+ * `ask` — изменения применяются только после подтверждения: тогда
+ * действие не делается, а откладывается, и `onConfirm` зовут показать его
+ * человеку кнопками. Спрашивать разрешение словами модели не нужно и
+ * нельзя: об этом ей говорит сам ответ инструмента.
  */
-export async function runAction(name, args, { userId, agentId, isOwner = false, ask = true }) {
+export async function runAction(name, args, {
+  userId, agentId, isOwner = false, ask = true, onConfirm = null,
+}) {
   const action = ACTIONS[name];
   if (!action) return no(`Нет такого действия: ${name}.`);
   if (action.owner && !isOwner) {
     return no("Это меняет модель целиком — так может только владелец.");
   }
   if (action.writes && ask) {
+    sweepPending();
     const words = action.say ? action.say(args || {}) : action.what;
-    pending.set(pendKey(userId, agentId), { name, args: args || {}, words });
-    return no(`Нужно подтверждение. Скажите человеку: «Собираюсь ${words}. Подтвердите?» — и ждите ответа.`);
+    const id = `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    pending.set(id, { id, userId: String(userId), agentId: String(agentId || "assistant"),
+      name, args: args || {}, words, at: Date.now() });
+    /* Показать человека просят СНАРУЖИ: кто зовёт помощника, тот и знает,
+       как с человеком говорить, — бот кнопками, очередь ничем. Не вышло
+       показать — откладывать нечего: подтвердить это будет некому. */
+    try {
+      const shown = onConfirm ? await onConfirm({ id, words, name, args: args || {} }) : false;
+      if (!shown) {
+        forgetPending(id);
+        return no("Изменение не сделано: спросить подтверждение не вышло, и делать без него нельзя.");
+      }
+    } catch (e) {
+      forgetPending(id);
+      return no(`Изменение не сделано: спросить подтверждение не вышло (${String(e?.message || e).slice(0, 200)}).`);
+    }
+    return { ok: false, asked: true, id, words, text: CONFIRM_ASKED };
   }
   try {
     return await action.run(userId, args || {}, { isOwner });
@@ -303,10 +341,22 @@ export async function runAction(name, args, { userId, agentId, isOwner = false, 
   }
 }
 
-/** Применить отложенное действие — когда человек сказал «да». */
-export async function applyPending(userId, agentId, { isOwner = false } = {}) {
-  const p = pendingFor(userId, agentId);
+/** Что именно откладывали — словами, для сообщения с кнопками. */
+export const pendingWords = (id) => pendingById(id)?.words || "";
+
+/** Применить отложенное — человек нажал «Подтвердить». */
+export async function applyPending(id, { isOwner = false } = {}) {
+  const p = pendingById(id);
   if (!p) return null;
-  forgetPending(userId, agentId);
-  return runAction(p.name, p.args, { userId, agentId, isOwner, ask: false });
+  forgetPending(id);
+  return runAction(p.name, p.args,
+    { userId: p.userId, agentId: p.agentId, isOwner, ask: false });
+}
+
+/** Отменить отложенное — человек нажал «Отменить». */
+export function cancelPending(id) {
+  const p = pendingById(id);
+  if (!p) return null;
+  forgetPending(id);
+  return p;
 }

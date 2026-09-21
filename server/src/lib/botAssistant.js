@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { CANCELLED_ERROR } from "./assistantQueue.js";
+import { applyPending, cancelPending, pendingById } from "./assistantActions.js";
 
 /* ════════════════════════════════════════════════════════════════
    ПОМОЩНИК В ЧАТЕ БОТА
@@ -63,6 +64,10 @@ export const BOT_TASK = "bot";
 const P = "ai:";
 export const AI_CANCEL = `${P}cancel:`;
 export const AI_REFINE = `${P}refine:`;
+/* Кнопки подтверждения изменения (владелец, 2026-09-21): «Подтвердить» и
+   «Отменить» под отдельным сообщением о том, что будет сделано. */
+export const AI_OK = `${P}ok:`;
+export const AI_NO = `${P}no:`;
 export const isAssistantAction = (data) => String(data || "").startsWith(P);
 
 export const THINKING = "Думаю…";
@@ -113,6 +118,18 @@ export const CLOCKS = ["🕐", "🕑", "🕒", "🕓", "🕔", "🕕",
 export const TICK_MS = 1000;
 export const tickText = (n = 0) =>
   `${CLOCKS[((n % CLOCKS.length) + CLOCKS.length) % CLOCKS.length]} ${THINKING}`;
+
+/* Сообщение о будущем изменении: что именно будет сделано и две кнопки.
+   Спрашивает приложение, а не модель: разрешение — не предмет разговора,
+   и человек должен видеть ровно одно ясное предложение с ответом в одно
+   нажатие. */
+export const CONFIRM_LEAD = "Подтвердите изменение:";
+export const confirmKeyboard = (id) => ({
+  inline_keyboard: [[
+    { text: "✅ Подтвердить", callback_data: AI_OK + id },
+    { text: "✖ Отменить", callback_data: AI_NO + id },
+  ]],
+});
 
 export const statusKeyboard = (id) => ({
   inline_keyboard: [[
@@ -179,9 +196,23 @@ async function askQuestion(deps, { userId, chatId, question }) {
     return e.chain;
   };
 
+  /* Подтверждение изменения — ОТДЕЛЬНЫМ сообщением с кнопками, а не
+     правкой статуса: правку Telegram не показывает уведомлением, и
+     человек, отложивший телефон, не узнал бы, что его ждут. Ответ
+     говорит помощнику, дошло ли: не дошло — откладывать нечего. */
+  const onConfirm = async ({ id, words }) => {
+    try {
+      await send(chatId, `${CONFIRM_LEAD}\n${words}`, confirmKeyboard(id));
+      return true;
+    } catch (err) {
+      logOf(deps)(`подтверждение не отправлено: ${err.message}`);
+      return false;
+    }
+  };
+
   let raw;
   try {
-    raw = a.ask(userId, question.slice(0, MAX_QUESTION), "", { task: BOT_TASK });
+    raw = a.ask(userId, question.slice(0, MAX_QUESTION), "", { task: BOT_TASK, onConfirm });
   } catch (err) {
     raw = Promise.reject(err);
   }
@@ -274,6 +305,36 @@ export async function onAssistantButton(cb, from, deps = {}) {
   const data = String(cb?.data || "");
   const userId = String(from.id);
   const chatId = from.id;
+
+  /* ─── ПОДТВЕРЖДЕНИЕ ИЗМЕНЕНИЯ (владелец, 2026-09-21) ───
+
+     Эти две кнопки живут отдельно от вопроса: отложенное изменение
+     переживает и ответ помощника, и десять минут памяти о вопросе. Кто
+     нажал — тот и подтверждает: id человека хранится вместе с самим
+     изменением, и чужую кнопку нажать нельзя. */
+  if (data.startsWith(AI_OK) || data.startsWith(AI_NO)) {
+    const yes = data.startsWith(AI_OK);
+    const pid = data.slice((yes ? AI_OK : AI_NO).length);
+    const p = pendingById(pid);
+    if (!p || p.userId !== userId) {
+      await answer(cb.id, p ? "Это не ваше изменение" : "Это подтверждение уже не действует");
+      return { stale: true };
+    }
+    if (!yes) {
+      cancelPending(pid);
+      await answer(cb.id, "Отменено");
+      await send(chatId, `Отменил: ${p.words}.`);
+      return { cancelled: pid };
+    }
+    let who = { isOwner: false };
+    try { who = await (deps.org?.identify?.(userId, {}, { claim: false })) || who; }
+    catch { /* гость: права решит само хранилище */ }
+    const r = await applyPending(pid, { isOwner: !!who.isOwner });
+    await answer(cb.id, r?.ok ? "Готово" : "Не вышло");
+    await send(chatId, r?.text || "Изменение уже не действует.");
+    return { applied: pid, ok: !!r?.ok };
+  }
+
   const id = data.startsWith(AI_CANCEL) ? data.slice(AI_CANCEL.length)
     : data.startsWith(AI_REFINE) ? data.slice(AI_REFINE.length) : "";
   sweep();

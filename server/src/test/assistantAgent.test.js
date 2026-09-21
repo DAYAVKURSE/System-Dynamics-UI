@@ -94,41 +94,62 @@ describe("инструменты приложения", () => {
 });
 
 describe("спрашивать или делать", () => {
-  it("со «спрашивать» изменение откладывается до «да»", async () => {
+  /* ПОДТВЕРЖДЕНИЕ — КНОПКАМИ, А НЕ РАЗГОВОРОМ (владелец, 2026-09-21:
+     «он несколько раз спросил подтверждение и в итоге сказал, что сделал,
+     но ничего не сделал»). Модель зовёт инструмент сразу; приложение
+     показывает человеку, что будет сделано, и ждёт нажатия. */
+  it("со «спрашивать» изменение откладывается и показывается человеку", async () => {
     await ws.writeModel({ tasks: MODEL });
+    const shown = [];
     const first = scripted([
       { text: "", calls: [{ id: "c1", name: "task_take", args: { taskId: "tk1" } }] },
-      { text: "Собираюсь взять задачу в работу. Подтвердите?", calls: [] },
+      { text: "Готово, взял!", calls: [] },
     ]);
     const said = await agentMod.runAgent({ userId: "200", agentId: "assistant",
-      question: "возьми tk1", system: "S", model: {}, complete: first.complete, ask: true });
-    expect(said).toMatch(/Подтвердите/);
-    // Ничего не поменялось — только запомнилось.
-    expect((await ws.readModel()).tasks[0].status).toBe("backlog");
-    expect(actions.pendingFor("200", "assistant")).toMatchObject({ name: "task_take" });
+      question: "возьми tk1", system: "S", model: {}, complete: first.complete, ask: true,
+      onConfirm: async (p) => { shown.push(p); return true; } });
 
-    const second = scripted([{ text: "Взял.", calls: [] }]);
-    await agentMod.runAgent({ userId: "200", agentId: "assistant", question: "да",
-      system: "S", model: {}, complete: second.complete, ask: true });
+    // Человеку показали, что именно будет сделано.
+    expect(shown).toHaveLength(1);
+    expect(shown[0].words).toMatch(/взять задачу tk1 в работу/);
+    // Разговор оборван: второй круг модели не случился, и «Готово, взял!»
+    // в ответ не попало — иначе это была бы ложь.
+    expect(said).toMatch(/Жду вашего подтверждения/);
+    expect(said).not.toMatch(/Готово, взял/);
+    expect(first.seen).toHaveLength(1);
+    // Ничего не поменялось — только отложилось.
+    expect((await ws.readModel()).tasks[0].status).toBe("backlog");
+
+    // Нажали «Подтвердить» — теперь сделано.
+    const r = await actions.applyPending(shown[0].id, { isOwner: false });
+    expect(r.ok).toBe(true);
     expect((await ws.readModel()).tasks[0].status).toBe("progress");
-    expect(actions.pendingFor("200", "assistant")).toBeNull();
-    // Модель узнала, что действие выполнено.
-    expect(second.seen[0].system).toMatch(/Отложенное действие/);
+    expect(actions.pendingById(shown[0].id)).toBeNull();
   });
 
-  it("«нет» отменяет отложенное", async () => {
+  it("«Отменить» снимает отложенное, и модель его больше не применит", async () => {
     await ws.writeModel({ tasks: MODEL });
+    const shown = [];
     const first = scripted([
-      { text: "", calls: [{ id: "c1", name: "task_take", args: { taskId: "tk1" } }] },
-      { text: "Подтвердите?", calls: [] }]);
+      { text: "", calls: [{ id: "c1", name: "task_take", args: { taskId: "tk1" } }] }]);
     await agentMod.runAgent({ userId: "200", agentId: "assistant", question: "возьми",
-      system: "S", model: {}, complete: first.complete, ask: true });
-    const second = scripted([{ text: "Хорошо.", calls: [] }]);
-    await agentMod.runAgent({ userId: "200", agentId: "assistant", question: "нет",
-      system: "S", model: {}, complete: second.complete, ask: true });
+      system: "S", model: {}, complete: first.complete, ask: true,
+      onConfirm: async (p) => { shown.push(p); return true; } });
+    expect(actions.cancelPending(shown[0].id)).toMatchObject({ name: "task_take" });
+    expect(await actions.applyPending(shown[0].id, {})).toBeNull();
     expect((await ws.readModel()).tasks[0].status).toBe("backlog");
-    expect(actions.pendingFor("200", "assistant")).toBeNull();
-    expect(second.seen[0].system).toMatch(/отменено/);
+  });
+
+  it("показать подтверждение не вышло — изменение не откладывается вовсе", async () => {
+    await ws.writeModel({ tasks: MODEL });
+    const { complete, seen } = scripted([
+      { text: "", calls: [{ id: "c1", name: "task_take", args: { taskId: "tk1" } }] },
+      { text: "Не смог.", calls: [] }]);
+    await agentMod.runAgent({ userId: "200", agentId: "assistant", question: "возьми",
+      system: "S", model: {}, complete, ask: true, onConfirm: async () => false });
+    expect(seen[1].messages.find((m) => m.role === "tool").content)
+      .toMatch(/спросить подтверждение не вышло/);
+    expect((await ws.readModel()).tasks[0].status).toBe("backlog");
   });
 
   it("чтение не спрашивает разрешения даже со «спрашивать»", async () => {
@@ -158,8 +179,13 @@ describe("что у агента есть", () => {
     expect(note).toContain("назначенных моделей нет");
   });
 
-  it("правило про изменения зависит от настройки агента", () => {
-    expect(agentMod.actionsNote(true)).toMatch(/спроси разрешения/);
+  /* «Сама нейросеть не должна спрашивать разрешения… Но должна знать,
+     требуется ли ей это разрешение» (владелец, 2026-09-21). */
+  it("модель знает про подтверждение, но просить его ей запрещено", () => {
+    const note = agentMod.actionsNote(true);
+    expect(note).toMatch(/ТОЛЬКО ПОСЛЕ ПОДТВЕРЖДЕНИЯ/);
+    expect(note).toMatch(/разрешения НЕ спрашиваешь/);
+    expect(note).toMatch(/не пиши, что сделал/);
     expect(agentMod.actionsNote(false)).toMatch(/применяй сразу/);
   });
 });

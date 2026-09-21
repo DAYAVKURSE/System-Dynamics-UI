@@ -210,6 +210,9 @@ export function createQueue({
         question: it.question, system, model, complete,
         isOwner: !!who.isOwner, ask: agent.ask !== false, servers,
         signal: it.abort.signal,
+        /* Показать подтверждение человеку умеет тот, кто спросил, а не
+           очередь: бот — кнопками, приложение — ничем. */
+        onConfirm: it.onConfirm,
       }), answerTimeoutMs, `Модель не ответила за ${Math.round(answerTimeoutMs / 60000)} мин`);
       progress(it, "answer");
       finish(it, { status: "done", text });
@@ -238,7 +241,8 @@ export function createQueue({
   };
 
   /** Кладёт вопрос. Ответ — по id, у того же человека. */
-  function ask({ userId, question, context = "", task = DEFAULT_TASK, onProgress = null }) {
+  function ask({ userId, question, context = "", task = DEFAULT_TASK, onProgress = null,
+    onConfirm = null }) {
     sweep();
     const q = String(question || "").trim().slice(0, MAX_QUESTION);
     if (!q) throw new Error("question is required");
@@ -249,6 +253,7 @@ export function createQueue({
       status: "pending", text: "", error: "", at: now(), doneAt: null, started: false,
       abort: new AbortController(),
       onProgress: typeof onProgress === "function" ? onProgress : null,
+      onConfirm: typeof onConfirm === "function" ? onConfirm : null,
     };
     it.promise = new Promise((resolve, reject) => { it.resolve = resolve; it.reject = reject; });
     // Никто не ждёт обещание — отказ не должен становиться необработанным.
@@ -287,8 +292,9 @@ export function createQueue({
       останавливало бы обработку чужих сообщений. У обещания есть `id` —
       по нему бот рисует кнопку «Отменить». `signal` снаружи — тот же
       cancel, но от AbortController вызывающего. */
-  function askNow(userId, question, context = "", { task = DEFAULT_TASK, onProgress, signal } = {}) {
-    const { id } = ask({ userId, question, context, task, onProgress });
+  function askNow(userId, question, context = "", {
+    task = DEFAULT_TASK, onProgress, onConfirm, signal } = {}) {
+    const { id } = ask({ userId, question, context, task, onProgress, onConfirm });
     const it = items.get(id);
     if (signal) {
       if (signal.aborted) cancel(id, userId);

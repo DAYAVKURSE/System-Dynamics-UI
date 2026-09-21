@@ -1,5 +1,5 @@
 import { USES } from "./assistantSettings.js";
-import { applyPending, answerToAsk, forgetPending, pendingFor, runAction, toolsFor }
+import { runAction, toolsFor }
   from "./assistantActions.js";
 import { callTool } from "./mcp.js";
 
@@ -26,6 +26,11 @@ import { callTool } from "./mcp.js";
    ════════════════════════════════════════════════════════════════ */
 
 export const MAX_ROUNDS = 6;
+
+/* Что человек читает, когда изменение отложено до кнопки. Одна строка и
+   следом — что именно подтверждают: сообщение с кнопками придёт отдельно,
+   но ответ помощника не должен делать вид, что дело сделано. */
+export const ASKED_TEXT = "Жду вашего подтверждения — оно отправлено отдельным сообщением с кнопками:";
 const MCP_PREFIX = "mcp__";
 
 /* Имя инструмента у провайдеров — латиница, цифры и подчёркивание. Имя
@@ -81,14 +86,25 @@ export function skillNote(skill) {
 ${text}`;
 }
 
-/** Правила работы с действиями — один раз и одинаково для всех моделей. */
+/* ─────── ПРАВИЛА ДЕЙСТВИЙ (владелец, 2026-09-21) ───────
+
+   «Сама нейросеть не должна спрашивать разрешения, это должно быть
+   заложено логикой. Но должна знать, требуется ли ей это разрешение».
+
+   Отсюда две строки, и обе обязательны. Знать — чтобы не отчитываться за
+   несделанное: инструмент, требующий подтверждения, ничего не меняет, и
+   «готово» после него было бы ложью. Не спрашивать — потому что спросит
+   приложение, кнопками, и второй вопрос словами человеку не нужен. */
 export const actionsNote = (ask) => [
   "# Что ты умеешь делать",
   "У тебя есть инструменты приложения. Права у тебя те же, что у человека,"
   + " который спрашивает: чужую задачу взять не выйдет, и отказ придёт словами.",
   ask
-    ? "Перед КАЖДЫМ изменением спроси разрешения: опиши, что собираешься сделать,"
-      + " и дождись «да». Так настроен этот агент."
+    ? "ИЗМЕНЕНИЯ ПРИМЕНЯЮТСЯ ТОЛЬКО ПОСЛЕ ПОДТВЕРЖДЕНИЯ ЧЕЛОВЕКА."
+      + " Подтверждение спрашивает само приложение — кнопками, отдельным сообщением."
+      + " Ты разрешения НЕ спрашиваешь и ответа НЕ ждёшь: зови нужный инструмент сразу."
+      + " Он ответит, что подтверждение отправлено, — значит изменение ЕЩЁ НЕ СДЕЛАНО:"
+      + " не зови его второй раз и не пиши, что сделал."
     : "Изменения применяй сразу, без лишних вопросов, и коротко отчитайся, что сделал."
       + " Так настроен этот агент.",
   "Читать и считать можно без спроса.",
@@ -122,24 +138,11 @@ function toolList({ isOwner, servers }) {
 export async function runAgent({
   userId, agentId, question, system, model, complete,
   isOwner = false, ask = true, servers = [], signal = null, rounds = MAX_ROUNDS,
+  onConfirm = null,
 }) {
   const tools = toolList({ isOwner, servers });
   const messages = [{ role: "user", content: String(question || "") }];
-
-  /* Человек ответил на «вы уверены?» — разбираем это САМИ, до модели:
-     «да» должно значить «да» независимо от того, как модель его поймёт. */
-  const waiting = pendingFor(userId, agentId);
-  let note = "";
-  if (waiting) {
-    const answer = answerToAsk(question);
-    if (answer === "yes") {
-      const done = await applyPending(userId, agentId, { isOwner });
-      note = `\n\n# Отложенное действие\nЧеловек подтвердил «${waiting.words}». Результат: ${done?.text || "—"}`;
-    } else if (answer === "no") {
-      forgetPending(userId, agentId);
-      note = `\n\n# Отложенное действие\nЧеловек отказался от «${waiting.words}» — оно отменено.`;
-    }
-  }
+  const note = "";
 
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   for (let round = 0; round < rounds; round += 1) {
@@ -164,10 +167,18 @@ export async function runAgent({
           result = { ok: false, text: `${tool.mcp.server} не ответил: ${String(e?.message || e).slice(0, 200)}` };
         }
       } else {
-        result = await runAction(call.name, call.args, { userId, agentId, isOwner, ask });
+        result = await runAction(call.name, call.args,
+          { userId, agentId, isOwner, ask, onConfirm });
       }
       messages.push({ role: "tool", callId: call.id, name: call.name,
         content: String(result?.text || (result?.ok ? "готово" : "не вышло")) });
+      /* ПОДТВЕРЖДЕНИЕ ОБРЫВАЕТ РАЗГОВОР (владелец, 2026-09-21: «несколько
+         раз спросил подтверждение и в итоге сказал, что сделал, но ничего
+         не сделал»). Дальше модели делать нечего: изменение ждёт кнопки, а
+         каждый лишний круг — это ещё один шанс позвать то же самое снова
+         или отчитаться за несделанное. Слова тут наши, а не её: только
+         так «не сделано» точно не превратится в «готово». */
+      if (result?.asked) return `${ASKED_TEXT}\n\n${result.words}`;
     }
   }
   /* Круги кончились, а модель всё зовёт инструменты. Молчать нельзя:

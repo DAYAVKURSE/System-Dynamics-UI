@@ -356,6 +356,29 @@ describe("статус и кнопки под ним", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  /* ПОДТВЕРЖДЕНИЕ — ОТДЕЛЬНЫМ СООБЩЕНИЕМ С КНОПКАМИ (владелец,
+     2026-09-21): «мне должно прийти сообщение с тем, что будет сделано, и
+     кнопками „Подтвердить" и „Отменить"». */
+  it("изменение приходит отдельным сообщением с двумя кнопками", async () => {
+    const asked = [];
+    const d = live();
+    d.assistant = {
+      ask: (userId, q, ctx, opts) => {
+        // Помощник просит показать изменение — как это делает runAction.
+        const p = opts.onConfirm({ id: "p1", words: "взять задачу tk1 в работу" });
+        return Object.assign(p.then(() => "Жду вашего подтверждения."), { id: "q1" });
+      },
+      memory,
+    };
+    const r = await onAssistantMessage({ text: "возьми tk1" }, from, d);
+    await r.done;
+    const ask2 = sent.find((m) => (m.text || "").startsWith("Подтвердите изменение:"));
+    expect(ask2).toBeTruthy();
+    expect(ask2.text).toMatch(/взять задачу tk1 в работу/);
+    expect(keys(ask2.keyboard)).toEqual([["✅ Подтвердить", "ai:ok:p1"], ["✖ Отменить", "ai:no:p1"]]);
+    asked.push(ask2);
+  });
+
   it("часы идут по кругу, и слова у них одни — «Думаю…»", () => {
     expect(tickText(0)).toBe("🕐 Думаю…");
     expect(tickText(1)).toBe("🕑 Думаю…");
@@ -427,5 +450,73 @@ describe("«Уточнить» — срок ожидания", () => {
     expect(calls[1].messages[0].content).toBe("за сентябрь");
     release("вот");
     expect(await r2.done).toMatchObject({ answered: true });
+  });
+});
+
+/* ─────── КНОПКИ ПОДТВЕРЖДЕНИЯ (владелец, 2026-09-21) ───────
+
+   Отложенное изменение живёт отдельно от вопроса: оно переживает и ответ
+   помощника, и десять минут памяти о вопросе. Нажимает тот, кому его
+   показали, — чужую кнопку нажать нельзя. */
+describe("подтверждение изменения", () => {
+  let actions;
+  let sent2, answered2;
+  const from2 = { id: 200, first_name: "Иван" };
+  const deps2 = () => ({
+    assistant: { ask: async () => "ответ", memory },
+    send: async (chatId, text) => { sent2.push({ chatId, text }); },
+    answer: async (id, text) => { answered2.push({ id, text }); },
+    org: { identify: async () => ({ isOwner: false }) },
+  });
+
+  beforeEach(async () => {
+    sent2 = []; answered2 = [];
+    actions = await import("../lib/assistantActions.js");
+    actions.resetPendingActions();
+  });
+
+  /* Откладываем настоящим путём — через runAction: так проверяется то, что
+     и работает, а не отдельная выдумка теста. */
+  const hold = async (userId = "200") => {
+    let held = null;
+    await actions.runAction("task_take", { taskId: "tk1" },
+      { userId, agentId: "assistant", ask: true,
+        onConfirm: async (p) => { held = p; return true; } });
+    return held;
+  };
+
+  const press = (data, who = from2) => onAssistantButton(
+    { id: "cb1", data, from: who, message: { message_id: 1, chat: { id: who.id } } },
+    who, deps2());
+
+  it("«Отменить» снимает изменение и говорит, что именно отменено", async () => {
+    const p = await hold();
+    const r = await press(`ai:no:${p.id}`);
+    expect(r).toEqual({ cancelled: p.id });
+    expect(answered2[0].text).toBe("Отменено");
+    expect(sent2[0].text).toMatch(/Отменил: взять задачу tk1 в работу/);
+    expect(actions.pendingById(p.id)).toBeNull();
+  });
+
+  it("«Подтвердить» применяет его и отчитывается результатом хранилища", async () => {
+    const p = await hold();
+    const r = await press(`ai:ok:${p.id}`);
+    expect(r.applied).toBe(p.id);
+    // Задачи tk1 в пустой модели нет — значит отказ, и он сказан словами.
+    expect(sent2[0].text).toMatch(/задачи нет/i);
+    expect(actions.pendingById(p.id)).toBeNull();
+  });
+
+  it("чужую кнопку нажать нельзя, а забытую — «уже не действует»", async () => {
+    const p = await hold("999");
+    const r = await press(`ai:ok:${p.id}`);
+    expect(r).toEqual({ stale: true });
+    expect(answered2[0].text).toMatch(/не ваше/);
+    expect(actions.pendingById(p.id)).toBeTruthy();
+
+    actions.resetPendingActions();
+    const r2 = await press("ai:ok:нет-такого");
+    expect(r2).toEqual({ stale: true });
+    expect(answered2[1].text).toMatch(/уже не действует/);
   });
 });
