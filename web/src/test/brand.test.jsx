@@ -54,6 +54,11 @@ describe("шапка", () => {
     const trough = tab.closest("[data-noswipe]");
     expect(trough.parentElement).toBe(bar);
     expect(trough.style.background).toBe("rgba(5, 7, 12, 0.55)");
+    /* Стрелки справа от вкладок нет (владелец, 2026-09-21): в жёлобе —
+       только сам ряд, и он забирает всю его ширину. */
+    expect(screen.queryByRole("button", { name: /следующие вкладки/i })).toBeNull();
+    expect(trough.children).toHaveLength(1);
+    expect(trough.firstElementChild).toBe(tab.parentElement);
     /* Вкладка — КАПСУЛА на стеклянном баре (дизайн-система Blocktree
        Liquid Glass): папок с подрезанным низом больше нет. */
     expect(tab.style.borderRadius).toBe("var(--radius-pill)");

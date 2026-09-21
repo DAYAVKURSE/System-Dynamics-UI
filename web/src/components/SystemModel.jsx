@@ -1657,20 +1657,9 @@ export default function SystemModel(){
                 style={{...tabStyle(tab===k),transformOrigin:"50% 50%",willChange:"transform"}}
                 onClick={()=>goTab(k)}>{t}</button>))}
           </div>
-          {/* Стрелка вместо полосы прокрутки: полосу убрали, а знать, что
-              вкладки продолжаются, надо. Нажатие листает ряд на экран. */}
-          <button type="button" aria-label="следующие вкладки"
-            onClick={()=>{ const b=tabsBox.current; if(b) b.scrollBy(
-              {left:Math.max(120,b.clientWidth-60),behavior:"smooth"}); }}
-            style={{width:22,height:22,flex:"0 0 auto",padding:0,
-              borderRadius:"var(--radius-pill)",display:"flex",
-              alignItems:"center",justifyContent:"center",cursor:"pointer",
-              background:"var(--surface-glass-strong)",
-              border:"1px solid var(--border-glass)",color:C.second}}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"
-              stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
-              strokeLinejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-          </button>
+          {/* Стрелки справа больше нет (владелец, 2026-09-21): барабан
+              говорит сам — вкладка у обода завёрнута и гаснет, значит ряд
+              продолжается. Освободившееся место барабан забрал себе. */}
         </div>
       </div>
 
