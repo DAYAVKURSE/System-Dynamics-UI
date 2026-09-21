@@ -663,15 +663,17 @@ export function saveFile(name, text, type = "text/html;charset=utf-8") {
  * возможных: человек не знает, ждать ему или нажимать ещё раз.
  *
  * Поэтому внутри Telegram отчёт сперва кладётся на СВОЙ сервер (туда же,
- * куда и файлы сдач) и открывается обычной ссылкой наружу — её Telegram
- * отдаёт браузеру, и там уже и посмотреть, и сохранить. Не вышло и это —
- * говорим словами, а не молчим.
+ * куда и файлы сдач), а затем ПРИСЫЛАЕТСЯ В ЧАТ С БОТОМ (`deliver`, тот же
+ * путь, что у всех «Скачать»; владелец, 2026-09-21: «при скачивании отчёта
+ * или раздела его файл должен приходить в бот»). Бот не смог — файл
+ * открывается обычной ссылкой наружу, где его смотрят и сохраняют. Не
+ * вышло и это — говорим словами, а не молчим.
  *
  * Зависимости переданы снаружи (`telegram`, `putFile`), чтобы это можно
  * было проверить: иначе способ доставки проверялся бы только руками, а
  * именно он и сломался.
  */
-export async function deliverReport(name, html, { telegram, putFile, origin = "" } = {}) {
+export async function deliverReport(name, html, { telegram, putFile, deliver = null, origin = "" } = {}) {
   const tg = telegram;
   const canOpen = tg && typeof tg.openLink === "function";
   if (canOpen && typeof putFile === "function") {
@@ -686,6 +688,12 @@ export async function deliverReport(name, html, { telegram, putFile, origin = ""
     const saved = await putFile(file);
     const url = saved?.url || saved?.data || "";
     if (!url) throw new Error("файл сохранён, но адреса у него нет");
+    if (typeof deliver === "function") {
+      try {
+        const r = await deliver({ url, name });
+        return { via: "bot", sent: r?.sent || "file", url };
+      } catch { /* бот не смог — откроем ссылкой */ }
+    }
     const base = origin || (typeof window === "undefined" ? "" : window.location.origin);
     tg.openLink(/^https?:/.test(url) ? url : `${base}${url}`);
     return { via: "link", url };

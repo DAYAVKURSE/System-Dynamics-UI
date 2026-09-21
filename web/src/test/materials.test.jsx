@@ -29,7 +29,7 @@ const dialog = () => screen.getByRole("dialog");
 /* Материалы свёрнуты по умолчанию (владелец, 2026-09-19) — тесты
    открывают форму так же, как человек: нажатием на её имя. */
 const openMaterials = () => {
-  const head = screen.getByRole("button", { name: "материалы — единицы ресурсов" });
+  const head = screen.getByRole("button", { name: "файлы материалов" });
   if (head.getAttribute("aria-expanded") !== "true") fireEvent.click(head);
   return head.closest("div");
 };

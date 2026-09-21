@@ -1,8 +1,8 @@
 import { FACTORS_ON } from "../lib/flags.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, Arrow, Grip, NameField, S, btn, nm, NumField, TxtField, useRowDrag, DANGER_LINE } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, Arrow, Download, Grip, NameField, S, btn, nm, NumField, TxtField, useRowDrag, DANGER_LINE } from "./ui.jsx";
 import { funcLabel, twinNo } from "./TasksBoard.jsx";
-import { putReportFile, reportSrc, textHref } from "../storage.js";
+import { putReportFile, reportSrc, textHref, deliverFile } from "../storage.js";
 import { getTelegram } from "../telegram.js";
 import { putShare } from "../identity.js";
 import {
@@ -400,9 +400,9 @@ function MadeUnit({ u, traitName }) {
       {/* Файл — сама вещь, а не отчёт о ней: ради неё работу и заказывали,
           и скачать её надо прямо отсюда. */}
       {u.file
-        ? <a href={reportSrc(u.file)} target="_blank" rel="noreferrer"
-            download={u.file.name} style={{ color: ACC }}>
-            {/^image\//.test(u.file.type || "") ? "🖼" : "📎"} скачать · {u.file.name}</a>
+        ? <Download url={reportSrc(u.file)} name={u.file.name}
+            label={`${/^image\//.test(u.file.type || "") ? "🖼" : "📎"} скачать · ${u.file.name}`}
+            style={{ color: ACC, background: "transparent", border: "none", padding: 0 }} />
         : <span style={{ color: WARN }}>файла нет — при сдаче не приложили</span>}
     </div>);
 }
@@ -625,11 +625,13 @@ function UnitRow({ u, unit, spent, nameOf, traitName, unitNo }) {
             вещи, и обе должны читаться без цвета. */}
         {spent && <span style={{ fontSize: "var(--fs-hint)", color: NEU }}>израсходована</span>}
         {!u.accepted && <span style={{ fontSize: "var(--fs-hint)", color: WARN }}>не принята</span>}
+        {/* «Скачать» — в чат с ботом (ui.jsx Download): ссылка со
+            скачиванием в Telegram не делает ничего (владелец, 2026-09-21:
+            «кнопка скачать в этих файлах не работает, реакции нету»). */}
         {(u.file || u.text || u.code) && (
-          <a href={href} target="_blank" rel="noreferrer" download={fileName}
+          <Download url={href} name={fileName} label="скачать"
             aria-label={`скачать ${unit} №${u.no}`}
-            style={{ ...btn(false), textDecoration: "none", color: ACC }}>
-            скачать</a>)}
+            style={{ color: ACC }} />)}
       </div>
       {/* Откуда и когда — у каждой единицы своя история. Из задачи:
           какая функция руководила, что написали при сдаче, что отдано
@@ -833,11 +835,11 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
   const [shownAll, setShownAll] = useState(false);
   return (
     <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
-      <button type="button" aria-expanded={shownAll} aria-label="материалы — единицы ресурсов"
+      <button type="button" aria-expanded={shownAll} aria-label="файлы материалов"
         onClick={() => setShownAll((v) => !v)} className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", padding: 0,
           cursor: "pointer", textAlign: "left" }}>
-        <span style={{ ...S.lbl, flex: 1 }}>материалы — единицы ресурсов</span>
+        <span style={{ ...S.lbl, flex: 1 }}>файлы материалов</span>
         <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{shownAll ? "▾" : "▸"}</span>
       </button>
       {shownAll && (<>
@@ -1059,15 +1061,18 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
 
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
+  const [saved, setSaved] = useState("");
   const download = async () => {
-    setSaveErr(""); setSaving(true);
+    setSaveErr(""); setSaved(""); setSaving(true);
     try {
       const html = reportHtml(doc, { traitName, funcName,
         personName: (id) => (nameOf ? nameOf(id) : id),
         title: node.name || "Отчёт" });
       const safe = String(node.name || "otchet").replace(/[^\wа-яА-ЯёЁ -]+/g, "").trim();
-      await deliverReport(`${safe || "otchet"}.html`, html,
-        { telegram: getTelegram(), putFile: putReportFile });
+      const out = await deliverReport(`${safe || "otchet"}.html`, html,
+        { telegram: getTelegram(), putFile: putReportFile, deliver: deliverFile });
+      setSaved(out.via === "bot" ? (out.sent === "link" ? "ссылка в чате с ботом" : "в чате с ботом")
+        : out.via === "link" ? "открыл в браузере" : "");
     } catch (e) {
       // Молчаливый отказ здесь хуже всего: человек не знает, ждать ему или
       // нажимать ещё раз.
@@ -1298,6 +1303,8 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
         {saveErr && (
           <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
             {saveErr}</div>)}
+        {saved && !saveErr && (
+          <div role="status" style={{ fontSize: "var(--fs-hint)", color: OK, marginTop: "var(--space-4)" }}>{saved}</div>)}
         {link && (
           <div style={{ fontSize: "var(--fs-hint)", color: ACC, marginTop: "var(--space-4)",
             wordBreak: "break-all", lineHeight: 1.5 }}>

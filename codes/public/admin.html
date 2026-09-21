@@ -66,7 +66,6 @@
   const who = (u) => u.tg ? (u.tg.name || "") + (u.tg.username ? ` @${u.tg.username}` : "") || String(u.tg.id) : u.uid;
   const money = (n, c) => n == null ? "—" : `${n} ${c === "XTR" ? "⭐" : c || ""}`;
   const CUR = { ton: "TON", usdt: "USDT" };
-  const LEVELS = { free: "free", pro: "pro", max: "max" };
 
   const TABS = [["users", "Участники"], ["plans", "Планы"], ["issue", "Выдать подписку"], ["pay", "Способы оплаты"]];
   let tab = "users";
@@ -105,15 +104,13 @@
       const name = el("input", { value: p.name, "aria-label": "название" });
       const price = el("input", { value: p.price, inputmode: "decimal", "aria-label": "стоимость" });
       const days = el("input", { value: p.days, inputmode: "numeric", "aria-label": "срок, дней" });
-      const level = el("select", { "aria-label": "доступ" }, ...Object.keys(LEVELS).map((k) => el("option", { value: k, selected: p.level === k ? "" : null }, k)));
       v.append(el("div", { class: "card" },
         el("div", { class: "field" }, el("div", { class: "lbl" }, "название"), name),
         el("div", { class: "row" },
           el("div", { class: "grow field" }, el("div", { class: "lbl" }, "стоимость, $"), price),
-          el("div", { class: "grow field" }, el("div", { class: "lbl" }, "срок, дней"), days),
-          el("div", { class: "grow field" }, el("div", { class: "lbl" }, "доступ"), level)),
+          el("div", { class: "grow field" }, el("div", { class: "lbl" }, "срок, дней"), days)),
         el("div", { class: "btns" },
-          el("button", { class: "on", onclick: async () => { try { await api("PUT", `/plans/${p.id}`, { name: name.value, price: price.value, days: days.value, level: level.value }); say("Применено.", true); plans(); } catch (e) { say(e.message); } } }, "Применить"),
+          el("button", { class: "on", onclick: async () => { try { await api("PUT", `/plans/${p.id}`, { name: name.value, price: price.value, days: days.value }); say("Применено.", true); plans(); } catch (e) { say(e.message); } } }, "Применить"),
           el("button", { class: "bad", disabled: p.id === "free" ? "" : null, onclick: async () => { try { await api("DELETE", `/plans/${p.id}`); say("Удалено.", true); plans(); } catch (e) { say(e.message); } } }, "Удалить"))));
     });
     v.append(el("div", { class: "btns" }, el("button", { class: "acc", onclick: async () => { try { await api("POST", "/plans"); plans(); } catch (e) { say(e.message); } } }, "Добавить")));

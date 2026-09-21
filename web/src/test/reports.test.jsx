@@ -410,7 +410,31 @@ describe("карта в форме", () => {
     expect(html).not.toMatch(/<script/);
   });
 
-  it("в Telegram отчёт уходит ссылкой: blob WebView просто игнорирует", async () => {
+  it("в Telegram отчёт кладётся на сервер и присылается в чат с ботом", async () => {
+    const opened = [];
+    const sent = [];
+    const put = vi.fn(async (f) => ({ name: f.name, url: "/api/reports/x/y" }));
+    const via = await deliverReport("otchet.html", "<html></html>", {
+      telegram: { openLink: (u) => opened.push(u) }, putFile: put,
+      deliver: async (x) => { sent.push(x); return { sent: "file" }; },
+    });
+    expect(via).toMatchObject({ via: "bot", sent: "file" });
+    expect(sent).toEqual([{ url: "/api/reports/x/y", name: "otchet.html" }]);
+    expect(opened).toEqual([]);
+  });
+
+  it("бот не смог — отчёт открывается ссылкой наружу", async () => {
+    const opened = [];
+    const via = await deliverReport("otchet.html", "<html></html>", {
+      telegram: { openLink: (u) => opened.push(u) },
+      putFile: async (f) => ({ name: f.name, url: "/api/reports/x/y" }),
+      deliver: async () => { throw new Error("нет бота"); }, origin: "https://example.org",
+    });
+    expect(via).toMatchObject({ via: "link" });
+    expect(opened).toEqual(["https://example.org/api/reports/x/y"]);
+  });
+
+  it("в Telegram без пути в бот отчёт уходит ссылкой: blob WebView просто игнорирует", async () => {
     /* Ссылка с download внутри мини-приложения не делает НИЧЕГО и молчит об
        этом. Поэтому там отчёт кладётся на свой сервер и открывается
        обычной ссылкой наружу. */
