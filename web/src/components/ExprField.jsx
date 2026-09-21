@@ -123,14 +123,13 @@ export default function ExprField({ value = "", traits = [], ports = [], onCommi
           {ports.map((p) => (
             <button key={p.id} aria-label={`буква ${p.letter} — ${p.name}`} type="button"
               title={p.name} onMouseDown={(e) => { e.preventDefault(); put(p.letter); }}
-              style={{ ...btn(false), fontSize: 12, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", minWidth: 26,
+              style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", minWidth: 26,
                 color: ACC, borderColor: ACC + "66" }}>
               {p.letter}<span style={{ color: C.muted, fontWeight: 400 }}> {p.name}</span></button>))}
           {(plain ? PLAIN_KEYS : KEYS).map((k) => (
             <button key={k} aria-label={`знак ${k}`} type="button"
               onMouseDown={(e) => { e.preventDefault(); put(k); }}
-              style={{ ...btn(false), fontFamily: "var(--font-sans)",
-                fontSize: 12, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", minWidth: 26 }}>{k}</button>))}
+              style={{ ...btn(false), fontFamily: "var(--font-sans)", paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", minWidth: 26 }}>{k}</button>))}
         </div>)}
       {pick && !!items.length && (
         <div role="listbox" aria-label="ресурсы для выражения"
@@ -140,11 +139,11 @@ export default function ExprField({ value = "", traits = [], ports = [], onCommi
           {items.map((t, i) => (
             <div key={t.id} role="option" aria-selected={i === cursor}
               onMouseDown={(e) => { e.preventDefault(); choose(t); }}
-              style={{ padding: "var(--space-4) var(--space-8)", fontSize: 12, cursor: "pointer",
+              style={{ padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", cursor: "pointer",
                 background: i === cursor ? ACC + "22" : "transparent" }}>
               @{t.l}</div>))}
         </div>)}
       {err && text.trim() && (
-        <div style={{ fontSize: 10.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>)}
+        <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{err}</div>)}
     </div>);
 }

@@ -90,14 +90,14 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
       {/* Выпадающими списками, а не кучей кнопок (владелец, 2026-09-19). */}
       <div className="flex flex-wrap gap-2" style={{ margin: "var(--space-4) 0 0" }}>
         <select aria-label="статус задач" value={only} onChange={(e) => setOnly(e.target.value)}
-          style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: 12 }}>
+          style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: "var(--fs-hint)" }}>
           <option value="all">все статусы</option>
           {STATUSES.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
           <option value="canceled">Отменена</option>
         </select>
         <select aria-label="технологический процесс" value={proc}
           onChange={(e) => setProc(e.target.value)}
-          style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: 12 }}>
+          style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: "var(--fs-hint)" }}>
           <option value="all">все процессы</option>
           {procList.map((p) => (
             <option key={p.id} value={p.id}>{p.name || "процесс без названия"}</option>))}
@@ -145,10 +145,10 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
             <div style={{ flex: 1, position: "relative", height: 16 }}>
               {ticks.map((t, i) => (
                 <span key={i} style={{ position: "absolute", left: `${pct(t)}%`,
-                  transform: "translateX(-50%)", fontSize: 9.5, color: C.muted,
+                  transform: "translateX(-50%)", fontSize: "var(--fs-hint)", color: C.muted,
                   whiteSpace: "nowrap" }}>{fmtD(t)}</span>))}
               <span style={{ position: "absolute", left: `${pct(now)}%`, bottom: -2,
-                transform: "translateX(-50%)", fontSize: 9, color: ACC,
+                transform: "translateX(-50%)", fontSize: "var(--fs-hint)", color: ACC,
                 whiteSpace: "nowrap" }}>сегодня</span>
             </div>
           </div>
@@ -162,10 +162,10 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
                 marginBottom: "var(--space-4)", cursor: "pointer" }}
                 onClick={() => setOpenId(on ? null : t.id)}>
                 <div style={{ width: 150, flex: "0 0 150px", paddingRight: "var(--space-8)",
-                  fontSize: 11.5, color: on ? ACC : C.text, lineHeight: 1.35,
+                  fontSize: "var(--fs-hint)", color: on ? ACC : C.text, lineHeight: 1.35,
                   overflow: "hidden" }}>
                   {t.title}
-                  <div style={{ fontSize: 9.5, color: C.muted }}>
+                  <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
                     {funcLabel(func, entities)}{funcTag(func)}</div>
                 </div>
                 <div style={{ flex: 1, position: "relative", height: 26,
@@ -204,8 +204,8 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
                   cursor: "pointer" }}
                 onClick={() => setOpenId(t.id === openId ? null : t.id)}>
                 <span style={{ width: 8, height: 8, borderRadius: "var(--radius-sm)", background: st.color }} />
-                <span style={{ fontSize: 11.5, flex: 1 }}>{t.title}</span>
-                <span style={{ fontSize: 10, color: C.muted }}>{st.name}</span>
+                <span style={{ fontSize: "var(--fs-hint)", flex: 1 }}>{t.title}</span>
+                <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{st.name}</span>
               </div>);})}
         </div>)}
 
@@ -219,10 +219,10 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
             <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
               <span style={{ width: 10, height: 10, borderRadius: "var(--radius-sm)",
                 background: st?.color || NEU }} />
-              <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>{t.title}</span>
+              <span style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: 1 }}>{t.title}</span>
               <button style={btn(false)} onClick={() => setOpenId(null)}>✕</button>
             </div>
-            <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6,
+            <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6,
               marginBottom: "var(--space-8)" }}>
               Статус: {st?.name || "—"} · функция: {funcLabel(func, entities)}{funcTag(func)}
               {t.setter ? <> · поставил: {nameOf ? nameOf(t.setter) : t.setter}</> : null}
@@ -230,29 +230,29 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
               {t.reviewer ? <> · проверяет: {nameOf ? nameOf(t.reviewer) : t.reviewer}</> : null}
               {t.start ? <> · начало {fmtDT(t.start)}</> : null}
             </div>
-            {t.body && <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: "var(--space-8)" }}>
+            {t.body && <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.5, marginBottom: "var(--space-8)" }}>
               {t.body}</div>}
 
             <div style={S.lbl}>сдачи и отчёты</div>
             <div style={{ marginTop: "var(--space-4)" }}>
               {!(t.submissions || []).length &&
-                <div style={{ fontSize: 11.5, color: C.muted }}>Сдач пока нет.</div>}
+                <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>Сдач пока нет.</div>}
               {(t.submissions || []).map((sb) => (
                 <div key={sb.id} style={{ background: C.panel2,
                   border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)",
                   marginBottom: "var(--space-4)" }}>
                   <div className="flex items-center gap-2">
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: OK, flex: 1 }}>
+                    <span style={{ fontSize: "var(--fs-body)", fontWeight: 600, color: OK, flex: 1 }}>
                       ушло {nm(sb.hours)} ч
                       {func ? <span style={{ color: C.muted, fontWeight: 400 }}>
                         {" "}· планировалось {nm(hoursOf(func))} ч</span> : null}
                     </span>
-                    <span style={{ fontSize: 10, color: C.muted }}>{fmtDT(sb.at)}</span>
+                    <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{fmtDT(sb.at)}</span>
                   </div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)",
+                  <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)",
                     lineHeight: 1.5 }}>
                     взято: {qty(sb.takes)} · выдано: {qty(sb.gives)}</div>
-                  {sb.text && <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
+                  {sb.text && <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.5 }}>
                     {sb.text}</div>}
                   {sb.file && (
                     <div style={{ marginTop: "var(--space-4)" }}>
@@ -265,10 +265,10 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
                           // WebView всё равно не скачивается, поэтому там
                           // остаётся просто подпись.
                           ? <a href={sb.file.url} target="_blank" rel="noreferrer"
-                              style={{ fontSize: 11, color: ACC }}>
+                              style={{ fontSize: "var(--fs-hint)", color: ACC }}>
                               📎 {sb.file.name} · {Math.round((sb.file.size || 0) / 1024)} КБ
                             </a>
-                          : <div style={{ fontSize: 11, color: ACC }}>
+                          : <div style={{ fontSize: "var(--fs-hint)", color: ACC }}>
                               📎 {sb.file.name} · {Math.round((sb.file.size || 0) / 1024)} КБ
                             </div>}
                     </div>)}

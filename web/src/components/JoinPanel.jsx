@@ -52,9 +52,9 @@ export default function JoinPanel({ me, token, onJoined, onSkip }) {
       </div>
       <div style={card} aria-label="вступление по ссылке">
         {already ? (<>
-          <div style={{ fontSize: 13, fontWeight: 700, color: BAD, marginBottom: "var(--space-4)" }}>
+          <div style={{ fontSize: "var(--fs-body)", fontWeight: 700, color: BAD, marginBottom: "var(--space-4)" }}>
             Вы уже зарегистрированы в системе</div>
-          <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6 }}>
             Эта ссылка заводит новую страницу, а у вас она уже есть. Второй раз
             зарегистрироваться нельзя: один человек — один участник.
           </div>
@@ -63,9 +63,9 @@ export default function JoinPanel({ me, token, onJoined, onSkip }) {
         </>) : (<>
           <div style={S.lbl}>вступление</div>
           {!view && !err && (
-            <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-4)" }}>Загружаю…</div>)}
+            <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>Загружаю…</div>)}
           {view && (<>
-            <div style={{ fontSize: 12, lineHeight: 1.8, marginTop: "var(--space-4)" }}>
+            <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.8, marginTop: "var(--space-4)" }}>
               <div><span style={{ color: C.muted }}>страница: </span>
                 <span style={{ fontFamily: "var(--font-sans)" }}>{view.name}</span></div>
               <div><span style={{ color: C.muted }}>роль: </span>
@@ -73,7 +73,7 @@ export default function JoinPanel({ me, token, onJoined, onSkip }) {
               {view.profile?.about && (
                 <div><span style={{ color: C.muted }}>о себе: </span>{view.profile.about}</div>)}
             </div>
-            <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-8)", lineHeight: 1.6 }}>
+            <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-8)", lineHeight: 1.6 }}>
               Страница уже заполнена за вас — заберите её себе. Если по роли
               есть договор, приложение сразу предложит его прочитать и подписать.
             </div>
@@ -83,7 +83,7 @@ export default function JoinPanel({ me, token, onJoined, onSkip }) {
           </>)}
         </>)}
         {err && (
-          <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-8)" }}>{err}</div>)}
+          <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)" }}>{err}</div>)}
       </div>
     </div>);
 }

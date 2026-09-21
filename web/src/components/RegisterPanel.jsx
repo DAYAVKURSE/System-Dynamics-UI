@@ -32,7 +32,7 @@ function Head({ title, onBack }) {
       {onBack && (
         <button type="button" style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
           aria-label="назад" onClick={onBack}>← Назад</button>)}
-      <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{title}</span>
+      <span style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: 1 }}>{title}</span>
     </div>);
 }
 
@@ -79,12 +79,12 @@ export function AgreementSign({ me, onBack, onDone }) {
     <div style={{ ...S.card, marginBottom: "var(--space-8)" }} aria-label="договор к подписи">
       <Head onBack={onBack}
         title={`Договор «${a.docName}» — роль «${a.roleName}»`} />
-      <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6 }}>
         Сумма {a.sum} · действует с {dayText(a.start)} по {dayText(a.end)}
       </div>
       <div style={step}>1 · заполнить</div>
       {!empty.length && (
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>Всё уже заполнено владельцем.</div>)}
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>Всё уже заполнено владельцем.</div>)}
       <div style={{ marginTop: "var(--space-4)" }}>
         <PlaceholderFields placeholders={empty} values={values} onChange={setValues} required
           label="договор" />
@@ -100,11 +100,11 @@ export function AgreementSign({ me, onBack, onDone }) {
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-12)" }}>
         <button style={{ ...btn(true, OK), opacity: ready ? 1 : 0.5 }} disabled={!ready} onClick={send}>
           {busy ? "Отправляю…" : "Подписать и отправить"}</button>
-        <span style={{ fontSize: 10.5, color: C.muted }}>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
           {left.length ? `заполните: ${left.map((p) => p.desc || p.key).join(", ")}`
             : !sig ? "поставьте подпись" : ""}</span>
       </div>
-      {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
+      {msg && <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
       {open && html && (
         <DocViewer title={a.docName} html={html} editable={false} onClose={() => setOpen(false)} />)}
       {pad && (
@@ -162,7 +162,7 @@ export default function RegisterPanel({ me, onBack, onDone }) {
     return (
       <div style={{ ...S.card, marginBottom: "var(--space-8)" }} aria-label="заявка отправлена">
         <Head title="Заявка отправлена" onBack={onBack} />
-        <div style={{ fontSize: 11.5, color: WARN, lineHeight: 1.6 }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: WARN, lineHeight: 1.6 }}>
           Роль «{me.waiting.name}» · ждёт владельца.
         </div>
       </div>);
@@ -182,22 +182,22 @@ export default function RegisterPanel({ me, onBack, onDone }) {
       {!invited && (<>
         <div style={step}>1 · какая роль</div>
         {roles === null && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>Загружаю…</div>)}
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>Загружаю…</div>)}
         {roles !== null && !roles.length && (
-          <div style={{ fontSize: 11.5, color: WARN, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: WARN, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Ролей ещё нет.
           </div>)}
         <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
           {(roles || []).map((r) => (
             <button key={r.id} aria-pressed={pick === r.id}
               aria-label={`роль: ${r.name}`}
-              style={{ ...btn(pick === r.id, pick === r.id ? ACC : null), fontSize: 12 }}
+              style={{ ...btn(pick === r.id, pick === r.id ? ACC : null) }}
               onClick={() => { setPick(r.id); setFile(null); setMsg(""); }}>
               {r.name}</button>))}
         </div>
       </>)}
       {invited && roles !== null && !cur && (
-        <div style={{ fontSize: 11.5, color: WARN, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: WARN, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
           Роли, на которую вас позвали, больше нет.
         </div>)}
 
@@ -209,11 +209,11 @@ export default function RegisterPanel({ me, onBack, onDone }) {
             <a href={reportSrc(cur.contract)} target="_blank" rel="noreferrer"
               download={cur.contract.name || "договор"}
               aria-label={`скачать договор роли «${cur.name}»`}
-              style={{ fontSize: 12, color: ACC }}>
+              style={{ fontSize: "var(--fs-hint)", color: ACC }}>
               📄 {cur.contract.name || "договор"}</a>
           </div>
         ) : (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             У этой роли договора нет.
           </div>)}
 
@@ -221,26 +221,26 @@ export default function RegisterPanel({ me, onBack, onDone }) {
         {needs && (<>
           <div style={step}>{invited ? "2 · подписанный экземпляр" : "3 · подписанный экземпляр"}</div>
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
-            <label style={{ ...btn(false), fontSize: 12, cursor: busy ? "default" : "pointer",
+            <label style={{ ...btn(false), cursor: busy ? "default" : "pointer",
               opacity: busy ? 0.6 : 1, borderColor: file ? undefined : DANGER_LINE }}>
               {file ? "Заменить файл" : "Приложить подписанный договор"}
               <input type="file" style={{ display: "none" }} disabled={busy}
                 aria-label="подписанный договор"
                 onChange={(e) => { setFile(e.target.files?.[0] || null); setMsg(""); }} />
             </label>
-            {file && <span style={{ fontSize: 11, color: OK }}>📎 {file.name}</span>}
+            {file && <span style={{ fontSize: "var(--fs-hint)", color: OK }}>📎 {file.name}</span>}
           </div>
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
-            <label style={{ fontSize: 11, color: C.muted }}>
+            <label style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
               действует с{" "}
               <input type="date" value={start} aria-label="договор действует с"
-                style={{ ...S.inp, fontSize: 12, padding: "var(--space-4) var(--space-4)" }}
+                style={{ ...S.inp, fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)" }}
                 onChange={(e) => { setStart(e.target.value); setMsg(""); }} />
             </label>
-            <label style={{ fontSize: 11, color: C.muted }}>
+            <label style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
               по{" "}
               <input type="date" value={end} aria-label="договор действует по"
-                style={{ ...S.inp, fontSize: 12, padding: "var(--space-4) var(--space-4)" }}
+                style={{ ...S.inp, fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)" }}
                 onChange={(e) => { setEnd(e.target.value); setMsg(""); }} />
             </label>
           </div>
@@ -259,11 +259,11 @@ export default function RegisterPanel({ me, onBack, onDone }) {
           <button style={{ ...btn(true, OK), opacity: ready && !busy ? 1 : 0.5 }}
             disabled={!ready || busy} onClick={send}>
             {busy ? "Отправляю…" : "Вступить"}</button>
-          <span style={{ fontSize: 10.5, color: C.muted }}>
+          <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
             {ready ? "" : !file ? "нет подписанного договора" : "не указан срок договора"}</span>
         </div>
       </>)}
 
-      {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
+      {msg && <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
     </div>);
 }

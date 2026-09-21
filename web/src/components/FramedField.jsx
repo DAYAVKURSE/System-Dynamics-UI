@@ -35,7 +35,7 @@ export default function FramedField({ label, children, required, style }) {
         // он отказывается ужиматься внутри flex/grid на телефоне.
         minWidth: 0, ...style,
       }}>
-      <legend style={{ fontSize: 11, color: C.muted, padding: "0 var(--space-4)" }}>
+      <legend style={{ fontSize: "var(--fs-hint)", color: C.muted, padding: "0 var(--space-4)" }}>
         {label}
         {/* Звёздочка — только знак, смысл несёт проверка при отправке.
             Для читалки она скрыта: «Телефон звёздочка» слушать незачем. */}

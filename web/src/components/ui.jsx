@@ -146,7 +146,7 @@ export function Download({url,text,name,label="Скачать",style,...rest}){
         onClick={go} style={{...btn(false),textDecoration:"none",...style}} {...rest}>
         {state==="идёт"?"Отправляю…":label}</a>
       {state&&state!=="идёт"&&(
-        <span style={{fontSize:10,color:bad?BAD:OK}}>{state}</span>)}
+        <span style={{fontSize:"var(--fs-hint)",color:bad?BAD:OK}}>{state}</span>)}
     </span>);
 }
 
@@ -251,13 +251,15 @@ export const S = {
      лежит ВНУТРИ панели, и спорить с ней материалом ему незачем. */
   inp: { background: "var(--surface-glass)", border: "1px solid var(--border-glass)",
     color: C.text, borderRadius: "var(--radius-sm)",
-    padding: "var(--inp-py) var(--inp-px)", fontSize: 14, lineHeight: "20px",
+    padding: "var(--inp-py) var(--inp-px)", fontSize: "var(--fs-body)", lineHeight: "20px",
+    letterSpacing: "var(--ls-text)",
     width: "100%", fontFamily: "var(--font-sans)",
     outline: "none" },
   /* Надзаголовок — `eyebrow`: капс с разрядкой, самый тихий читаемый цвет. */
-  lbl: { color: C.muted, fontSize: 11.5, lineHeight: "14px", fontWeight: 700,
-    letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "var(--font-sans)" },
-  card: { ...glass("md"), borderRadius: "var(--radius-lg)", padding: "var(--card-p)",
+  lbl: { color: C.muted, fontSize: "var(--fs-hint)", lineHeight: "14px", fontWeight: 700,
+    letterSpacing: "var(--ls-caps)", textTransform: "uppercase", fontFamily: "var(--font-sans)" },
+  /* Отступ от краёв формы — один со всех сторон (`--inset`). */
+  card: { ...glass("md"), borderRadius: "var(--radius-lg)", padding: "var(--inset)",
     color: C.text },
 };
 /* ─────── три плашки разницы версий: «+», «±», «−» ───────
@@ -278,8 +280,8 @@ export function DiffBoxes({ added = [], changed = [], removed = [], item, gap = 
   const box = (sign, list, color, label) => (
     <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: "var(--radius-sm)",
       padding: "var(--space-4) var(--space-8) var(--space-8)", margin: 0, minWidth: 0 }}>
-      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 var(--space-4)" }}>{sign}</legend>
-      {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
+      <legend style={{ color, fontWeight: 700, fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}>{sign}</legend>
+      {!list.length && <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>ничего</div>}
       {list.map((x, i) => (
         <div key={i} style={{ marginTop: i ? gap : 0, minWidth: 0 }}>{item(x, sign)}</div>))}
     </fieldset>);
@@ -366,7 +368,7 @@ export function ScrollRail({ target, label = "прокрутка", step = 200 })
     <button type="button" aria-label={dir < 0 ? "левее" : "правее"} disabled={!on}
       onClick={() => go(st.left + dir * step)}
       style={{ background: "transparent", border: "none", padding: "0 var(--space-4)", cursor: on ? "pointer" : "default",
-        color: on ? ACC : C.muted, fontSize: 14, lineHeight: 1, opacity: on ? 1 : 0.35 }}>
+        color: on ? ACC : C.muted, fontSize: "var(--fs-body)", lineHeight: 1, opacity: on ? 1 : 0.35 }}>
       {dir < 0 ? "‹" : "›"}
     </button>);
   return (
@@ -400,7 +402,7 @@ export function FoldCard({ title, children, aria, open: open0 = true }) {
         style={{ width: "100%", background: "transparent", border: "none", padding: 0,
           cursor: "pointer", textAlign: "left" }}>
         <span style={{ ...S.lbl, flex: 1 }}>{title}</span>
-        <span style={{ fontSize: 11, color: C.muted }}>{open ? "▾" : "▸"}</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{open ? "▾" : "▸"}</span>
       </button>
       {open && children}
     </div>);
@@ -447,7 +449,8 @@ export const btn = (on, col, { solid = false } = {}) => {
     paddingBottom: "calc(var(--btn-py) - var(--text-nudge))",
     paddingLeft: "var(--btn-px)", paddingRight: "var(--btn-px)",
     minHeight: "var(--control-h)",
-    fontSize: 13, lineHeight: "18px", fontWeight: 600, fontFamily: "var(--font-sans)",
+    fontSize: "var(--fs-btn)", lineHeight: "18px", fontWeight: 600, fontFamily: "var(--font-sans)",
+    letterSpacing: "var(--ls-text)",
     cursor: "pointer", whiteSpace: "nowrap",
     transition: "background .15s ease, border-color .15s ease, box-shadow .15s ease" };
   if (solid) {
@@ -488,9 +491,14 @@ export function Brand({ size = 26, color = OK }) {
    надписей». Надпись уходит с экрана, но не из приложения: она остаётся
    подписью для читалки и подсказкой при наведении — иначе значок
    пришлось бы угадывать. */
+/* Стрелки «отменить» и «вернуть» — одна и та же, отражённая: дуга с
+   наконечником. Прежде у «вернуть» вторая черта наконечника шла не в ту
+   сторону — выходил не знак стрелки, а закорючка (владелец, 2026-09-21).
+   Рисунок посажен в середину квадрата 24×24: размах по x 6…18 и по y
+   5,5…19, середина — 12/12, значок стоит в капсуле ровно посередине. */
 export const ICON = {
-  undo: "M9 7H16a5 5 0 0 1 0 10h-6M9 7 12.5 3.5M9 7l3.5 3.5",
-  redo: "M15 7H8a5 5 0 0 0 0 10h6M15 7 11.5 3.5M15 7l3.5 3.5",
+  undo: "M6 9h7a5 5 0 0 1 0 10H7M6 9l3.5-3.5M6 9l3.5 3.5",
+  redo: "M18 9h-7a5 5 0 0 0 0 10h6M18 9l-3.5-3.5M18 9l-3.5 3.5",
   save: "M5 4h11l3 3v13H5zM8 4v6h7V4M8 20v-6h8v6",
   /* Восклицательный знак в круге — сообщение об ошибке (владелец,
      2026-09-21). Точка рисуется отрезком нулевой длины: обводка круглая,
@@ -564,7 +572,7 @@ export const tab = (on) => {
     borderRadius: "var(--radius-pill)",
     color: on ? t.text : C.muted,
     boxShadow: on ? t.glow : "none",
-    fontWeight: 600, fontSize: 13, lineHeight: "18px",
+    fontWeight: 600, fontSize: "var(--fs-btn)", lineHeight: "18px", letterSpacing: "var(--ls-text)",
     paddingTop: "calc(var(--btn-py) + var(--text-nudge))",
     paddingBottom: "calc(var(--btn-py) - var(--text-nudge))",
     paddingLeft: "var(--btn-px)", paddingRight: "var(--btn-px)",
@@ -654,14 +662,14 @@ export function TimeBar({ task, func }) {
   const left = timeLeft(task);
   if (!left) {
     return (
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: "var(--space-4)" }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginBottom: "var(--space-4)" }}>
         до конца срока: срок не назначен</div>);
   }
   const text = left.left > 0 ? leftInUnit(left.left, func?.durUnit) : "срок прошёл";
   const color = left.tone === "bad" ? BAD : left.tone === "warn" ? WARN : OK;
   return (
     <div style={{ marginBottom: "var(--space-8)" }} aria-label={`до конца срока: ${text}`} data-tone={left.tone}>
-      <div style={{ fontSize: 11, color, marginBottom: "var(--space-4)" }}>до конца срока: {text}</div>
+      <div style={{ fontSize: "var(--fs-hint)", color, marginBottom: "var(--space-4)" }}>до конца срока: {text}</div>
       <div style={{ height: 6, borderRadius: "var(--radius-sm)", background: C.ink, border: `1px solid ${C.line}`,
         overflow: "hidden" }}>
         <div data-bar="" style={{ width: `${Math.round(left.share * 100)}%`, height: "100%",

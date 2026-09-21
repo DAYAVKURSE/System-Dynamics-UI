@@ -87,29 +87,29 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
               setTitle(""); setAt(""); onOpenCall(m.id);
             })}>Создать и войти</button>
         </div>
-        {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
+        {msg && <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
       </div>
 
       <div style={{ ...S.card }}>
         <div style={S.lbl}>встречи</div>
-        {list === null && <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>
+        {list === null && <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>
           Загружаю…</div>}
         {list && !list.length && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Встреч пока нет.</div>)}
         {(list || []).map((m) => (
           <div key={m.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
             borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginTop: "var(--space-4)" }}>
             <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
+              <span style={{ fontSize: "var(--fs-body)", fontWeight: 600, flex: "1 1 140px" }}>
                 {m.title}</span>
-              <span style={{ fontSize: 10.5, color: C.muted }}>
+              <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
                 {m.at || fmt(m.createdAt)}</span>
               <button style={btn(true, OK)} onClick={() => onOpenCall(m.id)}>Войти</button>
               <button style={{ ...btn(true, BAD) }}
                 disabled={busy} onClick={() => act(() => deleteMeeting(m.id))}>✕</button>
             </div>
-            <div style={{ fontSize: 10, color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all",
+            <div style={{ fontSize: "var(--fs-hint)", color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all",
               fontFamily: "var(--font-sans)" }}>
               {/* Ссылку собирает сервер: только он знает имя бота и
                   приложения звонка. Своя — на случай работы без сервера. */}
@@ -127,10 +127,10 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
           чата он открывается и пересылается штатно. */}
       <div style={{ ...S.card, marginTop: "var(--space-8)" }}>
         <div style={S.lbl}>записи</div>
-        {recs === null && <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>
+        {recs === null && <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>
           Загружаю…</div>}
         {recs && !recs.length && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Записей пока нет.</div>)}
         {(recs || []).map((r) => (
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
@@ -143,10 +143,10 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
               style={{ display: "flex", width: "100%", gap: "var(--space-8)", alignItems: "center",
                 background: "transparent", border: 0, padding: 0, cursor: "pointer",
                 color: C.text, textAlign: "left" }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0,
+              <span style={{ fontSize: "var(--fs-body)", fontWeight: 600, flex: 1, minWidth: 0,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {r.name}</span>
-              <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: "var(--fs-hint)", color: C.muted, whiteSpace: "nowrap" }}>
                 {mb(r.size)} · {fmt(r.savedAt)}</span>
             </button>
             {openRec === r.id && (
@@ -175,7 +175,7 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
                   {confirmDel === r.id ? "Удалить насовсем?" : "Удалить"}</button>
               </div>)}
           </div>))}
-        {recMsg && <div style={{ fontSize: 11.5, color: ACC, marginTop: "var(--space-8)", lineHeight: 1.5 }}>
+        {recMsg && <div style={{ fontSize: "var(--fs-hint)", color: ACC, marginTop: "var(--space-8)", lineHeight: 1.5 }}>
           {recMsg}</div>}
       </div>
     </div>);

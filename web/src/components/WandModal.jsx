@@ -62,12 +62,12 @@ export function WandModal({ seen, onClose, onSend }) {
   return (
     <Modal title="Вопрос ассистенту" onClose={onClose}>
       {sent ? (
-        <div role="status" style={{ fontSize: 13 }}>Ответ придёт в чат бота.</div>
+        <div role="status" style={{ fontSize: "var(--fs-body)" }}>Ответ придёт в чат бота.</div>
       ) : (<>
         <textarea autoFocus aria-label="вопрос ассистенту" rows={5} value={text}
           disabled={busy} onChange={(e) => setText(e.target.value)}
           style={{ ...S.inp, width: "100%", resize: "vertical", minHeight: 90, lineHeight: 1.5 }} />
-        {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
+        {msg && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
       </>)}
       <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
         {!sent && (

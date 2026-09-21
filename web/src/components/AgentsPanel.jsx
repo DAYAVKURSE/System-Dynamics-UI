@@ -45,7 +45,7 @@ export const preview = (text, n = 80) => {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
 
-const hint = { fontSize: 11.5, color: C.muted, lineHeight: 1.6 };
+const hint = { fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6 };
 const form = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
   padding: "var(--space-8)", marginTop: "var(--space-8)" };
 const sameRow = (a, b) => !!a && !!b && a.providerId === b.providerId && a.model === b.model;
@@ -192,7 +192,7 @@ export default function AgentsPanel({ me, onChanged }) {
               <span style={S.lbl}>{agent.builtin ? "ассистент" : "агент"}</span>
               {renaming && !agent.builtin ? (
                 <TxtField value={agent.name} aria-label="имя агента" autoFocus
-                  style={{ flex: "1 1 160px", fontSize: 13, fontWeight: 700 }}
+                  style={{ flex: "1 1 160px", fontSize: "var(--fs-body)", fontWeight: 700 }}
                   onCommit={(v) => {
                     setRenaming(false);
                     if (v.trim() && v.trim() !== agent.name) {
@@ -206,7 +206,7 @@ export default function AgentsPanel({ me, onChanged }) {
                 <span role="button" tabIndex={0} aria-label={`имя агента: ${agent.name}`}
                   title={agent.builtin ? "" : "Двойное нажатие — переименовать"}
                   onDoubleClick={() => { if (!agent.builtin) setRenaming(true); }}
-                  style={{ fontSize: 13, fontWeight: 700, flex: 1,
+                  style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: 1,
                     cursor: agent.builtin ? "default" : "text" }}>{agent.name}</span>)}
             </div>
 
@@ -226,7 +226,7 @@ export default function AgentsPanel({ me, onChanged }) {
                 return (
                   <div key={u.id} className="flex flex-wrap gap-2"
                     style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
-                    <span style={{ fontSize: 11.5, color: C.muted, flex: "1 1 160px" }}>{u.name}</span>
+                    <span style={{ fontSize: "var(--fs-hint)", color: C.muted, flex: "1 1 160px" }}>{u.name}</span>
                     <select aria-label={`модель: ${u.name}`} value={value}
                       disabled={busy || !connected.length}
                       style={{ ...S.inp, width: "auto", flex: "2 1 180px", minWidth: 140 }}
@@ -283,12 +283,12 @@ export default function AgentsPanel({ me, onChanged }) {
               </div>)}
           </div>)}
 
-        {msg && <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-8)" }} role="status">{msg}</div>}
+        {msg && <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-8)" }} role="status">{msg}</div>}
       </>)}
 
       {killing && (
         <Modal title={`Удалить агента «${killing.name}»`} onClose={() => setKilling(null)}>
-          <div style={{ fontSize: 13, lineHeight: 1.6 }}>Вы уверены? Это действие необратимо</div>
+          <div style={{ fontSize: "var(--fs-body)", lineHeight: 1.6 }}>Вы уверены? Это действие необратимо</div>
           <div className="flex gap-2" style={{ marginTop: "var(--space-12)" }}>
             <button type="button" style={btn(true, BAD)} disabled={busy}
               onClick={() => killAgent(killing)}>Да</button>
@@ -377,11 +377,11 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
           style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
             padding: "var(--space-8)", marginTop: "var(--space-4)" }}>
           <div className="flex flex-wrap items-center gap-2">
-            <span style={{ fontSize: 12.5, fontWeight: 700, flex: "1 1 120px" }}>{m.name}</span>
-            <span style={{ fontSize: 10.5, color: (m.tools || []).length ? OK : C.muted }}>
+            <span style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: "1 1 120px" }}>{m.name}</span>
+            <span style={{ fontSize: "var(--fs-hint)", color: (m.tools || []).length ? OK : C.muted }}>
               инструментов: {(m.tools || []).length}</span>
           </div>
-          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, marginTop: 0 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6, marginTop: 0 }}>
             <div>адрес: {m.url}</div>
             {m.repo && <div>репозиторий: {m.repo}</div>}
             {!!(m.tools || []).length && <div>умеет: {m.tools.join(", ")}</div>}
@@ -418,15 +418,15 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
                 style={{ ...S.inp, width: "100%", textAlign: "left", border: "none",
                   background: "transparent", cursor: "pointer", padding: "var(--space-8) 0",
                   display: "flex", alignItems: "center", gap: "var(--space-8)" }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{r.name}</span>
-                {added && <span style={{ fontSize: 10, color: OK }}>добавлен</span>}
-                <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
+                <span style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: 1 }}>{r.name}</span>
+                {added && <span style={{ fontSize: "var(--fs-hint)", color: OK }}>добавлен</span>}
+                <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{on ? "▾" : "▸"}</span>
               </button>
               {on && (
                 <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
                   borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)" }}
                   aria-label={`форма сервера ${r.name}`}>
-                  <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6 }}>
+                  <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6 }}>
                     {r.description && <div>{r.description}</div>}
                     <div>имя: {r.full}</div>
                     {r.version && <div>версия: {r.version}</div>}
@@ -447,7 +447,7 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
 
       {kill && (
         <Modal title={`Удалить сервер «${kill.name}»`} onClose={() => setKill(null)}>
-          <div style={{ fontSize: 13, lineHeight: 1.6 }}>Вы уверены? Это действие необратимо</div>
+          <div style={{ fontSize: "var(--fs-body)", lineHeight: 1.6 }}>Вы уверены? Это действие необратимо</div>
           <div className="flex gap-2" style={{ marginTop: "var(--space-12)" }}>
             <button type="button" style={btn(true, BAD)} disabled={busy}
               onClick={() => { const m = kill; setKill(null); onDrop(m); }}>Да</button>
@@ -522,7 +522,7 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
     <div style={{ background: C.panel, borderRadius: "var(--radius-sm)", padding: "var(--space-8)" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
         <div style={S.lbl}>провайдер · {kind?.name || p.kind}</div>
-        <div style={{ fontSize: 11.5, color: p.hasKey ? OK : BAD, marginLeft: "auto" }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: p.hasKey ? OK : BAD, marginLeft: "auto" }}>
           {p.hasKey ? "ключ есть" : "ключа нет"}
         </div>
       </div>
@@ -543,7 +543,7 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
             onClick={() => setConfirm(true)}>Удалить провайдера</button>)}
         {confirm && (
           <>
-            <span style={{ fontSize: 12, color: C.text }}>Удалить «{p.name}» вместе с ключом?</span>
+            <span style={{ fontSize: "var(--fs-hint)", color: C.text }}>Удалить «{p.name}» вместе с ключом?</span>
             <button type="button" style={btn(true, BAD)} disabled={busy} onClick={onDrop}>Да, удалить</button>
             <button type="button" style={btn(false)} onClick={() => setConfirm(false)}>Нет</button>
           </>)}
@@ -573,7 +573,7 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
                 className="flex items-center gap-2"
                 style={{ width: "100%", textAlign: "left", background: on ? `${OK}22` : "transparent",
                   border: "none", borderBottom: `1px solid ${C.line}`, color: C.text,
-                  padding: "var(--space-4) var(--space-8)", fontSize: 12, cursor: busy ? "default" : "pointer" }}>
+                  padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", cursor: busy ? "default" : "pointer" }}>
                 <span aria-hidden="true" style={{ width: 16, display: "inline-block",
                   color: OK, fontWeight: 700 }}>{on ? "✓" : ""}</span>
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -585,7 +585,7 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
       {!rows.length && !listMsg && (
         <div style={{ ...hint, marginBottom: "var(--space-4)" }}>
           Список пуст — нажмите «Загрузить список моделей».</div>)}
-      {listMsg && <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-4)" }}>{listMsg}</div>}
+      {listMsg && <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>{listMsg}</div>}
     </div>
   );
 }
@@ -644,7 +644,7 @@ function ToolRow({ label, checked, disabled, onChange, ariaLabel }) {
       minHeight: "var(--control-h)", boxSizing: "border-box",
       background: checked ? t.bg : "transparent",
       border: `1px solid ${checked ? t.line : C.line}`,
-      color: checked ? t.text : C.text, fontSize: 12, lineHeight: "18px" }}>
+      color: checked ? t.text : C.text, fontSize: "var(--fs-hint)", lineHeight: "18px" }}>
       <input type="checkbox" checked={checked} disabled={disabled}
         aria-label={ariaLabel} onChange={onChange}
         style={{ flex: "0 0 auto", width: 14, height: 14, margin: 0, cursor: "inherit" }} />
@@ -726,7 +726,7 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth }) {
                   textAlign: "left" }}
                 onClick={() => toggle(m)}>
                 {STATE_MARK[state]} {m.name}
-                <span style={{ color: C.muted, fontSize: 10.5 }}>
+                <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}>
                   {" "}· {on.length}{all.length ? ` из ${all.length}` : ""}</span>
               </button>
 
@@ -770,7 +770,7 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth }) {
 
       {/* Отказ — здесь же, под кнопкой, а не в чужой карточке наверху:
           именно поэтому «Опросить» и выглядела нерабочей. */}
-      {err && <div role="status" style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
+      {err && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
 
       {login && (
         <McpLogin rec={login} busy={busy} onSave={saveAuth} onClose={() => setLogin(null)} />)}
@@ -799,15 +799,15 @@ function McpLogin({ rec, busy, onSave, onClose }) {
         : rec.scheme ? `ключ (${rec.scheme})` : "ключ";
   return (
     <Modal title={title} onClose={onClose}>
-      <div style={{ fontSize: 12, color: C.muted }} aria-label="сервер запросил">
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted }} aria-label="сервер запросил">
         сервер запросил: <span style={{ color: C.text }}>{asked}</span></div>
       {rec.hint && (
-        <div style={{ fontSize: 11, color: C.muted, wordBreak: "break-all",
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, wordBreak: "break-all",
           marginTop: "var(--space-4)", fontFamily: "var(--font-mono, monospace)" }}
           aria-label="заголовок сервера">{rec.hint}</div>)}
       {rec.where && (
         <a href={rec.where} target="_blank" rel="noreferrer"
-          style={{ fontSize: 12, color: ACC, wordBreak: "break-all", display: "inline-block",
+          style={{ fontSize: "var(--fs-hint)", color: ACC, wordBreak: "break-all", display: "inline-block",
             marginTop: "var(--space-4)" }}>{rec.where}</a>)}
       <div style={{ marginTop: "var(--space-8)" }}>
         {basic ? (<>
@@ -916,11 +916,11 @@ function Memory({ agent, busy, setBusy }) {
         <div key={m.id} className="flex gap-2"
           style={{ alignItems: "flex-start", padding: "var(--space-4) 0", borderBottom: `1px solid ${C.line}` }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600 }}>{m.title}</div>
-            {m.text ? <div style={{ fontSize: 11.5, color: C.muted, marginTop: 0 }}>{preview(m.text)}</div> : null}
+            <div style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>{m.title}</div>
+            {m.text ? <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: 0 }}>{preview(m.text)}</div> : null}
             {m.file && (
               <a href={m.file.url} target="_blank" rel="noreferrer"
-                style={{ fontSize: 11.5, color: ACC, display: "inline-block", marginTop: 0 }}>
+                style={{ fontSize: "var(--fs-hint)", color: ACC, display: "inline-block", marginTop: 0 }}>
                 📎 {m.file.name}
               </a>)}
           </div>
@@ -943,7 +943,7 @@ function Memory({ agent, busy, setBusy }) {
             <input ref={fileRef} type="file" aria-label="файл в память" style={{ display: "none" }}
               onChange={(e) => rememberFile(e.target.files?.[0])} />
           </label>
-          {memMsg && <span style={{ fontSize: 12, color: C.muted }}>{memMsg}</span>}
+          {memMsg && <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{memMsg}</span>}
         </div>
       </div>
     </div>

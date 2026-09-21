@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import VirtualPanel from "../components/VirtualPanel.jsx";
 import JoinPanel from "../components/JoinPanel.jsx";
 import MarketPanel from "../components/MarketPanel.jsx";
@@ -92,6 +92,14 @@ describe("вкладка «Виртуальные»", () => {
     const field = await screen.findByLabelText("ссылка wise oyster");
     expect(field).toHaveValue("https://t.me/bot?startapp=join_k1");
     expect(screen.queryByRole("button", { name: /Сгенерировать ссылку/ })).toBeNull();
+  });
+
+  it("между ролями и «Войти под его именем» — пропуск строки", async () => {
+    server();
+    render(<VirtualPanel me={{ ...ME, isOwner: true }} />);
+    const card = await screen.findByLabelText("виртуальный wise oyster");
+    const enter = within(card).getByRole("button", { name: "войти под именем wise oyster" });
+    expect(enter.parentElement.style.marginTop).toBe("var(--space-24)");
   });
 
   it("«Войти под его именем» переводит под эту страницу всё приложение", async () => {
@@ -191,14 +199,26 @@ describe("код доступа", () => {
       && c.url.endsWith("/api/org/virtual/vt_abc"))).toBe(true));
   });
 
-  it("форма кода: кнопка, поле, минуты, r/rw и кнопки вкладок", async () => {
+  it("форма кода: кнопка, поле, «срок действия кода», «права» r/rw и кнопки вкладок", async () => {
     const calls = server();
     render(<VirtualPanel me={{ ...ME, isOwner: true }} />);
     const box = await screen.findByLabelText("форма кода доступа");
     // Поле пустое, пока код не выдан.
     const field = screen.getByLabelText("код доступа");
     expect(field.value).toBe("");
-    fireEvent.change(screen.getByLabelText("время действия кода"), { target: { value: "20" } });
+    /* Подписи — как заказано (владелец, 2026-09-21): «срок действия кода»
+       вместо «минут», «права» перед r/rw, и отступ перед вкладками больше
+       обычного. */
+    expect(within(box).getByText("срок действия кода")).toBeInTheDocument();
+    expect(within(box).queryByText("минут")).toBeNull();
+    const rights = within(box).getByText("права");
+    expect(rights.compareDocumentPosition(screen.getByLabelText("r")) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    const tabsRow = within(box).getByLabelText("вкладки по коду");
+    expect(tabsRow.style.marginTop).toBe("var(--space-16)");
+    // Один шрифт на все вкладки — ни у одной нет своего размера.
+    within(tabsRow).getAllByRole("button").forEach((b) => expect(b.style.fontSize).toBe("var(--fs-btn)"));
+    fireEvent.change(screen.getByLabelText("срок действия кода"), { target: { value: "20" } });
     fireEvent.click(screen.getByLabelText("r"));
     fireEvent.click(screen.getByLabelText("вкладка Задачи"));
     fireEvent.click(screen.getByRole("button", { name: "Сгенерировать код для техподдержки" }));

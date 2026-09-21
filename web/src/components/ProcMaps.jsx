@@ -250,11 +250,11 @@ function Pannable({ label, children, wide = 1200, tall = 700, view, onView, onRe
       </div>
       <div className="flex items-center gap-2" style={{ position: "absolute", right: 6, bottom: 6, zIndex: 2 }}>
         <button type="button" aria-label="мельче" onClick={() => zoom(-0.2)}
-          style={{ ...btn(false), fontSize: 12, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>−</button>
+          style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>−</button>
         <button type="button" aria-label="крупнее" onClick={() => zoom(0.2)}
-          style={{ ...btn(false), fontSize: 12, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>+</button>
+          style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>+</button>
         <button type="button" aria-label="в начало" onClick={() => { setAt({ x: 0, y: 0 }); setK(1); onView?.({ x: 0, y: 0, k: 1 }); onReset?.(); }}
-          style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>сброс</button>
+          style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>сброс</button>
       </div>
     </div>);
 }
@@ -334,10 +334,10 @@ function Timeline({ plan }) {
     t.cond != null ? `ветка «если ${t.cond}»` : t.isElse ? "ветка «иначе»" : ""].filter(Boolean).join(" · ");
   return (
     <Pannable label="таймлайн процесса" wide={width} tall={tall} lockAxis>
-      <div style={{ position: "relative", width, minHeight: tall, fontSize: 11 }}>
+      <div style={{ position: "relative", width, minHeight: tall, fontSize: "var(--fs-hint)" }}>
         {marks.map((i) => (
           <div key={i} style={{ position: "absolute", left: i * PX + 8, top: 0, bottom: 0, borderLeft: `1px solid ${C.line}66` }}>
-            <span style={{ position: "absolute", top: 2, left: 3, color: C.muted, fontSize: 10, whiteSpace: "nowrap" }}>{i} {u}</span>
+            <span style={{ position: "absolute", top: 2, left: 3, color: C.muted, fontSize: "var(--fs-hint)", whiteSpace: "nowrap" }}>{i} {u}</span>
           </div>))}
         <div style={{ position: "relative", paddingTop: "var(--space-24)" }}>
           {rows.map((t) => (
@@ -350,29 +350,29 @@ function Timeline({ plan }) {
                   textOverflow: "ellipsis", boxSizing: "border-box", lineHeight: "17px", textAlign: "left",
                   font: "inherit", cursor: "pointer", display: "block" }}>
                 {t.name}</button>
-              <div style={{ color: C.muted, fontSize: 9.5, marginTop: 0, whiteSpace: "nowrap" }}>
+              <div style={{ color: C.muted, fontSize: "var(--fs-hint)", marginTop: 0, whiteSpace: "nowrap" }}>
                 {dur(t)}{t.along.length ? " · ∥ разом" : ""}
                 {t.cond != null ? ` · если ${t.cond}` : t.isElse ? " · иначе" : ""}</div>
               {open[t.key] && (
                 <div aria-label={`задача ${t.name} целиком`}
                   style={{ marginTop: "var(--space-4)", maxWidth: 320, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
                     padding: "var(--space-8) var(--space-8)", whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.35 }}>
-                  <div style={{ color: C.muted, fontSize: 9.5 }}>{t.func}</div>
-                  <div style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{t.name}</div>
-                  {t.cond && <div style={{ color: WARN, fontSize: 10 }}>{t.isElse ? "иначе" : `если ${t.cond}`}</div>}
+                  <div style={{ color: C.muted, fontSize: "var(--fs-hint)" }}>{t.func}</div>
+                  <div style={{ color: C.text, fontWeight: 700, fontSize: "var(--fs-hint)" }}>{t.name}</div>
+                  {t.cond && <div style={{ color: WARN, fontSize: "var(--fs-hint)" }}>{t.isElse ? "иначе" : `если ${t.cond}`}</div>}
                   {t.who.map((w, j) => (
-                    <div key={`w${j}`} style={{ color: C.text, fontSize: 10.5, marginTop: 0 }}>кто: {whoText(w, postOf)}</div>))}
+                    <div key={`w${j}`} style={{ color: C.text, fontSize: "var(--fs-hint)", marginTop: 0 }}>кто: {whoText(w, postOf)}</div>))}
                   {t.lines.map((r, j) => (
-                    <div key={`r${j}`} style={{ color: r.kind === "take" ? OK : WARN, fontSize: 10.5, marginTop: 0 }}>{r.text}</div>))}
-                  {!t.lines.length && <div style={{ color: C.muted, fontSize: 10.5, marginTop: 0 }}>ресурсы не названы</div>}
+                    <div key={`r${j}`} style={{ color: r.kind === "take" ? OK : WARN, fontSize: "var(--fs-hint)", marginTop: 0 }}>{r.text}</div>))}
+                  {!t.lines.length && <div style={{ color: C.muted, fontSize: "var(--fs-hint)", marginTop: 0 }}>ресурсы не названы</div>}
                   {t.checks.length > 0 && (
                     <div style={{ marginTop: "var(--space-4)" }}>
-                      <div style={{ color: C.muted, fontSize: 9.5 }}>критерии проверки</div>
+                      <div style={{ color: C.muted, fontSize: "var(--fs-hint)" }}>критерии проверки</div>
                       {t.checks.map((c, j) => (
-                        <div key={`c${j}`} style={{ color: C.text, fontSize: 10.5 }}>• {c}</div>))}
+                        <div key={`c${j}`} style={{ color: C.text, fontSize: "var(--fs-hint)" }}>• {c}</div>))}
                     </div>)}
-                  <div style={{ color: C.muted, fontSize: 10, marginTop: "var(--space-4)" }}>{dur(t)}</div>
-                  <div style={{ color: C.muted, fontSize: 10 }}>{note(t)}</div>
+                  <div style={{ color: C.muted, fontSize: "var(--fs-hint)", marginTop: "var(--space-4)" }}>{dur(t)}</div>
+                  <div style={{ color: C.muted, fontSize: "var(--fs-hint)" }}>{note(t)}</div>
                 </div>)}
               {t.gapW > 1 && (
                 <div style={{ position: "absolute", left: t.w, top: 4, width: t.gapW, height: 12,
@@ -475,7 +475,7 @@ export function CrewMap({ plan }) {
   };
   if (people.length < 2) {
     return (
-      <div style={{ fontSize: 11, color: C.muted }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
         В процессе назван один человек или ни одного.</div>);
   }
   /* ПО КРУГУ, а не в строку (владелец, 2026-09-20): в строке связи
@@ -811,8 +811,8 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
         style={{ ...S.card, width: "min(760px, 100%)", height: "min(76vh, 620px)", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
         <div className="flex items-center gap-2">
           <span style={S.lbl}>{mode === "timeline" ? "таймлайн" : "майнд-карта"}</span>
-          <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700 }}>{proc?.name || "процесс"}</span>
-          <button type="button" style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="закрыть карту" onClick={onClose}>✕</button>
+          <span style={{ flex: 1, fontSize: "var(--fs-body)", fontWeight: 700 }}>{proc?.name || "процесс"}</span>
+          <button type="button" style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="закрыть карту" onClick={onClose}>✕</button>
         </div>
         {/* Две формы одна под другой (владелец, 2026-09-20): движение
             ресурсов — одно, взаимодействие сотрудников — другое. */}

@@ -130,9 +130,9 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
         onClick={() => setOpen((v) => !v)}>
         <div className="flex items-center gap-2">
           <span style={{ ...S.lbl, color: WARN }}>участники без актива</span>
-          <span style={{ fontSize: 12.5, fontWeight: 700 }}>{loose.length}</span>
+          <span style={{ fontSize: "var(--fs-body)", fontWeight: 700 }}>{loose.length}</span>
           <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 11, color: C.muted }}>{open ? "свернуть" : "показать"}</span>
+          <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{open ? "свернуть" : "показать"}</span>
         </div>
       </button>
       {open && (<>
@@ -146,20 +146,20 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
               style={{ background: C.panel2, border: `1px solid ${C.line}`,
                 borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", cursor: "grab", touchAction: "none",
                 opacity: drag?.id === String(p.id) ? 0.4 : 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>{p.name}</div>
-              <div style={{ fontSize: 10, color: ACC }}>
+              <div style={{ fontSize: "var(--fs-hint)", fontWeight: 600 }}>{p.name}</div>
+              <div style={{ fontSize: "var(--fs-hint)", color: ACC }}>
                 {(p.roles || []).map(roleName).filter(Boolean).join(", ") || "без роли"}</div>
             </div>))}
         </div>
       </>)}
       {msg && (
-        <div style={{ fontSize: 11, color: BAD, marginTop: "var(--space-8)", lineHeight: 1.5 }}>{msg}</div>)}
+        <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)", lineHeight: 1.5 }}>{msg}</div>)}
       {/* Пока ведут — под пальцем едет сам человек: без этого жест
           выглядит как ничего не происходящее нажатие. */}
       {drag && (
         <div style={{ position: "fixed", left: drag.x + 8, top: drag.y + 8, zIndex: 50,
           pointerEvents: "none", background: C.panel, border: `1px solid ${ACC}`,
-          borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", fontSize: 11.5, color: C.text }}>
+          borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", color: C.text }}>
           {drag.name}</div>)}
     </div>);
 }

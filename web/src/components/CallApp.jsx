@@ -154,7 +154,7 @@ export default function CallApp() {
           {!tgName && (
             <input aria-label="как вас зовут" placeholder="Как вас зовут — увидят собеседники"
               value={name} onChange={(e) => rename(e.target.value)} maxLength={40}
-              style={{ flex: "0 0 auto", background: C.panel, color: C.text, fontSize: 12,
+              style={{ flex: "0 0 auto", background: C.panel, color: C.text, fontSize: "var(--fs-hint)",
                 border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)" }} />)}
           <div data-testid="комната" style={{ flex: 1, minHeight: 0 }}>
             <CallRoom meetingId={meetingId} meId={meId} myName={name} fit
@@ -162,7 +162,7 @@ export default function CallApp() {
           </div>
         </>
       ) : (
-        <div style={{ fontSize: 13, color: BAD, lineHeight: 1.6, padding: "var(--space-12)" }}>
+        <div style={{ fontSize: "var(--fs-body)", color: BAD, lineHeight: 1.6, padding: "var(--space-12)" }}>
           Ссылка на звонок неполная — откройте её из приглашения в чате.
         </div>)}
     </div>);

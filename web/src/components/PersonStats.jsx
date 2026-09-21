@@ -69,19 +69,19 @@ function Fig({ value, label, color }) {
   return (
     <div style={{ flex: "1 1 90px", background: C.panel2, border: `1px solid ${C.line}`,
       borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)" }}>
-      <div style={{ fontSize: 17, fontWeight: 700, color: color || C.text }}>{value}</div>
-      <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.4 }}>{label}</div>
+      <div style={{ fontSize: "var(--fs-title)", fontWeight: 700, color: color || C.text }}>{value}</div>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.4 }}>{label}</div>
     </div>);
 }
 
 /** Слова оценки — без имени: вид оценки и текст, у скрытых — пометка. */
 function Words({ list, empty }) {
   if (!list.length) {
-    return <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>{empty}</div>;
+    return <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.5 }}>{empty}</div>;
   }
   return (<div>
     {list.map((c, i) => (
-      <div key={i} style={{ fontSize: 11.5, marginTop: "var(--space-4)", padding: "var(--space-4) var(--space-8)",
+      <div key={i} style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", padding: "var(--space-4) var(--space-8)",
         background: C.panel2, borderRadius: "var(--radius-sm)", borderLeft: `2px solid ${C.line}`,
         lineHeight: 1.5 }}>
         <span style={{ color: C.muted }}>{kindName(c.kind)}
@@ -119,7 +119,7 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
   return (<div>
     {s.self ? (
       <div style={{ marginBottom: "var(--space-8)" }}>
-        <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: "var(--space-8)" }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6, marginBottom: "var(--space-8)" }}>
           {SELF_HIDDEN}. Здесь — отзывы о вас: скрытые и опубликованные,
           без имени.
         </div>
@@ -140,7 +140,7 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
           value={setupMark == null ? "—" : round1(setupMark)} />
       </div>
       {!!s.pending && (
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: "var(--space-8)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginBottom: "var(--space-8)", lineHeight: 1.5 }}>
           Ещё {s.pending} оцен{s.pending === 1 ? "ка ждёт" : "ки ждут"} публикации:
           оценка публикуется без имени и только когда по ней нельзя узнать,
           кто её поставил.
@@ -161,25 +161,25 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
     </>)}
 
     {!s.total ? (
-      <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6 }}>
         {s.self
           ? "Вы ещё ничего не сдавали."
           : "Ещё ничего не сдавал: ни оценки, ни срока — это «неизвестно», а не «плохо»."}
       </div>
     ) : (<>
-      <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase",
-        letterSpacing: 0.4, marginBottom: "var(--space-4)" }}>работы</div>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, textTransform: "uppercase",
+        letterSpacing: "var(--ls-caps)", marginBottom: "var(--space-4)" }}>работы</div>
 
       {s.rows.map((r) => (
         <div key={r.task} style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-8) 0" }}>
           <div className="flex flex-wrap items-center gap-2">
-            <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
+            <span style={{ fontSize: "var(--fs-body)", fontWeight: 600, flex: "1 1 140px" }}>
               {r.title || r.func}</span>
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: r.done ? OK : WARN }}>
+            <span style={{ fontSize: "var(--fs-hint)", fontWeight: 700, color: r.done ? OK : WARN }}>
               {r.done ? "принято" : "не принято"}</span>
           </div>
           {r.inTime !== null && (
-            <div style={{ fontSize: 11, color: r.inTime ? OK : BAD }}>
+            <div style={{ fontSize: "var(--fs-hint)", color: r.inTime ? OK : BAD }}>
               {r.inTime ? "в срок" : `с задержкой: ${lateBy(r)}`}</div>)}
         </div>))}
     </>)}

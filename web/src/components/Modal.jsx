@@ -52,7 +52,7 @@ export default function Modal({ title, children, onClose }) {
           margin: "max(12px, 4dvh) 0", maxHeight: "calc(100dvh - 24px)", overflow: "auto",
           boxSizing: "border-box" }}>
         <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-12)" }}>
-          <span style={{ fontSize: 17, lineHeight: "22px", fontWeight: 600, flex: 1 }}>
+          <span style={{ fontSize: "var(--fs-title)", lineHeight: "22px", fontWeight: 600, flex: 1 }}>
             {title}</span>
           {/* Закрыть — иконная капсула, как в верхней панели: контурная
               иконка, не эмодзи и не крестик текстом. */}
@@ -70,7 +70,7 @@ export default function Modal({ title, children, onClose }) {
         {/* Переносы строк сохраняются: объяснения устроены как определение
             и список условий под ним, а HTML схлопнул бы их в один абзац —
             и список перестал бы читаться списком. */}
-        <div style={{ fontSize: 14, lineHeight: "20px", color: C.text,
+        <div style={{ fontSize: "var(--fs-body)", lineHeight: "20px", color: C.text,
           whiteSpace: "pre-line" }}>{children}</div>
       </div>
     </div>);
@@ -90,7 +90,7 @@ export default function Modal({ title, children, onClose }) {
    не принята» — это ещё не зелёный, хотя проверки уже проходят. */
 export function Mark({ text, ok, onWhy, style, label = text, tone }) {
   return (
-    <span style={{ fontSize: 10.5, color: tone || (ok ? C.text : BAD),
+    <span style={{ fontSize: "var(--fs-hint)", color: tone || (ok ? C.text : BAD),
       whiteSpace: "nowrap", ...style }}>
       {text}
       {!ok && (
@@ -98,6 +98,6 @@ export function Mark({ text, ok, onWhy, style, label = text, tone }) {
           onClick={(e) => { e.stopPropagation(); onWhy(); }}
           style={{ marginLeft: "var(--space-4)", width: 15, height: 15, lineHeight: "13px", padding: 0,
             borderRadius: "50%", background: "transparent", color: BAD,
-            border: `1px solid ${BAD}`, fontSize: 10, cursor: "pointer" }}>?</button>)}
+            border: `1px solid ${BAD}`, fontSize: "var(--fs-hint)", cursor: "pointer" }}>?</button>)}
     </span>);
 }

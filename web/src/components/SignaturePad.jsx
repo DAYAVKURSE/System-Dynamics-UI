@@ -154,10 +154,10 @@ export default function SignaturePad({ title = "Поставьте подпис�
       style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000C",
         zIndex: 60, display: "flex", flexDirection: "column", justifyContent: "center",
         gap: "var(--space-8)", padding: "var(--space-12)", boxSizing: "border-box", overflowY: "auto" }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>{title}</div>
+      <div style={{ fontSize: "var(--fs-body)", fontWeight: 700, color: C.text }}>{title}</div>
       {/* Подсказка стоит НАД полем, а не под ним: под полем её закрывает
           рука, и человек узнаёт про запись темпа уже после подписи. */}
-      <div style={{ fontSize: 11.5, lineHeight: 1.5, color: C.muted }}>{HINT}</div>
+      <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.5, color: C.muted }}>{HINT}</div>
       <canvas ref={canvas} aria-label="поле подписи"
         onPointerDown={down} onPointerMove={move} onPointerUp={up}
         onPointerCancel={up} onPointerLeave={up}
@@ -170,13 +170,13 @@ export default function SignaturePad({ title = "Поставьте подпис�
         <button style={btn(false)} onClick={clear}>Очистить</button>
         {/* Пока не хватает — говорим, ЧЕГО не хватает, рядом с кнопкой:
             заблокированная кнопка без объяснения читается как поломка. */}
-        {!enough && <span style={{ fontSize: 11, color: BAD }}>слишком коротко для подписи</span>}
+        {!enough && <span style={{ color: BAD }}>слишком коротко для подписи</span>}
         <span style={{ flex: 1 }}/>
         <button style={btn(false)} onClick={() => onCancel?.()}>Отмена</button>
         <button disabled={!enough || busy} onClick={done}
           style={{ ...btn(enough && !busy, ACC), opacity: enough && !busy ? 1 : 0.5,
             cursor: enough && !busy ? "pointer" : "not-allowed" }}>Готово</button>
       </div>
-      <div style={{ ...S.lbl, fontSize: 9.5 }}>{by ? `подписывает: ${by}` : ""}</div>
+      <div style={{ ...S.lbl, fontSize: "var(--fs-hint)" }}>{by ? `подписывает: ${by}` : ""}</div>
     </div>);
 }

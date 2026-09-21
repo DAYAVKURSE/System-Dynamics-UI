@@ -81,8 +81,8 @@ const Tile = React.memo(function Tile({ stream, muted, label: text, mirror, fit,
       {hint && (
         <div style={{ position: "absolute", inset: 0, display: "flex",
           alignItems: "center", justifyContent: "center", textAlign: "center",
-          fontSize: 11, color: C.muted, padding: "var(--space-8)" }}>{hint}</div>)}
-      <span style={{ position: "absolute", left: 6, bottom: 6, fontSize: 10,
+          fontSize: "var(--fs-hint)", color: C.muted, padding: "var(--space-8)" }}>{hint}</div>)}
+      <span style={{ position: "absolute", left: 6, bottom: 6, fontSize: "var(--fs-hint)",
         color: C.text, background: "#0009", borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)",
         maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis",
         whiteSpace: "nowrap" }}>{text}</span>
@@ -554,7 +554,7 @@ export default function CallRoom({
         : "";
 
   const ctl = (on, col, extra = {}) => ({
-    ...btn(on, col), ...(fit ? { padding: "var(--space-8) var(--space-8)", fontSize: 15, lineHeight: 1 } : {}), ...extra,
+    ...btn(on, col), ...(fit ? { padding: "var(--space-8) var(--space-8)", lineHeight: 1 } : {}), ...extra,
   });
 
   /* Микрофон и камера — кнопки, которые есть ВСЕГДА, в том числе до входа.
@@ -575,7 +575,7 @@ export default function CallRoom({
   const controls = state === "idle" || state === "ended" ? (
     <>
       {micCam}
-      <button style={ctl(true, OK, fit ? { fontSize: 13, padding: "var(--space-8) var(--space-16)", flex: 1 } : {})}
+      <button style={ctl(true, OK, fit ? { fontSize: "var(--fs-body)", padding: "var(--space-8) var(--space-16)", flex: 1 } : {})}
         onClick={join}>
         {state === "ended" ? "Войти снова" : "Войти в звонок"}</button>
     </>
@@ -605,7 +605,7 @@ export default function CallRoom({
         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {meeting ? meeting.title : (err ? "Звонок" : "Загружаю встречу…")}</span>
       {meeting && (
-        <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted, whiteSpace: "nowrap" }}>
           {inCall ? `${n} из ${MAX_PEERS}` : (meeting.at || "")}</span>)}
       {onClose && <button aria-label="закрыть" style={ctl(false)}
         onClick={() => { stop(); onClose(); }}>✕</button>}
@@ -627,14 +627,14 @@ export default function CallRoom({
       {!others.length && inCall && (
         <div style={{ minHeight: 0, borderRadius: "var(--radius-sm)", border: `1px dashed ${C.line}`,
           display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 11, color: C.muted, aspectRatio: fit ? undefined : "3 / 4" }}>
+          fontSize: "var(--fs-hint)", color: C.muted, aspectRatio: fit ? undefined : "3 / 4" }}>
           ждём остальных</div>)}
     </>);
 
   const messages = (
     <>
       {(status || note) && (
-        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5,
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.5,
           ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
           title={`${status} ${note}`.trim()}>
           {status}{status && note ? " · " : ""}{note}</div>)}
@@ -643,7 +643,7 @@ export default function CallRoom({
           камеру: …», «Сервер ответил …»). Пятнадцать строк такого текста —
           это 259 точек, на которые уезжают кнопки звонка. Целиком её видно
           по долгому нажатию, в подсказке. */}
-      {err && <div style={{ fontSize: 11.5, color: BAD, lineHeight: 1.5,
+      {err && <div style={{ fontSize: "var(--fs-hint)", color: BAD, lineHeight: 1.5,
         ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
         title={err}>{err}</div>}
       {/* В компактном окне эта строка — единственная, что не была прижата к
@@ -653,11 +653,11 @@ export default function CallRoom({
       {/* Чужая запись — отдельной строкой и красным: это не наш статус, а
           предупреждение о том, что человека пишут. */}
       {recByOthers.length > 0 && (
-        <div style={{ fontSize: 11, color: BAD, lineHeight: 1.5,
+        <div style={{ fontSize: "var(--fs-hint)", color: BAD, lineHeight: 1.5,
           ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
           title={`Звонок записывает: ${recByOthers.join(", ")}`}>
           ⏺ звонок записывает {recByOthers.join(", ")}</div>)}
-      {recNote && <div style={{ fontSize: 11, color: rec ? BAD : ACC, lineHeight: 1.5,
+      {recNote && <div style={{ fontSize: "var(--fs-hint)", color: rec ? BAD : ACC, lineHeight: 1.5,
         ...(fit ? { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } : {}) }}
         title={recNote}>
         {recNote}{rec && recBytes ? ` · ${mb(recBytes)} из ${mb(MAX_RECORDING_BYTES)}` : ""}</div>}
@@ -693,12 +693,12 @@ export default function CallRoom({
       <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         {header}
         {meeting && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>
             {meeting.at || "время не задано"}
             {meeting.peers?.length ? ` · в комнате: ${meeting.peers.length} из ${MAX_PEERS}` : " · пока никого"}
           </div>)}
         {meeting?.text && meeting.text !== meeting.title && (
-          <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{meeting.text}</div>)}
+          <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.5 }}>{meeting.text}</div>)}
       </div>
 
       <div ref={gridRef} style={{ display: "grid", gap: "var(--space-8)", marginBottom: "var(--space-8)",
@@ -714,7 +714,7 @@ export default function CallRoom({
       {meeting && (
         <div style={{ ...S.card }}>
           <div style={S.lbl}>ссылка на этот звонок</div>
-          <div style={{ fontSize: 11, color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all",
+          <div style={{ fontSize: "var(--fs-hint)", color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all",
             fontFamily: "var(--font-sans)" }}>
             {callLink(meeting.id)}</div>
         </div>)}

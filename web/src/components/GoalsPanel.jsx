@@ -77,9 +77,9 @@ function Form({ title, children, style }) {
 const Fig = ({ label, value, color, hint }) => (
   <div style={{ flex: "1 1 130px", background: C.panel2, border: `1px solid ${C.line}`,
     borderRadius: "var(--radius-sm)", padding: "var(--space-8) var(--space-8)" }}>
-    <div style={{ fontSize: 14.5, fontWeight: 700, color: color || C.text }}>{value}</div>
-    <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.4 }}>{label}</div>
-    {hint && <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.4 }}>{hint}</div>}
+    <div style={{ fontSize: "var(--fs-title)", fontWeight: 700, color: color || C.text }}>{value}</div>
+    <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.4 }}>{label}</div>
+    {hint && <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.4 }}>{hint}</div>}
   </div>
 );
 
@@ -118,29 +118,29 @@ function Conds({ goal, traits, traitName, st, up }) {
         return (
           <div key={i} className="flex items-start gap-2" style={{ marginTop: "var(--space-4)" }}>
             {i > 0 && (
-              <span style={{ fontSize: 11, color: C.muted, padding: "var(--space-8) 0" }}>и</span>)}
+              <span style={{ fontSize: "var(--fs-hint)", color: C.muted, padding: "var(--space-8) 0" }}>и</span>)}
             <ExprField value={e} traits={traits} style={{ flex: 1, minWidth: 0 }}
               aria-label={i ? `операция ${i + 1}` : "сколько ресурса"}
               onCommit={(v) => set(i, v)} />
             {shown.length > 1 && (
-              <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
+              <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                 aria-label={`убрать операцию ${i + 1}`}
                 onClick={() => drop(i)}>✕</button>)}
             {mine && mine.met != null && !mine.error && (
-              <span style={{ fontSize: 11, padding: "var(--space-8) 0",
+              <span style={{ fontSize: "var(--fs-hint)", padding: "var(--space-8) 0",
                 color: mine.met ? OK : WARN }}>{mine.met ? "✓" : "✗"}</span>)}
           </div>);
       })}
       <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)", alignItems: "center" }}>
-        <button style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
+        <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
           onClick={add}>+ операция</button>
-        <span style={{ fontSize: 10.5, color: C.muted }}>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
           {st.target != null && st.cap != null
             ? `диапазон: от ${nm(st.target)} до ${nm(st.cap)}`
             : "вторая операция задаёт диапазон: «> 10» и «< 50»; процент — «> 20% @ресурс»"}</span>
       </div>
       {st.conflict && (
-        <div style={{ fontSize: 10.5, color: BAD, marginTop: "var(--space-4)" }}>{st.conflict}</div>)}
+        <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{st.conflict}</div>)}
     </div>);
 }
 
@@ -174,7 +174,7 @@ function Gauge({ goal, traits, traitName }) {
   const part = want > 0 ? Math.min(1, have / want) : 0;
   if (st.error || st.target == null) {
     return (
-      <div className="flex items-center gap-2" style={{ fontSize: 11.5, marginTop: "var(--space-4)" }}>
+      <div className="flex items-center gap-2" style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)" }}>
         <span style={{ flex: 1, minWidth: 0, color: C.muted }}>
           {traitName(goal.trait)}{t?.unit ? `, ${t.unit}` : ""} · сейчас {nm(have)}</span>
         <span style={{ color: st.error || st.conflict ? BAD : st.met ? OK : WARN }}>
@@ -185,7 +185,7 @@ function Gauge({ goal, traits, traitName }) {
   }
   return (
     <div style={{ marginTop: "var(--space-4)" }}>
-      <div className="flex items-center gap-2" style={{ fontSize: 11.5 }}>
+      <div className="flex items-center gap-2" style={{ fontSize: "var(--fs-hint)" }}>
         <span style={{ flex: 1, minWidth: 0, color: C.muted }}>
           {traitName(goal.trait)}{t?.unit ? `, ${t.unit}` : ""}</span>
         {rate.hours ? (
@@ -202,7 +202,7 @@ function Gauge({ goal, traits, traitName }) {
     </div>);
 }
 
-const sel = { ...S.inp, padding: "var(--space-4) var(--space-8)", fontSize: 12 };
+const sel = { ...S.inp, padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)" };
 const hoursText = (h) => `${nm(Math.round(h * 10) / 10)} ч`;
 
 /** Одна цель: чем она задана и что из неё следует. */
@@ -246,24 +246,24 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
         {naming ? (
           <input autoFocus aria-label="название цели" defaultValue={goal.name || ""}
             placeholder={ready ? goalText(goal, traitName) : "название цели"}
-            style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 600, padding: "0 var(--space-4)" }}
+            style={{ ...S.inp, flex: 1, fontSize: "var(--fs-body)", fontWeight: 600, padding: "0 var(--space-4)" }}
             onBlur={(e) => { onSet(goal.id, { name: e.target.value.trim() }); setNaming(false); }}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(false); }} />
         ) : (
           <span data-goal-name="" title="двойное нажатие — переименовать"
             onDoubleClick={() => setNaming(true)}
-            style={{ flex: 1, fontSize: 12.5, fontWeight: 600, minWidth: 0, cursor: "text",
+            style={{ flex: 1, fontSize: "var(--fs-body)", fontWeight: 600, minWidth: 0, cursor: "text",
               whiteSpace: "normal", overflowWrap: "anywhere" }}>
             {goal.name || (ready ? goalText(goal, traitName) : "цель не задана: выберите ресурс и условие")}
             {goal.appliedAt && (
-              <span style={{ color: OK, fontWeight: 400, fontSize: 11 }}> · применена</span>)}
+              <span style={{ color: OK, fontWeight: 400, fontSize: "var(--fs-hint)" }}> · применена</span>)}
           </span>)}
         {/* «Отозвать» — рядом с «удалить» (владелец, 2026-09-20): у
             непринятой цели отзывать нечего, и кнопка не нажимается. */}
-        <button style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)",
+        <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)",
           opacity: goal.appliedAt ? 1 : 0.5 }} aria-label="отозвать цель"
           disabled={!goal.appliedAt} onClick={() => setRecall(true)}>отозвать</button>
-        <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }} aria-label="удалить цель"
+        <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }} aria-label="удалить цель"
           onClick={() => onDel(goal.id)}>удалить</button>
       </div>
       {/* Отзыв спрашивает об одном: стирать ли сделанное. «Нет» убирает
@@ -285,7 +285,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
           сейчас против того, сколько нужно. Видно и в свёрнутом виде: ради
           этой цифры цель и ставили. */}
       {goal.name && ready && (
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 0 }}>{goalText(goal, traitName)}</div>)}
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: 0 }}>{goalText(goal, traitName)}</div>)}
       {ready && <Gauge goal={goal} traits={traits} traitName={traitName} />}
 
       {open && (<>
@@ -319,9 +319,9 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
       <div className="flex gap-2" style={{ alignItems: "flex-end",
         flexWrap: "nowrap" }}>
         <div className="flex gap-2" style={{ flex: "0 0 auto" }}>
-          <button style={{ ...btn(goal.dueKind === DUE_IN), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
+          <button style={{ ...btn(goal.dueKind === DUE_IN), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
             onClick={() => up({ dueKind: DUE_IN })}>через</button>
-          <button style={{ ...btn(goal.dueKind === DUE_ON), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
+          <button style={{ ...btn(goal.dueKind === DUE_ON), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
             onClick={() => up({ dueKind: DUE_ON })}>к дате</button>
         </div>
         {goal.dueKind === DUE_IN ? (<>
@@ -365,7 +365,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
           непонятно, какой записи верить. Набранное число не теряется: пока
           форма открыта, оно помнится и возвращается при включении. */}
       <label className="flex items-center gap-2"
-        style={{ fontSize: 11.5, cursor: "pointer" }}>
+        style={{ fontSize: "var(--fs-hint)", cursor: "pointer" }}>
         <input type="checkbox" checked={capped} aria-label="учитывать график"
           style={{ accentColor: ACC }}
           onChange={(e) => {
@@ -373,7 +373,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
             else { setLastHours(num(goal.hours) || lastHours); up({ hours: 0 }); }
           }} />
         <span>учитывать график</span>
-        <span style={{ color: C.muted, fontSize: 10.5 }}>
+        <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}>
           {capped ? "" : "— считаем без ограничения по времени"}</span>
       </label>
       {/* Без галочки поля НЕ пропадают, а гаснут — как дни недели ниже
@@ -413,7 +413,7 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
             и сравнивает работу. Иначе «2 дн в неделю» и «работы 130 ч в
             месяц» человеку приходится сводить в уме. */}
         {capped && (
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)",
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)",
             lineHeight: 1.5 }}>
             {budgetHours(goal) == null
               ? "Число нулевое — выходит, ограничения нет."
@@ -438,13 +438,13 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
           const on = (goal.days || []).includes(d.id);
           return (
             <button key={d.id} aria-label={`день ${d.short}`} disabled={!capped}
-              style={{ ...btn(on && capped), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",
+              style={{ ...btn(on && capped), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",
                 cursor: capped ? "pointer" : "default" }}
               onClick={() => up({ days: on ? goal.days.filter((x) => x !== d.id)
                 : [...(goal.days || []), d.id] })}>{d.short}</button>);
         })}
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
         {!capped
           ? "График не учитывается — время и дни в расчёт не идут."
           : goal.days?.length
@@ -471,7 +471,7 @@ function Verdict({ plan, unit, traits }) {
   const both = (a, b, f) => (Math.round(a) === Math.round(b) ? f(a) : `${f(a)} – ${f(b)}`);
   if (!plan.ok) {
     return (
-      <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-8)", lineHeight: 1.6 }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)", lineHeight: 1.6 }}>
         {plan.missing.length
           ? `Цель недостижима: ресурс «${nameOf(plan.missing[0])}» не выдаёт ни одна функция.`
           : plan.looped
@@ -498,14 +498,14 @@ function Verdict({ plan, unit, traits }) {
     </div>
 
     {plan.oneSided && (
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
         Это по {plan.sureOk ? "нижней" : "верхней"} границе вилок: по
         {plan.sureOk ? " верхней" : " нижней"} цель не достигается вовсе.
         Называть два числа, когда модель даёт одно, нельзя.
       </div>)}
 
     {plan.budget != null && (
-      <div style={{ fontSize: 11.5, marginTop: "var(--space-8)", lineHeight: 1.6,
+      <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-8)", lineHeight: 1.6,
         color: plan.fits ? OK : plan.fitsSure ? WARN : BAD }}>
         {plan.fits
           ? `Влезает в бюджет: нужно ${hoursText(plan.work.hi)} ${budgetName}, а есть ${hoursText(plan.budget)}.`
@@ -515,7 +515,7 @@ function Verdict({ plan, unit, traits }) {
       </div>)}
 
     {plan.due != null && (
-      <div style={{ fontSize: 11.5, marginTop: "var(--space-4)", lineHeight: 1.6,
+      <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6,
         color: plan.ready ? OK : BAD }}>
         {plan.ready
           ? `Успевает: первый результат через ${durText(plan.readyHours)}, а срок через ${durText(plan.due)}.`
@@ -526,7 +526,7 @@ function Verdict({ plan, unit, traits }) {
       </div>)}
 
     {plan.cycle != null && (
-      <div style={{ fontSize: 11.5, marginTop: "var(--space-4)", lineHeight: 1.6,
+      <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6,
         color: plan.cycle ? OK : BAD }}>
         {plan.cycle
           ? `Темп держится: один круг занимает ${durText(plan.readyHours)}, а период — ${plan.rate.name}.`
@@ -545,7 +545,7 @@ function Verdict({ plan, unit, traits }) {
         const off = c.qty > 0 && Math.abs(c.real - c.qty) / c.qty > 0.05;
         return (
           <div key={c.id} className="flex items-center gap-2"
-            style={{ fontSize: 11.5, padding: "var(--space-4) 0", borderTop: `1px solid ${C.line}` }}>
+            style={{ fontSize: "var(--fs-hint)", padding: "var(--space-4) 0", borderTop: `1px solid ${C.line}` }}>
             <span style={{ flex: 1, minWidth: 0 }}>{c.name}</span>
             <span style={{ color: C.muted }}>назвали {nm(c.qty)}</span>
             <span style={{ color: off ? WARN : OK }}>
@@ -554,7 +554,7 @@ function Verdict({ plan, unit, traits }) {
       })}
       {plan.extra.map((c) => (
         <div key={c.trait} className="flex items-center gap-2"
-          style={{ fontSize: 11.5, padding: "var(--space-4) 0", borderTop: `1px solid ${C.line}` }}>
+          style={{ fontSize: "var(--fs-hint)", padding: "var(--space-4) 0", borderTop: `1px solid ${C.line}` }}>
           <span style={{ flex: 1, minWidth: 0 }}>{c.name}</span>
           <span style={{ color: WARN }}>уйдёт ещё {nm(Math.round(c.real * 10) / 10)}</span>
         </div>))}
@@ -587,13 +587,12 @@ function Apply({ goal, plan, ready, fresh, condition, onPredict, onApply }) {
   return (
     <div style={{ marginTop: "var(--space-12)", borderTop: `1px solid ${C.line}`, paddingTop: "var(--space-8)" }}>
       {!fresh || !plan ? (<>
-        <button style={{ ...btn(true, ACC), width: "100%", padding: "var(--space-8) var(--space-8)",
-          fontSize: 12.5, fontWeight: 700 }}
+        <button style={{ ...btn(true, ACC), width: "100%", padding: "var(--space-8) var(--space-8)", fontWeight: 700 }}
           disabled={!ready} onClick={onPredict}>Спрогнозировать</button>
         {/* Что делает кнопка — сказано один раз. Строки «цель поправили,
             посчитайте заново» здесь нет: кнопка и так зовёт считать, и
             повторять это словами значит объяснять очевидное. */}
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           {condition
             ? "Это условие, а не цель-число: «<» и «!» проверяются по остатку, план по ним не считается."
             : !ready
@@ -601,12 +600,11 @@ function Apply({ goal, plan, ready, fresh, condition, onPredict, onApply }) {
               : "Посчитает, что придётся сделать и во что обойдётся. Ничего не меняет."}
         </div>
       </>) : (<>
-        <button style={{ ...btn(true, OK), width: "100%", padding: "var(--space-8) var(--space-8)",
-          fontSize: 12.5, fontWeight: 700 }}
+        <button style={{ ...btn(true, OK), width: "100%", padding: "var(--space-8) var(--space-8)", fontWeight: 700 }}
           disabled={!can} onClick={onApply}>
           {goal.appliedAt ? "Повторить отдельной целью" : "Применить цель"}
         </button>
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           {!can
             ? "Применять нечего: по этой модели цель не достигается."
             : goal.appliedAt
@@ -630,7 +628,7 @@ function Actions({ plan }) {
       <div style={S.lbl}>последовательность действий</div>
       {rows.map((st) => (
         <div key={st.func} className="flex items-center gap-2"
-          style={{ fontSize: 11.5, padding: "var(--space-4) 0", borderTop: `1px solid ${C.line}` }}>
+          style={{ fontSize: "var(--fs-hint)", padding: "var(--space-4) 0", borderTop: `1px solid ${C.line}` }}>
           <span style={{ color: ACC, minWidth: 16 }}>{st.no}.</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             {st.name || "без названия"}
@@ -665,10 +663,10 @@ function Effect({ plan, traits }) {
   const col = (title, list, color, sign) => (
     <div style={{ flex: "1 1 150px", minWidth: 0 }}>
       <div style={S.lbl}>{title}</div>
-      {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
+      {!list.length && <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>ничего</div>}
       {list.map((r) => (
         <div key={r.id} className="flex items-center gap-2"
-          style={{ fontSize: 11.5, padding: "0 0" }}>
+          style={{ fontSize: "var(--fs-hint)", padding: "0 0" }}>
           <span style={{ flex: 1, minWidth: 0 }}>{r.name}</span>
           <span style={{ color }}>{sign}{nm(Math.round(Math.abs(r.v) * 10) / 10)}</span>
         </div>))}
@@ -679,7 +677,7 @@ function Effect({ plan, traits }) {
         {col("прибавится", up, OK, "+")}
         {col("убавится", down, WARN, "−")}
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
         За один круг работы: чистое изменение ресурса.
       </div>
     </div>);
@@ -701,7 +699,7 @@ function Schedule({ plan }) {
       <div style={S.lbl}>какие задачи и когда заведутся · {rows.length}</div>
       {shown.map((r, i) => (
         <div key={`${r.func}-${r.no}`} className="flex items-center gap-2"
-          style={{ fontSize: 11.5, padding: "var(--space-4) 0",
+          style={{ fontSize: "var(--fs-hint)", padding: "var(--space-4) 0",
             borderTop: i ? `1px solid ${C.line}` : "none" }}>
           <span style={{ flex: 1, minWidth: 0 }}>
             {r.name || "без названия"}
@@ -710,7 +708,7 @@ function Schedule({ plan }) {
           <span style={{ color: ACC, whiteSpace: "nowrap" }}>{dt(r.start)}</span>
         </div>))}
       {rows.length > shown.length && (
-        <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)" }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>
           …и ещё {rows.length - shown.length}; последняя — {dt(rows[rows.length - 1].start)}.
         </div>)}
     </div>);
@@ -807,11 +805,11 @@ export default function GoalsPanel({ goals, setGoals, traits, model, runsOf, onT
         <button style={btn(false)} onClick={add} disabled={!traits.length}>+ цель</button>
       </div>
       {!goals.length && (
-        <div style={{ fontSize: 11.5, color: C.muted }}>
+        <div style={{ color: C.muted }}>
           {traits.length ? "Целей пока нет." : "Сначала заведите ресурсы — цель ставится по ресурсу."}
         </div>)}
       {!!noPost.length && (
-        <div style={{ fontSize: 11, color: WARN, marginBottom: "var(--space-8)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: WARN, marginBottom: "var(--space-8)", lineHeight: 1.5 }}>
           Без должности задачи не заводятся: {noPost.join(", ")} — назовите
           «Кто:» у функции.
         </div>)}

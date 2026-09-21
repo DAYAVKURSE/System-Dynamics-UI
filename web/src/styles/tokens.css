@@ -24,8 +24,10 @@
   --chip-amber-text: #FFE9C2;
   --chip-coral-text: #FFD9E1;
   --chip-violet-text: #EADCFF;
-  --shadow-glass-panel: inset 0 1.5px 0 rgba(255,255,255,.5), inset 0 -1px 0 rgba(255,255,255,.06), 0 14px 34px rgba(0,0,0,.45);
-  --shadow-glass-bar: inset 0 1px 0 rgba(255,255,255,.4), 0 10px 26px rgba(0,0,0,.4);
+  /* Верхний блик — «объём» формы — на 30 % тоньше и тише (владелец,
+     2026-09-21): 1,5 px → 1 px, .5 → .35; у бара .4 → .28. */
+  --shadow-glass-panel: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -1px 0 rgba(255,255,255,.06), 0 14px 34px rgba(0,0,0,.45);
+  --shadow-glass-bar: inset 0 1px 0 rgba(255,255,255,.28), 0 10px 26px rgba(0,0,0,.4);
   --shadow-glow-mint: 0 0 16px rgba(60,242,160,.3);
   --shadow-glow-cyan: 0 0 16px rgba(77,225,255,.3);
   --shadow-glow-coral: 0 0 14px rgba(255,90,120,.25);

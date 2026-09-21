@@ -26,8 +26,8 @@ import { parseNumbered } from "../lib/formText.js";
 export function RoleFormPick({ role, forms, busy, act }) {
   return (
     <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
-      <span style={{ fontSize: 10.5, color: C.muted }}>анкета:</span>
-      <select style={{ ...S.inp, flex: "0 1 220px", fontSize: 11.5, padding: "var(--space-4) var(--space-4)" }}
+      <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>анкета:</span>
+      <select style={{ ...S.inp, flex: "0 1 220px", fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)" }}
         value={role.form || ""} disabled={busy}
         aria-label={`анкета роли «${role.name}»`}
         onChange={(e) => act(() => setRoleForm(role.id, e.target.value || null))}>
@@ -57,19 +57,19 @@ function FormCard({ form, busy, act }) {
       borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
         <NameField value={form.name} aria-label={`название анкеты «${form.name}»`}
-          style={{ flex: "1 1 160px", fontWeight: 700, fontSize: 12.5 }}
+          style={{ flex: "1 1 160px", fontWeight: 700, fontSize: "var(--fs-body)" }}
           onCommit={retitle} />
-        <span style={{ fontSize: 10, color: C.muted }}>вопросов: {qs.length}</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>вопросов: {qs.length}</span>
         <button style={{ ...btn(true, BAD) }} disabled={busy}
           onClick={() => act(() => removeForm(form.id))}>Удалить анкету</button>
       </div>
       {qs.map((q, i) => (
         <div key={q.id} className="flex flex-wrap gap-2"
           style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
-          <span style={{ fontSize: 10.5, color: C.muted, width: 18, textAlign: "right" }}>
+          <span style={{ fontSize: "var(--fs-hint)", color: C.muted, width: 18, textAlign: "right" }}>
             {i + 1}.</span>
           <TxtField value={q.text} aria-label={`вопрос ${i + 1} анкеты «${form.name}»`}
-            style={{ flex: "1 1 200px", fontSize: 12 }}
+            style={{ flex: "1 1 200px", fontSize: "var(--fs-hint)" }}
             onCommit={(v) => {
               if (v.trim() && v.trim() !== q.text) {
                 send(qs.map((x) => (x.id === q.id ? { id: x.id, text: v } : x)));
@@ -80,12 +80,12 @@ function FormCard({ form, busy, act }) {
             onClick={() => send(qs.filter((x) => x.id !== q.id))}>✕</button>
         </div>))}
       {!qs.length && (
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: "var(--space-4)" }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginBottom: "var(--space-4)" }}>
           Вопросов пока нет — человеку показать нечего.</div>)}
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
         <TxtField value={text} placeholder="текст вопроса"
           aria-label={`новый вопрос анкеты «${form.name}»`}
-          style={{ flex: "1 1 200px", fontSize: 12 }} onCommit={setText} />
+          style={{ flex: "1 1 200px", fontSize: "var(--fs-hint)" }} onCommit={setText} />
         <button style={btn(true)} disabled={busy || !text.trim()}
           aria-label={`добавить вопрос в анкету «${form.name}»`}
           onClick={() => act(async () => {
@@ -131,8 +131,8 @@ export function FormsSection({ forms, busy, act }) {
               boxSizing: "border-box" }} />
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
             <input type="file" accept=".txt,text/plain" aria-label="файл анкеты"
-              onChange={fromFile} style={{ fontSize: 11, flex: "1 1 160px" }} />
-            <span style={{ fontSize: 10.5, color: parsed.error ? WARN : C.muted }}>
+              onChange={fromFile} style={{ fontSize: "var(--fs-hint)", flex: "1 1 160px" }} />
+            <span style={{ fontSize: "var(--fs-hint)", color: parsed.error ? WARN : C.muted }}>
               {parsed.error || `вопросов: ${parsed.questions.length}`}</span>
             <button style={btn(true)} aria-label="загрузить анкету из списка"
               disabled={busy || !name.trim() || !parsed.questions.length}
@@ -158,19 +158,19 @@ export function FormsSection({ forms, busy, act }) {
 export function FormAnswers({ forms, answers = {}, mine, onChange }) {
   return (forms || []).map((f) => (
     <div key={f.id} style={{ marginBottom: "var(--space-8)" }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, margin: "var(--space-4) 0 var(--space-4)" }}>{f.name}</div>
+      <div style={{ fontSize: "var(--fs-body)", fontWeight: 700, margin: "var(--space-4) 0 var(--space-4)" }}>{f.name}</div>
       {!(f.questions || []).length && (
-        <div style={{ fontSize: 11, color: C.muted }}>В этой анкете пока нет вопросов.</div>)}
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>В этой анкете пока нет вопросов.</div>)}
       {(f.questions || []).map((q) => (
         <div key={q.id} style={{ marginBottom: "var(--space-8)" }}>
-          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: "var(--space-4)", lineHeight: 1.5 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginBottom: "var(--space-4)", lineHeight: 1.5 }}>
             {q.text}</div>
           {mine ? (
             <TxtField area value={answers[q.id] || ""} aria-label={q.text}
-              style={{ minHeight: 44, lineHeight: 1.5, fontSize: 12.5 }}
+              style={{ minHeight: 44, lineHeight: 1.5, fontSize: "var(--fs-body)" }}
               onCommit={(v) => onChange({ ...answers, [q.id]: v })} />
           ) : (
-            <div style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap",
+            <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.6, whiteSpace: "pre-wrap",
               color: answers[q.id] ? C.text : C.muted }}>
               {answers[q.id] || "не заполнено"}</div>)}
         </div>))}

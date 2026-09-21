@@ -45,7 +45,7 @@ export default function IssuesPanel({ me }) {
     return (
       <div style={card}>
         <div style={S.lbl}>issues</div>
-        <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           Сообщения об ошибках живут на сервере: откройте приложение через Telegram.
         </div>
       </div>);
@@ -55,12 +55,12 @@ export default function IssuesPanel({ me }) {
     <div style={card} aria-label="issues">
       <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-8)" }}>
         <span style={{ ...S.lbl, flex: 1 }}>issues</span>
-        <span style={{ fontSize: 10.5, color: C.muted }}>{(list || []).length}</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{(list || []).length}</span>
       </div>
 
-      {!list && !msg && <div style={{ fontSize: 12, color: C.muted }}>Загружаю…</div>}
+      {!list && !msg && <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>Загружаю…</div>}
       {list && !list.length && (
-        <div style={{ fontSize: 12, color: C.muted }}>Сообщений пока нет.</div>)}
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>Сообщений пока нет.</div>)}
 
       {(list || []).map((x) => (
         <div key={x.id} aria-label={`сообщение об ошибке от ${x.name}`}
@@ -68,10 +68,10 @@ export default function IssuesPanel({ me }) {
             padding: "var(--space-8)", marginTop: "var(--space-8)" }}>
           <div className="flex flex-wrap items-center gap-2">
             <Avatar name={x.name} src={x.avatar} size={24} logo={!x.avatar && !x.name} />
-            <span style={{ fontSize: 12.5, fontWeight: 700, flex: "1 1 120px" }}>{x.name}</span>
-            <span style={{ fontSize: 10.5, color: C.muted }}>{when(x.at)}</span>
+            <span style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: "1 1 120px" }}>{x.name}</span>
+            <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{when(x.at)}</span>
           </div>
-          <div style={{ fontSize: 12, lineHeight: 1.6, marginTop: "var(--space-4)", whiteSpace: "pre-wrap" }}>
+          <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.6, marginTop: "var(--space-4)", whiteSpace: "pre-wrap" }}>
             {x.text}</div>
           <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
             <button type="button" disabled={busy}
@@ -81,11 +81,11 @@ export default function IssuesPanel({ me }) {
           </div>
         </div>))}
 
-      {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
+      {msg && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
 
       {kill && (
         <Modal title="Удалить сообщение" onClose={() => setKill(null)}>
-          <div style={{ fontSize: 13, lineHeight: 1.6 }}>Вы уверены? Это действие необратимо</div>
+          <div style={{ fontSize: "var(--fs-body)", lineHeight: 1.6 }}>Вы уверены? Это действие необратимо</div>
           <div className="flex gap-2" style={{ marginTop: "var(--space-12)" }}>
             <button type="button" style={btn(true, BAD)} disabled={busy}
               onClick={() => { const x = kill; setKill(null); drop(x.id); }}>Да</button>
@@ -116,12 +116,12 @@ export function IssueModal({ onClose, onSend }) {
 
   return (
     <Modal title="Сообщение об ошибке" onClose={onClose}>
-      <div style={{ fontSize: 13 }}>Напишите сообщение об ошибке</div>
+      <div style={{ fontSize: "var(--fs-body)" }}>Напишите сообщение об ошибке</div>
       <textarea autoFocus aria-label="сообщение об ошибке" rows={5} value={text}
         disabled={busy} onChange={(e) => setText(e.target.value)}
         style={{ ...S.inp, width: "100%", marginTop: "var(--space-8)", resize: "vertical",
           minHeight: 90, lineHeight: 1.5 }} />
-      {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
+      {msg && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
       <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !text.trim()}
           onClick={send}>{busy ? "Отправляю…" : "Отправить"}</button>

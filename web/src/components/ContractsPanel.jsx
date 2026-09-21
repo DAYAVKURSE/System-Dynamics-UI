@@ -50,7 +50,7 @@ import { changeFormsHtml } from "../lib/docdiff.js";
      боту сообщение человека: ждущий договор роли привяжется сам.
    ════════════════════════════════════════════════════════════════ */
 
-const hint = { fontSize: 11, color: C.muted, lineHeight: 1.5 };
+const hint = { fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.5 };
 const sub = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)",
   marginBottom: "var(--space-4)" };
 const when = (iso) => {
@@ -86,7 +86,7 @@ export function PlaceholderFields({ placeholders = [], values = {}, onChange, re
         required={must}>
         <input aria-label={`${label}: ${p.key}`} type={dateKey ? "date" : "text"}
           inputMode={p.key === "sum" ? "decimal" : undefined}
-          style={{ ...S.inp, padding: "var(--space-4) var(--space-8)", fontSize: 12,
+          style={{ ...S.inp, padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)",
             borderColor: must && !String(v).trim() ? `${BAD}88` : C.line }}
           value={v} disabled={disabled}
           onChange={(e) => onChange({ ...values, [p.key]: e.target.value })} />
@@ -99,7 +99,7 @@ export function PlaceholderFields({ placeholders = [], values = {}, onChange, re
 /* Круглый полупрозрачный значок на документе — как крестик, чтобы не
    загораживать текст (владелец, 2026-09-15). */
 const roundBtn = (extra = {}) => ({ width: 38, height: 38, borderRadius: "50%",
-  background: "rgba(29,40,57,.72)", color: "#fff", border: `1px solid ${C.line}`, fontSize: 17,
+  background: "rgba(29,40,57,.72)", color: "#fff", border: `1px solid ${C.line}`, fontSize: "var(--fs-title)",
   lineHeight: "36px", textAlign: "center", cursor: "pointer", boxShadow: "0 2px 8px #0008",
   backdropFilter: "blur(2px)", padding: 0, ...extra });
 
@@ -163,7 +163,7 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
             </svg></button>
         </>)}
       </div>
-      <div style={{ fontSize: 11, color: C.muted, padding: "var(--space-12) var(--space-48) var(--space-4) var(--space-16)" }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, padding: "var(--space-12) var(--space-48) var(--space-4) var(--space-16)" }}>
         {title}{editable ? " · правится прямо здесь; сложное оформление Word при сохранении упрощается" : " · только чтение"}
         {dirty ? " · есть несохранённые правки" : ""}
       </div>
@@ -172,7 +172,7 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
         onInput={(e) => onChange?.(e.currentTarget.innerHTML)}
         style={{ background: "#fff", color: "#111", margin: "8px auto 24px", maxWidth: 820,
           minHeight: "80vh", padding: "var(--space-24) var(--space-24)", borderRadius: "var(--radius-sm)", fontFamily: "Georgia, serif",
-          fontSize: 14, lineHeight: 1.6, outline: "none", boxSizing: "border-box" }} />
+          fontSize: "var(--fs-body)", lineHeight: 1.6, outline: "none", boxSizing: "border-box" }} />
     </div>
   );
 }
@@ -209,8 +209,8 @@ export function DiffForms({ forms, title, empty = "Изменений нет." }
       <fieldset key={i} aria-label={sg.label}
         style={{ border: `1px solid ${color}`, borderRadius: "var(--radius-sm)", padding: "0 var(--space-8) var(--space-4)",
           margin: "var(--space-4) 0 0", minWidth: 0 }}>
-        <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 var(--space-4)" }}>{sg.text}</legend>
-        <div style={{ fontSize: 11.5, lineHeight: 1.6, color: C.text }}>
+        <legend style={{ color, fontWeight: 700, fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}>{sg.text}</legend>
+        <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.6, color: C.text }}>
           {f.parts.map((p, k) => (
             <span key={k} data-hl={p.hl ? (f.sign === "±" ? p.t : f.sign) : undefined}
               style={mark(p)}>
@@ -240,12 +240,12 @@ function NewDocForm({ busy, act, onDone }) {
       <input aria-label="название договора" style={{ ...S.inp, margin: "var(--space-4) 0 var(--space-4)" }}
         placeholder="название" value={title} disabled={same}
         onChange={(e) => setName(e.target.value)} />
-      <label className="flex items-center gap-2" style={{ fontSize: 11.5, cursor: "pointer", marginBottom: "var(--space-4)" }}>
+      <label className="flex items-center gap-2" style={{ fontSize: "var(--fs-hint)", cursor: "pointer", marginBottom: "var(--space-4)" }}>
         <input type="checkbox" checked={same} aria-label="такое же, как у файла"
           style={{ accentColor: ACC }} onChange={(e) => setSame(e.target.checked)} />
         <span>такое же, как у файла</span>
       </label>
-      <label style={{ ...btn(false), display: "inline-block", fontSize: 11.5 }}>
+      <label style={{ ...btn(false), display: "inline-block" }}>
         {file ? `📄 ${file.name}` : "Выбрать файл Word (.docx)"}
         <input type="file" accept=".docx" style={{ display: "none" }} aria-label="файл договора"
           onChange={(e) => setFile(e.target.files?.[0] || null)} />
@@ -259,7 +259,7 @@ function NewDocForm({ busy, act, onDone }) {
         <button type="button" style={btn(false)} onClick={onDone}>Отмена</button>
       </div>
       {/* Ошибка — здесь, под кнопкой, а не внизу страницы. */}
-      {err && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{err}</div>}
+      {err && <div role="alert" style={{ color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{err}</div>}
     </div>
   );
 }
@@ -299,9 +299,9 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
        (владелец, 2026-09-15), как знак у форм «+» и «−». */
     <fieldset style={{ ...sub, borderColor: opened ? ACC : C.line, padding: "0 var(--space-8) var(--space-8)", minWidth: 0 }}
       aria-label={`договор ${doc.name}`}>
-      <legend style={{ fontSize: 12.5, fontWeight: 700, padding: "0 var(--space-4)", color: C.text,
+      <legend style={{ fontSize: "var(--fs-body)", fontWeight: 700, padding: "0 var(--space-4)", color: C.text,
         maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</legend>
-      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: "var(--space-4)" }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginBottom: "var(--space-4)" }}>
         версий: {doc.versions.length} · {when(ver?.at)}{dirty ? " · есть несохранённые правки" : ""}</div>
       <div className="flex flex-wrap items-center gap-2">
         {/* Порядок кнопок — владельца: редактировать, скачать, удалить.
@@ -317,7 +317,7 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
       {dirty && <DiffForms forms={current} title="несохранённые изменения" />}
 
       {/* Плейсхолдеры — под спойлером: их много, а нужны не каждый раз. */}
-      <button type="button" style={{ ...btn(phOpen), marginTop: "var(--space-4)", fontSize: 11 }}
+      <button type="button" style={{ ...btn(phOpen), marginTop: "var(--space-4)" }}
         aria-expanded={phOpen} aria-label={`плейсхолдеры ${doc.name}`} onClick={() => setPhOpen((v) => !v)}>
         {phOpen ? "▾" : "▸"} плейсхолдеры ({(ver?.placeholders || []).length})</button>
       {phOpen && (
@@ -328,7 +328,7 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
 
       {/* «Загрузить новый» — перед списком версий. */}
       <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-4)" }}>
-        <label style={{ ...btn(false), fontSize: 11, display: "inline-block" }}>
+        <label style={{ ...btn(false), display: "inline-block" }}>
           {file ? `📄 ${file.name}` : "Загрузить новый"}
           <input type="file" accept=".docx" style={{ display: "none" }}
             aria-label={`файл новой версии ${doc.name}`}
@@ -339,11 +339,11 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
             onClick={() => { setVerErr(""); act(async () => { await addDocVersion(doc.id, { file }); setFile(null); }, { quiet: true })
               .catch((e) => setVerErr(e.message)); }}>
             Загрузить</button>)}
-        <button type="button" style={{ ...btn(versions), fontSize: 11 }} aria-expanded={versions}
+        <button type="button" style={{ ...btn(versions) }} aria-expanded={versions}
           aria-label={`прошлые версии ${doc.name}`} onClick={() => setVersions((v) => !v)}>
           прошлые версии ({doc.versions.length})</button>
       </div>
-      {verErr && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{verErr}</div>}
+      {verErr && <div role="alert" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{verErr}</div>}
       {versions && (
         <div style={{ marginTop: "var(--space-4)", borderLeft: `2px solid ${C.line}`, paddingLeft: "var(--space-8)" }}>
           {[...doc.versions].reverse().map((v, i) => {
@@ -353,7 +353,7 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
             return (
               <div key={v.id} style={{ padding: "var(--space-4) 0" }}>
                 <button type="button" aria-label={`версия ${v.id}`} aria-expanded={isOpen}
-                  style={{ ...btn(isOpen), fontSize: 11, textAlign: "left", width: "100%" }}
+                  style={{ ...btn(isOpen), textAlign: "left", width: "100%" }}
                   onClick={() => setOpenVer(isOpen ? null : v.id)}>
                   <span style={{ color: i === 0 ? OK : C.muted }}>{i === 0 ? "● " : "○ "}</span>
                   {when(v.at)}{i === 0 ? " · последняя" : ""}{idx === 0 ? " · первая" : ""}</button>
@@ -391,13 +391,13 @@ function CollapsedBar({ title, dirty, onExpand, onClose }) {
         boxShadow: "0 -2px 12px #0008", display: "flex", alignItems: "center", gap: "var(--space-8)", padding: "var(--space-4) var(--space-8) var(--space-4) var(--space-12)" }}>
       <button type="button" aria-label={`развернуть документ ${title}`} onClick={onExpand}
         style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#fff",
-          textAlign: "left", cursor: "pointer", fontSize: 12.5, fontWeight: 600, padding: 0,
+          textAlign: "left", cursor: "pointer", fontSize: "var(--fs-body)", fontWeight: 600, padding: 0,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         📄 {title}
-        <span style={{ fontWeight: 400, color: C.muted, fontSize: 11 }}> · свёрнут{dirty ? " · есть несохранённые правки" : ""}</span>
+        <span style={{ fontWeight: 400, color: C.muted, fontSize: "var(--fs-hint)" }}> · свёрнут{dirty ? " · есть несохранённые правки" : ""}</span>
       </button>
       <button type="button" aria-label={`закрыть свёрнутый документ ${title}`} onClick={onClose}
-        style={{ ...roundBtn(), width: 30, height: 30, lineHeight: "28px", fontSize: 14 }}>✕</button>
+        style={{ ...roundBtn(), width: 30, height: 30, lineHeight: "28px", fontSize: "var(--fs-body)" }}>✕</button>
     </div>);
 }
 
@@ -445,7 +445,7 @@ export function DocsSection({ docs = [], busy, act }) {
       ) : (
         <button type="button" style={btn(true)} disabled={busy} onClick={() => setAdding(true)}>
           + договор</button>)}
-      {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
+      {err && <div style={{ color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
       {edit && shown && (
         <DocViewer title={edit.doc.name} html={edit.html} dirty={html != null && html !== edit.doc._html}
           busy={busy} onChange={setHtml} onSave={save}
@@ -502,7 +502,7 @@ export function InviteModal({ role, doc, me, onClose, onDone }) {
   };
   return (
     <Modal title={`Пригласить участника · ${role.name}`} onClose={onClose}>
-      {!doc && <div style={{ fontSize: 12, color: WARN }}>У роли нет договора — выберите его у роли.</div>}
+      {!doc && <div style={{ fontSize: "var(--fs-hint)", color: WARN }}>У роли нет договора — выберите его у роли.</div>}
       {doc && !sent && (<>
         <div style={{ ...hint, marginBottom: "var(--space-8)" }}>
           Договор «{doc.name}». Заполните, что знаете, — остальное дозаполнит участник. Сумма и даты
@@ -513,7 +513,7 @@ export function InviteModal({ role, doc, me, onClose, onDone }) {
         <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-8)" }}>
           <button type="button" style={btn(true, sig ? OK : ACC)} onClick={() => setPad(true)}>
             {sig ? "Подпись поставлена ✓ — переподписать" : "Поставить подпись"}</button>
-          {sig && <span style={{ fontSize: 10.5, color: C.muted }}>{when(sig.at)} · хеш {sig.hash.slice(0, 10)}…</span>}
+          {sig && <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{when(sig.at)} · хеш {sig.hash.slice(0, 10)}…</span>}
         </div>
         <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-8)" }}>
           <button type="button" style={btn(true, OK)} disabled={!ready} onClick={send}
@@ -523,11 +523,11 @@ export function InviteModal({ role, doc, me, onClose, onDone }) {
             {missing.length ? `не хватает: ${missing.map((k) => REQUIRED_LABEL[k]).join(", ")}` : !sig ? "нужна подпись" : "готово к отправке"}
           </span>
         </div>
-        {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
+        {err && <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
       </>)}
       {sent && (
         <div>
-          <div style={{ fontSize: 12.5, color: OK, fontWeight: 600, marginBottom: "var(--space-4)" }}>Договор подписан и готов к отправке.</div>
+          <div style={{ fontSize: "var(--fs-body)", color: OK, fontWeight: 600, marginBottom: "var(--space-4)" }}>Договор подписан и готов к отправке.</div>
           <div style={{ ...hint, marginBottom: "var(--space-4)" }}>
             Кому его отправить? Выберите чат — человек получит ссылку, откроет бота и договор станет его.
             Если так не выйдет — перешлите боту любое сообщение этого человека и выберите роль «{role.name}»:
@@ -538,7 +538,7 @@ export function InviteModal({ role, doc, me, onClose, onDone }) {
             <button type="button" style={btn(false)} onClick={() => navigator.clipboard?.writeText(sent.link)}>
               Скопировать ссылку</button>
           </div>
-          <div style={{ fontSize: 11, color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all" }} aria-label="ссылка приглашения">{sent.link}</div>
+          <div style={{ color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all" }} aria-label="ссылка приглашения">{sent.link}</div>
           <div style={{ marginTop: "var(--space-8)" }}>
             <button type="button" style={btn(false)} onClick={onClose}>Закрыть</button>
           </div>

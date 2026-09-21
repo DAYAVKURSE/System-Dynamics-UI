@@ -56,7 +56,7 @@ import { MatList } from "./UnitLinks.jsx";
    «поля нет», а не «оно пустое». */
 function Row({ label, children }) {
   return (
-    <div style={{ fontSize: 11.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+    <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
       <span style={{ color: C.muted }}>{label}: </span>{children}
     </div>);
 }
@@ -99,19 +99,19 @@ function Delete({ t, can, killId, setKillId, onKill, isOwner = false }) {
     return (
       <span className="flex gap-2" style={{ alignItems: "center" }}
         onClick={(e) => e.stopPropagation()}>
-        <span style={{ fontSize: 10.5, color: BAD }}>
+        <span style={{ fontSize: "var(--fs-hint)", color: BAD }}>
           {killStarted(t) ? "удалить вместе со сдачами, оценками и выданными единицами?"
             : "удалить насовсем?"}</span>
-        <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", fontSize: 10.5 }}
+        <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
           aria-label={`да, удалить ${t.title}`}
           onClick={(e) => { e.stopPropagation(); onKill(t); }}>Да</button>
-        <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", fontSize: 10.5 }}
+        <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
           aria-label={`оставить ${t.title}`}
           onClick={(e) => { e.stopPropagation(); setKillId(null); }}>Оставить</button>
       </span>);
   }
   return (
-    <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", fontSize: 10.5, color: BAD,
+    <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", color: BAD,
       borderColor: DANGER_LINE }}
       aria-label={`удалить задачу ${t.title}`}
       onClick={(e) => { e.stopPropagation(); setKillId(t.id); }}>Удалить</button>);
@@ -134,15 +134,15 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center", cursor: "pointer" }}
           onClick={() => { setOpenId(on ? null : t.id); setNote(""); }}>
           <span style={{ width: 8, height: 8, borderRadius: "var(--radius-sm)", background: st?.color || C.muted }} />
-          <span style={{ fontSize: 13, fontWeight: 600, flex: "1 1 140px" }}>{t.title}</span>
-          {sub && <span style={{ fontSize: 11, color: OK }}>
+          <span style={{ fontSize: "var(--fs-body)", fontWeight: 600, flex: "1 1 140px" }}>{t.title}</span>
+          {sub && <span style={{ fontSize: "var(--fs-hint)", color: OK }}>
             сдано за {nm(sub.hours)} ч</span>}
-          <span style={{ fontSize: 10.5, color: C.muted }}>{sub ? fmtDT(sub.at) : st?.name}</span>
+          <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{sub ? fmtDT(sub.at) : st?.name}</span>
           {/* Обсуждение — на самой плашке (владелец, 2026-09-20): чтобы
               увидеть непрочитанное, задачу не надо раскрывать. */}
           <ChatButton task={t} role={chatRoleAt(t, "review")} onOpen={onChat}
-            style={{ padding: "0 var(--space-8)", fontSize: 10.5 }} />
-          <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
+            style={{ padding: "0 var(--space-8)", fontSize: "var(--fs-hint)" }} />
+          <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{on ? "▾" : "▸"}</span>
         </div>
 
         {on && (
@@ -163,7 +163,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
                 {(f?.checks || []).length ? "" : "не поставлены"}</Row>
               {!!(f?.checks || []).length && (
                 <ul aria-label="критерии проверки"
-                  style={{ margin: "0 0 0", paddingLeft: "var(--space-16)", fontSize: 11.5, lineHeight: 1.6 }}>
+                  style={{ margin: "0 0 0", paddingLeft: "var(--space-16)", fontSize: "var(--fs-hint)", lineHeight: 1.6 }}>
                   {f.checks.map((c, i) => (<li key={`${i}:${c}`}>{c}</li>))}
                 </ul>)}
               {/* Даты на месте прежнего «Сдачи ещё не было» (владелец,
@@ -183,13 +183,13 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
               <div key={sb.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
                 borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)" }}>
                 <div className="flex items-center gap-2">
-                  <span style={{ fontSize: 12, fontWeight: 600, color: OK, flex: 1 }}>
+                  <span style={{ fontSize: "var(--fs-hint)", fontWeight: 600, color: OK, flex: 1 }}>
                     ушло {nm(sb.hours)} ч</span>
-                  <span style={{ fontSize: 10, color: C.muted }}>{fmtDT(sb.at)}</span>
+                  <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{fmtDT(sb.at)}</span>
                 </div>
                 {!!String(sb.text || "").trim() && (<>
                   <div style={{ ...S.lbl, marginTop: "var(--space-4)" }}>отчёт</div>
-                  <div style={{ fontSize: 11.5, marginTop: 0, lineHeight: 1.5,
+                  <div style={{ fontSize: "var(--fs-hint)", marginTop: 0, lineHeight: 1.5,
                     whiteSpace: "pre-wrap" }}>{sb.text}</div>
                 </>)}
                 {/* Материалы сдачи — вещами, а не числом: что взяли и что
@@ -203,9 +203,9 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
                   return (
                     <div style={{ marginTop: "var(--space-4)" }}>
                       <div style={S.lbl}>материалы</div>
-                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)" }}>взято</div>
+                      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>взято</div>
                       <MatList units={took} unitName={one(took)} label="взято" />
-                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)" }}>выдано</div>
+                      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>выдано</div>
                       <MatList units={given} unitName={one(given)} label="выдано" />
                     </div>);
                 })()}
@@ -223,7 +223,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
             {t.status === "review" && !ro && (
               <>
                 {sub && inTime(t, sub) != null && (
-                  <div style={{ fontSize: 10.5, marginBottom: "var(--space-4)",
+                  <div style={{ fontSize: "var(--fs-hint)", marginBottom: "var(--space-4)",
                     color: inTime(t, sub) ? OK : BAD }}>
                     {inTime(t, sub) ? "сдано в срок" : "сдано после срока"}</div>)}
                 <input value={note} placeholder="что доработать — при возврате обязательно"
@@ -328,7 +328,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
   const recallRow = (t) => (recallable(t) ? (
     <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
       <span style={{ flex: 1 }} />
-      <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", fontSize: 10.5 }}
+      <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
         aria-label={`отозвать задачу ${t.title}`}
         onClick={(e) => { e.stopPropagation(); recall(t); }}>Отозвать</button>
     </div>) : null);
@@ -385,11 +385,11 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
       <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         <div className="flex items-center gap-2">
           <span style={S.lbl}>ждут постановки</span>
-          <span style={{ fontSize: 10.5, color: toSet.length ? WARN : C.muted }}>
+          <span style={{ fontSize: "var(--fs-hint)", color: toSet.length ? WARN : C.muted }}>
             {toSet.length}</span>
         </div>
         {!toSet.length && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Ничего не ждёт постановки.
           </div>)}
         {/* Форма постановки раскрывается ПОД своей задачей, а не общим
@@ -409,16 +409,16 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
               <div className="flex flex-wrap gap-2"
                 style={{ alignItems: "center", cursor: "pointer" }}
                 onClick={() => setSetupId(on ? null : t.id)}>
-                <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
+                <span style={{ fontSize: "var(--fs-body)", fontWeight: 600, flex: "1 1 140px" }}>
                   {t.title}</span>
-                <span style={{ fontSize: 10.5, color: C.muted }}>
+                <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
                   {funcLabel(funcs.find((f) => f.id === t.funcId), entities)}</span>
-                {why && <span style={{ fontSize: 10.5, color: WARN }}>{why}</span>}
+                {why && <span style={{ fontSize: "var(--fs-hint)", color: WARN }}>{why}</span>}
                 {/* Кнопка есть и здесь — неактивная: обсуждение
                     открывается, когда задачу поставят. */}
                 <ChatButton task={t} role={chatRoleAt(t, "review")} onOpen={openChat}
-                  style={{ padding: "0 var(--space-8)", fontSize: 10.5 }} />
-                <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
+                  style={{ padding: "0 var(--space-8)", fontSize: "var(--fs-hint)" }} />
+                <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{on ? "▾" : "▸"}</span>
               </div>
               {on && setup && !ro && (
                 <TaskSetup task={setup} tasks={tasks} funcs={funcs} traits={traits} factors={factors}
@@ -443,7 +443,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
       </div>
 
       {!waiting.length && (
-        <div style={{ ...S.card, marginBottom: "var(--space-8)", fontSize: 12, color: C.muted }}>
+        <div style={{ ...S.card, marginBottom: "var(--space-8)", fontSize: "var(--fs-hint)", color: C.muted }}>
           Ничего не ждёт проверки.</div>)}
       {waiting.map((t) => <Card key={t.id} t={t} openId={openId} setOpenId={setOpenId}
         note={note} setNote={setNote} meId={meId}
@@ -455,7 +455,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         <React.Fragment key={g.id}>
           <div className="flex items-center gap-2" style={{ margin: "var(--space-12) 0 var(--space-4)" }}>
             <span style={S.lbl}>{g.title}</span>
-            <span style={{ fontSize: 10.5, color: g.color }}>{g.rows.length}</span>
+            <span style={{ fontSize: "var(--fs-hint)", color: g.color }}>{g.rows.length}</span>
           </div>
           {g.rows.map((t) => (
             <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
@@ -473,7 +473,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
         <>
           <div className="flex items-center gap-2" style={{ margin: "var(--space-12) 0 var(--space-4)" }}>
             <span style={S.lbl}>готовые</span>
-            <span style={{ fontSize: 10.5, color: OK }}>{done.length}</span>
+            <span style={{ fontSize: "var(--fs-hint)", color: OK }}>{done.length}</span>
           </div>
           {done.map((t) => <Card key={t.id} t={t} dim openId={openId} setOpenId={setOpenId}
         note={note} setNote={setNote} meId={meId}

@@ -104,7 +104,7 @@ function Missing({ what }) {
   return (
     <span data-missing={what} title={what === "qty" ? "сколько — не указано (считается 1)" : "значение не указано"}
       style={{ display: "inline-block", width: 0, position: "relative", verticalAlign: "text-bottom", height: "1em", overflow: "visible" }}>
-      <span aria-hidden="true" style={{ position: "absolute", left: 1, top: "-0.75em", fontSize: 9, lineHeight: "12px", width: 12, height: 12,
+      <span aria-hidden="true" style={{ position: "absolute", left: 1, top: "-0.75em", fontSize: "var(--fs-hint)", lineHeight: "12px", width: 12, height: 12,
         borderRadius: "var(--radius-sm)", background: WARN, color: DARK, textAlign: "center", fontWeight: 700 }}>?</span>
     </span>);
 }
@@ -173,12 +173,12 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
                 основному тексту (владелец, 2026-09-18). */}
             {r?.note && (
               <span data-note={r.note} style={{ position: "absolute", right: 4 + (i === activeRow ? noteGap : 0), top: "-0.45em", color: C.muted,
-                fontSize: 8.5, lineHeight: 1.4, opacity: 0.6, background: `${C.ink}b3`, padding: "0 var(--space-4)", borderRadius: "var(--radius-sm)",
+                fontSize: "var(--fs-hint)", lineHeight: 1.4, opacity: 0.6, background: `${C.ink}b3`, padding: "0 var(--space-4)", borderRadius: "var(--radius-sm)",
                 border: `1px solid ${C.line}66`, whiteSpace: "nowrap", maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.note}</span>)}
             {r?.error && (
               <span data-mark="error" style={{ position: "absolute", right: 0, top: 0, color: BAD,
-                fontSize: 10, lineHeight: `${LINE_H}em`, background: C.ink, padding: "0 var(--space-4)",
+                fontSize: "var(--fs-hint)", lineHeight: `${LINE_H}em`, background: C.ink, padding: "0 var(--space-4)",
                 maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 ← {r.error}</span>)}
           </div>);
@@ -195,10 +195,10 @@ function Fold({ title, value, open, onToggle, children }) {
       <button type="button" aria-expanded={open} aria-label={title} onClick={onToggle}
         className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", color: C.text, cursor: "pointer",
-          padding: "var(--space-4) var(--space-4)", fontSize: 11.5, textAlign: "left" }}>
+          padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", textAlign: "left" }}>
         <span style={{ width: 10, color: C.muted }}>{open ? "▾" : "▸"}</span>
         <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
-        {value != null && <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{value}</span>}
+        {value != null && <span style={{ fontSize: "var(--fs-hint)", color: C.muted, whiteSpace: "nowrap" }}>{value}</span>}
       </button>
       {open && <div style={{ padding: "0 var(--space-4) var(--space-4)" }}>{children}</div>}
     </div>);
@@ -209,7 +209,7 @@ function MiniNum({ value, label, onCommit, width = 54 }) {
   useEffect(() => { setDraft(String(value ?? "")); }, [value]);
   return (
     <input value={draft} aria-label={label} inputMode="decimal"
-      style={{ ...S.inp, width, fontSize: 11.5, padding: "0 var(--space-4)" }}
+      style={{ ...S.inp, width, fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => onCommit(Number(String(draft).replace(",", ".")) || 0)}
       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />);
@@ -226,10 +226,10 @@ function Range({ lo, hi, unit, label, onChange }) {
         <MiniNum value={hi} label={`${label}: до`} onCommit={(v) => onChange(Number(lo) || 0, Math.max(Number(lo) || 0, v), unit)} />
       </>)}
       <select value={unit} aria-label={`${label}: единица`} onChange={(e) => onChange(Number(lo) || 0, Number(hi) || 0, e.target.value)}
-        style={{ ...S.inp, width: "auto", padding: "0 var(--space-4)", fontSize: 11.5 }}>
+        style={{ ...S.inp, width: "auto", padding: "0 var(--space-4)", fontSize: "var(--fs-hint)" }}>
         {TIME_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
       </select>
-      <label className="flex items-center gap-2" style={{ fontSize: 10.5, color: C.muted, cursor: "pointer" }}>
+      <label className="flex items-center gap-2" style={{ fontSize: "var(--fs-hint)", color: C.muted, cursor: "pointer" }}>
         <input type="checkbox" aria-label={`${label}: вилка`} checked={wide} style={{ accentColor: ACC }}
           onChange={(e) => { setWide(e.target.checked); onChange(Number(lo) || 0, e.target.checked ? Math.max(Number(lo) || 0, Number(hi) || 0) * (Number(hi) > Number(lo) ? 1 : 2) : Number(lo) || 0, unit); }} />
         вилка
@@ -295,7 +295,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
      участника сдвигаются вместе с текстом. */
   const [scrollTop, setScrollTop] = useState(0);
   const paint = paintOf(text, model, proc);
-  const field = { ...S.inp, fontFamily: "var(--font-sans)", fontSize: 12,
+  const field = { ...S.inp, fontFamily: "var(--font-sans)", fontSize: "var(--fs-hint)",
     lineHeight: LINE_H, boxSizing: "border-box" };
   useEffect(() => { if (!focus) setText(value); }, [value, focus]);
 
@@ -704,7 +704,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
   const header = pick ? `${HINT[pick.kind] || ""}${pick.kind === "trait" && pick.asset ? ` — ресурсы «${pick.asset.name}»` : ""}${pick.kind === "qty" && pick.traitName ? ` — для «${pick.traitName}»` : ""}` : "";
   const pinBtn = (label, icon, onClick, style = {}) => (
     <button type="button" aria-label={label} onClick={onClick} className="flex items-center gap-2"
-      style={{ borderRadius: "var(--radius-sm)", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left", background: "transparent",
+      style={{ borderRadius: "var(--radius-sm)", fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left", background: "transparent",
         color: C.text, border: `1px solid ${C.line}`, ...style }}>
       <span style={{ width: 16, textAlign: "center" }}>{icon}</span>{label.split(":")[0].replace(/^./, (c) => c.toUpperCase())}</button>);
   const menuTitle = funcRow >= 0 ? `функция «${funcName || "без названия"}»`
@@ -748,7 +748,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
           }}
           onChange={(e) => { opRef.current = null; onChange(e); }} onKeyUp={onMove} onClick={onMove} onKeyDown={onKey} />
         {!editing && text && (
-          <div aria-hidden="true" style={{ position: "absolute", right: 8, top: 4, fontSize: 10, color: C.muted, pointerEvents: "none", zIndex: 2 }}>
+          <div aria-hidden="true" style={{ position: "absolute", right: 8, top: 4, fontSize: "var(--fs-hint)", color: C.muted, pointerEvents: "none", zIndex: 2 }}>
             двойное нажатие — правка</div>)}
       </div>
       {/* Подсказки — под полем, в потоке: ничего не заслоняют (владелец, 2026-09-18).
@@ -764,7 +764,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
           onTouchStart={touchStart} onTouchEnd={(e) => touchEnd(e, null)} onTouchCancel={() => { touch.current = null; hold.current = false; }}
           style={{ height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box",
             background: C.panel, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
-          <div style={{ padding: "var(--space-4) var(--space-8)", fontSize: 10.5, color: C.muted, borderBottom: `1px solid ${C.line}`, flex: "none" }}>
+          <div style={{ padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", color: C.muted, borderBottom: `1px solid ${C.line}`, flex: "none" }}>
             {header}<span style={{ opacity: 0.7 }}> · нажмите пункт · Enter — новая строка</span>
           </div>
           <div role="listbox" aria-label="подсказки процесса" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -772,15 +772,15 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={i === cursor}
                 onClick={() => choose(it)}
                 onTouchEnd={(e) => { e.stopPropagation(); touchEnd(e, () => choose(it)); }}
-                style={{ padding: "var(--space-8) var(--space-8)", fontSize: 12.5, cursor: "pointer", touchAction: "pan-y",
+                style={{ padding: "var(--space-8) var(--space-8)", fontSize: "var(--fs-body)", cursor: "pointer", touchAction: "pan-y",
                   background: i === cursor ? `${C.line}88` : "transparent" }}>
                 <span style={{ color: C.muted }}>{it.kind} </span>{it.name}
                 {it.note && <span style={{ color: C.muted }}> — {it.note}</span>}
               </div>))}
             {items.filter((i) => i.info).map((it, i) => (
-              <div key={`info${i}`} style={{ padding: "var(--space-4) var(--space-8)", fontSize: 11, color: C.muted }}>{it.note}</div>))}
+              <div key={`info${i}`} style={{ padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", color: C.muted }}>{it.note}</div>))}
             {!items.length && (
-              <div style={{ padding: "var(--space-4) var(--space-8)", fontSize: 11, color: C.muted }}>
+              <div style={{ padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", color: C.muted }}>
                 {pick.query ? `«${pick.query}» — своё имя; дальше — Enter или пункт «↵»` : "введите своё"}
               </div>)}
           </div>
@@ -809,20 +809,20 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd}
               onTouchStart={onDragTouch} onTouchMove={onDragTouchMove} onTouchEnd={onDragTouchEnd} onTouchCancel={onDragTouchEnd}
               className="flex items-center gap-2"
-              style={{ flex: 1, minWidth: 0, cursor: "move", touchAction: "none", fontSize: 10.5, color: C.muted, userSelect: "none" }}>
-              <span style={{ letterSpacing: -1 }}>⋮⋮</span>
+              style={{ flex: 1, minWidth: 0, cursor: "move", touchAction: "none", fontSize: "var(--fs-hint)", color: C.muted, userSelect: "none" }}>
+              <span style={{ }}>⋮⋮</span>
               <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{menuTitle}</span>
             </div>
             <button type="button" aria-label="закрыть меню" title="закрыть"
               onClick={() => { setCaretRow(-1); setPickVar(false); setPickPerson(false); }}
-              style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 var(--space-4)", fontSize: 13, lineHeight: 1 }}>✕</button>
+              style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 var(--space-4)", fontSize: "var(--fs-body)", lineHeight: 1 }}>✕</button>
           </div>
           {funcRow >= 0 ? (
           <div data-func-menu="" aria-label={`меню функции ${funcName}`} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
             <Fold title="ожидаемый результат" open={fold === "fresult"} onToggle={() => setFold(fold === "fresult" ? "" : "fresult")}
               value={funcHead.result ? "есть" : "—"}>
               <input defaultValue={funcHead.result} aria-label="ожидаемый результат функции"
-                style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "0 var(--space-4)" }}
+                style={{ ...S.inp, width: "100%", fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}
                 onBlur={(e) => setFuncResult(e.target.value.trim())}
                 onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
             </Fold>
@@ -835,7 +835,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             <Fold title="описание" open={fold === "about"} onToggle={() => setFold(fold === "about" ? "" : "about")}
               value={taskAbout ? "есть" : "—"}>
               <textarea key={taskAbout} defaultValue={taskAbout} aria-label="описание задачи" rows={2}
-                style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", resize: "vertical" }}
+                style={{ ...S.inp, width: "100%", fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)", resize: "vertical" }}
                 onBlur={(e) => setAbout(e.target.value.trim())} />
             </Fold>
             <Fold title="критерии проверки" open={fold === "checks"} onToggle={() => setFold(fold === "checks" ? "" : "checks")}
@@ -843,7 +843,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               {taskChecks.map((c, i) => (
                 <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                   <input defaultValue={c} aria-label={`критерий ${i + 1}`}
-                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "0 var(--space-4)" }}
+                    style={{ ...S.inp, flex: 1, fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}
                     onBlur={(e) => { const v = e.target.value.trim(); setChecks(taskChecks.map((x, k) => (k === i ? v : x)).filter(Boolean)); }}
                     onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                   <button type="button" aria-label={`убрать критерий ${i + 1}`} title="убрать"
@@ -856,12 +856,12 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               {newCheck != null && (
                 <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                   <input autoFocus defaultValue="" aria-label={`критерий ${taskChecks.length + 1}`}
-                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "0 var(--space-4)" }}
+                    style={{ ...S.inp, flex: 1, fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}
                     onBlur={(e) => { const v = e.target.value.trim(); setNewCheck(null); if (v) setChecks([...taskChecks, v]); }}
                     onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                 </div>)}
               <button type="button" aria-label="добавить критерий" onClick={() => setNewCheck("")}
-                style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>+ критерий</button>
+                style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}>+ критерий</button>
             </Fold>
             <Fold title="срок" open={fold === "dur"} onToggle={() => setFold(fold === "dur" ? "" : "dur")}
               value={durText(taskTime)}>
@@ -873,7 +873,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                 <select value={taskTime.every > 0 ? "every" : "flow"} aria-label="когда следующая попытка"
                   onChange={(e) => setTime("every", e.target.value === "every" ? `через 1 ${taskTime.everyUnit || "дн"}` : "сразу")}
-                  style={{ ...S.inp, width: "auto", padding: "0 var(--space-4)", fontSize: 11.5 }}>
+                  style={{ ...S.inp, width: "auto", padding: "0 var(--space-4)", fontSize: "var(--fs-hint)" }}>
                   <option value="flow">сразу</option>
                   <option value="every">через…</option>
                 </select>
@@ -900,24 +900,24 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             {isWho && ROLE_KINDS.map((role) => (
               <button key={role} type="button" aria-pressed={roleOn(role)} aria-label={`${ROLE_WORD[role]}: ${whoName}`}
                 onClick={() => toggle(role)} className="flex items-center gap-2"
-                style={{ borderRadius: "var(--radius-sm)", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
+                style={{ borderRadius: "var(--radius-sm)", fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
                   background: roleOn(role) ? ROLE_COLOR[role] : "transparent", color: roleOn(role) ? DARK : C.text,
                   border: `1px solid ${roleOn(role) ? ROLE_COLOR[role] : C.line}` }}>
                 <span style={{ width: 16, textAlign: "center" }}>{ICON[role]}</span>{ROLE_WORD[role]}</button>))}
             {whoHand ? (
-              <div style={{ border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-4)", fontSize: 11 }}>
+              <div style={{ border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)" }}>
                 <div className="flex items-center gap-2">
                   <span style={{ width: 16, textAlign: "center" }}>🔒</span>
                   {renamingHand ? (
                     <input autoFocus defaultValue={whoHand} aria-label="имя закреплённого сотрудника"
-                      style={{ ...S.inp, flex: 1, fontSize: 11, padding: "0 var(--space-4)" }}
+                      style={{ ...S.inp, flex: 1, fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}
                       onBlur={(e) => renameHand(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { hold.current = false; setRenamingHand(false); inp.current?.focus({ preventScroll: true }); } }} />
                   ) : (
                     <button type="button" aria-label={`переименовать закреплённого сотрудника ${whoHand}`} title="нажмите, чтобы переименовать"
                       onClick={() => { hold.current = true; setRenamingHand(true); }}
                       style={{ flex: 1, textAlign: "left", background: handColor(whoHand), color: DARK, border: "none", borderRadius: "var(--radius-sm)",
-                        padding: "0 var(--space-4)", fontSize: 11, cursor: "text" }}>{whoHand}</button>)}
+                        padding: "0 var(--space-4)", fontSize: "var(--fs-hint)", cursor: "text" }}>{whoHand}</button>)}
                   <button type="button" aria-label={`открепить сотрудника: ${whoName}`} title="открепить сотрудника" onClick={() => rewrite(setAuto(text, whoRow))}
                     style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
                 </div>
@@ -925,32 +925,32 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             ) : pinBtn(`закрепить сотрудника: ${whoName}`, "🔒", fixHand)}
             <button type="button" aria-expanded={pickPerson} aria-label={`выбрать сотрудника: ${whoName}`}
               onClick={() => setPickPerson((v) => !v)} className="flex items-center gap-2"
-              style={{ borderRadius: "var(--radius-sm)", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
+              style={{ borderRadius: "var(--radius-sm)", fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
                 background: whoPerson ? "#FFD9A0" : "transparent", color: whoPerson ? DARK : C.text, border: `1px solid ${whoPerson ? "#FFD9A0" : C.line}` }}>
               <span style={{ width: 16, textAlign: "center" }}>👤</span>{whoPerson ? whoPerson : "Выбрать сотрудника"}</button>
             {pickPerson && (
               <div role="listbox" aria-label={`сотрудники: ${whoName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
                 <div role="option" aria-selected={!whoHand && !whoPerson} onClick={() => { rewrite(setAuto(text, whoRow)); setPickPerson(false); }}
-                  style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer", background: !whoHand && !whoPerson ? `${C.line}88` : "transparent" }}>автоматически</div>
+                  style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: !whoHand && !whoPerson ? `${C.line}88` : "transparent" }}>автоматически</div>
                 {procHands.map((h) => (
                   <div key={h} role="option" aria-selected={whoHand === h} onClick={() => { rewrite(setHand(text, whoRow, h)); setPickPerson(false); }}
-                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer", background: whoHand === h ? `${C.line}88` : "transparent" }}>
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: whoHand === h ? `${C.line}88` : "transparent" }}>
                     <span style={{ background: handColor(h), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{h}</span></div>))}
                 {persons.map((pp) => (
                   <div key={pp.id} role="option" aria-selected={whoPerson === pp.name} onClick={() => { rewrite(setPerson(text, whoRow, pp.name)); setPickPerson(false); }}
-                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer", background: whoPerson === pp.name ? `${C.line}88` : "transparent" }}>{pp.name}</div>))}
-                {!persons.length && <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11, color: C.muted }}>сотрудников с этой должностью нет</div>}
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: whoPerson === pp.name ? `${C.line}88` : "transparent" }}>{pp.name}</div>))}
+                {!persons.length && <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", color: C.muted }}>сотрудников с этой должностью нет</div>}
               </div>)}
           </div>
           ) : (
           <div data-res-menu="" aria-label={`меню ресурса ${resName}`} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
             {resVar ? (
-              <div style={{ border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-4)", fontSize: 11 }}>
+              <div style={{ border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)" }}>
                 <div className="flex items-center gap-2">
                   <span style={{ width: 16, textAlign: "center" }}>{resRef ? "🔗" : "📌"}</span>
                   {renamingVar && !resRef ? (
                     <input autoFocus defaultValue={resVar.varName} aria-label="имя закреплённого ресурса"
-                      style={{ ...S.inp, flex: 1, fontSize: 11, padding: "0 var(--space-4)" }}
+                      style={{ ...S.inp, flex: 1, fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}
                       onBlur={(e) => renameVarTo(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { hold.current = false; setRenamingVar(false); inp.current?.focus({ preventScroll: true }); } }} />
                   ) : (
@@ -958,7 +958,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                       title={resRef ? "ссылка на закреплённый ресурс" : "нажмите, чтобы переименовать"} disabled={resRef}
                       onClick={() => { if (resRef) return; hold.current = true; setRenamingVar(true); }}
                       style={{ flex: 1, textAlign: "left", background: handColor(resVar.varName), color: DARK, border: "none", borderRadius: "var(--radius-sm)",
-                        padding: "0 var(--space-4)", fontSize: 11, cursor: resRef ? "default" : "text" }}>{resVar.varName}</button>)}
+                        padding: "0 var(--space-4)", fontSize: "var(--fs-hint)", cursor: resRef ? "default" : "text" }}>{resVar.varName}</button>)}
                   <button type="button" aria-label={resRef ? `снять выбор ресурса: ${resVar.varName}` : `открепить ресурс: ${res.name}`}
                     title={resRef ? "убрать ссылку" : "открепить ресурс"} onClick={resRef ? dropRef : unpinRes}
                     style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
@@ -967,17 +967,17 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             ) : pinBtn(`закрепить ресурс: ${res.name}`, "📌", pinRes)}
             <button type="button" aria-expanded={pickVar} aria-label={`выбрать ресурс: ${resName}`}
               onClick={() => setPickVar((v) => !v)} className="flex items-center gap-2"
-              style={{ borderRadius: "var(--radius-sm)", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
+              style={{ borderRadius: "var(--radius-sm)", fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
                 background: resRef ? handColor(res.varName) : "transparent", color: resRef ? DARK : C.text, border: `1px solid ${resRef ? handColor(res.varName) : C.line}` }}>
               <span style={{ width: 16, textAlign: "center" }}>🔗</span>{resRef ? res.varName : "Выбрать ресурс"}</button>
             {pickVar && (
               <div role="listbox" aria-label={`закреплённые ресурсы: ${resName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
                 {procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).map((v) => (
                   <div key={v} role="option" aria-selected={resRef && res.varName === v} onClick={() => useVar(v)}
-                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer", background: resRef && res.varName === v ? `${C.line}88` : "transparent" }}>
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: resRef && res.varName === v ? `${C.line}88` : "transparent" }}>
                     <span style={{ background: handColor(v), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{v}</span></div>))}
                 {!procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).length && (
-                  <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11, color: C.muted }}>закреплённых ресурсов в этом процессе нет — «Закрепить ресурс» у нужного</div>)}
+                  <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", color: C.muted }}>закреплённых ресурсов в этом процессе нет — «Закрепить ресурс» у нужного</div>)}
               </div>)}
             {/* Разделы ресурса — те же вопросы, что в карточке ресурса,
                 под спойлерами (владелец, 2026-09-18). */}
@@ -985,7 +985,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               <Fold title="единица" open={fold === "unit"} onToggle={() => setFold(fold === "unit" ? "" : "unit")}
                 value={resTrait.unit || "—"}>
                 <input defaultValue={resTrait.unit || ""} aria-label={`единица ресурса ${res.name}`} placeholder="штука, час, рубль"
-                  style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "0 var(--space-4)" }}
+                  style={{ ...S.inp, width: "100%", fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}
                   onBlur={(e) => onTrait(resTrait.id, { unit: e.target.value })}
                   onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
               </Fold>
@@ -995,36 +995,36 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                   {MATERIAL_KINDS.map((k) => (
                     <button key={k.id} type="button" aria-pressed={traitKind(resTrait) === k.id}
                       aria-label={`${k.name}: ${res.name}`} onClick={() => onTrait(resTrait.id, { kind: k.id })}
-                      style={{ ...btn(traitKind(resTrait) === k.id, traitKind(resTrait) === k.id ? ACC : null), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}>
+                      style={{ ...btn(traitKind(resTrait) === k.id, traitKind(resTrait) === k.id ? ACC : null), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}>
                       {k.name}</button>))}
                 </div>
               </Fold>
               <Fold title="чем считаем" open={fold === "ks"} onToggle={() => setFold(fold === "ks" ? "" : "ks")}
                 value={kinds.filter((x) => hasKind(resTrait, x.id)).map((x) => x.sign).join(" ") || "—"}>
                 <div className="flex flex-wrap gap-2">
-                  {!kinds.length && <span style={{ fontSize: 10.5, color: C.muted }}>классификаций пока нет</span>}
+                  {!kinds.length && <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>классификаций пока нет</span>}
                   {kinds.map((x) => (
                     <button key={x.id} type="button" aria-pressed={hasKind(resTrait, x.id)} aria-label={`${x.name}: ${res.name}`}
                       onClick={() => { const z = toggleKind(resTrait, x.id); onTrait(resTrait.id, { ks: z.ks, k: z.k }); }}
-                      style={{ ...btn(hasKind(resTrait, x.id), x.color), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}>
+                      style={{ ...btn(hasKind(resTrait, x.id), x.color), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}>
                       {x.sign} {x.name}</button>))}
                 </div>
               </Fold>
             </>)}
             {!resRef && (<>
             <input value={opDraft} aria-label={`операция: ${res.name}`} placeholder="сколько / операция"
-              style={{ ...S.inp, fontSize: 12, padding: "var(--space-4) var(--space-4)", fontFamily: "var(--font-sans)" }}
+              style={{ ...S.inp, fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)", fontFamily: "var(--font-sans)" }}
               onFocus={() => { hold.current = true; opFocus.current = true; opAnchor(); }}
               onChange={(e) => opEdit(e.target.value)}
               onBlur={(e) => opDone(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }} />
-            <div style={{ fontSize: 10.5, color: dangling || !opDraft.trim() ? WARN : C.muted, lineHeight: 1.35 }}>{opInfo}</div>
+            <div style={{ fontSize: "var(--fs-hint)", color: dangling || !opDraft.trim() ? WARN : C.muted, lineHeight: 1.35 }}>{opInfo}</div>
             <div role="listbox" aria-label={`операция: варианты`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
               {opItems.map((it) => (
                 <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={false} onClick={() => opPick(it)}
-                  style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer" }}>
+                  style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer" }}>
                   <span style={{ color: C.muted }}>{it.kind} </span>{it.name}{it.note && <span style={{ color: C.muted }}> — {it.note}</span>}</div>))}
-              {!opItems.length && <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11, color: C.muted }}>введите число</div>}
+              {!opItems.length && <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", color: C.muted }}>введите число</div>}
               {/* Подписи по смыслу: «ресурс» — со схемы, «закреплённый» — из этого процесса, «буква» — ресурс задачи. */}
             </div>
             </>)}
@@ -1036,12 +1036,12 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
 /* ─────── чип имени под полем ─────── */
 const WORD = { asset: "актив", trait: "ресурс", role: "должность" };
 function Chip({ name, kind, state, tail = "", open, onOpen, onAccept, acceptWhy, onReject, onRestore, options = [], onReplace, onGo, hypo }) {
-  const base = { display: "inline-block", borderRadius: "var(--radius-sm)", padding: "0 var(--space-8)", fontSize: 12, lineHeight: 1.6, verticalAlign: "middle" };
+  const base = { display: "inline-block", borderRadius: "var(--radius-sm)", padding: "0 var(--space-8)", fontSize: "var(--fs-hint)", lineHeight: 1.6, verticalAlign: "middle" };
   if (state === "ok") {
     return (
       <button type="button" onClick={onGo} disabled={!onGo} aria-label={`${WORD[kind]} «${name}»: открыть`}
         style={{ ...base, border: `1px solid ${C.line}`, background: C.panel, color: C.text, cursor: onGo ? "pointer" : "default" }}>
-        {name}{tail}{hypo && <span style={{ fontSize: 10, color: WARN }}> · гипотеза</span>}
+        {name}{tail}{hypo && <span style={{ fontSize: "var(--fs-hint)", color: WARN }}> · гипотеза</span>}
       </button>);
   }
   if (state === "deleted") {
@@ -1049,7 +1049,7 @@ function Chip({ name, kind, state, tail = "", open, onOpen, onAccept, acceptWhy,
       <span style={{ ...base, border: `1px solid ${BAD}`, color: BAD }}>
         {name}{tail} — удалён — выберите замену
         <select aria-label={`замена для «${name}»`} value="" onChange={(e) => e.target.value && onReplace(e.target.value)}
-          style={{ ...S.inp, width: "auto", display: "inline-block", marginLeft: "var(--space-4)", padding: "0 var(--space-4)", fontSize: 11 }}>
+          style={{ ...S.inp, width: "auto", display: "inline-block", marginLeft: "var(--space-4)", padding: "0 var(--space-4)", fontSize: "var(--fs-hint)" }}>
           <option value="">— замена —</option>
           {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
@@ -1070,12 +1070,12 @@ function Chip({ name, kind, state, tail = "", open, onOpen, onAccept, acceptWhy,
         <span style={{ marginLeft: "var(--space-4)", whiteSpace: "nowrap" }}>
           {onAccept && (
             <button type="button" aria-label={`принять ${WORD[kind]} «${name}»`} disabled={!!acceptWhy} title={acceptWhy || ""}
-              style={{ ...btn(true, OK), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", opacity: acceptWhy ? 0.5 : 1 }}
+              style={{ ...btn(true, OK), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", opacity: acceptWhy ? 0.5 : 1 }}
               onClick={onAccept}>Принять</button>)}
           {onAccept && " "}
           {rejected
-            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`} style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={onRestore}>Вернуть</button>
-            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`} style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={onReject}>Отклонить</button>}
+            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`} style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={onRestore}>Вернуть</button>
+            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`} style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={onReject}>Отклонить</button>}
         </span>)}
     </span>);
 }
@@ -1098,16 +1098,16 @@ function TextModal({ title, value, onChange, onClose, onLoad }) {
       onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ ...S.card, width: "min(640px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
         <div className="flex items-center gap-2"><span style={S.lbl}>{title}</span><span style={{ flex: 1 }} />
-          <button type="button" style={{ ...btn(false), fontSize: 11 }} onClick={onClose} aria-label="закрыть окно">✕</button></div>
+          <button type="button" style={{ ...btn(false) }} onClick={onClose} aria-label="закрыть окно">✕</button></div>
         <textarea aria-label={`текст: ${title}`} value={value} readOnly={!onLoad} onChange={(e) => onChange?.(e.target.value)}
-          style={{ ...S.inp, fontFamily: "var(--font-sans)", fontSize: 12, lineHeight: 1.5, minHeight: 260, resize: "vertical" }} />
+          style={{ ...S.inp, fontFamily: "var(--font-sans)", fontSize: "var(--fs-hint)", lineHeight: 1.5, minHeight: 260, resize: "vertical" }} />
         <div className="flex flex-wrap items-center gap-2">
           {onLoad ? (<>
-            <input type="file" accept=".txt,text/plain" aria-label="файл техпроцесса" onChange={file} style={{ fontSize: 11 }} />
+            <input type="file" accept=".txt,text/plain" aria-label="файл техпроцесса" onChange={file} style={{ fontSize: "var(--fs-hint)" }} />
             <button type="button" style={btn(true)} onClick={onLoad}>Загрузить</button>
           </>) : (
             <button type="button" style={btn(true)} onClick={copy}>Скопировать</button>)}
-          {msg && <span style={{ fontSize: 11, color: C.muted }}>{msg}</span>}
+          {msg && <span style={{ color: C.muted }}>{msg}</span>}
         </div>
       </div>
     </div>);
@@ -1117,14 +1117,14 @@ function TextModal({ title, value, onChange, onClose, onLoad }) {
 const when = (iso) => { try { return new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
 /* Задача, которую переписали, — в жёлтой плашке целиком: сперва каким был
    её текст, потом каким стал (владелец, 2026-09-20). */
-const PRE = { margin: 0, fontFamily: "var(--font-sans)", fontSize: 11, whiteSpace: "pre-wrap" };
+const PRE = { margin: 0, fontFamily: "var(--font-sans)", fontSize: "var(--fs-hint)", whiteSpace: "pre-wrap" };
 function TaskDiff({ added = [], removed = [], changed = [] }) {
   const one = (t, sign) => (<>
-    <div style={{ fontSize: 11.5, fontWeight: 600 }}>{t.func ? `${t.func} · ` : ""}{t.name}</div>
+    <div style={{ fontSize: "var(--fs-hint)", fontWeight: 600 }}>{t.func ? `${t.func} · ` : ""}{t.name}</div>
     {sign === "±" && (<>
-      <div style={{ fontSize: 10, color: C.muted, marginTop: 0 }}>было</div>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: 0 }}>было</div>
       <pre style={{ ...PRE, ...WAS_STYLE }}>{t.was}</pre>
-      <div style={{ fontSize: 10, color: WARN, marginTop: 0 }}>стало</div>
+      <div style={{ fontSize: "var(--fs-hint)", color: WARN, marginTop: 0 }}>стало</div>
     </>)}
     <pre style={{ ...PRE, color: sign === "±" ? C.text : C.muted }}>{t.text}</pre>
   </>);
@@ -1141,18 +1141,18 @@ function Versions({ proc, model, onSave }) {
     <div style={{ marginTop: "var(--space-8)" }}>
       <div className="flex items-center gap-2">
         <input value={note} onChange={(e) => setNote(e.target.value)} aria-label="что изменилось" placeholder="что изменилось"
-          style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "var(--space-4) var(--space-4)" }} />
-        <button type="button" style={{ ...btn(dirty), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} disabled={!dirty}
+          style={{ ...S.inp, flex: 1, fontSize: "var(--fs-hint)", padding: "var(--space-4) var(--space-4)" }} />
+        <button type="button" style={{ ...btn(dirty), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} disabled={!dirty}
           aria-label="сохранить версию" onClick={() => { onSave(note.trim()); setNote(""); }}>Сохранить версию</button>
       </div>
       {/* «Прошлые версии» — на всю ширину формы (владелец, 2026-09-18). */}
       <button type="button" aria-expanded={open} aria-label="прошлые версии"
         onClick={() => setOpen((v) => !v)}
-        style={{ ...btn(false), width: "100%", marginTop: "var(--space-4)", fontSize: 11.5, textAlign: "center" }}>
+        style={{ ...btn(false), width: "100%", marginTop: "var(--space-4)", textAlign: "center" }}>
         {open ? "▾" : "▸"} Прошлые версии{list.length ? ` (${list.length})` : ""}</button>
       {open && (
         <div style={{ marginTop: "var(--space-4)" }}>
-          {!list.length && <div style={{ fontSize: 11, color: C.muted }}>Версий пока нет — сохраните первую.</div>}
+          {!list.length && <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>Версий пока нет — сохраните первую.</div>}
           {[...list].reverse().map((v, ri) => {
             const i = list.length - 1 - ri;
             const prev = list[i - 1];
@@ -1163,8 +1163,8 @@ function Versions({ proc, model, onSave }) {
                   onClick={() => setWhich(shown ? null : v.id)}
                   className="flex items-center gap-2"
                   style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
-                  <span style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{shown ? "▾" : "▸"} {when(v.at)}</span>
-                  <span style={{ flex: 1, fontSize: 11.5, color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{v.note || "—"}</span>
+                  <span style={{ fontSize: "var(--fs-hint)", whiteSpace: "nowrap" }}>{shown ? "▾" : "▸"} {when(v.at)}</span>
+                  <span style={{ flex: 1, fontSize: "var(--fs-hint)", color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{v.note || "—"}</span>
                 </button>
                 {shown && <TaskDiff {...diffTasks(prev?.text ?? "", v.text, model)} />}
               </div>);
@@ -1320,10 +1320,10 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
     <div style={{ ...S.card, marginTop: "var(--space-8)" }}>
       <button type="button" aria-expanded={shown} aria-label="технологические процессы" onClick={toggle} className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
-        <span style={{ fontSize: 11, color: C.muted }}>{shown ? "▾" : "▸"}</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{shown ? "▾" : "▸"}</span>
         <span style={S.lbl}>технологические процессы</span>
-        <span style={{ fontSize: 10.5, color: C.muted }}>{procs.length}</span>
-        {!!selected && !!involved.length && <span style={{ fontSize: 10.5, color: ACC }}>· с активом «{selName}»: {involved.length}</span>}
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{procs.length}</span>
+        {!!selected && !!involved.length && <span style={{ fontSize: "var(--fs-hint)", color: ACC }}>· с активом «{selName}»: {involved.length}</span>}
       </button>
       {shown && (
       <Section title="" addLabel="+ процесс" onAdd={add}
@@ -1349,7 +1349,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   onAccept={() => acceptTrait(p, it)} acceptWhy={it.asset ? "" : "не понятно, чей ресурс"}
                   onReject={() => rejectName(p, it.name)} onRestore={() => restoreName(p, it.name)}
                   options={traitOptions(it.asset?.id)} onReplace={(id) => replace(p, "trait", it.name, id)} />
-                {it.var && !it.ref && <span style={{ fontSize: 10.5, color: C.muted }}> ({it.var})</span>}
+                {it.var && !it.ref && <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}> ({it.var})</span>}
               </React.Fragment>);
           };
           const whoChip = (w, k) => {
@@ -1361,11 +1361,11 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   open={openChip === k} onOpen={() => setOpenChip(openChip === k ? null : k)}
                   onGo={w.asset?.id ? () => (w.anyWorker ? onOpenAsset?.(w.asset.id) : onOpenWorkers?.(w.asset.id)) : null}
                   onReject={() => rejectName(p, w.name)} onRestore={() => restoreName(p, w.name)} />
-                {w.asset && !w.anyWorker && <span style={{ fontSize: 10.5, color: C.muted }}>{w.asset.name}</span>}
+                {w.asset && !w.anyWorker && <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{w.asset.name}</span>}
                 {roles.map((r) => <span key={r} title={ROLE_WORD[r]} aria-label={`${ROLE_WORD[r]}: ${w.name}`}
-                  style={{ fontSize: 10, background: ROLE_COLOR[r], color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{ICON[r]}</span>)}
-                {w.hand && <span aria-label={`переменная ${w.hand}: ${w.name}`} style={{ fontSize: 10, background: handColor(w.hand), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{w.hand}</span>}
-                {w.person && <span aria-label={`сотрудник ${w.person}: ${w.name}`} style={{ fontSize: 10, background: w.personId ? "#FFD9A0" : BAD, color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{w.person}</span>}
+                  style={{ fontSize: "var(--fs-hint)", background: ROLE_COLOR[r], color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{ICON[r]}</span>)}
+                {w.hand && <span aria-label={`переменная ${w.hand}: ${w.name}`} style={{ fontSize: "var(--fs-hint)", background: handColor(w.hand), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{w.hand}</span>}
+                {w.person && <span aria-label={`сотрудник ${w.person}: ${w.name}`} style={{ fontSize: "var(--fs-hint)", background: w.personId ? "#FFD9A0" : BAD, color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{w.person}</span>}
               </span>);
           };
           return (
@@ -1381,23 +1381,23 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   <button type="button" aria-expanded={!hid} aria-label={`свернуть процесс «${label}»`}
                     onClick={() => flip(p.id)}
                     style={{ background: "transparent", border: "none", padding: 0, color: C.muted, cursor: "pointer",
-                      fontSize: 12, lineHeight: "18px" }}>{hid ? "▸" : "▾"}</button>
+                      fontSize: "var(--fs-hint)", lineHeight: "18px" }}>{hid ? "▸" : "▾"}</button>
                   {naming === p.id ? (
                     <input autoFocus aria-label="название процесса" defaultValue={p.name} placeholder="название процесса"
-                      style={{ ...S.inp, flex: 1, fontSize: 13.5, fontWeight: 700, padding: "0 var(--space-4)" }}
+                      style={{ ...S.inp, flex: 1, fontSize: "var(--fs-body)", fontWeight: 700, padding: "0 var(--space-4)" }}
                       onBlur={(e) => { rename(p, e.target.value); setNaming(null); }}
                       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
                   ) : (
                     <span data-proc-name="" title="двойное нажатие — переименовать"
-                      style={{ flex: 1, minWidth: 0, color: p.name ? C.text : C.muted, fontSize: 13.5, fontWeight: 700,
+                      style={{ flex: 1, minWidth: 0, color: p.name ? C.text : C.muted, fontSize: "var(--fs-body)", fontWeight: 700,
                         lineHeight: 1.3, whiteSpace: "normal", overflowWrap: "anywhere" }}>{label}</span>)}
-                  <button style={{ ...btn(true, BAD), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}
+                  <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }}
                     aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
                 </div>
                 <div className="flex items-center gap-2" style={{ marginTop: 0 }}>
-                  <span style={{ fontSize: 10.5, color: STATUS_TONE[p.status] || C.muted }}>
+                  <span style={{ fontSize: "var(--fs-hint)", color: STATUS_TONE[p.status] || C.muted }}>
                     {PROC_STATUS.find(([id]) => id === p.status)?.[1].toLowerCase()}</span>
-                  {lit && <span style={{ fontSize: 10.5, color: ACC }}>· актив «{selName}»</span>}
+                  {lit && <span style={{ fontSize: "var(--fs-hint)", color: ACC }}>· актив «{selName}»</span>}
                 </div>
               </div>
 
@@ -1406,7 +1406,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               <textarea value={p.about || ""} aria-label={`описание процесса «${label}»`} rows={2}
                 placeholder="описание"
                 onChange={(e) => setProc(p, { about: e.target.value })}
-                style={{ ...S.inp, width: "100%", fontSize: 11.5, lineHeight: 1.45, marginBottom: "var(--space-4)", resize: "vertical" }} />
+                style={{ ...S.inp, width: "100%", fontSize: "var(--fs-hint)", lineHeight: 1.45, marginBottom: "var(--space-4)", resize: "vertical" }} />
               {/* У каждой функции своё поле и своя форма (владелец,
                   2026-09-19): текст режется по строкам «Функция:». */}
               {splitProc(p.text).map((seg, fi, all) => {
@@ -1422,27 +1422,27 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                         <button type="button" aria-expanded={!fHid} aria-label={`свернуть функцию «${fName}»`}
                           onClick={() => flip(fKey)}
                           style={{ background: "transparent", border: "none", padding: 0, color: C.muted, cursor: "pointer",
-                            fontSize: 11, lineHeight: "17px" }}>{fHid ? "▸" : "▾"}</button>
+                            fontSize: "var(--fs-hint)", lineHeight: "17px" }}>{fHid ? "▸" : "▾"}</button>
                         {naming === fKey ? (
                           <input autoFocus aria-label="название функции процесса" defaultValue={seg.name}
-                            style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 700, padding: "0 var(--space-4)" }}
+                            style={{ ...S.inp, flex: 1, fontSize: "var(--fs-body)", fontWeight: 700, padding: "0 var(--space-4)" }}
                             onBlur={(e) => { setPart(p, fi, { name: e.target.value }); setNaming(null); }}
                             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
                         ) : (
                           <span data-func-name="" title="двойное нажатие — переименовать"
-                            style={{ flex: 1, minWidth: 0, color: seg.name.trim() ? C.text : C.muted, fontSize: 12.5, fontWeight: 700,
+                            style={{ flex: 1, minWidth: 0, color: seg.name.trim() ? C.text : C.muted, fontSize: "var(--fs-body)", fontWeight: 700,
                               lineHeight: 1.3, whiteSpace: "normal", overflowWrap: "anywhere" }}>{fName}</span>)}
                         {all.length > 1 && (
                           <button type="button" aria-label={`удалить функцию «${fName}»`} title="удалить функцию"
                             onClick={() => dropPart(p, fi)}
-                            style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 var(--space-4)", fontSize: 12 }}>✕</button>)}
+                            style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 var(--space-4)", fontSize: "var(--fs-hint)" }}>✕</button>)}
                       </div>
                     </div>
                     {!fHid && (<>
                       <div className="flex items-center gap-2" style={{ margin: "0 0 var(--space-4)" }}>
                         <span style={S.lbl}>ожидаемый результат</span>
                         <input key={seg.result} defaultValue={seg.result} aria-label={`ожидаемый результат функции «${fName}»`}
-                          style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "0 var(--space-4)" }}
+                          style={{ ...S.inp, flex: 1, fontSize: "var(--fs-hint)", padding: "0 var(--space-4)" }}
                           onBlur={(e) => setPart(p, fi, { result: e.target.value.trim() })}
                           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                       </div>
@@ -1454,35 +1454,35 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   </div>);
               })}
               <button type="button" aria-label="добавить функцию процесса" onClick={() => addPart(p)}
-                style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", marginBottom: "var(--space-4)" }}>+ функция</button>
+                style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", marginBottom: "var(--space-4)" }}>+ функция</button>
 
               {/* Карты процесса — справа под полем (владелец, 2026-09-18). */}
               <div className="flex items-center gap-2" style={{ marginTop: "var(--space-4)", justifyContent: "flex-end" }}>
                 <button type="button" aria-label="таймлайн процесса" title="таймлайн: когда идут задачи"
                   onClick={() => setMaps({ proc: p, mode: "timeline" })}
-                  style={{ ...btn(false), fontSize: 14, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", lineHeight: 1.4 }}>▤</button>
+                  style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", lineHeight: 1.4 }}>▤</button>
                 <button type="button" aria-label="майнд-карта процесса" title="майнд-карта: что куда уходит"
                   onClick={() => setMaps({ proc: p, mode: "mind" })}
-                  style={{ ...btn(false), fontSize: 14, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", lineHeight: 1.4 }}>⛭</button>
+                  style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", lineHeight: 1.4 }}>⛭</button>
               </div>
 
               <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
-                <button type="button" style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="выгрузить техпроцесс"
+                <button type="button" style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="выгрузить техпроцесс"
                   onClick={() => setModal({ proc: p, mode: "export", text: exportText(p.text) })}>Выгрузить</button>
-                <button type="button" style={{ ...btn(false), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="загрузить техпроцесс"
+                <button type="button" style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} aria-label="загрузить техпроцесс"
                   onClick={() => setModal({ proc: p, mode: "import", text: "" })}>Загрузить</button>
               </div>
 
               {/* Разбор — под полем: функции, задачи, участники и шаги. */}
               {pf.map((f, fi) => (
-                <div key={fi} style={{ marginTop: "var(--space-8)", fontSize: 12, lineHeight: 1.9 }}>
-                  <div style={{ fontSize: 11, color: C.muted }}>функция: <span style={{ color: C.text }}>{f.name || `без названия (${f.tasks[0]?.name || "…"})`}</span></div>
+                <div key={fi} style={{ marginTop: "var(--space-8)", fontSize: "var(--fs-hint)", lineHeight: 1.9 }}>
+                  <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>функция: <span style={{ color: C.text }}>{f.name || `без названия (${f.tasks[0]?.name || "…"})`}</span></div>
                   {f.tasks.map((t, ti) => (
                     <div key={ti} style={{ paddingLeft: "var(--space-8)", borderLeft: `2px solid ${C.line}`, marginTop: "var(--space-4)" }}>
-                      <div style={{ fontSize: 11, color: C.muted }}>задача {ti + 1}: <span style={{ color: C.text }}>{t.name || "без названия"}</span></div>
+                      <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>задача {ti + 1}: <span style={{ color: C.text }}>{t.name || "без названия"}</span></div>
                       {t.branches.map((b, bi) => (
                         <div key={bi}>
-                          {(b.cond || b.isElse) && <div style={{ fontSize: 11, color: WARN }}>{b.isElse ? "иначе" : `если ${b.cond}`}</div>}
+                          {(b.cond || b.isElse) && <div style={{ fontSize: "var(--fs-hint)", color: WARN }}>{b.isElse ? "иначе" : `если ${b.cond}`}</div>}
                           {!!b.who.length && <div>{b.who.map((w, wi) => whoChip(w, key(fi, ti, bi, "who", wi)))}</div>}
                           {b.steps.map((s, si) => (
                             <div key={si}>
@@ -1497,7 +1497,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 </div>))}
 
               {!!issues.length && !!p.text.trim() && (
-                <div style={{ fontSize: 10.5, color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{issues.map((w, i) => <div key={i}>{w}</div>)}</div>)}
+                <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{issues.map((w, i) => <div key={i}>{w}</div>)}</div>)}
 
               <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
                 {PROC_STATUS.map(([id, name]) => {
@@ -1505,7 +1505,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   const locked = id !== "off" && !can;
                   return (
                     <button key={id} aria-pressed={on} disabled={locked} title={locked ? issues[0] : ""}
-                      style={{ ...btn(on, STATUS_TONE[id] || undefined), fontSize: 11, opacity: locked ? 0.5 : 1, cursor: locked ? "default" : "pointer" }}
+                      style={{ ...btn(on, STATUS_TONE[id] || undefined), opacity: locked ? 0.5 : 1, cursor: locked ? "default" : "pointer" }}
                       onClick={() => !on && setStatus(p, id)}>{name}</button>);
                 })}
               </div>

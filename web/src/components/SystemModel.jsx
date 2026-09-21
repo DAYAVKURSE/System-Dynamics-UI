@@ -17,7 +17,7 @@ import { handColor } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
 import { procFuncs as procFuncs2, replaceName, setFuncHead, setTaskChecks } from "../lib/proc2.js";
 import { Brand, C, OK, WARN, BAD, NEU, ACC, ICON, IconButton, NameField, S, TAB_LINE,
-  tab as tabStyle, btn, durText, nm, NumField, TxtField, DiffBoxes, WAS_STYLE , VIO} from "./ui.jsx";
+  tab as tabStyle, tintOf, btn, durText, nm, NumField, TxtField, DiffBoxes, WAS_STYLE , VIO} from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
   crewOf,
   normalizeAssets,
@@ -463,7 +463,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
       {/* Пока схема спит — подпись: одно нажатие и она берёт жесты себе. */}
       {!live&&(
         <div aria-hidden="true" style={{position:"absolute",right:8,top:8,zIndex:2,pointerEvents:"none",
-          fontSize:10,color:C.muted,background:`${C.ink}cc`,border:`1px solid ${C.line}`,
+          fontSize:"var(--fs-hint)",color:C.muted,background:`${C.ink}cc`,border:`1px solid ${C.line}`,
           borderRadius: "var(--radius-sm)",padding: "0 var(--space-4)"}}>нажмите, чтобы двигать схему</div>)}
       <svg ref={svgRef} viewBox={viewBox(cam.current)} width="100%" height="100%"
         preserveAspectRatio="xMidYMid meet" style={{display:"block"}}
@@ -631,7 +631,7 @@ function ScenarioDiff({ added = [], removed = [], changed = [] }) {
   /* Заменённая строка — «было → стало» на одном месте: старое зачёркнуто,
      новое обычным текстом (владелец, 2026-09-20). */
   const line = (x, sign) => (
-    <div style={{ fontSize: 11.5, overflowWrap: "anywhere" }}>
+    <div style={{ fontSize: "var(--fs-hint)", overflowWrap: "anywhere" }}>
       {sign === "±" ? (<>
         <span style={WAS_STYLE}>{x.from}</span>
         <span style={{ color: WARN }}> → </span>
@@ -672,22 +672,22 @@ function ScenarioVersions({ id, when, stamp = "" }) {
     <div style={{ marginBottom: "var(--space-8)" }}>
       <button type="button" aria-expanded={open} aria-label="версии сценария"
         onClick={() => setOpen((v) => !v)}
-        style={{ ...btn(false), width: "100%", fontSize: 11.5, textAlign: "center" }}>
+        style={{ ...btn(false), width: "100%", textAlign: "center" }}>
         {open ? "▾" : "▸"} Версии ({list.length})</button>
       {open && (
         <div style={{ marginTop: "var(--space-4)" }}>
-          {!list.length && <div style={{ fontSize: 11, color: C.muted }}>Версий пока нет — сохраните схему.</div>}
+          {!list.length && <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>Версий пока нет — сохраните схему.</div>}
           {[...list].reverse().map((v) => (
             <div key={v.v} style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-4) 0" }}>
               <button type="button" aria-expanded={which === v.v} aria-label={`версия ${v.v}`}
                 onClick={() => show(v)} className="flex items-center gap-2"
                 style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
-                <span style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{which === v.v ? "▾" : "▸"} №{v.v}</span>
-                <span style={{ flex: 1, fontSize: 11.5, color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ fontSize: "var(--fs-hint)", whiteSpace: "nowrap" }}>{which === v.v ? "▾" : "▸"} №{v.v}</span>
+                <span style={{ flex: 1, fontSize: "var(--fs-hint)", color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                   {when(v.at)}</span>
               </button>
               {which === v.v && (busy
-                ? <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)" }}>смотрю…</div>
+                ? <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>смотрю…</div>
                 : diff && <ScenarioDiff added={diff.added} removed={diff.removed}
                     changed={diff.changed} />)}
             </div>))}
@@ -1784,7 +1784,12 @@ export default function SystemModel(){
                   /* Ушедшая за обод вкладка показывает нам спину — и спина
                      скрыта самим браузером (backface), а не нами: так она
                      остаётся в дереве доступности и её видно тестам. */
-                  style={{...tabStyle(tab===k),flex:"0 0 auto",position:"relative",
+                  /* Капсулы у открытой вкладки больше нет (владелец,
+                     2026-09-21): рамка стоит на месте, в середине окна, а
+                     открытой становится та, что в неё попала. Она лишь
+                     ярче остальных — цветом текста. */
+                  style={{...tabStyle(false),color:tab===k?C.text:C.muted,
+                    flex:"0 0 auto",position:"relative",
                     transformOrigin:"50% 50%",transformStyle:"preserve-3d",
                     backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden"}}>
                   {/* Буква за буквой: каждая встаёт на свою точку дуги —
@@ -1796,6 +1801,20 @@ export default function SystemModel(){
                       backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden"}}>{ch}</span>))}
                 </button>))}
             </div>
+            {/* РАМКА-ЛИНЗА — НЕПОДВИЖНА (владелец, 2026-09-21): «зелёная
+                рамка не появляется на той вкладке, которая становится
+                активной, а всегда посередине; активной становится та, что
+                в неё попала; рамка — часть увеличительного стекла; на
+                движение не влияет». Ширина — те же 60 % окна, что держит
+                линза; блик сверху — стекло. Нажатий не ловит и в
+                разметку ряда не входит: движение считается без неё. */}
+            <div aria-hidden="true" data-lens=""
+              style={{position:"absolute",left:"20%",right:"20%",top:"50%",
+                height:"calc(var(--control-h) + 4px)",transform:"translateY(-50%)",
+                borderRadius:"var(--radius-pill)",pointerEvents:"none",zIndex:2,
+                border:`1px solid ${tintOf(OK).line}`,
+                boxShadow:`${tintOf(OK).glow}, inset 0 1px 0 rgba(255,255,255,.35), inset 0 -10px 16px rgba(255,255,255,.04)`,
+                background:"linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,0) 55%)"}}/>
           </div>
           {/* Стрелки справа больше нет (владелец, 2026-09-21): барабан
               говорит сам — вкладка у обода завёрнута и гаснет, значит ряд
@@ -1811,7 +1830,7 @@ export default function SystemModel(){
             «Отменить» и «Вернуть» (владелец, 2026-09-20): человек должен
             видеть, что он не у себя, и уйти одним нажатием. */}
         {!!me.actingAs&&(
-          <button type="button" style={{...btn(true,WARN),marginRight: "var(--space-4)",fontSize:11.5}}
+          <button type="button" style={{...btn(true,WARN),marginRight: "var(--space-4)" }}
             onClick={()=>{ setActingAs(""); resetIdentity();
               whoAmI().then(m=>{ setMe(m); setTab("me"); }).catch(()=>{}); }}>
             Вернуться на свою страницу</button>)}
@@ -1851,7 +1870,7 @@ export default function SystemModel(){
         transition:slide?"none":"transform .22s ease-out, opacity .22s ease-out"}}>
       {recovery && (me.solo||me.isOwner) && (
         <div style={{...S.card,marginBottom: "var(--space-8)",borderColor:ACC}}>
-          <div style={{fontSize:12.5,lineHeight:1.6,marginBottom: "var(--space-8)"}}>
+          <div style={{fontSize:"var(--fs-body)",lineHeight:1.6,marginBottom: "var(--space-8)"}}>
             Остались правки от {whenText(recovery.savedAt)}
             {recovery.name?` (сценарий «${recovery.name}»)`:""} — вкладка
             закрылась раньше, чем они уехали на диск. Восстановить?
@@ -1874,14 +1893,14 @@ export default function SystemModel(){
         </div>)}
 
       {draftBlocked && (
-        <div style={{fontSize:11.5,color:WARN,marginBottom: "var(--space-8)",lineHeight:1.6}}>
+        <div style={{fontSize:"var(--fs-hint)",color:WARN,marginBottom: "var(--space-8)",lineHeight:1.6}}>
           Браузер не даёт сохранить черновик — правки не переживут закрытия
           вкладки. Сохраняй сценарий на диск во вкладке «Инструменты».
         </div>)}
 
 
       {me.known && !me.pending && !me.agreement && !me.waiting && !me.tabs.length && (
-        <div style={{...S.card,marginBottom: "var(--space-8)",fontSize:11.5,color:C.muted,
+        <div style={{...S.card,marginBottom: "var(--space-8)",fontSize:"var(--fs-hint)",color:C.muted,
           lineHeight:1.6}}>
           {(me.inactive||[]).length
             ? <>Ваши роли не действуют: {me.inactive.map(r=>`«${r.name}» — ${r.why}`).join("; ")}.
@@ -2003,7 +2022,7 @@ export default function SystemModel(){
                 title="На блоке — сколько ресурса будет к этому месяцу, вилкой"
                 onChange={e=>setSimMonth(Number(e.target.value))}
                 style={{flex:1,minWidth:60}}/>
-              <span style={{fontSize:11,color:ACC,minWidth:34}}>{simMonth} мес</span>
+              <span style={{fontSize:"var(--fs-hint)",color:ACC,minWidth:34}}>{simMonth} мес</span>
             </div>
             {/* Галочка гипотез — здесь, под ползунком прогноза (владелец,
                 2026-09-20: «этот чекбокс должен быть на форме прогноза, под
@@ -2013,7 +2032,7 @@ export default function SystemModel(){
                 пропадала на одной схеме, возвращаясь на другой: человек
                 искал переключатель там, где его только что видел. */}
             <label className="flex items-center gap-2"
-              style={{fontSize:11.5,color:hypoOn?WARN:C.muted,marginTop: "var(--space-4)",cursor:"pointer"}}>
+              style={{fontSize:"var(--fs-hint)",color:hypoOn?WARN:C.muted,marginTop: "var(--space-4)",cursor:"pointer"}}>
               <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
               включить гипотезы
             </label>
@@ -2069,7 +2088,7 @@ export default function SystemModel(){
         </div>
         {/* Одна строка под вкладками — чем этот раздел занят (владелец,
             2026-09-19). */}
-        <div style={{fontSize:11.5,color:C.muted,margin:"0 0 var(--space-12)"}}>
+        <div style={{fontSize:"var(--fs-hint)",color:C.muted,margin:"0 0 var(--space-12)"}}>
           {under==="edit"?"Что умеет делать система"
             :under==="time"?"Что делает в текущий момент"
               :"Что будет делать система"}</div>
@@ -2111,10 +2130,10 @@ export default function SystemModel(){
             {/* Название — двойным нажатием (владелец, 2026-09-19). */}
             <div style={{marginBottom: "var(--space-4)"}}>
               <NameField value={selE.name} aria-label="название актива"
-                style={{fontSize:15,fontWeight:700,display:"block"}}
+                style={{fontSize:"var(--fs-title)",fontWeight:700,display:"block"}}
                 onCommit={v=>setEntities(p=>p.map(e=>e.id===selE.id?{...e,name:v}:e))}/>
             </div>
-            <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
+            <div style={{fontSize:"var(--fs-hint)",color:C.muted,lineHeight:1.6}}>
               {FACTORS_ON ? "Актив — это воркеры, функции, факторы и ресурсы." : "Актив — это воркеры, функции и ресурсы."} Они и есть вкладки ниже.
             </div>
 
@@ -2153,7 +2172,7 @@ export default function SystemModel(){
             <div style={S.lbl}>последовательность действий · по применённым целям</div>
             {appliedSteps.map((st,i)=>(
               <div key={st.func} className="flex items-center gap-2"
-                style={{fontSize:11.5,padding: "var(--space-4) 0",
+                style={{fontSize:"var(--fs-hint)",padding: "var(--space-4) 0",
                   borderTop:i?`1px solid ${C.line}`:"none"}}>
                 <span style={{color:ACC,minWidth:16}}>{i+1}.</span>
                 <span style={{flex:1,minWidth:0}}>
@@ -2214,7 +2233,7 @@ export default function SystemModel(){
             <div key={en.id} style={{...S.card,marginBottom: "var(--space-8)"}}>
               <div className="flex items-center gap-2" style={{marginBottom: "var(--space-4)"}}>
                 <span style={{width:8,height:8,borderRadius: "var(--radius-sm)",background:en.color}}/>
-                <span style={{fontSize:13.5,fontWeight:700,flex:1}}>{en.name}</span>
+                <span style={{fontSize:"var(--fs-body)",fontWeight:700,flex:1}}>{en.name}</span>
               </div>
               {ts.map(t=>{
                 const on=openCards.has(t.id);
@@ -2236,12 +2255,12 @@ export default function SystemModel(){
                     border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",padding: "var(--space-8)",marginBottom: "var(--space-4)"}}>
                     <div className="flex items-center gap-2" style={{cursor:"pointer"}}
                       onClick={()=>toggleCard(t.id)}>
-                      <span style={{fontSize:12.5,fontWeight:600,flex:1}}>{t.l}</span>
-                      <span style={{fontSize:11,color:WARN}}>
+                      <span style={{fontSize:"var(--fs-body)",fontWeight:600,flex:1}}>{t.l}</span>
+                      <span style={{fontSize:"var(--fs-hint)",color:WARN}}>
                         {nm(lo[last]??0)}–{nm(hi[last]??0)} {t.unit}</span>
-                      <span style={{fontSize:11,color:C.muted}}>{on?"▾":"▸"}</span>
+                      <span style={{fontSize:"var(--fs-hint)",color:C.muted}}>{on?"▾":"▸"}</span>
                     </div>
-                    <div style={{fontSize:10.5,color:C.muted,marginTop: "var(--space-4)"}}>
+                    <div style={{fontSize:"var(--fs-hint)",color:C.muted,marginTop: "var(--space-4)"}}>
                       сейчас {nm(Number(t.have)||0)} · через {span} мес
                       {line!=null?` · цель ${nm(line)}`:""}
                       {flow!=null?` · цель требует ${nm(Math.round(flow*10)/10)} в месяц`:""}
@@ -2263,11 +2282,11 @@ export default function SystemModel(){
         <div style={{...S.card,marginBottom: "var(--space-8)"}}>
           <div style={S.lbl}>нагрузка исполнителей</div>
           {Object.keys(workload).length===0
-            ? <div style={{fontSize:11.5,color:C.muted,marginTop: "var(--space-8)"}}>
+            ? <div style={{fontSize:"var(--fs-hint)",color:C.muted,marginTop: "var(--space-8)"}}>
                 Исполнители на функции ещё не назначены.</div>
             : Object.entries(workload).map(([pid,h])=>(
                 <div key={pid} className="flex items-center gap-2"
-                  style={{marginTop: "var(--space-4)",fontSize:12}}>
+                  style={{marginTop: "var(--space-4)",fontSize:"var(--fs-hint)"}}>
                   <span style={{flex:1}}>{personName(pid)}</span>
                   <span style={{color:h>160?BAD:h>120?WARN:OK}}>{nm(h)} ч/мес</span>
                 </div>))}
@@ -2278,7 +2297,7 @@ export default function SystemModel(){
 
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
-        <div className="flex gap-2" style={{marginBottom: "var(--space-8)",overflowX:"auto"}}>
+        <div className="flex gap-2" style={{marginBottom: "var(--space-8)","--cell":"100px"}}>
           {[["people","Роли"],["assistant","Агенты"],["virtual","Виртуальные сотрудники"],
             ["reminders","Напоминания"],["calls","Звонки"],["issues","Issues"],
             ["export","Выгрузка"]]
@@ -2358,10 +2377,10 @@ export default function SystemModel(){
               restoreDoc(docFrom(d,docRef.current));
               setJsonMsg("Загружено.");}
               catch{setJsonMsg("Не разобрал JSON.");}}}>Загрузить</button>
-            {jsonMsg&&<span style={{fontSize:12,color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}
+            {jsonMsg&&<span style={{fontSize:"var(--fs-hint)",color:C.muted,alignSelf:"center"}}>{jsonMsg}</span>}
           </div>
           <TxtField area value={json} style={{minHeight:300,
-            fontFamily:"var(--font-sans)",fontSize:11.5}}
+            fontFamily:"var(--font-sans)",fontSize:"var(--fs-hint)"}}
             onCommit={setJson}/>
 
           {/* ═══ СОХРАНЕНИЕ НА ДИСКЕ СЕРВЕРА ═══ */}
@@ -2395,9 +2414,9 @@ export default function SystemModel(){
                 Telegram пределы разные, и подпись считает по тому, куда
                 пишется сейчас. */}
             {savedKind && (()=>{ const room=savedRoom(savedList.length,savedKind);
-              return (<div style={{fontSize:10.5,color:room.warn?WARN:C.muted,marginBottom: "var(--space-8)"}}>
+              return (<div style={{fontSize:"var(--fs-hint)",color:room.warn?WARN:C.muted,marginBottom: "var(--space-8)"}}>
                 {room.text}</div>); })()}
-            {savedMsg&&<div style={{fontSize:12,color:C.muted}}>{savedMsg}</div>}
+            {savedMsg&&<div style={{fontSize:"var(--fs-hint)",color:C.muted}}>{savedMsg}</div>}
           </div>
         </div>)}
 

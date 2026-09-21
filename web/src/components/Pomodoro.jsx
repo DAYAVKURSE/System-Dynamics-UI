@@ -193,12 +193,12 @@ export default function Pomodoro({ taskId, meId }) {
   };
 
   const minField = (field, label) => (
-    <label className="flex items-center gap-2" style={{ fontSize: 11, color: C.muted }}>
+    <label className="flex items-center gap-2" style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
       <span style={{ minWidth: 58 }}>{label}</span>
       <input type="number" min={MIN_MIN} max={MAX_MIN} inputMode="numeric"
         aria-label={`${label} минут`} value={st[field]}
         onChange={(e) => setMin(field, e.target.value)}
-        style={{ ...S.inp, width: 56, padding: "0 var(--space-4)", fontSize: 11.5 }} />
+        style={{ ...S.inp, width: 56, padding: "0 var(--space-4)", fontSize: "var(--fs-hint)" }} />
       <span>мин</span>
     </label>);
 
@@ -222,7 +222,7 @@ export default function Pomodoro({ taskId, meId }) {
               fontFamily: "var(--font-sans)",
               color: done ? OK : C.text }}>
             {clockText(left)}</div>
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: 0 }}>
             {st.mode === "rest" ? "перерыв" : "работа"}</div>
         </div>
 

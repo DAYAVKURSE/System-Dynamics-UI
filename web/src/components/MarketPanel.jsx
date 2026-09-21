@@ -45,7 +45,7 @@ import { getRatings } from "../identity.js";
    ════════════════════════════════════════════════════════════════ */
 
 const POLL_MS = 30000;
-const hint = { fontSize: 11.5, color: C.muted, lineHeight: 1.6 };
+const hint = { fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.6 };
 const form = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
   padding: "var(--space-8)", marginTop: "var(--space-8)" };
 const when = (iso) => {
@@ -73,7 +73,7 @@ function Rows({ rows, onChange, label, single = false }) {
               aria-label={`${label}: убрать строку`} onClick={() => drop(i)}>✕</button>)}
         </div>))}
       {!single && (
-        <button type="button" style={{ ...btn(false), marginTop: "var(--space-4)", fontSize: 11 }}
+        <button type="button" style={{ ...btn(false), marginTop: "var(--space-4)" }}
           onClick={() => onChange([...rows, emptyRow()])}>+ ресурс</button>)}
     </div>
   );
@@ -106,7 +106,7 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
         placeholder="содержание: что нужно сделать" value={f.text}
         onChange={(e) => up({ text: e.target.value })} />
       <div className="flex gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
-        <span style={{ fontSize: 11.5, color: C.muted }}>стоимость</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>стоимость</span>
         <input aria-label="стоимость заказа" inputMode="decimal"
           style={{ ...S.inp, maxWidth: 140 }} placeholder="сколько платите"
           value={f.price ?? ""} onChange={(e) => up({ price: e.target.value })} />
@@ -129,8 +129,8 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
               borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", color: C.text, cursor: "pointer" }}>
             <span style={{ width: 16, color: OK, fontWeight: 700 }}>{on ? "✓" : ""}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{s.name}</div>
-              <div style={{ fontSize: 11, color: C.muted }}>
+              <div style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>{s.name}</div>
+              <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
                 {[s.gives?.length ? `выдаёт: ${rowsLine(s.gives)}` : "", daysText(s.days)]
                   .filter(Boolean).join(" · ")}</div>
             </span>
@@ -167,7 +167,7 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>какие выдаёт</div>
       <Rows rows={f.gives} onChange={(rows) => up({ gives: rows })} label="выдаёт" />
       <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
-        <span style={{ fontSize: 11.5, color: C.muted }}>за какое время выполняется, дней</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>за какое время выполняется, дней</span>
         <input aria-label="срок услуги" inputMode="decimal" style={{ ...S.inp, maxWidth: 90 }}
           value={f.days ?? ""} onChange={(e) => up({ days: e.target.value })} />
       </div>
@@ -176,7 +176,7 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
           принимается, и задача сразу падает в бэклог. Вне рабочего
           времени — обычный путь: обещать за себя круглосуточно нельзя. */}
       <label className="flex items-center gap-2"
-        style={{ marginTop: "var(--space-8)", fontSize: 12, cursor: "pointer" }}>
+        style={{ marginTop: "var(--space-8)", fontSize: "var(--fs-hint)", cursor: "pointer" }}>
         <input type="checkbox" checked={f.auto} aria-label="принять автоматически в рабочее время"
           onChange={(e) => up({ auto: e.target.checked })} style={{ accentColor: OK }} />
         Принять автоматически в рабочее время
@@ -208,7 +208,7 @@ function BriefForm({ initial, busy, onSave, onCancel }) {
       <div style={{ ...S.lbl, marginTop: "var(--space-8)", color: C.text }}>исполнитель выдаёт</div>
       <Rows rows={gets} onChange={setGets} label="получает" single />
       <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
-        <span style={{ fontSize: 11.5, color: C.muted }}>ожидаемое время выполнения, дней</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>ожидаемое время выполнения, дней</span>
         <input aria-label="срок брифа" inputMode="decimal" style={{ ...S.inp, maxWidth: 90 }}
           value={days} onChange={(e) => setDays(e.target.value)} />
       </div>
@@ -251,10 +251,10 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
     <div style={form} aria-label={`отклик ${nameOf(offer.by)}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span style={S.lbl}>{customer ? "исполнитель" : "заказчик"}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 600 }}>{nameOf(other)}</span>
-        <span style={{ fontSize: 10.5, color: C.muted }}>{when(offer.at)}</span>
+        <span style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>{nameOf(other)}</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{when(offer.at)}</span>
       </div>
-      <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{offer.text}</div>
+      <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.5 }}>{offer.text}</div>
 
       {/* ─── чат ─── */}
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>чат</div>
@@ -267,9 +267,9 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
             <div key={c.id} style={{ marginBottom: "var(--space-4)", textAlign: own ? "right" : "left" }}>
               <span style={{ display: "inline-block", maxWidth: "85%", textAlign: "left",
                 background: own ? `${ACC}22` : C.panel2, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)",
-                fontSize: 12, lineHeight: 1.45 }}>
+                fontSize: "var(--fs-hint)", lineHeight: 1.45 }}>
                 {c.text}
-                <div style={{ fontSize: 9.5, color: C.muted }}>{own ? "вы" : nameOf(c.by)} · {when(c.at)}</div>
+                <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{own ? "вы" : nameOf(c.by)} · {when(c.at)}</div>
               </span>
             </div>);
         })}
@@ -303,7 +303,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
               <div style={hint}>
                 {theirs ? `Предложение от ${nameOf(brief.by)}` : "Ваше предложение"} · версия {brief.rev} · {when(brief.at)}
               </div>
-              <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+              <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
                 <div><b>заказчик отдаёт:</b> {rowsLine(brief.gives) || "—"}</div>
                 <div><b>исполнитель выдаёт:</b> {rowText(brief.gets) || "—"}</div>
                 <div><b>ожидаемое время:</b> {daysText(brief.days)}</div>
@@ -323,8 +323,8 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
       {/* ─── сделка ─── */}
       {offer.accepted && (
         <div style={{ ...form, borderColor: `${OK}66` }} aria-label="сделка">
-          <div style={{ fontSize: 12, color: OK, fontWeight: 600 }}>Договорились · {when(offer.acceptedAt)}</div>
-          <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: OK, fontWeight: 600 }}>Договорились · {when(offer.acceptedAt)}</div>
+          <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             <div><b>заказчик отдаёт:</b> {rowsLine(brief?.gives) || "—"}</div>
             <div><b>исполнитель выдаёт:</b> {rowText(brief?.gets) || "—"}</div>
             <div><b>ожидаемое время:</b> {daysText(brief?.days)}</div>
@@ -337,13 +337,13 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
           <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>ресурсы от заказчика</div>
           {!(offer.deliveries || []).length && <div style={hint}>Пока ничего не загружено.</div>}
           {(offer.deliveries || []).map((d) => (
-            <div key={d.id} style={{ fontSize: 12, marginTop: "var(--space-4)" }}>
+            <div key={d.id} style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)" }}>
               {d.name || d.file?.name || "ресурс"}
               {d.text ? <span style={{ color: C.muted }}> — {d.text}</span> : null}
               {d.file && (
                 <a href={reportSrc(d.file)} target="_blank" rel="noreferrer"
                   style={{ color: ACC, marginLeft: "var(--space-4)" }}>📎 {d.file.name}</a>)}
-              <span style={{ fontSize: 10, color: C.muted }}> · {when(d.at)}</span>
+              <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}> · {when(d.at)}</span>
             </div>))}
           {customer && (
             <div style={{ marginTop: "var(--space-8)" }}>
@@ -406,10 +406,10 @@ function SearchBox({ items, label, onPick, value, onChange }) {
               style={{ display: "block", width: "100%", textAlign: "left",
                 background: "transparent", border: "none", color: C.text,
                 borderBottom: `1px solid ${C.line}`, padding: "var(--space-4) var(--space-8)",
-                fontSize: 12, cursor: "pointer" }}>
+                fontSize: "var(--fs-hint)", cursor: "pointer" }}>
               <div style={{ fontWeight: 600 }}>{item.name}</div>
               {item.text && (
-                <div style={{ fontSize: 11, color: C.muted }}>
+                <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
                   {item.text.length > 70 ? `${item.text.slice(0, 69)}…` : item.text}</div>)}
             </button>))}
         </div>)}
@@ -441,7 +441,7 @@ function NameField({ value, onChange, items, label, placeholder }) {
               style={{ display: "block", width: "100%", textAlign: "left",
                 background: "transparent", border: "none", color: C.text,
                 borderBottom: `1px solid ${C.line}`, padding: "var(--space-4) var(--space-8)",
-                fontSize: 12, cursor: "pointer" }}>{h.name}</button>))}
+                fontSize: "var(--fs-hint)", cursor: "pointer" }}>{h.name}</button>))}
         </div>)}
     </div>);
 }
@@ -520,10 +520,10 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
         {/* Кружок с лицом автора — ПЕРЕД названием (владелец,
             2026-09-20). Нажатие открывает его страницу. */}
         <PersonDot id={order.by} nameOf={nameOf} faceOf={faceOf} onOpen={onOpenPerson} />
-        <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{order.name}</span>
-        <span style={{ fontSize: 10.5, color: order.status === "open" ? OK : WARN }}>{status}</span>
+        <span style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: 1 }}>{order.name}</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: order.status === "open" ? OK : WARN }}>{status}</span>
       </div>
-      <div style={{ fontSize: 11, color: C.muted }}>
+      <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
         {mineOrder ? "ваш заказ" : nameOf(order.by)} · {when(order.at)}
         {order.offerCount ? ` · откликов: ${order.offerCount}` : ""}
       </div>
@@ -532,8 +532,8 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
           onSave={(f) => act(() => updateOrder(order.id, f)).then(() => setEdit(false))}
           onCancel={() => setEdit(false)} />
       ) : (<>
-        {order.text && <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{order.text}</div>}
-        <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+        {order.text && <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{order.text}</div>}
+        <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
           <div><b>стоимость:</b> {order.price != null ? order.price : "не названа"}</div>
           {!!(order.resources || []).length && <div><b>предоставляет:</b> {rowsLine(order.resources)}</div>}
           {svc && <div><b>выбранная услуга:</b> {svc.name} ({nameOf(svc.by)})</div>}
@@ -577,10 +577,10 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
                 aria-label={`открыть отклик ${String(o.by) === String(me) ? nameOf(order.by) : nameOf(o.by)}`}
                 onClick={() => setOpenOffer(openOffer === o.id ? null : o.id)}>
                 <span style={{ fontWeight: 600 }}>{String(o.by) === String(me) ? "вы" : nameOf(o.by)}</span>
-                <span style={{ color: C.muted, fontSize: 11 }}> · {o.text.length > 60 ? `${o.text.slice(0, 59)}…` : o.text}</span>
-                {o.accepted ? <span style={{ color: OK, fontSize: 11 }}> · сделка</span>
-                  : o.brief ? <span style={{ color: String(o.brief.by) === String(me) ? ACC : WARN, fontSize: 11 }}> · есть предложение</span> : null}
-                {(o.chat || []).length ? <span style={{ color: C.muted, fontSize: 11 }}> · сообщений: {o.chat.length}</span> : null}
+                <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}> · {o.text.length > 60 ? `${o.text.slice(0, 59)}…` : o.text}</span>
+                {o.accepted ? <span style={{ color: OK, fontSize: "var(--fs-hint)" }}> · сделка</span>
+                  : o.brief ? <span style={{ color: String(o.brief.by) === String(me) ? ACC : WARN, fontSize: "var(--fs-hint)" }}> · есть предложение</span> : null}
+                {(o.chat || []).length ? <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}> · сообщений: {o.chat.length}</span> : null}
               </button>
               {openOffer === o.id && (
                 <OfferView order={order} offer={o} me={me} nameOf={nameOf} busy={busy} act={act} />)}
@@ -604,8 +604,8 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
       aria-label={`услуга ${s.name}`}>
       <div className="flex flex-wrap items-center gap-2">
         <PersonDot id={s.by} nameOf={nameOf} faceOf={faceOf} onOpen={onOpenPerson} />
-        <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{s.name}</span>
-        <span style={{ fontSize: 10.5, color: C.muted }}>{mineSvc ? "ваша услуга" : nameOf(s.by)} · {when(s.at)}</span>
+        <span style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: 1 }}>{s.name}</span>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{mineSvc ? "ваша услуга" : nameOf(s.by)} · {when(s.at)}</span>
       </div>
       {edit ? (
         <ServiceForm initial={s} busy={busy} saveLabel="Сохранить"
@@ -622,13 +622,13 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
                 время, и по статусу видно, идёт оно сейчас или нет. Цвет
                 кружка и слов — цвет самого статуса. */}
             <Dot color={statusColor(statusId)} />
-            <span style={{ fontSize: 11.5, color: statusColor(statusId) }}>
+            <span style={{ fontSize: "var(--fs-hint)", color: statusColor(statusId) }}>
               {statusOf(statusId).name}</span>
             <Dot color={OK} />
-            <span style={{ fontSize: 11.5, color: OK }}>Принимает заказ автоматически</span>
+            <span style={{ fontSize: "var(--fs-hint)", color: OK }}>Принимает заказ автоматически</span>
           </div>)}
-        {s.text && <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{s.text}</div>}
-        <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
+        {s.text && <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{s.text}</div>}
+        <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
           <div><b>берёт:</b> {rowsLine(s.takes) || "—"}</div>
           <div><b>выдаёт:</b> {rowsLine(s.gives) || "—"}</div>
           <div><b>выполняется за:</b> {daysText(s.days)}</div>
@@ -668,21 +668,21 @@ function SortFilterBar({ found, sort, onSort, flt, onFlt }) {
       <div className="flex flex-wrap gap-2" role="group" aria-label="сортировка">
         {SORTS.map(([k, t]) => (
           <button key={k} type="button" aria-pressed={sort === k}
-            style={{ ...btn(sort === k, ACC), fontSize: 11.5 }}
+            style={{ ...btn(sort === k, ACC) }}
             onClick={() => onSort(sort === k ? "" : k)}>{t}</button>))}
       </div>
       <div className="flex flex-wrap gap-2" role="group" aria-label="фильтры"
         style={{ marginTop: "var(--space-4)" }}>
-        <button type="button" aria-pressed={flt.ready} style={{ ...btn(flt.ready, OK), fontSize: 11.5 }}
+        <button type="button" aria-pressed={flt.ready} style={{ ...btn(flt.ready, OK) }}
           onClick={() => onFlt({ ...flt, ready: !flt.ready })}>на рабочем месте</button>
-        <button type="button" aria-pressed={flt.auto} style={{ ...btn(flt.auto, OK), fontSize: 11.5 }}
+        <button type="button" aria-pressed={flt.auto} style={{ ...btn(flt.auto, OK) }}
           onClick={() => onFlt({ ...flt, auto: !flt.auto })}>принимает заказ автоматически</button>
         <button type="button" aria-expanded={resOpen} aria-label="ресурсы"
-          style={{ ...btn(picked.length > 0 || resOpen, WARN), fontSize: 11.5 }}
+          style={{ ...btn(picked.length > 0 || resOpen, WARN) }}
           onClick={() => setResOpen((v) => !v)}>
           ресурсы{picked.length ? ` · ${picked.length}` : ""}</button>
         {n > 0 && (
-          <button type="button" style={{ ...btn(false), fontSize: 11.5 }} aria-label="снять фильтры"
+          <button type="button" style={{ ...btn(false) }} aria-label="снять фильтры"
             onClick={() => onFlt(emptyFilter())}>снять</button>)}
       </div>
       {resOpen && (
@@ -696,18 +696,18 @@ function SortFilterBar({ found, sort, onSort, flt, onFlt }) {
                 style={{ padding: "var(--space-4) 0", borderBottom: `1px solid ${C.lineSoft}` }}>
                 <input type="checkbox" checked={on} aria-label={`ресурс ${r.name}`}
                   onChange={() => toggleRes(r.name)} style={{ flex: "0 0 auto", margin: 0 }} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: "var(--fs-hint)", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {r.name}
                   {r.min != null && (
-                    <span style={{ color: C.muted, fontSize: 10.5 }}>
+                    <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}>
                       {" "}· {r.min === r.max ? r.max : `${r.min} … ${r.max}`}</span>)}
                 </span>
                 <input inputMode="decimal" aria-label={`${r.name}: от`} placeholder="от"
                   disabled={!on} value={cur.min} onChange={(e) => setRes(r.name, { min: e.target.value })}
-                  style={{ ...S.inp, width: 64, flex: "0 0 64px", padding: "var(--space-4) var(--space-8)", fontSize: 12 }} />
+                  style={{ ...S.inp, width: 64, flex: "0 0 64px", padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)" }} />
                 <input inputMode="decimal" aria-label={`${r.name}: до`} placeholder="до"
                   disabled={!on} value={cur.max} onChange={(e) => setRes(r.name, { max: e.target.value })}
-                  style={{ ...S.inp, width: 64, flex: "0 0 64px", padding: "var(--space-4) var(--space-8)", fontSize: 12 }} />
+                  style={{ ...S.inp, width: 64, flex: "0 0 64px", padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)" }} />
               </div>);
           })}
         </div>)}
@@ -848,7 +848,7 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
       {card != null && (
         <PersonModal id={card} me={me} onClose={() => setCard(null)} />)}
 
-      {msg && view && <div role="status" style={{ fontSize: 12, color: WARN, marginTop: "var(--space-8)" }}>{msg}</div>}
+      {msg && view && <div role="status" style={{ fontSize: "var(--fs-hint)", color: WARN, marginTop: "var(--space-8)" }}>{msg}</div>}
     </div>
   );
 }

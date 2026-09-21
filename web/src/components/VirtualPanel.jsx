@@ -107,47 +107,53 @@ function CodeForm({ me }) {
       <div className="flex items-center gap-2" style={{ marginTop: "var(--space-8)" }}>
         <input readOnly value={code?.code || ""} aria-label="код доступа"
           onFocus={(e) => e.target.select()}
-          style={{ ...S.inp, flex: 1, minWidth: 0, ...mono, fontSize: 15, letterSpacing: 2 }} />
+          style={{ ...S.inp, flex: 1, minWidth: 0, ...mono, fontSize: "var(--fs-title)", letterSpacing: "var(--ls-code)" }} />
         {code && (
           <>
-            <span style={{ fontSize: 10.5, color: left ? C.muted : BAD }}>{left} мин</span>
+            <span style={{ fontSize: "var(--fs-hint)", color: left ? C.muted : BAD }}>{left} мин</span>
             <button type="button" style={btn(false)} disabled={busy}
               aria-label="погасить код" onClick={drop}>×</button>
           </>)}
       </div>
 
-      <div className="flex items-center gap-2" style={{ marginTop: "var(--space-8)" }}>
-        <span style={{ fontSize: 11, color: C.muted }}>минут</span>
-        <input type="number" min={1} max={1440} value={minutes} aria-label="время действия кода"
+      {/* «Срок действия кода» и «права» — подписями перед полем и перед
+          выбором (владелец, 2026-09-21); минуты — единица у самого поля. */}
+      <div className="flex items-center gap-2" style={{ marginTop: "var(--gap)" }}>
+        <span style={{ fontSize: "var(--fs-body)", color: C.muted }}>срок действия кода</span>
+        <input type="number" min={1} max={1440} value={minutes} aria-label="срок действия кода"
           onChange={(e) => setMinutes(Number(e.target.value))}
           style={{ ...S.inp, width: 74 }} />
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>мин</span>
       </div>
 
-      <div className="flex items-center gap-3" style={{ marginTop: "var(--space-8)" }}>
+      <div className="flex items-center gap-3" style={{ marginTop: "var(--gap)" }}>
+        <span style={{ fontSize: "var(--fs-body)", color: C.muted }}>права</span>
         {["r", "rw"].map((a) => (
           <label key={a} className="flex items-center gap-1"
-            style={{ fontSize: 12, cursor: "pointer", color: access === a ? C.text : C.muted }}>
+            style={{ fontSize: "var(--fs-hint)", cursor: "pointer", color: access === a ? C.text : C.muted }}>
             <input type="radio" name="code-access" value={a} checked={access === a}
               aria-label={a} onChange={() => setAccess(a)} />
             {a}
           </label>))}
       </div>
 
-      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
+      {/* Отступ перед вкладками — больше обычного, чтобы кнопки вкладок
+          читались своей формой (владелец, 2026-09-21). Один шрифт на все,
+          ячейки равные, зазор 3 мм — сетка ряда (index.css). */}
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-16)" }}
+        aria-label="вкладки по коду">
         {mine.map((t) => {
           const on = tabs.includes(t);
-          const inner = t.includes(":");
           return (
             <button key={t} type="button" aria-pressed={on} disabled={busy}
               aria-label={`вкладка ${TAB_NAMES[t] || t}`}
-              style={{ ...btn(on, on ? OK : undefined),
-                ...(inner ? { fontSize: 10.5, padding: "var(--space-4) var(--space-8)" } : {}) }}
+              style={btn(on, on ? OK : undefined)}
               onClick={() => setTabs((p) => (on ? p.filter((x) => x !== t) : [...p, t]))}>
               {TAB_NAMES[t] || t}</button>);
         })}
       </div>
 
-      {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
+      {msg && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
     </div>);
 }
 
@@ -187,7 +193,7 @@ export default function VirtualPanel({ me, onEnter }) {
     return (
       <div style={card}>
         <div style={S.lbl}>виртуальные сотрудники</div>
-        <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           Виртуальные сотрудники живут на сервере: откройте приложение через Telegram.
         </div>
       </div>);
@@ -198,15 +204,15 @@ export default function VirtualPanel({ me, onEnter }) {
       <div style={card} aria-label="виртуальные сотрудники">
         <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-8)" }}>
           <span style={{ ...S.lbl, flex: 1 }}>виртуальные сотрудники</span>
-          <span style={{ fontSize: 10.5, color: C.muted }}>{(view?.users || []).length}</span>
+          <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{(view?.users || []).length}</span>
           <button type="button" style={btn(true, OK)} disabled={busy}
             onClick={() => { setCode(""); setAdding(true); }}>
             + сотрудник</button>
         </div>
 
-        {!view && !msg && <div style={{ fontSize: 12, color: C.muted }}>Загружаю…</div>}
+        {!view && !msg && <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>Загружаю…</div>}
         {view && !view.users.length && (
-          <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
+          <div style={{ fontSize: "var(--fs-hint)", color: C.muted, lineHeight: 1.5 }}>
             Пока никого. Заведите страницу — и заполняйте её за будущего сотрудника,
             пока он не придёт по ссылке и не заберёт её себе.
           </div>)}
@@ -220,9 +226,9 @@ export default function VirtualPanel({ me, onEnter }) {
                   У настоящего человека, пустившего по коду, лицо своё. */}
               <Avatar name={u.name} src={u.avatar || u.photo} size={28} logo={!u.real}
                 title={u.real ? u.name : `страница: ${u.name}`} />
-              <span style={{ fontSize: 12.5, fontWeight: 700, flex: "1 1 120px", ...mono }}>
+              <span style={{ fontSize: "var(--fs-body)", fontWeight: 700, flex: "1 1 120px", ...mono }}>
                 {u.name}</span>
-              <span style={{ fontSize: 10, color: u.real ? ACC : C.muted }}>
+              <span style={{ fontSize: "var(--fs-hint)", color: u.real ? ACC : C.muted }}>
                 {u.real ? `по коду · ${u.grant?.access || "rw"}`
                   : (u.tg ? "страницу забрали" : "человека ещё нет")}</span>
             </div>
@@ -237,17 +243,19 @@ export default function VirtualPanel({ me, onEnter }) {
                   return (
                     <button key={r.id} type="button" aria-pressed={has} disabled={busy}
                       aria-label={`роль «${r.name}»: ${u.name}`}
-                      style={{ ...btn(has, has ? OK : undefined), fontSize: 11, paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
+                      style={{ ...btn(has, has ? OK : undefined), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }}
                       onClick={() => act(() => setVirtualRoles(u.id, has
                         ? (u.roles || []).filter((x) => x !== r.id)
                         : [...(u.roles || []), r.id]))}>
                       {r.name}</button>);
                 })}
                 {!roles.length && (
-                  <span style={{ fontSize: 10.5, color: WARN }}>ролей ещё нет</span>)}
+                  <span style={{ fontSize: "var(--fs-hint)", color: WARN }}>ролей ещё нет</span>)}
               </div>)}
 
-            <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
+            {/* Пропуск строки перед «Войти под его именем» (владелец,
+                2026-09-21): иначе эти кнопки читались как ещё две роли. */}
+            <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-24)" }}>
               <button type="button" style={btn(true, ACC)} disabled={busy}
                 aria-label={`войти под именем ${u.name}`}
                 onClick={() => enter(u)}>Войти под его именем</button>
@@ -260,14 +268,14 @@ export default function VirtualPanel({ me, onEnter }) {
                 ней, и отдельной кнопки для этого нет. */}
             {u.link && (
               <div style={{ marginTop: "var(--space-8)" }}>
-                <div style={{ fontSize: 10.5, color: C.muted }}>ссылка для регистрации:</div>
+                <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>ссылка для регистрации:</div>
                 <input readOnly value={u.link} aria-label={`ссылка ${u.name}`}
                   onFocus={(e) => e.target.select()}
-                  style={{ ...S.inp, width: "100%", fontSize: 11, marginTop: "var(--space-4)", ...mono }} />
+                  style={{ ...S.inp, width: "100%", fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", ...mono }} />
               </div>)}
           </div>))}
 
-        {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
+        {msg && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
       </div>
 
       <CodeForm me={me} />
@@ -279,7 +287,7 @@ export default function VirtualPanel({ me, onEnter }) {
             onChange={(e) => setCode(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") submitAdd(); }}
             style={{ ...S.inp, width: "100%", marginTop: "var(--space-8)", ...mono,
-              fontSize: 15, letterSpacing: 2 }} />
+              fontSize: "var(--fs-title)", letterSpacing: "var(--ls-code)" }} />
           <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
             <button type="button" style={btn(true, OK)} onClick={submitAdd}>Добавить</button>
             <button type="button" style={btn(false)}
@@ -289,7 +297,7 @@ export default function VirtualPanel({ me, onEnter }) {
 
       {kill && (
         <Modal onClose={() => setKill(null)}>
-          <div style={{ fontSize: 13 }}>Вы уверены? Это действие необратимо</div>
+          <div style={{ fontSize: "var(--fs-body)" }}>Вы уверены? Это действие необратимо</div>
           <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
             <button type="button" style={btn(true, BAD)}
               onClick={() => { const u = kill; setKill(null); act(() => removeVirtual(u.id)); }}>

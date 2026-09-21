@@ -25,26 +25,26 @@ export function UnitLine({ u, traitName, unitName }) {
   const has = !!(u.file || u.text || u.code);
   return (
     <div className="flex flex-wrap gap-2" role="listitem"
-      style={{ alignItems: "center", fontSize: 11, padding: "var(--space-4) 0",
+      style={{ alignItems: "center", fontSize: "var(--fs-hint)", padding: "var(--space-4) 0",
         borderTop: `1px solid ${C.line}` }}>
       <span style={{ color: ACC, fontWeight: 700 }}>№{u.no}</span>
       <span style={{ flex: "1 1 120px", minWidth: 0, overflowWrap: "anywhere" }}>
         {/* Код — и есть имя вещи, но он должен читаться как код, а не как
             слово: моноширинно, с разрядкой. */}
         {u.code
-          ? <span style={{ fontFamily: "var(--font-sans)", letterSpacing: 1 }}>
+          ? <span style={{ fontFamily: "var(--font-sans)", letterSpacing: "var(--ls-code)" }}>
               {u.code}</span>
           : unitLabel(u)}
       </span>
-      {!u.accepted && <span style={{ fontSize: 10, color: WARN }}>не принята</span>}
+      {!u.accepted && <span style={{ fontSize: "var(--fs-hint)", color: WARN }}>не принята</span>}
       {has
         ? <Download url={u.file ? href : ""} text={u.file ? "" : (u.code || u.text)}
             name={fileName} aria-label={`скачать ${traitName} №${u.no}`}
-            style={{ fontSize: 10.5, padding: "0 var(--space-8)", color: ACC }}
+            style={{ fontSize: "var(--fs-hint)", padding: "0 var(--space-8)", color: ACC }}
             /* У кода скачивают не сам код, а бумагу о выдаче: код уже на
                экране, а подтверждение — только файлом. */
             label={u.code && u.file ? "скачать подтверждение" : "скачать"} />
-        : <span style={{ fontSize: 10, color: WARN }}>содержимого нет</span>}
+        : <span style={{ fontSize: "var(--fs-hint)", color: WARN }}>содержимого нет</span>}
     </div>);
 }
 
@@ -55,13 +55,13 @@ export function UnitLine({ u, traitName, unitName }) {
    в «Отчётах», где у каждой вещи своя история. */
 export function MatList({ units = [], unitName = "ед.", label, empty = "нет" }) {
   if (!units.length) {
-    return <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0 }}>{empty}</div>;
+    return <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: 0 }}>{empty}</div>;
   }
   return (
     <div role="list" aria-label={label} style={{ marginTop: 0 }}>
       {units.map((u) => (
         <div key={u.id} role="listitem" className="flex flex-wrap gap-2"
-          style={{ alignItems: "center", fontSize: 11.5, padding: "var(--space-4) 0",
+          style={{ alignItems: "center", fontSize: "var(--fs-hint)", padding: "var(--space-4) 0",
             borderTop: `1px solid ${C.line}` }}>
           <span style={{ flex: "1 1 120px", minWidth: 0, overflowWrap: "anywhere" }}>
             {unitTitle(u)}</span>
@@ -69,7 +69,7 @@ export function MatList({ units = [], unitName = "ед.", label, empty = "нет
             text={u.file ? "" : (u.code || u.text)}
             name={u.file ? u.file.name : `${unitName}-${u.no}.txt`}
             aria-label={`скачать ${unitTitle(u)}`}
-            style={{ fontSize: 10.5, padding: "0 var(--space-8)", color: ACC }} />
+            style={{ fontSize: "var(--fs-hint)", padding: "0 var(--space-8)", color: ACC }} />
         </div>))}
     </div>);
 }
@@ -81,7 +81,7 @@ export function MatList({ units = [], unitName = "ед.", label, empty = "нет
  */
 export function UnitList({ units = [], traitName, unitName, label, empty = "единиц пока нет" }) {
   if (!units.length) {
-    return <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0 }}>{empty}</div>;
+    return <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: 0 }}>{empty}</div>;
   }
   return (
     <div role="list" aria-label={label}
