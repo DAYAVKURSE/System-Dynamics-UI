@@ -129,7 +129,7 @@ describe("слова — помощнику, и владельцу тоже", ()
   it("не слова — одна строка, а не список умений", async () => {
     const r = await handleUpdate(msg(owner, { sticker: { file_id: "s1" } }), { ...deps, assistant });
     expect(r).toEqual({ helped: true });
-    expect(lastText()).toMatch(/Напишите словами/);
+    expect(lastText()).toBe("Не разобрал.");
     expect(lastText()).not.toMatch(/Отложить/);
   });
 });

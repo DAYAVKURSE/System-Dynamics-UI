@@ -491,11 +491,34 @@ export async function onAssistantMessage(msg, from, deps = {}) {
   if (!send) return null;
   const userId = String(from.id);
   const chatId = from.id;
-  const text = String(msg.text || "").trim();
+  let text = String(msg.text || "").trim();
   const doc = msg.document || null;
 
   if (isForward(msg)) return null;
   if (text && isCommand(text)) return null;
+  /* ─── голосовое (владелец, 2026-09-21) ───
+     Аудио расшифровывается моделью строки «расшифровка» у ассистента
+     (`hear` — index.js: getFile → transcribeFile) и дальше идёт как
+     обычный вопрос словами. Модели нет — сказано одной строкой. */
+  const voice = msg.voice || msg.audio || null;
+  if (!text && !doc && voice && voice.file_id) {
+    const hear = a.hear || deps.hear;
+    if (!hear) return null;
+    let heard;
+    try {
+      heard = await hear(userId, voice.file_id, { name: voice.file_name || "голосовое.ogg",
+        type: voice.mime_type || "audio/ogg" });
+    } catch (e) {
+      await send(chatId, `Не расшифровал: ${e.message}`);
+      return { error: e.message };
+    }
+    if (heard == null) {
+      await send(chatId, "Модель для расшифровки голоса не выбрана.");
+      return { error: "no transcribe model" };
+    }
+    text = String(heard).trim();
+    if (!text) { await send(chatId, "В голосовом не нашлось слов."); return { error: "empty voice" }; }
+  }
   if (!text && !doc) return null;
 
   /* ─── дополнение к вопросу, которого ждали после «Уточнить» ───

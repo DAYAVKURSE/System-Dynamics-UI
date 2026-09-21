@@ -178,6 +178,8 @@ export async function handle(method, url, body = {}, now = Date.now(), headers =
         await billing.expireTick(now);
         return { status: 200, body: { users: await billing.adminUsers() } };
       }
+      const gone = rest.match(/^\/users\/([A-Za-z0-9_-]+)$/);
+      if (method === "DELETE" && gone) return { status: 200, body: await billing.removeUser(gone[1]) };
       const cancel = rest.match(/^\/users\/([A-Za-z0-9_-]+)\/cancel$/);
       if (method === "POST" && cancel) {
         await billing.cancel(cancel[1]);

@@ -146,6 +146,11 @@ describe("кошельки и оплата", () => {
     expect(w.stars).toMatchObject({ currency: "XTR", balance: 0 });
     await adm("POST", `/admin/users/${users[0].uid}/cancel`);
     expect((await adm("GET", "/admin/users")).body.users[0]).toMatchObject({ planId: "free", until: null });
+    // Удалить участника (владелец, 2026-09-21): из списка уходит, uid — в отозванных.
+    expect((await adm("DELETE", `/admin/users/${users[0].uid}`)).status).toBe(200);
+    expect((await adm("GET", "/admin/users")).body.users).toEqual([]);
+    expect((await handle("GET", "/revoked")).body.uids).toContain(users[0].uid);
+    expect((await adm("DELETE", "/admin/users/nope")).status).toBe(404);
   });
 });
 

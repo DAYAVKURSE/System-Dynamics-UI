@@ -11,7 +11,8 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:var(--fs)/20px -apple-system,Inter,Segoe UI,Roboto,sans-serif; padding:12px 16px 32px; }
   h1 { font-size:15px; margin:0 0 8px; }
-  .tabs { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr)); gap:8px 12px; margin-bottom:12px; }
+  .tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px; }
+  .tabs button { padding:8px 4px; font-size:13px; }
   button { font:inherit; font-weight:700; color:var(--text); background:transparent; border:1px solid var(--line); border-radius:999px; height:var(--h); padding:0 10px; cursor:pointer; white-space:normal; }
   button.on { border-color:var(--mint); background:rgba(94,234,212,.12); }
   button.acc { border-color:var(--cyan); background:rgba(79,209,255,.12); }
@@ -69,7 +70,9 @@
   const money = (n, c) => n == null ? "—" : `${n} ${c === "XTR" ? "⭐" : c || ""}`;
   const CUR = { ton: "TON", usdt: "USDT" };
 
-  const TABS = [["users", "Участники"], ["plans", "Планы"], ["issue", "Выдать подписку"], ["pay", "Способы оплаты"]];
+  /* Три вкладки в одну строку; форма выдачи подписки — первой на
+     «Участниках» (владелец, 2026-09-21). */
+  const TABS = [["users", "Участники"], ["plans", "Планы"], ["pay", "Способы оплаты"]];
   let tab = "users";
   const drawTabs = () => {
     const box = $("#tabs"); box.innerHTML = "";
@@ -80,6 +83,7 @@
   async function users() {
     const { users: list } = await api("GET", "/users");
     const v = $("#view"); v.innerHTML = "";
+    v.append(await issueForm());
     if (!list.length) v.append(el("div", { class: "card muted" }, "Пока никого."));
     list.forEach((u) => {
       const total = u.days || 0, left = u.daysLeft;
@@ -93,7 +97,13 @@
         el("div", { class: "field" }, el("div", { class: "lbl" }, "код"), el("div", { class: "mono" }, u.uid)),
         el("div", { class: "btns" }, el("button", { class: "bad", disabled: u.level === "free" ? "" : null,
           onclick: async () => { try { await api("POST", `/users/${u.uid}/cancel`); say("Подписка отменена.", true); users(); } catch (e) { say(e.message); } } },
-        "Отменить подписку")));
+        "Отменить подписку"),
+        /* Удалить участника — в два касания: ключ отзывается насовсем. */
+        el("button", { class: "bad", "aria-label": "удалить участника", onclick: async (ev) => {
+          const b = ev.currentTarget;
+          if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Удалить насовсем?"; return; }
+          try { await api("DELETE", `/users/${u.uid}`); say("Участник удалён.", true); users(); } catch (e) { say(e.message); } } },
+        "Удалить участника")));
       v.append(card);
     });
   }
@@ -127,17 +137,17 @@
     v.append(el("div", { class: "btns" }, el("button", { class: "acc", onclick: async () => { try { await api("POST", "/plans"); plans(); } catch (e) { say(e.message); } } }, "Добавить")));
   }
 
-  /* ─── выдать подписку ─── */
-  async function issue() {
+  /* ─── выдать подписку: форма первой на «Участниках» ─── */
+  async function issueForm() {
     const { plans } = await api("GET", "/plans");
-    const v = $("#view"); v.innerHTML = "";
     const user = el("input", { placeholder: "@username или id", "aria-label": "пользователь" });
     const sel = el("select", { "aria-label": "план" }, ...plans.map((p) => el("option", { value: p.id }, p.name)));
     const price = el("input", { inputmode: "decimal", "aria-label": "стоимость" });
     const days = el("input", { inputmode: "numeric", "aria-label": "срок, дней" });
     const fill = () => { const p = plans.find((x) => x.id === sel.value); if (p) { price.value = p.price; days.value = p.days; } };
     sel.onchange = fill; fill();
-    v.append(el("div", { class: "card" },
+    return el("div", { class: "card", "aria-label": "выдать подписку" },
+      el("div", { class: "lbl" }, "выдать подписку"),
       el("div", { class: "field" }, el("div", { class: "lbl" }, "пользователь"), user),
       el("div", { class: "field" }, el("div", { class: "lbl" }, "план"), sel),
       el("div", { class: "row" },
@@ -145,7 +155,7 @@
         el("div", { class: "grow field" }, el("div", { class: "lbl" }, "срок, дней"), days)),
       el("div", { class: "btns" }, el("button", { class: "on", onclick: async () => {
         try { const r = await api("POST", "/issue", { user: user.value, planId: sel.value, price: price.value, days: days.value });
-          say(`Выдано: ${who(r.user)} — ${r.user.planId} до ${day(r.user.until) }.`, true); } catch (e) { say(e.message); } } }, "Выдать подписку"))));
+          say(`Выдано: ${who(r.user)} — ${r.user.planId} до ${day(r.user.until) }.`, true); users(); } catch (e) { say(e.message); } } }, "Выдать подписку")));
   }
 
   /* ─── способы оплаты ─── */
@@ -191,7 +201,7 @@
 
   const render = async () => {
     drawTabs(); say("");
-    try { await ({ users, plans, issue, pay })[tab](); }
+    try { await ({ users, plans, pay })[tab](); }
     catch (e) { $("#view").innerHTML = ""; say(e.message); }
   };
   render();

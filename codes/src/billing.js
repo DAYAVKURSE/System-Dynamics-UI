@@ -241,6 +241,19 @@ export function cancel(uidOf) {
   });
 }
 
+/** Удалить участника (владелец, 2026-09-21): ключ отзывается, запись
+ *  помечена — из списков панели он уходит, а его uid остаётся в списке
+ *  отозванных, чтобы выданный ранее токен погас у сервера хранилища. */
+export function removeUser(uidOf) {
+  return withUsers(async (users) => {
+    const u = users.find((x) => x.uid === String(uidOf));
+    if (!u) throw new Bad(404, "пользователь не найден");
+    u.planId = "free"; u.plan = "free"; u.until = null; u.reminded = {};
+    u.revokedAt = u.revokedAt || now(); u.removedAt = now();
+    return { write: true, users, result: { ok: true } };
+  });
+}
+
 /** Срок вышел — план free. Зовётся перед выдачей токена и по таймеру. */
 export function expireTick(at = Date.now()) {
   return withUsers(async (users) => {
@@ -303,7 +316,7 @@ export async function checkChain({ onPaid = null } = {}) {
 
 /* ─────── что показывает админ-панель ─────── */
 export async function adminUsers() {
-  const users = await readUsers();
+  const users = (await readUsers()).filter((u) => !u.removedAt);
   const plans = await listPlans();
   return users.map((u) => {
     const plan = plans.find((p) => p.id === u.planId) || null;

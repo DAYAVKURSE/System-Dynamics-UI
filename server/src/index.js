@@ -19,7 +19,7 @@ import { askNow, cancel as cancelAsk } from "./lib/assistantQueue.js";
 import * as memory from "./lib/memoryStore.js";
 import { recordGroupMessage } from "./lib/chatStore.js";
 import { bindLatestAgreement, claimAgreement } from "./lib/contractStore.js";
-import { resumeTranscripts } from "./lib/transcribe.js";
+import { resumeTranscripts, transcribeFile } from "./lib/transcribe.js";
 import * as assistantSettings from "./lib/assistantSettings.js";
 import { findStorage, inStorage, inTaskStorage, listStorages } from "./lib/storages.js";
 import { readModel } from "./lib/workspaceStore.js";
@@ -226,6 +226,14 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
                  «🕐 Думаю…» с идущими часами, и правит его `edit` выше.
                  Память — та же, что в приложении. */
               assistant: { ask: askNow, cancel: cancelAsk, memory,
+                /* Голосовое в чате: файл у Telegram, расшифровка моделью
+                   строки «расшифровка» у ассистента; модели нет — null. */
+                hear: async (userId, fileId, { name, type } = {}) => {
+                  const chosen = await assistantSettings.modelFor(userId, "transcribe", { fallback: false });
+                  if (!chosen) return null;
+                  const f = await getFile(fileId);
+                  return transcribeFile({ ...chosen, bytes: f.bytes, name: name || f.name, type: type || f.type });
+                },
                 /* Вход на MCP-сервер, присланный в чат: ищем сервер по
                    названию среди СВОИХ — чужих у человека и нет. */
                 mcpAuth: async (userId, name, auth) => {

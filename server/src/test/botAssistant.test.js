@@ -47,6 +47,34 @@ describe("что помощник берёт, а что нет", () => {
     expect(sent[1].text).toBe("ответ на «что у меня сегодня?»");
   });
 
+  /* ГОЛОСОВОЕ (владелец, 2026-09-21): расшифровывается моделью строки
+     «расшифровка» (`hear`) и идёт как обычный вопрос; модели нет — одна
+     строка; `hear` не подключён — сообщение не помощника. */
+  it("голосовое расшифровывается и задаётся как вопрос; без модели — одна строка", async () => {
+    const d = deps();
+    const heard = [];
+    d.assistant.hear = async (userId, fileId, meta) => { heard.push({ userId, fileId, meta }); return "сколько задач?"; };
+    const r = await onAssistantMessage({ voice: { file_id: "v1", mime_type: "audio/ogg" } }, from, d);
+    expect(r.answered).toBe("queued");
+    await r.done;
+    expect(heard).toEqual([{ userId: "200", fileId: "v1", meta: { name: "голосовое.ogg", type: "audio/ogg" } }]);
+    expect(asked).toEqual([{ userId: "200", q: "сколько задач?" }]);
+    expect(sent.map((s) => s.text)).not.toContain("Не разобрал.");
+
+    sent = [];
+    d.assistant.hear = async () => null;
+    expect(await onAssistantMessage({ voice: { file_id: "v2" } }, from, d)).toEqual({ error: "no transcribe model" });
+    expect(sent.map((s) => s.text)).toEqual(["Модель для расшифровки голоса не выбрана."]);
+
+    sent = [];
+    d.assistant.hear = async () => { throw new Error("провайдер ответил 400"); };
+    expect(await onAssistantMessage({ audio: { file_id: "a1", file_name: "з.mp3", mime_type: "audio/mpeg" } }, from, d))
+      .toEqual({ error: "провайдер ответил 400" });
+    expect(sent[0].text).toBe("Не расшифровал: провайдер ответил 400");
+
+    expect(await onAssistantMessage({ voice: { file_id: "v3" } }, from, deps())).toBeNull();
+  });
+
   it("пока модель думает, бот не занят: ответ уходит, когда придёт", async () => {
     let release;
     const d = deps();
