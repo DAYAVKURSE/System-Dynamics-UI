@@ -123,20 +123,23 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
 
   if (!loose.length) return null;
   return (
-    <div style={{ ...S.card, marginBottom: "var(--space-8)", borderColor: WARN }}
+    <div style={{ ...S.card, marginBottom: "var(--space-8)", borderColor: WARN,
+      /* Полоса по сетке (владелец, 2026-09-21): под формами схемы, по их
+         общей ширине, в одну строку — по вертикали ýже, чем формы:
+         рамка в 2–3 мм от текста. */
+      padding: "var(--space-8) var(--inset)" }}
       aria-label="не добавленные участники">
-      {/* Форма по сетке (владелец, 2026-09-21): под формами схемы, по их
-          общей ширине, тех же отступов и высоты — заголовок, под ним
-          кнопка. */}
-      <div className="flex items-center gap-2">
-        <span style={{ ...S.lbl, color: WARN }}>не добавленные участники</span>
-        <span style={{ fontSize: "var(--fs-body)", fontWeight: 700 }}>{loose.length}</span>
-      </div>
-      <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
-        <button type="button" style={btn(open)}
-          aria-label={`не добавленные участники: ${loose.length}`}
-          onClick={() => setOpen((v) => !v)}>{open ? "свернуть" : "показать"}</button>
-      </div>
+      <button style={{ background: "none", border: "none", padding: 0, width: "100%",
+        textAlign: "left", cursor: "pointer", color: C.text }}
+        aria-label={`не добавленные участники: ${loose.length}`}
+        onClick={() => setOpen((v) => !v)}>
+        <div className="flex items-center gap-2">
+          <span style={{ ...S.lbl, color: WARN }}>не добавленные участники</span>
+          <span style={{ fontSize: "var(--fs-body)", fontWeight: 700 }}>{loose.length}</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{open ? "свернуть" : "показать"}</span>
+        </div>
+      </button>
       {open && (<>
         <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
           {loose.map((p) => (
