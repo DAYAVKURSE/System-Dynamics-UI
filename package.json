@@ -2,6 +2,7 @@
   "name": "system-dynamics-ui",
   "private": true,
   "version": "0.1.0",
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Схема жизнеспособности — Telegram Mini App поверх System Dynamics модели",
   "scripts": {
     "dev:web": "npm --prefix web run dev",

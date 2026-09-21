@@ -1,0 +1,148 @@
+ПРОПРИЕТАРНАЯ ЛИЦЕНЗИЯ · ВСЕ ПРАВА ЗАЩИЩЕНЫ
+PROPRIETARY LICENSE · ALL RIGHTS RESERVED
+
+Copyright (c) 2026 DAYAVKURSE (onelink.legal@gmail.com). Все права
+защищены. / All rights reserved.
+
+--------------------------------------------------------------------
+РУССКИЙ ТЕКСТ
+
+1. ПРАВООБЛАДАТЕЛЬ
+
+   Правообладателем исходного кода, документации и любых иных материалов
+   этого репозитория (далее — «Программа») является владелец учётной
+   записи GitHub @DAYAVKURSE, адрес onelink.legal@gmail.com (далее —
+   «Правообладатель»).
+
+2. ЧТО НЕ РАЗРЕШЕНО
+
+   Никому, кроме Правообладателя, не предоставляется никаких прав на
+   Программу. Без предварительного письменного разрешения
+   Правообладателя запрещается:
+
+   · использовать Программу или любую её часть — в том числе запускать,
+     размещать на сервере, применять в своих продуктах и услугах, как в
+     коммерческих, так и в некоммерческих целях;
+   · воспроизводить, копировать, сохранять и распространять Программу
+     или любую её часть;
+   · вносить изменения, перерабатывать, переводить на другие языки
+     программирования, создавать производные произведения;
+   · декомпилировать, дизассемблировать, иным образом исследовать
+     Программу с целью получения исходного кода, кроме случаев, прямо
+     разрешённых императивными нормами закона;
+   · передавать, сублицензировать, продавать, сдавать в аренду,
+     предоставлять во временное пользование Программу или права на неё;
+   · использовать Программу или её части для обучения моделей машинного
+     обучения и искусственного интеллекта;
+   · удалять или изменять уведомления об авторских правах и настоящую
+     лицензию.
+
+3. ЧТО РАЗРЕШЕНО
+
+   Правообладатель вправе делать с Программой всё, что сочтёт нужным,
+   без каких-либо ограничений.
+
+   Любому иному лицу разрешается лишь то, что прямо и заранее разрешено
+   Правообладателем в письменном виде — по каждому случаю отдельно.
+   Молчание Правообладателя разрешением не является.
+
+4. НЕТ ОТКРЫТОСТИ ПО УМОЛЧАНИЮ
+
+   Доступность Программы для просмотра — в том числе размещение
+   репозитория в открытом виде — не означает выдачи какой-либо лицензии
+   и не является публичной офертой. Возможность просмотра, поиска и
+   создания ответвлений (fork) средствами платформы, на которой размещён
+   репозиторий, предоставляется правилами этой платформы и НЕ расширяет
+   прав, данных настоящей лицензией: любое использование полученного
+   таким образом кода запрещено пунктом 2.
+
+5. ВКЛАД СО СТОРОНЫ
+
+   Правки, предложения и любые иные материалы, направленные
+   Правообладателю (в том числе через pull request, issue или иным
+   способом), принимаются на условии передачи Правообладателю
+   исключительного права на них в полном объёме, безвозмездно и без
+   ограничения срока и территории. Направляя такие материалы, лицо
+   подтверждает, что вправе это сделать.
+
+6. ОТСУТСТВИЕ ГАРАНТИЙ
+
+   ПРОГРАММА ПРЕДОСТАВЛЯЕТСЯ «КАК ЕСТЬ», БЕЗ КАКИХ-ЛИБО ГАРАНТИЙ, ЯВНЫХ
+   ИЛИ ПОДРАЗУМЕВАЕМЫХ, ВКЛЮЧАЯ ГАРАНТИИ ПРИГОДНОСТИ ДЛЯ ОПРЕДЕЛЁННОЙ
+   ЦЕЛИ И НЕНАРУШЕНИЯ ПРАВ ТРЕТЬИХ ЛИЦ. ПРАВООБЛАДАТЕЛЬ НЕ НЕСЁТ
+   ОТВЕТСТВЕННОСТИ ЗА ЛЮБОЙ УЩЕРБ, ВОЗНИКШИЙ В СВЯЗИ С ПРОГРАММОЙ ИЛИ
+   ЕЁ ИСПОЛЬЗОВАНИЕМ.
+
+7. СТОРОННИЕ КОМПОНЕНТЫ
+
+   Настоящая лицензия распространяется на Программу, но не на
+   библиотеки и иные компоненты третьих лиц, которые Программа использует
+   или устанавливает: они остаются под своими лицензиями.
+
+8. ПРЕКРАЩЕНИЕ
+
+   Любое нарушение настоящей лицензии прекращает все права нарушителя,
+   если таковые были ему предоставлены, немедленно и без уведомления.
+
+9. ПРИМЕНИМОЕ ПРАВО
+
+   Настоящая лицензия толкуется по законодательству Российской
+   Федерации. Если какое-либо её положение окажется недействительным,
+   остальные сохраняют силу.
+
+10. РАЗРЕШЕНИЕ
+
+   За разрешением обращаться к Правообладателю: onelink.legal@gmail.com
+
+--------------------------------------------------------------------
+ENGLISH TEXT
+
+This is a proprietary, all-rights-reserved license. It is not an open
+source licence and grants no rights to anyone.
+
+1. The owner of the GitHub account @DAYAVKURSE (onelink.legal@gmail.com)
+   ("the Owner") holds all rights to the source code, documentation and
+   any other material in this repository ("the Software").
+
+2. No permission is granted to anyone other than the Owner. Without the
+   Owner's prior written permission, no person may use, run, host, copy,
+   reproduce, store, distribute, modify, adapt, translate, create
+   derivative works of, reverse engineer, sublicense, sell, rent or
+   otherwise transfer the Software or any part of it, in whole or in
+   part, for commercial or non-commercial purposes; nor use it to train
+   machine learning or artificial intelligence models; nor remove or
+   alter this licence or any copyright notice.
+
+3. The Owner may do anything with the Software without restriction. Any
+   other person may do only what the Owner has expressly permitted in
+   writing, case by case. Silence is not permission.
+
+4. The Software being visible — including this repository being public —
+   grants no licence and is not a public offer. Viewing, searching and
+   forking made possible by the hosting platform's terms do not extend
+   the rights granted here: using code obtained that way remains
+   prohibited by clause 2.
+
+5. Any contribution sent to the Owner (by pull request, issue or
+   otherwise) is submitted on the condition that all exclusive rights in
+   it pass to the Owner in full, free of charge, without limit of time
+   or territory. By sending it, the sender confirms they are entitled to
+   do so.
+
+6. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED. THE OWNER SHALL NOT BE LIABLE FOR ANY DAMAGES
+   ARISING FROM THE SOFTWARE OR ITS USE.
+
+7. This licence covers the Software, not the third-party libraries and
+   components it uses or installs; those remain under their own licences.
+
+8. Any breach of this licence immediately terminates any rights the
+   infringer may have had, without notice.
+
+9. This licence is governed by the law of the Russian Federation. If any
+   provision is held invalid, the rest remains in force.
+
+10. For permission, contact the Owner: onelink.legal@gmail.com
+
+In case of any discrepancy between the Russian and English texts, the
+Russian text prevails.
