@@ -661,7 +661,7 @@ describe("своя анкета", () => {
     expect(res.status).toBe(200);
     expect(res.body.profile).toEqual({ name: "Иван", about: "", days: [1, 2, 5],
       from: "10:00", to: "19:00", perDay: {}, status: "off",
-      statusAt: expect.any(String), warnMin: 30, deferMin: 30, answers: {},
+      statusAt: expect.any(String), warnMin: 30, deadlinePct: 0, deferMin: 30, answers: {},
       avatar: "", avatarOwn: false, avatarOff: false });
     const me = await request(app).get("/api/org/me").set(as(200, "Иван"));
     expect(me.body.profile).toEqual(res.body.profile);

@@ -150,11 +150,17 @@ describe("«за сколько предупреждать» — у каждог
       tab("Инструменты");
       tab("Напоминания");
       expect(screen.getByText("напоминания")).toBeInTheDocument();
-      const sel = screen.getByLabelText("предупреждать за");
+      const sel = screen.getByLabelText("предупреждать до начала за");
       expect(sel).toHaveValue("10");
       fireEvent.change(sel, { target: { value: "30" } });
       await waitFor(() => expect(puts).toEqual([{ warnMin: 30 }]));
       await waitFor(() => expect(screen.getByText("Сохранено.")).toBeInTheDocument());
+      /* «Предупреждать до дедлайна» — в долях срока (владелец, 2026-09-21):
+         своё поле, свой ключ в анкете. */
+      const dl = screen.getByLabelText("предупреждать до дедлайна за");
+      expect(dl).toHaveValue("0");
+      fireEvent.change(dl, { target: { value: "25" } });
+      await waitFor(() => expect(puts).toEqual([{ warnMin: 30 }, { deadlinePct: 25 }]));
       /* Расписание пересылается с новым «за сколько»: оно у задачи не своё,
          а того, кому напоминают. */
       await waitFor(() => expect(schedules.some((s) =>

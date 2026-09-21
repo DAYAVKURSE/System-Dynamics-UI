@@ -322,6 +322,27 @@ export const warnMinOf = (v) => {
    предупредить. */
 export const WARN_CHOICES = WARNS.filter((w) => w.v != null);
 
+/* ─────── за сколько предупреждать ДО ДЕДЛАЙНА ───────
+   Владелец (2026-09-21): «выбор в процентах: пользователь должен
+   предупреждаться за введённое количество процентов времени до момента
+   сдачи». Доля — от всего срока задачи; ноль — не предупреждать. Разбор
+   повторяет серверный (`deadOf` в orgStore.js). */
+export const DEAD_DEFAULT = 0;
+export const deadPctOf = (v) => {
+  const n = Number(v);
+  if (v == null || v === "" || !Number.isFinite(n)) return DEAD_DEFAULT;
+  return Math.min(100, Math.max(0, Math.round(n)));
+};
+export const DEAD_CHOICES = [
+  { v: 0, name: "не предупреждать" },
+  { v: 10, name: "за 10 % срока" },
+  { v: 20, name: "за 20 % срока" },
+  { v: 25, name: "за 25 % срока" },
+  { v: 30, name: "за 30 % срока" },
+  { v: 50, name: "за 50 % срока" },
+  { v: 75, name: "за 75 % срока" },
+];
+
 /** Заполнена ли анкета — полем или хотя бы одним ответом на вопрос. */
 export const filled = (p = {}) => PROFILE_FIELDS.some((f) => String(p[f.id] || "").trim())
   || Object.values(answersOf(p)).some((v) => String(v || "").trim());
@@ -852,15 +873,26 @@ export function RemindersCard({ me, onSaved }) {
     } catch (e) { setMsg(e.message || "не удалось сохранить"); }
     setBusy(false);
   };
-  const label = WARN_CHOICES.find((w) => w.v === current)?.name || `за ${current} мин`;
+  const dead = deadPctOf(me?.profile?.deadlinePct);
+  /* Два поля, оба «ключ: значение»: до начала — в минутах, до дедлайна —
+     в долях срока (владелец, 2026-09-21). */
   return (
     <FoldCard title="напоминания">
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-        <span style={{ fontSize: 11.5, color: C.muted }}>предупреждать</span>
+        <span style={{ fontSize: 11.5, color: C.muted }}>предупреждать до начала</span>
         <select style={{ ...S.inp, flex: "0 1 200px" }} value={String(current)}
-          aria-label="предупреждать за" disabled={busy || !known}
+          aria-label="предупреждать до начала за" disabled={busy || !known}
           onChange={(e) => pick({ warnMin: warnMinOf(e.target.value) })}>
           {WARN_CHOICES.map((w) => (
+            <option key={w.v} value={String(w.v)}>{w.name}</option>))}
+        </select>
+      </div>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
+        <span style={{ fontSize: 11.5, color: C.muted }}>предупреждать до дедлайна</span>
+        <select style={{ ...S.inp, flex: "0 1 200px" }} value={String(dead)}
+          aria-label="предупреждать до дедлайна за" disabled={busy || !known}
+          onChange={(e) => pick({ deadlinePct: deadPctOf(e.target.value) })}>
+          {DEAD_CHOICES.map((w) => (
             <option key={w.v} value={String(w.v)}>{w.name}</option>))}
         </select>
         {msg && (

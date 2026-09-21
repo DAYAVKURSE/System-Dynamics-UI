@@ -380,6 +380,39 @@ export function dueNotifications(schedule, nowMs, sent = {}) {
         });
       }
     }
+
+    /* ─── ДО ДЕДЛАЙНА — В ПРОЦЕНТАХ (владелец, 2026-09-21) ───
+
+       «Пользователь должен предупреждаться за введённое количество
+       процентов времени до момента сдачи». Отсчёт — от всего срока,
+       отпущенного на задачу: от её начала до сдачи; начала нет — от
+       момента, когда она появилась в напоминаниях (createdAt записи).
+       Момент один, ключ — по сроку: сдвинули срок — предупредим снова.
+       После самого срока не шлётся: «осталось 20 %» после сдачи — новость
+       не о том. Кнопок нет: начинать или откладывать тут нечего. */
+    const dead = Number(task.dead);
+    if (task.end && Number.isFinite(dead) && dead > 0) {
+      const endMs = wallToUtc(task.end, tzOffset);
+      const note = (schedule?.notes || {})[noteIdOf(task)];
+      const startMs = wallToUtc(task.start, tzOffset);
+      const baseMs = Number.isFinite(startMs) ? startMs
+        : (note?.createdAt ? Date.parse(note.createdAt) : NaN);
+      if (Number.isFinite(endMs) && Number.isFinite(baseMs) && endMs > baseMs) {
+        const atMs = endMs - ((endMs - baseMs) * dead) / 100;
+        const key = `${task.id}:deadline:${task.end}`;
+        if (atMs <= nowMs && nowMs < endMs && !sent[key]) {
+          out.push({
+            key, kind: "deadline", at: atMs, occurrence: `deadline:${task.end}`,
+            taskId: task.id, title: task.title || "Задача", body: task.body || "",
+            warn: null, dead, left: endMs - nowMs, deferred: false,
+            end: task.end,
+            assignee: task.assignee === undefined ? undefined
+              : task.assignee == null || task.assignee === "" ? null : String(task.assignee),
+            startWall: task.start || "",
+          });
+        }
+      }
+    }
   }
   return out;
 }
@@ -463,6 +496,13 @@ export function formatMessage(n, userId = null) {
         + " «🔴 Отложить» — напомню позже, через то время, что стоит у вас в"
         + " «Напоминаниях». Пока не нажмёте, повторю это сообщение через минуту.");
     }
+    return lines.join("\n");
+  }
+  if (n.kind === "deadline") {
+    const left = Math.max(1, Math.round((Number(n.left) || 0) / MIN));
+    const lines = [`До сдачи осталось ${formatWarn(left)} — ${n.dead} % срока: ${n.title}`];
+    if (n.end) lines.push(`Срок: ${String(n.end).replace("T", " ")}`);
+    if (n.body) lines.push("", n.body);
     return lines.join("\n");
   }
   const time = n.startWall ? n.startWall.replace("T", " ") : "";

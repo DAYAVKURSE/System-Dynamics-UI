@@ -30,7 +30,7 @@ const val = (t, f) => (t?.[f] == null || t[f] === "" ? null : String(t[f]));
 /* Постановщик — как на доске: названный, иначе исполнитель (`roleOf`). */
 const setterOf = (t) => val(t, "setter") ?? val(t, "assignee");
 
-const slim = (t, kind, warn) => ({
+const slim = (t, kind, warn, dead = 0) => ({
   id: String(t.id),
   title: String(t.title ?? "").slice(0, 200),
   body: String(t.body ?? "").slice(0, 1000),
@@ -41,28 +41,37 @@ const slim = (t, kind, warn) => ({
   start: kind === "setup" ? "" : (t.start ? String(t.start) : ""),
   repeat: "once", days: [], time: "",
   warn,
+  /* Доля срока, при которой предупредить о сдаче (владелец, 2026-09-21).
+     Срок нужен обоим: постановщику — в тексте, исполнителю — для этого
+     самого предупреждения. */
+  dead: kind === "setup" ? 0 : dead,
   kind,
   assignee: val(t, "assignee"),
   setter: setterOf(t),
-  end: kind === "setup" ? (t.end ? String(t.end) : "") : "",
+  end: t.end ? String(t.end) : "",
   deferredUntil: t.deferredUntil ? String(t.deferredUntil) : null,
 });
 
 /** Задачи человека для напоминаний — из модели, а не из браузера. */
-export async function scheduleTasksFor(userId, { model = null, warn = null } = {}) {
+export async function scheduleTasksFor(userId, { model = null, warn = null, dead = null } = {}) {
   const m = model || await readModel();
   const id = String(userId);
   const mine = (v) => v != null && v !== "" && String(v) === id;
   let minutes = warn;
-  if (minutes == null) {
-    try { minutes = Number((await identify(id, {}, { claim: false }))?.profile?.warnMin); }
-    catch { minutes = null; }
+  let pct = dead;
+  if (minutes == null || pct == null) {
+    let profile = null;
+    try { profile = (await identify(id, {}, { claim: false }))?.profile || null; }
+    catch { profile = null; }
+    if (minutes == null) minutes = Number(profile?.warnMin);
+    if (pct == null) pct = Number(profile?.deadlinePct);
   }
   const w = Number.isFinite(Number(minutes)) ? Number(minutes) : 10;
+  const d = Number.isFinite(Number(pct)) ? Number(pct) : 0;
   const tasks = Array.isArray(m?.tasks) ? m.tasks : [];
   const work = tasks
     .filter((t) => mine(t.assignee) && t.status !== "wait" && t.canceled !== true)
-    .map((t) => slim(t, "task", w));
+    .map((t) => slim(t, "task", w, d));
   const setup = tasks
     .filter((t) => mine(setterOf(t)) && t.status === "wait" && t.canceled !== true)
     .map((t) => slim(t, "setup", w));

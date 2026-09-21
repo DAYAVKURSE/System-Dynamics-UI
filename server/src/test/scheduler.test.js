@@ -24,6 +24,50 @@ describe("перевод настенного времени в UTC", () => {
   });
 });
 
+/* ДО ДЕДЛАЙНА — В ПРОЦЕНТАХ (владелец, 2026-09-21): «пользователь должен
+   предупреждаться за введённое количество процентов времени до момента
+   сдачи». Срок задачи 10:00 → 12:00, четверть — полчаса. */
+describe("предупреждение до дедлайна", () => {
+  const s = (over, notes) => ({ tzOffset: MSK, notes,
+    tasks: [task({ end: "2026-09-15T12:00", dead: 25, warn: 0, ...over })] });
+  // «Начинается» в 10:00 уже ушло — здесь смотрят только на срок.
+  const SENT = { "t1:2026-09-15T10:00:start": 1 };
+  const kinds = (sch, wall) => dueNotifications(sch, at(wall), SENT).map((d) => d.kind);
+
+  it("уходит, когда осталась названная доля срока, и один раз", () => {
+    expect(kinds(s(), "2026-09-15T11:29")).toEqual([]);
+    const due = dueNotifications(s(), at("2026-09-15T11:30"), SENT);
+    expect(due.map((d) => d.kind)).toEqual(["deadline"]);
+    expect(due[0].dead).toBe(25);
+    expect(Math.round(due[0].left / MIN)).toBe(30);
+    expect(formatMessage(due[0])).toMatch(/^До сдачи осталось 30 минут — 25 % срока: Позвонить рефералам/);
+    expect(formatMessage(due[0])).toMatch(/Срок: 2026-09-15 12:00/);
+    // Отправленное второй раз не уходит.
+    expect(dueNotifications(s(), at("2026-09-15T11:40"), { ...SENT, [due[0].key]: 1 })).toEqual([]);
+    // Кнопок под ним нет: начинать или откладывать тут нечего.
+    expect(keyboardFor(due[0], "2")).toBeNull();
+  });
+
+  it("после срока не шлётся, без доли — тоже", () => {
+    expect(kinds(s(), "2026-09-15T12:01")).toEqual([]);
+    expect(kinds(s({ dead: 0 }), "2026-09-15T11:59")).toEqual([]);
+  });
+
+  it("начала нет — отсчёт от момента, когда задача появилась в напоминаниях", () => {
+    // Появилась в 08:00, срок 12:00 — четыре часа; половина — в 10:00.
+    const notes = { "task:t1": { id: "task:t1", createdAt: new Date(at("2026-09-15T08:00")).toISOString() } };
+    expect(kinds(s({ start: "", dead: 50 }, notes), "2026-09-15T09:59")).toEqual([]);
+    expect(kinds(s({ start: "", dead: 50 }, notes), "2026-09-15T10:00")).toEqual(["deadline"]);
+    // Ни начала, ни записи — считать не от чего.
+    expect(kinds(s({ start: "", dead: 50 }), "2026-09-15T11:00")).toEqual([]);
+  });
+
+  it("взятая в работу тоже предупреждает, сданная — нет", () => {
+    expect(kinds(s({ status: "progress" }), "2026-09-15T11:30")).toEqual(["deadline"]);
+    expect(kinds(s({ status: "review" }), "2026-09-15T11:30")).toEqual([]);
+  });
+});
+
 describe("разовая задача", () => {
   const s = (over) => ({ tzOffset: MSK, tasks: [task(over)] });
 

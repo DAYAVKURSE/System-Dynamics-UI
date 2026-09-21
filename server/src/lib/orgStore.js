@@ -446,6 +446,7 @@ const scheduleOf = (user = {}) => ({
      график. */
   statusAt: isoOf(user.statusAt),
   warnMin: warnOf(user.warnMin),
+  deadlinePct: deadOf(user.deadlinePct),
   deferMin: deferOf(user.deferMin),
 });
 
@@ -465,6 +466,20 @@ const warnOf = (v) => {
   const n = Number(v);
   if (v == null || v === "" || !Number.isFinite(n)) return WARN_DEFAULT;
   return Math.min(WARN_MAX, Math.max(0, Math.round(n)));
+};
+
+/* ─────── за сколько предупреждать ДО ДЕДЛАЙНА ───────
+
+   Владелец (2026-09-21): «поле „предупреждать до дедлайна“, и тут должен
+   быть выбор в процентах: пользователь должен предупреждаться за
+   введённое количество процентов времени до момента сдачи». Проценты —
+   от всего отпущенного на задачу срока: 20 % значит «когда осталась
+   пятая часть». Ноль — не предупреждать; больше ста не бывает. */
+export const DEAD_DEFAULT = 0;
+const deadOf = (v) => {
+  const n = Number(v);
+  if (v == null || v === "" || !Number.isFinite(n)) return DEAD_DEFAULT;
+  return Math.min(100, Math.max(0, Math.round(n)));
 };
 
 /* ─────── на сколько откладывать ───────
@@ -566,6 +581,7 @@ export async function setProfile(userId, patch = {}) {
     user.status = next;
   }
   if (patch.warnMin != null) user.warnMin = warnOf(patch.warnMin);
+  if (patch.deadlinePct != null) user.deadlinePct = deadOf(patch.deadlinePct);
   if (patch.deferMin != null) user.deferMin = deferOf(patch.deferMin);
   /* Ответы на вопросы анкет — поверх прежних, а не вместо: форма шлёт те
      вопросы, что видит сейчас, и ответ на вопрос другой роли, не попавший

@@ -376,7 +376,7 @@ describe("анкета", () => {
     /* Имя едет вместе с анкетой: его правят там же, и везде, где
        приложение показывает человека, оно берётся отсюда. */
     expect(me.profile).toEqual({ name: "Первый", about: "", days: [], from: "", to: "",
-      perDay: {}, status: "ready", statusAt: null, warnMin: 10, deferMin: 30, answers: {},
+      perDay: {}, status: "ready", statusAt: null, warnMin: 10, deadlinePct: 0, deferMin: 30, answers: {},
       // Картинка — одна на человека: пусто, пока не пришла телеграмная и
       // не загрузили свою.
       avatar: "", avatarOwn: false, avatarOff: false });
@@ -452,7 +452,7 @@ describe("анкета", () => {
         status: "break", about: "аналитик" });
       expect(saved).toEqual({ name: "владелец", about: "аналитик", days: [1, 3],
         from: "09:00", to: "18:00", perDay: {}, status: "break",
-        statusAt: expect.any(String), warnMin: 10, deferMin: 30, answers: {},
+        statusAt: expect.any(String), warnMin: 10, deadlinePct: 0, deferMin: 30, answers: {},
         avatar: "", avatarOwn: false, avatarOff: false });
       // И «кто я» после этого говорит то же самое.
       expect((await identify("100", {})).profile).toEqual(saved);
@@ -517,6 +517,17 @@ describe("анкета", () => {
     // Анкета и график при этом не трогаются.
     await setProfile("100", { about: "аналитик" });
     expect((await identify("100", {})).profile).toMatchObject({ about: "аналитик", warnMin: 0 });
+  });
+
+  it("«предупреждать до дедлайна» — доля срока, по умолчанию не предупреждать", async () => {
+    await identify("101", {});
+    expect((await identify("101", {})).profile.deadlinePct).toBe(0);
+    expect((await setProfile("101", { deadlinePct: 25 })).deadlinePct).toBe(25);
+    expect((await identify("101", {})).profile.deadlinePct).toBe(25);
+    // Больше ста не бывает, отрицательного тоже; не число — не названо.
+    expect((await setProfile("101", { deadlinePct: 140 })).deadlinePct).toBe(100);
+    expect((await setProfile("101", { deadlinePct: -5 })).deadlinePct).toBe(0);
+    expect((await setProfile("101", { deadlinePct: "x" })).deadlinePct).toBe(0);
   });
 
   it("«за сколько» — целые минуты не дальше суток; не число — умолчание", async () => {
