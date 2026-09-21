@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   KEEP_DONE_MS, REFINE_PROMPT, onAssistantButton, onAssistantMessage, resetAssistantState, splitMessage,
-  stageText,
+  CLOCKS, TICK_MS, tickText,
 } from "../lib/botAssistant.js";
 import { NOT_CONFIGURED } from "../lib/assistantSettings.js";
 import { CANCELLED_ERROR, createQueue } from "../lib/assistantQueue.js";
@@ -9,7 +9,8 @@ import { CANCELLED_ERROR, createQueue } from "../lib/assistantQueue.js";
 /* Помощник в чате: обычный текст → ответ, «запомни:» → память, документ →
    память. Команды и пересылки — не его: на них null, их разбирает bot.js.
 
-   Ответа модели бот не ждёт: сразу «Думаю…», ответ — потом, отдельным
+   Ответа модели бот не ждёт: сразу «🕐 Думаю…» с идущими часами, ответ —
+   потом, отдельным
    сообщением. Возвращаемое `done` — обещание, что ответ или ошибка уже
    ушли в чат; тесты ждут его, бот — нет. */
 
@@ -33,11 +34,11 @@ const deps = () => ({
 beforeEach(() => { sent = []; asked = []; remembered = []; resetAssistantState(); });
 
 describe("что помощник берёт, а что нет", () => {
-  it("обычный текст — сразу «Думаю…», ответ от имени спросившего приходит потом", async () => {
+  it("обычный текст — сразу «🕐 Думаю…», ответ от имени спросившего приходит потом", async () => {
     const r = await onAssistantMessage({ text: "что у меня сегодня?" }, from, deps());
     expect(r.answered).toBe("queued");
-    // «Думаю…» ушло первым, ответ — отдельным сообщением следом.
-    expect(sent[0].text).toBe("Думаю…");
+    // «🕐 Думаю…» ушло первым, ответ — отдельным сообщением следом.
+    expect(sent[0].text).toBe(tickText(0));
     expect(await r.done).toEqual({ answered: true, parts: 1, id: r.id });
     expect(asked).toEqual([{ userId: "200", q: "что у меня сегодня?" }]);
     expect(sent[1].text).toBe("ответ на «что у меня сегодня?»");
@@ -85,7 +86,7 @@ describe("что помощник берёт, а что нет", () => {
     const logged = [];
     d.log = (m) => logged.push(m);
     d.assistant.ask = async () => { throw new Error("модель молчит"); };
-    d.send = async (chatId, text) => { if (text !== "Думаю…") throw new Error("Telegram лежит"); };
+    d.send = async (chatId, text) => { if (text !== tickText(0)) throw new Error("Telegram лежит"); };
     const r = await onAssistantMessage({ text: "?" }, from, d);
     expect((await r.done).error).toBe("Telegram лежит");
     expect(logged[0]).toMatch(/Telegram лежит/);
@@ -158,8 +159,8 @@ describe("разбиение под лимит Telegram", () => {
 
 /* ─── статус, «Отменить», «Уточнить» ───
 
-   Пока модель думает, человек видит, что происходит, и может вмешаться:
-   одно сообщение-статус правится по стадиям, под ним две кнопки. Здесь
+   Пока модель думает, человек видит, что бот жив, и может вмешаться: одно
+   сообщение-статус с идущими часами, под ним две кнопки. Здесь
    помощник работает с НАСТОЯЩЕЙ очередью (createQueue на заглушках): отмена
    должна доходить до fetch, а не до слов. */
 describe("статус и кнопки под ним", () => {
@@ -187,13 +188,19 @@ describe("статус и кнопки под ним", () => {
     queue = createQueue({ complete, modelFor: () => MODEL, contextFor: async () => "ctx", log: () => {} });
   });
 
-  it("одно сообщение-статус правится по стадиям и заканчивается «Готово» без кнопок; ответ — отдельно", async () => {
+  /* ЧАСЫ ВМЕСТО СТАДИЙ (владелец, 2026-09-21: «должно быть просто
+     „думаю…" и значок часов, который обновляется каждую секунду, меняя
+     сообщение, пока не придёт ответ»). Провайдера в статусе больше нет:
+     человек про него не спрашивал. */
+  it("статус — «🕐 Думаю…» с идущими часами, и заканчивается «Готово» без кнопок", async () => {
     const r = await onAssistantMessage({ text: "что у меня?" }, from, live());
     await settle();
     // Кнопки — под статусом, с id вопроса.
-    expect(sent[0].text).toBe("Думаю…");
+    expect(sent[0].text).toBe(tickText(0));
     expect(keys(sent[0].keyboard)).toEqual([["✖ Отменить", `ai:cancel:${r.id}`], ["✎ Уточнить", `ai:refine:${r.id}`]]);
-    expect(edits.map((e) => e.text)).toEqual(["Собираю ваши данные…", "Спрашиваю OpenAI / gpt-4o-mini…"]);
+    // Ни провайдера, ни стадий — только часы.
+    edits.forEach((e) => expect(e.text === "Готово" || /^🕐|🕑|🕒|🕓|🕔|🕕|🕖|🕗|🕘|🕙|🕚|🕛/.test(e.text)).toBe(true));
+    expect(edits.some((e) => /Спрашиваю|Собираю|Отвечаю/.test(e.text))).toBe(false);
     edits.forEach((e) => expect(e.messageId).toBe(1));
     release("Задач нет.");
     expect(await r.done).toEqual({ answered: true, parts: 1, id: r.id });
@@ -214,7 +221,7 @@ describe("статус и кнопки под ним", () => {
     expect(await r.done).toEqual({ cancelled: true, id: r.id });
     expect(edits[edits.length - 1]).toMatchObject({ text: "Отменено", keyboard: null });
     // Второго сообщения про отмену нет: человек сам нажал, ему и так ясно.
-    expect(sent.map((m) => m.text)).toEqual(["Думаю…"]);
+    expect(sent.map((m) => m.text)).toEqual([tickText(0)]);
   });
 
   it("«Отменить» под уже отвеченным — «отменять нечего»; чужой вопрос — не ваш; забытый — честно", async () => {
@@ -242,10 +249,10 @@ describe("статус и кнопки под ним", () => {
     expect(r2.answered).toBe("queued");
     expect(await r.done).toEqual({ cancelled: true, id: r.id });
     expect(calls[0].signal.aborted).toBe(true);
-    // Старый статус — «отменено, вопрос уточнён», новый — своё «Думаю…» со своими кнопками.
+    // Старый статус — «отменено, вопрос уточнён», новый — своё «🕐 Думаю…» со своими кнопками.
     expect(edits.find((e) => e.text === "Отменено — вопрос уточнён")).toBeTruthy();
     const status2 = sent[sent.length - 1];
-    expect(status2.text).toBe("Думаю…");
+    expect(status2.text).toBe(tickText(0));
     expect(keys(status2.keyboard)[0][1]).toBe(`ai:cancel:${r2.id}`);
     await settle();
     expect(calls).toHaveLength(2);
@@ -325,11 +332,37 @@ describe("статус и кнопки под ним", () => {
     expect(sent[sent.length - 1]).toMatchObject({ chatId: from.id, text: REFINE_PROMPT });
   });
 
-  it("тексты стадий — словами, «model» называет провайдера и модель", () => {
-    expect(stageText("context")).toBe("Собираю ваши данные…");
-    expect(stageText("model", { providerName: "Groq", model: "llama-3" })).toBe("Спрашиваю Groq / llama-3…");
-    expect(stageText("model")).toBe("Спрашиваю модель…");
-    expect(stageText("answer")).toBe("Отвечаю…");
+  /* Часы ИДУТ: сообщение правится раз в секунду, пока ответа нет
+     (владелец, 2026-09-21). Время двигаем сами — ждать его по-настоящему
+     значило бы держать тест на секундах. */
+  it("часы правят сообщение каждую секунду и останавливаются с ответом", async () => {
+    vi.useFakeTimers();
+    try {
+      const r = await onAssistantMessage({ text: "что у меня?" }, from, live());
+      // Время фальшивое — «дать всему улечься» тоже приходится вручную.
+      await vi.advanceTimersByTimeAsync(5);
+      edits.length = 0;
+      await vi.advanceTimersByTimeAsync(3000);
+      // Три секунды — три правки, и каждая своим циферблатом.
+      expect(edits.map((e) => e.text)).toEqual([tickText(1), tickText(2), tickText(3)]);
+      edits.forEach((e) => expect(keys(e.keyboard)).toHaveLength(2));
+      release("Задач нет.");
+      await r.done;
+      expect(edits[edits.length - 1]).toMatchObject({ text: "Готово", keyboard: null });
+      // Ответ пришёл — часы встали: дальше правок нет.
+      const after = edits.length;
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(edits).toHaveLength(after);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("часы идут по кругу, и слова у них одни — «Думаю…»", () => {
+    expect(tickText(0)).toBe("🕐 Думаю…");
+    expect(tickText(1)).toBe("🕑 Думаю…");
+    // Двенадцать циферблатов — и снова первый: круг замыкается.
+    expect(tickText(12)).toBe(tickText(0));
+    expect(CLOCKS).toHaveLength(12);
+    expect(TICK_MS).toBe(1000);
   });
 
   it("слово отмены у очереди и у бота одно", () => {

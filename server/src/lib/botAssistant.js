@@ -28,9 +28,13 @@ import { CANCELLED_ERROR } from "./assistantQueue.js";
    показывает уведомлением, и человек, отложивший телефон, ответа бы не
    заметил.
 
-   Статус — ОДНО сообщение, которое правится по стадиям («собираю ваши
-   данные», «спрашиваю OpenAI / gpt-4o-mini», «отвечаю», «Готово»):
-   человек видит, что происходит, а не гадает, жив ли бот. Под статусом
+   Статус — ОДНО сообщение: «🕐 Думаю…» с часами, которые идут по кругу
+   раз в секунду, пока ответа нет (владелец, 2026-09-21). Прежде там
+   стояли стадии — «собираю ваши данные», «спрашиваю OpenAI /
+   gpt-4o-mini», «отвечаю»; стадии рассказывали человеку про наше
+   устройство и называли провайдера, о котором он не спрашивал. Идущие
+   часы отвечают на единственный вопрос, который у него есть: жив ли бот
+   и стоит ли ждать. Под статусом
    две кнопки. «✖ Отменить» прерывает запрос к модели (см.
    assistantQueue.cancel) — не прячет ответ, а останавливает счёт.
    «✎ Уточнить» — бот спрашивает, что добавить; следующий текст человека
@@ -95,16 +99,20 @@ export function splitMessage(text, limit = TG_MESSAGE_LIMIT) {
   return out;
 }
 
-/* ─── что показывает статус на каждой стадии ─── */
-export function stageText(stage, info = {}) {
-  if (stage === "context") return "Собираю ваши данные…";
-  if (stage === "model") {
-    const who = [info.providerName, info.model].filter(Boolean).join(" / ");
-    return who ? `Спрашиваю ${who}…` : "Спрашиваю модель…";
-  }
-  if (stage === "answer") return "Отвечаю…";
-  return THINKING;
-}
+/* ─── ИДУЩИЕ ЧАСЫ В СТАТУСЕ (владелец, 2026-09-21) ───
+
+   Двенадцать циферблатов Telegram рисует сам, и они складываются в ход
+   стрелки: сообщение правится раз в секунду, и человек видит, что бот
+   не умер, — не узнавая при этом ни про стадии, ни про провайдера.
+
+   Правка раз в секунду — предел, который Telegram держит для одного
+   чата; не поправившаяся правка молчит (`setStatus`), и пропущенный
+   такт ничего не ломает: следующий придёт через секунду. */
+export const CLOCKS = ["🕐", "🕑", "🕒", "🕓", "🕔", "🕕",
+  "🕖", "🕗", "🕘", "🕙", "🕚", "🕛"];
+export const TICK_MS = 1000;
+export const tickText = (n = 0) =>
+  `${CLOCKS[((n % CLOCKS.length) + CLOCKS.length) % CLOCKS.length]} ${THINKING}`;
 
 export const statusKeyboard = (id) => ({
   inline_keyboard: [[
@@ -155,26 +163,25 @@ async function askQuestion(deps, { userId, chatId, question }) {
   const send = deps.send || a.send;
   sweep();
   const e = { id: "", queueId: null, userId, chatId, question, messageId: null, done: false,
-    at: Date.now(), stage: null, chain: Promise.resolve() };
-  /* Стадии могут прийти раньше, чем Telegram вернёт номер сообщения-статуса:
-     очередь начинает сразу. Поэтому стадия запоминается, а правки идут
-     цепочкой по порядку — иначе «отвечаю» могло бы обогнать «собираю». */
+    at: Date.now(), tick: 0, timer: null, chain: Promise.resolve() };
+  /* Такт может прийти раньше, чем Telegram вернёт номер сообщения-статуса:
+     часы заводятся вместе с вопросом. Поэтому правки идут цепочкой по
+     порядку — иначе поздний такт перезаписал бы «Готово». */
   const show = () => {
     e.chain = e.chain.then(async () => {
-      if (e.done || e.stage == null || e.messageId == null) return;
-      const text = stageText(e.stage.stage, e.stage.info);
-      // Одна стадия — одна правка: Telegram на «ничего не изменилось» отвечает ошибкой.
+      if (e.done || e.messageId == null) return;
+      const text = tickText(e.tick);
+      // Telegram на «ничего не изменилось» отвечает ошибкой — не шлём то же.
       if (text === e.shown) return;
       e.shown = text;
       await setStatus(deps, e, text, statusKeyboard(e.id));
     });
     return e.chain;
   };
-  const onProgress = (stage, info) => { e.stage = { stage, info }; show(); };
 
   let raw;
   try {
-    raw = a.ask(userId, question.slice(0, MAX_QUESTION), "", { task: BOT_TASK, onProgress });
+    raw = a.ask(userId, question.slice(0, MAX_QUESTION), "", { task: BOT_TASK });
   } catch (err) {
     raw = Promise.reject(err);
   }
@@ -194,12 +201,18 @@ async function askQuestion(deps, { userId, chatId, question }) {
      равно уйдёт отдельным сообщением ниже. */
   let sent = null;
   try {
-    sent = await send(chatId, THINKING, statusKeyboard(e.id));
+    sent = await send(chatId, tickText(0), statusKeyboard(e.id));
+    e.shown = tickText(0);
   } catch (err) {
     logOf(deps)(`статус «${THINKING}» не отправлен: ${err.message}`);
   }
   e.messageId = sent?.message_id ?? null;
-  show();
+  /* Часы идут, пока ответа нет. `unref` — чтобы тик не держал процесс
+     живым: приложение не должно ждать завершения чужого таймера. */
+  if (e.messageId != null) {
+    e.timer = setInterval(() => { e.tick += 1; show(); }, TICK_MS);
+    e.timer.unref?.();
+  }
 
   const done = (async () => {
     try {
@@ -229,6 +242,7 @@ async function askQuestion(deps, { userId, chatId, question }) {
     // Не ушло даже слово об ошибке (Telegram не отвечает) — остаётся
     // журнал; необработанным отказом это стать не должно.
     logOf(deps)(`ответ помощника не отправлен: ${err.message}`);
+    if (e.timer) { clearInterval(e.timer); e.timer = null; }
     e.done = true; e.at = Date.now();
     return { error: err.message, id: e.id };
   });
@@ -239,8 +253,12 @@ async function askQuestion(deps, { userId, chatId, question }) {
    уже отвеченным. Дожидаемся цепочки правок стадий: иначе «Готово»
    перезаписала бы запоздавшая «Отвечаю…». */
 async function finishStatus(deps, e, text) {
+  // Часы останавливаются ПЕРВЫМИ: иначе такт, запущенный за миг до
+  // ответа, перезаписал бы «Готово» обратно на «Думаю…».
+  if (e.timer) { clearInterval(e.timer); e.timer = null; }
+  e.done = true;
   await e.chain.catch(() => {});
-  e.done = true; e.at = Date.now();
+  e.at = Date.now();
   await setStatus(deps, e, text, null);
 }
 

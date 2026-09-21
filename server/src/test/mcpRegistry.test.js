@@ -13,8 +13,14 @@ import { skillNote } from "../lib/assistantAgent.js";
    приложение может подключиться САМО, и всё чужое режется по длине.
    ════════════════════════════════════════════════════════════════ */
 
-const reply = (body, ok = true) => vi.stubGlobal("fetch", vi.fn(async () => ({
-  ok, status: ok ? 200 : 503, json: async () => body })));
+const urls = [];
+const reply = (body, ok = true, status = null) => {
+  urls.length = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url) => {
+    urls.push(String(url));
+    return { ok, status: status || (ok ? 200 : 503), json: async () => body };
+  }));
+};
 afterEach(() => { vi.restoreAllMocks(); delete process.env.MCP_REGISTRY_URL; });
 
 describe("реестр MCP", () => {
@@ -53,6 +59,39 @@ describe("реестр MCP", () => {
   it("реестр молчит — это ответ, а не пустой список", async () => {
     reply({}, false);
     await expect(listRegistry()).rejects.toThrow(/503/);
+  });
+
+  /* СТРАНИЦА — СТО (владелец, 2026-09-21: «MCP-сервер выдаёт ошибку при
+     нажатии „Обновить": Реестр ответил 422»). Реестр отдаёт не больше
+     сотни за раз и на просьбу о большем отвечает отказом; нужное число
+     набирается курсором. */
+  it("просит не больше ста за раз и идёт по курсору за остальными", async () => {
+    const srv = (n) => ({ server: { name: `io.x/s${n}`, title: `s${n}`,
+      remotes: [{ type: "streamable-http", url: `https://x/${n}` }] } });
+    const pages = [
+      { servers: Array.from({ length: 100 }, (_, i) => srv(i)),
+        metadata: { nextCursor: "io.x/s99" } },
+      { servers: [srv(100)], metadata: {} },
+    ];
+    let n = 0;
+    urls.length = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      urls.push(String(url));
+      const body = pages[Math.min(n, pages.length - 1)];
+      n += 1;
+      return { ok: true, status: 200, json: async () => body };
+    }));
+    const r = await listRegistry();
+    expect(urls).toHaveLength(2);
+    urls.forEach((u) => expect(u).toMatch(/limit=100(&|$)/));
+    expect(urls[0]).not.toMatch(/cursor=/);
+    expect(urls[1]).toMatch(/cursor=io\.x%2Fs99/);
+    expect(r.servers).toHaveLength(101);
+  });
+
+  it("отказ реестра пересказывается его же словами, а не одним номером", async () => {
+    reply({ title: "Unprocessable Entity", detail: "validation failed" }, false, 422);
+    await expect(listRegistry()).rejects.toThrow(/422: validation failed/);
   });
 });
 

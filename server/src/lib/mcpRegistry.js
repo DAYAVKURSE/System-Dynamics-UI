@@ -78,6 +78,30 @@ const view = (raw) => {
   };
 };
 
+/* Реестр отдаёт не больше СТА записей за раз и на просьбу о большем
+   отвечает 422 (владелец, 2026-09-21: «MCP-сервер выдаёт ошибку при
+   нажатии „Обновить": Реестр ответил 422»). Поэтому страница — сто, а
+   нужное число набирается курсором: `metadata.nextCursor` из ответа
+   ведёт на следующую сотню. */
+const PAGE = 100;
+
+/** Одна страница реестра — как она пришла, без разбора. */
+async function page(base, cursor, signal) {
+  const q = new URLSearchParams({ version: "latest", limit: String(PAGE) });
+  if (cursor) q.set("cursor", cursor);
+  const res = await fetch(`${base}/v0/servers?${q}`, {
+    headers: { Accept: "application/json" }, signal,
+  });
+  if (!res.ok) {
+    /* Своими словами реестр объясняет лучше, чем номер ответа: «Реестр
+       ответил 422» не говорит человеку ничего, а «expected number <= 100»
+       называет причину. */
+    const why = await res.json().then((b) => str(b?.detail || b?.title, 200)).catch(() => "");
+    throw new Error(`Реестр ответил ${res.status}${why ? `: ${why}` : ""}`);
+  }
+  return res.json();
+}
+
 /**
  * Спросить у реестра, какие серверы есть.
  *
@@ -87,31 +111,28 @@ const view = (raw) => {
  */
 export async function listRegistry({ signal, limit = MAX_SERVERS } = {}) {
   const base = registryUrl();
+  const want = Math.max(1, Math.min(limit, MAX_SERVERS));
   const ctl = signal ? null : new AbortController();
   const timer = ctl ? setTimeout(() => ctl.abort(), TIMEOUT_MS) : null;
   try {
-    /* `version=latest` — иначе реестр отдаёт КАЖДУЮ версию каждого
-       сервера, и сотня записей оказывается десятком серверов, повторённых
-       по десять раз. */
-    const res = await fetch(
-      `${base}/v0/servers?version=latest&limit=${Math.min(limit, MAX_SERVERS)}`, {
-      headers: { Accept: "application/json" },
-      signal: signal || ctl.signal,
-    });
-    if (!res.ok) throw new Error(`Реестр ответил ${res.status}`);
-    const body = await res.json();
-    const raw = Array.isArray(body) ? body
-      : (Array.isArray(body?.servers) ? body.servers : []);
     const out = [];
     const seen = new Set();
-    for (const item of raw) {
-      const v = view(item);
-      if (!v || seen.has(v.id)) continue;
-      seen.add(v.id);
-      out.push(v);
-      if (out.length >= limit) break;
+    let cursor = "";
+    // Страниц ровно столько, сколько нужно на `want`, и ни одной лишней.
+    for (let n = 0; n * PAGE < want; n += 1) {
+      const body = await page(base, cursor, signal || ctl.signal);   // eslint-disable-line no-await-in-loop
+      const raw = Array.isArray(body) ? body
+        : (Array.isArray(body?.servers) ? body.servers : []);
+      for (const item of raw) {
+        const v = view(item);
+        if (!v || seen.has(v.id)) continue;
+        seen.add(v.id);
+        out.push(v);
+      }
+      cursor = str(body?.metadata?.nextCursor, 4096);
+      if (!cursor || !raw.length) break;
     }
     out.sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    return { url: base, servers: out };
+    return { url: base, servers: out.slice(0, want) };
   } finally { if (timer) clearTimeout(timer); }
 }
