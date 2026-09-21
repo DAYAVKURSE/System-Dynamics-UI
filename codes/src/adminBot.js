@@ -23,22 +23,10 @@ export function readEnv(name) {
   return "";
 }
 export const adminToken = () => readEnv("ADMIN_BOT_TOKEN");
-/* Владелец — из OWNER_TELEGRAM_ID, а если его не задавали — тот, кто
-   записан владельцем в организации основного сервера (ORG_DIR/org.json):
-   владельцем становится первый вошедший, и переменной у него может не
-   быть вовсе. */
-export const ownerId = () => {
-  const env = readEnv("OWNER_TELEGRAM_ID");
-  if (env) return env;
-  const dir = readEnv("ORG_DIR");
-  for (const f of [dir ? path.join(dir, "org.json") : "", path.resolve("data", "org", "org.json")].filter(Boolean)) {
-    try {
-      const j = JSON.parse(fs.readFileSync(f, "utf8"));
-      if (j?.ownerId != null && String(j.ownerId)) return String(j.ownerId);
-    } catch { /* следующий */ }
-  }
-  return "";
-};
+/* Владелец — СТРОГО из OWNER_TELEGRAM_ID (секрет Actions → .env):
+   админ-бот узнаёт заданный Telegram-id, а не «первого вошедшего»
+   (владелец, 2026-09-21). */
+export const ownerId = () => readEnv("OWNER_TELEGRAM_ID");
 export const publicUrl = () => readEnv("PUBLIC_URL").replace(/\/+$/, "");
 
 const api = async (token, method, body) => {
