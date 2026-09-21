@@ -4,8 +4,7 @@ import Modal from "./Modal.jsx";
 import {
   addAgent, addMcp, addMemory, addProvider, dropAgent, dropMcp, dropMemory, dropProvider,
   getAssistantSettings, listMemory, mcpRegistry, mcpTools, providerModels, setMcpAuth,
-  updateAgent, updateProvider,
-} from "../assistant.js";
+  updateAgent, updateProvider, startMcpOauth } from "../assistant.js";
 
 /* ════════════════════════════════════════════════════════════════
    АГЕНТЫ · вкладка «Инструменты»
@@ -272,6 +271,8 @@ export default function AgentsPanel({ me, onChanged }) {
             <AgentMcp key={`mcp-${agent.id}`} agent={agent} servers={servers} busy={busy}
               onAsk={(id) => runRaw(() => mcpTools(id))}
               onAuth={(id, auth) => runRaw(() => setMcpAuth(id, auth))}
+              onOauth={(id, hint) => startMcpOauth(id, hint)}
+              onCheck={async (id) => Boolean((await getAssistantSettings()).mcp?.find((m) => m.id === id)?.hasAuth)}
               onPick={(map) => runRaw(() => updateAgent(agent.id, { mcp: map }))} />
 
             {/* ═══ удалить ═══ */}
@@ -652,7 +653,7 @@ function ToolRow({ label, checked, disabled, onChange, ariaLabel }) {
     </label>);
 }
 
-function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth }) {
+function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth, onOauth = null, onCheck = null }) {
   const [open, setOpen] = useState("");
   const [asking, setAsking] = useState("");
   const [err, setErr] = useState("");
@@ -671,7 +672,7 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth }) {
       if (e?.needsAuth) {
         const m = servers.find((x) => x.id === id);
         setLogin({ id, name: e.server || m?.name || "", where: e.where || "",
-          scheme: e.scheme || "", realm: e.realm || "", hint: e.hint || "" });
+          scheme: e.scheme || "", realm: e.realm || "", hint: e.hint || "", oauth: !!e.oauth });
       } else setErr(e.message);
     }
     finally { setAsking(""); }
@@ -773,14 +774,41 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick, onAuth }) {
       {err && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
 
       {login && (
-        <McpLogin rec={login} busy={busy} onSave={saveAuth} onClose={() => setLogin(null)} />)}
+        <McpLogin rec={login} busy={busy} onSave={saveAuth} onClose={() => setLogin(null)}
+          onOauth={onOauth ? () => onOauth(login.id, login.hint) : null}
+          onCheck={onCheck ? () => onCheck(login.id) : null}
+          onLoggedIn={() => { const id = login.id; setLogin(null); ask(id); }} />)}
     </div>);
 }
 
 /* ─────── ВХОД НА MCP-СЕРВЕР (владелец, 2026-09-21) ───────
    Сервер ответил 401 — окно с выбором: ключ или логин с паролем. Уходит
    на сервер приложения и обратно не возвращается. */
-function McpLogin({ rec, busy, onSave, onClose }) {
+function McpLogin({ rec, busy, onSave, onClose, onOauth = null, onCheck = null, onLoggedIn = null }) {
+  /* СТРАНИЦА ВХОДА (владелец, 2026-09-21: «должна выдаваться страница
+     входа, а не ввод bearer»). Если сервер авторизуется по OAuth, первым
+     стоит «Войти на сайте сервера»: ссылку даёт сервер, открывается она
+     снаружи, а мы ждём, пока токен ляжет к серверу, и спрашиваем снова.
+     Ключ руками остаётся ниже — для серверов без страницы входа. */
+  const [waiting, setWaiting] = useState(false);
+  const [oauthErr, setOauthErr] = useState("");
+  useEffect(() => {
+    if (!waiting || !onCheck) return undefined;
+    let live = true;
+    const id = setInterval(async () => {
+      try { if (live && await onCheck()) { clearInterval(id); onLoggedIn?.(); } } catch { /* следующий раз */ }
+    }, 3000);
+    return () => { live = false; clearInterval(id); };
+  }, [waiting, onCheck, onLoggedIn]);
+  const goOauth = async () => {
+    setOauthErr("");
+    try {
+      const r = await onOauth();
+      const tg = window.Telegram?.WebApp;
+      if (tg?.openLink) tg.openLink(r.url); else window.open(r.url, "_blank");
+      setWaiting(true);
+    } catch (e) { setOauthErr(e.message || "не удалось начать вход"); }
+  };
   /* ЧТО СПРАШИВАТЬ — РЕШИЛ СЕРВЕР (владелец, 2026-09-21: «ввод данных
      должен зависеть от того, что запросил сервер»). Схему он назвал в
      заголовке отказа, сервер приложения её разобрал (lib/mcp.js):
@@ -809,6 +837,16 @@ function McpLogin({ rec, busy, onSave, onClose }) {
         <a href={rec.where} target="_blank" rel="noreferrer"
           style={{ fontSize: "var(--fs-hint)", color: ACC, wordBreak: "break-all", display: "inline-block",
             marginTop: "var(--space-4)" }}>{rec.where}</a>)}
+      {rec.oauth && onOauth && (
+        <div style={{ marginTop: "var(--space-8)" }}>
+          <div className="flex gap-2">
+            <button type="button" style={btn(true, OK)} disabled={busy} onClick={goOauth}>
+              Войти на сайте сервера</button>
+          </div>
+          {waiting && <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4) " }}>Жду входа…</div>}
+          {oauthErr && <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{oauthErr}</div>}
+          <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>или ключ</div>
+        </div>)}
       <div style={{ marginTop: "var(--space-8)" }}>
         {basic ? (<>
           <input aria-label="логин" value={user} autoComplete="off"

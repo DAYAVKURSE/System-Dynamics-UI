@@ -73,14 +73,16 @@ export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle
     <div style={{ background: C.panel2, borderRadius: "var(--radius-md)",
       padding: "var(--space-12)", marginBottom: "var(--space-8)",
       ...statusEdge(accent) }}>
-      <div className="flex items-center gap-2">
-        <Arrow open={open} onClick={onToggle}
+      {/* Шапка сворачивает и разворачивает форму одним нажатием (владелец,
+          2026-09-21), а не только стрелка; название и «удалить» — свои. */}
+      <div className="flex items-center gap-2" onClick={onToggle} style={{ cursor: "pointer" }}>
+        <Arrow open={open} onClick={(e) => { e.stopPropagation(); onToggle(); }}
           label={open ? `свернуть ${titleLabel}` : `развернуть ${titleLabel}`} />
         {/* Название формы правится двойным нажатием (владелец, 2026-09-19). */}
         <NameField value={title} onCommit={onTitle}
           style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}
           aria-label={`название ${titleLabel}`} />
-        <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }} onClick={onDelete}>удалить</button>
+        <button style={{ ...btn(true, BAD), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-4)", paddingRight: "var(--space-4)" }} onClick={(e) => { e.stopPropagation(); onDelete(); }}>удалить</button>
       </div>
       {mark && <div style={{ marginTop: 0 }}>{mark}</div>}
       {summary && (
@@ -346,9 +348,12 @@ function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, r
   const r = ratingOf(tasks, pid);
   return (
     <div data-worker={pid} className="flex flex-wrap gap-2"
+      /* Нажатие по самой шапке (не по имени, полоскам или отметке)
+         сворачивает и разворачивает воркера (владелец, 2026-09-21). */
+      onClick={(e) => { if (e.target === e.currentTarget) setOpen(!open); }}
       style={{ background: C.panel2, border: `1px solid ${C.line}`,
         borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)",
-        opacity: on ? 1 : 0.55, alignItems: "center", ...drag.style }}>
+        opacity: on ? 1 : 0.55, alignItems: "center", cursor: "pointer", ...drag.style }}>
       {/* Три полоски — слева от отметки: за них воркера и переставляют. */}
       <Grip label={`переставить ${name}`} bind={drag.bind} />
       <input type="checkbox" checked={on}
@@ -1250,7 +1255,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             {/* Ожидаемый результат — у ФУНКЦИИ, сразу под её названием
                 (владелец, 2026-09-19). У функции из процесса он живёт в его
                 тексте: правим текст, иначе пересборка сотрёт. */}
-            <Form title="ожидаемый результат">
+            <Form title="ожидаемый результат" style={{ marginBottom: "var(--space-8)" }}>
               <input defaultValue={headOf(g).result} aria-label={`ожидаемый результат функции ${gName}`}
                 style={{ ...S.inp, width: "100%", fontSize: "var(--fs-hint)" }}
                 onBlur={(e) => setHead(g, { result: e.target.value.trim() })}

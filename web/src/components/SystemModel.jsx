@@ -10,6 +10,7 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
+import { issuesUnread as issuesUnread_ } from "../identity.js";
 import CodeGate, { PlanCard } from "./CodeGate.jsx";
 import { tabLocked } from "../plans.js";
 import { setStorage } from "../session.js";
@@ -25,7 +26,7 @@ import { Brand, C, OK, WARN, BAD, NEU, ACC, ICON, IconButton, NameField, S, TAB_
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
   crewOf,
   normalizeAssets,
-  editFunc, exceptOf, normalizeFactors, normalizeFunc, normalizeFuncs, pruneWorkers, workersOf }
+  editFunc, exceptOf, normalizeFactors, normalizeFunc, normalizeFuncs, pruneWorkers, withFixedAssets, workersOf }
   from "../lib/funcs.js";
 import ProcessPanel from "./ProcessPanel.jsx";
 import { normalizeProcs } from "../lib/process.js";
@@ -107,11 +108,11 @@ const NW=208,NH=126;
    заявки в обработанные, обработанные возвращаются спросом. Пустое
    приложение не показывает ни одной связи, а на выдуманно большом не видно,
    из чего оно собрано. */
-const ENTITIES0=normalizeAssets([
+const ENTITIES0=withFixedAssets(normalizeAssets([
   {id:"mkt",name:"Рынок услуг",color:"#FFD166",x:24,y:24},
   {id:"usr",name:"Пользователи",color:ACC,x:398,y:24},
   {id:"vm",name:"Виртуальный менеджер",color:OK,x:398,y:300},
-]);
+]));
 const T=(id,e,k,l,unit)=>({id,e,k,l,unit});
 const TRAITS0=[
   T("dem","mkt","res","спрос","обращ."),
@@ -600,7 +601,7 @@ function whenText(iso){
 export const SELF_TAB=["me","Анкета"];
 /* «Рынок услуг» — первой, перед анкетой (владелец, 2026-09-13), и всем:
    заказ оставляет любой зарегистрированный, роль тут не спрашивается. */
-export const MARKET_TAB=["market","Рынок услуг"];
+export const MARKET_TAB=["market","Маркет"];
 export const TAB_LIST=[MARKET_TAB,SELF_TAB,["tasks","Задачи"],["review","Проверка"],
   ["scheme","Схема"],["reports","Отчёты"],["tools","Инструменты"]];
 
@@ -615,7 +616,8 @@ export function docFrom(data,cur){
   const d=data&&typeof data==="object"?data:{};
   const arr=(v,c,need)=>Array.isArray(v)&&(!need||v.length)?v:c;
   return {
-    entities:normalizeAssets(arr(d.entities,cur.entities,true)),
+    // «Владелец» и «Система» — в каждой схеме (владелец, 2026-09-21).
+    entities:withFixedAssets(normalizeAssets(arr(d.entities,cur.entities,true))),
     traits:arr(d.traits,cur.traits),
     kinds:arr(d.kinds,cur.kinds,true),
     tasks:arr(d.tasks,cur.tasks),
@@ -645,7 +647,7 @@ function ScenarioDiff({ added = [], removed = [], changed = [] }) {
   return <DiffBoxes added={added} changed={changed} removed={removed} item={line} gap={4} />;
 }
 
-function ScenarioVersions({ id, when, stamp = "" }) {
+function ScenarioVersions({ id, when, stamp = "", onLoad }) {
   const [open, setOpen] = useState(false);
   const [list, setList] = useState([]);
   const [which, setWhich] = useState(null);
@@ -690,6 +692,12 @@ function ScenarioVersions({ id, when, stamp = "" }) {
                 <span style={{ flex: 1, fontSize: "var(--fs-hint)", color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                   {when(v.at)}</span>
               </button>
+              {/* «Загрузить версию» — на каждой строке (владелец, 2026-09-21). */}
+              {onLoad && (
+                <div className="flex gap-2" style={{ marginTop: "var(--space-4)" }}>
+                  <button type="button" style={btn(false, ACC)} disabled={busy}
+                    aria-label={`загрузить версию ${v.v}`} onClick={() => onLoad(v.v)}>загрузить версию</button>
+                </div>)}
               {which === v.v && (busy
                 ? <div style={{ fontSize: "var(--fs-hint)", color: C.muted, marginTop: "var(--space-4)" }}>смотрю…</div>
                 : diff && <ScenarioDiff added={diff.added} removed={diff.removed}
@@ -838,6 +846,17 @@ export default function SystemModel(){
     return ()=>{ live=false; };
   },[me.known,me.solo]);
   const [tool,setTool]=useState("people");
+  /* Сколько сообщений об ошибках не прочитано: спрашивается при входе и
+     раз в минуту; гаснет, когда список открыли. */
+  const [issuesUnread,setIssuesUnread]=useState(0);
+  useEffect(()=>{
+    if(!me.known||me.solo) return undefined;
+    let live=true;
+    const pull=()=>issuesUnread_().then(n=>{ if(live) setIssuesUnread(n); }).catch(()=>{});
+    pull();
+    const id=setInterval(pull,60000);
+    return ()=>{ live=false; clearInterval(id); };
+  },[me.known,me.solo]);
   /* Окно «Напишите сообщение об ошибке» — значком в шапке (владелец,
      2026-09-21). Оно ни от чего не зависит и ничего не ждёт: человек
      говорит, что сломалось, и возвращается к работе. */
@@ -873,7 +892,10 @@ export default function SystemModel(){
     // Документ достраивается до нынешней записи, но НЕ переносится из
     // прежних версий: модели, собранные под старый расчёт, работать не
     // должны — см. lib/funcs.js.
-    setEntities(normalizeAssets(d.entities));
+    /* «Владелец» и «Система» есть в каждой схеме и не удаляются
+       (владелец, 2026-09-21) — достраиваются и здесь, а не только на
+       сервере: у владельца модель живёт в браузере. */
+    setEntities(withFixedAssets(normalizeAssets(d.entities)));
     setTraits(Array.isArray(d.traits)?d.traits:[]);
     setKinds(d.kinds); setTasks(d.tasks); setFuncs(normalizeFuncs(d.funcs));
     setGoals(normalizeGoals(d.goals));
@@ -1066,7 +1088,7 @@ export default function SystemModel(){
      Владелец пишет модель на сервер, остальные её оттуда читают: только так
      исполнитель вообще увидит поставленную ему задачу. */
   const fromWorkspace=useCallback((w)=>({
-    entities:w?.entities||[], traits:w?.traits||[],
+    entities:withFixedAssets(w?.entities||[]), traits:w?.traits||[],
     kinds:(w?.kinds&&w.kinds.length)?w.kinds:KINDS0,
     tasks:w?.tasks||[], funcs:w?.funcs, goals:w?.goals||[],
     factors:w?.factors||[],
@@ -1364,6 +1386,21 @@ export default function SystemModel(){
       touchScenario(s.id);
       setSavedMsg(`Загружено: «${s.name}».`);
     }catch(e){ setSavedMsg(e.message||"Не удалось загрузить сценарий."); }
+    setSavedBusy(false);
+  };
+  /* Загрузить прежнюю версию сценария (владелец, 2026-09-21): открыть и
+     посмотреть; сохранение сделает из неё новую версию. */
+  const loadVersion=async(v)=>{
+    if(!savedSel) return;
+    setSavedBusy(true);
+    try{
+      const s=await getScenarioVersion(savedSel,v);
+      if(!s) throw new Error("Версия не найдена.");
+      const loaded=docFrom(s.data,docRef.current);
+      restoreDoc(loaded);
+      savedDoc.current=loaded; clearDraft(); setRecovery(null);
+      setSavedMsg(`Загружена версия №${v}.`);
+    }catch(e){ setSavedMsg(e.message||"Не удалось загрузить версию."); }
     setSavedBusy(false);
   };
   const deleteFromDisk=async()=>{
@@ -1989,9 +2026,6 @@ export default function SystemModel(){
           Своя — по умолчанию; чужая открывается нажатием на человека в
           списке воркеров. Вкладкой, а не окном: страница длинная, и в
           окне её пришлось бы листать поверх того, что под ним. */}
-      {tab==="me" && !person && me.code && (
-        <PlanCard me={me}
-          onChanged={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); }}/>)}
       {tab==="me" && (
         <ProfilePanel me={me} personId={person} people={people}
           tasks={tasks} funcs={funcs} published={published} ratings={ratings}
@@ -2005,6 +2039,10 @@ export default function SystemModel(){
             setMe(m=>({...m,profile:p,...(p?.name?{name:p.name}:{})}));
             setPeople(list=>list.map(u=>(String(u.id)===String(me.id)?{...u,...p}:u)));
           }}/>)}
+      {/* «Мой план» — последней формой анкеты (владелец, 2026-09-21). */}
+      {tab==="me" && !person && me.code && (
+        <PlanCard me={me}
+          onChanged={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); }}/>)}
 
       {/* ═══ ОТЧЁТЫ · карта проектов ═══
           Открыта всем вошедшим, как и анкета: отчёт — это то, что человек
@@ -2067,11 +2105,15 @@ export default function SystemModel(){
         {/* Одной строкой и одной высоты (владелец, 2026-09-13): без
             переноса, обе тянутся по высоте строки; под прогнозом никаких
             подписей. */}
-        <div className="flex gap-2" style={{marginBottom: "var(--space-8)",alignItems:"stretch",flexWrap:"nowrap"}}>
-          <div style={{...S.card,padding: "var(--space-4)",marginBottom: 0,flex:"1 1 0",minWidth:0,
-            display:"flex",alignItems:"center"}}
+        {/* Две формы одной высоты, каждая — одной строкой (владелец,
+            2026-09-21: «кнопки в ряд, вторую отрегулируй по высоте»). */}
+        <div className="flex gap-2" style={{marginBottom: "var(--space-8)",alignItems:"stretch",flexWrap:"wrap"}}>
+          <div style={{...S.card,padding: "var(--space-4) var(--space-8)",marginBottom: 0,flex:"1 1 100%",minWidth:0,
+            display:"flex",alignItems:"center",minHeight:"calc(var(--control-h) + var(--space-8))"}}
             aria-label="масштаб">
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Без класса gap-2 нарочно: ряд из одних кнопок сетка растянула
+                бы по ячейкам, а здесь они должны стоять в одну строку. */}
+            <div className="flex items-center" style={{flexWrap:"nowrap",width:"100%",gap:"var(--gap-x)"}}>
               <button style={btn(false)} aria-label="уменьшить"
                 onClick={()=>schemeRef.current?.zoomBy(1/1.25)}>−</button>
               <button style={btn(false)} aria-label="увеличить"
@@ -2084,18 +2126,17 @@ export default function SystemModel(){
               </>)}
             </div>
           </div>
-          <div style={{...S.card,padding: "var(--space-4)",marginBottom: 0,flex:"1 1 0",minWidth:0,
-            display:"flex",flexDirection:"column",justifyContent:"center"}}
+          <div style={{...S.card,padding: "var(--space-4) var(--space-8)",marginBottom: 0,flex:"1 1 100%",minWidth:0,
+            display:"flex",alignItems:"center",minHeight:"calc(var(--control-h) + var(--space-8))"}}
             aria-label="прогноз на схеме">
-            <div style={S.lbl}>прогноз</div>
-            <div className="flex items-center gap-2" style={{marginTop: 0}}>
+            <div className="flex items-center gap-2" style={{marginTop: 0,width:"100%",flexWrap:"nowrap"}}>
+            <span style={S.lbl}>прогноз</span>
               <input type="range" min={0} max={span} value={simMonth}
                 aria-label="месяц на схеме"
                 title="На блоке — сколько ресурса будет к этому месяцу, вилкой"
                 onChange={e=>setSimMonth(Number(e.target.value))}
                 style={{flex:1,minWidth:60}}/>
               <span style={{fontSize:"var(--fs-hint)",color:ACC,minWidth:34}}>{simMonth} мес</span>
-            </div>
             {/* Галочка гипотез — здесь, под ползунком прогноза (владелец,
                 2026-09-20: «этот чекбокс должен быть на форме прогноза, под
                 полоской прокрутки прогноза»), и ВСЕГДА (владелец,
@@ -2104,10 +2145,11 @@ export default function SystemModel(){
                 пропадала на одной схеме, возвращаясь на другой: человек
                 искал переключатель там, где его только что видел. */}
             <label className="flex items-center gap-2"
-              style={{fontSize:"var(--fs-hint)",color:hypoOn?WARN:C.muted,marginTop: "var(--space-4)",cursor:"pointer"}}>
+              style={{fontSize:"var(--fs-hint)",color:hypoOn?WARN:C.muted,marginTop:0,cursor:"pointer",whiteSpace:"nowrap"}}>
               <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
-              включить гипотезы
+              гипотезы
             </label>
+            </div>
           </div>
         </div>
 
@@ -2389,8 +2431,16 @@ export default function SystemModel(){
             .map(([k,t])=>(
               <button key={k} style={{...btn(tool===k,OK),
                   opacity:tabLocked(me,`tools:${k}`)?0.35:undefined}}
-                disabled={tabLocked(me,`tools:${k}`)}
-                onClick={()=>setTool(k)}>{t}</button>))}
+                disabled={tabLocked(me,`tools:${k}`)} aria-label={t}
+                onClick={()=>setTool(k)}>{t}
+                {/* Непрочитанные сообщения об ошибках — красным кружком
+                    справа от названия (владелец, 2026-09-21). */}
+                {k==="issues"&&issuesUnread>0&&(
+                  <span aria-label={`непрочитанных: ${issuesUnread}`}
+                    style={{display:"inline-block",marginLeft:6,minWidth:18,height:18,lineHeight:"18px",
+                      borderRadius:9,background:BAD,color:"#fff",fontSize:"11px",fontWeight:700,
+                      padding:"0 5px",textAlign:"center",verticalAlign:"middle"}}>{issuesUnread}</span>)}
+              </button>))}
         </div>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="people" && (
@@ -2438,7 +2488,7 @@ export default function SystemModel(){
       {/* Issues — сообщения об ошибках, присланные значком из шапки
           (владелец, 2026-09-21): список и «Удалить» рядом с каждым. */}
       {tab==="tools" && me.tabs.includes("tools") && tool==="issues" && (
-        <IssuesPanel me={me}/>)}
+        <IssuesPanel me={me} onSeen={()=>setIssuesUnread(0)}/>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="calls" && (
         <CallsBoard me={me} people={people} openCall={openCall}
@@ -2467,7 +2517,7 @@ export default function SystemModel(){
 
           {/* ═══ СОХРАНЕНИЕ НА ДИСКЕ СЕРВЕРА ═══ */}
           <div style={{marginTop: "var(--space-12)",borderTop:`1px solid ${C.line}`,paddingTop: "var(--space-8)"}}>
-            <div style={S.lbl}>сохранённые сценарии{savedWhere?` · ${savedWhere}`:""}</div>
+            <div style={S.lbl}>сохранённые сценарии</div>
             <div className="flex flex-wrap gap-2" style={{margin: "var(--space-8) 0"}}>
               <input placeholder="имя сценария" value={saveName}
                 onChange={e=>setSaveName(e.target.value)}
@@ -2490,7 +2540,7 @@ export default function SystemModel(){
               <button style={{ ...btn(true, BAD) }}
                 disabled={savedBusy} onClick={deleteFromDisk}>Удалить</button>
             </div>
-            <ScenarioVersions id={savedSel} when={whenText}
+            <ScenarioVersions id={savedSel} when={whenText} onLoad={loadVersion}
               stamp={savedList.find(s=>s.id===savedSel)?.savedAt||""}/>
             {/* Предел — до отказа, а не вместо него: у диска сервера и облака
                 Telegram пределы разные, и подпись считает по тому, куда

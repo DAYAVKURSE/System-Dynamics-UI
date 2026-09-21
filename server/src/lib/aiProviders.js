@@ -92,8 +92,9 @@ const cleanMessages = (messages) => (Array.isArray(messages) ? messages : [])
     ? { role: "tool", callId: String(m.callId || ""), name: String(m.name || ""),
       content: String(m.content ?? "") }
     : { role: m.role, content: String(m.content ?? ""),
-      ...(Array.isArray(m.calls) && m.calls.length ? { calls: m.calls } : {}) }))
-  .filter((m) => m.role === "tool" || m.content.trim() || m.calls);
+      ...(Array.isArray(m.calls) && m.calls.length ? { calls: m.calls } : {}),
+      ...(m.image?.data ? { image: m.image } : {}) }))
+  .filter((m) => m.role === "tool" || m.content.trim() || m.calls || m.image);
 
 /* Ключ из текста ошибки вырезается ДО того, как ошибка станет ошибкой:
    провайдер может вернуть тело запроса обратно, а nginx перед ним —
@@ -125,6 +126,14 @@ const openaiLike = {
         return { role: "assistant", content: m.content || null,
           tool_calls: m.calls.map((c) => ({ id: c.id, type: "function",
             function: { name: c.name, arguments: JSON.stringify(c.args || {}) } })) };
+      }
+      /* Картинка при сообщении (снимок экрана из приложения) — частями:
+         текст и image_url с data-URI. */
+      if (m.image?.data) {
+        return { role: m.role, content: [
+          { type: "text", text: m.content || "" },
+          { type: "image_url", image_url: { url: `data:${m.image.mime || "image/png"};base64,${m.image.data}` } },
+        ] };
       }
       return { role: m.role, content: m.content };
     });
@@ -178,6 +187,13 @@ const anthropic = {
           ...(m.content ? [{ type: "text", text: m.content }] : []),
           ...m.calls.map((c) => ({ type: "tool_use", id: c.id, name: c.name,
             input: c.args || {} })),
+        ] });
+        continue;
+      }
+      if (m.image?.data) {
+        out.push({ role: m.role, content: [
+          { type: "image", source: { type: "base64", media_type: m.image.mime || "image/png", data: m.image.data } },
+          { type: "text", text: m.content || "" },
         ] });
         continue;
       }

@@ -73,7 +73,7 @@ describe("«Загрузить» из выгрузки", () => {
     expect(out.goals).toEqual(normalizeGoals([g]));
     expect(out.space).toBeUndefined();
     expect(out.kinds).toBe(cur.kinds);         // пустые классификации не принимаются
-    expect(out.entities.map((e) => e.id)).toEqual(["a"]);
+    expect(out.entities.map((e) => e.id)).toEqual(["a", "owner", "system"]);
     expect(docFrom(null, cur).goals).toEqual([]);
   });
 });

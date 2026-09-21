@@ -16,6 +16,8 @@ import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import * as codes from "./lib/codes.js";
 import { verifyInitData } from "./lib/telegramAuth.js";
 import { createInvoiceLink } from "./lib/telegram.js";
+import { finishLogin } from "./lib/mcpOauth.js";
+import { setMcpAuth } from "./lib/assistantSettings.js";
 
 /* Кто прислал запрос — по подписи Telegram, без обязательности: нет
    подписи или она негодна — просто «никто». */
@@ -177,6 +179,23 @@ export function createApp() {
       } catch (e) { out.body.payment.invoiceError = e.message; }
     }
     res.status(out.status).json(out.body);
+  });
+  /* Возврат со страницы входа MCP-сервера (lib/mcpOauth.js): без подписи
+     Telegram — сюда приходит браузер по ссылке от сервера авторизации,
+     а кто входил, помнит ожидание по `state`. */
+  app.get("/api/assistant/mcp/oauth/callback", async (req, res) => {
+    const page = (title, text) => res.set("Content-Type", "text/html; charset=utf-8").send(
+      `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title>`
+      + `<style>body{margin:0;background:#0b0f14;color:#e8edf2;font:15px/1.5 -apple-system,Inter,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;text-align:center}</style></head>`
+      + `<body><div><h1 style="font-size:17px">${title}</h1><p>${text}</p></div><script>setTimeout(function(){try{window.close()}catch(e){}},1500)</script></body></html>`);
+    try {
+      if (req.query.error) return page("Вход не выполнен", String(req.query.error_description || req.query.error).slice(0, 300));
+      const r = await finishLogin(String(req.query.state || ""), String(req.query.code || ""));
+      setMcpAuth(r.userId, r.mcpId, r.auth);
+      return page("Вход выполнен", "Вернитесь в приложение и нажмите «Опросить» ещё раз.");
+    } catch (e) {
+      return page("Вход не выполнен", String(e?.message || e).slice(0, 300));
+    }
   });
   /* Панель подписок админ-бота: страница и API (см. lib/codes.js). */
   app.get(["/admin", "/admin/"], async (_req, res) => {

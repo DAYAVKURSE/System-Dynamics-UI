@@ -241,8 +241,12 @@ function Goal({ goal, traits, model, runsOf, onSet, onDel, onApply, onRecall, op
       padding: "var(--space-8)", marginBottom: "var(--space-4)" }}>
       {/* Заголовок — имя цели, если его дали, иначе сама цель словами.
           Имя правится двойным нажатием (владелец, 2026-09-19). */}
-      <div className="flex items-center gap-2">
-        <Arrow open={open} label={`${open ? "свернуть" : "развернуть"} цель`} onClick={onToggle} />
+      {/* Шапка сворачивает форму одним нажатием (владелец, 2026-09-21);
+          поля и кнопки в ней — свои. */}
+      <div className="flex items-center gap-2" style={{ cursor: "pointer" }}
+        onClick={(e) => { if (e.detail > 1 || e.target.closest("input,button,a,select,textarea")) return; onToggle(); }}>
+        <Arrow open={open} label={`${open ? "свернуть" : "развернуть"} цель`}
+          onClick={(e) => { e.stopPropagation(); onToggle(); }} />
         {naming ? (
           <input autoFocus aria-label="название цели" defaultValue={goal.name || ""}
             placeholder={ready ? goalText(goal, traitName) : "название цели"}

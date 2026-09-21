@@ -194,7 +194,7 @@ async function setStatus(deps, e, text, keyboard) {
  * Возвращает { answered: "queued", id, done }: done — обещание, что ответ
  * или ошибка уже ушли в чат; бот его не ждёт, тесты — ждут.
  */
-async function askQuestion(deps, { userId, chatId, question, context = "" }) {
+async function askQuestion(deps, { userId, chatId, question, context = "", image = null }) {
   const a = deps.assistant || deps;
   const send = deps.send || a.send;
   sweep();
@@ -202,6 +202,9 @@ async function askQuestion(deps, { userId, chatId, question, context = "" }) {
      волшебной палочкой, владелец 2026-09-21). Хранится при вопросе, чтобы
      «Уточнить» продолжало разговор с тем же экраном перед глазами. */
   const e = { id: "", queueId: null, userId, chatId, question, context: String(context || ""),
+    /* Снимок экрана (вопрос из приложения) — модели, картинкой: иначе на
+       «что ты видишь на скриншоте?» она отвечала бы про что угодно. */
+    image: image || null,
     messageId: null, done: false, at: Date.now(), tick: 0, timer: null, chain: Promise.resolve() };
   /* Такт может прийти раньше, чем Telegram вернёт номер сообщения-статуса:
      часы заводятся вместе с вопросом. Поэтому правки идут цепочкой по
@@ -258,7 +261,7 @@ async function askQuestion(deps, { userId, chatId, question, context = "" }) {
   let raw;
   try {
     raw = a.ask(userId, question.slice(0, MAX_QUESTION), e.context,
-      { task: BOT_TASK, onConfirm, onAuthNeeded });
+      { task: BOT_TASK, onConfirm, onAuthNeeded, ...(e.image ? { image: e.image } : {}) });
   } catch (err) {
     raw = Promise.reject(err);
   }
@@ -466,7 +469,8 @@ export async function askFromApp(deps, { userId, chatId, question, context = "",
     try { await deps.tg.sendPhoto(chatId, { bytes: shot, name: "screen.png", caption: "Экран в момент вопроса" }); }
     catch (err) { logOf(deps)(`снимок экрана не отправлен: ${err.message}`); }
   }
-  return askQuestion(deps, { userId, chatId, question: q, context });
+  const image = shot?.length ? { mime: "image/png", data: Buffer.from(shot).toString("base64") } : null;
+  return askQuestion(deps, { userId, chatId, question: q, context, image });
 }
 
 /**

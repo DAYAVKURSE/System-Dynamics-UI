@@ -101,3 +101,30 @@ export async function removeIssue(id) {
     return true;
   });
 }
+
+/* ─────── прочитано и исправлено (владелец, 2026-09-21) ───────
+   «Прочитано» — тем, кто открыл список; счётчик непрочитанных стоит на
+   кнопке вкладки красным кружком. «Исправлено» — отправителю уходит
+   сообщение в бот, а у записи остаётся отметка. */
+export async function unreadCount() {
+  return (await readIssues()).filter((x) => !x.seenAt).length;
+}
+export async function markSeen() {
+  return withIssues(async (list) => {
+    const at = new Date().toISOString();
+    let changed = false;
+    list.forEach((x) => { if (!x.seenAt) { x.seenAt = at; changed = true; } });
+    if (changed) await writeIssues(list);
+    return changed;
+  });
+}
+export async function markFixed(id) {
+  return withIssues(async (list) => {
+    const x = list.find((y) => y.id === String(id));
+    if (!x) return null;
+    x.fixedAt = new Date().toISOString();
+    await writeIssues(list);
+    return x;
+  });
+}
+export const fixedText = (issue) => `Отправленная проблема исправлена:\n${issue.text}\nСпасибо за помощь в развитии проекта!`;

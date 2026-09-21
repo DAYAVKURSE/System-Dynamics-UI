@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { C, OK, WARN, ACC, BAD, S, btn, Download, FoldCard, DANGER_LINE } from "./ui.jsx";
 import { TAB_NAMES } from "../identity.js";
 import { DEFAULT_PLANS, METHODS, METHOD_NAMES, PLAN_TABS } from "../plans.js";
-import { changePlan, fetchPlans, forgetKey, loginWithKey, registerCode, rotateKey, savedKey } from "../codes.js";
+import { changePlan, fetchPlans, forgetKey, loginWithKey, registerCode, savedKey } from "../codes.js";
 import PayScreen from "./PayScreen.jsx";
 
 /* ════════════════════════════════════════════════════════════════
@@ -197,7 +197,7 @@ export function PlanCard({ me, onChanged }) {
   };
   const until = me?.code?.until ? new Date(me.code.until) : null;
   return (
-    <FoldCard title="план и ключ" open={false}>
+    <FoldCard title="мой план" open={false}>
       <PlanPick plans={plans} plan={plan} onPick={setPlan} current={cur} label="" />
       {until && !isNaN(until) && (
         <div style={{ color: C.muted, marginTop: "var(--space-4)" }} aria-label="срок подписки">
@@ -220,10 +220,9 @@ export function PlanCard({ me, onChanged }) {
           ? <KeyView value={savedKey()} />
           : (
             <div className="flex gap-2">
+              {/* Ключ выдаётся один раз и навсегда (владелец, 2026-09-21):
+                  замены нет. */}
               <button type="button" style={btn(false)} onClick={() => setShown(true)}>Показать ключ</button>
-              <button type="button" style={btn(false)} disabled={busy}
-                onClick={() => run(async () => { await rotateKey(); setShown(true); }, "Ключ заменён.")}>
-                Заменить ключ</button>
               <button type="button" style={{ ...btn(false, BAD), borderColor: DANGER_LINE }}
                 onClick={() => { forgetKey(); onChanged?.(); }}>Выйти</button>
             </div>)}

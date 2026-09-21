@@ -209,6 +209,8 @@ describe("статус и кнопки под ним", () => {
     edits.forEach((e) => expect(e.text === "Готово" || /^🕐|🕑|🕒|🕓|🕔|🕕|🕖|🕗|🕘|🕙|🕚|🕛/.test(e.text)).toBe(true));
     expect(edits.some((e) => /Спрашиваю|Собираю|Отвечаю/.test(e.text))).toBe(false);
     edits.forEach((e) => expect(e.messageId).toBe(1));
+    // Отпускать есть кого только после вызова модели: под нагрузкой он позже.
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
     release("Задач нет.");
     expect(await r.done).toEqual({ answered: true, parts: 1, id: r.id });
     expect(sent[1].text).toBe("Задач нет.");

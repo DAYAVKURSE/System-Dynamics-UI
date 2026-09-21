@@ -849,6 +849,21 @@ export const normalizeAsset = (e = {}) => ({
 export const normalizeAssets = (list) =>
   (Array.isArray(list) ? list.map(normalizeAsset) : []);
 
+/* «Владелец» и «Система» — в каждой схеме и не удаляются (владелец,
+   2026-09-21): «Владелец» — сам человек, там появляются его услуги и
+   задачи для других; «Система» — маркет, все стрелки наружу идут в
+   неё. Тот же список — на сервере (workspaceStore.FIXED_ASSETS). */
+export const FIXED_ASSETS = [
+  { id: "owner", name: "Владелец", color: "#5EEAD4", x: 24, y: 300, fixed: true },
+  { id: "system", name: "Система", color: "#FFD166", x: 24, y: 560, fixed: true },
+];
+export function withFixedAssets(list = []) {
+  const ents = Array.isArray(list) ? list : [];
+  const missing = FIXED_ASSETS.filter((f) => !ents.some((e) => e && e.id === f.id));
+  return [...ents.map((e) => (FIXED_ASSETS.some((f) => f.id === e?.id) ? { ...e, fixed: true } : e)),
+    ...missing.map((f) => normalizeAsset({ ...f }))];
+}
+
 /** Воркеры актива: постановщики, исполнители и проверяющие. */
 export const workersOf = (entities = [], id) => {
   const e = entities.find((x) => x.id === id);

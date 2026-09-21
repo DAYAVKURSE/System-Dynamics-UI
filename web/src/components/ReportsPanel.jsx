@@ -147,7 +147,7 @@ export function ChangeChart({ rows = [], traitName, madeOf, off, onToggle }) {
           <span style={{ position: "absolute", right: 0, top: zeroY - 6 }}>0</span>
           {rawMin < 0 && <span style={{ position: "absolute", right: 0, bottom: 0 }}>{nm(rawMin)}</span>}
         </div>
-        <div data-chart="" style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
+        <div data-chart="" style={{ flex: 1, minWidth: 0, overflowX: "auto", overflowY: "hidden" }}>
           <div className="flex" style={{ alignItems: "flex-end", gap: "var(--space-8)",
             minWidth: `${rows.length * 42}px` }}>
             {rows.map((r) => {
@@ -1096,12 +1096,15 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
       padding: "var(--space-8)", marginTop: "var(--space-8)",
       borderLeft: depth ? `2px solid ${C.line}` : `1px solid ${C.line}`,
       marginLeft: depth ? 6 : 0, ...drag.style }}>
-      <div className="flex items-center gap-2">
+      {/* Шапка сворачивает раздел одним нажатием (владелец, 2026-09-21);
+          полоски, имя и кнопки в ней — свои. */}
+      <div className="flex items-center gap-2" style={{ cursor: "pointer" }}
+        onClick={(e) => { if (e.detail > 1 || e.target.closest("input,button,a,select,textarea,[data-drag]")) return; setOpen(!open); }}>
         {/* Три полоски слева: за них раздел перетаскивают и меняют местами
             с соседями (владелец, 2026-09-20). */}
         <Grip label={`переставить ${node.name || "без названия"}`} bind={drag.bind} />
         <Arrow open={open} label={`${open ? "свернуть" : "развернуть"} ${node.name || "блок"}`}
-          onClick={() => setOpen(!open)} />
+          onClick={(e) => { e.stopPropagation(); setOpen(!open); }} />
         {/* Имя правится двойным нажатием, как у техпроцессов; слова
             «проект» в шапке больше нет (владелец, 2026-09-19). */}
         <NameField value={node.name} aria-label={root ? "название отчёта" : "название раздела"}

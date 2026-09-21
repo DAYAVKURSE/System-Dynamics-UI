@@ -135,7 +135,19 @@ function authOf(raw) {
   const kind = AUTH_KINDS.includes(String(raw.kind)) ? String(raw.kind) : "none";
   if (kind === "bearer") {
     const token = String(raw.token || "").trim().slice(0, AUTH_LIMIT);
-    return token ? { kind, token } : null;
+    if (!token) return null;
+    /* Токен, полученный через OAuth (lib/mcpOauth.js), носит с собой
+       refresh-токен, срок и адрес обмена — чтобы обновляться самому. */
+    const oauth = raw.oauth && typeof raw.oauth === "object" && raw.oauth.tokenUrl
+      ? { tokenUrl: String(raw.oauth.tokenUrl).slice(0, 500), clientId: String(raw.oauth.clientId || "").slice(0, 300),
+        clientSecret: String(raw.oauth.clientSecret || "").slice(0, AUTH_LIMIT),
+        resource: String(raw.oauth.resource || "").slice(0, 500) }
+      : null;
+    const expiresAt = Number(raw.expiresAt);
+    return { kind, token,
+      ...(raw.refresh ? { refresh: String(raw.refresh).slice(0, AUTH_LIMIT) } : {}),
+      ...(Number.isFinite(expiresAt) && expiresAt > 0 ? { expiresAt } : {}),
+      ...(oauth ? { oauth } : {}) };
   }
   if (kind === "basic") {
     const login = String(raw.login || "").trim().slice(0, 300);

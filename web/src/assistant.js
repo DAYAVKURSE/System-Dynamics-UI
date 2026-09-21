@@ -81,6 +81,10 @@ export const mcpTools = (id) =>
   json(`/api/assistant/mcp/${encodeURIComponent(id)}/tools`, { method: "POST" });
 /* Вход на сервер: ключ или логин с паролем. Обратно приходит только вид
    входа — ни ключ, ни пароль в браузер не возвращаются. */
+/* Вход через страницу сервера (OAuth): сервер даёт ссылку, человек входит
+   там, токен ложится к серверу сам (владелец, 2026-09-21). */
+export const startMcpOauth = (id, hint = "") =>
+  json(`/api/assistant/mcp/${encodeURIComponent(id)}/oauth/start`, { method: "POST", body: JSON.stringify({ hint }) });
 export const setMcpAuth = (id, auth) =>
   json(`/api/assistant/mcp/${encodeURIComponent(id)}/auth`, { method: "PUT", body: JSON.stringify(auth) });
 /* Реестр — общий каталог серверов: форма показывает его и умеет обновить.

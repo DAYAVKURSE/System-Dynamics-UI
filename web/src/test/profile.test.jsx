@@ -216,7 +216,7 @@ describe("вкладка «Анкета»", () => {
   beforeEach(() => { localStorage.clear(); resetIdentity(); });
 
   it("стоит до задач — сразу после «Рынка услуг» (владелец, 2026-09-13: рынок первым)", () => {
-    expect(TAB_LIST[0]).toEqual(["market", "Рынок услуг"]);
+    expect(TAB_LIST[0]).toEqual(["market", "Маркет"]);
     expect(TAB_LIST[1]).toEqual(["me", "Анкета"]);
   });
 

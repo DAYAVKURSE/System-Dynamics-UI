@@ -315,7 +315,8 @@ describe("отмена", () => {
     const stages = [];
     const a = q.askNow("200", "1", "", { onProgress: (s) => stages.push(s) });
     const b = q.ask({ userId: "200", question: "2" });
-    await tick(); await tick();
+    // Отменяем НАЧАТЫЙ: ждём, пока первый дойдёт до модели, а не два тика.
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
     q.cancel(a.id, "200");
     await a.catch(() => {});
     // Второй тоже «модель», которая ждёт отмены — отменяем и его, чтобы дождаться.
@@ -356,7 +357,7 @@ describe("отмена", () => {
     const { q } = make({ complete: abortable(calls) });
     const ac = new AbortController();
     const p = q.askNow("200", "?", "", { signal: ac.signal });
-    await tick(); await tick();
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
     ac.abort();
     await expect(p).rejects.toThrow(CANCELLED_ERROR);
     expect(calls[0].signal.aborted).toBe(true);

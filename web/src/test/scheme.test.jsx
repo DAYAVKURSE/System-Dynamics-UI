@@ -39,9 +39,9 @@ describe("формы над схемой", () => {
     expect(within(sim).getByLabelText("месяц на схеме")).toBeInTheDocument();
     // Под прогнозом никаких подписей (владелец, 2026-09-13).
     expect(within(sim).queryByText(/На блоке/)).toBeNull();
-    // Обе формы — в одной строке, без переноса.
+    // Обе формы — в одном ряду, друг под другом (владелец, 2026-09-21).
     expect(scale.parentElement).toBe(sim.parentElement);
-    expect(scale.parentElement.style.flexWrap).toBe("nowrap");
+    expect(scale.parentElement.style.flexWrap).toBe("wrap");
   });
 });
 

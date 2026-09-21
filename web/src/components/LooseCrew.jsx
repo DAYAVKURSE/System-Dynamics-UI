@@ -123,7 +123,9 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
 
   if (!loose.length) return null;
   return (
-    <div style={{ ...S.card, marginBottom: "var(--space-8)", borderColor: WARN }}>
+    <div style={{ ...S.card, marginBottom: "var(--space-8)", borderColor: WARN,
+      // Уже, чем схема (владелец, 2026-09-21): подложка, а не форма на всю ширину.
+      width: "fit-content", maxWidth: "100%", minWidth: 220 }}>
       <button style={{ background: "none", border: "none", padding: 0, width: "100%",
         textAlign: "left", cursor: "pointer", color: C.text }}
         aria-label={`участники без актива: ${loose.length}`}

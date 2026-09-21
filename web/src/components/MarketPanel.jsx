@@ -10,7 +10,7 @@ import {
   getMarketPerson, putBrief, sendChat, updateOrder, updateService,
 } from "../market.js";
 import {
-  daysText, emptyRow, matchServices, orderFromFunc, rowsLine, rowText, serviceFromFunc,
+  DUR_UNITS, daysFrom, daysText, durText, emptyRow, matchServices, orderFromFunc, rowsLine, rowText, serviceFromFunc,
 } from "../lib/market.js";
 import { putReportFile, reportSrc } from "../storage.js";
 import Modal from "./Modal.jsx";
@@ -166,6 +166,8 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
   saveLabel = "Выложить услугу" }) {
   const [f, setF] = useState({ name: "", text: "", takes: [], gives: [], funcId: null,
     ...initial, days: initial?.days ?? "", auto: initial?.auto === true,
+    // Срок — число и единица (владелец, 2026-09-21); прежние записи — в днях.
+    dur: initial?.dur ?? initial?.days ?? "", durUnit: initial?.durUnit || "day",
     // Приватна по умолчанию (владелец, 2026-09-21).
     private: initial?.private !== false });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
@@ -180,10 +182,14 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
       <Rows rows={f.takes} onChange={(rows) => up({ takes: rows })} label="берёт" />
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>какие выдаёт</div>
       <Rows rows={f.gives} onChange={(rows) => up({ gives: rows })} label="выдаёт" />
-      <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
-        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>за какое время выполняется, дней</span>
+      <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)", flexWrap: "wrap" }}>
+        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>за какое время выполняется</span>
         <input aria-label="срок услуги" inputMode="decimal" style={{ ...S.inp, maxWidth: 90 }}
-          value={f.days ?? ""} onChange={(e) => up({ days: e.target.value })} />
+          value={f.dur ?? ""} onChange={(e) => up({ dur: e.target.value })} />
+        <select aria-label="единица срока" value={f.durUnit}
+          onChange={(e) => up({ durUnit: e.target.value })} style={{ ...S.inp, maxWidth: 120 }}>
+          {DUR_UNITS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+        </select>
       </div>
       {/* Автоматический приём (владелец, 2026-09-20): заказ по этой
           услуге не ждёт переписки — отклик создаётся сам и сам
@@ -204,7 +210,8 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
       <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !f.name.trim()}
           onClick={() => onSave({ name: f.name.trim(), text: f.text, takes: cleanRows(f.takes),
-            gives: cleanRows(f.gives), days: f.days === "" ? null : f.days, funcId: f.funcId,
+            gives: cleanRows(f.gives), days: daysFrom(f.dur, f.durUnit), dur: f.dur === "" ? null : f.dur,
+            durUnit: f.durUnit, funcId: f.funcId,
             auto: f.auto, private: f.private })}>
           {saveLabel}</button>
         <button type="button" style={btn(false)} onClick={onCancel}>Отмена</button>
@@ -658,7 +665,7 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
         <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
           <div><b>берёт:</b> {rowsLine(s.takes) || "—"}</div>
           <div><b>выдаёт:</b> {rowsLine(s.gives) || "—"}</div>
-          <div><b>выполняется за:</b> {daysText(s.days)}</div>
+          <div><b>выполняется за:</b> {durText(s)}</div>
         </div>
         {(mineSvc || isOwner) && (
           <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
@@ -676,74 +683,88 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
   );
 }
 
-/* ─────── ПОЛОСА ПОД ПОИСКОМ: СОРТИРОВКА И ФИЛЬТРЫ (владелец, 2026-09-21) ───────
+/* ─────── СОРТИРОВКА И ФИЛЬТРЫ (владелец, 2026-09-21) ───────
 
-   «Под поиском полоска, под которой будут кнопки сортировки и
-   фильтрации». Сортировка — одна из четырёх, нажатие по той же снимает
-   её. Фильтры — два статуса и ресурсы: список ресурсов — из всего, что
-   найдено в этом поиске, у каждого чекбокс и диапазон. Счёт — в
-   lib/marketSort.js. */
+   Сортировка — выпадающим списком над списком, с направлением («по дате:
+   сначала новые / сначала старые»). Фильтры — кнопкой, которая открывает
+   модальное окно: статусы и ресурсы (у каждого — отметка и диапазон);
+   применяются по «Применить». Счёт — в lib/marketSort.js. */
 function SortFilterBar({ found, sort, onSort, flt, onFlt }) {
-  const [resOpen, setResOpen] = useState(false);
-  const res = resourcesIn(found);
-  const picked = pickedRes(flt);
-  const setRes = (name, patch) => onFlt({ ...flt, res: { ...flt.res, [name]: { ...(flt.res[name] || { min: "", max: "" }), ...patch } } });
-  const toggleRes = (name) => {
-    if (flt.res[name]) { const next = { ...flt.res }; delete next[name]; onFlt({ ...flt, res: next }); }
-    else setRes(name, { min: "", max: "" });
-  };
+  const [open, setOpen] = useState(false);
   const n = activeCount(flt);
   return (
     <div data-strip="" aria-label="сортировка и фильтры"
-      style={{ borderTop: `1px solid ${C.line}`, marginTop: "var(--space-8)",
-        paddingTop: "var(--space-8)", marginBottom: "var(--space-8)" }}>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="сортировка">
-        {SORTS.map(([k, t]) => (
-          <button key={k} type="button" aria-pressed={sort === k}
-            style={{ ...btn(sort === k, ACC) }}
-            onClick={() => onSort(sort === k ? "" : k)}>{t}</button>))}
-      </div>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="фильтры"
-        style={{ marginTop: "var(--space-4)" }}>
-        <button type="button" aria-pressed={flt.ready} style={{ ...btn(flt.ready, OK) }}
-          onClick={() => onFlt({ ...flt, ready: !flt.ready })}>на рабочем месте</button>
-        <button type="button" aria-pressed={flt.auto} style={{ ...btn(flt.auto, OK) }}
-          onClick={() => onFlt({ ...flt, auto: !flt.auto })}>принимает заказ автоматически</button>
-        <button type="button" aria-expanded={resOpen} aria-label="ресурсы"
-          style={{ ...btn(picked.length > 0 || resOpen, WARN) }}
-          onClick={() => setResOpen((v) => !v)}>
-          ресурсы{picked.length ? ` · ${picked.length}` : ""}</button>
-        {n > 0 && (
-          <button type="button" style={{ ...btn(false) }} aria-label="снять фильтры"
-            onClick={() => onFlt(emptyFilter())}>снять</button>)}
-      </div>
-      {resOpen && (
-        <div aria-label="фильтр ресурсов" style={{ marginTop: "var(--space-8)", maxHeight: 220, overflowY: "auto" }}>
-          {!res.length && <div style={hint}>В найденном ресурсов нет.</div>}
-          {res.map((r) => {
-            const on = !!flt.res[r.name];
-            const cur = flt.res[r.name] || { min: "", max: "" };
-            return (
-              <div key={r.name} className="flex items-center gap-2"
-                style={{ padding: "var(--space-4) 0", borderBottom: `1px solid ${C.lineSoft}` }}>
-                <input type="checkbox" checked={on} aria-label={`ресурс ${r.name}`}
-                  onChange={() => toggleRes(r.name)} style={{ flex: "0 0 auto", margin: 0 }} />
-                <span style={{ flex: 1, minWidth: 0, fontSize: "var(--fs-hint)", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {r.name}
-                  {r.min != null && (
-                    <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}>
-                      {" "}· {r.min === r.max ? r.max : `${r.min} … ${r.max}`}</span>)}
-                </span>
-                <input inputMode="decimal" aria-label={`${r.name}: от`} placeholder="от"
-                  disabled={!on} value={cur.min} onChange={(e) => setRes(r.name, { min: e.target.value })}
-                  style={{ ...S.inp, width: 64, flex: "0 0 64px", padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)" }} />
-                <input inputMode="decimal" aria-label={`${r.name}: до`} placeholder="до"
-                  disabled={!on} value={cur.max} onChange={(e) => setRes(r.name, { max: e.target.value })}
-                  style={{ ...S.inp, width: 64, flex: "0 0 64px", padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)" }} />
-              </div>);
-          })}
-        </div>)}
+      className="flex items-center gap-2"
+      style={{ marginTop: "var(--space-8)", marginBottom: "var(--space-8)" }}>
+      <select aria-label="сортировка" value={sort} onChange={(e) => onSort(e.target.value)}
+        style={{ ...S.inp, flex: 1, minWidth: 0 }}>
+        {SORTS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+      </select>
+      <button type="button" aria-label="фильтры" style={{ ...btn(n > 0, OK), flex: "0 0 auto" }}
+        onClick={() => setOpen(true)}>Фильтры{n ? ` · ${n}` : ""}</button>
+      {open && (
+        <FilterModal found={found} flt={flt} onClose={() => setOpen(false)}
+          onApply={(f) => { onFlt(f); setOpen(false); }} />)}
     </div>);
+}
+
+/* Окно фильтров: правится черновик, список меняется по «Применить». */
+function FilterModal({ found, flt, onApply, onClose }) {
+  const [draft, setDraft] = useState(() => ({ ...flt, res: { ...(flt.res || {}) } }));
+  const res = resourcesIn(found);
+  const setRes = (name, patch) => setDraft((d) => ({ ...d,
+    res: { ...d.res, [name]: { ...(d.res[name] || { min: "", max: "" }), ...patch } } }));
+  const toggleRes = (name) => setDraft((d) => {
+    if (d.res[name]) { const next = { ...d.res }; delete next[name]; return { ...d, res: next }; }
+    return { ...d, res: { ...d.res, [name]: { min: "", max: "" } } };
+  });
+  const lbl = { fontSize: "var(--fs-hint)", cursor: "pointer" };
+  return (
+    <Modal title="Фильтры" onClose={onClose}>
+      <div style={S.lbl}>статус</div>
+      <label className="flex items-center gap-2" style={{ ...lbl, marginTop: "var(--space-4)" }}>
+        <input type="checkbox" checked={!!draft.ready} aria-label="на рабочем месте"
+          onChange={(e) => setDraft((d) => ({ ...d, ready: e.target.checked }))} style={{ accentColor: OK }} />
+        на рабочем месте
+      </label>
+      <label className="flex items-center gap-2" style={{ ...lbl, marginTop: "var(--space-4)" }}>
+        <input type="checkbox" checked={!!draft.auto} aria-label="принимает заказ автоматически"
+          onChange={(e) => setDraft((d) => ({ ...d, auto: e.target.checked }))} style={{ accentColor: OK }} />
+        принимает заказ автоматически
+      </label>
+      <div style={{ ...S.lbl, marginTop: "var(--space-12)" }}>ресурсы</div>
+      {!res.length && <div style={{ ...hint, marginTop: "var(--space-4)" }}>В найденном ресурсов нет.</div>}
+      <div aria-label="фильтр ресурсов" style={{ marginTop: "var(--space-4)", maxHeight: "45vh", overflowY: "auto" }}>
+        {res.map((r) => {
+          const on = !!draft.res[r.name];
+          const v = draft.res[r.name] || { min: "", max: "" };
+          return (
+            <div key={r.name} style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-4) 0" }}>
+              <label className="flex items-center gap-2" style={lbl}>
+                <input type="checkbox" checked={on} aria-label={`ресурс ${r.name}`}
+                  onChange={() => toggleRes(r.name)} style={{ flex: "0 0 auto", margin: 0, accentColor: OK }} />
+                <span style={{ flex: 1 }}>{r.name}</span>
+                <span style={{ color: C.muted }}>
+                  {r.min == null ? "" : `${r.min}…${r.max}`}</span>
+              </label>
+              {on && (
+                <div className="flex items-center gap-2" style={{ marginTop: "var(--space-4)" }}>
+                  <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>от</span>
+                  <input aria-label={`${r.name}: от`} inputMode="decimal" value={v.min}
+                    style={{ ...S.inp, maxWidth: 90 }} onChange={(e) => setRes(r.name, { min: e.target.value })} />
+                  <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>до</span>
+                  <input aria-label={`${r.name}: до`} inputMode="decimal" value={v.max}
+                    style={{ ...S.inp, maxWidth: 90 }} onChange={(e) => setRes(r.name, { max: e.target.value })} />
+                </div>)}
+            </div>);
+        })}
+      </div>
+      <div className="flex gap-2" style={{ marginTop: "var(--space-12)" }}>
+        <button type="button" style={btn(true, OK)} onClick={() => onApply(draft)}>Применить</button>
+        <button type="button" style={btn(false)} onClick={() => onApply(emptyFilter())}>Сбросить</button>
+        <button type="button" style={btn(false)} onClick={onClose}>Отмена</button>
+      </div>
+    </Modal>);
 }
 
 /* ─────── вкладка ─────── */
@@ -822,7 +843,7 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
 
   return (
     <div>
-      <div className="flex gap-2" style={{ marginBottom: "var(--space-8)" }} role="tablist" aria-label="рынок услуг">
+      <div className="flex gap-2" style={{ marginBottom: "var(--space-8)" }} role="tablist" aria-label="маркет">
         {[["orders", `Заказы${orders.length ? ` · ${orders.length}` : ""}`],
           ["services", `Услуги${services.length ? ` · ${services.length}` : ""}`]].map(([k, t]) => (
           <button key={k} type="button" role="tab" aria-selected={sub === k} style={btn(sub === k)}

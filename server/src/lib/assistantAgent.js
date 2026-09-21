@@ -136,12 +136,13 @@ function toolList({ isOwner, servers }) {
  * проверялся на заглушке, без сети.
  */
 export async function runAgent({
-  userId, agentId, question, system, model, complete,
+  userId, agentId, question, image = null, system, model, complete,
   isOwner = false, ask = true, servers = [], signal = null, rounds = MAX_ROUNDS,
   onConfirm = null, onAuthNeeded = null,
 }) {
   const tools = toolList({ isOwner, servers });
-  const messages = [{ role: "user", content: String(question || "") }];
+  // Снимок экрана (вопрос из приложения) — при первом сообщении, картинкой.
+  const messages = [{ role: "user", content: String(question || ""), ...(image?.data ? { image } : {}) }];
   const note = "";
 
   const toolsByName = new Map(tools.map((t) => [t.name, t]));

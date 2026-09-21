@@ -29,7 +29,7 @@ const FUNC = { id: "f1", name: "Вёрстка", chain: { id: "c1", name: "Вё�
 describe("слова из функции", () => {
   it("услуга: название, описание, берёт, выдаёт, срок в днях", () => {
     expect(serviceFromFunc(FUNC, { traits: TRAITS })).toEqual({ name: "Вёрстка", text: "по макету",
-      takes: [{ name: "макет", qty: 1 }], gives: [{ name: "страница", qty: 3 }], days: 2, funcId: "f1" });
+      takes: [{ name: "макет", qty: 1 }], gives: [{ name: "страница", qty: 3 }], days: 2, dur: 2, durUnit: "day", funcId: "f1" });
   });
   it("заказ: заказчик даёт то, что функция берёт; цена не угадывается", () => {
     expect(orderFromFunc(FUNC, { traits: TRAITS })).toEqual({ name: "Вёрстка", text: "по макету",
@@ -113,16 +113,16 @@ function marketServer({ me = "200", people = { 200: "Заказчик", 300: "М
 }
 
 const ME = { id: "200", name: "Заказчик", known: true, solo: false, isOwner: false, tabs: [] };
-const tabs = () => screen.getByRole("tablist", { name: "рынок услуг" });
+const tabs = () => screen.getByRole("tablist", { name: "маркет" });
 
 describe("вкладка", () => {
-  it("«Рынок услуг» — первая, перед «Анкетой», и видна без ролей", () => {
-    expect(TAB_LIST.slice(0, 2).map(([, t]) => t)).toEqual(["Рынок услуг", "Анкета"]);
+  it("«Маркет» — первая, перед «Анкетой», и видна без ролей", () => {
+    expect(TAB_LIST.slice(0, 2).map(([, t]) => t)).toEqual(["Маркет", "Анкета"]);
     localStorage.clear();
     render(<SystemModel />);
     const all = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(all.indexOf("Рынок услуг")).toBeLessThan(all.indexOf("Анкета"));
-    openTab("Рынок услуг");
+    expect(all.indexOf("Маркет")).toBeLessThan(all.indexOf("Анкета"));
+    openTab("Маркет");
     // Без сервера — честно сказано, почему пусто.
     expect(screen.getByText(/живёт на сервере/)).toBeInTheDocument();
   });
@@ -309,7 +309,7 @@ describe("поиск на рынке", () => {
   /* ПОЛОСА ПОД ПОИСКОМ (владелец, 2026-09-21): подложка «Поиск»; под
      полем — полоска, под ней сортировка и фильтры; ресурсы в фильтр
      попадают из найденного, у каждого чекбокс и диапазон. */
-  it("подложка поля — «Поиск», а под полем полоска с сортировкой и фильтрами", async () => {
+  it("подложка поля — «Поиск», а под полем сортировка списком и кнопка «Фильтры»", async () => {
     withServices();
     render(<MarketPanel me={ME} />);
     fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
@@ -318,17 +318,17 @@ describe("поиск на рынке", () => {
     const strip = screen.getByLabelText("сортировка и фильтры");
     // Полоса стоит ПОД полем поиска.
     expect(field.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(strip.style.borderTop).toContain("1px solid");
-    const sorts = within(strip).getByRole("group", { name: "сортировка" });
-    expect(within(sorts).getAllByRole("button").map((b) => b.textContent))
-      .toEqual(["по дате", "по рейтингу", "по выполненным работам", "по ресурсам"]);
-    const flt = within(strip).getByRole("group", { name: "фильтры" });
-    expect(within(flt).getByRole("button", { name: "на рабочем месте" })).toBeInTheDocument();
-    expect(within(flt).getByRole("button", { name: "принимает заказ автоматически" })).toBeInTheDocument();
-    expect(within(flt).getByRole("button", { name: "ресурсы" })).toBeInTheDocument();
+    /* Сортировка — выпадающий список с направлением (владелец, 2026-09-21:
+       «нет выбора: от старого к новому или от нового к старому»). */
+    const sort = within(strip).getByRole("combobox", { name: "сортировка" });
+    const options = [...sort.querySelectorAll("option")].map((o) => o.textContent);
+    expect(options).toContain("по дате: сначала новые");
+    expect(options).toContain("по дате: сначала старые");
+    expect(options).toContain("по рейтингу: сначала выше");
+    expect(within(strip).getByRole("button", { name: "фильтры" })).toHaveTextContent("Фильтры");
   });
 
-  it("сортировка переставляет карточки, фильтр по статусу прячет отсутствующих", async () => {
+  it("сортировка списком переставляет карточки; фильтр в окне прячет отсутствующих", async () => {
     const s = marketServer({ people: { 200: "Заказчик", 300: "Мастер", 400: "Новичок" } });
     s.state.services.push(
       { id: "s1", by: "300", name: "Разработка", text: "", takes: [], gives: [], days: 3, at: "2026-09-13T10:00:00Z" },
@@ -340,18 +340,27 @@ describe("поиск на рынке", () => {
     const names = () => screen.getAllByLabelText(/^услуга /).map((el) => el.getAttribute("aria-label"));
     // Как пришло: новое сверху.
     expect(names()).toEqual(["услуга Уборка", "услуга Разработка"]);
-    fireEvent.click(screen.getByRole("button", { name: "по рейтингу" }));
+    const sort = screen.getByRole("combobox", { name: "сортировка" });
+    fireEvent.change(sort, { target: { value: "rating:desc" } });
     expect(names()).toEqual(["услуга Разработка", "услуга Уборка"]);
-    // Повторное нажатие снимает сортировку.
-    fireEvent.click(screen.getByRole("button", { name: "по рейтингу" }));
+    fireEvent.change(sort, { target: { value: "rating:asc" } });
     expect(names()).toEqual(["услуга Уборка", "услуга Разработка"]);
-    fireEvent.click(screen.getByRole("button", { name: "на рабочем месте" }));
+    fireEvent.change(sort, { target: { value: "date:asc" } });
+    expect(names()).toEqual(["услуга Разработка", "услуга Уборка"]);
+    fireEvent.change(sort, { target: { value: "" } });
+    expect(names()).toEqual(["услуга Уборка", "услуга Разработка"]);
+    // Фильтры — в модальном окне, применяются по кнопке.
+    fireEvent.click(screen.getByRole("button", { name: "фильтры" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "на рабочем месте" }));
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
     expect(names()).toEqual(["услуга Уборка"]);
-    fireEvent.click(screen.getByRole("button", { name: "снять фильтры" }));
+    expect(screen.getByRole("button", { name: "фильтры" })).toHaveTextContent("Фильтры · 1");
+    fireEvent.click(screen.getByRole("button", { name: "фильтры" }));
+    fireEvent.click(screen.getByRole("button", { name: "Сбросить" }));
     expect(names()).toHaveLength(2);
   });
 
-  it("ресурсы в фильтр — из найденного, с чекбоксом и диапазоном у каждого", async () => {
+  it("ресурсы в окне фильтров — из найденного, с чекбоксом и диапазоном у каждого", async () => {
     const s = marketServer();
     s.state.services.push(
       { id: "s1", by: "300", name: "Вёрстка", text: "", takes: [{ name: "макет", qty: 2 }],
@@ -361,15 +370,16 @@ describe("поиск на рынке", () => {
     render(<MarketPanel me={ME} />);
     fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
     await screen.findByLabelText("услуга Вёрстка");
-    fireEvent.click(screen.getByRole("button", { name: "ресурсы" }));
+    fireEvent.click(screen.getByRole("button", { name: "фильтры" }));
     const box = screen.getByLabelText("фильтр ресурсов");
     expect(within(box).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label")))
       .toEqual(["ресурс макет", "ресурс страница"]);
     fireEvent.click(within(box).getByRole("checkbox", { name: "ресурс макет" }));
     fireEvent.change(within(box).getByLabelText("макет: от"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
     const names = () => screen.getAllByLabelText(/^услуга /).map((el) => el.getAttribute("aria-label"));
     expect(names()).toEqual(["услуга Вёрстка"]);
-    expect(screen.getByRole("button", { name: "ресурсы" }).textContent).toBe("ресурсы · 1");
+    expect(screen.getByRole("button", { name: "фильтры" }).textContent).toBe("Фильтры · 1");
   });
 
   it("ищет по смыслу: «программирование» находит «Разработку»", async () => {

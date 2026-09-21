@@ -30,7 +30,7 @@ export const ALL_TABS = ["market", "me", "tasks", "review",
    Список один со `SystemModel.TAB_LIST`; здесь он потому, что вкладки
    выбирают в двух местах — у роли и в коде доступа. */
 export const TAB_NAMES = {
-  market: "Рынок услуг", me: "Анкета",
+  market: "Маркет", me: "Анкета",
   tasks: "Задачи", review: "Проверка", scheme: "Схема",
   "scheme:edit": "Управление", "scheme:time": "Деятельность", "scheme:sim": "Цели",
   reports: "Отчёты", tools: "Инструменты",
@@ -246,6 +246,11 @@ export const sendIssue = (text) =>
 export const listIssues = () => json("/api/issues").then((r) => r.issues || []);
 export const dropIssue = (id) =>
   json(`/api/issues/${encodeURIComponent(id)}`, { method: "DELETE" });
+/* Непрочитанные — красным кружком на кнопке вкладки; «Исправлено» —
+   отправителю сообщение в бот (владелец, 2026-09-21). */
+export const issuesUnread = () => json("/api/issues/unread").then((r) => r.unread || 0);
+export const issuesSeen = () => json("/api/issues/seen", { method: "POST" });
+export const fixIssue = (id) => json(`/api/issues/${encodeURIComponent(id)}/fixed`, { method: "POST" });
 
 /* ─────── виртуальные сотрудники ───────
    Страница, за которой ещё нет человека: её заводит рекрутер, заполняет

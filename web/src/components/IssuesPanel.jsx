@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Avatar, BAD, C, OK, S, btn } from "./ui.jsx";
 import Modal from "./Modal.jsx";
-import { dropIssue, listIssues } from "../identity.js";
+import { dropIssue, fixIssue, issuesSeen, listIssues } from "../identity.js";
 
 /* ════════════════════════════════════════════════════════════════
    СООБЩЕНИЯ ОБ ОШИБКАХ (владелец, 2026-09-21)
@@ -24,15 +24,30 @@ const when = (v) => {
     { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
-export default function IssuesPanel({ me }) {
+export default function IssuesPanel({ me, onSeen }) {
   const [list, setList] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [kill, setKill] = useState(null);
   const known = Boolean(me?.known && !me?.solo);
 
+  const [fixed, setFixed] = useState({});
   const load = () => listIssues().then(setList).catch((e) => setMsg(e.message));
-  useEffect(() => { if (known) load(); }, [known]);   // eslint-disable-line react-hooks/exhaustive-deps
+  /* Открыли список — прочитано: кружок на кнопке гаснет (onSeen). */
+  useEffect(() => {
+    if (!known) return;
+    load();
+    issuesSeen().then(() => onSeen?.()).catch(() => {});
+  }, [known]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const fix = async (x) => {
+    setBusy(true); setMsg("");
+    try {
+      const r = await fixIssue(x.id);
+      setFixed((f) => ({ ...f, [x.id]: r.told ? "Отправлено." : "Отмечено; сообщение не ушло." }));
+      await load();
+    } catch (e) { setMsg(e.message); }
+    finally { setBusy(false); }
+  };
 
   const drop = async (id) => {
     setBusy(true); setMsg("");
@@ -74,11 +89,16 @@ export default function IssuesPanel({ me }) {
           <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.6, marginTop: "var(--space-4)", whiteSpace: "pre-wrap" }}>
             {x.text}</div>
           <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
+            <button type="button" disabled={busy || !!x.fixedAt}
+              style={{ ...btn(true, OK) }}
+              aria-label={`исправлено: сообщение от ${x.name}`}
+              onClick={() => fix(x)}>{x.fixedAt ? "Исправлено ✓" : "Исправлено"}</button>
             <button type="button" disabled={busy}
               style={{ ...btn(true, BAD) }}
               aria-label={`удалить сообщение от ${x.name}`}
               onClick={() => setKill(x)}>Удалить</button>
           </div>
+          {fixed[x.id] && <div style={{ fontSize: "var(--fs-hint)", color: OK, marginTop: "var(--space-4)" }}>{fixed[x.id]}</div>}
         </div>))}
 
       {msg && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}

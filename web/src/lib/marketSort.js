@@ -13,11 +13,21 @@
    Рейтинг и число выполненных работ у автора считает сервер (faces).
    ════════════════════════════════════════════════════════════════ */
 
+/* Сортировка — выпадающим списком с направлением (владелец, 2026-09-21:
+   «непонятно, как происходит сортировка по дате: нет выбора от старого к
+   новому или от нового к старому»). Ключ — «поле:направление». */
 export const SORTS = [
-  ["date", "по дате"],
-  ["rating", "по рейтингу"],
-  ["done", "по выполненным работам"],
-  ["res", "по ресурсам"],
+  ["", "без сортировки"],
+  ["date:desc", "по дате: сначала новые"],
+  ["date:asc", "по дате: сначала старые"],
+  ["price:desc", "по стоимости: сначала дороже"],
+  ["price:asc", "по стоимости: сначала дешевле"],
+  ["rating:desc", "по рейтингу: сначала выше"],
+  ["rating:asc", "по рейтингу: сначала ниже"],
+  ["done:desc", "по выполненным работам: сначала больше"],
+  ["done:asc", "по выполненным работам: сначала меньше"],
+  ["res:desc", "по ресурсам: сначала больше"],
+  ["res:asc", "по ресурсам: сначала меньше"],
 ];
 
 /** Пустой фильтр: ничего не отсечено. */
@@ -72,20 +82,25 @@ const stamp = (v) => { const t = Date.parse(v || ""); return Number.isFinite(t) 
  */
 export function sortItems(items = [], key = "", { faceOf = () => ({}), picked = [] } = {}) {
   if (!key) return [...items];
+  const [field, dirRaw] = String(key).split(":");
+  // Прежний ключ без направления («date») читается как «сначала больше/новее».
+  const dir = dirRaw === "asc" ? 1 : -1;
   const val = (it) => {
-    if (key === "date") return stamp(it.at);
-    if (key === "rating") return num(faceOf(it.by)?.rating);
-    if (key === "done") return num(faceOf(it.by)?.done) ?? 0;
-    if (key === "res") return resQty(it, picked);
+    if (field === "date") return stamp(it.at);
+    if (field === "price") return num(it.price);
+    if (field === "rating") return num(faceOf(it.by)?.rating);
+    if (field === "done") return num(faceOf(it.by)?.done) ?? 0;
+    if (field === "res") return resQty(it, picked);
     return 0;
   };
   return [...items]
     .map((it, i) => ({ it, i, v: val(it) }))
     .sort((a, b) => {
+      // Чего нет (рейтинга ещё нет, цены не назвали) — в конец при любом направлении.
       if (a.v == null && b.v == null) return a.i - b.i;
       if (a.v == null) return 1;
       if (b.v == null) return -1;
-      return b.v - a.v || a.i - b.i;
+      return (a.v - b.v) * dir || a.i - b.i;
     })
     .map((x) => x.it);
 }

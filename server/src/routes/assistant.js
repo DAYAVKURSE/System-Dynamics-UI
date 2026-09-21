@@ -1,6 +1,7 @@
 import { Router } from "express";
 import express from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
+import { discover, refresh as refreshOauth, stale as staleOauth, startLogin } from "../lib/mcpOauth.js";
 import { addAgentUser, agentUserId, identify, removeUser, renameAgentUser } from "../lib/orgStore.js";
 import {
   TASKS, addAgent, addMcp, addProvider, agentFor, isBadInput, kindsView, mcpFor, providerFor,
@@ -219,20 +220,48 @@ router.get("/mcp/registry", async (req, res, next) => {
 });
 
 /* Спросить у сервера, что он умеет, и запомнить список. */
+/* ─── ВХОД ЧЕРЕЗ OAUTH (владелец, 2026-09-21) ───
+   «Должна выдаваться страница входа, а не ввод bearer». Ссылку на страницу
+   входа даёт сервер авторизации (lib/mcpOauth.js); человек входит там,
+   код возвращается на callback (app.js), токен ложится к серверу. */
+router.post("/mcp/:id/oauth/start", async (req, res, next) => {
+  try {
+    const m = mcpFor(req.me.id, req.params.id);
+    if (!m) return res.status(404).json({ error: "MCP-сервер не найден" });
+    if (!process.env.PUBLIC_URL) return res.status(503).json({ error: "PUBLIC_URL не задан — callback некуда вести" });
+    const r = await startLogin({ userId: req.me.id, mcpId: m.id, serverUrl: m.url,
+      hint: String(req.body?.hint || ""), client: m.auth?.oauth || null, publicUrl: process.env.PUBLIC_URL });
+    return res.json({ url: r.url });
+  } catch (e) { return res.status(502).json({ error: String(e?.message || e).slice(0, 300) }); }
+});
+
+/* Токен OAuth истёк — обновляем по refresh-токену, тихо. */
+async function freshAuth(userId, m) {
+  if (!m?.auth || !staleOauth(m.auth)) return m?.auth || null;
+  try {
+    const next = await refreshOauth(m.auth);
+    if (next) { setMcpAuth(userId, m.id, next); return next; }
+  } catch { /* не вышло — пойдём со старым, сервер скажет 401 */ }
+  return m.auth;
+}
+
 router.post("/mcp/:id/tools", async (req, res, next) => {
   try {
     const m = mcpFor(req.me.id, req.params.id);
     if (!m) return res.status(404).json({ error: "MCP-сервер не найден" });
     let tools = [];
-    try { tools = await listTools(m.url, { auth: m.auth || null }); }
+    try { tools = await listTools(m.url, { auth: await freshAuth(req.me.id, m) }); }
     catch (e) {
       /* «Нужен вход» — не поломка, а развилка: экран на неё открывает окно
          входа, а не показывает строчку с номером. Отдаём это отдельным
-         полем, а не угадыванием по тексту. */
+         полем, а не угадыванием по тексту. Есть ли у сервера страница
+         входа (OAuth) — выясняем тут же. */
       if (e?.needsAuth) {
+        const oauth = process.env.PUBLIC_URL
+          ? await discover(m.url, e.hint || "").then(Boolean).catch(() => false) : false;
         return res.status(401).json({ error: "Сервер требует входа", needsAuth: true,
           where: e.where || "", scheme: e.scheme || "", realm: e.realm || "",
-          hint: e.hint || "", server: m.name });
+          hint: e.hint || "", server: m.name, oauth });
       }
       return res.status(502).json({ error: String(e?.message || e).slice(0, 300) });
     }

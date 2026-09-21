@@ -49,6 +49,7 @@ export function serviceFromFunc(f = {}, { traits = [] } = {}) {
     takes: rowsOf(f.takes, traits),
     gives: rowsOf(f.gives, traits),
     days: daysOf(f),
+    dur: daysOf(f), durUnit: "day",
     funcId: f.id || null,
   };
 }
@@ -108,6 +109,22 @@ export const rowsLine = (rows = []) => (rows || []).map(rowText).join(", ");
 
 export const daysText = (d) => (d == null ? "срок не назван"
   : d === 1 ? "1 день" : `${d} дн`);
+
+/* Срок услуги — число и единица (владелец, 2026-09-21): минуты, часы,
+   дни, недели, месяцы. В днях (`days`) — для сравнения и срока задачи;
+   то же на сервере (marketStore.daysFrom). */
+export const DUR_UNITS = [["min", "минут"], ["hour", "часов"], ["day", "дней"], ["week", "недель"], ["month", "месяцев"]];
+const DAYS_PER = { min: 1 / 1440, hour: 1 / 24, day: 1, week: 7, month: 30 };
+export const daysFrom = (dur, unit) => {
+  const n = Number(dur);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * (DAYS_PER[unit] || 1) * 1000) / 1000;
+};
+const UNIT_SHORT = { min: "мин", hour: "ч", day: "дн", week: "нед", month: "мес" };
+export const durText = (s = {}) => {
+  if (s.dur != null && s.dur !== "" && Number(s.dur) > 0) return `${s.dur} ${UNIT_SHORT[s.durUnit] || "дн"}`;
+  return daysText(s.days);
+};
 
 /** Новая пустая строка ресурса для формы. */
 export const emptyRow = () => ({ name: "", qty: "" });

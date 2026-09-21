@@ -142,7 +142,7 @@ describe("план гасит вкладки", () => {
     // «План и ключ» — в анкете.
     const { openTab } = await import("./openTab.js");
     openTab("Анкета");
-    expect(await screen.findByRole("button", { name: "план и ключ" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "мой план" })).toBeInTheDocument();
   });
 
   it("на pro в инструментах открыты только звонки и агенты", async () => {

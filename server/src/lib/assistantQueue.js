@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { complete as completeDefault } from "./aiProviders.js";
 import { contextFor as contextForDefault } from "./assistantContext.js";
+import * as oauth from "./mcpOauth.js";
 import * as settings from "./assistantSettings.js";
 import { actionsNote, mcpNote, modelsNote, runAgent, skillNote } from "./assistantAgent.js";
 import { identify } from "./orgStore.js";
@@ -190,15 +191,21 @@ export function createQueue({
        ему там нечего. */
     const picked = agent.mcp && typeof agent.mcp === "object" && !Array.isArray(agent.mcp)
       ? agent.mcp : {};
-    const servers = Object.entries(picked)
-      .map(([id, tools]) => {
-        /* Берём ПОЛНУЮ запись (`mcpFor`), а не экранную: в ней лежит вход
-           на сервер, и без него чужой сервер ответит 401. Наружу она не
-           уходит — только в вызов инструмента. */
-        const m = settings.mcpFor(it.userId, id);
-        return m && tools.length ? { ...m, tools: [...tools] } : null;
-      })
-      .filter(Boolean);
+    const servers = [];
+    for (const [id, tools] of Object.entries(picked)) {
+      /* Берём ПОЛНУЮ запись (`mcpFor`), а не экранную: в ней лежит вход
+         на сервер, и без него чужой сервер ответит 401. Наружу она не
+         уходит — только в вызов инструмента. Токен OAuth, если истёк,
+         обновляется по refresh-токену (lib/mcpOauth.js). */
+      const m = settings.mcpFor(it.userId, id);
+      if (!m || !tools.length) continue;
+      let auth = m.auth || null;
+      if (oauth.stale(auth)) {
+        try { const next = await oauth.refresh(auth); if (next) { settings.setMcpAuth(it.userId, m.id, next); auth = next; } }
+        catch { /* сервер скажет 401 — и человека позовут войти */ }
+      }
+      servers.push({ ...m, auth, tools: [...tools] });
+    }
     const system = [
       SYSTEM_PROMPT,
       modelsNote(agent, view.providers || []),
@@ -210,7 +217,7 @@ export function createQueue({
     try {
       const text = await withTimeout(runAgent({
         userId: it.userId, agentId: settings.BUILTIN_AGENT_ID,
-        question: it.question, system, model, complete,
+        question: it.question, image: it.image, system, model, complete,
         isOwner: !!who.isOwner, ask: agent.ask !== false, servers,
         signal: it.abort.signal,
         /* Показать подтверждение человеку умеет тот, кто спросил, а не
@@ -247,7 +254,7 @@ export function createQueue({
   };
 
   /** Кладёт вопрос. Ответ — по id, у того же человека. */
-  function ask({ userId, question, context = "", task = DEFAULT_TASK, onProgress = null,
+  function ask({ userId, question, context = "", task = DEFAULT_TASK, onProgress = null, image = null,
     onConfirm = null, onAuthNeeded = null }) {
     sweep();
     const q = String(question || "").trim().slice(0, MAX_QUESTION);
@@ -255,6 +262,8 @@ export function createQueue({
     const it = {
       id: uid(), userId: String(userId), question: q,
       context: String(context || "").slice(0, MAX_CLIENT_CONTEXT),
+      // Снимок экрана из приложения — модели картинкой (aiProviders.js).
+      image: image && image.data ? { mime: String(image.mime || "image/png"), data: String(image.data) } : null,
       task: String(task || DEFAULT_TASK),
       status: "pending", text: "", error: "", at: now(), doneAt: null, started: false,
       abort: new AbortController(),
@@ -300,8 +309,8 @@ export function createQueue({
       по нему бот рисует кнопку «Отменить». `signal` снаружи — тот же
       cancel, но от AbortController вызывающего. */
   function askNow(userId, question, context = "", {
-    task = DEFAULT_TASK, onProgress, onConfirm, onAuthNeeded, signal } = {}) {
-    const { id } = ask({ userId, question, context, task, onProgress, onConfirm, onAuthNeeded });
+    task = DEFAULT_TASK, onProgress, onConfirm, onAuthNeeded, signal, image = null } = {}) {
+    const { id } = ask({ userId, question, context, task, onProgress, onConfirm, onAuthNeeded, image });
     const it = items.get(id);
     if (signal) {
       if (signal.aborted) cancel(id, userId);

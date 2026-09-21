@@ -235,6 +235,21 @@ export function removeOrder(userId, id, { isOwner = false } = {}) {
 
 /* ─────── услуги ─────── */
 
+/* Срок услуги — число и единица (владелец, 2026-09-21): минуты, часы,
+   дни, недели, месяцы. Хранится и как есть, и в днях — для сравнения и
+   срока задачи по сделке. Прежние записи знали только дни. */
+export const DUR_UNITS = ["min", "hour", "day", "week", "month"];
+const DAYS_PER = { min: 1 / 1440, hour: 1 / 24, day: 1, week: 7, month: 30 };
+export function durationOf(fields = {}) {
+  const unit = DUR_UNITS.includes(String(fields.durUnit)) ? String(fields.durUnit) : "day";
+  const dur = num(fields.dur);
+  if (dur != null && dur > 0) {
+    return { dur, durUnit: unit, days: Math.round(dur * DAYS_PER[unit] * 1000) / 1000 };
+  }
+  const days = num(fields.days);
+  return { dur: days, durUnit: "day", days };
+}
+
 export function addService(userId, fields = {}) {
   return withMarket(async (m) => {
     const name = str(fields.name, MAX_NAME);
@@ -244,7 +259,7 @@ export function addService(userId, fields = {}) {
       id: uid("svc"), by: String(userId), at: now(),
       name, text: str(fields.text, MAX_TEXT),
       takes: rows(fields.takes), gives: rows(fields.gives),
-      days: num(fields.days), funcId: sid(fields.funcId),
+      ...durationOf(fields), funcId: sid(fields.funcId),
       /* «Принять автоматически в рабочее время» (владелец, 2026-09-20):
          заказ по такой услуге не ждёт отклика — он его получает сам.
          Рабочее время проверяет маршрут: часы лежат в анкете. */
@@ -271,7 +286,7 @@ export function updateService(userId, id, fields = {}) {
     if ("text" in fields) s.text = str(fields.text, MAX_TEXT);
     if ("takes" in fields) s.takes = rows(fields.takes);
     if ("gives" in fields) s.gives = rows(fields.gives);
-    if ("days" in fields) s.days = num(fields.days);
+    if ("days" in fields || "dur" in fields) Object.assign(s, durationOf({ days: s.days, ...fields }));
     if ("auto" in fields) s.auto = fields.auto === true;
     if ("private" in fields) s.private = fields.private !== false;
     await writeMarket(m);

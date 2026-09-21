@@ -155,17 +155,17 @@ button {
    Только ряды, где нет ничего, кроме кнопок с надписями: ряд «имя и
    карандаш» или «подпись и поле» так раскидывать нельзя, а капсулы со
    значками (под шапкой) должны стоять справа своего размера. */
-.flex.gap-1:not(:has(:not(button))):not(:has(svg)),
-.flex.gap-2:not(:has(:not(button))):not(:has(svg)),
-.flex.gap-3:not(:has(:not(button))):not(:has(svg)) {
+.flex.gap-1:not(:has(> :not(button))):not(:has(svg)),
+.flex.gap-2:not(:has(> :not(button))):not(:has(svg)),
+.flex.gap-3:not(:has(> :not(button))):not(:has(svg)) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--cell, 150px)), 1fr));
   gap: var(--gap) var(--gap-x);
   align-items: stretch;
 }
-.flex.gap-1:not(:has(:not(button))):not(:has(svg)) > button,
-.flex.gap-2:not(:has(:not(button))):not(:has(svg)) > button,
-.flex.gap-3:not(:has(:not(button))):not(:has(svg)) > button {
+.flex.gap-1:not(:has(> :not(button))):not(:has(svg)) > button,
+.flex.gap-2:not(:has(> :not(button))):not(:has(svg)) > button,
+.flex.gap-3:not(:has(> :not(button))):not(:has(svg)) > button {
   width: 100%;
   white-space: normal !important;
   text-align: center;

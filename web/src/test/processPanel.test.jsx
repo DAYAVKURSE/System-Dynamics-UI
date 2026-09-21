@@ -685,7 +685,7 @@ describe("заголовок процесса сворачивает карто�
 /* ГИПОТЕЗЫ ВКЛЮЧЕНЫ С САМОГО НАЧАЛА, ГАЛОЧКА — НА ФОРМЕ ПРОГНОЗА И ВСЕГДА
    (владелец, 2026-09-20: «гипотезы должны быть включены по умолчанию, и
    этот чекбокс должен быть на форме прогноза, под полоской прокрутки
-   прогноза»; «пропала галочка „включить гипотезы"… эта кнопка должна быть
+   прогноза»; «пропала галочка „гипотезы"… эта кнопка должна быть
    всегда»). Прежде она висела на условии «есть гипотетические процессы» —
    и пропадала на одной схеме, возвращаясь на другой. */
 describe("галочка гипотез", () => {
@@ -694,16 +694,16 @@ describe("галочка гипотез", () => {
     write(area, TEXT);
     // Гипотетических процессов ещё нет, а галочка уже на месте.
     const first = screen.getByLabelText("прогноз на схеме");
-    expect(within(first).getByLabelText("включить гипотезы")).toBeChecked();
+    expect(within(first).getByLabelText("гипотезы")).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Принято гипотетически" }));
     const sim = screen.getByLabelText("прогноз на схеме");
-    const box = await waitFor(() => within(sim).getByLabelText("включить гипотезы"));
+    const box = await waitFor(() => within(sim).getByLabelText("гипотезы"));
     expect(box).toBeChecked();
     // Под ползунком, а не над ним.
     const slider = within(sim).getByLabelText("месяц на схеме");
     expect(slider.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Нигде больше её нет.
-    expect(screen.getAllByLabelText("включить гипотезы").length).toBe(1);
+    expect(screen.getAllByLabelText("гипотезы").length).toBe(1);
   });
 });
 

@@ -347,7 +347,7 @@ describe("черновик и диск", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
     const m = JSON.parse(container.querySelector("textarea").value);
-    expect(m.entities.map((e) => e.name)).toEqual(["Актив А"]);
+    expect(m.entities.map((e) => e.name)).toEqual(["Актив А", "Владелец", "Система"]);
     expect(Array.isArray(m.funcs)).toBe(true);
   });
 });

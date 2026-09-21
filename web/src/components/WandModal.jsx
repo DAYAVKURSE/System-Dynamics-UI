@@ -33,12 +33,19 @@ export async function captureScreen(root = typeof document === "undefined" ? nul
     const canvasOk = typeof document !== "undefined" && import.meta.env?.MODE !== "test"
       && !!document.createElement("canvas").getContext?.("2d");
     if (root && canvasOk) {
-      const { default: html2canvas } = await import("html2canvas");
-      const scale = Math.min(1, SHOT_WIDTH / Math.max(1, window.innerWidth));
-      const canvas = await html2canvas(root, { scale, useCORS: true, logging: false,
-        backgroundColor: null, windowWidth: window.innerWidth, windowHeight: window.innerHeight,
-        x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight });
-      shot = canvas.toDataURL("image/png");
+      /* html-to-image рисует страницу самим браузером (SVG foreignObject):
+         стекло, тени и градиенты — как на экране. html2canvas рисовал
+         своим интерпретатором стилей и получалось «криво» (владелец,
+         2026-09-21). Снимаем видимую часть окна, а не весь документ:
+         человек спрашивает о том, что перед глазами. */
+      const { toPng } = await import("html-to-image");
+      const el = document.documentElement;
+      const pixelRatio = Math.min(1, SHOT_WIDTH / Math.max(1, window.innerWidth));
+      shot = await toPng(el, { pixelRatio, cacheBust: false,
+        width: window.innerWidth, height: window.innerHeight,
+        backgroundColor: getComputedStyle(document.body).backgroundColor || "#0b0f14",
+        style: { transform: `translate(${-window.scrollX}px, ${-window.scrollY}px)` },
+        filter: (n) => !(n?.dataset && "lens" in n.dataset && false) });
     }
   } catch { shot = null; }
   return { screen, log, shot };

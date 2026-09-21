@@ -149,13 +149,13 @@ describe("выбирает середина, а не нажатие", () => {
   it("вид стоит с самого начала: вкладка на дуге, буквы — каждая на своей точке", () => {
     render(<SystemModel />);
     const mid = screen.getByRole("button", { name: "Задачи" });
-    const side = screen.getByRole("button", { name: "Рынок услуг" });
+    const side = screen.getByRole("button", { name: "Маркет" });
     expect(mid.style.transform).toContain("rotateY(0.00deg)");
     const size = (el) => Number(el.style.transform.match(/scale\(([\d.]+)\)/)[1]);
     expect(size(mid)).toBeGreaterThan(size(side));
     // Буквы — свои элементы, и у каждой свой поворот.
     const letters = [...side.querySelectorAll("[data-letter]")];
-    expect(letters.map((l) => l.textContent).join("")).toBe("Рынок услуг");
+    expect(letters.map((l) => l.textContent).join("")).toBe("Маркет");
     expect(letters.every((l) => /rotateY\(/.test(l.style.transform))).toBe(true);
     // Буква дальней вкладки тусклее буквы открытой.
     const op = (el) => Number(el.querySelector("[data-letter]").style.opacity);
