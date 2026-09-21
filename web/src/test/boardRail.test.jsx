@@ -37,6 +37,14 @@ function widen(el, { scrollWidth, clientWidth }) {
 }
 
 describe("полоса прокрутки над доской", () => {
+  /* Системной полосы снизу нет: у доски класс `no-bar` (владелец,
+     2026-09-21). */
+  it("у доски спрятана системная полоса прокрутки", () => {
+    render(<Board />);
+    const board = document.querySelector("[data-pannable]");
+    expect(board).toHaveClass("no-bar");
+  });
+
   it("доска помещается — полосы нет", () => {
     const { container } = render(<Board />);
     widen(container.querySelector("[data-pannable]"), { scrollWidth: 400, clientWidth: 400 });

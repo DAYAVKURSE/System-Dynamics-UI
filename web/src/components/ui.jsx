@@ -319,6 +319,10 @@ export function ScrollRail({ target, label = "прокрутка", step = 200 })
   useEffect(() => {
     const el = target?.current;
     if (!el) return undefined;
+    /* Полоса — одна, эта: системную снизу окно не показывает (владелец,
+       2026-09-21: «помимо основной полосы прокрутки, которая сверху,
+       появилась системная снизу»). */
+    el.classList.add("no-bar");
     const read = () => {
       const max = Math.max(0, el.scrollWidth - el.clientWidth);
       const size = el.scrollWidth > 0 ? Math.min(1, el.clientWidth / el.scrollWidth) : 1;
