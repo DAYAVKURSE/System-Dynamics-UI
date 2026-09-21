@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import { openTab } from "./openTab.js";
 
 /* СХЕМА: две формы над ней, полоски состояния на блоках, щипок.
 
@@ -15,7 +16,7 @@ let container;
 beforeEach(() => {
   localStorage.clear();
   ({ container } = render(<SystemModel />));
-  fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+  openTab("Схема");
 });
 
 const touch = (el, type, points) => {

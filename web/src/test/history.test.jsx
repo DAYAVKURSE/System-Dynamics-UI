@@ -12,6 +12,7 @@ const expandCards = (container) => {
 };
 
 import { sameDoc } from "../lib/history.js";
+import { openTab } from "./openTab.js";
 
 /* Отмена и возврат правок модели.
    Удаление актива и удаление классификации каскадные и подтверждения не
@@ -24,7 +25,7 @@ const undoBtn = () => screen.getByRole("button", { name: /отменить/ });
 /* «Вернуть» есть и на проверке («Вернуть в бэклог») — берём кнопку шапки
    со стрелкой, а не любое слово «вернуть». */
 const redoBtn = () => screen.getByRole("button", { name: "вернуть" });
-const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+const scheme = () => openTab("Схема");
 const addEntity = () => fireEvent.click(screen.getByRole("button", { name: "+ актив" }));
 
 const commit = (el, value) => {
@@ -62,7 +63,7 @@ describe("кнопки истории", () => {
        сначала открыть её. */
     for (const tab of ["Задачи", "Проверка", "Схема", "Цели", "Деятельность",
       "Управление", "Инструменты"]) {
-      fireEvent.click(screen.getByRole("button", { name: tab }));
+      openTab(tab);
       expect(undoBtn()).toBeTruthy();
     }
   });
@@ -120,7 +121,7 @@ describe("отмена структурных правок", () => {
   });
 
   it("возвращает удалённую классификацию и прежний тип ресурса", () => {
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     // Классификации — на вкладке ресурсов и под спойлером.
     fireEvent.click(screen.getByRole("button", { name: /^Ресурсы/ }));
     fireEvent.click(screen.getByRole("button", { name: /классификации ресурсов/ }));
@@ -187,7 +188,7 @@ describe("отмена в работе с функциями", () => {
   it("возвращает удалённую функцию вместе с её задачами", () => {
     // Функция — то, по чему считается прогноз, и то, что выполняют задачи:
     // потерять её отменяемым движением нельзя.
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     selectEntity("Пользователи");
     const name = () => nameSpan("Сбор заявок") || null;
     expect(name()).toBeInTheDocument();
@@ -201,7 +202,7 @@ describe("отмена в работе с функциями", () => {
   });
 
   it("отмена возвращает прежний диапазон входа — и прогноз вместе с ним", () => {
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     selectEntity("Пользователи");
     fireEvent.click(screen.getAllByRole("button", { name: "развернуть функции" })[0]);
     const field = screen.getByLabelText("сколько максимум спрос");

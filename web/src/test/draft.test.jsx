@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { DRAFT_V, clearDraft, draftKey, readDraft, saveDraft } from "../lib/draft.js";
+import { openTab } from "./openTab.js";
 
 /* Черновик: страховка от того, что Telegram убьёт WebView вместе с правками.
    Всё, что не уехало на диск, должно пережить закрытие вкладки. */
@@ -83,7 +84,7 @@ describe("хранение черновика", () => {
 /* ─────── черновик в приложении ─────── */
 
 const addEntity = () => fireEvent.click(screen.getByRole("button", { name: "+ актив" }));
-const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+const scheme = () => openTab("Схема");
 const tick = (ms) => act(() => { vi.advanceTimersByTime(ms); });
 
 describe("автосохранение", () => {
@@ -252,12 +253,12 @@ function flushOnHide() {
 describe("черновик и диск", () => {
   it("сохранение на диск закрывает вопрос — черновик больше не нужен", async () => {
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     addEntity();
     flushOnHide();
     expect(readDraft()).not.toBeNull(); // черновик есть — иначе проверка ниже пустая
 
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
 
     const name = screen.getByPlaceholderText("имя сценария");
@@ -278,12 +279,12 @@ describe("черновик и диск", () => {
       data: { s1: JSON.stringify(DOC) },
     }));
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     addEntity();
     flushOnHide();
     expect(readDraft()).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const list = await screen.findByRole("combobox");
     fireEvent.change(list, { target: { value: "s1" } });
@@ -304,7 +305,7 @@ describe("черновик и диск", () => {
       data: { s2: JSON.stringify(old) },
     }));
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const list = await screen.findByRole("combobox");
     fireEvent.change(list, { target: { value: "s2" } });
@@ -313,7 +314,7 @@ describe("черновик и диск", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Загрузить" })[1]);
     await waitFor(() => expect(screen.getByText(/Загружено/)).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     // Классификации живут на вкладке ресурсов и под спойлером: это
     // свойство ресурса, и правят его редко.
     fireEvent.click(screen.getByRole("button", { name: /^Ресурсы/ }));
@@ -337,7 +338,7 @@ describe("черновик и диск", () => {
       data: { s3: JSON.stringify(old) },
     }));
     const { container } = render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const list = await screen.findByRole("combobox");
     fireEvent.change(list, { target: { value: "s3" } });

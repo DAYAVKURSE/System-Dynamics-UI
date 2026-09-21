@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
+import { openTab } from "./openTab.js";
 
 /* Какая схема открывается при запуске.
 
@@ -69,14 +70,16 @@ describe("автозагрузка последней схемы", () => {
        человек оставался на встроенной демонстрационной схеме. */
     server({ meDelay: 0, listDelay: 30 });
     const { container } = await fresh();
-    fireEvent.click(await screen.findByRole("button", { name: "Схема" }));
+    await screen.findByRole("button", { name: "Схема" });
+    openTab("Схема");
     await waitFor(() => expect(names(container)).toContain("МОЯ СХЕМА"), { timeout: 3000 });
   });
 
   it("и если список приходит раньше — тоже", async () => {
     server({ meDelay: 40, listDelay: 0 });
     const { container } = await fresh();
-    fireEvent.click(await screen.findByRole("button", { name: "Схема" }));
+    await screen.findByRole("button", { name: "Схема" });
+    openTab("Схема");
     await waitFor(() => expect(names(container)).toContain("МОЯ СХЕМА"), { timeout: 3000 });
   });
 });
@@ -115,7 +118,8 @@ describe("рабочая модель владельца", () => {
   it("сохранённых схем нет — открывается его же модель с сервера", async () => {
     serverWith({ workspace: { savedAt: "2026-01-01T00:00:00.000Z", ...scheme("С СЕРВЕРА") } });
     const { container } = await fresh();
-    fireEvent.click(await screen.findByRole("button", { name: "Схема" }));
+    await screen.findByRole("button", { name: "Схема" });
+    openTab("Схема");
     await waitFor(() => expect(names(container)).toContain("С СЕРВЕРА"), { timeout: 3000 });
   });
 
@@ -146,7 +150,7 @@ describe("рабочая модель владельца", () => {
     serverWith({ workspace: { savedAt: "2026-01-01T00:00:00.000Z", ...scheme("С СЕРВЕРА") } });
     const { container } = await fresh();
     expect(await screen.findByText(/Остались правки от/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     await waitFor(() => expect(names(container)).toContain("С СЕРВЕРА"), { timeout: 3000 });
   });
 
@@ -157,7 +161,7 @@ describe("рабочая модель владельца", () => {
     serverWith({ workspace: { savedAt: "2026-01-01T00:00:00.000Z", ...scheme("С СЕРВЕРА") } });
     const { container } = await fresh();
     fireEvent.click(await screen.findByRole("button", { name: "Восстановить" }));
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     await waitFor(() => expect(names(container)).toContain("ИЗ ЧЕРНОВИКА"));
     // И приехавшая следом модель с сервера её не затирает.
     await new Promise((r) => setTimeout(r, 200));

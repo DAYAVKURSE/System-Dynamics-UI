@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { nameSpan, renameEl } from "./helpers/name.js";
+import { openTab } from "./openTab.js";
 
 /* Тесты на редактирование модели: активы (добавление, перетаскивание,
    удаление), переименование ресурсов и классификации ресурсов. */
 
-const openTab = (name) => fireEvent.click(screen.getByRole("button", { name }));
 
 // Блок актива на схеме — это <g>, внутри которого лежит его подпись.
 function entityGroup(container, name) {

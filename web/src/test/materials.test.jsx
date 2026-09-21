@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import { openTab } from "./openTab.js";
 
 /* «МАТЕРИАЛЫ» НА ВКЛАДКЕ ОТЧЁТОВ.
 
@@ -15,7 +16,7 @@ import SystemModel from "../components/SystemModel.jsx";
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
-const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
+const tab = (name) => openTab(name);
 const reports = () => tab("Отчёты");
 const openAsset = (name) => {
   openMaterials();

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
+import { openTab } from "./openTab.js";
 
 /* Роли решают, какие вкладки видны; задачи фильтруются по человеку.
    Настоящая проверка стоит на сервере — здесь проверяется, что интерфейс
@@ -70,7 +71,7 @@ describe("человек открывается окном, а не уходом
     await fresh();
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Схема" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     fireEvent.click(screen.getByRole("button", { name: /^Воркеры/ }));
     /* Сотрудники показываются по ДОЛЖНОСТЯМ АКТИВА (владелец, 2026-09-18):
        сперва отмечается должность, и по ней в списке встаёт Иван. */
@@ -101,7 +102,7 @@ describe("вкладки по роли", () => {
     const { container } = await fresh();
     await waitFor(() => expect(tabNames(container)).toHaveLength(4));
     expect(tabNames(container)).toEqual(["Задачи", "Проверка", "Схема", "Инструменты"]);
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     expect(screen.getByRole("button", { name: "Управление" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Цели" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Деятельность" })).toBeTruthy();
@@ -231,7 +232,7 @@ describe("кому какие задачи видны", () => {
   /* Владелец грузит модель через «Выгрузку»; не-владельцу её отдаёт сервер —
      у него схема одна, та, где его назначили, и сценариев нет вовсе. */
   const load = (container, m) => {
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     const area = container.querySelector("textarea");
     fireEvent.change(area, { target: { value: JSON.stringify(m) } });
@@ -245,7 +246,7 @@ describe("кому какие задачи видны", () => {
     const { container } = await fresh();
     await waitFor(() => expect(tabNames(container)).toHaveLength(4));
     load(container, model(TASKS));
-    fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
+    openTab("Задачи");
     expect(screen.getByText("Моя задача")).toBeTruthy();
     expect(screen.getByText("Чужая задача")).toBeTruthy();
   });
@@ -267,7 +268,7 @@ describe("кому какие задачи видны", () => {
     await fresh();
     // Стартовая вкладка — «Задачи», а у него её нет: открываем свою.
     await waitFor(() => expect(screen.getByRole("button", { name: "Проверка" })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Проверка" }));
+    openTab("Проверка");
     await waitFor(() => expect(screen.getByText("Моя задача")).toBeTruthy());
     expect(screen.queryByText("Чужая задача")).toBeNull();
   });
@@ -280,7 +281,7 @@ describe("кому какие задачи видны", () => {
         takes: {}, gives: {}, text: "" }] }]));
     await fresh();
     await waitFor(() => expect(screen.getByRole("button", { name: "Проверка" })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Проверка" }));
+    openTab("Проверка");
     await waitFor(() => expect(screen.getByText("Моя задача")).toBeTruthy());
     fireEvent.click(screen.getByText("Моя задача"));
     // Принять можно молча: оценка человеку — своя кнопка (владелец,

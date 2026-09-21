@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import { openTab } from "./openTab.js";
 
 // Карточки прогноза свёрнуты: имя и график. Всё остальное разворачивается
 // нажатием на заголовок, поэтому тесты сначала раскрывают карточки.
@@ -19,14 +20,14 @@ const expandCards = (container) => {
 let container;
 beforeEach(() => { ({ container } = render(<SystemModel />)); });
 
-const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
+const tab = (name) => openTab(name);
 /* Три части актива живут во вкладках: до ресурсов надо переключиться. */
 const assetTab = (name) => fireEvent.click(
   screen.getByRole("button", { name: new RegExp(`^${name}`) }));
 /* «Прогноз» — подвкладка под схемой: сначала схема, потом он. */
 const forecast = () => { tab("Схема"); tab("Цели"); expandCards(container); };
 const dump = () => {
-  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  openTab("Инструменты");
   fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
   fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);

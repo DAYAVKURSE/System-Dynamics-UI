@@ -4,6 +4,7 @@ import React from "react";
 import { resetIdentity } from "../identity.js";
 import { resetReportsAvailable } from "../storage.js";
 import TasksBoard, { newTask } from "../components/TasksBoard.jsx";
+import { openTab } from "./openTab.js";
 
 /* ГРАФИК, «ЗА СКОЛЬКО ПРЕДУПРЕДИТЬ» И ПУТЬ ЧЕРЕЗ ВСЁ ПРИЛОЖЕНИЕ.
 
@@ -63,7 +64,7 @@ const fresh = async () => {
   const { default: SystemModel } = await import("../components/SystemModel.jsx");
   return render(<SystemModel />);
 };
-const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
+const tab = (name) => openTab(name);
 
 const EMPTY = { about: "", days: [], from: "", to: "", status: "ready", warnMin: 10 };
 const IVAN = { id: "2", name: "Иван", isOwner: false, known: true, role: null,

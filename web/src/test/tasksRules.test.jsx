@@ -6,6 +6,7 @@ import TasksBoard, { TaskSetup, autoStatus, doerNamed, floorStatus, newTask, run
 import ReviewBoard from "../components/ReviewBoard.jsx";
 import { scheduleOf } from "../lib/plan.js";
 import React from "react";
+import { openTab } from "./openTab.js";
 
 /* Правила работы с задачами: задача — это выполнение функции; в «Готово»
    только через приём отчёта; возврат — в бэклог с текстом доработки;
@@ -630,7 +631,7 @@ describe("«Инструменты» и роли", () => {
     await fresh();
     await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Звонки" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     expect(screen.getByRole("button", { name: "Роли" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Звонки" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Выгрузка" })).toBeTruthy();
@@ -645,7 +646,7 @@ describe("«Инструменты» и роли", () => {
       tabs: ["tasks", "review", "scheme", "reports", "tools"] }, org);
     await fresh();
     await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Удалить роль" })).toHaveLength(2));
     // Встроенная тоже удаляется.
     fireEvent.click(screen.getAllByRole("button", { name: "Удалить роль" })[0]);
@@ -728,7 +729,8 @@ describe("«Инструменты» и роли", () => {
       return { ok: true, json: async () => ({ savedAt: null }) };
     });
     await fresh();
-    fireEvent.click(await screen.findByRole("button", { name: "Проверка" }));
+    await screen.findByRole("button", { name: "Проверка" });
+    openTab("Проверка");
     fireEvent.click(await screen.findByText("Поставить меня"));
     /* Роли на форме не выбирают (владелец, 2026-09-19): пустые заполняют
        роли функции — и подстановка уходит на сервер так же, как уходил
@@ -749,7 +751,7 @@ describe("«Инструменты» и роли", () => {
       tabs: ["tasks", "tools"] }, { ownerId: "1", roles: [], users: [] });
     await fresh();
     await waitFor(() => expect(screen.getByRole("button", { name: "Инструменты" })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     expect(screen.queryByRole("button", { name: "Выгрузка" })).toBeNull();
   });
 });

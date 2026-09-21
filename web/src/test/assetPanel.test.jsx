@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import SystemModel from "../components/SystemModel.jsx";
 import { nameSpan, rename, renameEl } from "./helpers/name.js";
 import { Funcs, Workers } from "../components/AssetPanel.jsx";
+import { openTab } from "./openTab.js";
 
 /* Карточка актива: воркеры, функции, ресурсы — три равноправные части,
    устроенные одинаково.
@@ -17,11 +18,11 @@ import { Funcs, Workers } from "../components/AssetPanel.jsx";
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
-const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+const scheme = () => openTab("Схема");
 /* Кнопка «Выгрузка» переключает раздел: нажать её, когда он уже открыт,
    значит закрыть его — и поле пропадёт. Поэтому открываем по факту. */
 const openExport = () => {
-  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  openTab("Инструменты");
   if (!container.querySelector("textarea")) {
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
   }

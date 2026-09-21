@@ -4,6 +4,7 @@ import SystemModel, { TAB_LIST } from "../components/SystemModel.jsx";
 import ProfilePanel, { PROFILE_FIELDS, filled, profileOf }
   from "../components/ProfilePanel.jsx";
 import { resetIdentity } from "../identity.js";
+import { openTab } from "./openTab.js";
 
 /* ЧЕЛОВЕК: анкета и рейтинг.
 
@@ -225,7 +226,7 @@ describe("вкладка «Анкета»", () => {
     render(<SystemModel />);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Анкета" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Анкета" }));
+    openTab("Анкета");
     // Одиночному анкету никто не назначал — формы нет, график есть.
     expect(screen.queryByText("моя анкета")).toBeNull();
     expect(screen.getByText("мой рабочий график")).toBeInTheDocument();
@@ -233,7 +234,7 @@ describe("вкладка «Анкета»", () => {
 
   it("своя анкета — вкладка, и открывается она сразу, а не окном", () => {
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Анкета" }));
+    openTab("Анкета");
     // Своя страница: вместо рейтинга — адресованные слова.
     expect(screen.getByText("рейтинг и отзывы")).toBeInTheDocument();
     expect(document.querySelector("[role=dialog]")).toBeNull();
@@ -243,7 +244,7 @@ describe("вкладка «Анкета»", () => {
 describe("формы анкеты — спойлеры (владелец, 2026-09-19)", () => {
   it("нажатие на заголовок формы прячет её содержимое", () => {
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Анкета" }));
+    openTab("Анкета");
     const fold = screen.getByRole("button", { name: /^мой рабочий график$/ });
     expect(fold).toHaveAttribute("aria-expanded", "true");
     const card = fold.parentElement;
@@ -259,7 +260,7 @@ describe("формы анкеты — спойлеры (владелец, 2026-0
 describe("разделы схемы (владелец, 2026-09-19)", () => {
   it("вкладка называется «Цели», под вкладками — чем раздел занят, формы «прогноз по функциям» нет", async () => {
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     expect(screen.getByRole("button", { name: "Управление" })).toBeTruthy();
     expect(screen.getByText("Что умеет делать система")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Деятельность" }));

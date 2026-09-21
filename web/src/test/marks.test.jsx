@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT } from "../lib/funcs.js";
+import { openTab } from "./openTab.js";
 
 /* Подписи под названиями: «актив», «ресурс», «функция».
    Белая — строение сходится, красная — нет, и рядом «?» с объяснением.
@@ -11,7 +12,7 @@ import { WHY_ASSET, WHY_FUNC, WHY_TRAIT } from "../lib/funcs.js";
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
-const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+const scheme = () => openTab("Схема");
 const dialog = () => screen.queryByRole("dialog");
 /* Новый актив ни с чем не связан — значит заведомо не сходится. Проверять
    подписи на стартовой модели нельзя: там все активы годные, и проверка

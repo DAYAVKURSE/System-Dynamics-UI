@@ -32,12 +32,14 @@ import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { autoFlow, crewFor, roleOf, runsOfFunc } from "./TasksBoard.jsx";
 import { swipeFrom, swipeStep, tabAfter } from "../lib/swipe.js";
-import { lensStyle, placeIn } from "../lib/lens.js";
+import { GAP, NOMINAL_W, NOMINAL_WIN, centers, hold, lensStyle, nearest } from "../lib/drum.js";
 
 /* Края барабана гаснут: вкладка, уехавшая за обод, не должна обрезаться
    ровной линией — она должна растворяться (владелец, 2026-09-21). */
 const TABS_MASK = "linear-gradient(90deg, transparent 0, #000 18px,"
   + " #000 calc(100% - 18px), transparent 100%)";
+/* Окно барабана: вкладка плюс место, куда ей вырасти посередине. */
+const DRUM_H = "calc(var(--control-h) + var(--space-8))";
 import { elbow } from "../lib/paths.js";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
@@ -1496,57 +1498,118 @@ export default function SystemModel(){
      всему списку — иначе он приводил бы туда, куда не пускают. */
   const tabsShown=useMemo(()=>TAB_LIST.filter(([k])=>k===SELF_TAB[0]||k===MARKET_TAB[0]
     ||me.isOwner||me.solo||me.tabs.includes(k)),[me.isOwner,me.solo,me.tabs]);
-  /* Открытая вкладка всегда на виду: ряд уезжает за край экрана, и после
-     свайпа она оказывалась бы за его пределами. Едет плавно — видно, куда
-     ушли (владелец, 2026-09-19: «смена вкладки должна происходить с
-     анимацией передвижения вкладки»). */
-  const tabsBox=useRef(null);
-  useEffect(()=>{
-    const el=tabsBox.current?.querySelector(`[data-tab="${tab}"]`);
-    if(el&&typeof el.scrollIntoView==="function"){
-      try{ el.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }
-      catch{ /* не умеет — и не надо */ }
-    }
-  },[tab]);
-  /* ЛУПА НАД РЯДОМ (владелец, 2026-09-21). Счёт — в lib/lens.js, здесь
-     только руки: пройти по вкладкам и положить каждой её вид. Стилем, а
-     не состоянием: ряд перерисовывается на каждый пиксель прокрутки, и
-     setState на такой частоте дёргал бы всё дерево вкладки.
+  /* ═══ БАРАБАН ВКЛАДОК ═══
 
-     Ряд едет плавно (`scrollIntoView` выше и сама прокрутка пальцем),
-     поэтому пересчёт висит на кадре: пока ряд движется, кадр идёт, и
-     линза движется вместе с ним. */
-  const shapeTabs=useCallback(()=>{
-    const b=tabsBox.current;
-    if(!b) return;
-    for(const el of b.children){
-      const v=lensStyle(placeIn(b,el));
+     Ряд не прокручивается браузером: положение — одно число `offset`
+     (сколько пикселей ряда левее середины окна), и ведём его мы сами,
+     кадр за кадром. Так сделано не ради красоты, а потому что нативная
+     прокрутка плодила ровно те три беды, на которые жаловался владелец
+     (2026-09-21): вид считался по событию `scroll`, а события приходят
+     реже кадров — отсюда и «многоугольник», и рывок вправо в конце
+     анимации, когда ряд уже стоял, а вид досчитывался.
+
+     Счёт — в lib/drum.js. Здесь руки: померить, покрасить, довезти.
+
+     АКТИВНА ТА, ЧТО ПОСЕРЕДИНЕ. Нажатие барабан не двигает и вкладку не
+     меняет вовсе: вкладку выбирают, докрутив её до середины, — как на
+     счётчике. */
+  const drumWin=useRef(null);
+  const drumRow=useRef(null);
+  const tabEls=useRef(new Map());
+  const geom=useRef({cs:[],win:NOMINAL_WIN});
+  const at=useRef(0);        // где барабан стоит сейчас
+  const placed=useRef(false);// первый раз ставим без хода
+  const grab=useRef(null);   // палец на барабане
+
+  /* Разметка: ширины вкладок и окна. Без разметки (тест) — сговорённые
+     числа, чтобы счёт оставался тем же и там. */
+  const measure=useCallback(()=>{
+    const ws=tabsShown.map(([k])=>{
+      const el=tabEls.current.get(k);
+      return (el&&el.offsetWidth)||NOMINAL_W;
+    });
+    geom.current={cs:centers(ws),
+      win:(drumWin.current&&drumWin.current.clientWidth)||NOMINAL_WIN};
+    return geom.current;
+  },[tabsShown]);
+
+  /* Положить всем вкладкам их вид. Стилем, а не состоянием: кадров много,
+     и setState на каждом дёргал бы всё дерево вкладки.
+
+     `smooth` — ход к выбранной вкладке. Ведёт его БРАУЗЕР переходом, а не
+     мы кадрами: это и убирает рывок в конце (владелец, 2026-09-21).
+     Пока барабан крутят пальцем, перехода нет — вкладки идут за пальцем
+     точно. */
+  const paint=useCallback((smooth)=>{
+    const {cs,win}=geom.current;
+    const half=(win||NOMINAL_WIN)/2;
+    const go=smooth?"transform .28s ease-out, opacity .28s ease-out":"none";
+    if(drumRow.current){
+      drumRow.current.style.transition=go;
+      drumRow.current.style.transform=`translateX(${(half-at.current).toFixed(2)}px)`;
+    }
+    tabsShown.forEach(([k],i)=>{
+      const el=tabEls.current.get(k);
+      if(!el||cs[i]==null) return;
+      const v=lensStyle((cs[i]-at.current)/half);
+      el.style.transition=go;
       el.style.transform=v.transform;
       el.style.opacity=v.opacity;
-    }
-  },[]);
-  const tabsRoll=useRef(0);
-  const onTabsScroll=useCallback(()=>{
-    if(typeof requestAnimationFrame!=="function"){ shapeTabs(); return; }
-    if(tabsRoll.current) return;
-    tabsRoll.current=requestAnimationFrame(()=>{ tabsRoll.current=0; shapeTabs(); });
-  },[shapeTabs]);
-  /* Пока ряд доезжает до открытой вкладки, прокрутка идёт сама, а события
-     `scroll` у плавного хода приходят не на каждый кадр. Поэтому после
-     смены вкладки линзу ведём кадрами — полсекунды, ровно на доезд. */
+    });
+  },[tabsShown]);
+  const settleTo=useCallback((x,smooth)=>{
+    at.current=hold(geom.current.cs,x);
+    paint(smooth);
+  },[paint]);
+
+  /* Открытая вкладка всегда посередине: свайп по странице меняет вкладку,
+     и барабан доезжает следом (владелец, 2026-09-19: «смена вкладки должна
+     происходить с анимацией передвижения вкладки»). Первый раз — без
+     хода: при открытии приложения барабану неоткуда ехать. */
   useEffect(()=>{
-    shapeTabs();
-    if(typeof requestAnimationFrame!=="function") return undefined;
-    let live=true; const until=Date.now()+600;
-    const step=()=>{ if(!live) return; shapeTabs(); if(Date.now()<until) requestAnimationFrame(step); };
-    requestAnimationFrame(step);
-    return ()=>{ live=false; };
-  },[tab,tabsShown,shapeTabs]);
+    const {cs}=measure();
+    const i=tabsShown.findIndex(([k])=>k===tab);
+    if(i<0||cs[i]==null){ paint(false); return; }
+    settleTo(cs[i],placed.current);
+    placed.current=true;
+  },[tab,tabsShown,measure,paint,settleTo]);
   useEffect(()=>{
     if(typeof window==="undefined") return undefined;
-    window.addEventListener("resize",shapeTabs);
-    return ()=>window.removeEventListener("resize",shapeTabs);
-  },[shapeTabs]);
+    const again=()=>{ const {cs}=measure();
+      const i=tabsShown.findIndex(([k])=>k===tab);
+      if(cs[i]!=null) settleTo(cs[i],false); else paint(false); };
+    window.addEventListener("resize",again);
+    return ()=>window.removeEventListener("resize",again);
+  },[tab,tabsShown,measure,paint,settleTo]);
+
+  /* Палец на барабане: ряд идёт за ним, отпустили — ближайшая к середине
+     и становится открытой. Нажатие без движения не делает НИЧЕГО: барабан
+     на нажатие не отзывается (владелец, 2026-09-21). */
+  const drumDown=(e)=>{
+    if(e.button!=null&&e.button!==0) return;
+    measure();
+    grab.current={x:e.clientX,from:at.current};
+    if(e.currentTarget.setPointerCapture&&e.pointerId!=null){
+      try{ e.currentTarget.setPointerCapture(e.pointerId); }catch{ /* не умеет — не беда */ }
+    }
+  };
+  const drumMove=(e)=>{
+    const g=grab.current;
+    if(!g) return;
+    at.current=hold(geom.current.cs,g.from-(e.clientX-g.x));
+    paint(false);
+  };
+  const drumUp=()=>{
+    if(!grab.current) return;
+    grab.current=null;
+    const {cs}=geom.current;
+    const i=nearest(cs,at.current);
+    if(i<0) return;
+    /* Вкладка меняется В МОМЕНТ ОТПУСКАНИЯ, а не когда доедет: доезд —
+       это уже показ выбранного, и ждать его нечего. */
+    const next=tabsShown[i]&&tabsShown[i][0];
+    if(next&&next!==tab) goTab(next); else settleTo(cs[i],true);
+  };
   /* Страница вкладки въезжает с той стороны, откуда пришли: без этого
      смена вкладки — мгновенная подмена, и непонятно, вперёд ты ушёл или
      назад. Сдвиг ставится без перехода, а возврат к нулю — с ним. */
@@ -1644,18 +1707,28 @@ export default function SystemModel(){
           style={{flex:1,minWidth:0,gap:"var(--space-4)",
             background:"rgba(5,7,12,.55)",border:"1px solid var(--border-glass-soft)",
             borderRadius:"var(--radius-pill)",padding:"var(--space-4)"}}>
-          {/* Ряд-барабан: `position:relative` — чтобы вкладка мерилась от
-              него самого (lib/lens.js), вертикальный отступ — чтобы
-              увеличенной вкладке было куда вырасти, а маска по краям
-              гасит то, что уже завернулось за обод. */}
-          <div ref={tabsBox} className="flex gap-2 no-bar" onScroll={onTabsScroll}
-            style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"center",
-              position:"relative",padding:"var(--space-4) 0",
+          {/* ОКНО БАРАБАНА. Ряд внутри двигаем мы сами (см. выше), поэтому
+              здесь `overflow:hidden`, а не прокрутка: браузеру тут делать
+              нечего. Маска по краям гасит вкладку, ушедшую за обод, —
+              обрезать её ровной линией нельзя, барабан круглый.
+
+              `touchAction:"pan-y"` — вбок палец крутит барабан, вдоль
+              страницы прокрутка остаётся браузеру. */}
+          <div ref={drumWin} data-drum="" onPointerDown={drumDown}
+            onPointerMove={drumMove} onPointerUp={drumUp} onPointerCancel={drumUp}
+            style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",
+              height:DRUM_H,touchAction:"pan-y",cursor:"grab",
               maskImage:TABS_MASK,WebkitMaskImage:TABS_MASK}}>
-            {tabsShown.map(([k,t])=>(
-              <button key={k} data-tab={k}
-                style={{...tabStyle(tab===k),transformOrigin:"50% 50%",willChange:"transform"}}
-                onClick={()=>goTab(k)}>{t}</button>))}
+            <div ref={drumRow} className="flex items-center"
+              style={{position:"absolute",left:0,top:0,height:"100%",
+                gap:`${GAP}px`,willChange:"transform"}}>
+              {tabsShown.map(([k,t])=>(
+                <button key={k} data-tab={k} type="button" tabIndex={-1}
+                  aria-current={tab===k?"page":undefined}
+                  ref={(el)=>{ if(el) tabEls.current.set(k,el); else tabEls.current.delete(k); }}
+                  style={{...tabStyle(tab===k),flex:"0 0 auto",
+                    transformOrigin:"50% 50%",willChange:"transform"}}>{t}</button>))}
+            </div>
           </div>
           {/* Стрелки справа больше нет (владелец, 2026-09-21): барабан
               говорит сам — вкладка у обода завёрнута и гаснет, значит ряд

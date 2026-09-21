@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SystemModel, { docFrom } from "../components/SystemModel.jsx";
 import { newTask } from "../components/TasksBoard.jsx";
 import { normalizeGoals } from "../lib/goals.js";
+import { openTab } from "./openTab.js";
 
 /* «Загрузить» из выгрузки читает документ ЦЕЛИКОМ.
 
@@ -14,7 +15,7 @@ import { normalizeGoals } from "../lib/goals.js";
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
-const tab = (name) => fireEvent.click(screen.getByRole("button", { name }));
+const tab = (name) => openTab(name);
 const exportTool = () => { tab("Инструменты"); tab("Выгрузка"); };
 const jsonField = () => container.querySelector("textarea");
 const commit = (el, value) => {
@@ -79,7 +80,7 @@ describe("«Загрузить» из выгрузки", () => {
 
 describe("версии сценария на вкладке выгрузки (владелец, 2026-09-19)", () => {
   const openTools = () => {
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     if (!container.querySelector("textarea")) fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
   };
 
@@ -89,7 +90,7 @@ describe("версии сценария на вкладке выгрузки (в
     fireEvent.change(screen.getByPlaceholderText("имя сценария"), { target: { value: "Моя схема" } });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     await screen.findByText(/Сохранено/);
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     fireEvent.click(screen.getByRole("button", { name: "+ актив" }));
     openTools();
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));

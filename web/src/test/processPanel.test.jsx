@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { indentText } from "../lib/proc2.js";
+import { openTab } from "./openTab.js";
 
 /* РАЗДЕЛ «ТЕХНОЛОГИЧЕСКИЕ ПРОЦЕССЫ» НА «УПРАВЛЕНИИ» — язык v2 (владелец,
    2026-09-18): строки с метками, подсказки окном над полем, роли значками
@@ -10,7 +11,7 @@ import { indentText } from "../lib/proc2.js";
 let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
-const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+const scheme = () => openTab("Схема");
 const openProc = () => {
   scheme();
   fireEvent.click(screen.getByRole("button", { name: "Управление" }));
@@ -37,7 +38,7 @@ const pick = (re) => fireEvent.click(within(popup()).getByRole("option", { name:
 const opList = () => screen.getByRole("listbox", { name: "операция: варианты" });
 const pickOp = (re) => fireEvent.click(within(opList()).getByRole("option", { name: re }));
 const openExport = () => {
-  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  openTab("Инструменты");
   if (!container.querySelector("textarea")) fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
   return container.querySelector("textarea");
 };

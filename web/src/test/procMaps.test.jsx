@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { procPlan, portText } from "../components/ProcMaps.jsx";
+import { openTab } from "./openTab.js";
 
 /* КАРТЫ ТЕХПРОЦЕССА (владелец, 2026-09-18): две кнопки справа под полем —
    таймлайн («когда») и майнд-карта («что куда»), обе модальным окном, в
@@ -78,7 +79,7 @@ describe("кнопки под полем", () => {
   beforeEach(() => {
     localStorage.clear();
     ({ container } = render(<SystemModel />));
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     fireEvent.click(screen.getByRole("button", { name: "Управление" }));
     const toggle = screen.getByRole("button", { name: "технологические процессы" });
     if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);

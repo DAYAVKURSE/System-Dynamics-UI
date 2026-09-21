@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import React from "react";
+import { openTab } from "./openTab.js";
 
 /* ШАПКА (владелец, 2026-09-19).
 
@@ -58,7 +59,9 @@ describe("шапка", () => {
        только сам ряд, и он забирает всю его ширину. */
     expect(screen.queryByRole("button", { name: /следующие вкладки/i })).toBeNull();
     expect(trough.children).toHaveLength(1);
-    expect(trough.firstElementChild).toBe(tab.parentElement);
+    // В жёлобе — окно барабана, а в нём сам ряд с вкладками.
+    expect(trough.firstElementChild).toBe(tab.closest("[data-drum]"));
+    expect(tab.parentElement.parentElement).toBe(tab.closest("[data-drum]"));
     /* Вкладка — КАПСУЛА на стеклянном баре (дизайн-система Blocktree
        Liquid Glass): папок с подрезанным низом больше нет. */
     expect(tab.style.borderRadius).toBe("var(--radius-pill)");
@@ -93,7 +96,7 @@ const straight = (d) => {
 describe("стрелки схемы", () => {
   it("передача — колено: строго по вертикали и горизонтали, углы скруглены", () => {
     const { container } = render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     const moves = [...container.querySelectorAll("[data-move]")];
     expect(moves.length).toBeGreaterThan(0);
     moves.forEach((p) => {

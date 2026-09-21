@@ -9,6 +9,7 @@ import {
   pathOf, reportFromLocation, rootsOf, shareLink, subtree, summaryOf, moveNode,
 } from "../lib/reports.js";
 import { deliverReport, reportHtml, reportOf } from "../lib/reportDoc.js";
+import { openTab } from "./openTab.js";
 
 /* ОТЧЁТЫ · карта проектов.
 
@@ -752,7 +753,7 @@ describe("вкладка «Отчёты»", () => {
 
   it("открывается и предлагает завести отчёт", () => {
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Отчёты" }));
+    openTab("Отчёты");
     expect(screen.getByText(/Отчётов пока нет/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "+ отчёт" })).toBeInTheDocument();
   });

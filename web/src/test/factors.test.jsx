@@ -5,6 +5,7 @@ import { FACTORS_ON } from "../lib/flags.js";
 import { chanceOf, conversionOf, factorsOf, newFactor, newFunc, normalizeFunc,
   normalizeFactors, checkFunc, funcGaps, takeQty } from "../lib/funcs.js";
 import { scheduleOf, solve } from "../lib/plan.js";
+import { openTab } from "./openTab.js";
 
 /* ФАКТОР — КОНВЕРСИЯ, А НЕ ДРУГОЙ ВИД РАБОТЫ.
 
@@ -93,7 +94,7 @@ describe("факторы пока убраны с экрана", () => {
   it("вкладки «Факторы» у актива нет, пока флаг выключен", () => {
     localStorage.clear();
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     const names = screen.getAllByRole("button", { name: /^(Воркеры|Функции|Факторы|Ресурсы) \d/ })
       .map((b) => b.textContent.split(" ")[0]);
     expect(names).toEqual(FACTORS_ON ? ["Воркеры", "Функции", "Факторы", "Ресурсы"]
@@ -104,7 +105,7 @@ describe("факторы пока убраны с экрана", () => {
 describe.skipIf(!FACTORS_ON)("в интерфейсе", () => {
   let container;
   beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
-  const scheme = () => fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+  const scheme = () => openTab("Схема");
   const assetTab = (name) => fireEvent.click(
     screen.getByRole("button", { name: new RegExp(`^${name}`) }));
   const openFunc = () => {
@@ -119,7 +120,7 @@ describe.skipIf(!FACTORS_ON)("в интерфейсе", () => {
     fireEvent.click(screen.getByRole("button", { name: "+ фактор" }));
   };
   const dump = () => {
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
     return JSON.parse(container.querySelector("textarea").value);

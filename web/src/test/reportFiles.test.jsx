@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_UPLOAD_REPORT_BYTES } from "../storage.js";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { openTab } from "./openTab.js";
 
 /* Вещь, вышедшая из работы, уезжает на диск сервера, а в сценарий попадает
    ссылка. Без сервера — обратно в data:-URL внутри сценария. Файла
@@ -72,13 +73,13 @@ const seed = () => localStorage.setItem("sd_draft", JSON.stringify({
 
 const openSubmit = () => {
   fireEvent.click(screen.getByRole("button", { name: /Восстановить/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Задачи" }));
+  openTab("Задачи");
   // Имя задачи совпадает с именем функции — берём карточку на доске.
   fireEvent.click(screen.getAllByText("Сбор заявок")[0]);
   fireEvent.click(screen.getByRole("button", { name: "СДАТЬ" }));
 };
 const dump = () => {
-  fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+  openTab("Инструменты");
   fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
   fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
   return JSON.parse(container.querySelector("textarea").value);

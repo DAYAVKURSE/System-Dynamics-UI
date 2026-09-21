@@ -5,6 +5,7 @@ import SystemModel, { TAB_LIST } from "../components/SystemModel.jsx";
 import {
   daysOf, matchServices, orderFromFunc, rowsOf, serviceFromFunc, words,
 } from "../lib/market.js";
+import { openTab } from "./openTab.js";
 
 /* РЫНОК УСЛУГ.
 
@@ -119,7 +120,7 @@ describe("вкладка", () => {
     render(<SystemModel />);
     const all = screen.getAllByRole("button").map((b) => b.textContent);
     expect(all.indexOf("Рынок услуг")).toBeLessThan(all.indexOf("Анкета"));
-    fireEvent.click(screen.getByRole("button", { name: "Рынок услуг" }));
+    openTab("Рынок услуг");
     // Без сервера — честно сказано, почему пусто.
     expect(screen.getByText(/живёт на сервере/)).toBeInTheDocument();
   });

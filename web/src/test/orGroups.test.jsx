@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { groupsOf, groupCount, newPort, normalizeFunc } from "../lib/funcs.js";
 import { pickAlt, runSide, solve, takesOf } from "../lib/plan.js";
+import { openTab } from "./openTab.js";
 
 /* «И» между требованиями функции, «ИЛИ» внутри требования.
 
@@ -124,12 +125,12 @@ describe("в форме", () => {
   let container;
   beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
   const openFunc = () => {
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     fireEvent.click(screen.getByRole("button", { name: /^Функции/ }));
     fireEvent.click(screen.getAllByRole("button", { name: /^развернуть функции/ })[0]);
   };
   const dump = () => {
-    fireEvent.click(screen.getByRole("button", { name: "Инструменты" }));
+    openTab("Инструменты");
     fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
     fireEvent.click(screen.getByRole("button", { name: "Выгрузить" }));
     return JSON.parse(container.querySelector("textarea").value);
@@ -175,7 +176,7 @@ describe("свёрнутая строка функции", () => {
        противоположно тому, что задано группой. */
     localStorage.clear();
     render(<SystemModel />);
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     fireEvent.click(screen.getByRole("button", { name: /^Функции/ }));
     fireEvent.click(screen.getAllByRole("button", { name: /^развернуть функции/ })[0]);
     const alt = screen.getAllByLabelText(/^или вместо /)[0];

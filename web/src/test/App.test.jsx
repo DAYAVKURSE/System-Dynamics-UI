@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import App from "../App.jsx";
+import { openTab } from "./openTab.js";
 
 const setUrl = (suffix) => {
   delete window.location;
@@ -40,7 +41,7 @@ describe("App", () => {
     render(<App />);
     // Функции живут в карточке актива: на доске задач их списка нет —
     // задачи берутся из целей, а не заводятся под функцией руками.
-    fireEvent.click(screen.getByRole("button", { name: "Схема" }));
+    openTab("Схема");
     fireEvent.click(screen.getByRole("button", { name: /^Функции/ }));
     // Название функции — надпись, а не поле: правят его двойным нажатием.
     expect(screen.getAllByText(/Сбор заявок/).length).toBeGreaterThan(0);
