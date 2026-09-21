@@ -1,4 +1,5 @@
 import { getInitData } from "./telegram.js";
+import { codeHeader, ensureToken } from "./codes.js";
 
 /* ════════════════════════════════════════════════════════════════
    КТО Я И ЧТО МНЕ ВИДНО
@@ -88,6 +89,8 @@ const headers = () => {
     "Content-Type": "application/json",
     "X-Telegram-Init-Data": getInitData(),
     ...(act ? { "X-Act-As": act } : {}),
+    // Токен сервиса кодов (codes.js): без него хранилище не отвечает.
+    ...codeHeader(),
   };
 };
 
@@ -104,6 +107,14 @@ export async function whoAmI() {
     // людей нечем, и приложение работает как одиночное.
     if (!j || !j.ok || !j.org) { cached = SOLO; return cached; }
 
+    /* Сервис кодов включён — сначала токен по сохранённому ключу. Ключа
+       нет — «кто я» и спрашивать не у кого: приложение ведёт человека
+       за ключом (владелец, 2026-09-21). */
+    if (j.codes && !(await ensureToken())) {
+      cached = { ...SOLO, solo: false, isOwner: false, known: false, needsCode: true,
+        tabs: [], access: {} };
+      return cached;
+    }
     const r = await fetch("/api/org/me", { headers: headers() });
     if (!r.ok) { cached = { ...SOLO, solo: false, isOwner: false, known: false, tabs: [], access: {} }; return cached; }
     const me = await r.json();

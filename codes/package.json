@@ -1,0 +1,11 @@
+{
+  "name": "system-dynamics-codes",
+  "private": true,
+  "version": "0.1.0",
+  "license": "SEE LICENSE IN LICENSE",
+  "description": "Сервис кодов: выдаёт ключи при регистрации и подписывает короткие токены",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  }
+}

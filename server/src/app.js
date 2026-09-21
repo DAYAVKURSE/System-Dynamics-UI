@@ -13,6 +13,7 @@ import assistantRouter from "./routes/assistant.js";
 import marketRouter from "./routes/market.js";
 import issuesRouter from "./routes/issues.js";
 import { callLinkEnv, callLinkFor } from "./lib/links.js";
+import * as codes from "./lib/codes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -114,6 +115,9 @@ export function createApp() {
       assistant: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       // Рынок услуг: заказы и отклики — зарегистрированным, а их различает подпись.
       market: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+      // Сервис кодов: регистрация с ключом и планом (codes/). Включён —
+      // без токена сервис хранилища не отвечает.
+      codes: codes.enabled(),
       // Кто и как открывал страницу звонка — см. выше.
       callPage: { ...callPage, recent: [...callPage.recent], views: [...callPage.views] },
       // Какую ссылку бот кладёт в приглашение ПРЯМО СЕЙЧАС. Настроек три
@@ -134,7 +138,18 @@ export function createApp() {
     noteCallView(req.body);
     res.json({ ok: true });
   });
-  app.use("/api/scenarios", scenariosRouter);
+    /* Сервис кодов стоит рядом, на localhost (codes/), и наружу его
+     выводит этот сервер: так nginx и HTTPS остаются одни на всех, а
+     приложение ходит на тот же адрес, что и за всем остальным. Подписи
+     Telegram здесь нет нарочно: ключ получают ДО того, как есть кем
+     войти, и с любого аккаунта. */
+  app.all("/api/codes/*", async (req, res) => {
+    const path = req.path.replace(/^\/api\/codes/, "");
+    const out = await codes.proxy(req.method, path, req.body);
+    res.status(out.status).json(out.body);
+  });
+
+app.use("/api/scenarios", scenariosRouter);
   app.use("/api/schedule", scheduleRouter);
   // Файлы отчётов: сырые байты, поэтому свой парсер тела внутри маршрута.
   app.use("/api/reports", reportsRouter);

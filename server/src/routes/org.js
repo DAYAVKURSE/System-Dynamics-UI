@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
+import * as codes from "../lib/codes.js";
+import { PLAN_TABS } from "../lib/plans.js";
 import { renameRole,
   addForm, addRole, addUser, contractHtml, identify, listOrg, openRoles, registerUser, removeForm,
   removeRole, removeUser, setForm, setProfile, setRoleContract, setRoleForm, setRoleTabs,
@@ -51,7 +53,21 @@ const byGrant = (me, grant) => {
 
 router.get("/me", async (req, res, next) => {
   try {
+    /* Сервис кодов включён, а кода нет — приложению нужно ровно это
+       знать: вкладок не будет, пока человек не введёт ключ или не
+       получит новый (владелец, 2026-09-21). */
+    if (codes.enabled() && !req.code) {
+      return res.json({ id: String(req.telegramRealId || ""), isOwner: false, known: false,
+        needsCode: true, tabs: [], access: {}, roles: [], profile: {}, forms: [] });
+    }
     const me = await identify(req.telegramUserId, req.telegramProfile || {});
+    if (req.code) {
+      /* План — с кем вошли, тому и открыто: вкладки роли остаются, а
+         те, что не в плане, гаснут (lib/plans.js). */
+      me.code = { uid: req.code.uid, plan: req.code.plan };
+      me.plan = req.code.plan;
+      me.planTabs = [...(PLAN_TABS[req.code.plan] || PLAN_TABS.free)];
+    }
     if (req.actingAs) {
       const org = await listOrg();
       const owner = String(org.ownerId || "") === String(req.telegramRealId || "");

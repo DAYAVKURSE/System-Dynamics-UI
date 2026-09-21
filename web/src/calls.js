@@ -1,4 +1,5 @@
 import { getInitData, getTelegram } from "./telegram.js";
+import { codeHeader } from "./codes.js";
 import { actingAs } from "./identity.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -53,7 +54,7 @@ export const callerId = () =>
 
 const headers = () => ({
   "Content-Type": "application/json",
-  "X-Telegram-Init-Data": getInitData(),
+  "X-Telegram-Init-Data": getInitData(), ...codeHeader(),
   /* Под чужой страницей — и здесь: «Войти под его именем» меняет не
      одну вкладку, а всё приложение (см. identity.js). */
   ...(actingAs() ? { "X-Act-As": actingAs() } : {}),

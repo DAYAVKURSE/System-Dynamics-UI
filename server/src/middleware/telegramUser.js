@@ -1,5 +1,7 @@
 import { verifyInitData } from "../lib/telegramAuth.js";
 import { mayActAs, recordIdFor } from "../lib/orgStore.js";
+import * as codes from "../lib/codes.js";
+import { bindUid, recordOfUid } from "../lib/identityStore.js";
 
 const DEV_USER_ID = "dev-user";
 
@@ -71,6 +73,11 @@ export async function telegramUser(req, res, next) {
 async function actAs(req, res, next) {
   try {
     req.telegramRealId = req.telegramUserId;
+    const code = await checkCode(req);
+    if (code === false) {
+      return res.status(401).json({ error: "code token is required", needsCode: true });
+    }
+    req.code = code;
     const asked = String(req.header("X-Act-As") || "").trim();
     if (asked) {
       if (!(await mayActAs(req.telegramUserId, asked))) {
@@ -83,6 +90,32 @@ async function actAs(req, res, next) {
       return next();
     }
     req.telegramUserId = await recordIdFor(req.telegramUserId);
+    /* Код ведёт к записи (lib/identityStore.js): вошли с другого
+       Telegram — работаем под той же записью, что и всегда. Первый вход
+       с кодом привязывает его к записи, под которой человек был. */
+    if (code) {
+      req.telegramUserId = await bindUid(code.uid, req.telegramUserId, req.telegramRealId);
+    }
     return next();
   } catch (e) { return next(e); }
 }
+
+/* ─────── КОД ИЗ СЕРВИСА КОДОВ (владелец, 2026-09-21) ───────
+
+   Всякое обращение к хранилищу идёт с токеном: подписанной сервисом
+   запиской «это такой-то, план такой-то». Проверяется здесь, офлайн
+   (lib/codes.js). Без токена или с негодным — отказ, кроме «кто я»:
+   он должен ответить и тому, у кого кода ещё нет, — чтобы приложение
+   знало, что его надо получить. Сервис выключен — кодов нет, и всё
+   работает по одному Telegram, как прежде. */
+const isWhoAmI = (req) => req.baseUrl === "/api/org" && req.path === "/me";
+async function checkCode(req) {
+  if (!codes.enabled()) return null;
+  const token = String(req.header("X-User-Token") || "").trim();
+  const seen = token ? await codes.verify(token) : null;
+  if (seen) return { uid: seen.uid, plan: seen.plan, exp: seen.exp };
+  return isWhoAmI(req) ? null : false;
+}
+
+/** Открыт ли код записи заранее: с кем вошли, к тому и ведём. */
+export const recordByCode = recordOfUid;

@@ -10,6 +10,8 @@ import { SOLO, whoAmI, getWorkspace, listOrg, putWorkspace, reviewTaskRemote,
   from "../identity.js";
 import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
+import CodeGate, { PlanCard } from "./CodeGate.jsx";
+import { tabLocked } from "../plans.js";
 import { FACTORS_ON } from "../lib/flags.js";
 import { diffDocs } from "../lib/scenarioDiff.js";
 import LooseCrew from "./LooseCrew.jsx";
@@ -1529,6 +1531,21 @@ export default function SystemModel(){
      АКТИВНА ТА, ЧТО ПОСЕРЕДИНЕ. Нажатие барабан не двигает и вкладку не
      меняет вовсе: вкладку выбирают, докрутив её до середины, — как на
      счётчике. */
+  /* Открытая вкладка погашена планом (план узнали позже, чем открыли) —
+     переходим на первую открытую; то же с внутренней вкладкой
+     инструментов (владелец, 2026-09-21). */
+  useEffect(()=>{
+    if(!me.plan) return;
+    if(tabLocked(me,tab)){
+      const first=tabsShown.map(([k])=>k).find(k=>!tabLocked(me,k));
+      if(first) setTab(first);
+    }
+    if(tabLocked(me,`tools:${tool}`)){
+      const t=["people","assistant","virtual","reminders","calls","issues","export"]
+        .find(k=>!tabLocked(me,`tools:${k}`));
+      if(t) setTool(t);
+    }
+  },[me,tab,tool,tabsShown]);
   const drumWin=useRef(null);
   const drumRow=useRef(null);
   const tabEls=useRef(new Map());
@@ -1654,8 +1671,17 @@ export default function SystemModel(){
     if(!grab.current) return;
     grab.current=null;
     const {cs}=geom.current;
-    const i=nearest(cs,aim.current);
+    let i=nearest(cs,aim.current);
     if(i<0) return;
+    /* Погашенная планом вкладка в рамке не останавливается: барабан
+       доезжает до ближайшей открытой (владелец, 2026-09-21). */
+    if(tabLocked(me,tabsShown[i][0])){
+      let best=-1;
+      cs.forEach((c,j)=>{ if(tabLocked(me,tabsShown[j][0])) return;
+        if(best<0||Math.abs(c-aim.current)<Math.abs(cs[best]-aim.current)) best=j; });
+      if(best<0) return;
+      i=best;
+    }
     /* Вкладка меняется В МОМЕНТ ОТПУСКАНИЯ, а не когда доедет: доезд —
        это уже показ выбранного, и ждать его нечего. */
     const next=tabsShown[i]&&tabsShown[i][0];
@@ -1666,7 +1692,7 @@ export default function SystemModel(){
      назад. Сдвиг ставится без перехода, а возврат к нулю — с ним. */
   const [slide,setSlide]=useState(0);
   const goTab=(next)=>{
-    if(next===tab) return;
+    if(next===tab||tabLocked(me,next)) return;
     recordAction(`открыта вкладка «${(TAB_LIST.find(([k])=>k===next)||[])[1]||next}»`);
     const keys=tabsShown.map(([k])=>k);
     const dir=keys.indexOf(next)>keys.indexOf(tab)?1:-1;
@@ -1692,7 +1718,7 @@ export default function SystemModel(){
     const step=swipeStep({dx:t.clientX-from.x,dy:t.clientY-from.y,
       width:typeof window==="undefined"?0:window.innerWidth});
     if(!step) return;
-    goTab(tabAfter(tabsShown.map(([k])=>k),tab,step));
+    goTab(tabAfter(tabsShown.map(([k])=>k).filter(k=>!tabLocked(me,k)),tab,step));
   };
 
   /* ═══ РЕГИСТРАЦИЯ — СВОЙ ЭКРАН ═══
@@ -1706,6 +1732,19 @@ export default function SystemModel(){
      владельца), тому и «Назад» показывать незачем. */
   /* Ссылка на чужую страницу — раньше всего остального: пока человек не
      решил, вступает он или нет, показывать ему приложение не из чего. */
+  /* Сервис кодов включён, ключа на устройстве нет — сначала ключ
+     (владелец, 2026-09-21): без него хранилище не отвечает, и показывать
+     нечего. */
+  if(me.needsCode) return (
+    <div style={{background:C.ink,color:C.text,minHeight:"100%",padding: "var(--space-12)",
+      fontFamily:"var(--font-sans)"}}>
+      <div className="flex items-center gap-2"
+        style={{...TAB_LINE,marginBottom: "var(--space-16)"}}>
+        <div style={{flex:"0 0 auto"}}><Brand size={22}/></div>
+      </div>
+      <CodeGate onDone={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); }}/>
+    </div>);
+
   if(joinKey&&!me.solo) return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",
       fontFamily:"var(--font-sans)"}}>
@@ -1788,7 +1827,11 @@ export default function SystemModel(){
                      2026-09-21): рамка стоит на месте, в середине окна, а
                      открытой становится та, что в неё попала. Она лишь
                      ярче остальных — цветом текста. */
+                  aria-disabled={tabLocked(me,k)||undefined}
                   style={{...tabStyle(false),color:tab===k?C.text:C.muted,
+                    /* Вкладка есть у роли, но не у плана — гаснет, а не
+                       прячется (владелец, 2026-09-21). */
+                    opacity:tabLocked(me,k)?0.35:undefined,
                     flex:"0 0 auto",position:"relative",
                     transformOrigin:"50% 50%",transformStyle:"preserve-3d",
                     backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden"}}>
@@ -1920,6 +1963,9 @@ export default function SystemModel(){
           Своя — по умолчанию; чужая открывается нажатием на человека в
           списке воркеров. Вкладкой, а не окном: страница длинная, и в
           окне её пришлось бы листать поверх того, что под ним. */}
+      {tab==="me" && !person && me.code && (
+        <PlanCard me={me}
+          onChanged={()=>{ resetIdentity(); whoAmI().then(m=>setMe(m)).catch(()=>{}); }}/>)}
       {tab==="me" && (
         <ProfilePanel me={me} personId={person} people={people}
           tasks={tasks} funcs={funcs} published={published} ratings={ratings}
@@ -2308,7 +2354,10 @@ export default function SystemModel(){
             .filter(([k])=>((k!=="people"&&k!=="export")||me.isOwner||me.solo)
               &&tabShown(me,"tools",k))
             .map(([k,t])=>(
-              <button key={k} style={btn(tool===k,OK)} onClick={()=>setTool(k)}>{t}</button>))}
+              <button key={k} style={{...btn(tool===k,OK),
+                  opacity:tabLocked(me,`tools:${k}`)?0.35:undefined}}
+                disabled={tabLocked(me,`tools:${k}`)}
+                onClick={()=>setTool(k)}>{t}</button>))}
         </div>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="people" && (

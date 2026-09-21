@@ -194,6 +194,9 @@ jobs:
           mkdir -p deploy_pkg/public
           cp -r server/src deploy_pkg/src
           cp server/package.json server/package-lock.json server/ecosystem.config.cjs deploy_pkg/
+          # Сервис кодов (codes/) едет рядом: без зависимостей, второе
+          # приложение в том же ecosystem.config.cjs.
+          cp -r codes deploy_pkg/codes
           cp -r web/dist/. deploy_pkg/public/
 
           # .env для сервера собирается здесь, из секретов Actions. В репозитории
@@ -259,6 +262,11 @@ jobs:
           # Откаты изменений помощника: кнопка «Отменить изменения» не
           # имеет срока, значит и запись должна пережить деплой.
           UNDO_DIR=${DEPLOY_PATH_R}/data/undo
+          # Сервис кодов: ключи людей и пара ключей сервиса — в data/,
+          # чтобы пережить деплой. Сервер ходит к нему по localhost.
+          CODES_DIR=${DEPLOY_PATH_R}/data/codes
+          CODES_PORT=3010
+          CODES_URL=http://127.0.0.1:3010
           AI_PROVIDER=${AI_PROVIDER:-}
           AI_MODEL=${AI_MODEL:-}
           OPENAI_API_KEY=${OPENAI_API_KEY:-}

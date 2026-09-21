@@ -24,9 +24,18 @@ pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save >/dev/null 2>&1 || true
 
 echo "── health-check ──"
+CODES_PORT="${CODES_PORT:-3010}"
 for _ in $(seq 1 15); do
   if curl -fsS "http://127.0.0.1:$APP_PORT/api/health" >/dev/null 2>&1; then
     echo "приложение отвечает"
+    # Сервис кодов — второе приложение; без него регистрация не работает.
+    if curl -fsS "http://127.0.0.1:$CODES_PORT/health" >/dev/null 2>&1; then
+      echo "сервис кодов отвечает"
+    else
+      echo "ОШИБКА: сервис кодов не отвечает на $CODES_PORT." >&2
+      pm2 logs system-dynamics-codes --lines 30 --nostream || true
+      exit 1
+    fi
     exit 0
   fi
   sleep 2
