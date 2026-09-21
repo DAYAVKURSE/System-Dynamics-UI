@@ -2,8 +2,8 @@ import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { avatarOf, identify, listOrg } from "../lib/orgStore.js";
 import { aliasOf } from "../lib/alias.js";
-import { BadInput, addIssue, fixedText, listIssues, markFixed, markSeen, removeIssue, unreadCount }
-  from "../lib/issuesStore.js";
+import { BadInput, addIssue, fixedText, listIssues, markFixed, markSeen, readShot, removeIssue, shotUrl,
+  unreadCount } from "../lib/issuesStore.js";
 import { readSchedule } from "../lib/scheduleStore.js";
 import { sendMessage } from "../lib/telegram.js";
 
@@ -24,6 +24,17 @@ import { sendMessage } from "../lib/telegram.js";
    ════════════════════════════════════════════════════════════════ */
 
 const router = Router();
+/* Снимок — по ссылке с ключом, без подписи: картинку показывает <img>,
+   а заголовков он не шлёт. Ключ в ссылке случайный: угадать по id нельзя. */
+router.get("/shot/:id/:key.png", async (req, res, next) => {
+  try {
+    const bytes = await readShot(req.params.id, req.params.key);
+    if (!bytes) return res.status(404).json({ error: "not found" });
+    res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "private, max-age=86400");
+    return res.send(bytes);
+  } catch (e) { return next(e); }
+});
 router.use(telegramUser);
 router.use(async (req, res, next) => {
   try {
@@ -54,7 +65,9 @@ const mayWrite = (me) => mayRead(me)
 
 router.post("/", async (req, res, next) => {
   try {
-    return res.status(201).json(await addIssue(req.me.id, req.body?.text));
+    const { shotKey, ...issue } = await addIssue(req.me.id, req.body?.text,
+      { log: req.body?.log, shot: req.body?.shot });
+    return res.status(201).json({ ...issue, shot: shotUrl({ ...issue, shotKey }) });
   } catch (e) { return fail(res, e, next); }
 });
 
@@ -63,11 +76,12 @@ router.get("/", async (req, res, next) => {
     if (!mayRead(req.me)) return res.status(403).json({ error: "not yours" });
     const org = await listOrg();
     const by = new Map((org.users || []).map((u) => [String(u.id), u]));
-    const list = (await listIssues()).map((x) => {
+    const list = (await listIssues()).map(({ shotKey, ...x }) => {
       const u = by.get(String(x.by));
+      const shot = shotUrl({ ...x, shotKey });
       return u
-        ? { ...x, name: u.name, ...avatarOf(u) }
-        : { ...x, name: aliasOf(x.by), avatar: "", avatarOwn: false, avatarOff: false };
+        ? { ...x, shot, name: u.name, ...avatarOf(u) }
+        : { ...x, shot, name: aliasOf(x.by), avatar: "", avatarOwn: false, avatarOff: false };
     });
     return res.json({ issues: list });
   } catch (e) { return fail(res, e, next); }

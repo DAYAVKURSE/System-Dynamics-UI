@@ -106,7 +106,8 @@ function noteCallHit(req) {
 export function createApp() {
   const app = express();
   app.disable("x-powered-by");
-  app.use(express.json({ limit: "2mb" }));
+  // 4 МБ: снимок экрана к сообщению об ошибке (PNG в base64) — до 2 МБ байт.
+  app.use(express.json({ limit: "4mb" }));
 
   // scenarios: false означает, что серверное хранилище выключено (нет
   // TELEGRAM_BOT_TOKEN — значит, нечем проверить подпись, и открывать API

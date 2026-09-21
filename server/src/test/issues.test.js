@@ -76,6 +76,33 @@ describe("сообщения об ошибках", () => {
     expect(list.body.issues[0]).toMatchObject({ text: "не жмётся кнопка", name: "Иван" });
   });
 
+  /* ЛЕНТА И СНИМОК (владелец, 2026-09-21): вместе с текстом — последние
+     действия и, по галочке, снимок экрана; снимок лежит файлом и отдаётся
+     по ссылке с ключом, удаляется вместе с сообщением. */
+  it("лента действий и снимок приходят вместе с текстом; снимок — по ссылке с ключом; удаление уносит и его", async () => {
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(64, 7)]);
+    const r = await request(app).post("/api/issues").set(as(200))
+      .send({ text: "экран пустой", log: "12:00:01 кнопка «Схема»\n12:00:03 вкладка «Задачи»",
+        shot: `data:image/png;base64,${png.toString("base64")}` });
+    expect(r.status).toBe(201);
+    expect(r.body.log).toBe("12:00:01 кнопка «Схема»\n12:00:03 вкладка «Задачи»");
+    expect(r.body.shot).toMatch(/^\/api\/issues\/shot\/is_[0-9a-f]+\/[0-9a-f]{24}\.png$/);
+    expect(r.body.shotKey).toBeUndefined();
+    // Снимок — без подписи, по ссылке; чужой ключ — 404.
+    const img = await request(app).get(r.body.shot);
+    expect(img.status).toBe(200);
+    expect(img.headers["content-type"]).toMatch(/image\/png/);
+    expect(Buffer.compare(img.body, png)).toBe(0);
+    expect((await request(app).get(r.body.shot.replace(/[0-9a-f]{24}\.png$/, "0".repeat(24) + ".png"))).status).toBe(404);
+    const list = await request(app).get("/api/issues").set(as(100));
+    expect(list.body.issues[0]).toMatchObject({ text: "экран пустой", shot: r.body.shot });
+    expect(list.body.issues[0].log).toContain("вкладка «Задачи»");
+    // Не PNG и слишком большой — отказ словами.
+    expect((await request(app).post("/api/issues").set(as(200)).send({ text: "x", shot: "data:image/jpeg;base64,AAAA" })).status).toBe(400);
+    await request(app).delete(`/api/issues/${r.body.id}`).set(as(100)).expect(204);
+    expect((await request(app).get(r.body.shot)).status).toBe(404);
+  });
+
   it("незваный не пишет и не читает", async () => {
     expect((await request(app).post("/api/issues").set(as(300))
       .send({ text: "привет" })).status).toBe(403);

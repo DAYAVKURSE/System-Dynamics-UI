@@ -36,6 +36,24 @@ export const tail = (n = LOG_SIZE) => entries.slice(-n).map((e) => ({ ...e }));
 /** Лента текстом — так она уходит ассистенту. */
 export const logText = (n = LOG_SIZE) => tail(n).map((e) => `${hhmm(e.at)} ${e.text}`).join("\n");
 
+/* ─── к сообщению об ошибке (владелец, 2026-09-21) ───
+   Последние действия за две минуты, но не меньше десяти (а если всего
+   меньше десяти — все), без чувствительных данных. */
+export const RECENT_MS = 2 * 60 * 1000;
+export const RECENT_MIN = 10;
+/** Чувствительное — вон: ключи и токены, адреса почты, длинные номера. */
+export const scrub = (text) => String(text || "")
+  .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "«почта»")
+  .replace(/\b(?:sk|blp|xoxb|ghp|hf|key|tok)[-_][A-Za-z0-9_-]{8,}/gi, "«ключ»")
+  .replace(/\b[A-Za-z0-9_-]{28,}\b/g, "«ключ»")
+  .replace(/\b\d[\d\s()-]{8,}\d\b/g, "«номер»");
+export function recent({ ms = RECENT_MS, min = RECENT_MIN, now = Date.now() } = {}) {
+  const fresh = entries.filter((e) => now - e.at <= ms);
+  const list = fresh.length >= min ? fresh : entries.slice(-min);
+  return list.map((e) => ({ at: e.at, text: scrub(e.text) }));
+}
+export const recentText = (opts) => recent(opts).map((e) => `${hhmm(e.at)} ${e.text}`).join("\n");
+
 export const clearLog = () => { entries.length = 0; };
 
 /** Как назвать элемент: подпись для доступности, иначе его текст. */
@@ -51,7 +69,8 @@ export const labelOf = (el) => {
 /** Что записать о поле, которое поменяли. */
 export const fieldNote = (el) => {
   const label = labelOf(el) || el.tagName?.toLowerCase() || "поле";
-  if (el.type === "password") return `поле «${label}»: изменено`;
+  // Пароль, ключ, токен — значение не пишется вовсе.
+  if (el.type === "password" || /ключ|пароль|токен|token|key|secret|password/i.test(label)) return `поле «${label}»: изменено`;
   if (el.type === "checkbox" || el.type === "radio") return `${el.checked ? "отмечено" : "снято"}: «${label}»`;
   if (el.tagName === "SELECT") {
     const opt = el.options?.[el.selectedIndex];

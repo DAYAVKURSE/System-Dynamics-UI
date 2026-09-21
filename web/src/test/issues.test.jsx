@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import IssuesPanel, { IssueModal } from "../components/IssuesPanel.jsx";
 import { resetIdentity } from "../identity.js";
 
@@ -82,6 +82,32 @@ describe("окно сообщения об ошибке", () => {
     expect(closed).toHaveLength(1);
   });
 
+  /* ГАЛОЧКА «ОТПРАВИТЬ СКРИНШОТ» (владелец, 2026-09-21): снимок и лента
+     сняты при нажатии на значок; лента уходит всегда, снимок — по галочке. */
+  it("лента уходит всегда, снимок — только по галочке «отправить скриншот»", async () => {
+    const sent = [];
+    render(<IssueModal onClose={() => {}} seen={{ log: "12:00:01 кнопка «Схема»", shot: "data:image/png;base64,AAAA" }}
+      onSend={async (t, extra) => { sent.push([t, extra]); }} />);
+    const box = screen.getByRole("checkbox", { name: "отправить скриншот" });
+    expect(box).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText("сообщение об ошибке"), { target: { value: "экран пустой" } });
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual(["экран пустой", { log: "12:00:01 кнопка «Схема»", shot: null }]);
+    cleanup();
+    render(<IssueModal onClose={() => {}} seen={{ log: "л", shot: "data:image/png;base64,AAAA" }}
+      onSend={async (t, extra) => { sent.push([t, extra]); }} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "отправить скриншот" }));
+    fireEvent.change(screen.getByLabelText("сообщение об ошибке"), { target: { value: "снова" } });
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual(["снова", { log: "л", shot: "data:image/png;base64,AAAA" }]);
+    // Снимка нет (не снялся) — галочка выключена.
+    cleanup();
+    render(<IssueModal onClose={() => {}} seen={{ log: "л", shot: null }} onSend={async () => {}} />);
+    expect(screen.getByRole("checkbox", { name: "отправить скриншот" })).toBeDisabled();
+  });
+
   it("сервер отказал — окно остаётся и говорит словами", async () => {
     const closed = [];
     render(<IssueModal onClose={() => closed.push(1)}
@@ -111,6 +137,7 @@ describe("значок в шапке", () => {
     // И оба в одном ряду значков.
     expect(bang.parentElement).toBe(undo.parentElement);
     fireEvent.click(bang);
-    expect(screen.getByText("Напишите сообщение об ошибке")).toBeInTheDocument();
+    // Окно — после снимка экрана и ленты: они снимаются в момент нажатия.
+    expect(await screen.findByText("Напишите сообщение об ошибке")).toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from "react";
+import { recentText } from "../lib/appLog.js";
 import { tx } from "../i18n/t.js";
 import { detectStorage, STORAGE_LABEL, listScenarios, getScenario, saveScenario,
   deleteScenario, syncSchedule, pickScenario, rememberScenario, touchScenario,
@@ -867,6 +868,16 @@ export default function SystemModel(){
   /* Волшебная палочка (владелец, 2026-09-21): что человек видел, снимается
      в момент нажатия, до открытия окна, — иначе в снимок попало бы само
      окно. null — закрыто, "taking" — снимаем, объект — открыто. */
+  /* Сообщение об ошибке: лента последних действий (за две минуты, не
+     меньше десяти) и снимок снимаются В МОМЕНТ НАЖАТИЯ, до окна; снимок
+     уходит только по галочке в окне (владелец, 2026-09-21). */
+  const [issueSeen,setIssueSeen]=useState(null);
+  const openIssue=async()=>{
+    let shot=null;
+    try { shot=(await captureScreen()).shot; } catch { shot=null; }
+    setIssueSeen({ log: recentText(), shot });
+    setIssueOpen(true);
+  };
   const [wand,setWand]=useState(null);
   const openWand=async()=>{
     if(wand) return;
@@ -1939,7 +1950,7 @@ export default function SystemModel(){
             ошибку замечают посреди работы, и значок должен быть там же,
             где рука уже находится. */}
         <IconButton label="сообщить об ошибке" title="Сообщить об ошибке"
-          onClick={()=>setIssueOpen(true)} icon={ICON.alert}/>
+          onClick={openIssue} icon={ICON.alert}/>
         {/* Волшебная палочка — между «!» и «Отменить» (владелец,
             2026-09-21): вопрос ассистенту о том, что сейчас на экране. */}
         <IconButton label="вопрос ассистенту" title="Вопрос ассистенту"
@@ -2562,7 +2573,7 @@ export default function SystemModel(){
       {/* Окно сообщения об ошибке — поверх любой вкладки: значок стоит в
           шапке, и уходить за ним никуда не нужно. */}
       {issueOpen && (
-        <IssueModal onClose={()=>setIssueOpen(false)} onSend={sendIssue}/>)}
+        <IssueModal onClose={()=>setIssueOpen(false)} onSend={sendIssue} seen={issueSeen}/>)}
       {wand && wand!=="taking" && (
         <WandModal seen={wand} onClose={()=>setWand(null)} onSend={askFromApp}/>)}
 

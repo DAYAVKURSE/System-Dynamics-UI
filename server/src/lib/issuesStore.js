@@ -25,6 +25,10 @@ import crypto from "node:crypto";
    ════════════════════════════════════════════════════════════════ */
 
 export const MAX_TEXT = 4000;
+export const MAX_LOG = 6000;
+/* Снимок — PNG из приложения, до 2 МБ: экран телефона в 720 px весит
+   сотни килобайт. */
+export const MAX_SHOT_BYTES = 2 * 1024 * 1024;
 /* Предел списка: файл читается целиком, и без него один настойчивый
    отправитель вырастил бы его до размеров, которые уже не открыть.
    Вытесняются самые старые — новое важнее забытого. */
@@ -76,28 +80,63 @@ export async function listIssues() {
   return (await readIssues()).slice().reverse();
 }
 
-/** Новое сообщение. Пустое не принимается: жаловаться молча не на что. */
-export async function addIssue(byId, text) {
+/** Снимок разбирается из data: URL — только PNG и только до предела. */
+export function shotBytes(shot) {
+  const raw = String(shot || "");
+  if (!raw) return null;
+  const m = raw.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) throw new BadInput("Снимок должен быть PNG");
+  const bytes = Buffer.from(m[1], "base64");
+  if (!bytes.length) throw new BadInput("Снимок пустой");
+  if (bytes.length > MAX_SHOT_BYTES) throw new BadInput("Снимок экрана слишком большой");
+  return bytes;
+}
+const shotFile = (issue) => path.join(baseDir(), `${issue.id}-${issue.shotKey}.png`);
+
+/** Новое сообщение. Пустое не принимается: жаловаться молча не на что.
+ *  Вместе с текстом — лента последних действий (`log`) и снимок экрана
+ *  (`shot`, data: URL PNG), если человек его отметил (владелец,
+ *  2026-09-21). Снимок ложится файлом рядом с issues.json; ключ в имени
+ *  файла — чтобы ссылку нельзя было угадать по id. */
+export async function addIssue(byId, text, { log = "", shot = null } = {}) {
   const body = String(text ?? "").trim().slice(0, MAX_TEXT);
   if (!body) throw new BadInput("Напишите, что сломалось");
+  const bytes = shotBytes(shot);
+  const tape = String(log ?? "").trim().slice(0, MAX_LOG);
   return withIssues(async (list) => {
     const issue = {
       id: `is_${crypto.randomBytes(5).toString("hex")}`,
       by: String(byId),
       text: body,
       at: new Date().toISOString(),
+      ...(tape ? { log: tape } : {}),
+      ...(bytes ? { shotKey: crypto.randomBytes(12).toString("hex") } : {}),
     };
+    if (bytes) {
+      await fs.mkdir(baseDir(), { recursive: true });
+      await fs.writeFile(shotFile(issue), bytes);
+    }
     await writeIssues([...list, issue].slice(-MAX_ISSUES));
     return issue;
   });
 }
 
+/** Байты снимка по id и ключу из ссылки; нет — null. */
+export async function readShot(id, key) {
+  const issue = (await readIssues()).find((x) => x.id === String(id));
+  if (!issue || !issue.shotKey || issue.shotKey !== String(key)) return null;
+  try { return await fs.readFile(shotFile(issue)); } catch { return null; }
+}
+/** Ссылка на снимок для списка; без снимка — "". */
+export const shotUrl = (issue) => (issue.shotKey ? `/api/issues/shot/${issue.id}/${issue.shotKey}.png` : "");
+
 /** Удалить сообщение. `false` — такого нет; это не ошибка, а ответ. */
 export async function removeIssue(id) {
   return withIssues(async (list) => {
-    const next = list.filter((x) => x.id !== String(id));
-    if (next.length === list.length) return false;
-    await writeIssues(next);
+    const gone = list.find((x) => x.id === String(id));
+    if (!gone) return false;
+    await writeIssues(list.filter((x) => x !== gone));
+    if (gone.shotKey) await fs.rm(shotFile(gone), { force: true }).catch(() => {});
     return true;
   });
 }

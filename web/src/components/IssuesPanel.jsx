@@ -88,6 +88,21 @@ export default function IssuesPanel({ me, onSeen }) {
           </div>
           <div style={{ fontSize: "var(--fs-hint)", lineHeight: 1.6, marginTop: "var(--space-4)", whiteSpace: "pre-wrap" }}>
             {x.text}</div>
+          {/* Лента последних действий и снимок — рядом с текстом: по ним
+              ошибку и повторяют (владелец, 2026-09-21). */}
+          {x.log && (
+            <details style={{ marginTop: "var(--space-4)" }}>
+              <summary style={{ fontSize: "var(--fs-hint)", color: C.muted, cursor: "pointer" }}>лог действий</summary>
+              <pre aria-label={`лог действий: ${x.name}`}
+                style={{ fontSize: "var(--fs-hint)", lineHeight: 1.5, whiteSpace: "pre-wrap", margin: "var(--space-4) 0 0",
+                  fontFamily: "var(--font-mono, monospace)", color: C.muted }}>{x.log}</pre>
+            </details>)}
+          {x.shot && (
+            <a href={x.shot} target="_blank" rel="noreferrer" aria-label={`скриншот: ${x.name}`}
+              style={{ display: "block", marginTop: "var(--space-4)" }}>
+              <img src={x.shot} alt="" style={{ display: "block", maxWidth: "100%", maxHeight: 220,
+                borderRadius: "var(--radius-sm)", border: `1px solid ${C.line}` }} />
+            </a>)}
           <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
             <button type="button" disabled={busy || !!x.fixedAt}
               style={{ ...btn(true, OK) }}
@@ -121,17 +136,23 @@ export default function IssuesPanel({ me, onSeen }) {
    посреди работы, и уводить за ней на отдельную вкладку значит требовать,
    чтобы человек сначала вспомнил, куда идти, а потом — что хотел
    сказать. Поле одно, и просьба над ним — ровно та, что заказана. */
-export function IssueModal({ onClose, onSend }) {
+export function IssueModal({ onClose, onSend, seen = null }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  /* Снимок экрана — только по галочке (владелец, 2026-09-21): на экране
+     бывает чужое, и человек решает сам. Снят он в момент нажатия на
+     значок (`seen`), до окна — окно на снимке не нужно. */
+  const [withShot, setWithShot] = useState(false);
 
   const send = async () => {
     const body = text.trim();
     if (!body) return;
     setBusy(true); setMsg("");
-    try { await onSend(body); onClose(); }
-    catch (e) { setMsg(e.message); setBusy(false); }
+    try {
+      await onSend(body, { log: seen?.log || "", shot: withShot && seen?.shot ? seen.shot : null });
+      onClose();
+    } catch (e) { setMsg(e.message); setBusy(false); }
   };
 
   return (
@@ -141,6 +162,12 @@ export function IssueModal({ onClose, onSend }) {
         disabled={busy} onChange={(e) => setText(e.target.value)}
         style={{ ...S.inp, width: "100%", marginTop: "var(--space-8)", resize: "vertical",
           minHeight: 90, lineHeight: 1.5 }} />
+      <label className="flex items-center gap-2" style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-8)",
+        cursor: seen?.shot ? "pointer" : "default", opacity: seen?.shot ? 1 : 0.5 }}>
+        <input type="checkbox" checked={withShot} disabled={busy || !seen?.shot}
+          onChange={(e) => setWithShot(e.target.checked)} />
+        отправить скриншот
+      </label>
       {msg && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
       <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !text.trim()}

@@ -245,8 +245,10 @@ export const removeUser = (id) =>
 /* ─────── сообщения об ошибках ───────
    Пишет любой позванный — кнопкой со значком в шапке; читает и удаляет
    тот, кому открыта вкладка «Issues». */
-export const sendIssue = (text) =>
-  json("/api/issues", { method: "POST", body: JSON.stringify({ text }) });
+/* Вместе с текстом — лента последних действий и, если человек отметил
+   «отправить скриншот», снимок экрана (владелец, 2026-09-21). */
+export const sendIssue = (text, { log = "", shot = null } = {}) =>
+  json("/api/issues", { method: "POST", body: JSON.stringify({ text, log, shot: shot || null }) });
 export const listIssues = () => json("/api/issues").then((r) => r.issues || []);
 export const dropIssue = (id) =>
   json(`/api/issues/${encodeURIComponent(id)}`, { method: "DELETE" });
