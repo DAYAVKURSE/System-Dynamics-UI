@@ -3,6 +3,8 @@ import { ACC, Avatar, BAD, C, OK, S, WARN, btn } from "./ui.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
 import { statusOf } from "../lib/workers.js";
 import { nameHints, nearest, search } from "../lib/semantic.js";
+import { SORTS, activeCount, emptyFilter, filterItems, pickedRes, resourcesIn, sortItems }
+  from "../lib/marketSort.js";
 import {
   acceptOffer, addDelivery, addOffer, addOrder, addService, dropOrder, dropService, getMarket,
   getMarketPerson, putBrief, sendChat, updateOrder, updateService,
@@ -384,7 +386,7 @@ function SearchBox({ items, label, onPick, value, onChange }) {
   const found = value.trim() ? search(value, items, { limit: 8 }) : [];
   return (
     <div style={{ position: "relative", flex: "1 1 180px", minWidth: 140 }}>
-      <input aria-label={label} placeholder="поиск по смыслу" value={value}
+      <input aria-label={label} placeholder="Поиск" value={value}
         style={{ ...S.inp, width: "100%" }}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
@@ -642,6 +644,76 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
   );
 }
 
+/* ─────── ПОЛОСА ПОД ПОИСКОМ: СОРТИРОВКА И ФИЛЬТРЫ (владелец, 2026-09-21) ───────
+
+   «Под поиском полоска, под которой будут кнопки сортировки и
+   фильтрации». Сортировка — одна из четырёх, нажатие по той же снимает
+   её. Фильтры — два статуса и ресурсы: список ресурсов — из всего, что
+   найдено в этом поиске, у каждого чекбокс и диапазон. Счёт — в
+   lib/marketSort.js. */
+function SortFilterBar({ found, sort, onSort, flt, onFlt }) {
+  const [resOpen, setResOpen] = useState(false);
+  const res = resourcesIn(found);
+  const picked = pickedRes(flt);
+  const setRes = (name, patch) => onFlt({ ...flt, res: { ...flt.res, [name]: { ...(flt.res[name] || { min: "", max: "" }), ...patch } } });
+  const toggleRes = (name) => {
+    if (flt.res[name]) { const next = { ...flt.res }; delete next[name]; onFlt({ ...flt, res: next }); }
+    else setRes(name, { min: "", max: "" });
+  };
+  const n = activeCount(flt);
+  return (
+    <div data-strip="" aria-label="сортировка и фильтры"
+      style={{ borderTop: `1px solid ${C.line}`, marginTop: "var(--space-8)",
+        paddingTop: "var(--space-8)", marginBottom: "var(--space-8)" }}>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="сортировка">
+        {SORTS.map(([k, t]) => (
+          <button key={k} type="button" aria-pressed={sort === k}
+            style={{ ...btn(sort === k, ACC), fontSize: 11.5 }}
+            onClick={() => onSort(sort === k ? "" : k)}>{t}</button>))}
+      </div>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="фильтры"
+        style={{ marginTop: "var(--space-4)" }}>
+        <button type="button" aria-pressed={flt.ready} style={{ ...btn(flt.ready, OK), fontSize: 11.5 }}
+          onClick={() => onFlt({ ...flt, ready: !flt.ready })}>на рабочем месте</button>
+        <button type="button" aria-pressed={flt.auto} style={{ ...btn(flt.auto, OK), fontSize: 11.5 }}
+          onClick={() => onFlt({ ...flt, auto: !flt.auto })}>принимает заказ автоматически</button>
+        <button type="button" aria-expanded={resOpen} aria-label="ресурсы"
+          style={{ ...btn(picked.length > 0 || resOpen, WARN), fontSize: 11.5 }}
+          onClick={() => setResOpen((v) => !v)}>
+          ресурсы{picked.length ? ` · ${picked.length}` : ""}</button>
+        {n > 0 && (
+          <button type="button" style={{ ...btn(false), fontSize: 11.5 }} aria-label="снять фильтры"
+            onClick={() => onFlt(emptyFilter())}>снять</button>)}
+      </div>
+      {resOpen && (
+        <div aria-label="фильтр ресурсов" style={{ marginTop: "var(--space-8)", maxHeight: 220, overflowY: "auto" }}>
+          {!res.length && <div style={hint}>В найденном ресурсов нет.</div>}
+          {res.map((r) => {
+            const on = !!flt.res[r.name];
+            const cur = flt.res[r.name] || { min: "", max: "" };
+            return (
+              <div key={r.name} className="flex items-center gap-2"
+                style={{ padding: "var(--space-4) 0", borderBottom: `1px solid ${C.lineSoft}` }}>
+                <input type="checkbox" checked={on} aria-label={`ресурс ${r.name}`}
+                  onChange={() => toggleRes(r.name)} style={{ flex: "0 0 auto", margin: 0 }} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {r.name}
+                  {r.min != null && (
+                    <span style={{ color: C.muted, fontSize: 10.5 }}>
+                      {" "}· {r.min === r.max ? r.max : `${r.min} … ${r.max}`}</span>)}
+                </span>
+                <input inputMode="decimal" aria-label={`${r.name}: от`} placeholder="от"
+                  disabled={!on} value={cur.min} onChange={(e) => setRes(r.name, { min: e.target.value })}
+                  style={{ ...S.inp, width: 64, flex: "0 0 64px", padding: "var(--space-4) var(--space-8)", fontSize: 12 }} />
+                <input inputMode="decimal" aria-label={`${r.name}: до`} placeholder="до"
+                  disabled={!on} value={cur.max} onChange={(e) => setRes(r.name, { max: e.target.value })}
+                  style={{ ...S.inp, width: 64, flex: "0 0 64px", padding: "var(--space-4) var(--space-8)", fontSize: 12 }} />
+              </div>);
+          })}
+        </div>)}
+    </div>);
+}
+
 /* ─────── вкладка ─────── */
 
 export default function MarketPanel({ me, traits = [], draft = null, onDraftDone }) {
@@ -655,6 +727,9 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
   const [findService, setFindService] = useState("");
   const [pickService, setPickService] = useState(null);
   const [adding, setAdding] = useState(null);   // null | {kind, initial}
+  /* Сортировка и фильтры — одни на обе вкладки (владелец, 2026-09-21). */
+  const [sort, setSort] = useState("");
+  const [flt, setFlt] = useState(emptyFilter);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const solo = Boolean(me?.solo);
@@ -733,12 +808,15 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
             onChange={(v) => { setFindOrder(v); if (!v.trim()) setPickOrder(null); }}
             onPick={(item) => { setPickOrder(item.id); setFindOrder(item.name); }} />
         </div>
+        <SortFilterBar found={orderedBy(pickOrder, orders.slice().reverse())}
+          sort={sort} onSort={setSort} flt={flt} onFlt={setFlt} />
         {adding?.kind === "order" && (
           <OrderForm initial={adding.initial} services={services} orders={orders} busy={busy}
             onSave={(f) => act(() => addOrder(f)).then((r) => { if (r) setAdding(null); })}
             onCancel={() => setAdding(null)} />)}
         {!orders.length && <div style={hint}>Заказов пока нет.</div>}
-        {orderedBy(pickOrder, orders.slice().reverse()).map((o) => (
+        {sortItems(filterItems(orderedBy(pickOrder, orders.slice().reverse()), flt, { faceOf, services }),
+          sort, { faceOf, picked: pickedRes(flt) }).map((o) => (
           <OrderCard key={o.id} order={o} me={view.me} nameOf={nameOf} faceOf={faceOf}
             onOpenPerson={setCard} services={services} picked={o.id === pickOrder}
             busy={busy} act={act} isOwner={Boolean(me?.isOwner)} />))}
@@ -753,12 +831,15 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
             onChange={(v) => { setFindService(v); if (!v.trim()) setPickService(null); }}
             onPick={(item) => { setPickService(item.id); setFindService(item.name); }} />
         </div>
+        <SortFilterBar found={orderedBy(pickService, services.slice().reverse())}
+          sort={sort} onSort={setSort} flt={flt} onFlt={setFlt} />
         {adding?.kind === "service" && (
           <ServiceForm initial={adding.initial} services={services} busy={busy}
             onSave={(f) => act(() => addService(f)).then((r) => { if (r) setAdding(null); })}
             onCancel={() => setAdding(null)} />)}
         {!services.length && <div style={hint}>Услуг пока нет.</div>}
-        {orderedBy(pickService, services.slice().reverse()).map((s) => (
+        {sortItems(filterItems(orderedBy(pickService, services.slice().reverse()), flt, { faceOf, services }),
+          sort, { faceOf, picked: pickedRes(flt) }).map((s) => (
           <ServiceCard key={s.id} s={s} me={view.me} nameOf={nameOf} faceOf={faceOf}
             onOpenPerson={setCard} busy={busy} act={act} picked={s.id === pickService}
             isOwner={Boolean(me?.isOwner)} />))}

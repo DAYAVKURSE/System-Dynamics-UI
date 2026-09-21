@@ -52,7 +52,9 @@ describe("слова из функции", () => {
 function marketServer({ me = "200", people = { 200: "Заказчик", 300: "Мастер" } } = {}) {
   const state = { orders: [], services: [] };
   const log = [];
-  const view = () => ({ me, people, services: state.services,
+  // Лица авторов (статус, рейтинг, работы) тест задаёт сам: `srv.faces = …`.
+  const srv = { state, log, faces: {}, setMe: (id) => { me = id; } };
+  const view = () => ({ me, people, services: state.services, faces: srv.faces,
     orders: state.orders.map((o) => ({ ...o, offerCount: o.offers.length,
       offers: o.offers.filter((f) => o.by === me || f.by === me) })) });
   const findOffer = (url) => {
@@ -107,7 +109,7 @@ function marketServer({ me = "200", people = { 200: "Заказчик", 300: "М
     }
     return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
   }));
-  return { state, log, setMe: (id) => { me = id; } };
+  return srv;
 }
 
 const ME = { id: "200", name: "Заказчик", known: true, solo: false, isOwner: false, tabs: [] };
@@ -302,6 +304,72 @@ describe("поиск на рынке", () => {
     expect(row).toContainElement(field);
     expect([...row.children].indexOf(add))
       .toBeLessThan([...row.children].indexOf(field.parentElement));
+  });
+
+  /* ПОЛОСА ПОД ПОИСКОМ (владелец, 2026-09-21): подложка «Поиск»; под
+     полем — полоска, под ней сортировка и фильтры; ресурсы в фильтр
+     попадают из найденного, у каждого чекбокс и диапазон. */
+  it("подложка поля — «Поиск», а под полем полоска с сортировкой и фильтрами", async () => {
+    withServices();
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    const field = await screen.findByLabelText("поиск услуг");
+    expect(field).toHaveAttribute("placeholder", "Поиск");
+    const strip = screen.getByLabelText("сортировка и фильтры");
+    // Полоса стоит ПОД полем поиска.
+    expect(field.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(strip.style.borderTop).toContain("1px solid");
+    const sorts = within(strip).getByRole("group", { name: "сортировка" });
+    expect(within(sorts).getAllByRole("button").map((b) => b.textContent))
+      .toEqual(["по дате", "по рейтингу", "по выполненным работам", "по ресурсам"]);
+    const flt = within(strip).getByRole("group", { name: "фильтры" });
+    expect(within(flt).getByRole("button", { name: "на рабочем месте" })).toBeInTheDocument();
+    expect(within(flt).getByRole("button", { name: "принимает заказ автоматически" })).toBeInTheDocument();
+    expect(within(flt).getByRole("button", { name: "ресурсы" })).toBeInTheDocument();
+  });
+
+  it("сортировка переставляет карточки, фильтр по статусу прячет отсутствующих", async () => {
+    const s = marketServer({ people: { 200: "Заказчик", 300: "Мастер", 400: "Новичок" } });
+    s.state.services.push(
+      { id: "s1", by: "300", name: "Разработка", text: "", takes: [], gives: [], days: 3, at: "2026-09-13T10:00:00Z" },
+      { id: "s2", by: "400", name: "Уборка", text: "", takes: [], gives: [], days: 1, at: "2026-09-14T10:00:00Z" });
+    s.faces = { 300: { status: "off", rating: 9, done: 7 }, 400: { status: "ready", rating: 3, done: 1 } };
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    await screen.findByLabelText("услуга Разработка");
+    const names = () => screen.getAllByLabelText(/^услуга /).map((el) => el.getAttribute("aria-label"));
+    // Как пришло: новое сверху.
+    expect(names()).toEqual(["услуга Уборка", "услуга Разработка"]);
+    fireEvent.click(screen.getByRole("button", { name: "по рейтингу" }));
+    expect(names()).toEqual(["услуга Разработка", "услуга Уборка"]);
+    // Повторное нажатие снимает сортировку.
+    fireEvent.click(screen.getByRole("button", { name: "по рейтингу" }));
+    expect(names()).toEqual(["услуга Уборка", "услуга Разработка"]);
+    fireEvent.click(screen.getByRole("button", { name: "на рабочем месте" }));
+    expect(names()).toEqual(["услуга Уборка"]);
+    fireEvent.click(screen.getByRole("button", { name: "снять фильтры" }));
+    expect(names()).toHaveLength(2);
+  });
+
+  it("ресурсы в фильтр — из найденного, с чекбоксом и диапазоном у каждого", async () => {
+    const s = marketServer();
+    s.state.services.push(
+      { id: "s1", by: "300", name: "Вёрстка", text: "", takes: [{ name: "макет", qty: 2 }],
+        gives: [{ name: "страница", qty: 3 }], days: 3, at: "2026-09-13T10:00:00Z" },
+      { id: "s2", by: "300", name: "Правка", text: "", takes: [{ name: "макет", qty: 1 }], gives: [],
+        days: 1, at: "2026-09-14T10:00:00Z" });
+    render(<MarketPanel me={ME} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    await screen.findByLabelText("услуга Вёрстка");
+    fireEvent.click(screen.getByRole("button", { name: "ресурсы" }));
+    const box = screen.getByLabelText("фильтр ресурсов");
+    expect(within(box).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label")))
+      .toEqual(["ресурс макет", "ресурс страница"]);
+    fireEvent.click(within(box).getByRole("checkbox", { name: "ресурс макет" }));
+    fireEvent.change(within(box).getByLabelText("макет: от"), { target: { value: "2" } });
+    const names = () => screen.getAllByLabelText(/^услуга /).map((el) => el.getAttribute("aria-label"));
+    expect(names()).toEqual(["услуга Вёрстка"]);
+    expect(screen.getByRole("button", { name: "ресурсы" }).textContent).toBe("ресурсы · 1");
   });
 
   it("ищет по смыслу: «программирование» находит «Разработку»", async () => {

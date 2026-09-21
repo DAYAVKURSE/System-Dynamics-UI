@@ -74,6 +74,9 @@ describe("заказы и услуги", () => {
     expect(seen.body.faces["200"]).toMatchObject({ avatar: "", anon: true });
     // Статус автора — рядом с лицом: по нему видно, на месте ли он.
     expect(seen.body.faces["200"].status).toBe("ready");
+    // Рейтинг и работы — по ним рынок сортируют (владелец, 2026-09-21):
+    // оценок ещё нет, работ ноль.
+    expect(seen.body.faces["200"]).toMatchObject({ rating: null, done: 0 });
     expect(seen.body.me).toBe("300");
   });
 

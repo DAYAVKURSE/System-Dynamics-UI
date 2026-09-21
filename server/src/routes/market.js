@@ -9,6 +9,7 @@ import {
   readMarket, removeOrder, removeService, setBrief, updateOrder, updateService, viewFor,
 } from "../lib/marketStore.js";
 import { liveStatus, worksNow } from "../lib/workTime.js";
+import { statsFor } from "../lib/ratings.js";
 import { readSchedule } from "../lib/scheduleStore.js";
 import { sendMessage } from "../lib/telegram.js";
 
@@ -69,6 +70,17 @@ const withNames = async (view, me) => {
   const ids = peopleOf(view);
   const org = await listOrg();
   const known = await knownToAsker(me);
+  /* Рейтинг и число выполненных работ — из модели, по автору (владелец,
+     2026-09-21): по ним рынок сортируют. Рейтинг — только опубликованный,
+     как везде; работы — принятые и не отменённые задачи автора. */
+  let model = null;
+  try { model = await readModel(); } catch { model = null; }
+  const doneBy = {};
+  (model?.tasks || []).forEach((t) => {
+    if (t.status === "done" && t.canceled !== true && t.assignee != null && t.assignee !== "") {
+      doneBy[String(t.assignee)] = (doneBy[String(t.assignee)] || 0) + 1;
+    }
+  });
   const people = {};
   const faces = {};
   for (const u of org.users) {
@@ -79,8 +91,10 @@ const withNames = async (view, me) => {
        воркера (владелец, 2026-09-20): рядом с «принимает автоматически»
        должно быть видно, на месте ли он сейчас. */
     const tz = (await readSchedule(u.id))?.tzOffset ?? 0;
+    const rating = model ? statsFor(model, String(u.id)).mark : null;
     faces[String(u.id)] = { avatar: face.avatar, anon: face.anon,
-      status: liveStatus(u, Date.now(), tz) };
+      status: liveStatus(u, Date.now(), tz),
+      rating: rating == null ? null : rating, done: doneBy[String(u.id)] || 0 };
   }
   return { ...view, people, faces };
 };
