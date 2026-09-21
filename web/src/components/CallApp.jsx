@@ -144,10 +144,10 @@ export default function CallApp() {
        просто отбросится и станет как было — в отличие от высоты, здесь
        такой отказ ничего не ломает. */
     <div style={{ height: "100%", minHeight: 200,
-      background: C.ink, color: C.text, padding: 8, boxSizing: "border-box",
+      background: C.ink, color: C.text, padding: "var(--space-8)", boxSizing: "border-box",
       paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px),"
         + " var(--tg-safe-area-inset-bottom, 0px))",
-      overflow: "hidden", display: "flex", flexDirection: "column", gap: 6,
+      overflow: "hidden", display: "flex", flexDirection: "column", gap: "var(--space-4)",
       fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
       {meetingId ? (
         <>
@@ -155,14 +155,14 @@ export default function CallApp() {
             <input aria-label="как вас зовут" placeholder="Как вас зовут — увидят собеседники"
               value={name} onChange={(e) => rename(e.target.value)} maxLength={40}
               style={{ flex: "0 0 auto", background: C.panel, color: C.text, fontSize: 12,
-                border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 8px" }} />)}
+                border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)" }} />)}
           <div data-testid="комната" style={{ flex: 1, minHeight: 0 }}>
             <CallRoom meetingId={meetingId} meId={meId} myName={name} fit
               canRecord={Boolean(getInitData())} />
           </div>
         </>
       ) : (
-        <div style={{ fontSize: 13, color: BAD, lineHeight: 1.6, padding: 12 }}>
+        <div style={{ fontSize: 13, color: BAD, lineHeight: 1.6, padding: "var(--space-12)" }}>
           Ссылка на звонок неполная — откройте её из приглашения в чате.
         </div>)}
     </div>);

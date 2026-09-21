@@ -128,18 +128,18 @@ export function ChangeChart({ rows = [], traitName, madeOf, off, onToggle }) {
     return (
       <div title={title} style={{ position: "absolute", left: 0, right: 0,
         top, height: Math.max(height, a === b ? 0 : 2), background: color,
-        borderRadius: 2, opacity: dim ? 0.45 : 1 }} />);
+        borderRadius: "var(--radius-sm)", opacity: dim ? 0.45 : 1 }} />);
   };
   const dot = (color, label) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-4)",
       fontSize: 10.5, color: C.muted }}>
-      <span style={{ width: 9, height: 9, borderRadius: 2, background: color }} />
+      <span style={{ width: 9, height: 9, borderRadius: "var(--radius-sm)", background: color }} />
       {label}</span>);
   const opened = open ? rows.find((r) => r.trait === open) : null;
   const openedUnits = opened && madeOf ? madeOf(opened.trait) : [];
   return (
     <div>
-      <div className="flex" style={{ alignItems: "flex-start", gap: 6 }}>
+      <div className="flex" style={{ alignItems: "flex-start", gap: "var(--space-4)" }}>
         {/* Шкала слева: без неё высота полосы — число без единиц. */}
         <div style={{ position: "relative", width: 34, height: H, flex: "0 0 34px",
           fontSize: 9.5, color: C.muted, fontFamily: "var(--font-sans)" }}>
@@ -148,7 +148,7 @@ export function ChangeChart({ rows = [], traitName, madeOf, off, onToggle }) {
           {rawMin < 0 && <span style={{ position: "absolute", right: 0, bottom: 0 }}>{nm(rawMin)}</span>}
         </div>
         <div data-chart="" style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
-          <div className="flex" style={{ alignItems: "flex-end", gap: 10,
+          <div className="flex" style={{ alignItems: "flex-end", gap: "var(--space-8)",
             minWidth: `${rows.length * 42}px` }}>
             {rows.map((r) => {
               const lo = Math.min(r.lo, r.hi);
@@ -180,7 +180,7 @@ export function ChangeChart({ rows = [], traitName, madeOf, off, onToggle }) {
                   {/* Подпись по диагонали и галочка под самой полосой
                       (владелец, 2026-09-20). Снятая галочка — ресурс серый
                       и в отчёт не идёт. */}
-                  <div style={{ height: 78, position: "relative", marginTop: 4 }}>
+                  <div style={{ height: 78, position: "relative", marginTop: "var(--space-4)" }}>
                     {onToggle && (
                       <input type="checkbox" checked={!gone}
                         aria-label={`прослеживать ${traitName(r.trait)}`}
@@ -200,11 +200,11 @@ export function ChangeChart({ rows = [], traitName, madeOf, off, onToggle }) {
         </div>
       </div>
       {/* Подписи — ПОД графиком и без пояснений (владелец, 2026-09-20). */}
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
         {dot(WARN, "прогноз")}{dot(OK, "факт")}{dot(NEU, "неактивен")}
       </div>
       {opened && !!openedUnits.length && (
-        <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 8, marginTop: 6 }}
+        <div style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: "var(--space-8)", marginTop: "var(--space-4)" }}
           aria-label={`созданные единицы: ${traitName(opened.trait)}`}>
           {openedUnits.map((u) => (<MadeUnit key={u.id} u={u} traitName={traitName} />))}
         </div>)}
@@ -311,7 +311,7 @@ function Timeline({ steps = [], before = [], traitName = (x) => x }) {
     return { at: at(h), text: axisDate(now + h * 3600000, longSpan) };
   });
   const axis = (
-    <div style={{ position: "relative", height: 24, marginTop: 2 }}>
+    <div style={{ position: "relative", height: 24, marginTop: 0 }}>
       {ticks.map((k, i) => (
         <div key={k.at} style={{ position: "absolute", left: `${k.at}%`,
           top: 0, transform: i === 0 ? "none"
@@ -324,15 +324,15 @@ function Timeline({ steps = [], before = [], traitName = (x) => x }) {
     </div>);
 
   return (
-    <div style={{ marginBottom: 10 }}>
+    <div style={{ marginBottom: "var(--space-8)" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "baseline",
-        fontSize: 10, color: C.muted, marginBottom: 3 }}>
+        fontSize: 10, color: C.muted, marginBottom: "var(--space-4)" }}>
         <span style={{ flex: 1 }}>
           сегодня {axisDate(now, longSpan)}</span>
         <span>весь срок: {timeText(to1)}</span>
       </div>
       {rows.map((r, i) => (
-        <div key={`${r.key}-${i}`} style={{ marginBottom: 3 }}>
+        <div key={`${r.key}-${i}`} style={{ marginBottom: "var(--space-4)" }}>
           <div style={{ fontSize: r.kind === "step" ? 11 : 10.5,
             color: r.kind === "step" ? C.text : C.muted,
             paddingLeft: r.kind === "step" ? 0 : 12, lineHeight: 1.4 }}>
@@ -351,8 +351,8 @@ function Timeline({ steps = [], before = [], traitName = (x) => x }) {
               случится мгновенно. Поэтому жёлоба у него нет вовсе. */}
           {!r.stuck && (
           <div style={{ position: "relative", height: r.kind === "step" ? 9 : 6,
-            marginTop: 2, marginLeft: r.kind === "step" ? 0 : 12,
-            background: C.ink, borderRadius: 3, overflow: "hidden" }}>
+            marginTop: 0, marginLeft: r.kind === "step" ? 0 : 12,
+            background: C.ink, borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
             {/* Линия «сегодня»: без неё не видно, что часть работы уже позади. */}
             <div style={{ position: "absolute", left: `${at(0)}%`, top: 0, bottom: 0,
               width: 1, background: C.muted, opacity: 0.55 }} />
@@ -361,11 +361,11 @@ function Timeline({ steps = [], before = [], traitName = (x) => x }) {
               : (<div title={`${r.name}: ${timeText(r.to - r.from)}`}
                   style={{ position: "absolute", left: `${at(r.from)}%`,
                     width: `${Math.max(at(r.to) - at(r.from), 1)}%`, minWidth: 3,
-                    top: 0, bottom: 0, borderRadius: 3,
+                    top: 0, bottom: 0, borderRadius: "var(--radius-sm)",
                     background: r.kind === "step" ? WARN : (r.done ? OK : NEU) }} />)}
           </div>)}
           {r.kind === "task" && (r.from == null || r.to == null) && (
-            <div style={{ fontSize: 10, color: C.muted, paddingLeft: 12 }}>
+            <div style={{ fontSize: 10, color: C.muted, paddingLeft: "var(--space-12)" }}>
               срок не поставлен — на шкале её нет</div>)}
           {r.stuck && (
             <div style={{ fontSize: 10, color: WARN }}>
@@ -373,15 +373,15 @@ function Timeline({ steps = [], before = [], traitName = (x) => x }) {
         </div>))}
       {axis}
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
-        marginTop: 4, fontSize: 10, color: C.muted }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 9, height: 6, borderRadius: 2, background: WARN }} />
+        marginTop: "var(--space-4)", fontSize: 10, color: C.muted }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-4)" }}>
+          <span style={{ width: 9, height: 6, borderRadius: "var(--radius-sm)", background: WARN }} />
           шаг по прогнозу</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 9, height: 6, borderRadius: 2, background: NEU }} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-4)" }}>
+          <span style={{ width: 9, height: 6, borderRadius: "var(--radius-sm)", background: NEU }} />
           задача в работе</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 9, height: 6, borderRadius: 2, background: OK }} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-4)" }}>
+          <span style={{ width: 9, height: 6, borderRadius: "var(--radius-sm)", background: OK }} />
           принято</span>
       </div>
     </div>);
@@ -391,7 +391,7 @@ function Timeline({ steps = [], before = [], traitName = (x) => x }) {
 function MadeUnit({ u, traitName }) {
   return (
     <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
-      fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+      fontSize: 10.5, color: C.muted, marginTop: 0 }}>
       <span style={{ color: OK }}>вышло:</span>
       <span style={{ color: ACC, fontWeight: 700 }}>№{u.no}</span>
       <span>{traitName(u.trait)} · {u.title || "без названия"}</span>
@@ -418,7 +418,7 @@ function Facts({ rows = [] }) {
   const shown = rows.filter((r) => r && r.value != null && r.value !== "");
   if (!shown.length) return null;
   return (
-    <div style={{ marginTop: 3 }}>
+    <div style={{ marginTop: "var(--space-4)" }}>
       {shown.map((r) => (
         <div key={r.label} className="flex flex-wrap gap-2"
           style={{ alignItems: "baseline", lineHeight: 1.6 }}>
@@ -444,7 +444,7 @@ function AnchorLink({ href, label }) {
   };
   return (
     <span className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
-      <button style={{ ...btn(false), fontSize: 10, padding: "1px 6px" }}
+      <button style={{ ...btn(false), fontSize: 10, padding: "0 var(--space-4)" }}
         aria-label={`ссылка на раздел отчёта: ${label}`} onClick={go}>🔗</button>
       {copied && (<span style={{ fontSize: 10, color: ACC, wordBreak: "break-all" }}>
         {copied}</span>)}
@@ -465,7 +465,7 @@ function AnchorLink({ href, label }) {
    измерил, а ноль читался бы как «сделано даром». */
 function TaskRow({ t, planHours, twins, personName, traitName }) {
   return (
-    <div style={{ borderTop: `1px solid ${C.line}`, padding: "4px 0" }}>
+    <div style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-4) 0" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <span style={{ fontSize: 11.5, flex: "1 1 130px" }}>
           {t.title}
@@ -482,7 +482,7 @@ function TaskRow({ t, planHours, twins, personName, traitName }) {
           {t.canceled ? "отменена"
             : t.status === "done" ? "принято" : t.status}</span>
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0, lineHeight: 1.5 }}>
         {planHours === "—" ? "" : `по плану ${planHours} ч · `}
         {t.hours == null ? "факта пока нет"
           : <span style={{ color: OK }}>по факту {nm(t.hours)} ч</span>}
@@ -519,7 +519,7 @@ function Schedule({ steps = [], before = [], plan, actual, traitName = (x) => x 
           value: actual.any ? `${nm(actual.hours)} ч` : "факта пока нет" },
       ]} />
       {/* Таймлайн — на календарной линейке: по ней и читают, когда что. */}
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: "var(--space-8)" }}>
         <Timeline steps={steps} before={before} traitName={traitName} />
       </div>
       {/* Списка «по функциям» здесь нет (владелец, 2026-09-20: «раздел
@@ -544,17 +544,17 @@ function TaskList({ steps = [], before = [], actual, personName, traitName }) {
           value: actual.any ? `${nm(actual.done)} из ${nm(actual.total)}` : "ни одной" },
       ]} />
       {!any && (
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           Задач по этому разделу ещё не заведено.
         </div>)}
       {!!before.length && (<>
-        <div style={{ ...S.lbl, margin: "8px 0 2px" }}>как эти вещи появились</div>
+        <div style={{ ...S.lbl, margin: "var(--space-8) 0 0" }}>как эти вещи появились</div>
         {/* Работа, в которой выбранные вещи родились, лежит ДО цепочки.
             Выбросить её значило бы не ответить, откуда они взялись. */}
         {before.map((t) => row(t, "—"))}
       </>)}
       {any && steps.map((s) => (
-        <div key={s.func} style={{ marginTop: 8 }}>
+        <div key={s.func} style={{ marginTop: "var(--space-8)" }}>
           <div style={S.lbl}>функция «{s.name}»</div>
           {s.tasks.length
             ? s.tasks.map((t) => row(t, perRun(s)))
@@ -613,9 +613,9 @@ function UnitRow({ u, unit, spent, nameOf, traitName, unitNo }) {
         .map((x) => `№${x.no}`);
       return `${traitName(trait)} ${nm(Number(v))}${nos.length ? ` (${nos.join(", ")})` : ""}`;
     });
-  const line = { fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 };
+  const line = { fontSize: 10.5, color: C.muted, marginTop: 0, lineHeight: 1.5 };
   return (
-    <div style={{ borderTop: `1px solid ${C.line}`, padding: "6px 0" }}>
+    <div style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-4) 0" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center", fontSize: 11.5 }}>
         <span style={{ color: ACC, fontWeight: 700 }}>№{u.no}</span>
         {u.qty > 1 && <span style={{ color: C.muted }}>×{nm(u.qty)}</span>}
@@ -717,13 +717,13 @@ function UploadMaterial({ trait, traitName, kind = "file", existing = [], meId,
       files: idx.map((i) => at(files, i)), texts: idx.map((i) => String(at(texts, i) || "")) }));
     onClose();
   };
-  const field = { ...S.inp, width: "100%", marginTop: 4, fontSize: 12 };
+  const field = { ...S.inp, width: "100%", marginTop: "var(--space-4)", fontSize: 12 };
   /* Список полей прокручивается сам, внутри окна: тысяча единиц — тысяча
      полей, и кнопка «Загрузить» обязана оставаться под рукой, а не в
      конце километровой ленты. */
-  const listBox = { maxHeight: 220, overflowY: "auto", marginTop: 4, paddingRight: 4,
-    border: `1px solid ${C.line}`, borderRadius: 6, padding: "2px 6px 6px" };
-  const rowLbl = { fontSize: 10.5, color: ACC, fontWeight: 700, marginTop: 6 };
+  const listBox = { maxHeight: 220, overflowY: "auto", marginTop: "var(--space-4)", paddingRight: "var(--space-4)",
+    border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4) var(--space-4)" };
+  const rowLbl = { fontSize: 10.5, color: ACC, fontWeight: 700, marginTop: "var(--space-4)" };
   return (
     <Modal title={`Добавить: ${traitName}`} onClose={onClose}>
       {/* Вид выбирать здесь нечего: чем подтверждается единица, решено у
@@ -739,11 +739,11 @@ function UploadMaterial({ trait, traitName, kind = "file", existing = [], meId,
             : "Единицы этого ресурса — файлы: у каждой свой."}
         {" Вид задан у ресурса, на вкладке «Схема»."}
       </div>
-      <div style={{ ...S.lbl, marginTop: 8 }}>количество</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>количество</div>
       <input type="number" min="1" step="1" value={qty} aria-label="количество"
         onChange={(e) => setQty(e.target.value)} style={{ ...field, width: 120 }} />
       {kind === "file" && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: "var(--space-8)" }}>
           <div style={S.lbl}>файлы — {n > 1 ? `свой у каждой из ${nm(n)} единиц` : "один"}
             {n > 1 ? ` · приложено ${filled} из ${nm(n)}` : ""}</div>
           <div role="list" aria-label="файлы единиц" style={listBox}>
@@ -752,16 +752,16 @@ function UploadMaterial({ trait, traitName, kind = "file", existing = [], meId,
                 {n > 1 && <div style={rowLbl}>единица {i + 1}</div>}
                 <input type="file" aria-label={`файл единицы ${i + 1}`} disabled={!!busy[i]}
                   onChange={(e) => pick(i, e.target.files?.[0])}
-                  style={{ marginTop: 4, fontSize: 11.5, maxWidth: "100%" }} />
-                {busy[i] && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3 }}>сохраняем…</div>}
+                  style={{ marginTop: "var(--space-4)", fontSize: 11.5, maxWidth: "100%" }} />
+                {busy[i] && <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)" }}>сохраняем…</div>}
                 {at(files, i) && !busy[i] && (
-                  <div style={{ fontSize: 11, color: OK, marginTop: 3 }}>📎 {at(files, i).name}</div>)}
-                {errs[i] && <div style={{ fontSize: 11, color: BAD, marginTop: 3 }}>{errs[i]}</div>}
+                  <div style={{ fontSize: 11, color: OK, marginTop: "var(--space-4)" }}>📎 {at(files, i).name}</div>)}
+                {errs[i] && <div style={{ fontSize: 11, color: BAD, marginTop: "var(--space-4)" }}>{errs[i]}</div>}
               </div>))}
           </div>
         </div>)}
       {kind === "text" && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: "var(--space-8)" }}>
           <div style={S.lbl}>тексты — {n > 1 ? `свой у каждой из ${nm(n)} единиц` : "один"}
             {n > 1 ? ` · заполнено ${filled} из ${nm(n)}` : ""}</div>
           <div role="list" aria-label="тексты единиц" style={listBox}>
@@ -775,17 +775,17 @@ function UploadMaterial({ trait, traitName, kind = "file", existing = [], meId,
           </div>
         </div>)}
       {kind === "code" && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: "var(--space-8)" }}>
           <div style={S.lbl}>уникальный код — {n > 1 ? "свой у каждой единицы" : "создан программой"}</div>
           <div role="list" aria-label="уникальные коды" style={{ ...listBox, maxHeight: 180 }}>
             {codes.map((c, i) => (
               <input key={i} readOnly value={c} aria-label={`уникальный код ${i + 1}`}
                 style={{ ...field, fontFamily: "var(--font-sans)", letterSpacing: 1 }} />))}
           </div>
-          <button style={{ ...btn(false), fontSize: 11, marginTop: 6 }} onClick={regen}>
+          <button style={{ ...btn(false), fontSize: 11, marginTop: "var(--space-4)" }} onClick={regen}>
             {n > 1 ? "другие коды" : "другой код"}</button>
-          <div style={{ ...S.lbl, marginTop: 10 }}>подтверждение — один файл на все единицы</div>
-          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
+          <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>подтверждение — один файл на все единицы</div>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
             <label style={{ ...btn(false), fontSize: 11.5, cursor: proofBusy ? "default" : "pointer",
               opacity: proofBusy ? 0.6 : 1, borderColor: proof ? undefined : DANGER_LINE }}>
               {proofBusy ? "Загружаю…" : proof ? "Заменить подтверждение" : "Загрузить подтверждение"}
@@ -797,10 +797,10 @@ function UploadMaterial({ trait, traitName, kind = "file", existing = [], meId,
             {proofErr && <span style={{ fontSize: 11, color: BAD }}>{proofErr}</span>}
           </div>
           {!proof && (
-            <div style={{ fontSize: 10.5, color: WARN, marginTop: 3 }}>
+            <div style={{ fontSize: 10.5, color: WARN, marginTop: "var(--space-4)" }}>
               без него загрузить нельзя: код показать нечем, кроме бумаги о выдаче</div>)}
         </div>)}
-      <div className="flex gap-2" style={{ marginTop: 12, justifyContent: "flex-end" }}>
+      <div className="flex gap-2" style={{ marginTop: "var(--space-12)", justifyContent: "flex-end" }}>
         <button style={btn(false)} onClick={onClose}>Отмена</button>
         <button style={{ ...btn(true, OK), opacity: ready ? 1 : 0.5 }} disabled={!ready}
           onClick={submit}>Загрузить</button>
@@ -832,7 +832,7 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
      редко, а места они занимают весь первый экран. */
   const [shownAll, setShownAll] = useState(false);
   return (
-    <div style={{ ...S.card, marginBottom: 10 }}>
+    <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
       <button type="button" aria-expanded={shownAll} aria-label="материалы — единицы ресурсов"
         onClick={() => setShownAll((v) => !v)} className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", padding: 0,
@@ -842,19 +842,19 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
       </button>
       {shownAll && (<>
       {!entities.length && (
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-8)" }}>
           Активов в схеме пока нет.</div>)}
       {entities.map((e) => {
         const own = traits.filter((t) => t.e === e.id);
         const open = openAsset.has(e.id);
         const count = own.reduce((a, t) => a + (all.filter((u) => u.trait === t.id).length), 0);
         return (
-          <div key={e.id} style={{ marginTop: 8 }}>
+          <div key={e.id} style={{ marginTop: "var(--space-8)" }}>
             <button aria-expanded={open} aria-label={`актив ${e.name || "без названия"}`}
               onClick={() => toggleAsset(e.id)}
               style={{ ...btn(open), width: "100%", textAlign: "left", fontSize: 12.5,
-                display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: e.color || NEU,
+                display: "flex", alignItems: "center", gap: "var(--space-8)" }}>
+              <span style={{ width: 10, height: 10, borderRadius: "var(--radius-sm)", background: e.color || NEU,
                 flexShrink: 0 }} />
               <span style={{ flex: 1, fontWeight: 600 }}>{e.name || "без названия"}</span>
               <span style={{ fontSize: 10.5, color: C.muted, fontWeight: 400 }}>
@@ -862,26 +862,26 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
               <span style={{ fontSize: 11, color: C.muted }}>{open ? "▾" : "▸"}</span>
             </button>
             {open && (
-              <div style={{ marginLeft: 10, borderLeft: `2px solid ${C.line}`, paddingLeft: 8,
-                marginTop: 4 }}>
+              <div style={{ marginLeft: "var(--space-8)", borderLeft: `2px solid ${C.line}`, paddingLeft: "var(--space-8)",
+                marginTop: "var(--space-4)" }}>
                 {!own.length && (
-                  <div style={{ fontSize: 11, color: C.muted, padding: "4px 0" }}>
+                  <div style={{ fontSize: 11, color: C.muted, padding: "var(--space-4) 0" }}>
                     Ресурсов у актива нет.</div>)}
                 {own.map((t) => {
                   const on = picked === t.id;
                   const units = on ? unitsOfTrait(model, t.id) : [];
                   return (
-                    <div key={t.id} style={{ marginTop: 4 }}>
+                    <div key={t.id} style={{ marginTop: "var(--space-4)" }}>
                       <button aria-pressed={on} aria-label={`ресурс ${t.l || "без названия"}`}
                         onClick={() => pick(t.id)}
                         style={{ ...btn(on), width: "100%", textAlign: "left", fontSize: 12,
-                          display: "flex", alignItems: "center", gap: 8 }}>
+                          display: "flex", alignItems: "center", gap: "var(--space-8)" }}>
                         <span style={{ flex: 1 }}>{t.l || "без названия"}</span>
                         <span style={{ fontSize: 10.5, color: C.muted }}>
                           есть {stock(t)} {t.unit || ""}</span>
                       </button>
                       {on && (
-                        <div style={{ padding: "6px 2px 2px" }}>
+                        <div style={{ padding: "var(--space-4) 0 0" }}>
                           <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
                             fontSize: 11.5 }}>
                             <span>есть <b>{stock(t)}</b> {t.unit || ""}</span>
@@ -895,13 +895,13 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
                               Загрузить единицу ресурса</button>
                           </div>
                           {shown && (units.length
-                            ? <div style={{ marginTop: 6 }}>
+                            ? <div style={{ marginTop: "var(--space-4)" }}>
                               {units.map((u) => (
                                 <UnitRow key={u.id} u={u} unit={t.unit || "ед."}
                                   spent={spent.has(u.id)} nameOf={nameOf}
                                   traitName={traitName} unitNo={unitNo} />))}
                             </div>
-                            : <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
+                            : <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)" }}>
                               Единиц пока нет.</div>)}
                         </div>)}
                     </div>);
@@ -951,8 +951,8 @@ export function Materials({ model = {}, entities = [], materials = [], setMateri
 function Part({ n, title, children, open: open0 = true }) {
   const [open, setOpen] = useState(open0);
   return (
-    <section style={{ marginTop: 12, borderTop: `1px solid ${C.line}`,
-      paddingTop: 8 }}>
+    <section style={{ marginTop: "var(--space-12)", borderTop: `1px solid ${C.line}`,
+      paddingTop: "var(--space-8)" }}>
       <button type="button" aria-expanded={open} aria-label={`${n}. ${title}`}
         onClick={() => setOpen((v) => !v)} className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", padding: 0,
@@ -960,7 +960,7 @@ function Part({ n, title, children, open: open0 = true }) {
         <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{n}. {title}</span>
         <span style={{ fontSize: 11, color: C.muted }}>{open ? "▾" : "▸"}</span>
       </button>
-      {open && <div style={{ marginTop: 6 }}>{children}</div>}
+      {open && <div style={{ marginTop: "var(--space-4)" }}>{children}</div>}
     </section>);
 }
 
@@ -1092,15 +1092,15 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
 
   return (
     <div data-report-node={node.id} style={{ background: depth ? "transparent" : C.panel2,
-      border: `1px solid ${focus === node.id ? ACC : C.line}`, borderRadius: 10,
-      padding: 9, marginTop: 8,
+      border: `1px solid ${focus === node.id ? ACC : C.line}`, borderRadius: "var(--radius-sm)",
+      padding: "var(--space-8)", marginTop: "var(--space-8)",
       borderLeft: depth ? `2px solid ${C.line}` : `1px solid ${C.line}`,
       marginLeft: depth ? 6 : 0, ...drag.style }}>
       <div className="flex items-center gap-2">
         {/* Три полоски слева: за них раздел перетаскивают и меняют местами
             с соседями (владелец, 2026-09-20). */}
         <Grip label={`переставить ${node.name || "без названия"}`} bind={drag.bind} />
-        <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
+        <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)" }}
           aria-label={`${open ? "свернуть" : "развернуть"} ${node.name || "блок"}`}
           onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button>
         {/* Имя правится двойным нажатием, как у техпроцессов; слова
@@ -1132,16 +1132,16 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             своя подпись: прежде они шли строкой, два из них были
             неактивны, и что они спрашивают — понять было нельзя. */}
         {root && (<>
-          <button style={{ ...btn(true, ACC), fontSize: 11.5, marginTop: 8 }}
+          <button style={{ ...btn(true, ACC), fontSize: 11.5, marginTop: "var(--space-8)" }}
             aria-expanded={form} aria-label={`создать раздел: ${node.name || "без названия"}`}
             onClick={() => setForm((v) => !v)}>
             {form ? "▾ Создать раздел" : "+ Создать раздел"}</button>
           {form && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8,
-              background: C.ink, border: `1px solid ${C.line}`, borderRadius: 8, padding: 9 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-8)", marginTop: "var(--space-8)",
+              background: C.ink, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)" }}>
               <label style={{ display: "block" }}>
                 <div style={S.lbl}>отслеживаемый ресурс</div>
-                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "4px 6px", marginTop: 3 }}
+                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", marginTop: "var(--space-4)" }}
                   aria-label="отслеживаемый ресурс" value={draft.trait}
                   onChange={(e) => setD({ trait: e.target.value, proc: "", units: [] })}>
                   <option value="">— выберите ресурс —</option>
@@ -1150,7 +1150,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               </label>
               <label style={{ display: "block" }}>
                 <div style={S.lbl}>отслеживаемый техпроцесс</div>
-                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "4px 6px", marginTop: 3 }}
+                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", marginTop: "var(--space-4)" }}
                   aria-label="отслеживаемый техпроцесс" value={draft.proc}
                   disabled={!draft.trait || !procs.length}
                   onChange={(e) => setD({ proc: e.target.value })}>
@@ -1165,7 +1165,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               </label>
               <label style={{ display: "block" }}>
                 <div style={S.lbl}>существующая единица</div>
-                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "4px 6px", marginTop: 3 }}
+                <select style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", marginTop: "var(--space-4)" }}
                   aria-label="существующая единица" value=""
                   disabled={!draft.trait || !units.length}
                   onChange={(e) => (e.target.value
@@ -1187,7 +1187,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
                   {picked.map((id) => {
                     const u = units.find((x) => x.id === id);
                     return (
-                      <button key={id} style={{ ...btn(true, ACC), fontSize: 11, padding: "3px 7px" }}
+                      <button key={id} style={{ ...btn(true, ACC), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
                         aria-label={`убрать единицу: ${u ? `№${u.no}` : id}`}
                         onClick={() => setD({ units: picked.filter((x) => x !== id) })}>
                         {u ? `№${u.no} ${u.title || "без названия"}` : "единица удалена"}
@@ -1200,7 +1200,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             </div>)}
         </>)}
         {hypoBlocked && (
-          <div style={{ fontSize: 11, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: WARN, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
             Движение не считается: функции, которые берут «{traitName(node.trait)}»,
             принадлежат процессу, принятому гипотетически. Включите «считать
             гипотезы» на «Схеме».
@@ -1208,7 +1208,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
 
         {!!doc.unit && (
           <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 8, marginTop: 8 }}>
+            borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginTop: "var(--space-8)" }}>
             <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
               <span style={{ fontSize: 11, color: ACC, fontWeight: 700 }}>
                 №{doc.unit.no}</span>
@@ -1217,21 +1217,21 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               <span style={{ fontSize: 10.5, color: doc.unit.accepted ? OK : WARN }}>
                 {doc.unit.accepted ? "принято" : "не принято"}</span>
             </div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
               {fmtDT(doc.unit.at)} · {doc.unit.by == null ? "исполнитель не назначен"
                 : (nameOf ? nameOf(doc.unit.by) : doc.unit.by)}
               {" · сделано функцией "}{funcName(doc.unit.func)}
             </div>
             {!!doc.parents.length && (
-              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
                 сделано из: {doc.parents.map((u) =>
                   `№${u.no} ${u.title || "без названия"}`).join(", ")}
               </div>)}
             {doc.unit.file && (
               <a href={reportSrc(doc.unit.file)} target="_blank" rel="noreferrer"
                 style={{ fontSize: 10.5, color: ACC, display: "inline-block",
-                  marginTop: 4 }}>📎 {doc.unit.file.name}</a>)}
-            <div style={{ fontSize: 10.5, marginTop: 5, lineHeight: 1.5,
+                  marginTop: "var(--space-4)" }}>📎 {doc.unit.file.name}</a>)}
+            <div style={{ fontSize: 10.5, marginTop: "var(--space-4)", lineHeight: 1.5,
               color: doc.traced ? C.muted : WARN }}>
               {doc.traced
                 ? `Дальше — только то, что выросло из неё: вещей в родословной ${doc.family.length}.`
@@ -1248,7 +1248,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               : <div style={{ fontSize: 11, color: C.muted }}>
                   Ресурсы по этой цепочке не меняются.</div>}
             {!!Object.keys(plan.hi.need || {}).length && (
-              <div style={{ fontSize: 10.5, color: WARN, marginTop: 6, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 10.5, color: WARN, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
                 Своего не хватит — нужно со стороны:{" "}
                 {Object.entries(plan.hi.need)
                   .map(([id, q]) => `${traitName(id)} ${nm(q)}`).join(", ")}
@@ -1282,7 +1282,7 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
             внизу отчёта, под его разделами (владелец, 2026-09-20). Ссылка
             бывает только на весь отчёт или на созданный раздел — на то,
             что у них внутри, ссылок нет. */}
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
+        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
           <button style={{ ...btn(true, OK), fontSize: 11 }} disabled={saving}
             aria-label={root ? "скачать отчёт" : `скачать раздел ${node.name || "без названия"}`}
             onClick={download}>
@@ -1294,10 +1294,10 @@ function Node({ node, nodes, model, doc, depth = 0, focus, onFocus, setNodes,
               : root ? "Ссылка на отчёт" : "Ссылка на раздел"}</button>
         </div>
         {saveErr && (
-          <div style={{ fontSize: 10.5, color: BAD, marginTop: 5, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10.5, color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
             {saveErr}</div>)}
         {link && (
-          <div style={{ fontSize: 10.5, color: ACC, marginTop: 5,
+          <div style={{ fontSize: 10.5, color: ACC, marginTop: "var(--space-4)",
             wordBreak: "break-all", lineHeight: 1.5 }}>
             {link}
             <div style={{ color: linkErr ? WARN : C.muted }}>
@@ -1346,7 +1346,7 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
       {/* ОДНА форма на всё (владелец, 2026-09-19: «сделай, чтобы отчёты
           были в одной форме»): имя посередине, «+ отчёт» справа, сами
           отчёты — внутри. Кнопки «все отчёты» нет: они и так все здесь. */}
-      <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         <div className="flex items-center gap-2">
           <span style={{ flex: 1 }} />
           {/* Нажатие на имя сворачивает форму — как и все формы вкладки. */}
@@ -1365,11 +1365,11 @@ export default function ReportsPanel({ nodes = [], setNodes, model = {},
 
         {head && (<>
           {!nodes.length && (
-            <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, marginTop: 8 }}>
+            <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, marginTop: "var(--space-8)" }}>
               Отчётов пока нет.</div>)}
 
           {focus && !path.length && (
-            <div style={{ fontSize: 11.5, color: WARN, lineHeight: 1.6, marginTop: 8 }}>
+            <div style={{ fontSize: 11.5, color: WARN, lineHeight: 1.6, marginTop: "var(--space-8)" }}>
               Такого отчёта в этой модели нет. Возможно, ссылка ведёт в другую
               рабочую область или отчёт удалили.</div>)}
 

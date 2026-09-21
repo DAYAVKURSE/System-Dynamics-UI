@@ -51,8 +51,8 @@ import { changeFormsHtml } from "../lib/docdiff.js";
    ════════════════════════════════════════════════════════════════ */
 
 const hint = { fontSize: 11, color: C.muted, lineHeight: 1.5 };
-const sub = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 8,
-  marginBottom: 6 };
+const sub = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)",
+  marginBottom: "var(--space-4)" };
 const when = (iso) => {
   const d = new Date(iso || "");
   return isNaN(d.getTime()) ? "" : d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit",
@@ -86,7 +86,7 @@ export function PlaceholderFields({ placeholders = [], values = {}, onChange, re
         required={must}>
         <input aria-label={`${label}: ${p.key}`} type={dateKey ? "date" : "text"}
           inputMode={p.key === "sum" ? "decimal" : undefined}
-          style={{ ...S.inp, padding: "5px 7px", fontSize: 12,
+          style={{ ...S.inp, padding: "var(--space-4) var(--space-8)", fontSize: 12,
             borderColor: must && !String(v).trim() ? `${BAD}88` : C.line }}
           value={v} disabled={disabled}
           onChange={(e) => onChange({ ...values, [p.key]: e.target.value })} />
@@ -135,7 +135,7 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
       style={{ position: "fixed", inset: 0, zIndex: 60, background: "var(--bg-base)",
         overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
       <div style={{ position: "fixed", top: 10, right: 12, zIndex: 61, display: "flex",
-        flexDirection: "column", gap: 8 }}>
+        flexDirection: "column", gap: "var(--space-8)" }}>
         <button type="button" aria-label="закрыть документ" title="Закрыть" onClick={close}
           style={roundBtn()}>✕</button>
         {editable && (<>
@@ -163,7 +163,7 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
             </svg></button>
         </>)}
       </div>
-      <div style={{ fontSize: 11, color: C.muted, padding: "12px 60px 4px 16px" }}>
+      <div style={{ fontSize: 11, color: C.muted, padding: "var(--space-12) var(--space-48) var(--space-4) var(--space-16)" }}>
         {title}{editable ? " · правится прямо здесь; сложное оформление Word при сохранении упрощается" : " · только чтение"}
         {dirty ? " · есть несохранённые правки" : ""}
       </div>
@@ -171,7 +171,7 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
         aria-label="текст документа"
         onInput={(e) => onChange?.(e.currentTarget.innerHTML)}
         style={{ background: "#fff", color: "#111", margin: "8px auto 24px", maxWidth: 820,
-          minHeight: "80vh", padding: "28px 24px", borderRadius: 4, fontFamily: "Georgia, serif",
+          minHeight: "80vh", padding: "var(--space-24) var(--space-24)", borderRadius: "var(--radius-sm)", fontFamily: "Georgia, serif",
           fontSize: 14, lineHeight: 1.6, outline: "none", boxSizing: "border-box" }} />
     </div>
   );
@@ -198,7 +198,7 @@ export function DiffForms({ forms, title, empty = "Изменений нет." }
     const sg = SIGN[f.sign] || SIGN["+"];
     const mark = (p) => {
       if (!p.hl) return undefined;
-      const base = { background: `${color}33`, fontWeight: 600, borderRadius: 3, padding: "0 2px" };
+      const base = { background: `${color}33`, fontWeight: 600, borderRadius: "var(--radius-sm)", padding: "0 0" };
       if (f.sign !== "±") return { ...base, color };
       // В замене видно и старое, и новое: старое — зачёркнутым и тише.
       return p.t === "del"
@@ -207,9 +207,9 @@ export function DiffForms({ forms, title, empty = "Изменений нет." }
     };
     return (
       <fieldset key={i} aria-label={sg.label}
-        style={{ border: `1px solid ${color}`, borderRadius: 6, padding: "2px 8px 6px",
-          margin: "6px 0 0", minWidth: 0 }}>
-        <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sg.text}</legend>
+        style={{ border: `1px solid ${color}`, borderRadius: "var(--radius-sm)", padding: "0 var(--space-8) var(--space-4)",
+          margin: "var(--space-4) 0 0", minWidth: 0 }}>
+        <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 var(--space-4)" }}>{sg.text}</legend>
         <div style={{ fontSize: 11.5, lineHeight: 1.6, color: C.text }}>
           {f.parts.map((p, k) => (
             <span key={k} data-hl={p.hl ? (f.sign === "±" ? p.t : f.sign) : undefined}
@@ -219,7 +219,7 @@ export function DiffForms({ forms, title, empty = "Изменений нет." }
       </fieldset>);
   };
   return (
-    <div style={{ marginTop: 4 }} aria-label="изменения">
+    <div style={{ marginTop: "var(--space-4)" }} aria-label="изменения">
       {title && <div style={S.lbl}>{title}</div>}
       {!forms.length ? <div style={hint}>{empty}</div> : forms.map(box)}
     </div>);
@@ -237,10 +237,10 @@ function NewDocForm({ busy, act, onDone }) {
   return (
     <div style={sub} aria-label="новый договор">
       <div style={S.lbl}>новый договор</div>
-      <input aria-label="название договора" style={{ ...S.inp, margin: "6px 0 4px" }}
+      <input aria-label="название договора" style={{ ...S.inp, margin: "var(--space-4) 0 var(--space-4)" }}
         placeholder="название" value={title} disabled={same}
         onChange={(e) => setName(e.target.value)} />
-      <label className="flex items-center gap-2" style={{ fontSize: 11.5, cursor: "pointer", marginBottom: 6 }}>
+      <label className="flex items-center gap-2" style={{ fontSize: 11.5, cursor: "pointer", marginBottom: "var(--space-4)" }}>
         <input type="checkbox" checked={same} aria-label="такое же, как у файла"
           style={{ accentColor: ACC }} onChange={(e) => setSame(e.target.checked)} />
         <span>такое же, как у файла</span>
@@ -250,7 +250,7 @@ function NewDocForm({ busy, act, onDone }) {
         <input type="file" accept=".docx" style={{ display: "none" }} aria-label="файл договора"
           onChange={(e) => setFile(e.target.files?.[0] || null)} />
       </label>
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !file || !title.trim()}
           aria-label="загрузить договор"
           onClick={() => { setErr(""); act(async () => { await addDoc({ name: title.trim(), file }); onDone?.(); }, { quiet: true })
@@ -259,7 +259,7 @@ function NewDocForm({ busy, act, onDone }) {
         <button type="button" style={btn(false)} onClick={onDone}>Отмена</button>
       </div>
       {/* Ошибка — здесь, под кнопкой, а не внизу страницы. */}
-      {err && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: 6, lineHeight: 1.5 }}>{err}</div>}
+      {err && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{err}</div>}
     </div>
   );
 }
@@ -297,11 +297,11 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
   return (
     /* Название — в рамке ВСЕЙ карточки договора, в её левом верхнем углу
        (владелец, 2026-09-15), как знак у форм «+» и «−». */
-    <fieldset style={{ ...sub, borderColor: opened ? ACC : C.line, padding: "2px 8px 8px", minWidth: 0 }}
+    <fieldset style={{ ...sub, borderColor: opened ? ACC : C.line, padding: "0 var(--space-8) var(--space-8)", minWidth: 0 }}
       aria-label={`договор ${doc.name}`}>
-      <legend style={{ fontSize: 12.5, fontWeight: 700, padding: "0 6px", color: C.text,
+      <legend style={{ fontSize: 12.5, fontWeight: 700, padding: "0 var(--space-4)", color: C.text,
         maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</legend>
-      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: "var(--space-4)" }}>
         версий: {doc.versions.length} · {when(ver?.at)}{dirty ? " · есть несохранённые правки" : ""}</div>
       <div className="flex flex-wrap items-center gap-2">
         {/* Порядок кнопок — владельца: редактировать, скачать, удалить.
@@ -317,17 +317,17 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
       {dirty && <DiffForms forms={current} title="несохранённые изменения" />}
 
       {/* Плейсхолдеры — под спойлером: их много, а нужны не каждый раз. */}
-      <button type="button" style={{ ...btn(phOpen), marginTop: 6, fontSize: 11 }}
+      <button type="button" style={{ ...btn(phOpen), marginTop: "var(--space-4)", fontSize: 11 }}
         aria-expanded={phOpen} aria-label={`плейсхолдеры ${doc.name}`} onClick={() => setPhOpen((v) => !v)}>
         {phOpen ? "▾" : "▸"} плейсхолдеры ({(ver?.placeholders || []).length})</button>
       {phOpen && (
-        <div style={{ marginTop: 4 }} onBlur={saveValues}>
+        <div style={{ marginTop: "var(--space-4)" }} onBlur={saveValues}>
           <PlaceholderFields placeholders={ver?.placeholders || []} values={values} onChange={setValues}
             label={`поле ${doc.name}`} />
         </div>)}
 
       {/* «Загрузить новый» — перед списком версий. */}
-      <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 6 }}>
+      <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-4)" }}>
         <label style={{ ...btn(false), fontSize: 11, display: "inline-block" }}>
           {file ? `📄 ${file.name}` : "Загрузить новый"}
           <input type="file" accept=".docx" style={{ display: "none" }}
@@ -343,22 +343,22 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
           aria-label={`прошлые версии ${doc.name}`} onClick={() => setVersions((v) => !v)}>
           прошлые версии ({doc.versions.length})</button>
       </div>
-      {verErr && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: 4 }}>{verErr}</div>}
+      {verErr && <div role="alert" style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{verErr}</div>}
       {versions && (
-        <div style={{ marginTop: 4, borderLeft: `2px solid ${C.line}`, paddingLeft: 8 }}>
+        <div style={{ marginTop: "var(--space-4)", borderLeft: `2px solid ${C.line}`, paddingLeft: "var(--space-8)" }}>
           {[...doc.versions].reverse().map((v, i) => {
             const idx = doc.versions.length - 1 - i;
             const isOpen = openVer === v.id;
             const forms = isOpen ? verForms(idx) : null;
             return (
-              <div key={v.id} style={{ padding: "3px 0" }}>
+              <div key={v.id} style={{ padding: "var(--space-4) 0" }}>
                 <button type="button" aria-label={`версия ${v.id}`} aria-expanded={isOpen}
                   style={{ ...btn(isOpen), fontSize: 11, textAlign: "left", width: "100%" }}
                   onClick={() => setOpenVer(isOpen ? null : v.id)}>
                   <span style={{ color: i === 0 ? OK : C.muted }}>{i === 0 ? "● " : "○ "}</span>
                   {when(v.at)}{i === 0 ? " · последняя" : ""}{idx === 0 ? " · первая" : ""}</button>
                 {isOpen && (
-                  <div style={{ padding: "4px 0 4px 6px" }}>
+                  <div style={{ padding: "var(--space-4) 0 var(--space-4) var(--space-4)" }}>
                     <div className="flex flex-wrap gap-2">
                       <button type="button" style={btn(false)} aria-label={`открыть версию ${v.id}`}
                         onClick={() => viewer(doc, v)}>открыть</button>
@@ -369,8 +369,8 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
                           aria-label={`удалить версию ${v.id}`}
                           onClick={() => act(() => removeDocVersion(doc.id, v.id))}>удалить</button>)}
                     </div>
-                    {idx === 0 ? <div style={{ ...hint, marginTop: 4 }}>Первая версия — сравнивать не с чем.</div>
-                      : forms == null ? <div style={{ ...hint, marginTop: 4 }}>Считаю изменения…</div>
+                    {idx === 0 ? <div style={{ ...hint, marginTop: "var(--space-4)" }}>Первая версия — сравнивать не с чем.</div>
+                      : forms == null ? <div style={{ ...hint, marginTop: "var(--space-4)" }}>Считаю изменения…</div>
                         : <DiffForms forms={forms} title="изменения против предыдущей" />}
                   </div>)}
               </div>);
@@ -387,8 +387,8 @@ function CollapsedBar({ title, dirty, onExpand, onClose }) {
   return (
     <div role="region" aria-label={`свёрнутый документ ${title}`}
       style={{ position: "fixed", left: 8, right: 8, bottom: 8, zIndex: 55,
-        background: "rgba(29,40,57,.95)", border: `1px solid ${ACC}66`, borderRadius: 10,
-        boxShadow: "0 -2px 12px #0008", display: "flex", alignItems: "center", gap: 8, padding: "6px 8px 6px 12px" }}>
+        background: "rgba(29,40,57,.95)", border: `1px solid ${ACC}66`, borderRadius: "var(--radius-sm)",
+        boxShadow: "0 -2px 12px #0008", display: "flex", alignItems: "center", gap: "var(--space-8)", padding: "var(--space-4) var(--space-8) var(--space-4) var(--space-12)" }}>
       <button type="button" aria-label={`развернуть документ ${title}`} onClick={onExpand}
         style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#fff",
           textAlign: "left", cursor: "pointer", fontSize: 12.5, fontWeight: 600, padding: 0,
@@ -434,18 +434,18 @@ export function DocsSection({ docs = [], busy, act }) {
   const cur = edit ? docs.find((d) => d.id === edit.doc.id) : null;
   if (cur && edit && cur !== edit.doc) { cur._html = edit.doc._html; }
   return (
-    <div style={{ marginTop: 4 }}>
+    <div style={{ marginTop: "var(--space-4)" }}>
       {docs.map((d) => (
         <DocCard key={d.id} doc={d} opened={edit?.doc.id === d.id} onEdit={openEdit} busy={busy} act={act}
           html={edit?.doc.id === d.id ? html : null} setHtml={setHtml} viewer={openVersion}
           onDrop={(doc) => act(async () => { await removeDoc(doc.id); if (edit?.doc.id === doc.id) { setEdit(null); setShown(false); } })} />))}
-      {!docs.length && <div style={{ ...hint, marginBottom: 6 }}>Договоров пока нет.</div>}
+      {!docs.length && <div style={{ ...hint, marginBottom: "var(--space-4)" }}>Договоров пока нет.</div>}
       {adding ? (
         <NewDocForm busy={busy} act={act} onDone={() => setAdding(false)} />
       ) : (
         <button type="button" style={btn(true)} disabled={busy} onClick={() => setAdding(true)}>
           + договор</button>)}
-      {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: 6 }}>{err}</div>}
+      {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
       {edit && shown && (
         <DocViewer title={edit.doc.name} html={edit.html} dirty={html != null && html !== edit.doc._html}
           busy={busy} onChange={setHtml} onSave={save}
@@ -504,18 +504,18 @@ export function InviteModal({ role, doc, me, onClose, onDone }) {
     <Modal title={`Пригласить участника · ${role.name}`} onClose={onClose}>
       {!doc && <div style={{ fontSize: 12, color: WARN }}>У роли нет договора — выберите его у роли.</div>}
       {doc && !sent && (<>
-        <div style={{ ...hint, marginBottom: 8 }}>
+        <div style={{ ...hint, marginBottom: "var(--space-8)" }}>
           Договор «{doc.name}». Заполните, что знаете, — остальное дозаполнит участник. Сумма и даты
           действия обязательны, подпись — тоже: каждая выдача подписывается отдельно.
         </div>
         <PlaceholderFields placeholders={ver?.placeholders || []} values={values} onChange={setValues}
           required label="приглашение" />
-        <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 8 }}>
+        <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-8)" }}>
           <button type="button" style={btn(true, sig ? OK : ACC)} onClick={() => setPad(true)}>
             {sig ? "Подпись поставлена ✓ — переподписать" : "Поставить подпись"}</button>
           {sig && <span style={{ fontSize: 10.5, color: C.muted }}>{when(sig.at)} · хеш {sig.hash.slice(0, 10)}…</span>}
         </div>
-        <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 10 }}>
+        <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-8)" }}>
           <button type="button" style={btn(true, OK)} disabled={!ready} onClick={send}
             title={missing.length ? `Заполните: ${missing.map((k) => REQUIRED_LABEL[k]).join(", ")}` : !sig ? "Поставьте подпись" : ""}>
             {busy ? "Отправляю…" : "Отправить"}</button>
@@ -523,12 +523,12 @@ export function InviteModal({ role, doc, me, onClose, onDone }) {
             {missing.length ? `не хватает: ${missing.map((k) => REQUIRED_LABEL[k]).join(", ")}` : !sig ? "нужна подпись" : "готово к отправке"}
           </span>
         </div>
-        {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: 6 }}>{err}</div>}
+        {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
       </>)}
       {sent && (
         <div>
-          <div style={{ fontSize: 12.5, color: OK, fontWeight: 600, marginBottom: 6 }}>Договор подписан и готов к отправке.</div>
-          <div style={{ ...hint, marginBottom: 6 }}>
+          <div style={{ fontSize: 12.5, color: OK, fontWeight: 600, marginBottom: "var(--space-4)" }}>Договор подписан и готов к отправке.</div>
+          <div style={{ ...hint, marginBottom: "var(--space-4)" }}>
             Кому его отправить? Выберите чат — человек получит ссылку, откроет бота и договор станет его.
             Если так не выйдет — перешлите боту любое сообщение этого человека и выберите роль «{role.name}»:
             ждущий договор привяжется к нему сам.
@@ -538,8 +538,8 @@ export function InviteModal({ role, doc, me, onClose, onDone }) {
             <button type="button" style={btn(false)} onClick={() => navigator.clipboard?.writeText(sent.link)}>
               Скопировать ссылку</button>
           </div>
-          <div style={{ fontSize: 11, color: ACC, marginTop: 6, wordBreak: "break-all" }} aria-label="ссылка приглашения">{sent.link}</div>
-          <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all" }} aria-label="ссылка приглашения">{sent.link}</div>
+          <div style={{ marginTop: "var(--space-8)" }}>
             <button type="button" style={btn(false)} onClick={onClose}>Закрыть</button>
           </div>
         </div>)}

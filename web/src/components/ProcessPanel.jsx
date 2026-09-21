@@ -47,7 +47,7 @@ const HINT_H = 178;
 /* ─────── подложка ───────
    Плашка — без отступов: цвет и кольцо `box-shadow` вокруг слова, чтобы
    буквы подложки и поля не разъезжались (отступы сдвинули бы текст). */
-const plate = (bg, fg = DARK, ring = "") => ({ background: bg, color: fg, borderRadius: 5,
+const plate = (bg, fg = DARK, ring = "") => ({ background: bg, color: fg, borderRadius: "var(--radius-sm)",
   boxShadow: `0 0 0 3px ${bg}${ring ? `, 0 0 0 4px ${ring}` : ""}` });
 function spanStyle(k) {
   const bad = k.state === "unknown" || k.state === "rejected" || k.state === "deleted" || k.state === "noasset";
@@ -64,7 +64,7 @@ function spanStyle(k) {
   if (k.kind === "var") return k.state && k.state !== "ok" ? plate(BAD) : plate(handColor(k.varName || ""));
   /* Количество/операция — свой квадратик: фон панели в рамке цвета стороны. */
   if (k.kind === "qty") {
-    const st = { ...plate(C.panel2, C.text, SIDE[k.side] || ACC), borderRadius: 4 };
+    const st = { ...plate(C.panel2, C.text, SIDE[k.side] || ACC), borderRadius: "var(--radius-sm)" };
     if (k.exprError) st.boxShadow = `${st.boxShadow}, 0 0 0 6px ${BAD}`;
     return st;
   }
@@ -86,7 +86,7 @@ function Bracket({ side, children }) {
   const anchor = { display: "inline-block", width: 0, height: "1em", verticalAlign: "text-bottom", position: "relative", overflow: "visible" };
   const arc = { position: "absolute", top: -6, height: "1.55em", width: 7, border: `2px solid ${c}`, pointerEvents: "none", boxSizing: "border-box" };
   return (
-    <span data-bracket={side} style={{ background: `${c}1F`, boxShadow: `0 0 0 3px ${c}1F`, borderRadius: 7,
+    <span data-bracket={side} style={{ background: `${c}1F`, boxShadow: `0 0 0 3px ${c}1F`, borderRadius: "var(--radius-sm)",
       WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>
       <span style={anchor}><i style={{ ...arc, left: -11, borderRight: "none", borderRadius: "8px 0 0 8px" }} /></span>
       {children}
@@ -105,7 +105,7 @@ function Missing({ what }) {
     <span data-missing={what} title={what === "qty" ? "сколько — не указано (считается 1)" : "значение не указано"}
       style={{ display: "inline-block", width: 0, position: "relative", verticalAlign: "text-bottom", height: "1em", overflow: "visible" }}>
       <span aria-hidden="true" style={{ position: "absolute", left: 1, top: "-0.75em", fontSize: 9, lineHeight: "12px", width: 12, height: 12,
-        borderRadius: 6, background: WARN, color: DARK, textAlign: "center", fontWeight: 700 }}>?</span>
+        borderRadius: "var(--radius-sm)", background: WARN, color: DARK, textAlign: "center", fontWeight: 700 }}>?</span>
     </span>);
 }
 function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = -1, backRef = null }) {
@@ -173,12 +173,12 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
                 основному тексту (владелец, 2026-09-18). */}
             {r?.note && (
               <span data-note={r.note} style={{ position: "absolute", right: 4 + (i === activeRow ? noteGap : 0), top: "-0.45em", color: C.muted,
-                fontSize: 8.5, lineHeight: 1.4, opacity: 0.6, background: `${C.ink}b3`, padding: "0 4px", borderRadius: 3,
+                fontSize: 8.5, lineHeight: 1.4, opacity: 0.6, background: `${C.ink}b3`, padding: "0 var(--space-4)", borderRadius: "var(--radius-sm)",
                 border: `1px solid ${C.line}66`, whiteSpace: "nowrap", maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.note}</span>)}
             {r?.error && (
               <span data-mark="error" style={{ position: "absolute", right: 0, top: 0, color: BAD,
-                fontSize: 10, lineHeight: `${LINE_H}em`, background: C.ink, padding: "0 4px",
+                fontSize: 10, lineHeight: `${LINE_H}em`, background: C.ink, padding: "0 var(--space-4)",
                 maxWidth: "60%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 ← {r.error}</span>)}
           </div>);
@@ -191,16 +191,16 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
    же, что у кнопок меню, чтобы меню читалось одним списком. */
 function Fold({ title, value, open, onToggle, children }) {
   return (
-    <div style={{ border: `1px solid ${C.line}`, borderRadius: 5 }}>
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
       <button type="button" aria-expanded={open} aria-label={title} onClick={onToggle}
         className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", color: C.text, cursor: "pointer",
-          padding: "3px 6px", fontSize: 11.5, textAlign: "left" }}>
+          padding: "var(--space-4) var(--space-4)", fontSize: 11.5, textAlign: "left" }}>
         <span style={{ width: 10, color: C.muted }}>{open ? "▾" : "▸"}</span>
         <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
         {value != null && <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{value}</span>}
       </button>
-      {open && <div style={{ padding: "2px 6px 6px" }}>{children}</div>}
+      {open && <div style={{ padding: "0 var(--space-4) var(--space-4)" }}>{children}</div>}
     </div>);
 }
 /** Небольшое числовое поле меню: правка по месту, запись при уходе. */
@@ -209,7 +209,7 @@ function MiniNum({ value, label, onCommit, width = 54 }) {
   useEffect(() => { setDraft(String(value ?? "")); }, [value]);
   return (
     <input value={draft} aria-label={label} inputMode="decimal"
-      style={{ ...S.inp, width, fontSize: 11.5, padding: "2px 5px" }}
+      style={{ ...S.inp, width, fontSize: 11.5, padding: "0 var(--space-4)" }}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => onCommit(Number(String(draft).replace(",", ".")) || 0)}
       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />);
@@ -226,7 +226,7 @@ function Range({ lo, hi, unit, label, onChange }) {
         <MiniNum value={hi} label={`${label}: до`} onCommit={(v) => onChange(Number(lo) || 0, Math.max(Number(lo) || 0, v), unit)} />
       </>)}
       <select value={unit} aria-label={`${label}: единица`} onChange={(e) => onChange(Number(lo) || 0, Number(hi) || 0, e.target.value)}
-        style={{ ...S.inp, width: "auto", padding: "2px 4px", fontSize: 11.5 }}>
+        style={{ ...S.inp, width: "auto", padding: "0 var(--space-4)", fontSize: 11.5 }}>
         {TIME_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
       </select>
       <label className="flex items-center gap-2" style={{ fontSize: 10.5, color: C.muted, cursor: "pointer" }}>
@@ -704,7 +704,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
   const header = pick ? `${HINT[pick.kind] || ""}${pick.kind === "trait" && pick.asset ? ` — ресурсы «${pick.asset.name}»` : ""}${pick.kind === "qty" && pick.traitName ? ` — для «${pick.traitName}»` : ""}` : "";
   const pinBtn = (label, icon, onClick, style = {}) => (
     <button type="button" aria-label={label} onClick={onClick} className="flex items-center gap-2"
-      style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left", background: "transparent",
+      style={{ borderRadius: "var(--radius-sm)", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left", background: "transparent",
         color: C.text, border: `1px solid ${C.line}`, ...style }}>
       <span style={{ width: 16, textAlign: "center" }}>{icon}</span>{label.split(":")[0].replace(/^./, (c) => c.toUpperCase())}</button>);
   const menuTitle = funcRow >= 0 ? `функция «${funcName || "без названия"}»`
@@ -757,14 +757,14 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
           (210 → 93 px за одно слово), документ под полем дышал, и у низа
           страницы прокрутку подрезало — страница дёргалась. */}
       {editing && (
-        <div style={{ height: HINT_H, marginTop: 4 }}>
+        <div style={{ height: HINT_H, marginTop: "var(--space-4)" }}>
         {pick && (
         <div role="dialog" aria-label="подсказка процесса"
           onMouseDown={(e) => { if (e.target.tagName !== "INPUT") e.preventDefault(); }}
           onTouchStart={touchStart} onTouchEnd={(e) => touchEnd(e, null)} onTouchCancel={() => { touch.current = null; hold.current = false; }}
           style={{ height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box",
-            background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6 }}>
-          <div style={{ padding: "5px 8px", fontSize: 10.5, color: C.muted, borderBottom: `1px solid ${C.line}`, flex: "none" }}>
+            background: C.panel, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
+          <div style={{ padding: "var(--space-4) var(--space-8)", fontSize: 10.5, color: C.muted, borderBottom: `1px solid ${C.line}`, flex: "none" }}>
             {header}<span style={{ opacity: 0.7 }}> · нажмите пункт · Enter — новая строка</span>
           </div>
           <div role="listbox" aria-label="подсказки процесса" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -772,15 +772,15 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={i === cursor}
                 onClick={() => choose(it)}
                 onTouchEnd={(e) => { e.stopPropagation(); touchEnd(e, () => choose(it)); }}
-                style={{ padding: "7px 8px", fontSize: 12.5, cursor: "pointer", touchAction: "pan-y",
+                style={{ padding: "var(--space-8) var(--space-8)", fontSize: 12.5, cursor: "pointer", touchAction: "pan-y",
                   background: i === cursor ? `${C.line}88` : "transparent" }}>
                 <span style={{ color: C.muted }}>{it.kind} </span>{it.name}
                 {it.note && <span style={{ color: C.muted }}> — {it.note}</span>}
               </div>))}
             {items.filter((i) => i.info).map((it, i) => (
-              <div key={`info${i}`} style={{ padding: "4px 8px", fontSize: 11, color: C.muted }}>{it.note}</div>))}
+              <div key={`info${i}`} style={{ padding: "var(--space-4) var(--space-8)", fontSize: 11, color: C.muted }}>{it.note}</div>))}
             {!items.length && (
-              <div style={{ padding: "4px 8px", fontSize: 11, color: C.muted }}>
+              <div style={{ padding: "var(--space-4) var(--space-8)", fontSize: 11, color: C.muted }}>
                 {pick.query ? `«${pick.query}» — своё имя; дальше — Enter или пункт «↵»` : "введите своё"}
               </div>)}
           </div>
@@ -803,8 +803,8 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             /* Меньше прозрачности у спящего меню (владелец, 2026-09-19):
                сквозь него читался текст под ним, и меню терялось. */
             opacity: menuActive ? 1 : 0.85, transition: "opacity .15s",
-            background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: 5, boxShadow: "0 6px 20px rgba(0,0,0,.35)" }}>
-          <div className="flex items-center gap-1" style={{ padding: "1px 2px 4px" }}>
+            background: C.panel, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4)", boxShadow: "0 6px 20px rgba(0,0,0,.35)" }}>
+          <div className="flex items-center gap-1" style={{ padding: "0 0 var(--space-4)" }}>
             <div aria-label="перетащить меню" title="перетащить"
               onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd}
               onTouchStart={onDragTouch} onTouchMove={onDragTouchMove} onTouchEnd={onDragTouchEnd} onTouchCancel={onDragTouchEnd}
@@ -815,35 +815,35 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             </div>
             <button type="button" aria-label="закрыть меню" title="закрыть"
               onClick={() => { setCaretRow(-1); setPickVar(false); setPickPerson(false); }}
-              style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 3px", fontSize: 13, lineHeight: 1 }}>✕</button>
+              style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 var(--space-4)", fontSize: 13, lineHeight: 1 }}>✕</button>
           </div>
           {funcRow >= 0 ? (
-          <div data-func-menu="" aria-label={`меню функции ${funcName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div data-func-menu="" aria-label={`меню функции ${funcName}`} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
             <Fold title="ожидаемый результат" open={fold === "fresult"} onToggle={() => setFold(fold === "fresult" ? "" : "fresult")}
               value={funcHead.result ? "есть" : "—"}>
               <input defaultValue={funcHead.result} aria-label="ожидаемый результат функции"
-                style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "2px 5px" }}
+                style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "0 var(--space-4)" }}
                 onBlur={(e) => setFuncResult(e.target.value.trim())}
                 onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
             </Fold>
           </div>
           ) : taskRow >= 0 ? (
-          <div data-task-menu="" aria-label={`меню задачи ${taskName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div data-task-menu="" aria-label={`меню задачи ${taskName}`} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
             {/* Описание — ПЕРВЫМ, до критериев (владелец, 2026-09-20):
                 сперва что за работа, потом по чему её примут. Оно едет в
                 каждую задачу этой функции и видно на форме постановки. */}
             <Fold title="описание" open={fold === "about"} onToggle={() => setFold(fold === "about" ? "" : "about")}
               value={taskAbout ? "есть" : "—"}>
               <textarea key={taskAbout} defaultValue={taskAbout} aria-label="описание задачи" rows={2}
-                style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "3px 5px", resize: "vertical" }}
+                style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", resize: "vertical" }}
                 onBlur={(e) => setAbout(e.target.value.trim())} />
             </Fold>
             <Fold title="критерии проверки" open={fold === "checks"} onToggle={() => setFold(fold === "checks" ? "" : "checks")}
               value={taskChecks.length ? String(taskChecks.length) : "—"}>
               {taskChecks.map((c, i) => (
-                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 3 }}>
+                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                   <input defaultValue={c} aria-label={`критерий ${i + 1}`}
-                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 5px" }}
+                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "0 var(--space-4)" }}
                     onBlur={(e) => { const v = e.target.value.trim(); setChecks(taskChecks.map((x, k) => (k === i ? v : x)).filter(Boolean)); }}
                     onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                   <button type="button" aria-label={`убрать критерий ${i + 1}`} title="убрать"
@@ -854,14 +854,14 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                   а не приложение (владелец, 2026-09-20). Пустое при уходе
                   из поля просто исчезает. */}
               {newCheck != null && (
-                <div className="flex items-center gap-2" style={{ marginBottom: 3 }}>
+                <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                   <input autoFocus defaultValue="" aria-label={`критерий ${taskChecks.length + 1}`}
-                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 5px" }}
+                    style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "0 var(--space-4)" }}
                     onBlur={(e) => { const v = e.target.value.trim(); setNewCheck(null); if (v) setChecks([...taskChecks, v]); }}
                     onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                 </div>)}
               <button type="button" aria-label="добавить критерий" onClick={() => setNewCheck("")}
-                style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}>+ критерий</button>
+                style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)" }}>+ критерий</button>
             </Fold>
             <Fold title="срок" open={fold === "dur"} onToggle={() => setFold(fold === "dur" ? "" : "dur")}
               value={durText(taskTime)}>
@@ -870,10 +870,10 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             </Fold>
             <Fold title="следующая попытка" open={fold === "every"} onToggle={() => setFold(fold === "every" ? "" : "every")}
               value={everyText(taskTime)}>
-              <div className="flex items-center gap-2" style={{ marginBottom: 4 }}>
+              <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                 <select value={taskTime.every > 0 ? "every" : "flow"} aria-label="когда следующая попытка"
                   onChange={(e) => setTime("every", e.target.value === "every" ? `через 1 ${taskTime.everyUnit || "дн"}` : "сразу")}
-                  style={{ ...S.inp, width: "auto", padding: "2px 4px", fontSize: 11.5 }}>
+                  style={{ ...S.inp, width: "auto", padding: "0 var(--space-4)", fontSize: 11.5 }}>
                   <option value="flow">сразу</option>
                   <option value="every">через…</option>
                 </select>
@@ -896,28 +896,28 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
           </div>
           ) : whoRow >= 0 ? (
           <div data-role-buttons="" aria-label={`меню участника ${whoName}`}
-            style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             {isWho && ROLE_KINDS.map((role) => (
               <button key={role} type="button" aria-pressed={roleOn(role)} aria-label={`${ROLE_WORD[role]}: ${whoName}`}
                 onClick={() => toggle(role)} className="flex items-center gap-2"
-                style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left",
+                style={{ borderRadius: "var(--radius-sm)", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
                   background: roleOn(role) ? ROLE_COLOR[role] : "transparent", color: roleOn(role) ? DARK : C.text,
                   border: `1px solid ${roleOn(role) ? ROLE_COLOR[role] : C.line}` }}>
                 <span style={{ width: 16, textAlign: "center" }}>{ICON[role]}</span>{ROLE_WORD[role]}</button>))}
             {whoHand ? (
-              <div style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+              <div style={{ border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-4)", fontSize: 11 }}>
                 <div className="flex items-center gap-2">
                   <span style={{ width: 16, textAlign: "center" }}>🔒</span>
                   {renamingHand ? (
                     <input autoFocus defaultValue={whoHand} aria-label="имя закреплённого сотрудника"
-                      style={{ ...S.inp, flex: 1, fontSize: 11, padding: "1px 4px" }}
+                      style={{ ...S.inp, flex: 1, fontSize: 11, padding: "0 var(--space-4)" }}
                       onBlur={(e) => renameHand(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { hold.current = false; setRenamingHand(false); inp.current?.focus({ preventScroll: true }); } }} />
                   ) : (
                     <button type="button" aria-label={`переименовать закреплённого сотрудника ${whoHand}`} title="нажмите, чтобы переименовать"
                       onClick={() => { hold.current = true; setRenamingHand(true); }}
-                      style={{ flex: 1, textAlign: "left", background: handColor(whoHand), color: DARK, border: "none", borderRadius: 4,
-                        padding: "1px 6px", fontSize: 11, cursor: "text" }}>{whoHand}</button>)}
+                      style={{ flex: 1, textAlign: "left", background: handColor(whoHand), color: DARK, border: "none", borderRadius: "var(--radius-sm)",
+                        padding: "0 var(--space-4)", fontSize: 11, cursor: "text" }}>{whoHand}</button>)}
                   <button type="button" aria-label={`открепить сотрудника: ${whoName}`} title="открепить сотрудника" onClick={() => rewrite(setAuto(text, whoRow))}
                     style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
                 </div>
@@ -925,40 +925,40 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             ) : pinBtn(`закрепить сотрудника: ${whoName}`, "🔒", fixHand)}
             <button type="button" aria-expanded={pickPerson} aria-label={`выбрать сотрудника: ${whoName}`}
               onClick={() => setPickPerson((v) => !v)} className="flex items-center gap-2"
-              style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left",
+              style={{ borderRadius: "var(--radius-sm)", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
                 background: whoPerson ? "#FFD9A0" : "transparent", color: whoPerson ? DARK : C.text, border: `1px solid ${whoPerson ? "#FFD9A0" : C.line}` }}>
               <span style={{ width: 16, textAlign: "center" }}>👤</span>{whoPerson ? whoPerson : "Выбрать сотрудника"}</button>
             {pickPerson && (
-              <div role="listbox" aria-label={`сотрудники: ${whoName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 5 }}>
+              <div role="listbox" aria-label={`сотрудники: ${whoName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
                 <div role="option" aria-selected={!whoHand && !whoPerson} onClick={() => { rewrite(setAuto(text, whoRow)); setPickPerson(false); }}
-                  style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer", background: !whoHand && !whoPerson ? `${C.line}88` : "transparent" }}>автоматически</div>
+                  style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer", background: !whoHand && !whoPerson ? `${C.line}88` : "transparent" }}>автоматически</div>
                 {procHands.map((h) => (
                   <div key={h} role="option" aria-selected={whoHand === h} onClick={() => { rewrite(setHand(text, whoRow, h)); setPickPerson(false); }}
-                    style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer", background: whoHand === h ? `${C.line}88` : "transparent" }}>
-                    <span style={{ background: handColor(h), color: DARK, borderRadius: 4, padding: "0 5px" }}>{h}</span></div>))}
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer", background: whoHand === h ? `${C.line}88` : "transparent" }}>
+                    <span style={{ background: handColor(h), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{h}</span></div>))}
                 {persons.map((pp) => (
                   <div key={pp.id} role="option" aria-selected={whoPerson === pp.name} onClick={() => { rewrite(setPerson(text, whoRow, pp.name)); setPickPerson(false); }}
-                    style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer", background: whoPerson === pp.name ? `${C.line}88` : "transparent" }}>{pp.name}</div>))}
-                {!persons.length && <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>сотрудников с этой должностью нет</div>}
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer", background: whoPerson === pp.name ? `${C.line}88` : "transparent" }}>{pp.name}</div>))}
+                {!persons.length && <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11, color: C.muted }}>сотрудников с этой должностью нет</div>}
               </div>)}
           </div>
           ) : (
-          <div data-res-menu="" aria-label={`меню ресурса ${resName}`} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div data-res-menu="" aria-label={`меню ресурса ${resName}`} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
             {resVar ? (
-              <div style={{ border: `1px solid ${C.line}`, borderRadius: 5, padding: "3px 6px", fontSize: 11 }}>
+              <div style={{ border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-4)", fontSize: 11 }}>
                 <div className="flex items-center gap-2">
                   <span style={{ width: 16, textAlign: "center" }}>{resRef ? "🔗" : "📌"}</span>
                   {renamingVar && !resRef ? (
                     <input autoFocus defaultValue={resVar.varName} aria-label="имя закреплённого ресурса"
-                      style={{ ...S.inp, flex: 1, fontSize: 11, padding: "1px 4px" }}
+                      style={{ ...S.inp, flex: 1, fontSize: 11, padding: "0 var(--space-4)" }}
                       onBlur={(e) => renameVarTo(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { hold.current = false; setRenamingVar(false); inp.current?.focus({ preventScroll: true }); } }} />
                   ) : (
                     <button type="button" aria-label={resRef ? `закреплённый ресурс ${resVar.varName}` : `переименовать закреплённый ресурс ${resVar.varName}`}
                       title={resRef ? "ссылка на закреплённый ресурс" : "нажмите, чтобы переименовать"} disabled={resRef}
                       onClick={() => { if (resRef) return; hold.current = true; setRenamingVar(true); }}
-                      style={{ flex: 1, textAlign: "left", background: handColor(resVar.varName), color: DARK, border: "none", borderRadius: 4,
-                        padding: "1px 6px", fontSize: 11, cursor: resRef ? "default" : "text" }}>{resVar.varName}</button>)}
+                      style={{ flex: 1, textAlign: "left", background: handColor(resVar.varName), color: DARK, border: "none", borderRadius: "var(--radius-sm)",
+                        padding: "0 var(--space-4)", fontSize: 11, cursor: resRef ? "default" : "text" }}>{resVar.varName}</button>)}
                   <button type="button" aria-label={resRef ? `снять выбор ресурса: ${resVar.varName}` : `открепить ресурс: ${res.name}`}
                     title={resRef ? "убрать ссылку" : "открепить ресурс"} onClick={resRef ? dropRef : unpinRes}
                     style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: 0 }}>✕</button>
@@ -967,17 +967,17 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             ) : pinBtn(`закрепить ресурс: ${res.name}`, "📌", pinRes)}
             <button type="button" aria-expanded={pickVar} aria-label={`выбрать ресурс: ${resName}`}
               onClick={() => setPickVar((v) => !v)} className="flex items-center gap-2"
-              style={{ borderRadius: 5, fontSize: 11.5, padding: "3px 6px", cursor: "pointer", textAlign: "left",
+              style={{ borderRadius: "var(--radius-sm)", fontSize: 11.5, padding: "var(--space-4) var(--space-4)", cursor: "pointer", textAlign: "left",
                 background: resRef ? handColor(res.varName) : "transparent", color: resRef ? DARK : C.text, border: `1px solid ${resRef ? handColor(res.varName) : C.line}` }}>
               <span style={{ width: 16, textAlign: "center" }}>🔗</span>{resRef ? res.varName : "Выбрать ресурс"}</button>
             {pickVar && (
-              <div role="listbox" aria-label={`закреплённые ресурсы: ${resName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 5 }}>
+              <div role="listbox" aria-label={`закреплённые ресурсы: ${resName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
                 {procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).map((v) => (
                   <div key={v} role="option" aria-selected={resRef && res.varName === v} onClick={() => useVar(v)}
-                    style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer", background: resRef && res.varName === v ? `${C.line}88` : "transparent" }}>
-                    <span style={{ background: handColor(v), color: DARK, borderRadius: 4, padding: "0 5px" }}>{v}</span></div>))}
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer", background: resRef && res.varName === v ? `${C.line}88` : "transparent" }}>
+                    <span style={{ background: handColor(v), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{v}</span></div>))}
                 {!procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).length && (
-                  <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>закреплённых ресурсов в этом процессе нет — «Закрепить ресурс» у нужного</div>)}
+                  <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11, color: C.muted }}>закреплённых ресурсов в этом процессе нет — «Закрепить ресурс» у нужного</div>)}
               </div>)}
             {/* Разделы ресурса — те же вопросы, что в карточке ресурса,
                 под спойлерами (владелец, 2026-09-18). */}
@@ -985,7 +985,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               <Fold title="единица" open={fold === "unit"} onToggle={() => setFold(fold === "unit" ? "" : "unit")}
                 value={resTrait.unit || "—"}>
                 <input defaultValue={resTrait.unit || ""} aria-label={`единица ресурса ${res.name}`} placeholder="штука, час, рубль"
-                  style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "2px 5px" }}
+                  style={{ ...S.inp, width: "100%", fontSize: 11.5, padding: "0 var(--space-4)" }}
                   onBlur={(e) => onTrait(resTrait.id, { unit: e.target.value })}
                   onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
               </Fold>
@@ -995,7 +995,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                   {MATERIAL_KINDS.map((k) => (
                     <button key={k.id} type="button" aria-pressed={traitKind(resTrait) === k.id}
                       aria-label={`${k.name}: ${res.name}`} onClick={() => onTrait(resTrait.id, { kind: k.id })}
-                      style={{ ...btn(traitKind(resTrait) === k.id, traitKind(resTrait) === k.id ? ACC : null), fontSize: 11, padding: "2px 6px" }}>
+                      style={{ ...btn(traitKind(resTrait) === k.id, traitKind(resTrait) === k.id ? ACC : null), fontSize: 11, padding: "0 var(--space-4)" }}>
                       {k.name}</button>))}
                 </div>
               </Fold>
@@ -1006,25 +1006,25 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                   {kinds.map((x) => (
                     <button key={x.id} type="button" aria-pressed={hasKind(resTrait, x.id)} aria-label={`${x.name}: ${res.name}`}
                       onClick={() => { const z = toggleKind(resTrait, x.id); onTrait(resTrait.id, { ks: z.ks, k: z.k }); }}
-                      style={{ ...btn(hasKind(resTrait, x.id), x.color), fontSize: 11, padding: "2px 6px" }}>
+                      style={{ ...btn(hasKind(resTrait, x.id), x.color), fontSize: 11, padding: "0 var(--space-4)" }}>
                       {x.sign} {x.name}</button>))}
                 </div>
               </Fold>
             </>)}
             {!resRef && (<>
             <input value={opDraft} aria-label={`операция: ${res.name}`} placeholder="сколько / операция"
-              style={{ ...S.inp, fontSize: 12, padding: "3px 6px", fontFamily: "var(--font-sans)" }}
+              style={{ ...S.inp, fontSize: 12, padding: "var(--space-4) var(--space-4)", fontFamily: "var(--font-sans)" }}
               onFocus={() => { hold.current = true; opFocus.current = true; opAnchor(); }}
               onChange={(e) => opEdit(e.target.value)}
               onBlur={(e) => opDone(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }} />
             <div style={{ fontSize: 10.5, color: dangling || !opDraft.trim() ? WARN : C.muted, lineHeight: 1.35 }}>{opInfo}</div>
-            <div role="listbox" aria-label={`операция: варианты`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: 5 }}>
+            <div role="listbox" aria-label={`операция: варианты`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
               {opItems.map((it) => (
                 <div key={`${it.kind}:${it.name}:${it.note || ""}`} role="option" aria-selected={false} onClick={() => opPick(it)}
-                  style={{ padding: "3px 6px", fontSize: 11.5, cursor: "pointer" }}>
+                  style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11.5, cursor: "pointer" }}>
                   <span style={{ color: C.muted }}>{it.kind} </span>{it.name}{it.note && <span style={{ color: C.muted }}> — {it.note}</span>}</div>))}
-              {!opItems.length && <div style={{ padding: "3px 6px", fontSize: 11, color: C.muted }}>введите число</div>}
+              {!opItems.length && <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: 11, color: C.muted }}>введите число</div>}
               {/* Подписи по смыслу: «ресурс» — со схемы, «закреплённый» — из этого процесса, «буква» — ресурс задачи. */}
             </div>
             </>)}
@@ -1036,7 +1036,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
 /* ─────── чип имени под полем ─────── */
 const WORD = { asset: "актив", trait: "ресурс", role: "должность" };
 function Chip({ name, kind, state, tail = "", open, onOpen, onAccept, acceptWhy, onReject, onRestore, options = [], onReplace, onGo, hypo }) {
-  const base = { display: "inline-block", borderRadius: 6, padding: "1px 7px", fontSize: 12, lineHeight: 1.6, verticalAlign: "middle" };
+  const base = { display: "inline-block", borderRadius: "var(--radius-sm)", padding: "0 var(--space-8)", fontSize: 12, lineHeight: 1.6, verticalAlign: "middle" };
   if (state === "ok") {
     return (
       <button type="button" onClick={onGo} disabled={!onGo} aria-label={`${WORD[kind]} «${name}»: открыть`}
@@ -1049,7 +1049,7 @@ function Chip({ name, kind, state, tail = "", open, onOpen, onAccept, acceptWhy,
       <span style={{ ...base, border: `1px solid ${BAD}`, color: BAD }}>
         {name}{tail} — удалён — выберите замену
         <select aria-label={`замена для «${name}»`} value="" onChange={(e) => e.target.value && onReplace(e.target.value)}
-          style={{ ...S.inp, width: "auto", display: "inline-block", marginLeft: 6, padding: "1px 4px", fontSize: 11 }}>
+          style={{ ...S.inp, width: "auto", display: "inline-block", marginLeft: "var(--space-4)", padding: "0 var(--space-4)", fontSize: 11 }}>
           <option value="">— замена —</option>
           {options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
@@ -1067,15 +1067,15 @@ function Chip({ name, kind, state, tail = "", open, onOpen, onAccept, acceptWhy,
           color: rejected ? BAD : ACC, background: "transparent" }}>
         {name}{tail}{rejected ? " — отклонено" : ""}</button>
       {open && (
-        <span style={{ marginLeft: 4, whiteSpace: "nowrap" }}>
+        <span style={{ marginLeft: "var(--space-4)", whiteSpace: "nowrap" }}>
           {onAccept && (
             <button type="button" aria-label={`принять ${WORD[kind]} «${name}»`} disabled={!!acceptWhy} title={acceptWhy || ""}
-              style={{ ...btn(true, OK), fontSize: 11, padding: "2px 7px", opacity: acceptWhy ? 0.5 : 1 }}
+              style={{ ...btn(true, OK), fontSize: 11, padding: "0 var(--space-8)", opacity: acceptWhy ? 0.5 : 1 }}
               onClick={onAccept}>Принять</button>)}
           {onAccept && " "}
           {rejected
-            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`} style={{ ...btn(false), fontSize: 11, padding: "2px 7px" }} onClick={onRestore}>Вернуть</button>
-            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`} style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 7px" }} onClick={onReject}>Отклонить</button>}
+            ? <button type="button" aria-label={`вернуть ${WORD[kind]} «${name}»`} style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)" }} onClick={onRestore}>Вернуть</button>
+            : <button type="button" aria-label={`отклонить ${WORD[kind]} «${name}»`} style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-8)" }} onClick={onReject}>Отклонить</button>}
         </span>)}
     </span>);
 }
@@ -1094,9 +1094,9 @@ function TextModal({ title, value, onChange, onClose, onLoad }) {
     r.readAsText(f);
   };
   return (
-    <div role="dialog" aria-label={title} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}
+    <div role="dialog" aria-label={title} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--space-12)" }}
       onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...S.card, width: "min(640px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...S.card, width: "min(640px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
         <div className="flex items-center gap-2"><span style={S.lbl}>{title}</span><span style={{ flex: 1 }} />
           <button type="button" style={{ ...btn(false), fontSize: 11 }} onClick={onClose} aria-label="закрыть окно">✕</button></div>
         <textarea aria-label={`текст: ${title}`} value={value} readOnly={!onLoad} onChange={(e) => onChange?.(e.target.value)}
@@ -1122,9 +1122,9 @@ function TaskDiff({ added = [], removed = [], changed = [] }) {
   const one = (t, sign) => (<>
     <div style={{ fontSize: 11.5, fontWeight: 600 }}>{t.func ? `${t.func} · ` : ""}{t.name}</div>
     {sign === "±" && (<>
-      <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>было</div>
+      <div style={{ fontSize: 10, color: C.muted, marginTop: 0 }}>было</div>
       <pre style={{ ...PRE, ...WAS_STYLE }}>{t.was}</pre>
-      <div style={{ fontSize: 10, color: WARN, marginTop: 2 }}>стало</div>
+      <div style={{ fontSize: 10, color: WARN, marginTop: 0 }}>стало</div>
     </>)}
     <pre style={{ ...PRE, color: sign === "±" ? C.text : C.muted }}>{t.text}</pre>
   </>);
@@ -1138,27 +1138,27 @@ function Versions({ proc, model, onSave }) {
   const last = list[list.length - 1];
   const dirty = (last?.text ?? "") !== proc.text;
   return (
-    <div style={{ marginTop: 8 }}>
+    <div style={{ marginTop: "var(--space-8)" }}>
       <div className="flex items-center gap-2">
         <input value={note} onChange={(e) => setNote(e.target.value)} aria-label="что изменилось" placeholder="что изменилось"
-          style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "4px 6px" }} />
-        <button type="button" style={{ ...btn(dirty), fontSize: 11, padding: "4px 8px" }} disabled={!dirty}
+          style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "var(--space-4) var(--space-4)" }} />
+        <button type="button" style={{ ...btn(dirty), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} disabled={!dirty}
           aria-label="сохранить версию" onClick={() => { onSave(note.trim()); setNote(""); }}>Сохранить версию</button>
       </div>
       {/* «Прошлые версии» — на всю ширину формы (владелец, 2026-09-18). */}
       <button type="button" aria-expanded={open} aria-label="прошлые версии"
         onClick={() => setOpen((v) => !v)}
-        style={{ ...btn(false), width: "100%", marginTop: 6, fontSize: 11.5, textAlign: "center" }}>
+        style={{ ...btn(false), width: "100%", marginTop: "var(--space-4)", fontSize: 11.5, textAlign: "center" }}>
         {open ? "▾" : "▸"} Прошлые версии{list.length ? ` (${list.length})` : ""}</button>
       {open && (
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: "var(--space-4)" }}>
           {!list.length && <div style={{ fontSize: 11, color: C.muted }}>Версий пока нет — сохраните первую.</div>}
           {[...list].reverse().map((v, ri) => {
             const i = list.length - 1 - ri;
             const prev = list[i - 1];
             const shown = which === v.id;
             return (
-              <div key={v.id} style={{ borderTop: `1px solid ${C.line}`, padding: "6px 0" }}>
+              <div key={v.id} style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-4) 0" }}>
                 <button type="button" aria-expanded={shown} aria-label={`версия ${when(v.at)}`}
                   onClick={() => setWhich(shown ? null : v.id)}
                   className="flex items-center gap-2"
@@ -1317,7 +1317,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   const traitOptions = (assetId) => traits.filter((t) => !assetId || t.e === assetId).map((t) => ({ id: t.id, name: t.l }));
 
   return (
-    <div style={{ ...S.card, marginTop: 10 }}>
+    <div style={{ ...S.card, marginTop: "var(--space-8)" }}>
       <button type="button" aria-expanded={shown} aria-label="технологические процессы" onClick={toggle} className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
         <span style={{ fontSize: 11, color: C.muted }}>{shown ? "▾" : "▸"}</span>
@@ -1342,7 +1342,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
             const name = it.ref ? `(${it.var})` : it.name;
             return (
               <React.Fragment key={k}>
-                <span aria-label={`буква ${it.letter}: ${name}`} style={{ color: ACC, fontWeight: 700, marginRight: 3 }}>{it.letter}</span>
+                <span aria-label={`буква ${it.letter}: ${name}`} style={{ color: ACC, fontWeight: 700, marginRight: "var(--space-4)" }}>{it.letter}</span>
                 <Chip name={name} kind="trait" state={st} tail={tail} hypo={it.trait?.id ? p.hypo.traits.includes(it.trait.id) : false}
                   open={openChip === k} onOpen={() => setOpenChip(openChip === k ? null : k)}
                   onGo={it.trait?.id && onOpenTrait ? () => onOpenTrait(it.trait.id) : null}
@@ -1356,16 +1356,16 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
             const st = whoState(w, p);
             const roles = ROLE_KINDS.filter((r) => w.roles[r]);
             return (
-              <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 6 }}>
+              <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-4)", marginRight: "var(--space-4)" }}>
                 <Chip name={w.name} kind={w.anyWorker ? "asset" : "role"} state={st}
                   open={openChip === k} onOpen={() => setOpenChip(openChip === k ? null : k)}
                   onGo={w.asset?.id ? () => (w.anyWorker ? onOpenAsset?.(w.asset.id) : onOpenWorkers?.(w.asset.id)) : null}
                   onReject={() => rejectName(p, w.name)} onRestore={() => restoreName(p, w.name)} />
                 {w.asset && !w.anyWorker && <span style={{ fontSize: 10.5, color: C.muted }}>{w.asset.name}</span>}
                 {roles.map((r) => <span key={r} title={ROLE_WORD[r]} aria-label={`${ROLE_WORD[r]}: ${w.name}`}
-                  style={{ fontSize: 10, background: ROLE_COLOR[r], color: DARK, borderRadius: 3, padding: "0 4px" }}>{ICON[r]}</span>)}
-                {w.hand && <span aria-label={`переменная ${w.hand}: ${w.name}`} style={{ fontSize: 10, background: handColor(w.hand), color: DARK, borderRadius: 3, padding: "0 4px" }}>{w.hand}</span>}
-                {w.person && <span aria-label={`сотрудник ${w.person}: ${w.name}`} style={{ fontSize: 10, background: w.personId ? "#FFD9A0" : BAD, color: DARK, borderRadius: 3, padding: "0 4px" }}>{w.person}</span>}
+                  style={{ fontSize: 10, background: ROLE_COLOR[r], color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{ICON[r]}</span>)}
+                {w.hand && <span aria-label={`переменная ${w.hand}: ${w.name}`} style={{ fontSize: 10, background: handColor(w.hand), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{w.hand}</span>}
+                {w.person && <span aria-label={`сотрудник ${w.person}: ${w.name}`} style={{ fontSize: 10, background: w.personId ? "#FFD9A0" : BAD, color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{w.person}</span>}
               </span>);
           };
           return (
@@ -1375,7 +1375,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 ...statusEdge(lit ? ACC : STATUS_TONE[p.status]) }}>
               {/* Название — в самом верху формы и целиком: одинарное нажатие
                   сворачивает, двойное открывает правку (владелец, 2026-09-19). */}
-              <div data-proc-head="" aria-label={`процесс «${label}»`} style={{ marginBottom: 6, cursor: "pointer" }}
+              <div data-proc-head="" aria-label={`процесс «${label}»`} style={{ marginBottom: "var(--space-4)", cursor: "pointer" }}
                 onClick={(e) => { if (e.target.closest("button, input, textarea")) return; headTap(p.id, () => setNaming(p.id)); }}>
                 <div className="flex items-start gap-2">
                   <button type="button" aria-expanded={!hid} aria-label={`свернуть процесс «${label}»`}
@@ -1384,17 +1384,17 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                       fontSize: 12, lineHeight: "18px" }}>{hid ? "▸" : "▾"}</button>
                   {naming === p.id ? (
                     <input autoFocus aria-label="название процесса" defaultValue={p.name} placeholder="название процесса"
-                      style={{ ...S.inp, flex: 1, fontSize: 13.5, fontWeight: 700, padding: "2px 6px" }}
+                      style={{ ...S.inp, flex: 1, fontSize: 13.5, fontWeight: 700, padding: "0 var(--space-4)" }}
                       onBlur={(e) => { rename(p, e.target.value); setNaming(null); }}
                       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
                   ) : (
                     <span data-proc-name="" title="двойное нажатие — переименовать"
                       style={{ flex: 1, minWidth: 0, color: p.name ? C.text : C.muted, fontSize: 13.5, fontWeight: 700,
                         lineHeight: 1.3, whiteSpace: "normal", overflowWrap: "anywhere" }}>{label}</span>)}
-                  <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }}
+                  <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }}
                     aria-label={`удалить процесс «${label}»`} onClick={() => del(p)}>удалить</button>
                 </div>
-                <div className="flex items-center gap-2" style={{ marginTop: 2 }}>
+                <div className="flex items-center gap-2" style={{ marginTop: 0 }}>
                   <span style={{ fontSize: 10.5, color: STATUS_TONE[p.status] || C.muted }}>
                     {PROC_STATUS.find(([id]) => id === p.status)?.[1].toLowerCase()}</span>
                   {lit && <span style={{ fontSize: 10.5, color: ACC }}>· актив «{selName}»</span>}
@@ -1406,7 +1406,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
               <textarea value={p.about || ""} aria-label={`описание процесса «${label}»`} rows={2}
                 placeholder="описание"
                 onChange={(e) => setProc(p, { about: e.target.value })}
-                style={{ ...S.inp, width: "100%", fontSize: 11.5, lineHeight: 1.45, marginBottom: 6, resize: "vertical" }} />
+                style={{ ...S.inp, width: "100%", fontSize: 11.5, lineHeight: 1.45, marginBottom: "var(--space-4)", resize: "vertical" }} />
               {/* У каждой функции своё поле и своя форма (владелец,
                   2026-09-19): текст режется по строкам «Функция:». */}
               {splitProc(p.text).map((seg, fi, all) => {
@@ -1415,7 +1415,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 const fName = seg.name.trim() || "без названия";
                 const outer = all.flatMap((o, j) => (j === fi ? [] : varsOf(o.body, model, p)));
                 return (
-                  <div key={fKey} style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: 8, marginBottom: 8 }}>
+                  <div key={fKey} style={{ borderLeft: `2px solid ${C.line}`, paddingLeft: "var(--space-8)", marginBottom: "var(--space-8)" }}>
                     <div data-func-head="" aria-label={`функция «${fName}»`} style={{ cursor: "pointer" }}
                       onClick={(e) => { if (e.target.closest("button, input, textarea")) return; headTap(fKey, () => setNaming(fKey)); }}>
                       <div className="flex items-start gap-2">
@@ -1425,7 +1425,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                             fontSize: 11, lineHeight: "17px" }}>{fHid ? "▸" : "▾"}</button>
                         {naming === fKey ? (
                           <input autoFocus aria-label="название функции процесса" defaultValue={seg.name}
-                            style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 700, padding: "2px 6px" }}
+                            style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 700, padding: "0 var(--space-4)" }}
                             onBlur={(e) => { setPart(p, fi, { name: e.target.value }); setNaming(null); }}
                             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setNaming(null); }} />
                         ) : (
@@ -1435,14 +1435,14 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                         {all.length > 1 && (
                           <button type="button" aria-label={`удалить функцию «${fName}»`} title="удалить функцию"
                             onClick={() => dropPart(p, fi)}
-                            style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 3px", fontSize: 12 }}>✕</button>)}
+                            style={{ background: "transparent", border: "none", color: C.muted, cursor: "pointer", padding: "0 var(--space-4)", fontSize: 12 }}>✕</button>)}
                       </div>
                     </div>
                     {!fHid && (<>
-                      <div className="flex items-center gap-2" style={{ margin: "2px 0 4px" }}>
+                      <div className="flex items-center gap-2" style={{ margin: "0 0 var(--space-4)" }}>
                         <span style={S.lbl}>ожидаемый результат</span>
                         <input key={seg.result} defaultValue={seg.result} aria-label={`ожидаемый результат функции «${fName}»`}
-                          style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "2px 6px" }}
+                          style={{ ...S.inp, flex: 1, fontSize: 11.5, padding: "0 var(--space-4)" }}
                           onBlur={(e) => setPart(p, fi, { result: e.target.value.trim() })}
                           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
                       </div>
@@ -1454,31 +1454,31 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                   </div>);
               })}
               <button type="button" aria-label="добавить функцию процесса" onClick={() => addPart(p)}
-                style={{ ...btn(false), fontSize: 11, padding: "3px 8px", marginBottom: 6 }}>+ функция</button>
+                style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)", marginBottom: "var(--space-4)" }}>+ функция</button>
 
               {/* Карты процесса — справа под полем (владелец, 2026-09-18). */}
-              <div className="flex items-center gap-2" style={{ marginTop: 6, justifyContent: "flex-end" }}>
+              <div className="flex items-center gap-2" style={{ marginTop: "var(--space-4)", justifyContent: "flex-end" }}>
                 <button type="button" aria-label="таймлайн процесса" title="таймлайн: когда идут задачи"
                   onClick={() => setMaps({ proc: p, mode: "timeline" })}
-                  style={{ ...btn(false), fontSize: 14, padding: "2px 9px", lineHeight: 1.4 }}>▤</button>
+                  style={{ ...btn(false), fontSize: 14, padding: "0 var(--space-8)", lineHeight: 1.4 }}>▤</button>
                 <button type="button" aria-label="майнд-карта процесса" title="майнд-карта: что куда уходит"
                   onClick={() => setMaps({ proc: p, mode: "mind" })}
-                  style={{ ...btn(false), fontSize: 14, padding: "2px 9px", lineHeight: 1.4 }}>⛭</button>
+                  style={{ ...btn(false), fontSize: 14, padding: "0 var(--space-8)", lineHeight: 1.4 }}>⛭</button>
               </div>
 
-              <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
-                <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="выгрузить техпроцесс"
+              <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
+                <button type="button" style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} aria-label="выгрузить техпроцесс"
                   onClick={() => setModal({ proc: p, mode: "export", text: exportText(p.text) })}>Выгрузить</button>
-                <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="загрузить техпроцесс"
+                <button type="button" style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} aria-label="загрузить техпроцесс"
                   onClick={() => setModal({ proc: p, mode: "import", text: "" })}>Загрузить</button>
               </div>
 
               {/* Разбор — под полем: функции, задачи, участники и шаги. */}
               {pf.map((f, fi) => (
-                <div key={fi} style={{ marginTop: 8, fontSize: 12, lineHeight: 1.9 }}>
+                <div key={fi} style={{ marginTop: "var(--space-8)", fontSize: 12, lineHeight: 1.9 }}>
                   <div style={{ fontSize: 11, color: C.muted }}>функция: <span style={{ color: C.text }}>{f.name || `без названия (${f.tasks[0]?.name || "…"})`}</span></div>
                   {f.tasks.map((t, ti) => (
-                    <div key={ti} style={{ paddingLeft: 8, borderLeft: `2px solid ${C.line}`, marginTop: 4 }}>
+                    <div key={ti} style={{ paddingLeft: "var(--space-8)", borderLeft: `2px solid ${C.line}`, marginTop: "var(--space-4)" }}>
                       <div style={{ fontSize: 11, color: C.muted }}>задача {ti + 1}: <span style={{ color: C.text }}>{t.name || "без названия"}</span></div>
                       {t.branches.map((b, bi) => (
                         <div key={bi}>
@@ -1497,9 +1497,9 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                 </div>))}
 
               {!!issues.length && !!p.text.trim() && (
-                <div style={{ fontSize: 10.5, color: BAD, marginTop: 6, lineHeight: 1.5 }}>{issues.map((w, i) => <div key={i}>{w}</div>)}</div>)}
+                <div style={{ fontSize: 10.5, color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{issues.map((w, i) => <div key={i}>{w}</div>)}</div>)}
 
-              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+              <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
                 {PROC_STATUS.map(([id, name]) => {
                   const on = p.status === id;
                   const locked = id !== "off" && !can;

@@ -600,13 +600,13 @@ function FuncCard({func,entities,traitName,bare=false,about=""}){
   const result=String(func?.chain?.result||"").trim();
   if(!func){
     return (
-      <div style={{fontSize:11,color:WARN,margin:"6px 0 8px",lineHeight:1.5}}>
+      <div style={{fontSize:11,color:WARN,margin: "var(--space-4) 0 var(--space-8)",lineHeight:1.5}}>
         Задача без функции.
       </div>);
   }
   return (
-    <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-      padding:9,margin:"6px 0 8px",fontSize:11.5,lineHeight:1.6}}>
+    <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",
+      padding: "var(--space-8)",margin: "var(--space-4) 0 var(--space-8)",fontSize:11.5,lineHeight:1.6}}>
       {/* Только название функции: актив, от которого она, на плашке не
           пишется (владелец, 2026-09-20). */}
       <div style={{fontSize:12.5,fontWeight:700,color:C.text}}>
@@ -619,7 +619,7 @@ function FuncCard({func,entities,traitName,bare=false,about=""}){
           у него ни было получателей (владелец, 2026-09-20): портов на него
           несколько, а вещь одна. */}
       {!!func.takes.length&&(
-        <div style={{color:C.muted,marginTop:4}}>
+        <div style={{color:C.muted,marginTop: "var(--space-4)"}}>
           Предоставляемый материал: {uniqPorts(func.takes).map(p=>`${traitName(p.trait)} ${rangeText(p)}`
             +(p.spend===false?" (не расходует)":"")).join(", ")}
         </div>)}
@@ -627,7 +627,7 @@ function FuncCard({func,entities,traitName,bare=false,about=""}){
           постановщика об этом выполнении; на форме постановки его нет —
           там оно правится своим полем. */}
       {!bare&&(
-        <div style={{color:C.muted,marginTop:4}}>
+        <div style={{color:C.muted,marginTop: "var(--space-4)"}}>
           Описание задачи: {String(about||"").trim()
             ? <span style={{color:C.text,whiteSpace:"pre-wrap"}}>{about}</span>
             : <span>не назначено</span>}
@@ -635,13 +635,13 @@ function FuncCard({func,entities,traitName,bare=false,about=""}){
       {/* «Ожидается», а не «выдаёт» (владелец, 2026-09-20): число — это то,
           чего от работы ждут, а не то, что она уже отдала. */}
       {!!func.gives.length&&(
-        <div style={{color:C.muted,marginTop:4}}>
+        <div style={{color:C.muted,marginTop: "var(--space-4)"}}>
           ожидается: {uniqPorts(func.gives).map(p=>`${traitName(p.trait)} ${rangeText(p)}`).join(", ")}
         </div>)}
       {/* «Срок:» — тем же словом, что и в тексте процесса. Хвост «на одно
           выполнение» обязателен: у задачи свои «Начать» и «Закончить» на
           этой же форме, и голый срок читался бы как они. */}
-      <div style={{color:C.muted,marginTop:4}}>
+      <div style={{color:C.muted,marginTop: "var(--space-4)"}}>
         Срок: <b style={{color:WARN}}>{nm(func.dur)} {func.durUnit}</b> на одно выполнение
       </div>
       {/* Ожидаемый результат — у ФУНКЦИИ, и потому только на форме
@@ -649,7 +649,7 @@ function FuncCard({func,entities,traitName,bare=false,about=""}){
           результат, если это задача»). Не назван — так и сказано: пустая
           строка читалась бы как «результата у этой работы нет». */}
       {bare&&(
-        <div style={{color:C.muted,marginTop:4}}>
+        <div style={{color:C.muted,marginTop: "var(--space-4)"}}>
           Ожидаемый результат: {result
             ? <span style={{color:C.text}}>{result}</span>
             : <span>не назван</span>}
@@ -657,10 +657,10 @@ function FuncCard({func,entities,traitName,bare=false,about=""}){
       {/* Критерии проверки — у ЗАДАЧИ, и стоят в её же плашке (владелец,
           2026-09-20: «туда же добавь список критериев проверки»). */}
       {!bare&&(
-        <div aria-label="критерии проверки" style={{marginTop:4}}>
+        <div aria-label="критерии проверки" style={{marginTop: "var(--space-4)"}}>
           <div style={{color:C.muted}}>Критерии проверки:</div>
           {(func.checks||[]).length
-            ? (<ul style={{margin:"2px 0 0",paddingLeft:18,lineHeight:1.6}}>
+            ? (<ul style={{margin: "0 0 0",paddingLeft: "var(--space-16)",lineHeight:1.6}}>
                 {func.checks.map((c,i)=>(<li key={`${i}:${c}`}>{c}</li>))}
               </ul>)
             : (<div style={{color:C.muted}}>нет</div>)}
@@ -816,8 +816,8 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
   const why=whyNotSet(task,funcs,traits,tasks,factors);
 
   return (
-    <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
-      <div className="flex items-center gap-2" style={{marginBottom:8}}>
+    <div style={{...S.card,marginBottom: "var(--space-8)",borderColor:ACC}}>
+      <div className="flex items-center gap-2" style={{marginBottom: "var(--space-8)"}}>
         <span style={S.lbl}>постановка задачи</span>
         <span style={{flex:1}}/>
         {onClose&&<button style={btn(false)} onClick={()=>onClose()}>✕</button>}
@@ -826,7 +826,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
       <div style={S.lbl}>название</div>
       {/* Знак здесь не стоит: логотип — только в шапке (владелец,
           2026-09-19). */}
-      <TxtField value={task.title} style={{marginBottom:8,fontWeight:600}}
+      <TxtField value={task.title} style={{marginBottom: "var(--space-8)",fontWeight:600}}
         onCommit={v=>commitOne("title",v)}/>
 
       {/* Когда по обе стороны один и тот же человек, передавать нечего, и
@@ -836,7 +836,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
       {/* Пока исполнителя нет, и говорить нечего: ролей в задаче ещё не
           назначено. */}
       {!!task.assignee&&(selfSet(task)||selfReview(task))&&(
-        <div style={{fontSize:10.5,color:ACC,marginBottom:8,lineHeight:1.5}}>
+        <div style={{fontSize:10.5,color:ACC,marginBottom: "var(--space-8)",lineHeight:1.5}}>
           {selfSet(task)&&selfReview(task)
             ? "Ставится и принимается сама."
             : selfSet(task) ? "Ставится сама." : "Принимается сама."}
@@ -852,7 +852,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
           технологическом процессе (`func.body`): постановщику не нужно
           переписывать то, что уже сказано (владелец, 2026-09-20). */}
       <TxtField area value={task.body||String(func?.body||"")}
-        style={{minHeight:70,margin:"4px 0 8px",lineHeight:1.5}}
+        style={{minHeight:70,margin: "var(--space-4) 0 var(--space-8)",lineHeight:1.5}}
         onCommit={v=>commitOne("body",v)}/>
 
       {/* Критерии задачи — следом за описанием, СПИСКОМ (владелец,
@@ -860,17 +860,17 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
           добавляются они на схеме». Здесь их читают, а правят в карточке
           функции на «Схеме». */}
       {!!func&&(
-        <div aria-label="критерии проверки" style={{marginBottom:8}}>
+        <div aria-label="критерии проверки" style={{marginBottom: "var(--space-8)"}}>
           <div style={S.lbl}>критерии проверки</div>
           {(func.checks||[]).length
-            ? (<ul style={{margin:"3px 0 0",paddingLeft:18,fontSize:12,lineHeight:1.5}}>
+            ? (<ul style={{margin: "var(--space-4) 0 0",paddingLeft: "var(--space-16)",fontSize:12,lineHeight:1.5}}>
               {func.checks.map((c,i)=>(<li key={`${i}:${c}`}>{c}</li>))}
             </ul>)
-            : (<div style={{fontSize:11,color:C.muted,marginTop:3}}>
+            : (<div style={{fontSize:11,color:C.muted,marginTop: "var(--space-4)"}}>
               критериев нет</div>)}
         </div>)}
 
-      <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
+      <div className="flex flex-wrap gap-2" style={{marginBottom: "var(--space-8)"}}>
         <div style={{flex:"1 1 170px"}}>
           <div style={S.lbl}>начать</div>
           <input type="datetime-local" style={S.inp} value={task.start||""}
@@ -893,7 +893,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
 
       {task.status==="wait"?(<>
         {!!gaps.length&&(
-          <div style={{fontSize:11,color:WARN,marginBottom:8,lineHeight:1.5}}>
+          <div style={{fontSize:11,color:WARN,marginBottom: "var(--space-8)",lineHeight:1.5}}>
             Задача поставлена не до конца: не хватает {gaps.join(", ")}.
           </div>)}
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
@@ -910,7 +910,7 @@ export function TaskSetup({task,tasks=[],funcs=[],traits=[],entities=[],factors=
         {/* Сервер не принял — сказано, что именно: молча оставить задачу в
             «ждут постановки» после нажатия «Поставить» хуже всего. */}
         {setupErr&&(
-          <div style={{fontSize:10.5,color:BAD,marginTop:6,lineHeight:1.5}}>
+          <div style={{fontSize:10.5,color:BAD,marginTop: "var(--space-4)",lineHeight:1.5}}>
             Сервер не принял постановку: {setupErr}</div>)}
       </>):(
         <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>
@@ -991,9 +991,9 @@ export function ChatButton({task,role="assignee",onOpen,style}){
       Обсуждение
       {!!n&&(
         <span aria-label={`непрочитанных сообщений: ${n}`}
-          style={{marginLeft:6,display:"inline-block",minWidth:16,height:16,
-            lineHeight:"16px",borderRadius:8,background:BAD,color:C.ink,fontSize:10,
-            fontWeight:700,textAlign:"center",padding:"0 4px"}}>{n}</span>)}
+          style={{marginLeft: "var(--space-4)",display:"inline-block",minWidth:16,height:16,
+            lineHeight:"16px",borderRadius: "var(--radius-sm)",background:BAD,color:C.ink,fontSize:10,
+            fontWeight:700,textAlign:"center",padding: "0 var(--space-4)"}}>{n}</span>)}
     </button>);
 }
 
@@ -1035,14 +1035,14 @@ export function RateModal({task,whom,mine,onSend,onClose}){
   return (
     <Modal title={`Оценка · ${whom}`} onClose={onClose}>
       <Stars value={mark} onPick={setMark}/>
-      <div style={{...S.lbl,marginTop:10}}>Оставьте отзыв</div>
+      <div style={{...S.lbl,marginTop: "var(--space-8)"}}>Оставьте отзыв</div>
       <TxtField area value={text} aria-label="отзыв"
-        style={{minHeight:54,marginTop:4,lineHeight:1.5}} onCommit={setText}/>
-      <div className="flex flex-wrap gap-3" style={{marginTop:8,alignItems:"center"}}>
+        style={{minHeight:54,marginTop: "var(--space-4)",lineHeight:1.5}} onCommit={setText}/>
+      <div className="flex flex-wrap gap-3" style={{marginTop: "var(--space-8)",alignItems:"center"}}>
         {radio(pub,"Публичный",()=>setPub(true))}
         {radio(!pub,"Приватный",()=>setPub(false))}
       </div>
-      <div className="flex gap-2" style={{marginTop:10}}>
+      <div className="flex gap-2" style={{marginTop: "var(--space-8)"}}>
         <button style={{...btn(true,OK),opacity:mark?1:0.5}} disabled={!mark}
           onClick={()=>{ onSend?.({mark,text,pub}); onClose?.(); }}>Отправить</button>
       </div>
@@ -1066,8 +1066,8 @@ export function Discussion({task,meId,nameOf,onSend,onClose,ro=false}){
   };
   return (
     <Modal title={`Обсуждение · ${task.title}`} onClose={onClose}>
-      <div aria-label="обсуждение" style={{display:"flex",flexDirection:"column",gap:6,
-        maxHeight:"52dvh",overflowY:"auto",padding:"2px 0"}}>
+      <div aria-label="обсуждение" style={{display:"flex",flexDirection:"column",gap: "var(--space-4)",
+        maxHeight:"52dvh",overflowY:"auto",padding: "0 0"}}>
         {!list.length&&(
           <div style={{fontSize:11.5,color:C.muted}}>Пока пусто.</div>)}
         {list.map(m=>{
@@ -1076,11 +1076,11 @@ export function Discussion({task,meId,nameOf,onSend,onClose,ro=false}){
           return (
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"88%",
               background:mine?`${ACC}22`:C.panel2,
-              border:`1px solid ${mine?ACC:C.line}`,borderRadius:10,padding:"6px 9px"}}>
+              border:`1px solid ${mine?ACC:C.line}`,borderRadius: "var(--radius-sm)",padding: "var(--space-4) var(--space-8)"}}>
               {/* Дата, роль и имя — у каждого сообщения (владелец,
                   2026-09-20): в задаче говорят трое, и кто именно сказал,
                   должно быть видно, не считая по аватаркам. */}
-              <div style={{fontSize:10,color:C.muted,marginBottom:2}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom: 0}}>
                 {who(m.by)||"—"}{role?` · ${role}`:""} · {fmtDT(m.at)}</div>
               <div style={{fontSize:12.5,lineHeight:1.5,whiteSpace:"pre-wrap"}}>
                 {m.text}</div>
@@ -1090,7 +1090,7 @@ export function Discussion({task,meId,nameOf,onSend,onClose,ro=false}){
       {/* Принятая работа обсуждению открыта только на чтение: сказанное
           при ней остаётся, дописывать к ней нечего. */}
       {mayWrite&&(
-        <div className="flex gap-2" style={{marginTop:8}}>
+        <div className="flex gap-2" style={{marginTop: "var(--space-8)"}}>
           <TxtField value={text} placeholder="сообщение" aria-label="сообщение"
             onCommit={setText}/>
           <button style={btn(true,OK)} disabled={!text.trim()} onClick={send}>
@@ -1147,7 +1147,7 @@ export function HiddenSwitch({hidden,onChange,whoElse}){
         <button style={{...btn(!hidden,!hidden?ACC:null),fontSize:11}}
           aria-pressed={!hidden} onClick={()=>onChange(false)}>публично</button>
       </div>
-      <div style={{fontSize:10,color:C.muted,marginTop:4,lineHeight:1.5}}>
+      <div style={{fontSize:10,color:C.muted,marginTop: "var(--space-4)",lineHeight:1.5}}>
         {hidden
           ?`Скрыто: отметку видите только вы (в средние она входит), слова — вы и ${whoElse}.`
           :"Публично: после публикации видят все — без вашего имени."}
@@ -1391,7 +1391,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         ?was.filter(x=>x!==id):[...was,id]};
     });
     return (
-      <div key={port.id} style={{marginBottom:6}}>
+      <div key={port.id} style={{marginBottom: "var(--space-4)"}}>
         <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
           <span style={{fontSize:11.5,flex:"1 1 130px"}}>{traitName(port.trait)}</span>
           <span style={{fontSize:10.5,color:WARN}}>план {rangeText(port)}</span>
@@ -1403,16 +1403,16 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               kind==="gives"?Math.max(0,Math.floor(Number(v)||0)):(Number(v)||0)}}))}/>
         </div>
         {!!own.length&&(
-          <div className="flex flex-wrap gap-2" style={{marginTop:4}}>
+          <div className="flex flex-wrap gap-2" style={{marginTop: "var(--space-4)"}}>
             {own.slice(0,12).map(u=>(
               <button key={u.id} style={{...btn(on(u.id),on(u.id)?ACC:null),
-                fontSize:10.5,padding:"2px 6px"}}
+                fontSize:10.5,padding: "0 var(--space-4)"}}
                 aria-label={`взял ${traitName(port.trait)} №${u.no}`}
                 onClick={()=>flip(u.id)}>
                 №{u.no} {unitLabel(u)}</button>))}
           </div>)}
         {!!own.length&&(
-          <div style={{fontSize:10,color:C.muted,marginTop:3,lineHeight:1.4}}>
+          <div style={{fontSize:10,color:C.muted,marginTop: "var(--space-4)",lineHeight:1.4}}>
             отметьте, что именно взяли, — по этому потом видно, что из чего
             выросло
           </div>)}
@@ -1431,8 +1431,8 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 
      Обязателен ли выход, решает одно место на всё приложение
      (`requiredGives`): второе такое же правило разошлось бы с первым. */
-  const listBox={maxHeight:200,overflowY:"auto",marginTop:4,paddingRight:4,
-    border:`1px solid ${C.line}`,borderRadius:6,padding:"2px 6px 6px"};
+  const listBox={maxHeight:200,overflowY:"auto",marginTop: "var(--space-4)",paddingRight: "var(--space-4)",
+    border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",padding: "0 var(--space-4) var(--space-4)"};
   /* ─── сдаваемый ресурс — своя форма (владелец, 2026-09-20) ───
 
      Форма разворачивается нажатием. Внутри: количество (по умолчанию —
@@ -1459,21 +1459,21 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         :(u?.code||"");
     const got=k==="file"?!!u?.file:k==="text"?!!String(u?.text||"").trim():!!u?.code;
     return (
-      <div key={id} style={{border:`1px solid ${C.line}`,borderRadius:6,marginBottom:4}}>
+      <div key={id} style={{border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",marginBottom: "var(--space-4)"}}>
         <button type="button" aria-expanded={on} aria-label={`единица ${i+1}: ${name}`}
           onClick={()=>setOpenUnit(on?"":id)} className="flex items-center gap-2"
           style={{width:"100%",background:"transparent",border:"none",color:C.text,
-            cursor:"pointer",padding:"5px 7px",textAlign:"left"}}>
+            cursor:"pointer",padding: "var(--space-4) var(--space-8)",textAlign:"left"}}>
           <span style={{fontSize:11,color:ACC}}>№{i+1}</span>
           <span style={{fontSize:11,flex:1,minWidth:0,color:got?C.text:C.muted,
             overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</span>
           <span style={{fontSize:11,color:C.muted}}>{on?"▾":"▸"}</span>
         </button>
         {on&&(
-          <div style={{padding:"0 7px 7px"}}>
+          <div style={{padding: "0 var(--space-8) var(--space-8)"}}>
             {k==="file"&&(
               <div className="flex flex-wrap gap-2" style={{alignItems:"center"}}>
-                <label style={{...btn(false),fontSize:11,padding:"3px 8px",
+                <label style={{...btn(false),fontSize:11,padding: "var(--space-4) var(--space-8)",
                   cursor:busy?"default":"pointer",opacity:busy?0.6:1}}>
                   {busy?"Загружаю…":u?.file?"Заменить файл":"Загрузить файл"}
                   <input type="file" style={{display:"none"}} disabled={busy}
@@ -1495,10 +1495,10 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                   fontFamily:"var(--font-sans)",letterSpacing:1}}/>)}
             {k!=="code"&&(
               <button type="button" style={{...btn(false),fontSize:10.5,color:BAD,
-                borderColor:DANGER_LINE,marginTop:5}}
+                borderColor:DANGER_LINE,marginTop: "var(--space-4)"}}
                 aria-label={`удалить единицу ${i+1}: ${name}`}
                 onClick={()=>dropUnit(port.trait,i)}>Удалить</button>)}
-            {err&&(<div style={{fontSize:10.5,color:BAD,marginTop:4}}>{err}</div>)}
+            {err&&(<div style={{fontSize:10.5,color:BAD,marginTop: "var(--space-4)"}}>{err}</div>)}
           </div>)}
       </div>);
   };
@@ -1516,26 +1516,26 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     };
     return (
       <div key={port.id} style={{border:`1px solid ${must&&done<n?DANGER_LINE:C.line}`,
-        borderRadius:8,marginBottom:6,background:C.panel2}}>
+        borderRadius: "var(--radius-sm)",marginBottom: "var(--space-4)",background:C.panel2}}>
         <button type="button" aria-expanded={on} aria-label={`ресурс: ${name}`}
           onClick={()=>setOpenGive(on?"":port.trait)} className="flex items-center gap-2"
           style={{width:"100%",background:"transparent",border:"none",color:C.text,
-            cursor:"pointer",padding:"7px 9px",textAlign:"left"}}>
+            cursor:"pointer",padding: "var(--space-8) var(--space-8)",textAlign:"left"}}>
           <span style={{fontSize:11.5,fontWeight:600,flex:1,minWidth:0}}>{name}</span>
           <span style={{fontSize:10.5,color:n&&done===n?OK:must?WARN:C.muted}}>
             {done} из {nm(n)}</span>
           <span style={{fontSize:11,color:C.muted}}>{on?"▾":"▸"}</span>
         </button>
         {on&&(
-          <div style={{padding:"0 9px 9px"}}>
+          <div style={{padding: "0 var(--space-8) var(--space-8)"}}>
             <div style={S.lbl}>количество</div>
-            <NumField value={qty.gives[port.trait]??0} style={{width:"100%",margin:"3px 0 8px"}}
+            <NumField value={qty.gives[port.trait]??0} style={{width:"100%",margin: "var(--space-4) 0 var(--space-8)"}}
               aria-label={`количество: ${name}`}
               onCommit={v=>setQty(p=>({...p,gives:{...p.gives,[port.trait]:
                 Math.max(0,Math.floor(Number(v)||0))}}))}/>
             {Array.from({length:n},(x,i)=>unitRow(port,i,list[i],k))}
             {k!=="code"&&(
-              <button type="button" style={{...btn(false),fontSize:11,marginTop:2}}
+              <button type="button" style={{...btn(false),fontSize:11,marginTop: 0}}
                 aria-label={`загрузить новый: ${name}`} onClick={addNew}>
                 Загрузить новый</button>)}
           </div>)}
@@ -1545,8 +1545,8 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
   /* Подтверждение — одно на всю сдачу и сразу на все её единицы-коды:
      подтверждают не каждый ключ отдельно, а то, что партию выдали. */
   const proofRow=()=>(
-    <div key="proof" className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom:8}}>
-      <label style={{...btn(false),fontSize:11,padding:"4px 8px",
+    <div key="proof" className="flex flex-wrap gap-2" style={{alignItems:"center",marginBottom: "var(--space-8)"}}>
+      <label style={{...btn(false),fontSize:11,padding: "var(--space-4) var(--space-8)",
         cursor:proofBusy?"default":"pointer",opacity:proofBusy?0.6:1,
         borderColor:proof?undefined:DANGER_LINE}}>
         {proofBusy?"Загружаю…":proof?"Заменить подтверждение":"Загрузить подтверждение"}
@@ -1562,16 +1562,16 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
     </div>);
 
   return (
-    <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
-      <div className="flex items-center gap-2" style={{marginBottom:8}}>
+    <div style={{...S.card,marginBottom: "var(--space-8)",borderColor:ACC}}>
+      <div className="flex items-center gap-2" style={{marginBottom: "var(--space-8)"}}>
         <span style={S.lbl}>задача</span>
         <span style={{flex:1}}/>
         {onClose&&<button style={btn(false)} onClick={()=>onClose()}>✕</button>}
       </div>
 
-      <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>{task.title}</div>
+      <div style={{fontSize:14,fontWeight:700,marginBottom: "var(--space-4)"}}>{task.title}</div>
       {/* Каждое поле — своей строкой (владелец, 2026-09-20). */}
-      <div style={{fontSize:11,color:C.muted,lineHeight:1.7,marginBottom:8}}>
+      <div style={{fontSize:11,color:C.muted,lineHeight:1.7,marginBottom: "var(--space-8)"}}>
         <div>проверяет: {who(roleOf(task,"reviewer"))}</div>
         <div>срок: {task.end?fmtDT(task.end):"не назначен"}</div>
       </div>
@@ -1584,7 +1584,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
         about={task.body}/>
       {/* Оценка — постановщику: исполнитель говорит, как ему поставили
           работу (владелец, 2026-09-20). Себе не ставят. */}
-      <div className="flex gap-2" style={{marginBottom:8}}>
+      <div className="flex gap-2" style={{marginBottom: "var(--space-8)"}}>
         <RateButton task={task} meId={meId} to={roleOf(task,"setter")} ro={ro}
           onOpen={()=>setRating(true)}/>
       </div>
@@ -1602,8 +1602,8 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
           2026-09-20): ни номера, ни задачи, при которой она получена. */}
       {!!func?.takes?.length&&(<>
         <div style={S.lbl}>предоставляемый материал</div>
-        <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-          padding:9,margin:"6px 0 8px"}} aria-label="предоставляемый материал">
+        <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",
+          padding: "var(--space-8)",margin: "var(--space-4) 0 var(--space-8)"}} aria-label="предоставляемый материал">
           {(()=>{
             const groups=inputUnits({tasks:tasksAll,funcs,materials},func);
             const rows=groups.flatMap(g=>g.units);
@@ -1623,17 +1623,17 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
       </>)}
 
       <div style={S.lbl}>сдача задачи</div>
-      <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius:8,
-        padding:9,margin:"6px 0 8px"}}>
+      <div style={{background:C.panel2,border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",
+        padding: "var(--space-8)",margin: "var(--space-4) 0 var(--space-8)"}}>
         {subs.map(sb=>(
           <div key={sb.id} style={{background:C.ink,border:`1px solid ${C.line}`,
-            borderRadius:6,padding:7,marginBottom:6}}>
+            borderRadius: "var(--radius-sm)",padding: "var(--space-8)",marginBottom: "var(--space-4)"}}>
             <div className="flex items-center gap-2">
               <span style={{fontSize:12,fontWeight:600,color:OK,flex:1}}>
                 {nm(sb.hours)} ч</span>
               <span style={{fontSize:10,color:C.muted}}>{fmtDT(sb.at)}</span>
             </div>
-            <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
+            <div style={{fontSize:10.5,color:C.muted,marginTop: "var(--space-4)",lineHeight:1.5}}>
               взято: {Object.entries(sb.takes||{}).map(([id,v])=>{
                 const nos=(sb.took?.[id]||[])
                   .map(uid2=>unitNo[uid2]).filter(Boolean);
@@ -1648,17 +1648,17 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
             </div>
             {/* Сами вышедшие вещи — ссылками: их и скачивают. */}
             {!!Object.keys(sb.files||{}).length&&(
-              <div className="flex flex-wrap gap-2" style={{marginTop:4}}>
+              <div className="flex flex-wrap gap-2" style={{marginTop: "var(--space-4)"}}>
                 {Object.entries(sb.files).map(([id,f])=>(
                   <a key={id} href={reportSrc(f)} target="_blank" rel="noreferrer"
                     style={{fontSize:10.5,color:ACC}}>
                     📎 {traitName(id)}: {f.name}</a>))}
               </div>)}
-            {sb.text&&<div style={{fontSize:11.5,marginTop:4,lineHeight:1.5,
+            {sb.text&&<div style={{fontSize:11.5,marginTop: "var(--space-4)",lineHeight:1.5,
               whiteSpace:"pre-wrap"}}>{sb.text}</div>}
             {/* Файл отчёта у старых сдач (до v1.2): показывается, но новых
                 таких не бывает — вещи прикладываются по ресурсам. */}
-            {sb.file&&<div style={{fontSize:10.5,color:ACC,marginTop:4}}>
+            {sb.file&&<div style={{fontSize:10.5,color:ACC,marginTop: "var(--space-4)"}}>
               📎 {sb.file.name} · {Math.round((sb.file.size||0)/1024)} КБ</div>}
           </div>))}
 
@@ -1682,12 +1682,12 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               <div style={S.lbl}>отчёт</div>
               <TxtField area value={draftText}
                 aria-label="отчёт о работе"
-                style={{minHeight:56,margin:"5px 0 8px",lineHeight:1.5}}
+                style={{minHeight:56,margin: "var(--space-4) 0 var(--space-8)",lineHeight:1.5}}
                 onCommit={setDraftText}/>
 
               <div style={S.lbl}>время выполнения</div>
               <div className="flex flex-wrap gap-2"
-                style={{alignItems:"center",margin:"5px 0 8px"}}>
+                style={{alignItems:"center",margin: "var(--space-4) 0 var(--space-8)"}}>
                 <NumField value={hours} style={{flex:"0 1 90px"}}
                   aria-label="время выполнения"
                   onCommit={v=>setHours(Number(v)||0)}/>
@@ -1697,7 +1697,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
               </div>
               {!!func.takes.length&&<>
                 <div style={S.lbl}>сколько взяли</div>
-                <div style={{margin:"5px 0 8px"}}>
+                <div style={{margin: "var(--space-4) 0 var(--space-8)"}}>
                   {uniqPorts(func.takes).map(p=>qtyRow("takes",p))}
                 </div></>}
               {/* ─── сдаваемые ресурсы ───
@@ -1707,13 +1707,13 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
                   (владелец, 2026-09-20). */}
               {!!func.gives.length&&<>
                 <div style={S.lbl}>сдаваемые ресурсы</div>
-                <div style={{margin:"5px 0 8px"}}>
+                <div style={{margin: "var(--space-4) 0 var(--space-8)"}}>
                   {uniqPorts(func.gives).map(p=>giveForm(p))}
                   {needsProof&&proofRow()}
                 </div></>}
               {/* Чего не хватает — словами, а не неактивной кнопкой. */}
               {!ready&&(
-                <div style={{fontSize:10.5,color:WARN,marginTop:2,lineHeight:1.5}}>
+                <div style={{fontSize:10.5,color:WARN,marginTop: 0,lineHeight:1.5}}>
                   {!!missing.length&&(<div>
                     Не приложено:{" "}
                     {missing.map(p=>traitName(p.trait)).join(", ")}.</div>)}
@@ -1736,7 +1736,7 @@ export function TaskView({task,tasks=[],funcs=[],traits=[],entities=[],materials
 
       {/* Обсуждение — там же, где прежде были комментарии, и вместо них
           (владелец, 2026-09-20): кнопка, за ней окно разговора. */}
-      <div className="flex gap-2" style={{marginTop:10}}>
+      <div className="flex gap-2" style={{marginTop: "var(--space-8)"}}>
         <ChatButton task={task} role={chatRoleAt(task,"tasks")} onOpen={openChat}/>
       </div>
       {chat&&(
@@ -1824,8 +1824,8 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
           const list=shown.filter(t=>st.states.includes(t.status));
           return (
             <div key={st.id} style={{...S.card,flex:"1 0 190px",minWidth:190}}>
-              <div className="flex items-center gap-2" style={{marginBottom:8}}>
-                <span style={{width:8,height:8,borderRadius:2,background:st.color}}/>
+              <div className="flex items-center gap-2" style={{marginBottom: "var(--space-8)"}}>
+                <span style={{width:8,height:8,borderRadius: "var(--radius-sm)",background:st.color}}/>
                 <span style={{fontSize:12,fontWeight:700,flex:1}}>{st.name}</span>
                 <span style={{fontSize:10.5,color:C.muted}}>{list.length}</span>
               </div>
@@ -1834,8 +1834,8 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                 const f=funcs.find(x=>x.id===t.funcId);
                 return (
                   <div key={t.id} style={{background:C.panel2,
-                    border:`1px solid ${t.id===openId?ACC:C.line}`,borderRadius:8,
-                    padding:8,marginBottom:6,cursor:"pointer",
+                    border:`1px solid ${t.id===openId?ACC:C.line}`,borderRadius: "var(--radius-sm)",
+                    padding: "var(--space-8)",marginBottom: "var(--space-4)",cursor:"pointer",
                     // Отменённая приглушена и перечёркнута названием: видно,
                     // что она есть, и видно, что её не делают.
                     opacity:isCanceled(t)?0.55:1}}
@@ -1846,7 +1846,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                         «ожидает» и «отложено» лежат рядом, и молчание
                         стирало бы между ними разницу. */}
                     {st.states.length>1&&(
-                      <div style={{fontSize:10.5,marginTop:3,
+                      <div style={{fontSize:10.5,marginTop: "var(--space-4)",
                         color:t.status==="deferred"?WARN:C.muted}}>
                         {statusName(t.status)}
                         {t.status==="deferred"
@@ -1857,26 +1857,26 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                             : " — время пришло, работа не начата")
                           : ""}
                       </div>)}
-                    <div style={{fontSize:10.5,color:C.muted,marginTop:3,lineHeight:1.5}}>
+                    <div style={{fontSize:10.5,color:C.muted,marginTop: "var(--space-4)",lineHeight:1.5}}>
                       {funcLabel(f,entities)}
                     </div>
                     {/* Только число: карточка узкая, сами вещи со ссылками —
                         в открытой задаче. */}
                     {!!f?.takes?.length&&(
-                      <div style={{fontSize:10.5,color:C.muted,marginTop:3}}>
+                      <div style={{fontSize:10.5,color:C.muted,marginTop: "var(--space-4)"}}>
                         материалов на входе: {inputCount({tasks,funcs,materials},f)}
                       </div>)}
                     {/* Пометка отмены — словом, а не одним приглушением:
                         бледная карточка читается как «неважная», а сказать
                         надо «решили не делать». */}
                     {isCanceled(t)&&(
-                      <div style={{fontSize:10.5,color:BAD,marginTop:3}}>отменена</div>)}
+                      <div style={{fontSize:10.5,color:BAD,marginTop: "var(--space-4)"}}>отменена</div>)}
                     {/* У отменённой срок больше не срок: краснеть ему не за
                         что, работы нет. */}
-                    {t.end&&!isCanceled(t)&&<div style={{fontSize:10.5,marginTop:3,
+                    {t.end&&!isCanceled(t)&&<div style={{fontSize:10.5,marginTop: "var(--space-4)",
                       color:late(t)?BAD:C.muted}}>
                       {late(t)?"просрочено · ":"до "}{fmtDT(t.end)}</div>}
-                    {t.assignee!=null&&<div style={{fontSize:10.5,color:ACC,marginTop:3}}>
+                    {t.assignee!=null&&<div style={{fontSize:10.5,color:ACC,marginTop: "var(--space-4)"}}>
                       {nameOf?nameOf(t.assignee):t.assignee}</div>}
                     {/* Ровно одно действие на карточке — то, которое сейчас
                         и есть работа. Ни «назад», ни «дальше»: колонка
@@ -1886,18 +1886,18 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                         за край карточки. */}
                     {/* «r» на вкладке — только смотреть: кнопок работы на
                         карточке нет (владелец, 2026-09-20). */}
-                    <div className="flex gap-2" style={{marginTop:6,flexWrap:"wrap",
+                    <div className="flex gap-2" style={{marginTop: "var(--space-4)",flexWrap:"wrap",
                       alignItems:"center"}}>
                       {!ro&&!isCanceled(t)&&!isTaken(t)&&(BACKLOG_STATES.includes(t.status)
                         ||t.status==="deadline")&&(
-                        <button style={{...btn(true,ACC),padding:"3px 9px",fontSize:11}}
+                        <button style={{...btn(true,ACC),padding: "var(--space-4) var(--space-8)",fontSize:11}}
                           onClick={e=>{e.stopPropagation();take(t);}}>
                           Взять в работу</button>)}
                       {/* У отменённой кнопок работы нет: её не берут и не
                           сдают, пока решение не отменили обратно. */}
                       {!ro&&!isCanceled(t)&&isTaken(t)
                         &&(t.status==="progress"||t.status==="deadline")&&(
-                        <button style={{...btn(true,OK),padding:"3px 9px",fontSize:11}}
+                        <button style={{...btn(true,OK),padding: "var(--space-4) var(--space-8)",fontSize:11}}
                           onClick={e=>{e.stopPropagation();hand(t);}}>
                           Сдать</button>)}
                       {!isCanceled(t)&&t.status==="review"&&(
@@ -1907,7 +1907,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                         <span style={{fontSize:10.5,color:OK}}>принято</span>)}
                       <span style={{flex:1}}/>
                       {!ro&&canAssign&&isCanceled(t)&&(
-                        <button style={{...btn(false),padding:"3px 8px",fontSize:11}}
+                        <button style={{...btn(false),padding: "var(--space-4) var(--space-8)",fontSize:11}}
                           aria-label={`вернуть задачу ${t.title}`}
                           onClick={e=>{e.stopPropagation();undrop(t);}}>
                           Вернуть</button>)}
@@ -1916,7 +1916,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                           не делает; сданную проверяют, принятую сделали. */}
                       {!ro&&!isCanceled(t)&&dropId!==t.id&&isTaken(t)
                         &&(t.status==="progress"||t.status==="deadline")&&(
-                        <button style={{...btn(false),padding:"3px 8px",fontSize:11,
+                        <button style={{...btn(false),padding: "var(--space-4) var(--space-8)",fontSize:11,
                           color:BAD,borderColor:DANGER_LINE,whiteSpace:"nowrap"}}
                           aria-label={`отменить работу ${t.title}`}
                           onClick={e=>{e.stopPropagation();setDropId(t.id);}}>
@@ -1924,18 +1924,18 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
                     </div>
                     {dropId===t.id&&(
                       <div onClick={e=>e.stopPropagation()}
-                        style={{marginTop:6,padding:7,borderRadius:6,
+                        style={{marginTop: "var(--space-4)",padding: "var(--space-8)",borderRadius: "var(--radius-sm)",
                           border:`1px solid ${BAD}`,background:C.panel}}>
-                        <div style={{fontSize:11,lineHeight:1.5,marginBottom:6}}>
+                        <div style={{fontSize:11,lineHeight:1.5,marginBottom: "var(--space-4)"}}>
                           Отменить работу по задаче «{t.title}»? Она вернётся в
                           бэклог — её сможет взять кто-то другой или вы сами,
                           но позже. Сама задача никуда не денется.
                         </div>
                         <div className="flex gap-2">
-                          <button style={{...btn(true,BAD),padding:"3px 9px",fontSize:11}}
+                          <button style={{...btn(true,BAD),padding: "var(--space-4) var(--space-8)",fontSize:11}}
                             onClick={e=>{e.stopPropagation();drop(t);}}>
                             Да, вернуть в бэклог</button>
-                          <button style={{...btn(false),padding:"3px 9px",fontSize:11}}
+                          <button style={{...btn(false),padding: "var(--space-4) var(--space-8)",fontSize:11}}
                             onClick={e=>{e.stopPropagation();setDropId(null);}}>
                             Оставить</button>
                         </div>
@@ -1950,7 +1950,7 @@ export default function TasksBoard({funcs=[],entities=[],traits=[],materials=[],
           задачу в колонке — форма раскрывается следом за панелью, а не
           перед ней, и доска не уезжает вниз из-под руки. */}
       {open&&(
-        <div style={{marginTop:10}}>
+        <div style={{marginTop: "var(--space-8)"}}>
           <TaskView task={open} tasks={tasks} funcs={funcs} traits={traits} materials={materials}
             entities={entities} meId={meId} isOwner={canAssign}
             onSay={onSay} onSeen={onSeen} onSubmit={onSubmit}

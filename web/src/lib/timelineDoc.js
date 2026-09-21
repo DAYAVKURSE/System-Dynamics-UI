@@ -186,7 +186,7 @@ export function timelineHtml(tasks = [], funcs = [], {
   table{border-collapse:collapse;margin:8px 0;font-size:12px;width:100%}
   th,td{border:1px solid #ddd;padding:4px 7px;text-align:left;vertical-align:top}
   th{background:#f5f5f5;font-weight:600}
-  @media print{body{padding:0}}
+  @media print{body{padding: 0}}
 </style></head><body>
 <h1>${esc(title)}</h1>
 <p class="m">Собран ${esc(fmtDT(new Date(now).toISOString()))} · задач ${

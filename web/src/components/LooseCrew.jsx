@@ -123,7 +123,7 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
 
   if (!loose.length) return null;
   return (
-    <div style={{ ...S.card, marginBottom: 10, borderColor: WARN }}>
+    <div style={{ ...S.card, marginBottom: "var(--space-8)", borderColor: WARN }}>
       <button style={{ background: "none", border: "none", padding: 0, width: "100%",
         textAlign: "left", cursor: "pointer", color: C.text }}
         aria-label={`участники без актива: ${loose.length}`}
@@ -136,7 +136,7 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
         </div>
       </button>
       {open && (<>
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
           {loose.map((p) => (
             <div key={p.id} role="button" tabIndex={0}
               aria-label={`участник без актива: ${p.name}`}
@@ -144,7 +144,7 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
               onPointerDown={(ev) => grab(ev, p)}
               onKeyDown={(ev) => { if (ev.key === "Enter") onOpen?.(String(p.id)); }}
               style={{ background: C.panel2, border: `1px solid ${C.line}`,
-                borderRadius: 8, padding: "5px 8px", cursor: "grab", touchAction: "none",
+                borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", cursor: "grab", touchAction: "none",
                 opacity: drag?.id === String(p.id) ? 0.4 : 1 }}>
               <div style={{ fontSize: 12, fontWeight: 600 }}>{p.name}</div>
               <div style={{ fontSize: 10, color: ACC }}>
@@ -153,13 +153,13 @@ export default function LooseCrew({ people = [], entities = [], funcs = [],
         </div>
       </>)}
       {msg && (
-        <div style={{ fontSize: 11, color: BAD, marginTop: 8, lineHeight: 1.5 }}>{msg}</div>)}
+        <div style={{ fontSize: 11, color: BAD, marginTop: "var(--space-8)", lineHeight: 1.5 }}>{msg}</div>)}
       {/* Пока ведут — под пальцем едет сам человек: без этого жест
           выглядит как ничего не происходящее нажатие. */}
       {drag && (
         <div style={{ position: "fixed", left: drag.x + 8, top: drag.y + 8, zIndex: 50,
           pointerEvents: "none", background: C.panel, border: `1px solid ${ACC}`,
-          borderRadius: 8, padding: "4px 8px", fontSize: 11.5, color: C.text }}>
+          borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", fontSize: 11.5, color: C.text }}>
           {drag.name}</div>)}
     </div>);
 }

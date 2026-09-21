@@ -85,10 +85,10 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
   const loose = useMemo(() => (tasks || []).some((t) => !funcById[t.funcId]?.proc),
     [tasks, funcById]);
   const filterBar = (
-    <div style={{ ...S.card, marginBottom: 10 }}>
+    <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
       <div style={S.lbl}>timeline · вся работа во времени</div>
       {/* Выпадающими списками, а не кучей кнопок (владелец, 2026-09-19). */}
-      <div className="flex flex-wrap gap-2" style={{ margin: "6px 0 0" }}>
+      <div className="flex flex-wrap gap-2" style={{ margin: "var(--space-4) 0 0" }}>
         <select aria-label="статус задач" value={only} onChange={(e) => setOnly(e.target.value)}
           style={{ ...S.inp, flex: "1 1 150px", minWidth: 0, fontSize: 12 }}>
           <option value="all">все статусы</option>
@@ -136,11 +136,11 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
     <div>
       {filterBar}
 
-      <div style={{ ...S.card, marginBottom: 10, overflowX: "auto",
+      <div style={{ ...S.card, marginBottom: "var(--space-8)", overflowX: "auto",
         WebkitOverflowScrolling: "touch" }}>
         <div style={{ minWidth: 560 }}>
           {/* Шкала времени */}
-          <div style={{ display: "flex", marginBottom: 6 }}>
+          <div style={{ display: "flex", marginBottom: "var(--space-4)" }}>
             <div style={{ width: 150, flex: "0 0 150px" }} />
             <div style={{ flex: 1, position: "relative", height: 16 }}>
               {ticks.map((t, i) => (
@@ -159,9 +159,9 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
             const subs = t.submissions || [];
             return (
               <div key={t.id} style={{ display: "flex", alignItems: "center",
-                marginBottom: 6, cursor: "pointer" }}
+                marginBottom: "var(--space-4)", cursor: "pointer" }}
                 onClick={() => setOpenId(on ? null : t.id)}>
-                <div style={{ width: 150, flex: "0 0 150px", paddingRight: 8,
+                <div style={{ width: 150, flex: "0 0 150px", paddingRight: "var(--space-8)",
                   fontSize: 11.5, color: on ? ACC : C.text, lineHeight: 1.35,
                   overflow: "hidden" }}>
                   {t.title}
@@ -169,7 +169,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
                     {funcLabel(func, entities)}{funcTag(func)}</div>
                 </div>
                 <div style={{ flex: 1, position: "relative", height: 26,
-                  background: C.ink, borderRadius: 6,
+                  background: C.ink, borderRadius: "var(--radius-sm)",
                   border: `1px solid ${on ? ACC : C.line}` }}>
                   <span style={{ position: "absolute", top: 0, bottom: 0,
                     left: `${pct(now)}%`, width: 0,
@@ -177,7 +177,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
                   <div style={{ position: "absolute", top: 4, bottom: 4,
                     left: `${pct(bar.from)}%`,
                     width: `${Math.max(1.5, pct(bar.to) - pct(bar.from))}%`,
-                    background: st.color, borderRadius: 4, opacity: on ? 1 : 0.85 }} />
+                    background: st.color, borderRadius: "var(--radius-sm)", opacity: on ? 1 : 0.85 }} />
                   {/* Сдачи — отметки поверх полосы: видно, когда именно отчитались. */}
                   {subs.map((sb) => {
                     const at = ms(sb.at);
@@ -194,16 +194,16 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
       </div>
 
       {!!undated.length && (
-        <div style={{ ...S.card, marginBottom: 10 }}>
+        <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
           <div style={S.lbl}>без сроков</div>
           {undated.map(({ t }) => {
             const st = STATUSES.find((x) => x.id === t.status) || { color: NEU, name: "—" };
             return (
               <div key={t.id} className="flex items-center gap-2"
-                style={{ padding: "5px 0", borderTop: `1px solid ${C.line}`,
+                style={{ padding: "var(--space-4) 0", borderTop: `1px solid ${C.line}`,
                   cursor: "pointer" }}
                 onClick={() => setOpenId(t.id === openId ? null : t.id)}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: st.color }} />
+                <span style={{ width: 8, height: 8, borderRadius: "var(--radius-sm)", background: st.color }} />
                 <span style={{ fontSize: 11.5, flex: 1 }}>{t.title}</span>
                 <span style={{ fontSize: 10, color: C.muted }}>{st.name}</span>
               </div>);})}
@@ -216,31 +216,31 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
         const st = STATUSES.find((x) => x.id === t.status);
         return (
           <div style={{ ...S.card, borderColor: ACC }}>
-            <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3,
+            <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
+              <span style={{ width: 10, height: 10, borderRadius: "var(--radius-sm)",
                 background: st?.color || NEU }} />
               <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>{t.title}</span>
               <button style={btn(false)} onClick={() => setOpenId(null)}>✕</button>
             </div>
             <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6,
-              marginBottom: 8 }}>
+              marginBottom: "var(--space-8)" }}>
               Статус: {st?.name || "—"} · функция: {funcLabel(func, entities)}{funcTag(func)}
               {t.setter ? <> · поставил: {nameOf ? nameOf(t.setter) : t.setter}</> : null}
               {t.assignee ? <> · исполнитель: {nameOf ? nameOf(t.assignee) : t.assignee}</> : null}
               {t.reviewer ? <> · проверяет: {nameOf ? nameOf(t.reviewer) : t.reviewer}</> : null}
               {t.start ? <> · начало {fmtDT(t.start)}</> : null}
             </div>
-            {t.body && <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 8 }}>
+            {t.body && <div style={{ fontSize: 12, lineHeight: 1.5, marginBottom: "var(--space-8)" }}>
               {t.body}</div>}
 
             <div style={S.lbl}>сдачи и отчёты</div>
-            <div style={{ marginTop: 6 }}>
+            <div style={{ marginTop: "var(--space-4)" }}>
               {!(t.submissions || []).length &&
                 <div style={{ fontSize: 11.5, color: C.muted }}>Сдач пока нет.</div>}
               {(t.submissions || []).map((sb) => (
                 <div key={sb.id} style={{ background: C.panel2,
-                  border: `1px solid ${C.line}`, borderRadius: 8, padding: 9,
-                  marginBottom: 6 }}>
+                  border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)",
+                  marginBottom: "var(--space-4)" }}>
                   <div className="flex items-center gap-2">
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: OK, flex: 1 }}>
                       ушло {nm(sb.hours)} ч
@@ -249,16 +249,16 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
                     </span>
                     <span style={{ fontSize: 10, color: C.muted }}>{fmtDT(sb.at)}</span>
                   </div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3,
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)",
                     lineHeight: 1.5 }}>
                     взято: {qty(sb.takes)} · выдано: {qty(sb.gives)}</div>
-                  {sb.text && <div style={{ fontSize: 12, marginTop: 5, lineHeight: 1.5 }}>
+                  {sb.text && <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
                     {sb.text}</div>}
                   {sb.file && (
-                    <div style={{ marginTop: 6 }}>
+                    <div style={{ marginTop: "var(--space-4)" }}>
                       {/^image\//.test(sb.file.type || "")
                         ? <img src={reportSrc(sb.file)} alt={sb.file.name}
-                            style={{ maxWidth: "100%", borderRadius: 6,
+                            style={{ maxWidth: "100%", borderRadius: "var(--radius-sm)",
                               border: `1px solid ${C.line}` }} />
                         : sb.file.url
                           // Файл на диске можно открыть; инлайн в Telegram

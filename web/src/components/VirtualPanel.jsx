@@ -30,7 +30,7 @@ import {
    раньше.
    ════════════════════════════════════════════════════════════════ */
 
-const card = { ...S.card, marginBottom: 10 };
+const card = { ...S.card, marginBottom: "var(--space-8)" };
 const mono = { fontFamily: "var(--font-sans)" };
 
 /* Модальное окно — одно на форму: и «введите код», и «вы уверены».
@@ -41,10 +41,10 @@ function Modal({ children, onClose }) {
     <div role="dialog" aria-modal="true"
       onClick={onClose}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)",
-        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }}>
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: "var(--space-16)" }}>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10,
-          padding: 14, width: "100%", maxWidth: 340 }}>
+        style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+          padding: "var(--space-12)", width: "100%", maxWidth: 340 }}>
         {children}
       </div>
     </div>);
@@ -101,10 +101,10 @@ function CodeForm({ me }) {
     <div style={card} aria-label="форма кода доступа">
       <div style={S.lbl}>код доступа</div>
 
-      <button type="button" style={{ ...btn(true, ACC), marginTop: 8 }} disabled={busy}
+      <button type="button" style={{ ...btn(true, ACC), marginTop: "var(--space-8)" }} disabled={busy}
         onClick={gen}>Сгенерировать код для техподдержки</button>
 
-      <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
+      <div className="flex items-center gap-2" style={{ marginTop: "var(--space-8)" }}>
         <input readOnly value={code?.code || ""} aria-label="код доступа"
           onFocus={(e) => e.target.select()}
           style={{ ...S.inp, flex: 1, minWidth: 0, ...mono, fontSize: 15, letterSpacing: 2 }} />
@@ -116,14 +116,14 @@ function CodeForm({ me }) {
           </>)}
       </div>
 
-      <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
+      <div className="flex items-center gap-2" style={{ marginTop: "var(--space-8)" }}>
         <span style={{ fontSize: 11, color: C.muted }}>минут</span>
         <input type="number" min={1} max={1440} value={minutes} aria-label="время действия кода"
           onChange={(e) => setMinutes(Number(e.target.value))}
           style={{ ...S.inp, width: 74 }} />
       </div>
 
-      <div className="flex items-center gap-3" style={{ marginTop: 8 }}>
+      <div className="flex items-center gap-3" style={{ marginTop: "var(--space-8)" }}>
         {["r", "rw"].map((a) => (
           <label key={a} className="flex items-center gap-1"
             style={{ fontSize: 12, cursor: "pointer", color: access === a ? C.text : C.muted }}>
@@ -133,7 +133,7 @@ function CodeForm({ me }) {
           </label>))}
       </div>
 
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         {mine.map((t) => {
           const on = tabs.includes(t);
           const inner = t.includes(":");
@@ -141,13 +141,13 @@ function CodeForm({ me }) {
             <button key={t} type="button" aria-pressed={on} disabled={busy}
               aria-label={`вкладка ${TAB_NAMES[t] || t}`}
               style={{ ...btn(on, on ? OK : undefined),
-                ...(inner ? { fontSize: 10.5, padding: "3px 8px" } : {}) }}
+                ...(inner ? { fontSize: 10.5, padding: "var(--space-4) var(--space-8)" } : {}) }}
               onClick={() => setTabs((p) => (on ? p.filter((x) => x !== t) : [...p, t]))}>
               {TAB_NAMES[t] || t}</button>);
         })}
       </div>
 
-      {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: 8 }}>{msg}</div>}
+      {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
     </div>);
 }
 
@@ -187,7 +187,7 @@ export default function VirtualPanel({ me, onEnter }) {
     return (
       <div style={card}>
         <div style={S.lbl}>виртуальные сотрудники</div>
-        <div style={{ fontSize: 12, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           Виртуальные сотрудники живут на сервере: откройте приложение через Telegram.
         </div>
       </div>);
@@ -196,7 +196,7 @@ export default function VirtualPanel({ me, onEnter }) {
   return (
     <>
       <div style={card} aria-label="виртуальные сотрудники">
-        <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
+        <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-8)" }}>
           <span style={{ ...S.lbl, flex: 1 }}>виртуальные сотрудники</span>
           <span style={{ fontSize: 10.5, color: C.muted }}>{(view?.users || []).length}</span>
           <button type="button" style={btn(true, OK)} disabled={busy}
@@ -213,8 +213,8 @@ export default function VirtualPanel({ me, onEnter }) {
 
         {(view?.users || []).map((u) => (
           <div key={u.id} aria-label={`виртуальный ${u.name}`}
-            style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-              padding: 8, marginTop: 8 }}>
+            style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+              padding: "var(--space-8)", marginTop: "var(--space-8)" }}>
             <div className="flex flex-wrap items-center gap-2">
               {/* Лица у страницы нет — знак приложения, как у незнакомца.
                   У настоящего человека, пустившего по коду, лицо своё. */}
@@ -231,13 +231,13 @@ export default function VirtualPanel({ me, onEnter }) {
                 2026-09-20): их может быть несколько, он и дизайнер, и
                 проверяющий. Чужие роли отсюда не правят: страница не наша. */}
             {!u.real && (
-              <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 8 }}>
+              <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
                 {roles.map((r) => {
                   const has = (u.roles || []).includes(r.id);
                   return (
                     <button key={r.id} type="button" aria-pressed={has} disabled={busy}
                       aria-label={`роль «${r.name}»: ${u.name}`}
-                      style={{ ...btn(has, has ? OK : undefined), fontSize: 11, padding: "2px 7px" }}
+                      style={{ ...btn(has, has ? OK : undefined), fontSize: 11, padding: "0 var(--space-8)" }}
                       onClick={() => act(() => setVirtualRoles(u.id, has
                         ? (u.roles || []).filter((x) => x !== r.id)
                         : [...(u.roles || []), r.id]))}>
@@ -247,7 +247,7 @@ export default function VirtualPanel({ me, onEnter }) {
                   <span style={{ fontSize: 10.5, color: WARN }}>ролей ещё нет</span>)}
               </div>)}
 
-            <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+            <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
               <button type="button" style={btn(true, ACC)} disabled={busy}
                 aria-label={`войти под именем ${u.name}`}
                 onClick={() => enter(u)}>Войти под его именем</button>
@@ -259,15 +259,15 @@ export default function VirtualPanel({ me, onEnter }) {
             {/* Ссылка — внизу формы и сразу: страница заводится вместе с
                 ней, и отдельной кнопки для этого нет. */}
             {u.link && (
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: "var(--space-8)" }}>
                 <div style={{ fontSize: 10.5, color: C.muted }}>ссылка для регистрации:</div>
                 <input readOnly value={u.link} aria-label={`ссылка ${u.name}`}
                   onFocus={(e) => e.target.select()}
-                  style={{ ...S.inp, width: "100%", fontSize: 11, marginTop: 3, ...mono }} />
+                  style={{ ...S.inp, width: "100%", fontSize: 11, marginTop: "var(--space-4)", ...mono }} />
               </div>)}
           </div>))}
 
-        {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: 8 }}>{msg}</div>}
+        {msg && <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
       </div>
 
       <CodeForm me={me} />
@@ -278,9 +278,9 @@ export default function VirtualPanel({ me, onEnter }) {
           <input autoFocus value={code} aria-label="код доступа сотрудника"
             onChange={(e) => setCode(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") submitAdd(); }}
-            style={{ ...S.inp, width: "100%", marginTop: 8, ...mono,
+            style={{ ...S.inp, width: "100%", marginTop: "var(--space-8)", ...mono,
               fontSize: 15, letterSpacing: 2 }} />
-          <div className="flex gap-2" style={{ marginTop: 10 }}>
+          <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
             <button type="button" style={btn(true, OK)} onClick={submitAdd}>Добавить</button>
             <button type="button" style={btn(false)}
               onClick={() => setAdding(false)}>Отмена</button>
@@ -290,7 +290,7 @@ export default function VirtualPanel({ me, onEnter }) {
       {kill && (
         <Modal onClose={() => setKill(null)}>
           <div style={{ fontSize: 13 }}>Вы уверены? Это действие необратимо</div>
-          <div className="flex gap-2" style={{ marginTop: 10 }}>
+          <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
             <button type="button" style={btn(true, BAD)}
               onClick={() => { const u = kill; setKill(null); act(() => removeVirtual(u.id)); }}>
               Да</button>

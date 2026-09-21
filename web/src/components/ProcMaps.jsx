@@ -244,17 +244,17 @@ function Pannable({ label, children, wide = 1200, tall = 700, view, onView, onRe
         onTouchMove={(e) => { if (!drag.current || e.touches.length > 1) return; const t = e.touches[0]; if (t) move(t.clientX, t.clientY); }}
         onTouchEnd={stop} onTouchCancel={stop}
         style={{ position: "absolute", inset: 0, overflow: "hidden", touchAction: "none",
-          background: C.ink, border: `1px solid ${C.line}`, borderRadius: 8, cursor: drag.current ? "grabbing" : "grab" }}>
+          background: C.ink, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", cursor: drag.current ? "grabbing" : "grab" }}>
         <div style={{ position: "absolute", left: at.x, top: at.y, width: wide, height: tall,
           transform: `scale(${k})`, transformOrigin: "0 0" }}>{children}</div>
       </div>
       <div className="flex items-center gap-2" style={{ position: "absolute", right: 6, bottom: 6, zIndex: 2 }}>
         <button type="button" aria-label="мельче" onClick={() => zoom(-0.2)}
-          style={{ ...btn(false), fontSize: 12, padding: "2px 8px" }}>−</button>
+          style={{ ...btn(false), fontSize: 12, padding: "0 var(--space-8)" }}>−</button>
         <button type="button" aria-label="крупнее" onClick={() => zoom(0.2)}
-          style={{ ...btn(false), fontSize: 12, padding: "2px 8px" }}>+</button>
+          style={{ ...btn(false), fontSize: 12, padding: "0 var(--space-8)" }}>+</button>
         <button type="button" aria-label="в начало" onClick={() => { setAt({ x: 0, y: 0 }); setK(1); onView?.({ x: 0, y: 0, k: 1 }); onReset?.(); }}
-          style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }}>сброс</button>
+          style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)" }}>сброс</button>
       </div>
     </div>);
 }
@@ -339,39 +339,39 @@ function Timeline({ plan }) {
           <div key={i} style={{ position: "absolute", left: i * PX + 8, top: 0, bottom: 0, borderLeft: `1px solid ${C.line}66` }}>
             <span style={{ position: "absolute", top: 2, left: 3, color: C.muted, fontSize: 10, whiteSpace: "nowrap" }}>{i} {u}</span>
           </div>))}
-        <div style={{ position: "relative", paddingTop: 26 }}>
+        <div style={{ position: "relative", paddingTop: "var(--space-24)" }}>
           {rows.map((t) => (
-            <div key={t.key} style={{ position: "relative", marginLeft: t.x + 8, marginBottom: 14, width: Math.max(t.w, 260) }}>
+            <div key={t.key} style={{ position: "relative", marginLeft: t.x + 8, marginBottom: "var(--space-12)", width: Math.max(t.w, 260) }}>
               {/* Полоса — кнопка: жест на ней раскрывает задачу, а не двигает карту. */}
               <button type="button" data-drag-handle="" aria-label={`задача ${t.name}`} aria-expanded={!!open[t.key]}
                 title={`${t.func} · ${t.name}`} onClick={() => toggle(t.key)}
                 style={{ width: t.w, height: 20, background: `${ACC}${open[t.key] ? "55" : "33"}`, border: `1px solid ${ACC}`,
-                  borderRadius: 5, color: C.text, padding: "1px 6px", whiteSpace: "nowrap", overflow: "hidden",
+                  borderRadius: "var(--radius-sm)", color: C.text, padding: "0 var(--space-4)", whiteSpace: "nowrap", overflow: "hidden",
                   textOverflow: "ellipsis", boxSizing: "border-box", lineHeight: "17px", textAlign: "left",
                   font: "inherit", cursor: "pointer", display: "block" }}>
                 {t.name}</button>
-              <div style={{ color: C.muted, fontSize: 9.5, marginTop: 1, whiteSpace: "nowrap" }}>
+              <div style={{ color: C.muted, fontSize: 9.5, marginTop: 0, whiteSpace: "nowrap" }}>
                 {dur(t)}{t.along.length ? " · ∥ разом" : ""}
                 {t.cond != null ? ` · если ${t.cond}` : t.isElse ? " · иначе" : ""}</div>
               {open[t.key] && (
                 <div aria-label={`задача ${t.name} целиком`}
-                  style={{ marginTop: 4, maxWidth: 320, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-                    padding: "8px 10px", whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.35 }}>
+                  style={{ marginTop: "var(--space-4)", maxWidth: 320, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+                    padding: "var(--space-8) var(--space-8)", whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.35 }}>
                   <div style={{ color: C.muted, fontSize: 9.5 }}>{t.func}</div>
                   <div style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{t.name}</div>
                   {t.cond && <div style={{ color: WARN, fontSize: 10 }}>{t.isElse ? "иначе" : `если ${t.cond}`}</div>}
                   {t.who.map((w, j) => (
-                    <div key={`w${j}`} style={{ color: C.text, fontSize: 10.5, marginTop: 2 }}>кто: {whoText(w, postOf)}</div>))}
+                    <div key={`w${j}`} style={{ color: C.text, fontSize: 10.5, marginTop: 0 }}>кто: {whoText(w, postOf)}</div>))}
                   {t.lines.map((r, j) => (
-                    <div key={`r${j}`} style={{ color: r.kind === "take" ? OK : WARN, fontSize: 10.5, marginTop: 2 }}>{r.text}</div>))}
-                  {!t.lines.length && <div style={{ color: C.muted, fontSize: 10.5, marginTop: 2 }}>ресурсы не названы</div>}
+                    <div key={`r${j}`} style={{ color: r.kind === "take" ? OK : WARN, fontSize: 10.5, marginTop: 0 }}>{r.text}</div>))}
+                  {!t.lines.length && <div style={{ color: C.muted, fontSize: 10.5, marginTop: 0 }}>ресурсы не названы</div>}
                   {t.checks.length > 0 && (
-                    <div style={{ marginTop: 4 }}>
+                    <div style={{ marginTop: "var(--space-4)" }}>
                       <div style={{ color: C.muted, fontSize: 9.5 }}>критерии проверки</div>
                       {t.checks.map((c, j) => (
                         <div key={`c${j}`} style={{ color: C.text, fontSize: 10.5 }}>• {c}</div>))}
                     </div>)}
-                  <div style={{ color: C.muted, fontSize: 10, marginTop: 4 }}>{dur(t)}</div>
+                  <div style={{ color: C.muted, fontSize: 10, marginTop: "var(--space-4)" }}>{dur(t)}</div>
                   <div style={{ color: C.muted, fontSize: 10 }}>{note(t)}</div>
                 </div>)}
               {t.gapW > 1 && (
@@ -379,7 +379,7 @@ function Timeline({ plan }) {
                   borderTop: `1px dashed ${C.line}`, borderBottom: `1px dashed ${C.line}` }} />)}
             </div>))}
         </div>
-        {!rows.length && <div style={{ padding: 16, color: C.muted }}>В процессе ещё нет задач.</div>}
+        {!rows.length && <div style={{ padding: "var(--space-16)", color: C.muted }}>В процессе ещё нет задач.</div>}
       </div>
     </Pannable>);
 }
@@ -806,13 +806,13 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
   return (
     <div role="dialog" aria-label={title} onClick={onClose}
       style={{ position: "fixed", inset: 0, zIndex: 60, background: "#0008", display: "flex",
-        alignItems: "center", justifyContent: "center", padding: 10 }}>
+        alignItems: "center", justifyContent: "center", padding: "var(--space-8)" }}>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ ...S.card, width: "min(760px, 100%)", height: "min(76vh, 620px)", display: "flex", flexDirection: "column", gap: 8 }}>
+        style={{ ...S.card, width: "min(760px, 100%)", height: "min(76vh, 620px)", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
         <div className="flex items-center gap-2">
           <span style={S.lbl}>{mode === "timeline" ? "таймлайн" : "майнд-карта"}</span>
           <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700 }}>{proc?.name || "процесс"}</span>
-          <button type="button" style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="закрыть карту" onClick={onClose}>✕</button>
+          <button type="button" style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} aria-label="закрыть карту" onClick={onClose}>✕</button>
         </div>
         {/* Две формы одна под другой (владелец, 2026-09-20): движение
             ресурсов — одно, взаимодействие сотрудников — другое. */}
@@ -820,7 +820,7 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
           ? <Timeline plan={plan} />
           : (
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto",
-              display: "flex", flexDirection: "column", gap: 10 }}>
+              display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
               <div>
                 <div style={S.lbl}>движение ресурсов</div>
                 <MindMap plan={plan} layout={layout} onLayout={putLayout} />

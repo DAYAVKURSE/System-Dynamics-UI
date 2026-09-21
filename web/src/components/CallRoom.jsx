@@ -66,7 +66,7 @@ const Tile = React.memo(function Tile({ stream, muted, label: text, mirror, fit,
     if (el.srcObject !== stream) el.srcObject = stream;
   }, [stream]);
   return (
-    <div style={{ position: "relative", minHeight: 0, minWidth: 0, borderRadius: 10,
+    <div style={{ position: "relative", minHeight: 0, minWidth: 0, borderRadius: "var(--radius-sm)",
       overflow: "hidden", background: "#000", border: `1px solid ${C.line}`,
       aspectRatio: fit ? undefined : "3 / 4" }}>
       <video ref={ref} autoPlay playsInline muted={muted}
@@ -81,9 +81,9 @@ const Tile = React.memo(function Tile({ stream, muted, label: text, mirror, fit,
       {hint && (
         <div style={{ position: "absolute", inset: 0, display: "flex",
           alignItems: "center", justifyContent: "center", textAlign: "center",
-          fontSize: 11, color: C.muted, padding: 8 }}>{hint}</div>)}
+          fontSize: 11, color: C.muted, padding: "var(--space-8)" }}>{hint}</div>)}
       <span style={{ position: "absolute", left: 6, bottom: 6, fontSize: 10,
-        color: C.text, background: "#0009", borderRadius: 4, padding: "2px 5px",
+        color: C.text, background: "#0009", borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)",
         maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis",
         whiteSpace: "nowrap" }}>{text}</span>
     </div>);
@@ -554,7 +554,7 @@ export default function CallRoom({
         : "";
 
   const ctl = (on, col, extra = {}) => ({
-    ...btn(on, col), ...(fit ? { padding: "8px 10px", fontSize: 15, lineHeight: 1 } : {}), ...extra,
+    ...btn(on, col), ...(fit ? { padding: "var(--space-8) var(--space-8)", fontSize: 15, lineHeight: 1 } : {}), ...extra,
   });
 
   /* Микрофон и камера — кнопки, которые есть ВСЕГДА, в том числе до входа.
@@ -575,7 +575,7 @@ export default function CallRoom({
   const controls = state === "idle" || state === "ended" ? (
     <>
       {micCam}
-      <button style={ctl(true, OK, fit ? { fontSize: 13, padding: "10px 16px", flex: 1 } : {})}
+      <button style={ctl(true, OK, fit ? { fontSize: 13, padding: "var(--space-8) var(--space-16)", flex: 1 } : {})}
         onClick={join}>
         {state === "ended" ? "Войти снова" : "Войти в звонок"}</button>
     </>
@@ -625,7 +625,7 @@ export default function CallRoom({
       {others.map(([id, st]) => (
         <Tile key={id} stream={st} muted={false} label={label(id)} fit={fit} />))}
       {!others.length && inCall && (
-        <div style={{ minHeight: 0, borderRadius: 10, border: `1px dashed ${C.line}`,
+        <div style={{ minHeight: 0, borderRadius: "var(--radius-sm)", border: `1px dashed ${C.line}`,
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 11, color: C.muted, aspectRatio: fit ? undefined : "3 / 4" }}>
           ждём остальных</div>)}
@@ -672,9 +672,9 @@ export default function CallRoom({
          существовало, но его не было видно и нельзя было нажать, и полосы
          прокрутки при этом тоже не появлялось. */
       <div data-testid="call-fit" style={{ display: "flex", flexDirection: "column",
-        height: "100%", minHeight: 0, gap: 6, overflow: "hidden" }}>
+        height: "100%", minHeight: 0, gap: "var(--space-4)", overflow: "hidden" }}>
         {header}
-        <div ref={gridRef} style={{ flex: 1, minHeight: 0, display: "grid", gap: 6,
+        <div ref={gridRef} style={{ flex: 1, minHeight: 0, display: "grid", gap: "var(--space-4)",
           gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
           gridAutoRows: "minmax(0, 1fr)" }}>
           {tiles}
@@ -690,31 +690,31 @@ export default function CallRoom({
 
   return (
     <div>
-      <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         {header}
         {meeting && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>
             {meeting.at || "время не задано"}
             {meeting.peers?.length ? ` · в комнате: ${meeting.peers.length} из ${MAX_PEERS}` : " · пока никого"}
           </div>)}
         {meeting?.text && meeting.text !== meeting.title && (
-          <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>{meeting.text}</div>)}
+          <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{meeting.text}</div>)}
       </div>
 
-      <div ref={gridRef} style={{ display: "grid", gap: 8, marginBottom: 10,
+      <div ref={gridRef} style={{ display: "grid", gap: "var(--space-8)", marginBottom: "var(--space-8)",
         gridTemplateColumns: `repeat(${Math.min(cols, 3)}, minmax(0, 1fr))` }}>
         {tiles}
       </div>
 
-      <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         <div className="flex flex-wrap gap-2">{controls}</div>
-        <div style={{ marginTop: 8, display: "grid", gap: 4 }}>{messages}</div>
+        <div style={{ marginTop: "var(--space-8)", display: "grid", gap: "var(--space-4)" }}>{messages}</div>
       </div>
 
       {meeting && (
         <div style={{ ...S.card }}>
           <div style={S.lbl}>ссылка на этот звонок</div>
-          <div style={{ fontSize: 11, color: ACC, marginTop: 6, wordBreak: "break-all",
+          <div style={{ fontSize: 11, color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all",
             fontFamily: "var(--font-sans)" }}>
             {callLink(meeting.id)}</div>
         </div>)}

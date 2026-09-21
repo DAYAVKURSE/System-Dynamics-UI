@@ -46,26 +46,26 @@ export default function JoinPanel({ me, token, onJoined, onSkip }) {
 
   const card = { ...S.card, maxWidth: 520, margin: "0 auto" };
   return (
-    <div style={{ padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+    <div style={{ padding: "var(--space-12)" }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: "var(--space-12)" }}>
         <Brand size={30} />
       </div>
       <div style={card} aria-label="вступление по ссылке">
         {already ? (<>
-          <div style={{ fontSize: 13, fontWeight: 700, color: BAD, marginBottom: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: BAD, marginBottom: "var(--space-4)" }}>
             Вы уже зарегистрированы в системе</div>
           <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6 }}>
             Эта ссылка заводит новую страницу, а у вас она уже есть. Второй раз
             зарегистрироваться нельзя: один человек — один участник.
           </div>
-          <button type="button" style={{ ...btn(true, ACC), marginTop: 10 }}
+          <button type="button" style={{ ...btn(true, ACC), marginTop: "var(--space-8)" }}
             onClick={() => onSkip?.()}>Открыть приложение</button>
         </>) : (<>
           <div style={S.lbl}>вступление</div>
           {!view && !err && (
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>Загружаю…</div>)}
+            <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-4)" }}>Загружаю…</div>)}
           {view && (<>
-            <div style={{ fontSize: 12, lineHeight: 1.8, marginTop: 6 }}>
+            <div style={{ fontSize: 12, lineHeight: 1.8, marginTop: "var(--space-4)" }}>
               <div><span style={{ color: C.muted }}>страница: </span>
                 <span style={{ fontFamily: "var(--font-sans)" }}>{view.name}</span></div>
               <div><span style={{ color: C.muted }}>роль: </span>
@@ -73,17 +73,17 @@ export default function JoinPanel({ me, token, onJoined, onSkip }) {
               {view.profile?.about && (
                 <div><span style={{ color: C.muted }}>о себе: </span>{view.profile.about}</div>)}
             </div>
-            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-8)", lineHeight: 1.6 }}>
               Страница уже заполнена за вас — заберите её себе. Если по роли
               есть договор, приложение сразу предложит его прочитать и подписать.
             </div>
-            <button type="button" style={{ ...btn(true, OK), marginTop: 10 }}
+            <button type="button" style={{ ...btn(true, OK), marginTop: "var(--space-8)" }}
               disabled={busy} onClick={join}>
               {busy ? "Вступаю…" : "Вступить"}</button>
           </>)}
         </>)}
         {err && (
-          <div role="status" style={{ fontSize: 12, color: BAD, marginTop: 8 }}>{err}</div>)}
+          <div role="status" style={{ fontSize: 12, color: BAD, marginTop: "var(--space-8)" }}>{err}</div>)}
       </div>
     </div>);
 }

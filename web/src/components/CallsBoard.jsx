@@ -74,9 +74,9 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
 
   return (
     <div>
-      <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         <div style={S.lbl}>назначить встречу</div>
-        <div className="flex flex-wrap gap-2" style={{ margin: "6px 0 6px" }}>
+        <div className="flex flex-wrap gap-2" style={{ margin: "var(--space-4) 0 var(--space-4)" }}>
           <TxtField value={title} placeholder="о чём созвон" style={{ flex: "2 1 180px" }}
             onCommit={setTitle} />
           <TxtField value={at} placeholder="когда, словами" style={{ flex: "1 1 130px" }}
@@ -87,19 +87,19 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
               setTitle(""); setAt(""); onOpenCall(m.id);
             })}>Создать и войти</button>
         </div>
-        {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: 6 }}>{msg}</div>}
+        {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
       </div>
 
       <div style={{ ...S.card }}>
         <div style={S.lbl}>встречи</div>
-        {list === null && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>
+        {list === null && <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>
           Загружаю…</div>}
         {list && !list.length && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Встреч пока нет.</div>)}
         {(list || []).map((m) => (
           <div key={m.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 9, marginTop: 6 }}>
+            borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginTop: "var(--space-4)" }}>
             <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
               <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
                 {m.title}</span>
@@ -109,7 +109,7 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
               <button style={{ ...btn(true, BAD) }}
                 disabled={busy} onClick={() => act(() => deleteMeeting(m.id))}>✕</button>
             </div>
-            <div style={{ fontSize: 10, color: ACC, marginTop: 5, wordBreak: "break-all",
+            <div style={{ fontSize: 10, color: ACC, marginTop: "var(--space-4)", wordBreak: "break-all",
               fontFamily: "var(--font-sans)" }}>
               {/* Ссылку собирает сервер: только он знает имя бота и
                   приложения звонка. Своя — на случай работы без сервера. */}
@@ -125,22 +125,22 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
           «Скачать» — это отправка себе в чат с ботом, и так и подписано:
           сохранить файл прямо из мини-приложения Telegram не даёт, а из
           чата он открывается и пересылается штатно. */}
-      <div style={{ ...S.card, marginTop: 10 }}>
+      <div style={{ ...S.card, marginTop: "var(--space-8)" }}>
         <div style={S.lbl}>записи</div>
-        {recs === null && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>
+        {recs === null && <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>
           Загружаю…</div>}
         {recs && !recs.length && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Записей пока нет.</div>)}
         {(recs || []).map((r) => (
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 9, marginTop: 6 }}>
+            borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginTop: "var(--space-4)" }}>
             <button aria-label={`запись ${r.name}`}
               onClick={() => {
                 setRecMsg(""); setConfirmDel("");
                 setOpenRec(openRec === r.id ? "" : r.id);
               }}
-              style={{ display: "flex", width: "100%", gap: 8, alignItems: "center",
+              style={{ display: "flex", width: "100%", gap: "var(--space-8)", alignItems: "center",
                 background: "transparent", border: 0, padding: 0, cursor: "pointer",
                 color: C.text, textAlign: "left" }}>
               <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0,
@@ -150,7 +150,7 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
                 {mb(r.size)} · {fmt(r.savedAt)}</span>
             </button>
             {openRec === r.id && (
-              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+              <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
                 <button style={btn(true, OK)} disabled={busy}
                   onClick={() => actRec(async () => {
                     const out = await sendRecording(r.id);
@@ -175,7 +175,7 @@ export default function CallsBoard({ meId, openCall, onOpenCall, nameOf }) {
                   {confirmDel === r.id ? "Удалить насовсем?" : "Удалить"}</button>
               </div>)}
           </div>))}
-        {recMsg && <div style={{ fontSize: 11.5, color: ACC, marginTop: 8, lineHeight: 1.5 }}>
+        {recMsg && <div style={{ fontSize: 11.5, color: ACC, marginTop: "var(--space-8)", lineHeight: 1.5 }}>
           {recMsg}</div>}
       </div>
     </div>);

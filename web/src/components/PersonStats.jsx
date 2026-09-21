@@ -68,7 +68,7 @@ export const SELF_HIDDEN = "Свои оценки не показываются:
 function Fig({ value, label, color }) {
   return (
     <div style={{ flex: "1 1 90px", background: C.panel2, border: `1px solid ${C.line}`,
-      borderRadius: 8, padding: "6px 8px" }}>
+      borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)" }}>
       <div style={{ fontSize: 17, fontWeight: 700, color: color || C.text }}>{value}</div>
       <div style={{ fontSize: 10, color: C.muted, lineHeight: 1.4 }}>{label}</div>
     </div>);
@@ -81,8 +81,8 @@ function Words({ list, empty }) {
   }
   return (<div>
     {list.map((c, i) => (
-      <div key={i} style={{ fontSize: 11.5, marginTop: 4, padding: "4px 7px",
-        background: C.panel2, borderRadius: 6, borderLeft: `2px solid ${C.line}`,
+      <div key={i} style={{ fontSize: 11.5, marginTop: "var(--space-4)", padding: "var(--space-4) var(--space-8)",
+        background: C.panel2, borderRadius: "var(--radius-sm)", borderLeft: `2px solid ${C.line}`,
         lineHeight: 1.5 }}>
         <span style={{ color: C.muted }}>{kindName(c.kind)}
           {c.hidden ? " · скрытый · только вам" : ""}: </span>{c.text}
@@ -118,16 +118,16 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
 
   return (<div>
     {s.self ? (
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>
+      <div style={{ marginBottom: "var(--space-8)" }}>
+        <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: "var(--space-8)" }}>
           {SELF_HIDDEN}. Здесь — отзывы о вас: скрытые и опубликованные,
           без имени.
         </div>
-        <div style={{ ...S.lbl, marginBottom: 4 }}>отзывы о вас</div>
+        <div style={{ ...S.lbl, marginBottom: "var(--space-4)" }}>отзывы о вас</div>
         <Words list={mine} empty="Отзывов о вас пока нет." />
       </div>
     ) : (<>
-      <div className="flex flex-wrap gap-2" style={{ marginBottom: 10 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginBottom: "var(--space-8)" }}>
         <Fig label={`средняя оценка · ${marks} опубликованных`}
           color={markColor(mark)}
           value={mark == null ? "—" : round1(mark)} />
@@ -140,22 +140,22 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
           value={setupMark == null ? "—" : round1(setupMark)} />
       </div>
       {!!s.pending && (
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: "var(--space-8)", lineHeight: 1.5 }}>
           Ещё {s.pending} оцен{s.pending === 1 ? "ка ждёт" : "ки ждут"} публикации:
           оценка публикуется без имени и только когда по ней нельзя узнать,
           кто её поставил.
         </div>)}
       {!!aboutSetup.length && (
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ ...S.lbl, marginBottom: 4 }}>о постановке задач</div>
+        <div style={{ marginBottom: "var(--space-8)" }}>
+          <div style={{ ...S.lbl, marginBottom: "var(--space-4)" }}>о постановке задач</div>
           <Words list={aboutSetup} empty="" />
         </div>)}
       {/* Страница, которую человек ВЕДЁТ (виртуальный сотрудник): слова,
           адресованные ей, показываются целиком — читать их больше некому.
           В строках работ они не покажутся: там зритель — посторонний. */}
       {managed && (
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ ...S.lbl, marginBottom: 4 }}>отзывы о нём</div>
+        <div style={{ marginBottom: "var(--space-8)" }}>
+          <div style={{ ...S.lbl, marginBottom: "var(--space-4)" }}>отзывы о нём</div>
           <Words list={remote?.comments || []} empty="Отзывов о нём пока нет." />
         </div>)}
     </>)}
@@ -168,10 +168,10 @@ export default function PersonStats({ tasks = [], funcs = [], personId, traitNam
       </div>
     ) : (<>
       <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase",
-        letterSpacing: 0.4, marginBottom: 4 }}>работы</div>
+        letterSpacing: 0.4, marginBottom: "var(--space-4)" }}>работы</div>
 
       {s.rows.map((r) => (
-        <div key={r.task} style={{ borderTop: `1px solid ${C.line}`, padding: "7px 0" }}>
+        <div key={r.task} style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-8) 0" }}>
           <div className="flex flex-wrap items-center gap-2">
             <span style={{ fontSize: 12.5, fontWeight: 600, flex: "1 1 140px" }}>
               {r.title || r.func}</span>

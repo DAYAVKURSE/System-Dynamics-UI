@@ -113,13 +113,13 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
     <FoldCard title={mine ? "мой рабочий график" : "рабочий график"}>
 
       {/* ─── форма 1: статус ─── */}
-      <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-        padding: 8, marginTop: 6 }} aria-label="статус">
+      <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+        padding: "var(--space-8)", marginTop: "var(--space-4)" }} aria-label="статус">
       <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase",
         letterSpacing: 0.5 }}>статус</div>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
-        margin: "4px 0 3px" }}>
-        <span style={{ width: 9, height: 9, borderRadius: 5,
+        margin: "var(--space-4) 0 var(--space-4)" }}>
+        <span style={{ width: 9, height: 9, borderRadius: "var(--radius-sm)",
           background: statusColor(live) }} />
         <span style={{ fontSize: 12.5, fontWeight: 600, color: statusColor(live) }}
           aria-label="статус сейчас">{st.name}</span>
@@ -128,12 +128,12 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
             : work ? "· по графику сейчас рабочее время" : "· по графику сейчас нерабочее время"}</span>
       </div>
       {mine ? (<>
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 5 }}>
+        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
           {WORK_STATUSES.map((x) => (
             <button key={x.id} aria-label={`статус: ${x.name}`} aria-pressed={sc.status === x.id}
               style={{ ...btn(sc.status === x.id,
                 sc.status === x.id ? statusColor(x.id) : null),
-              fontSize: 11, padding: "4px 8px" }}
+              fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
               /* Метка момента: выбор приоритетнее графика до следующей
                  смены по нему (lib/workers.js, liveStatus). */
               onClick={() => setDraft((p) => ({ ...p, status: x.id,
@@ -144,12 +144,12 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
       </div>
 
       {/* ─── форма 2: рабочие дни и часы ─── */}
-      <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-        padding: 8, marginTop: 8 }} aria-label="рабочие дни и часы">
+      <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+        padding: "var(--space-8)", marginTop: "var(--space-8)" }} aria-label="рабочие дни и часы">
       <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase",
         letterSpacing: 0.5 }}>рабочие дни</div>
       {mine ? (<>
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
           {WEEK.map((d) => {
             const on = sc.days.includes(d.id);
             const edit = set.includes(d.id);
@@ -160,7 +160,7 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
               <button key={d.id} aria-label={`рабочий день ${d.short}`}
                 aria-pressed={on}
                 style={{ ...btn(on, edit ? WARN : null), fontSize: 11,
-                  padding: "4px 8px", touchAction: "manipulation",
+                  padding: "var(--space-4) var(--space-8)", touchAction: "manipulation",
                   ...(edit ? { color: WARN, borderColor: WARN } : {}),
                   ...(view ? { outline: `2px solid ${ACC}`, outlineOffset: 1 } : {}) }}
                 onClick={() => tap(d.id)}
@@ -168,18 +168,18 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
           })}
         </div>
       </>) : (
-        <div style={{ fontSize: 12, marginTop: 4,
+        <div style={{ fontSize: 12, marginTop: "var(--space-4)",
           color: sc.days.length ? C.text : C.muted }}>
           {sc.days.length
             ? scheduleText({ ...sc, from: "", to: "", perDay: {} }, WEEK)
             : "дни не названы"}</div>)}
 
       {/* ─── часы ─── */}
-      <div style={{ ...S.lbl, marginTop: 10 }}>время работы</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>время работы</div>
       {mine ? (<>
         {set.length > 0 && (
           <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
-            fontSize: 11, color: WARN, marginTop: 4, lineHeight: 1.5 }}>
+            fontSize: 11, color: WARN, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
             <span>Правятся только: {names(set)}</span>
             <label className="flex items-center gap-1" style={{ color: C.text, cursor: "pointer" }}>
               <input type="checkbox" aria-label="рабочие дни" checked={allOn}
@@ -188,13 +188,13 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
             </label>
           </div>)}
         {readOnly && (
-          <div style={{ fontSize: 11, color: ACC, marginTop: 4, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: ACC, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
             {sc.days.includes(viewed)
               ? `Часы для: ${names([viewed])} — только просмотр; править — двойным нажатием`
               : `${names([viewed])} — выходной`}
           </div>)}
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center",
-          marginTop: 4 }}>
+          marginTop: "var(--space-4)" }}>
           <span style={{ fontSize: 11.5, color: C.muted }}>с</span>
           <input type="time" aria-label="работаю с" value={shown.from}
             disabled={readOnly || (set.length > 0 && !allOn)}
@@ -207,20 +207,20 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
             onChange={(e) => setHours("to", e.target.value)} />
         </div>
         {set.length > 0 && (
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: "var(--space-4)" }}>
             <button aria-label="принять: часы дня"
-              style={{ ...btn(true, WARN), fontSize: 11, padding: "3px 10px" }}
+              style={{ ...btn(true, WARN), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
               onClick={accept}>Принять</button>
             {!allOn && (
-              <span style={{ fontSize: 10.5, color: C.muted, marginLeft: 8 }}>
+              <span style={{ fontSize: 10.5, color: C.muted, marginLeft: "var(--space-8)" }}>
                 выходной — часов нет; отметьте «рабочие дни», чтобы задать</span>)}
           </div>)}
         {set.length === 0 && Object.keys(sc.perDay).length > 0 && (
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
             Свои часы у: {names(Object.keys(sc.perDay).map(Number))}.
           </div>)}
       </>) : (
-        <div style={{ fontSize: 12, marginTop: 4,
+        <div style={{ fontSize: 12, marginTop: "var(--space-4)",
           color: sc.from || sc.to ? C.text : C.muted }}>
           {sc.from || sc.to
             ? scheduleText({ ...sc, days: [] }, WEEK) : "часы не названы"}</div>)}
@@ -229,7 +229,7 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
 
       {/* Пусто — это ответ «не названо», а не «все дни и круглые сутки»:
           дописать человеку семидневку за него нельзя. */}
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
         {hasSchedule(sc)
           ? `Работает: ${scheduleText(sc, WEEK)}.`
           : (mine
@@ -240,7 +240,7 @@ function Schedule({ mine, draft, setDraft, msg = "" }) {
           Кнопки «Сохранить» у этой карточки нет, и человеку надо видеть,
           что нажатие дошло, — или что не дошло и почему. */}
       {mine && (
-        <div aria-live="polite" style={{ fontSize: 10.5, marginTop: 4, lineHeight: 1.5,
+        <div aria-live="polite" style={{ fontSize: 10.5, marginTop: "var(--space-4)", lineHeight: 1.5,
           color: msg && msg !== SCHEDULE_SAVED && msg !== SCHEDULE_SAVING ? WARN : C.muted }}>
           {msg || "Дни, часы и статус сохраняются сами, при каждом нажатии."}
         </div>)}
@@ -358,7 +358,7 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
   });
   return (
     <FoldCard title={mine ? "мои выполняемые задачи" : "выполняемые задачи"}>
-      <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, margin: "6px 0 8px" }}>
+      <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, margin: "var(--space-4) 0 var(--space-8)" }}>
         {mine
           ? "Здесь то, в чём вас выбрали. Выбрать себе работу нельзя — только отказаться."
           : "То, в чём человека выбрали на схемах."}
@@ -371,13 +371,13 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
       {/* Каждое поручение — своей рамкой (владелец, 2026-09-13): в списке
           строк глазу не за что зацепиться, а рамка говорит «вот одно». */}
       {byAsset.map((g) => (
-        <div key={g.id} style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>{g.name}</div>
+        <div key={g.id} style={{ marginBottom: "var(--space-8)" }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: "var(--space-4)" }}>{g.name}</div>
           {g.items.map((d) => (
             <div key={d.func} className="flex flex-wrap gap-2" data-duty={d.func}
-              style={{ alignItems: "center", padding: "6px 8px", marginBottom: 6,
+              style={{ alignItems: "center", padding: "var(--space-4) var(--space-8)", marginBottom: "var(--space-4)",
                 background: C.panel2, border: `1px solid ${d.off ? DANGER_LINE : C.line}`,
-                borderRadius: 8 }}>
+                borderRadius: "var(--radius-sm)" }}>
               <span style={{ fontSize: 12, fontWeight: 600,
                 textDecoration: d.off ? "line-through" : "none",
                 color: d.off ? C.muted : C.text }}>{d.name}</span>
@@ -389,13 +389,13 @@ function Duty({ mine, list, busy, msg, onRefuse }) {
                 <button disabled={busy}
                   aria-label={`${d.off ? "вернуть" : "отказаться"}: ${d.name}`}
                   style={{ ...btn(d.off, d.off ? null : BAD), fontSize: 11,
-                    padding: "2px 8px" }}
+                    padding: "0 var(--space-8)" }}
                   onClick={() => onRefuse(d.func, !d.off)}>
                   {d.off ? "Вернуть" : "Отказаться"}</button>)}
             </div>))}
         </div>))}
 
-      {msg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 11, color: WARN, marginTop: "var(--space-4)" }}>{msg}</div>}
     </FoldCard>);
 }
 
@@ -410,10 +410,10 @@ export function AvatarModal({ src, name, mine, busy, msg, onPick, onDrop, onClos
   const file = useRef(null);
   return (
     <Modal title={name || "лицо"} onClose={onClose}>
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: "var(--space-8)" }}>
         {src ? (
           <img src={src} alt="" aria-label={`лицо крупно: ${name || "—"}`}
-            style={{ maxWidth: "100%", maxHeight: "46dvh", borderRadius: 12,
+            style={{ maxWidth: "100%", maxHeight: "46dvh", borderRadius: "var(--radius-sm)",
               display: "block", objectFit: "contain" }} />
         ) : (
           <div aria-label="лица нет"
@@ -437,7 +437,7 @@ export function AvatarModal({ src, name, mine, busy, msg, onPick, onDrop, onClos
             onClick={() => onDrop?.()}>Удалить</button>
         </div>)}
       {msg && (
-        <div role="status" style={{ fontSize: 11, color: BAD, marginTop: 8,
+        <div role="status" style={{ fontSize: 11, color: BAD, marginTop: "var(--space-8)",
           textAlign: "center" }}>{msg}</div>)}
     </Modal>);
 }
@@ -677,7 +677,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
       {/* Имя — шапкой страницы, а не внутри анкеты: анкеты может не быть.
           Своё имя правится здесь же, карандашом справа (владелец,
           2026-09-20): названное здесь имя приложение показывает везде. */}
-      <div className="flex items-center gap-2" style={{ margin: "2px 0 8px" }}>
+      <div className="flex items-center gap-2" style={{ margin: "0 0 var(--space-8)" }}>
         {/* Кружок с лицом — ПЕРЕД именем (владелец, 2026-09-20). Нажатие
             открывает саму картинку; своя правится там же. */}
         {/* Незнакомый автор с «Рынка услуг»: вместо лица — знак
@@ -687,7 +687,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           title={anon ? "лицо скрыто" : mine ? "ваше лицо" : `лицо: ${name || "—"}`} />
         {naming ? (
           <input autoFocus aria-label="имя" defaultValue={name}
-            style={{ ...S.inp, flex: 1, fontSize: 15, fontWeight: 700, padding: "3px 6px" }}
+            style={{ ...S.inp, flex: 1, fontSize: 15, fontWeight: 700, padding: "var(--space-4) var(--space-4)" }}
             onBlur={(e) => rename(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") e.currentTarget.blur();
@@ -698,11 +698,11 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
           {mine && (
             <button type="button" aria-label="изменить имя" title="Изменить имя"
               disabled={busy} onClick={() => { setNaming(true); setMsg(""); }}
-              style={{ ...btn(false), fontSize: 12, padding: "2px 7px" }}>✎</button>)}
+              style={{ ...btn(false), fontSize: 12, padding: "0 var(--space-8)" }}>✎</button>)}
         </>)}
       </div>
       {nameMsg && (
-        <div style={{ fontSize: 11, color: BAD, marginBottom: 6 }}>{nameMsg}</div>)}
+        <div style={{ fontSize: 11, color: BAD, marginBottom: "var(--space-4)" }}>{nameMsg}</div>)}
       {faceOpen && (
         <AvatarModal src={face} name={name} mine={mine} busy={faceBusy} msg={faceMsg}
           onPick={pickFace} onDrop={dropFace}
@@ -716,7 +716,7 @@ export default function ProfilePanel({ me, personId, people = [], tasks = [], fu
       {!!forms.length && (
         <FoldCard title={mine ? "моя анкета" : "анкета"}>
           <div aria-label="вопросы анкеты"
-            style={{ maxHeight: "55vh", overflowY: "auto", paddingRight: 4, marginBottom: 8 }}>
+            style={{ maxHeight: "55vh", overflowY: "auto", paddingRight: "var(--space-4)", marginBottom: "var(--space-8)" }}>
             <FormAnswers forms={forms} answers={answersOf(draft)} mine={mine}
               onChange={(a) => change((p) => ({ ...p, answers: a }))} />
           </div>
@@ -797,21 +797,21 @@ export function ReminderList({ known }) {
   };
   if (!known) return null;
   return (
-    <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 8,
-      marginTop: 8 }} aria-label="список напоминаний">
+    <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)",
+      marginTop: "var(--space-8)" }} aria-label="список напоминаний">
       <div className="flex items-center gap-2">
         <span style={{ ...S.lbl, flex: 1 }}>список напоминаний</span>
-        <button type="button" style={{ ...btn(false), fontSize: 11, padding: "2px 8px" }} onClick={load}>
+        <button type="button" style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)" }} onClick={load}>
           Обновить</button>
       </div>
-      {list === null && !err && <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Загружаю…</div>}
-      {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: 4 }}>{err}</div>}
+      {list === null && !err && <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>Загружаю…</div>}
+      {err && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
       {list && !list.length && (
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Напоминаний нет.</div>)}
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>Напоминаний нет.</div>)}
       {(list || []).map((r) => (
         <div key={r.id} aria-label={`напоминание ${r.id}`}
           style={{ background: C.panel, border: `1px solid ${r.hanging ? WARN : C.line}`,
-            borderRadius: 8, padding: 8, marginTop: 6 }}>
+            borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginTop: "var(--space-4)" }}>
           <Field label="задача">{r.title}</Field>
           <Field label="напоминание">{KIND_WORD[r.kind] || r.kind}</Field>
           {r.end && <Field label="срок">{String(r.end).replace("T", " ")}</Field>}
@@ -829,7 +829,7 @@ export function ReminderList({ known }) {
           <button type="button" disabled={busy === r.id}
             aria-label={`удалить напоминание ${r.title}`}
             style={{ ...btn(true, BAD), fontSize: 11,
-              padding: "3px 9px", marginTop: 6 }}
+              padding: "var(--space-4) var(--space-8)", marginTop: "var(--space-4)" }}
             onClick={() => drop(r.id)}>{busy === r.id ? "Удаляю…" : "Удалить"}</button>
         </div>))}
     </div>);
@@ -864,7 +864,7 @@ export function RemindersCard({ me, onSaved }) {
           <span style={{ fontSize: 11, color: msg === "Сохранено." ? OK : WARN }}>{msg}</span>)}
       </div>
       {!known && (
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           Без сервера напоминаний нет: боту некуда слать, и выбирать здесь нечего.
         </div>)}
       <ReminderList known={known} />

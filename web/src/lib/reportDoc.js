@@ -598,7 +598,7 @@ export function reportHtml(doc, { traitName, funcName, personName, title } = {})
   /* Календарная линейка под таймлайном: по ней и читают, когда что. */
   .ax{position:relative;height:16px;margin:2px 0 8px}
   .ax span{position:absolute;top:0;font-size:10px;color:#555;white-space:nowrap}
-  @media print{body{padding:0} .b{break-inside:avoid}}
+  @media print{body{padding: 0} .b{break-inside:avoid}}
 </style></head><body>
 <h1>${esc(title || doc?.node?.name || "Отчёт")}</h1>
 <p class="m">${esc((doc?.path || []).join(" → "))} · собран ${esc(fmtDT(new Date().toISOString()))}</p>

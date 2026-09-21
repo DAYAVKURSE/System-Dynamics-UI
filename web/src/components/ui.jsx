@@ -209,7 +209,7 @@ export function Stars({value=0,onPick,label="оценка"}){
         <button key={n} type="button" role="radio" aria-checked={n===Number(value)}
           aria-label={`оценка ${n}`} disabled={!onPick}
           onClick={()=>onPick?.(n)}
-          style={{background:"none",border:"none",padding:"0 1px",lineHeight:1,
+          style={{background:"none",border:"none",padding: "0 0",lineHeight:1,
             fontSize:24,cursor:onPick?"pointer":"default",
             color:n<=Number(value)?WARN:NEU}}>★</button>))}
     </div>);
@@ -220,10 +220,10 @@ export function Grip({label,bind,style}){
   return (
     <span data-drag="" role="button" tabIndex={0} aria-label={label} {...bind}
       style={{display:"inline-flex",flexDirection:"column",justifyContent:"center",
-        gap:2,padding:"3px 2px",cursor:"grab",touchAction:"none",flex:"0 0 auto",
+        gap: 0,padding: "var(--space-4) 0",cursor:"grab",touchAction:"none",flex:"0 0 auto",
         ...style}}>
       {[0,1,2].map(i=>(
-        <span key={i} style={{width:12,height:2,borderRadius:1,background:C.muted}}/>))}
+        <span key={i} style={{width:12,height:2,borderRadius: "var(--radius-sm)",background:C.muted}}/>))}
     </span>);
 }
 
@@ -234,8 +234,9 @@ export const S = {
   /* Поле ввода — мелкий элемент, значит `radius-sm` и стекло потише: оно
      лежит ВНУТРИ панели, и спорить с ней материалом ему незачем. */
   inp: { background: "var(--surface-glass)", border: "1px solid var(--border-glass)",
-    color: C.text, borderRadius: "var(--radius-sm)", padding: "9px 12px",
-    fontSize: 14, lineHeight: "20px", width: "100%", fontFamily: "var(--font-sans)",
+    color: C.text, borderRadius: "var(--radius-sm)",
+    padding: "var(--space-8) var(--space-12)", fontSize: 14, lineHeight: "20px",
+    width: "100%", fontFamily: "var(--font-sans)",
     outline: "none" },
   /* Надзаголовок — `eyebrow`: капс с разрядкой, самый тихий читаемый цвет. */
   lbl: { color: C.muted, fontSize: 11.5, lineHeight: "14px", fontWeight: 700,
@@ -259,15 +260,15 @@ export const S = {
    ни цветом, ни порядком. */
 export function DiffBoxes({ added = [], changed = [], removed = [], item, gap = 6 }) {
   const box = (sign, list, color, label) => (
-    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: 8,
-      padding: "4px 8px 8px", margin: 0, minWidth: 0 }}>
-      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 4px" }}>{sign}</legend>
+    <fieldset aria-label={label} style={{ border: `1px solid ${color}`, borderRadius: "var(--radius-sm)",
+      padding: "var(--space-4) var(--space-8) var(--space-8)", margin: 0, minWidth: 0 }}>
+      <legend style={{ color, fontWeight: 700, fontSize: 12, padding: "0 var(--space-4)" }}>{sign}</legend>
       {!list.length && <div style={{ fontSize: 11, color: C.muted }}>ничего</div>}
       {list.map((x, i) => (
         <div key={i} style={{ marginTop: i ? gap : 0, minWidth: 0 }}>{item(x, sign)}</div>))}
     </fieldset>);
   return (
-    <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+    <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
       <div style={{ flex: "1 1 200px", minWidth: 0 }}>{box("+", added, OK, "добавлено")}</div>
       <div style={{ flex: "1 1 200px", minWidth: 0 }}>{box("±", changed, WARN, "заменено")}</div>
       <div style={{ flex: "1 1 200px", minWidth: 0 }}>{box("−", removed, BAD, "убрано")}</div>
@@ -348,21 +349,21 @@ export function ScrollRail({ target, label = "прокрутка", step = 200 })
   const arrow = (dir, on) => (
     <button type="button" aria-label={dir < 0 ? "левее" : "правее"} disabled={!on}
       onClick={() => go(st.left + dir * step)}
-      style={{ background: "transparent", border: "none", padding: "2px 4px", cursor: on ? "pointer" : "default",
+      style={{ background: "transparent", border: "none", padding: "0 var(--space-4)", cursor: on ? "pointer" : "default",
         color: on ? ACC : C.muted, fontSize: 14, lineHeight: 1, opacity: on ? 1 : 0.35 }}>
       {dir < 0 ? "‹" : "›"}
     </button>);
   return (
-    <div className="flex items-center" style={{ gap: 4, margin: "0 2px 6px" }} data-noswipe="">
+    <div className="flex items-center" style={{ gap: "var(--space-4)", margin: "0 0 var(--space-4)" }} data-noswipe="">
       {arrow(-1, canL)}
       <div ref={track} role="scrollbar" aria-label={label} aria-orientation="horizontal"
         aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(st.frac * 100)}
         onPointerDown={onTrack}
         style={{ flex: 1, height: 12, display: "flex", alignItems: "center", cursor: "pointer", touchAction: "none" }}>
-        <div style={{ position: "relative", width: "100%", height: 3, borderRadius: 2, background: C.line }}>
+        <div style={{ position: "relative", width: "100%", height: 3, borderRadius: "var(--radius-sm)", background: C.line }}>
           <div aria-label="бегунок" onPointerDown={onThumbDown} onPointerMove={onThumbMove}
             onPointerUp={onThumbUp} onPointerCancel={onThumbUp}
-            style={{ position: "absolute", top: -2, height: 7, borderRadius: 4, background: ACC,
+            style={{ position: "absolute", top: -2, height: 7, borderRadius: "var(--radius-sm)", background: ACC,
               left: `${st.frac * (1 - st.size) * 100}%`, width: `${Math.max(st.size * 100, 8)}%`,
               boxShadow: `0 0 0 1px ${C.ink}`, transition: drag.current ? "none" : "left .12s" }} />
         </div>
@@ -377,7 +378,7 @@ export function ScrollRail({ target, label = "прокрутка", step = 200 })
 export function FoldCard({ title, children, aria, open: open0 = true }) {
   const [open, setOpen] = useState(open0);
   return (
-    <div style={{ ...S.card, marginBottom: 10 }}>
+    <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
       <button type="button" aria-expanded={open} aria-label={aria || title}
         onClick={() => setOpen((v) => !v)} className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", padding: 0,
@@ -415,8 +416,17 @@ export function durText(h){
    Опасное действие тонируют, но сплошным не делают никогда: отказ не
    должен визуально перевешивать основной поток. */
 export const btn = (on, col, { solid = false } = {}) => {
-  const base = { borderRadius: "var(--radius-md)", padding: "10px 18px",
-    fontSize: 14, lineHeight: "20px", fontWeight: 600, fontFamily: "var(--font-sans)",
+  /* РАЗМЕР — НА ТРЕТЬ МЕНЬШЕ (владелец, 2026-09-21). Было 42px высоты
+     (10+20+10+рамка), стало 28: `space-4` по вертикали, `space-12` по
+     горизонтали и `label-sm` вместо `label-md`. Оба отступа — со шкалы
+     сетки, а не подобраны на глаз.
+
+     28px — это меньше 44px, которые обычно просят для пальца. Здесь так
+     и задумано: кнопок в форме много, и высота каждой решает, помещается
+     ли форма на экран. */
+  const base = { borderRadius: "var(--radius-md)",
+    padding: "var(--space-4) var(--space-12)", minHeight: "var(--control-h)",
+    fontSize: 13, lineHeight: "18px", fontWeight: 600, fontFamily: "var(--font-sans)",
     cursor: "pointer", whiteSpace: "nowrap",
     transition: "background .15s ease, border-color .15s ease, box-shadow .15s ease" };
   if (solid) {
@@ -476,7 +486,8 @@ export function IconButton({ icon, label, title, onClick, disabled, on = false, 
   return (
     <button type="button" aria-label={label} title={title || label} onClick={onClick}
       disabled={disabled}
-      style={{ width: 30, height: 30, borderRadius: "var(--radius-pill)",
+      style={{ width: "var(--control-h)", height: "var(--control-h)",
+        borderRadius: "var(--radius-pill)",
         display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
         background: t ? t.bg : "var(--surface-glass)",
         border: `1px solid ${t ? t.line : "var(--border-glass)"}`,
@@ -518,7 +529,7 @@ export const BRAND_FONT = "var(--font-sans)";
 export const TAB_LINE = {
   ...glass("lg"),
   borderRadius: "var(--radius-lg)",
-  padding: "8px 12px",
+  padding: "var(--space-8) var(--space-12)",
 };
 export const tab = (on) => {
   const t = tintOf(OK);
@@ -529,7 +540,8 @@ export const tab = (on) => {
     color: on ? t.text : C.muted,
     boxShadow: on ? t.glow : "none",
     fontWeight: 600, fontSize: 13, lineHeight: "18px",
-    padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap",
+    padding: "var(--space-4) var(--space-12)", minHeight: "var(--control-h)",
+    cursor: "pointer", whiteSpace: "nowrap",
     fontFamily: "var(--font-sans)",
     transition: "background .15s ease, color .15s ease",
   };
@@ -570,7 +582,7 @@ export function NameField({value="",onCommit,aria,placeholder="без назва
   };
   if(edit) return (
     <input autoFocus aria-label={aria} defaultValue={value} placeholder={placeholder}
-      {...rest} style={{...S.inp,flex:1,minWidth:0,padding:"4px 6px",...style}}
+      {...rest} style={{...S.inp,flex:1,minWidth:0,padding: "var(--space-4) var(--space-4)",...style}}
       onBlur={e=>stop(e.target.value)}
       onKeyDown={e=>{ if(e.key==="Enter") e.currentTarget.blur();
         if(e.key==="Escape") setEdit(false); }}/>);
@@ -614,18 +626,18 @@ export function TimeBar({ task, func }) {
   const left = timeLeft(task);
   if (!left) {
     return (
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: "var(--space-4)" }}>
         до конца срока: срок не назначен</div>);
   }
   const text = left.left > 0 ? leftInUnit(left.left, func?.durUnit) : "срок прошёл";
   const color = left.tone === "bad" ? BAD : left.tone === "warn" ? WARN : OK;
   return (
-    <div style={{ marginBottom: 8 }} aria-label={`до конца срока: ${text}`} data-tone={left.tone}>
-      <div style={{ fontSize: 11, color, marginBottom: 3 }}>до конца срока: {text}</div>
-      <div style={{ height: 6, borderRadius: 3, background: C.ink, border: `1px solid ${C.line}`,
+    <div style={{ marginBottom: "var(--space-8)" }} aria-label={`до конца срока: ${text}`} data-tone={left.tone}>
+      <div style={{ fontSize: 11, color, marginBottom: "var(--space-4)" }}>до конца срока: {text}</div>
+      <div style={{ height: 6, borderRadius: "var(--radius-sm)", background: C.ink, border: `1px solid ${C.line}`,
         overflow: "hidden" }}>
         <div data-bar="" style={{ width: `${Math.round(left.share * 100)}%`, height: "100%",
-          background: color, borderRadius: 3 }} />
+          background: color, borderRadius: "var(--radius-sm)" }} />
       </div>
     </div>);
 }

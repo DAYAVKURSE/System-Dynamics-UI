@@ -102,16 +102,16 @@ function Delete({ t, can, killId, setKillId, onKill, isOwner = false }) {
         <span style={{ fontSize: 10.5, color: BAD }}>
           {killStarted(t) ? "удалить вместе со сдачами, оценками и выданными единицами?"
             : "удалить насовсем?"}</span>
-        <button style={{ ...btn(true, BAD), padding: "2px 8px", fontSize: 10.5 }}
+        <button style={{ ...btn(true, BAD), padding: "0 var(--space-8)", fontSize: 10.5 }}
           aria-label={`да, удалить ${t.title}`}
           onClick={(e) => { e.stopPropagation(); onKill(t); }}>Да</button>
-        <button style={{ ...btn(false), padding: "2px 8px", fontSize: 10.5 }}
+        <button style={{ ...btn(false), padding: "0 var(--space-8)", fontSize: 10.5 }}
           aria-label={`оставить ${t.title}`}
           onClick={(e) => { e.stopPropagation(); setKillId(null); }}>Оставить</button>
       </span>);
   }
   return (
-    <button style={{ ...btn(false), padding: "2px 8px", fontSize: 10.5, color: BAD,
+    <button style={{ ...btn(false), padding: "0 var(--space-8)", fontSize: 10.5, color: BAD,
       borderColor: DANGER_LINE }}
       aria-label={`удалить задачу ${t.title}`}
       onClick={(e) => { e.stopPropagation(); setKillId(t.id); }}>Удалить</button>);
@@ -129,11 +129,11 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
     const f = funcs.find((x) => x.id === t.funcId) || null;
     const st = STATUSES.find((s) => s.id === t.status);
     return (
-      <div style={{ ...S.card, marginBottom: 8, opacity: dim ? 0.65 : 1,
+      <div style={{ ...S.card, marginBottom: "var(--space-8)", opacity: dim ? 0.65 : 1,
         borderColor: on ? ACC : C.line }}>
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center", cursor: "pointer" }}
           onClick={() => { setOpenId(on ? null : t.id); setNote(""); }}>
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: st?.color || C.muted }} />
+          <span style={{ width: 8, height: 8, borderRadius: "var(--radius-sm)", background: st?.color || C.muted }} />
           <span style={{ fontSize: 13, fontWeight: 600, flex: "1 1 140px" }}>{t.title}</span>
           {sub && <span style={{ fontSize: 11, color: OK }}>
             сдано за {nm(sub.hours)} ч</span>}
@@ -141,19 +141,19 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
           {/* Обсуждение — на самой плашке (владелец, 2026-09-20): чтобы
               увидеть непрочитанное, задачу не надо раскрывать. */}
           <ChatButton task={t} role={chatRoleAt(t, "review")} onOpen={onChat}
-            style={{ padding: "2px 8px", fontSize: 10.5 }} />
+            style={{ padding: "0 var(--space-8)", fontSize: 10.5 }} />
           <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
         </div>
 
         {on && (
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: "var(--space-8)" }}>
             {/* Каждое поле — своей строкой и со своим названием (владелец,
                 2026-09-20: «всё должно быть написано через двоеточие:
                 название поля, двоеточие, текст, и каждое новое поле должно
                 быть на новой строке»). Прежде строка шла через «·», а
                 описание и содержимое лежали безымянным текстом — что это,
                 человек угадывал. */}
-            <div aria-label="поля задачи" style={{ marginBottom: 6 }}>
+            <div aria-label="поля задачи" style={{ marginBottom: "var(--space-4)" }}>
               <Row label="функция">{f ? funcLabel(f, entities) : "не назначена"}</Row>
               <Row label="поставил">{nameOf ? nameOf(roleOf(t, "setter")) : (roleOf(t, "setter") || "не назначен")}</Row>
               <Row label="исполнитель">
@@ -163,7 +163,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
                 {(f?.checks || []).length ? "" : "не поставлены"}</Row>
               {!!(f?.checks || []).length && (
                 <ul aria-label="критерии проверки"
-                  style={{ margin: "0 0 2px", paddingLeft: 18, fontSize: 11.5, lineHeight: 1.6 }}>
+                  style={{ margin: "0 0 0", paddingLeft: "var(--space-16)", fontSize: 11.5, lineHeight: 1.6 }}>
                   {f.checks.map((c, i) => (<li key={`${i}:${c}`}>{c}</li>))}
                 </ul>)}
               {/* Даты на месте прежнего «Сдачи ещё не было» (владелец,
@@ -181,15 +181,15 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
                 Чисел «взято: заявки 2» тут больше нет — есть сами вещи. */}
             {(t.submissions || []).map((sb) => (
               <div key={sb.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
-                borderRadius: 8, padding: 8, marginBottom: 6 }}>
+                borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)" }}>
                 <div className="flex items-center gap-2">
                   <span style={{ fontSize: 12, fontWeight: 600, color: OK, flex: 1 }}>
                     ушло {nm(sb.hours)} ч</span>
                   <span style={{ fontSize: 10, color: C.muted }}>{fmtDT(sb.at)}</span>
                 </div>
                 {!!String(sb.text || "").trim() && (<>
-                  <div style={{ ...S.lbl, marginTop: 6 }}>отчёт</div>
-                  <div style={{ fontSize: 11.5, marginTop: 2, lineHeight: 1.5,
+                  <div style={{ ...S.lbl, marginTop: "var(--space-4)" }}>отчёт</div>
+                  <div style={{ fontSize: 11.5, marginTop: 0, lineHeight: 1.5,
                     whiteSpace: "pre-wrap" }}>{sb.text}</div>
                 </>)}
                 {/* Материалы сдачи — вещами, а не числом: что взяли и что
@@ -201,11 +201,11 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
                   const given = givenUnits(units, t, sb);
                   const one = (list) => (list[0] ? unitName(list[0].trait) : "ед.");
                   return (
-                    <div style={{ marginTop: 6 }}>
+                    <div style={{ marginTop: "var(--space-4)" }}>
                       <div style={S.lbl}>материалы</div>
-                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>взято</div>
+                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)" }}>взято</div>
                       <MatList units={took} unitName={one(took)} label="взято" />
-                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6 }}>выдано</div>
+                      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)" }}>выдано</div>
                       <MatList units={given} unitName={one(given)} label="выдано" />
                     </div>);
                 })()}
@@ -214,7 +214,7 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
             {/* Оценка — исполнителю, своей кнопкой и своим окном
                 (владелец, 2026-09-20). Приём работы ею больше не держится:
                 принять можно молча, вернуть — с текстом доработки. */}
-            <div className="flex flex-wrap gap-2" style={{ marginBottom: 8 }}>
+            <div className="flex flex-wrap gap-2" style={{ marginBottom: "var(--space-8)" }}>
               <RateButton task={t} meId={meId} to={t.assignee} onOpen={onRate} ro={ro} />
             </div>
 
@@ -223,13 +223,13 @@ function Card({ t, dim, openId, setOpenId, note, setNote,
             {t.status === "review" && !ro && (
               <>
                 {sub && inTime(t, sub) != null && (
-                  <div style={{ fontSize: 10.5, marginBottom: 6,
+                  <div style={{ fontSize: 10.5, marginBottom: "var(--space-4)",
                     color: inTime(t, sub) ? OK : BAD }}>
                     {inTime(t, sub) ? "сдано в срок" : "сдано после срока"}</div>)}
                 <input value={note} placeholder="что доработать — при возврате обязательно"
                   aria-label="что доработать"
                   onChange={(e) => setNote(e.target.value)}
-                  style={{ ...S.inp, marginBottom: 6 }} />
+                  style={{ ...S.inp, marginBottom: "var(--space-4)" }} />
                 <div className="flex flex-wrap gap-2">
                   <button style={btn(true, OK)}
                     onClick={() => { onAccept(t, note); setNote(""); setOpenId(null); }}>
@@ -326,13 +326,13 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
     setSetupId(t.id);
   };
   const recallRow = (t) => (recallable(t) ? (
-    <div className="flex gap-2" style={{ alignItems: "center", marginTop: 8 }}>
+    <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
       <span style={{ flex: 1 }} />
-      <button style={{ ...btn(false), padding: "2px 8px", fontSize: 10.5 }}
+      <button style={{ ...btn(false), padding: "0 var(--space-8)", fontSize: 10.5 }}
         aria-label={`отозвать задачу ${t.title}`}
         onClick={(e) => { e.stopPropagation(); recall(t); }}>Отозвать</button>
     </div>) : null);
-  const killRow = (t, style = { marginTop: 8 }) => (canKill(t, { isOwner }) ? (
+  const killRow = (t, style = { marginTop: "var(--space-8)" }) => (canKill(t, { isOwner }) ? (
     <div className="flex gap-2" style={{ alignItems: "center", ...style }}>
       <span style={{ flex: 1 }} />
       <Delete t={t} can={killStarted(t) ? isOwner : canDelete} isOwner={isOwner}
@@ -382,14 +382,14 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
     <div>
       {/* Сперва то, что ещё не поручено: непоставленная задача — это работа,
           которой пока нет, и она важнее уже сделанной. */}
-      <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         <div className="flex items-center gap-2">
           <span style={S.lbl}>ждут постановки</span>
           <span style={{ fontSize: 10.5, color: toSet.length ? WARN : C.muted }}>
             {toSet.length}</span>
         </div>
         {!toSet.length && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Ничего не ждёт постановки.
           </div>)}
         {/* Форма постановки раскрывается ПОД своей задачей, а не общим
@@ -404,8 +404,8 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                (владелец, 2026-09-19): полоска разделяла задачи, но не
                показывала, где одна кончается и начинается другая. */
             <div key={t.id} style={{ background: C.panel2,
-              border: `1px solid ${on ? ACC : C.line}`, borderRadius: 8,
-              padding: 8, marginTop: 8 }}>
+              border: `1px solid ${on ? ACC : C.line}`, borderRadius: "var(--radius-sm)",
+              padding: "var(--space-8)", marginTop: "var(--space-8)" }}>
               <div className="flex flex-wrap gap-2"
                 style={{ alignItems: "center", cursor: "pointer" }}
                 onClick={() => setSetupId(on ? null : t.id)}>
@@ -417,7 +417,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                 {/* Кнопка есть и здесь — неактивная: обсуждение
                     открывается, когда задачу поставят. */}
                 <ChatButton task={t} role={chatRoleAt(t, "review")} onOpen={openChat}
-                  style={{ padding: "2px 8px", fontSize: 10.5 }} />
+                  style={{ padding: "0 var(--space-8)", fontSize: 10.5 }} />
                 <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
               </div>
               {on && setup && !ro && (
@@ -437,13 +437,13 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
                   удаляют, глядя на задачу, а не пробегая по заголовкам. В
                   строке кнопка стояла на пути к «развернуть» и удаляла то,
                   что ещё не открыли. */}
-              {on && killRow(t, { margin: "0 0 10px" })}
+              {on && killRow(t, { margin: "0 0 var(--space-8)" })}
             </div>);
         })}
       </div>
 
       {!waiting.length && (
-        <div style={{ ...S.card, marginBottom: 10, fontSize: 12, color: C.muted }}>
+        <div style={{ ...S.card, marginBottom: "var(--space-8)", fontSize: 12, color: C.muted }}>
           Ничего не ждёт проверки.</div>)}
       {waiting.map((t) => <Card key={t.id} t={t} openId={openId} setOpenId={setOpenId}
         note={note} setNote={setNote} meId={meId}
@@ -453,7 +453,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
 
       {restGroups.filter((g) => g.rows.length).map((g) => (
         <React.Fragment key={g.id}>
-          <div className="flex items-center gap-2" style={{ margin: "12px 0 6px" }}>
+          <div className="flex items-center gap-2" style={{ margin: "var(--space-12) 0 var(--space-4)" }}>
             <span style={S.lbl}>{g.title}</span>
             <span style={{ fontSize: 10.5, color: g.color }}>{g.rows.length}</span>
           </div>
@@ -471,7 +471,7 @@ export default function ReviewBoard({ tasks = [], traits = [], entities = [], fu
           Принял работу этот человек — ему и видеть результат. */}
       {!!done.length && (
         <>
-          <div className="flex items-center gap-2" style={{ margin: "12px 0 6px" }}>
+          <div className="flex items-center gap-2" style={{ margin: "var(--space-12) 0 var(--space-4)" }}>
             <span style={S.lbl}>готовые</span>
             <span style={{ fontSize: 10.5, color: OK }}>{done.length}</span>
           </div>

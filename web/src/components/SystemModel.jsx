@@ -444,13 +444,13 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
     <div ref={box} data-scheme-box="" data-live={live?"1":"0"}
       onPointerDownCapture={armTouch} onPointerUp={armEnd} onPointerCancel={()=>{tap.current=null;}}
       style={{height:"min(56vh, 520px)",minHeight:280,overflow:"hidden",touchAction:live?"none":"pan-y",
-        position:"relative",border:`1px solid ${C.line}`,borderRadius:10,background:C.ink,
+        position:"relative",border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",background:C.ink,
         cursor:pan.current?"grabbing":"default"}}>
       {/* Пока схема спит — подпись: одно нажатие и она берёт жесты себе. */}
       {!live&&(
         <div aria-hidden="true" style={{position:"absolute",right:8,top:8,zIndex:2,pointerEvents:"none",
           fontSize:10,color:C.muted,background:`${C.ink}cc`,border:`1px solid ${C.line}`,
-          borderRadius:6,padding:"2px 6px"}}>нажмите, чтобы двигать схему</div>)}
+          borderRadius: "var(--radius-sm)",padding: "0 var(--space-4)"}}>нажмите, чтобы двигать схему</div>)}
       <svg ref={svgRef} viewBox={viewBox(cam.current)} width="100%" height="100%"
         preserveAspectRatio="xMidYMid meet" style={{display:"block"}}
         onPointerDown={downBg}>
@@ -655,16 +655,16 @@ function ScenarioVersions({ id, when, stamp = "" }) {
   };
   if (!id) return null;
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: "var(--space-8)" }}>
       <button type="button" aria-expanded={open} aria-label="версии сценария"
         onClick={() => setOpen((v) => !v)}
         style={{ ...btn(false), width: "100%", fontSize: 11.5, textAlign: "center" }}>
         {open ? "▾" : "▸"} Версии ({list.length})</button>
       {open && (
-        <div style={{ marginTop: 6 }}>
+        <div style={{ marginTop: "var(--space-4)" }}>
           {!list.length && <div style={{ fontSize: 11, color: C.muted }}>Версий пока нет — сохраните схему.</div>}
           {[...list].reverse().map((v) => (
-            <div key={v.v} style={{ borderTop: `1px solid ${C.line}`, padding: "6px 0" }}>
+            <div key={v.v} style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-4) 0" }}>
               <button type="button" aria-expanded={which === v.v} aria-label={`версия ${v.v}`}
                 onClick={() => show(v)} className="flex items-center gap-2"
                 style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
@@ -673,7 +673,7 @@ function ScenarioVersions({ id, when, stamp = "" }) {
                   {when(v.at)}</span>
               </button>
               {which === v.v && (busy
-                ? <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>смотрю…</div>
+                ? <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)" }}>смотрю…</div>
                 : diff && <ScenarioDiff added={diff.added} removed={diff.removed}
                     changed={diff.changed} />)}
             </div>))}
@@ -1559,10 +1559,10 @@ export default function SystemModel(){
   const canSkip=!!me.isOwner||(me.tabs||[]).length>0;
   const onRegDone=m=>{ if(m) setMe(m); else whoAmI().then(setMe).catch(()=>{}); };
   if(needReg&&!(regAway&&canSkip)) return (
-    <div style={{background:C.ink,color:C.text,minHeight:"100%",padding:12,
+    <div style={{background:C.ink,color:C.text,minHeight:"100%",padding: "var(--space-12)",
       fontFamily:"var(--font-sans)"}}>
       <div className="flex items-center gap-2"
-        style={{...TAB_LINE,marginBottom:"var(--space-16)"}}>
+        style={{...TAB_LINE,marginBottom: "var(--space-16)"}}>
         <div style={{flex:"0 0 auto"}}><Brand size={22}/></div>
       </div>
       <RegisterPanel me={me} onDone={onRegDone}
@@ -1570,7 +1570,7 @@ export default function SystemModel(){
     </div>);
 
   return (
-    <div style={{color:C.text,minHeight:"100%",padding:"var(--space-16)",
+    <div style={{color:C.text,minHeight:"100%",padding: "var(--space-16)",
       fontFamily:"var(--font-sans)",
       /* Свайп вбок принадлежит вкладкам, а не истории браузера: иначе
          движение от края уносило бы со страницы назад. */
@@ -1596,13 +1596,13 @@ export default function SystemModel(){
 
       {/* Значки — ПОД линией шапки, у правого края (владелец, 2026-09-19). */}
       <div className="flex items-center gap-2"
-        style={{justifyContent:"flex-end",marginTop:"var(--space-12)",
-          marginBottom:"var(--space-16)"}}>
+        style={{justifyContent:"flex-end",marginTop: "var(--space-12)",
+          marginBottom: "var(--space-16)"}}>
         {/* Работаем под чужой страницей — путь назад стоит первым, перед
             «Отменить» и «Вернуть» (владелец, 2026-09-20): человек должен
             видеть, что он не у себя, и уйти одним нажатием. */}
         {!!me.actingAs&&(
-          <button type="button" style={{...btn(true,WARN),marginRight:6,fontSize:11.5}}
+          <button type="button" style={{...btn(true,WARN),marginRight: "var(--space-4)",fontSize:11.5}}
             onClick={()=>{ setActingAs(""); resetIdentity();
               whoAmI().then(m=>{ setMe(m); setTab("me"); }).catch(()=>{}); }}>
             Вернуться на свою страницу</button>)}
@@ -1623,7 +1623,7 @@ export default function SystemModel(){
 
       {/* Ушли из регистрации «Назад» — путь обратно остаётся на виду. */}
       {needReg&&(
-        <div className="flex" style={{marginBottom:8}}>
+        <div className="flex" style={{marginBottom: "var(--space-8)"}}>
           <button style={btn(true,ACC)} aria-label="вернуться к регистрации"
             onClick={()=>setRegAway(false)}>
             {me.agreement?"Подписать договор":"Регистрация"}</button>
@@ -1637,8 +1637,8 @@ export default function SystemModel(){
       <div style={{transform:slide?`translateX(${slide}px)`:"none",opacity:slide?0.4:1,
         transition:slide?"none":"transform .22s ease-out, opacity .22s ease-out"}}>
       {recovery && (me.solo||me.isOwner) && (
-        <div style={{...S.card,marginBottom:10,borderColor:ACC}}>
-          <div style={{fontSize:12.5,lineHeight:1.6,marginBottom:8}}>
+        <div style={{...S.card,marginBottom: "var(--space-8)",borderColor:ACC}}>
+          <div style={{fontSize:12.5,lineHeight:1.6,marginBottom: "var(--space-8)"}}>
             Остались правки от {whenText(recovery.savedAt)}
             {recovery.name?` (сценарий «${recovery.name}»)`:""} — вкладка
             закрылась раньше, чем они уехали на диск. Восстановить?
@@ -1661,14 +1661,14 @@ export default function SystemModel(){
         </div>)}
 
       {draftBlocked && (
-        <div style={{fontSize:11.5,color:WARN,marginBottom:10,lineHeight:1.6}}>
+        <div style={{fontSize:11.5,color:WARN,marginBottom: "var(--space-8)",lineHeight:1.6}}>
           Браузер не даёт сохранить черновик — правки не переживут закрытия
           вкладки. Сохраняй сценарий на диск во вкладке «Инструменты».
         </div>)}
 
 
       {me.known && !me.pending && !me.agreement && !me.waiting && !me.tabs.length && (
-        <div style={{...S.card,marginBottom:10,fontSize:11.5,color:C.muted,
+        <div style={{...S.card,marginBottom: "var(--space-8)",fontSize:11.5,color:C.muted,
           lineHeight:1.6}}>
           {(me.inactive||[]).length
             ? <>Ваши роли не действуют: {me.inactive.map(r=>`«${r.name}» — ${r.why}`).join("; ")}.
@@ -1763,8 +1763,8 @@ export default function SystemModel(){
         {/* Одной строкой и одной высоты (владелец, 2026-09-13): без
             переноса, обе тянутся по высоте строки; под прогнозом никаких
             подписей. */}
-        <div className="flex gap-2" style={{marginBottom:10,alignItems:"stretch",flexWrap:"nowrap"}}>
-          <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 0",minWidth:0,
+        <div className="flex gap-2" style={{marginBottom: "var(--space-8)",alignItems:"stretch",flexWrap:"nowrap"}}>
+          <div style={{...S.card,padding: "var(--space-4)",marginBottom: 0,flex:"1 1 0",minWidth:0,
             display:"flex",alignItems:"center"}}
             aria-label="масштаб">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1780,11 +1780,11 @@ export default function SystemModel(){
               </>)}
             </div>
           </div>
-          <div style={{...S.card,padding:6,marginBottom:0,flex:"1 1 0",minWidth:0,
+          <div style={{...S.card,padding: "var(--space-4)",marginBottom: 0,flex:"1 1 0",minWidth:0,
             display:"flex",flexDirection:"column",justifyContent:"center"}}
             aria-label="прогноз на схеме">
             <div style={S.lbl}>прогноз</div>
-            <div className="flex items-center gap-2" style={{marginTop:2}}>
+            <div className="flex items-center gap-2" style={{marginTop: 0}}>
               <input type="range" min={0} max={span} value={simMonth}
                 aria-label="месяц на схеме"
                 title="На блоке — сколько ресурса будет к этому месяцу, вилкой"
@@ -1800,7 +1800,7 @@ export default function SystemModel(){
                 пропадала на одной схеме, возвращаясь на другой: человек
                 искал переключатель там, где его только что видел. */}
             <label className="flex items-center gap-2"
-              style={{fontSize:11.5,color:hypoOn?WARN:C.muted,marginTop:4,cursor:"pointer"}}>
+              style={{fontSize:11.5,color:hypoOn?WARN:C.muted,marginTop: "var(--space-4)",cursor:"pointer"}}>
               <input type="checkbox" checked={hypoOn} onChange={e=>setHypoOn(e.target.checked)}/>
               включить гипотезы
             </label>
@@ -1836,11 +1836,11 @@ export default function SystemModel(){
             технологические процессы — там же, первыми, под спойлером),
             потом смотрят, что по ней делали («Деятельность») и куда она
             идёт («Прогноз»). */}
-        <div className="flex gap-2" style={{margin:"10px 0",overflowX:"auto"}}>
+        <div className="flex gap-2" style={{margin: "var(--space-8) 0",overflowX:"auto"}}>
           {/* Внутренние вкладки — по праву роли (владелец, 2026-09-20):
               роль, назвавшая «Деятельность», открывает её одну. */}
           {tabShown(me,"scheme","edit")&&(
-          <button style={btn(under==="edit")} onClick={()=>setUnder("edit")}>
+          <button style={btn(under==="edit",OK)} onClick={()=>setUnder("edit")}>
             Управление</button>)}
           {/* Отдельного доступа у них нет: «Прогноз» и «Деятельность» —
               разделы СХЕМЫ, и открывает их та же вкладка. Прежде они
@@ -1848,15 +1848,15 @@ export default function SystemModel(){
               больше нет, — и роль, открывшая схему, получала её без
               половины разделов. */}
           {tabShown(me,"scheme","time")&&(
-          <button style={btn(under==="time")} onClick={()=>setUnder("time")}>
+          <button style={btn(under==="time",OK)} onClick={()=>setUnder("time")}>
             Деятельность</button>)}
           {tabShown(me,"scheme","sim")&&(
-          <button style={btn(under==="sim")} onClick={()=>setUnder("sim")}>
+          <button style={btn(under==="sim",OK)} onClick={()=>setUnder("sim")}>
             Цели</button>)}
         </div>
         {/* Одна строка под вкладками — чем этот раздел занят (владелец,
             2026-09-19). */}
-        <div style={{fontSize:11.5,color:C.muted,margin:"-4px 0 10px"}}>
+        <div style={{fontSize:11.5,color:C.muted,margin:"0 0 var(--space-12)"}}>
           {under==="edit"?"Что умеет делать система"
             :under==="time"?"Что делает в текущий момент"
               :"Что будет делать система"}</div>
@@ -1888,15 +1888,15 @@ export default function SystemModel(){
             procs={procs} hypoOn={hypoOn} nameOf={personName} meId={me.id}/>)}
 
         {under==="edit" && selE && (
-          <div style={{...S.card,marginTop:10}}>
-            <div className="flex items-center gap-2" style={{marginBottom:6}}>
+          <div style={{...S.card,marginTop: "var(--space-8)"}}>
+            <div className="flex items-center gap-2" style={{marginBottom: "var(--space-4)"}}>
               <span style={S.lbl}>актив</span>
               <span style={{flex:1}}/>
               <button style={{ ...btn(true, BAD) }}
                 onClick={()=>delEntity(selE.id)}>Удалить актив</button>
             </div>
             {/* Название — двойным нажатием (владелец, 2026-09-19). */}
-            <div style={{marginBottom:6}}>
+            <div style={{marginBottom: "var(--space-4)"}}>
               <NameField value={selE.name} aria-label="название актива"
                 style={{fontSize:15,fontWeight:700,display:"block"}}
                 onCommit={v=>setEntities(p=>p.map(e=>e.id===selE.id?{...e,name:v}:e))}/>
@@ -1936,11 +1936,11 @@ export default function SystemModel(){
             всю модель. Внутри цели видно её собственную очередь, здесь —
             всё вместе: чем занята модель прямо сейчас и что за чем идёт. */}
         {!!appliedSteps.length&&(
-          <div style={{...S.card,marginBottom:10}}>
+          <div style={{...S.card,marginBottom: "var(--space-8)"}}>
             <div style={S.lbl}>последовательность действий · по применённым целям</div>
             {appliedSteps.map((st,i)=>(
               <div key={st.func} className="flex items-center gap-2"
-                style={{fontSize:11.5,padding:"4px 0",
+                style={{fontSize:11.5,padding: "var(--space-4) 0",
                   borderTop:i?`1px solid ${C.line}`:"none"}}>
                 <span style={{color:ACC,minWidth:16}}>{i+1}.</span>
                 <span style={{flex:1,minWidth:0}}>
@@ -1992,15 +1992,15 @@ export default function SystemModel(){
         {/* Прогнозы под целями — на одной форме (владелец, 2026-09-19):
             что будет с ресурсами и сколько это стоит по людям. Внутренние
             формы остаются своими. */}
-        <div style={{...S.card,marginBottom:10}}>
+        <div style={{...S.card,marginBottom: "var(--space-8)"}}>
         <div style={S.lbl}>прогноз</div>
         {entities.map(en=>{
           const ts=traitsLive.filter(t=>t.e===en.id);
           if(!ts.length) return null;
           return (
-            <div key={en.id} style={{...S.card,marginBottom:10}}>
-              <div className="flex items-center gap-2" style={{marginBottom:6}}>
-                <span style={{width:8,height:8,borderRadius:2,background:en.color}}/>
+            <div key={en.id} style={{...S.card,marginBottom: "var(--space-8)"}}>
+              <div className="flex items-center gap-2" style={{marginBottom: "var(--space-4)"}}>
+                <span style={{width:8,height:8,borderRadius: "var(--radius-sm)",background:en.color}}/>
                 <span style={{fontSize:13.5,fontWeight:700,flex:1}}>{en.name}</span>
               </div>
               {ts.map(t=>{
@@ -2020,7 +2020,7 @@ export default function SystemModel(){
                 const r=line!=null?reach(fc,t.id,line):null;
                 return (
                   <div key={t.id} style={{background:C.panel2,
-                    border:`1px solid ${C.line}`,borderRadius:8,padding:9,marginBottom:6}}>
+                    border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",padding: "var(--space-8)",marginBottom: "var(--space-4)"}}>
                     <div className="flex items-center gap-2" style={{cursor:"pointer"}}
                       onClick={()=>toggleCard(t.id)}>
                       <span style={{fontSize:12.5,fontWeight:600,flex:1}}>{t.l}</span>
@@ -2028,7 +2028,7 @@ export default function SystemModel(){
                         {nm(lo[last]??0)}–{nm(hi[last]??0)} {t.unit}</span>
                       <span style={{fontSize:11,color:C.muted}}>{on?"▾":"▸"}</span>
                     </div>
-                    <div style={{fontSize:10.5,color:C.muted,marginTop:3}}>
+                    <div style={{fontSize:10.5,color:C.muted,marginTop: "var(--space-4)"}}>
                       сейчас {nm(Number(t.have)||0)} · через {span} мес
                       {line!=null?` · цель ${nm(line)}`:""}
                       {flow!=null?` · цель требует ${nm(Math.round(flow*10)/10)} в месяц`:""}
@@ -2037,7 +2037,7 @@ export default function SystemModel(){
                           :" · по прогнозу не достигается")}
                     </div>
                     {on&&(
-                      <div style={{marginTop:8}} aria-label={`график: ${t.l}`}>
+                      <div style={{marginTop: "var(--space-8)"}} aria-label={`график: ${t.l}`}>
                         <Chart lo={lo} hi={hi} fact={fc.fact?fc.fact[t.id]:null}
                           months={span} goalLine={line}
                           cursorMonth={simMonth}/>
@@ -2047,14 +2047,14 @@ export default function SystemModel(){
             </div>);
         })}
 
-        <div style={{...S.card,marginBottom:10}}>
+        <div style={{...S.card,marginBottom: "var(--space-8)"}}>
           <div style={S.lbl}>нагрузка исполнителей</div>
           {Object.keys(workload).length===0
-            ? <div style={{fontSize:11.5,color:C.muted,marginTop:8}}>
+            ? <div style={{fontSize:11.5,color:C.muted,marginTop: "var(--space-8)"}}>
                 Исполнители на функции ещё не назначены.</div>
             : Object.entries(workload).map(([pid,h])=>(
                 <div key={pid} className="flex items-center gap-2"
-                  style={{marginTop:6,fontSize:12}}>
+                  style={{marginTop: "var(--space-4)",fontSize:12}}>
                   <span style={{flex:1}}>{personName(pid)}</span>
                   <span style={{color:h>160?BAD:h>120?WARN:OK}}>{nm(h)} ч/мес</span>
                 </div>))}
@@ -2065,7 +2065,7 @@ export default function SystemModel(){
 
       {/* ═══ ИНСТРУМЕНТЫ ═══ */}
       {tab==="tools" && me.tabs.includes("tools") && (
-        <div className="flex gap-2" style={{marginBottom:10,overflowX:"auto"}}>
+        <div className="flex gap-2" style={{marginBottom: "var(--space-8)",overflowX:"auto"}}>
           {[["people","Роли"],["assistant","Агенты"],["virtual","Виртуальные сотрудники"],
             ["reminders","Напоминания"],["calls","Звонки"],["issues","Issues"],
             ["export","Выгрузка"]]
@@ -2076,7 +2076,7 @@ export default function SystemModel(){
             .filter(([k])=>((k!=="people"&&k!=="export")||me.isOwner||me.solo)
               &&tabShown(me,"tools",k))
             .map(([k,t])=>(
-              <button key={k} style={btn(tool===k)} onClick={()=>setTool(k)}>{t}</button>))}
+              <button key={k} style={btn(tool===k,OK)} onClick={()=>setTool(k)}>{t}</button>))}
         </div>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="people" && (
@@ -2133,7 +2133,7 @@ export default function SystemModel(){
       {tab==="tools" && me.tabs.includes("tools") && tool==="export"
         && (me.isOwner||me.solo) && (
         <div style={S.card}>
-          <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
+          <div className="flex flex-wrap gap-2" style={{marginBottom: "var(--space-8)"}}>
             <button style={btn(true)} onClick={()=>{
               setJson(JSON.stringify(doc,null,2));
               setJsonMsg("Выгружено.");}}>
@@ -2152,9 +2152,9 @@ export default function SystemModel(){
             onCommit={setJson}/>
 
           {/* ═══ СОХРАНЕНИЕ НА ДИСКЕ СЕРВЕРА ═══ */}
-          <div style={{marginTop:12,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+          <div style={{marginTop: "var(--space-12)",borderTop:`1px solid ${C.line}`,paddingTop: "var(--space-8)"}}>
             <div style={S.lbl}>сохранённые сценарии{savedWhere?` · ${savedWhere}`:""}</div>
-            <div className="flex flex-wrap gap-2" style={{margin:"8px 0"}}>
+            <div className="flex flex-wrap gap-2" style={{margin: "var(--space-8) 0"}}>
               <input placeholder="имя сценария" value={saveName}
                 onChange={e=>setSaveName(e.target.value)}
                 onBlur={e=>setSaveName(e.target.value)}
@@ -2162,7 +2162,7 @@ export default function SystemModel(){
               <button style={btn(true)} disabled={savedBusy} onClick={saveToDisk}>
                 Сохранить</button>
             </div>
-            <div className="flex flex-wrap gap-2" style={{marginBottom:8}}>
+            <div className="flex flex-wrap gap-2" style={{marginBottom: "var(--space-8)"}}>
               <select style={{...S.inp,flex:"1 1 160px"}} value={savedSel}
                 onChange={e=>setSavedSel(e.target.value)}>
                 <option value="">— выбери сценарий —</option>
@@ -2182,7 +2182,7 @@ export default function SystemModel(){
                 Telegram пределы разные, и подпись считает по тому, куда
                 пишется сейчас. */}
             {savedKind && (()=>{ const room=savedRoom(savedList.length,savedKind);
-              return (<div style={{fontSize:10.5,color:room.warn?WARN:C.muted,marginBottom:8}}>
+              return (<div style={{fontSize:10.5,color:room.warn?WARN:C.muted,marginBottom: "var(--space-8)"}}>
                 {room.text}</div>); })()}
             {savedMsg&&<div style={{fontSize:12,color:C.muted}}>{savedMsg}</div>}
           </div>

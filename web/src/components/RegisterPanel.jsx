@@ -28,9 +28,9 @@ import SignaturePad from "./SignaturePad.jsx";
 /* «Назад» и заголовок одной строкой: кнопка слева от названия шага. */
 function Head({ title, onBack }) {
   return (
-    <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+    <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
       {onBack && (
-        <button type="button" style={{ ...btn(false), padding: "2px 8px" }}
+        <button type="button" style={{ ...btn(false), padding: "0 var(--space-8)" }}
           aria-label="назад" onClick={onBack}>← Назад</button>)}
       <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{title}</span>
     </div>);
@@ -74,9 +74,9 @@ export function AgreementSign({ me, onBack, onDone }) {
     } catch (e) { setMsg(e.message || "не удалось отправить"); }
     setBusy(false);
   };
-  const step = { ...S.lbl, marginTop: 10 };
+  const step = { ...S.lbl, marginTop: "var(--space-8)" };
   return (
-    <div style={{ ...S.card, marginBottom: 10 }} aria-label="договор к подписи">
+    <div style={{ ...S.card, marginBottom: "var(--space-8)" }} aria-label="договор к подписи">
       <Head onBack={onBack}
         title={`Договор «${a.docName}» — роль «${a.roleName}»`} />
       <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
@@ -84,27 +84,27 @@ export function AgreementSign({ me, onBack, onDone }) {
       </div>
       <div style={step}>1 · заполнить</div>
       {!empty.length && (
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Всё уже заполнено владельцем.</div>)}
-      <div style={{ marginTop: 4 }}>
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>Всё уже заполнено владельцем.</div>)}
+      <div style={{ marginTop: "var(--space-4)" }}>
         <PlaceholderFields placeholders={empty} values={values} onChange={setValues} required
           label="договор" />
       </div>
       <div style={step}>2 · прочитать</div>
-      <button style={{ ...btn(false), marginTop: 4 }} disabled={!html} onClick={() => setOpen(true)}>
+      <button style={{ ...btn(false), marginTop: "var(--space-4)" }} disabled={!html} onClick={() => setOpen(true)}>
         {html ? "Открыть договор" : "Загружаю договор…"}</button>
       <div style={step}>3 · подписать</div>
-      <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 4 }}>
+      <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-4)" }}>
         <button style={btn(true, sig ? OK : ACC)} onClick={() => setPad(true)}>
           {sig ? "Подпись поставлена ✓ — переподписать" : "Поставить подпись"}</button>
       </div>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 12 }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-12)" }}>
         <button style={{ ...btn(true, OK), opacity: ready ? 1 : 0.5 }} disabled={!ready} onClick={send}>
           {busy ? "Отправляю…" : "Подписать и отправить"}</button>
         <span style={{ fontSize: 10.5, color: C.muted }}>
           {left.length ? `заполните: ${left.map((p) => p.desc || p.key).join(", ")}`
             : !sig ? "поставьте подпись" : ""}</span>
       </div>
-      {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: 8 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
       {open && html && (
         <DocViewer title={a.docName} html={html} editable={false} onClose={() => setOpen(false)} />)}
       {pad && (
@@ -151,7 +151,7 @@ export default function RegisterPanel({ me, onBack, onDone }) {
     setBusy(false);
   };
 
-  const step = { ...S.lbl, marginTop: 10 };
+  const step = { ...S.lbl, marginTop: "var(--space-8)" };
   // Договор от владельца — свой путь: заполнить, подписать, отправить.
   if (me?.agreement) return <AgreementSign me={me} onBack={onBack} onDone={onDone} />;
 
@@ -160,7 +160,7 @@ export default function RegisterPanel({ me, onBack, onDone }) {
      второй раз то, что уже подписано. */
   if (me?.waiting) {
     return (
-      <div style={{ ...S.card, marginBottom: 10 }} aria-label="заявка отправлена">
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }} aria-label="заявка отправлена">
         <Head title="Заявка отправлена" onBack={onBack} />
         <div style={{ fontSize: 11.5, color: WARN, lineHeight: 1.6 }}>
           Роль «{me.waiting.name}» · ждёт владельца.
@@ -175,19 +175,19 @@ export default function RegisterPanel({ me, onBack, onDone }) {
     : onBack;
 
   return (
-    <div style={{ ...S.card, marginBottom: 10 }} aria-label="регистрация">
+    <div style={{ ...S.card, marginBottom: "var(--space-8)" }} aria-label="регистрация">
       <Head onBack={back}
         title={invited ? "Вас позвали — осталось подписать договор" : "Вступить в модель"} />
       {/* ─── 1. роль ─── */}
       {!invited && (<>
         <div style={step}>1 · какая роль</div>
         {roles === null && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Загружаю…</div>)}
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>Загружаю…</div>)}
         {roles !== null && !roles.length && (
-          <div style={{ fontSize: 11.5, color: WARN, marginTop: 4, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11.5, color: WARN, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Ролей ещё нет.
           </div>)}
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
           {(roles || []).map((r) => (
             <button key={r.id} aria-pressed={pick === r.id}
               aria-label={`роль: ${r.name}`}
@@ -197,7 +197,7 @@ export default function RegisterPanel({ me, onBack, onDone }) {
         </div>
       </>)}
       {invited && roles !== null && !cur && (
-        <div style={{ fontSize: 11.5, color: WARN, marginTop: 4, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 11.5, color: WARN, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
           Роли, на которую вас позвали, больше нет.
         </div>)}
 
@@ -205,7 +205,7 @@ export default function RegisterPanel({ me, onBack, onDone }) {
       {cur && (<>
         <div style={step}>{invited ? "1 · договор" : "2 · договор"}</div>
         {needs ? (
-          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
             <a href={reportSrc(cur.contract)} target="_blank" rel="noreferrer"
               download={cur.contract.name || "договор"}
               aria-label={`скачать договор роли «${cur.name}»`}
@@ -213,14 +213,14 @@ export default function RegisterPanel({ me, onBack, onDone }) {
               📄 {cur.contract.name || "договор"}</a>
           </div>
         ) : (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             У этой роли договора нет.
           </div>)}
 
         {/* ─── 3. подписанный экземпляр ─── */}
         {needs && (<>
           <div style={step}>{invited ? "2 · подписанный экземпляр" : "3 · подписанный экземпляр"}</div>
-          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
             <label style={{ ...btn(false), fontSize: 12, cursor: busy ? "default" : "pointer",
               opacity: busy ? 0.6 : 1, borderColor: file ? undefined : DANGER_LINE }}>
               {file ? "Заменить файл" : "Приложить подписанный договор"}
@@ -230,17 +230,17 @@ export default function RegisterPanel({ me, onBack, onDone }) {
             </label>
             {file && <span style={{ fontSize: 11, color: OK }}>📎 {file.name}</span>}
           </div>
-          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
             <label style={{ fontSize: 11, color: C.muted }}>
               действует с{" "}
               <input type="date" value={start} aria-label="договор действует с"
-                style={{ ...S.inp, fontSize: 12, padding: "3px 6px" }}
+                style={{ ...S.inp, fontSize: 12, padding: "var(--space-4) var(--space-4)" }}
                 onChange={(e) => { setStart(e.target.value); setMsg(""); }} />
             </label>
             <label style={{ fontSize: 11, color: C.muted }}>
               по{" "}
               <input type="date" value={end} aria-label="договор действует по"
-                style={{ ...S.inp, fontSize: 12, padding: "3px 6px" }}
+                style={{ ...S.inp, fontSize: 12, padding: "var(--space-4) var(--space-4)" }}
                 onChange={(e) => { setEnd(e.target.value); setMsg(""); }} />
             </label>
           </div>
@@ -249,13 +249,13 @@ export default function RegisterPanel({ me, onBack, onDone }) {
         {/* ─── 4. анкета роли ─── */}
         {!!(cur.form?.questions || []).length && (<>
           <div style={step}>анкета</div>
-          <div style={{ marginTop: 4 }}>
+          <div style={{ marginTop: "var(--space-4)" }}>
             <FormAnswers forms={[cur.form]} answers={answers} mine onChange={setAnswers} />
           </div>
         </>)}
 
         {/* ─── 5. отправка ─── */}
-        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 12 }}>
+        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-12)" }}>
           <button style={{ ...btn(true, OK), opacity: ready && !busy ? 1 : 0.5 }}
             disabled={!ready || busy} onClick={send}>
             {busy ? "Отправляю…" : "Вступить"}</button>
@@ -264,6 +264,6 @@ export default function RegisterPanel({ me, onBack, onDone }) {
         </div>
       </>)}
 
-      {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: 8 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-8)" }}>{msg}</div>}
     </div>);
 }

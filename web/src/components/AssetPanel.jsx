@@ -42,20 +42,20 @@ import { hasKind, kindIdsOf, toggleKind } from "../lib/traits.js";
 
 export function Section({ title, hint, addLabel, onAdd, empty, children, count }) {
   return (
-    <div style={{ marginTop: 12 }}>
-      <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+    <div style={{ marginTop: "var(--space-12)" }}>
+      <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
         <span style={S.lbl}>{title}</span>
         {count != null && <span style={{ fontSize: 10.5, color: C.muted }}>{count}</span>}
         <span style={{ flex: 1 }} />
         {onAdd && (
-          <button style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} onClick={onAdd}>
+          <button style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} onClick={onAdd}>
             {addLabel}</button>)}
       </div>
       {hint && (
-        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: "var(--space-8)" }}>
           {hint}</div>)}
       {empty && (
-        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5, marginBottom: "var(--space-8)" }}>
           {empty}</div>)}
       {children}
     </div>);
@@ -74,20 +74,20 @@ export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle
       padding: "var(--space-12)", marginBottom: "var(--space-8)",
       ...statusEdge(accent) }}>
       <div className="flex items-center gap-2">
-        <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
+        <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)" }}
           onClick={onToggle} aria-label={open ? `свернуть ${titleLabel}` : `развернуть ${titleLabel}`}>
           {open ? "▾" : "▸"}</button>
         {/* Название формы правится двойным нажатием (владелец, 2026-09-19). */}
         <NameField value={title} onCommit={onTitle}
           style={{ fontSize: 12.5, fontWeight: 600 }}
           aria-label={`название ${titleLabel}`} />
-        <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }} onClick={onDelete}>удалить</button>
+        <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }} onClick={onDelete}>удалить</button>
       </div>
-      {mark && <div style={{ marginTop: 2 }}>{mark}</div>}
+      {mark && <div style={{ marginTop: 0 }}>{mark}</div>}
       {summary && (
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           {summary}</div>)}
-      {open && <div style={{ marginTop: 4 }}>{children}</div>}
+      {open && <div style={{ marginTop: "var(--space-4)" }}>{children}</div>}
     </div>);
 }
 
@@ -104,8 +104,8 @@ export function Card({ title, onTitle, titleLabel, mark, summary, open, onToggle
 function Form({ title, children, style }) {
   return (
     <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-      borderRadius: 8, padding: 9, marginTop: 8, ...style }}>
-      {title && <div style={{ ...S.lbl, marginBottom: 5 }}>{title}</div>}
+      borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginTop: "var(--space-8)", ...style }}>
+      {title && <div style={{ ...S.lbl, marginBottom: "var(--space-4)" }}>{title}</div>}
       {children}
     </div>);
 }
@@ -113,7 +113,7 @@ function Form({ title, children, style }) {
 const Num = ({ value, onChange, label, style }) => (
   <input type="number" value={value} aria-label={label}
     onChange={(e) => onChange(e.target.value)}
-    style={{ ...S.inp, width: 64, padding: "4px 6px", fontSize: 12, ...style }} />
+    style={{ ...S.inp, width: 64, padding: "var(--space-4) var(--space-4)", fontSize: 12, ...style }} />
 );
 
 /**
@@ -157,7 +157,7 @@ function PortQty({ p, name, onSet, fact, traits = [], ports = [], res }) {
      расходуется ли взятое. Отдельная строка на каждое поле разносила один
      ресурс на пять строк, и список переставал читаться списком. Поле
      операции — того же размера, что и числа (владелец: «выровняй поля»). */
-  const box = { width: 52, fontSize: 12, padding: "4px 6px" };
+  const box = { width: 52, fontSize: 12, padding: "var(--space-4) var(--space-4)" };
   const shown = (v) => nm(Math.round(v * 100) / 100);
   return (<>
     {ranged ? (<>
@@ -185,14 +185,14 @@ function PortQty({ p, name, onSet, fact, traits = [], ports = [], res }) {
     {/* Операция — всегда на виду (владелец, 2026-09-15: «в функциях не
         добавлены операции с ресурсами»): поле под количеством, с подписью
         и результатом. */}
-    <div style={{ flexBasis: "100%", marginTop: 3 }} aria-label={`операция ${name}`}>
+    <div style={{ flexBasis: "100%", marginTop: "var(--space-4)" }} aria-label={`операция ${name}`}>
       <div className="flex items-center gap-2">
         <span style={{ ...S.lbl, whiteSpace: "nowrap" }}>операция</span>
         <ExprField plain value={p.expr || ""} traits={traits} ports={ports}
           style={{ flex: 1, minWidth: 0 }} inputStyle={{ fontSize: box.fontSize, padding: box.padding }}
           aria-label={`выражение ${name}`} onCommit={applyExpr} />
       </div>
-      <div style={{ fontSize: 10, color: res?.error ? BAD : C.muted, marginTop: 2 }}>
+      <div style={{ fontSize: 10, color: res?.error ? BAD : C.muted, marginTop: 0 }}>
         {!p.expr ? "10 · 45-55 · 50% A (доля ресурса «A») · 20% @Заявки (от остатка)"
           : res?.error ? res.error
             : `= ${res && res.lo !== res.hi ? `${shown(res.lo)}–${shown(res.hi)}` : shown(res?.lo ?? lo)}`}
@@ -239,8 +239,8 @@ export function Timing({ func, runs = [] }) {
    же это» читался бы как обещание, которого никто не проверял. */
 function Posts({ title, ids, positions, who, nameOf, legacy, empty, onToggle }) {
   return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ ...S.lbl, marginBottom: 3 }}>{title} — роли</div>
+    <div style={{ marginTop: "var(--space-4)" }}>
+      <div style={{ ...S.lbl, marginBottom: "var(--space-4)" }}>{title} — роли</div>
       <div className="flex flex-wrap gap-2">
         {!positions.length && (
           <span style={{ fontSize: 11, color: C.muted }}>{empty}</span>)}
@@ -248,11 +248,11 @@ function Posts({ title, ids, positions, who, nameOf, legacy, empty, onToggle }) 
           const on = ids.includes(p.id);
           return (
             <button key={p.id} aria-pressed={on} aria-label={`${title}: ${p.name}`}
-              style={{ ...btn(on, on ? ACC : null), fontSize: 11, padding: "3px 7px" }}
+              style={{ ...btn(on, on ? ACC : null), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
               onClick={() => onToggle(p.id)}>{p.name}</button>);
         })}
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
         {who.length
           ? `подходят: ${who.map((id) => (nameOf ? nameOf(id) : id)).join(", ")}`
           : (legacy.length
@@ -265,8 +265,8 @@ function Posts({ title, ids, positions, who, nameOf, legacy, empty, onToggle }) 
 
 function People({ title, ids, people, nameOf, empty, onToggle }) {
   return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ ...S.lbl, marginBottom: 3 }}>{title}</div>
+    <div style={{ marginTop: "var(--space-4)" }}>
+      <div style={{ ...S.lbl, marginBottom: "var(--space-4)" }}>{title}</div>
       <div className="flex flex-wrap gap-2">
         {people.length === 0 && (
           <span style={{ fontSize: 11, color: C.muted }}>{empty}</span>)}
@@ -274,7 +274,7 @@ function People({ title, ids, people, nameOf, empty, onToggle }) {
           const on = ids.includes(p.id);
           return (
             <button key={p.id} style={{ ...btn(on, on ? ACC : null), fontSize: 11,
-              padding: "3px 7px" }} onClick={() => onToggle(p.id)}>
+              padding: "var(--space-4) var(--space-8)" }} onClick={() => onToggle(p.id)}>
               {nameOf ? nameOf(p.id) : (p.name || p.id)}</button>);
         })}
       </div>
@@ -314,7 +314,7 @@ function WorkerLine({ pid, name, stat, person, roleNames }) {
     <span style={{ fontSize: 10.5, color: color || C.muted,
       whiteSpace: "nowrap" }}>{text}</span>);
   return (
-    <span style={{ display: "flex", flexWrap: "wrap", gap: 7,
+    <span style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-8)",
       alignItems: "baseline" }}>
       {/* 1. роли — кем человек здесь числится */}
       {chip(roleNames || "без роли", ACC)}
@@ -348,7 +348,7 @@ function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, r
   return (
     <div data-worker={pid} className="flex flex-wrap gap-2"
       style={{ background: C.panel2, border: `1px solid ${C.line}`,
-        borderRadius: 8, padding: 8, marginBottom: 6,
+        borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)",
         opacity: on ? 1 : 0.55, alignItems: "center", ...drag.style }}>
       {/* Три полоски — слева от отметки: за них воркера и переставляют. */}
       <Grip label={`переставить ${name}`} bind={drag.bind} />
@@ -363,7 +363,7 @@ function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, r
         title="график, статус, анкета и рейтинг — окном, не уходя со схемы">
         <WorkerLine pid={pid} name={name} person={person} roleNames={roleNames} />
       </button>
-      <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px" }}
+      <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)" }}
         aria-label={`${open ? "свернуть" : "развернуть"} воркера: ${name}`}
         onClick={() => setOpen(!open)}>{open ? "▾" : "▸"}</button>
 
@@ -372,14 +372,14 @@ function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, r
             выбор одной молча снимал бы остальные. */}
         {onSetRoles && positions.length > 0 && (
           <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
-            alignItems: "center", paddingLeft: 22 }}>
+            alignItems: "center", paddingLeft: "var(--space-20)" }}>
             <span style={{ fontSize: 10.5, color: C.muted }}>роли:</span>
             {positions.map((p) => {
               const has = roles.some((x) => String(x) === p.id);
               return (
                 <button key={p.id} aria-pressed={has}
                   aria-label={`роль «${p.name}»: ${name}`}
-                  style={{ ...btn(has, has ? ACC : null), fontSize: 11, padding: "2px 7px" }}
+                  style={{ ...btn(has, has ? ACC : null), fontSize: 11, padding: "0 var(--space-8)" }}
                   onClick={() => act(() => onSetRoles(pid, has
                     ? roles.filter((x) => String(x) !== p.id)
                     : [...roles, p.id]))}>
@@ -388,29 +388,29 @@ function WorkerRow({ pid, on, name, person, tasks, meId, roleNames, positions, r
           </div>)}
         {on && (
           <div className="flex flex-wrap gap-2" style={{ flexBasis: "100%",
-            alignItems: "center", paddingLeft: 22 }}>
+            alignItems: "center", paddingLeft: "var(--space-20)" }}>
             <span style={{ fontSize: 10.5, color: C.muted }}>исключения:</span>
             {!reachable.length && (
               <span style={{ fontSize: 10.5, color: C.muted }}>{emptyWhy}</span>)}
             {reachable.map((f) => (
               <button key={f.id} aria-pressed={off(f)}
                 aria-label={`исключение «${f.name || "без названия"}»: ${name}`}
-                style={{ ...btn(off(f), BAD), fontSize: 11, padding: "2px 7px" }}
+                style={{ ...btn(off(f), BAD), fontSize: 11, padding: "0 var(--space-8)" }}
                 onClick={() => onToggleFunc && onToggleFunc(pid, f.id)}>
                 {off(f) ? "✕ " : ""}{f.name || "без названия"}</button>))}
           </div>)}
-        <div style={{ flexBasis: "100%", paddingLeft: 22 }} aria-label={`рейтинг: ${name}`}>
+        <div style={{ flexBasis: "100%", paddingLeft: "var(--space-20)" }} aria-label={`рейтинг: ${name}`}>
           <div style={S.lbl}>рейтинг</div>
-          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 3 }}>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
             <Stars value={r.mark == null ? 0 : Math.round(r.mark)} />
             <span style={{ fontSize: 11.5, color: r.mark == null ? C.muted : C.text }}>
               {r.mark == null ? "без оценок" : `${r.mark} · оценок ${r.count}`}</span>
             <span style={{ fontSize: 11.5, color: C.muted }}>сдано работ: {r.done}</span>
           </div>
           {!r.pub.length && (
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>отзывов нет</div>)}
+            <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)" }}>отзывов нет</div>)}
           {r.pub.map((m) => (
-            <div key={m.id} style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.5,
+            <div key={m.id} style={{ fontSize: 11.5, marginTop: "var(--space-4)", lineHeight: 1.5,
               whiteSpace: "pre-wrap" }}>
               <span style={{ color: WARN }}>{"★".repeat(Number(m.mark) || 0)}</span>{" "}
               {m.text}</div>))}
@@ -487,12 +487,12 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
         {/* ─── должности актива ─── */}
         {onTogglePost && (
           <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 8, marginBottom: 8 }} aria-label="должности актива">
-            <div style={{ ...S.lbl, marginBottom: 4 }}>должности актива</div>
+            borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-8)" }} aria-label="должности актива">
+            <div style={{ ...S.lbl, marginBottom: "var(--space-4)" }}>должности актива</div>
             {!positions.length && (
-              <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: "var(--space-4)" }}>
                 Должностей ещё нет.</div>)}
-            <div className="flex flex-wrap gap-2" style={{ marginBottom: 6 }}>
+            <div className="flex flex-wrap gap-2" style={{ marginBottom: "var(--space-4)" }}>
               {positions.map((p) => {
                 const on = hasPost(p.id);
                 const other = !on ? assetOfPost(p.id) : null;
@@ -500,19 +500,19 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                   <button key={p.id} type="button" aria-pressed={on}
                     aria-label={`должность актива «${p.name}»`}
                     title={other ? `сейчас у актива «${other.name}» — нажатие переведёт сюда` : ""}
-                    style={{ ...btn(on, on ? "#C9A0FF" : null), fontSize: 11, padding: "2px 8px",
+                    style={{ ...btn(on, on ? "#C9A0FF" : null), fontSize: 11, padding: "0 var(--space-8)",
                       opacity: other ? 0.6 : 1 }}
                     onClick={() => act(() => onTogglePost(p.id))}>
                     {p.name}{other ? <span style={{ fontSize: 10, opacity: 0.8 }}> · {other.name}</span> : null}</button>);
               })}
             </div>
-            {posMsg && <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>{posMsg}</div>}
+            {posMsg && <div style={{ fontSize: 11, color: WARN, marginTop: "var(--space-4)" }}>{posMsg}</div>}
           </div>)}
         <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-          borderRadius: 8, padding: 8 }}>
-          <div style={{ ...S.lbl, marginBottom: 4 }}>воркеры</div>
+          borderRadius: "var(--radius-sm)", padding: "var(--space-8)" }}>
+          <div style={{ ...S.lbl, marginBottom: "var(--space-4)" }}>воркеры</div>
           {!crew.length && (
-            <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
+            <div style={{ fontSize: 11, color: C.muted, marginBottom: "var(--space-4)" }}>
               {onTogglePost && !posts.length ? "Сперва отметьте должности актива — по ним найдутся сотрудники."
                 : people.some((p) => (onTogglePost ? fits(p.id) : (rolesOf(p.id) || []).length))
                   ? "Пока никого: отметьте, кто работает в этом активе."
@@ -534,7 +534,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
                 onOpenPerson={onOpenPerson} onOrder={onOrder}
                 emptyWhy={own.length ? "по его ролям ему пока ничего не поручено"
                   : "функций у актива ещё нет"} />))}
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
             Здесь все, кого вообще добавили на эту схему. Отмеченные — воркеры
             этого актива. Кто что делает, решает ДОЛЖНОСТЬ: она выбирается у
             функции, и работу берёт любой воркер с этой ролью.
@@ -549,7 +549,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
               этого владелец и хотел. Стоит под списком, а не в настройках
               актива: решают про этот порядок, глядя на него. */}
           {onPickByOrder && (
-            <label className="flex gap-2" style={{ alignItems: "center", marginTop: 8,
+            <label className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)",
               fontSize: 11.5, color: C.text, cursor: "pointer" }}>
               <input type="checkbox" checked={pickByOrder}
                 aria-label="учитывать положение в списке при выборе воркера"
@@ -558,7 +558,7 @@ export function Workers({ workers, people = [], nameOf, tasks = [], funcs = [],
               учитывать положение в списке при выборе воркера
             </label>)}
           {onPickByOrder && (
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
               {pickByOrder
                 ? "При постановке первым предлагается и по умолчанию назначается тот, кто выше."
                 : "Воркеры предлагаются по алфавиту, и никто не назначается сам."}
@@ -624,46 +624,46 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
   const wash = out ? "rgba(61,220,151,.10)" : "rgba(124,224,255,.10)";
   const edge = out ? "rgba(61,220,151,.25)" : "rgba(124,224,255,.25)";
   return (
-    <div style={{ marginTop: 8, border: `1px solid ${edge}`, borderRadius: 8,
+    <div style={{ marginTop: "var(--space-8)", border: `1px solid ${edge}`, borderRadius: "var(--radius-sm)",
       overflow: "hidden" }}>
       <div className="flex items-center gap-2"
-        style={{ ...S.lbl, color: tone, background: wash, padding: "5px 8px",
+        style={{ ...S.lbl, color: tone, background: wash, padding: "var(--space-4) var(--space-8)",
           borderBottom: `1px solid ${edge}` }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: tone }} />
         {title}
         <span style={{ color: C.muted }}>· {list.length}</span>
       </div>
-      <div style={{ padding: "7px 8px" }}>
+      <div style={{ padding: "var(--space-8) var(--space-8)" }}>
       {groups.map((g, gi) => (
         <div key={g[0].id}>
           {/* «И» между требованиями: разделитель стоит МЕЖДУ группами, а не
               подписью у каждой, — иначе первая группа выглядела бы как
               продолжение чего-то, чего перед ней нет. */}
           {gi > 0 && (
-            <div style={{ ...S.lbl, textAlign: "center", margin: "2px 0 4px" }}>и</div>)}
+            <div style={{ ...S.lbl, textAlign: "center", margin: "0 0 var(--space-4)" }}>и</div>)}
           <div style={{ border: `1px solid ${g.length > 1 ? ACC : "transparent"}`,
-            borderRadius: 7, padding: g.length > 1 ? 5 : 0, marginBottom: 5 }}>
+            borderRadius: "var(--radius-sm)", padding: g.length > 1 ? 5 : 0, marginBottom: "var(--space-4)" }}>
             {g.map((p, i) => {
               const at = others.find((t) => t.id === p.trait);
               return (
                 <div key={p.id}>
                   {i > 0 && (
                     <div style={{ ...S.lbl, color: ACC, textAlign: "center",
-                      margin: "3px 0" }}>или</div>)}
+                      margin: "var(--space-4) 0" }}>или</div>)}
                   {/* Ресурс — ОДНОЙ строкой: название, сколько, расходует
                       ли, убрать. Прежде на каждый вход уходило пять строк,
                       и две из них были одним и тем же пояснением, повторённым
                       у каждого ресурса. Теперь пояснение стоит один раз под
                       секцией, а строки читаются списком. */}
                   <div style={{ borderTop: i > 0 || gi > 0 ? `1px dashed ${C.line}` : "none",
-                    padding: "6px 0" }}>
+                    padding: "var(--space-4) 0" }}>
                     <div className="flex flex-wrap items-center gap-2">
                       <span style={{ flex: "1 1 90px", fontSize: 12.5, minWidth: 0 }}>
                         {/* Буква ресурса — ею на него ссылаются операции
                             других ресурсов функции: «50% A». Входы первыми,
                             выходы — следом. */}
                         <span aria-label={`буква ${letterOf(letterBase + list.indexOf(p))}: ${traitName(p.trait)}`}
-                          style={{ color: ACC, fontWeight: 700, marginRight: 5 }}>
+                          style={{ color: ACC, fontWeight: 700, marginRight: "var(--space-4)" }}>
                           {letterOf(letterBase + list.indexOf(p))}</span>
                         {traitName(p.trait)}
                         {/* Чужой ресурс — это и есть связь с другим активом:
@@ -672,7 +672,7 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
                           <span style={{ color: ACC, fontSize: 11 }}>
                             {out ? " → «" : " ← «"}{assetName(at.e)}»</span>)}
                       </span>
-                      <button style={{ ...btn(false), fontSize: 11, padding: "0 5px",
+                      <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)",
                         color: BAD, borderColor: DANGER_LINE }}
                         aria-label={`убрать ${out ? "выход" : "вход"} ${traitName(p.trait)}`}
                         onClick={() => onDel(p.id)}>×</button>
@@ -682,7 +682,7 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
                         пять строк на каждый ресурс (как было) не читаются
                         списком вовсе. */}
                     <div className="flex flex-wrap items-center gap-2"
-                      style={{ marginTop: 3 }}>
+                      style={{ marginTop: "var(--space-4)" }}>
                       <PortQty p={p} name={traitName(p.trait)} traits={[...own, ...others]}
                         ports={allPorts} res={info.get(p.id)}
                         onSet={(patch) => onSet(p.id, patch)} />
@@ -698,7 +698,7 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
                           style={{ background: "transparent", cursor: "pointer",
                             border: `1px solid ${portSpends(p) ? WARN : C.line}`,
                             color: portSpends(p) ? WARN : C.muted,
-                            borderRadius: 20, padding: "1px 7px", fontSize: 10,
+                            borderRadius: "var(--radius-lg)", padding: "0 var(--space-8)", fontSize: 10,
                             whiteSpace: "nowrap" }}>
                           {portSpends(p) ? "✓ расходует" : "○ расходует"}</button>)}
                       <span style={{ flex: 1 }} />
@@ -718,8 +718,8 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
               <select value="" aria-label={`или вместо ${traitName(g[0].trait)}`}
                 onChange={(e) => { if (e.target.value) onAdd(e.target.value, g[0].group); }}
                 style={{ ...S.inp, width: "100%", maxWidth: "100%", minWidth: 0,
-                  boxSizing: "border-box", padding: "4px 6px", fontSize: 11,
-                  marginTop: 4, color: C.muted,
+                  boxSizing: "border-box", padding: "var(--space-4) var(--space-4)", fontSize: 11,
+                  marginTop: "var(--space-4)", color: C.muted,
                   // Действие, а не данные: пунктир отличает «добавить» от
                   // самих ресурсов, которые уже добавлены.
                   background: "transparent", borderStyle: "dashed" }}>
@@ -735,14 +735,14 @@ function Ports({ kind, title, list, own, others, assetName, traitName,
         <select value={pick} aria-label={out ? "выдать ресурс" : "взять ресурс"}
           onChange={(e) => { if (e.target.value) { onAdd(e.target.value); setPick(""); } }}
           style={{ ...S.inp, width: "100%", maxWidth: "100%", minWidth: 0,
-            boxSizing: "border-box", padding: "5px 6px", fontSize: 12, marginTop: 6,
+            boxSizing: "border-box", padding: "var(--space-4) var(--space-4)", fontSize: 12, marginTop: "var(--space-4)",
             background: "transparent", borderStyle: "dashed", color: C.muted }}>
           <option value="">{out ? "+ выдаёт ресурс…" : "+ берёт ресурс… (и)"}</option>
           {options}
         </select>)}
       {/* Пояснение про расход — ОДИН раз на секцию, а не у каждого входа. */}
       {!out && list.length > 0 && (
-        <div style={{ fontSize: 10, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 10, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           «Расходует» — взятое исчезает. Без метки ресурс остаётся другим, но эта функция по нему отработала.
         </div>)}
       </div>
@@ -947,14 +947,14 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 туда и пишем; правятся они и в меню задачи на процессе. */}
             <Form title="критерии проверки задачи">
               {(f.checks || []).map((c, i) => (
-                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: 4 }}>
+                <div key={`${i}:${c}`} className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                   <TxtField value={c} aria-label={`критерий ${i + 1}`} style={{ flex: 1, fontSize: 12 }}
                     onCommit={(v) => setChecksOf(f, (f.checks || []).map((y, k) => (k === i ? v : y)).filter((y) => String(y).trim()))} />
-                  <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }}
+                  <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }}
                     aria-label={`убрать критерий ${i + 1}`}
                     onClick={() => setChecksOf(f, (f.checks || []).filter((y, k) => k !== i))}>✕</button>
                 </div>))}
-              <button style={{ ...btn(false), fontSize: 11, padding: "3px 8px" }} aria-label="добавить критерий"
+              <button style={{ ...btn(false), fontSize: 11, padding: "var(--space-4) var(--space-8)" }} aria-label="добавить критерий"
                 onClick={() => setChecksOf(f, [...(f.checks || []), " "])}>+ критерий</button>
             </Form>
 
@@ -968,13 +968,13 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 переключатель «сначала отдаёт»: тогда взятое выдаётся после
                 проверки, а не при взятии задачи (владелец, 2026-09-18). */}
             {f.proc && Array.isArray(f.steps) && !!f.steps.length && (
-              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6 }} aria-label="шаги задачи">
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)" }} aria-label="шаги задачи">
                 шаги: {f.steps.map((x) => (x.kind === "take" ? "берёт" : "отдаёт")).join(" → ")}
                 {Array.isArray(f.who) && f.who.length
                   ? ` · кто: ${f.who.map((w) => `${w.name}${w.hand ? ` (рука ${w.hand})` : ""}`).join(", ")}` : ""}
               </div>)}
             {!f.proc && (
-              <label className="flex items-center gap-2" style={{ marginTop: 6, fontSize: 11, color: C.muted, cursor: "pointer" }}>
+              <label className="flex items-center gap-2" style={{ marginTop: "var(--space-4)", fontSize: 11, color: C.muted, cursor: "pointer" }}>
                 <input type="checkbox" aria-label="сначала отдаёт, потом берёт" checked={f.steps?.[0]?.kind === "give"}
                   onChange={(e) => up(f.id, (x) => ({ ...x, steps: e.target.checked
                     ? [{ kind: "give", ports: x.gives.map((p) => p.id) }, { kind: "take", ports: x.takes.map((p) => p.id) }]
@@ -1008,13 +1008,13 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             {factorsOf(f).map((id, i) => (
               <div key={`${id}-${i}`} className="flex items-center gap-2"
                 style={{ background: C.panel2, border: `1px solid ${C.line}`,
-                  borderRadius: 6, padding: "5px 7px", marginTop: 4 }}>
+                  borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", marginTop: "var(--space-4)" }}>
                 <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>
                   {factorName(id)}
                   <span style={{ color: C.muted }}>
                     {" · "}{factorChance(factors.find((x) => x.id === id))}%</span>
                 </span>
-                <button style={{ ...btn(false), fontSize: 11, padding: "2px 6px",
+                <button style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-4)",
                   color: BAD }} aria-label={`убрать фактор ${factorName(id)}`}
                   onClick={() => up(f.id, (x) => ({ ...x,
                     factors: factorsOf(x).filter((_, j) => j !== i) }))}>×</button>
@@ -1024,12 +1024,12 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 onChange={(e) => { if (e.target.value) {
                   up(f.id, (x) => ({ ...x, factors: [...factorsOf(x), e.target.value] }));
                 } }}
-                style={{ ...S.inp, marginTop: 4, padding: "6px 7px", fontSize: 12 }}>
+                style={{ ...S.inp, marginTop: "var(--space-4)", padding: "var(--space-4) var(--space-8)", fontSize: 12 }}>
                 <option value="">{factorsOf(f).length ? "+ ещё фактор…" : "+ фактор…"}</option>
                 {ownFactors.filter((x) => !factorsOf(f).includes(x.id))
                   .map((x) => (<option key={x.id} value={x.id}>{x.name}</option>))}
               </select>)}
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 5, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
               {!factorsOf(f).length
                 ? (ownFactors.length
                   ? "Без факторов функция срабатывает всегда: сколько взяла, столько и выдала."
@@ -1058,14 +1058,14 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
               </>)}
               <select value={f.durUnit} aria-label="единица времени функции"
                 onChange={(e) => up(f.id, (x) => ({ ...x, durUnit: e.target.value }))}
-                style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
+                style={{ ...S.inp, width: "auto", padding: "var(--space-4) var(--space-4)", fontSize: 12 }}>
                 {Object.keys(DUR_UNITS).map((u) => <option key={u} value={u}>{u}</option>)}
               </select>
               <span style={{ flex: 1 }} />
               <Timing func={f} runs={runs} />
             </div>
             <label className="flex items-center gap-2"
-              style={{ marginTop: 5, fontSize: 11, color: C.muted, cursor: "pointer" }}>
+              style={{ marginTop: "var(--space-4)", fontSize: 11, color: C.muted, cursor: "pointer" }}>
               <input type="checkbox" aria-label="точное время" checked={sameHours(f)}
                 onChange={(e) => up(f.id, (x) => ({ ...x,
                   durHi: e.target.checked ? Number(x.dur) || 0
@@ -1090,7 +1090,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   const v = on ? (Number(x.every) || 1) : 0;
                   return { ...x, every: v, everyHi: on ? Math.max(v, Number(x.everyHi) || 0) : 0 };
                 })}
-                style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
+                style={{ ...S.inp, width: "auto", padding: "var(--space-4) var(--space-4)", fontSize: 12 }}>
                 <option value="flow">сразу</option>
                 <option value="every">через…</option>
               </select>
@@ -1106,7 +1106,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 </>)}
                 <select value={f.everyUnit} aria-label="единица срока попытки"
                   onChange={(e) => up(f.id, (x) => ({ ...x, everyUnit: e.target.value }))}
-                  style={{ ...S.inp, width: "auto", padding: "4px 6px", fontSize: 12 }}>
+                  style={{ ...S.inp, width: "auto", padding: "var(--space-4) var(--space-4)", fontSize: 12 }}>
                   {Object.keys(DUR_UNITS).map((u) => <option key={u} value={u}>{u}</option>)}
                 </select></>)}
               <span style={{ flex: 1 }} />
@@ -1117,7 +1117,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             </div>
             {everyRange(f).hi > 0 && (
               <label className="flex items-center gap-2"
-                style={{ marginTop: 5, fontSize: 11, color: C.muted, cursor: "pointer" }}>
+                style={{ marginTop: "var(--space-4)", fontSize: 11, color: C.muted, cursor: "pointer" }}>
                 <input type="checkbox" aria-label="точное время попытки"
                   checked={sameEvery(f)}
                   onChange={(e) => up(f.id, (x) => ({ ...x,
@@ -1152,12 +1152,12 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 onChange={(v) => up(f.id, (x) => ({ ...x,
                   par: Math.max(1, Math.floor(Number(v) || 1)) }))} />
             </div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0 }}>
               {parWorkerOf(f) > 1
                 ? "столько одному под силу разом"
                 : "по одному, друг за другом"}</div>
 
-            <div className="flex items-center gap-2" style={{ marginTop: 6, flexWrap: "wrap" }}>
+            <div className="flex items-center gap-2" style={{ marginTop: "var(--space-4)", flexWrap: "wrap" }}>
               <span style={S.lbl}>одновременных выполнений на актив</span>
               {/* Привязали к людям — число не вводят: оно уже сказано
                   составом актива, и второе место, где то же самое пишут
@@ -1175,7 +1175,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                 = количеству воркеров
               </label>
             </div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0 }}>
               {f.parCrew
                 ? `воркеров в активе: ${nm(crew.length)} — столько и идёт разом`
                 : parAssetOf(f)
@@ -1183,7 +1183,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   : "предела нет"}</div>
 
             {/* Итог двух пределов: сколько дел ложится в календарь разом. */}
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0 }}>
               {`в календарь помещается ${nm(parOf(live(f)))} разом: столько дел `
                 + "займут время одного"}</div>
             </Form>
@@ -1219,13 +1219,13 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
             <button onClick={() => st.kind !== "ready" && accept(f.id)}
               aria-disabled={st.kind === "ready"}
               aria-label={`принять функцию ${f.name || "без названия"}`}
-              style={{ width: "100%", borderRadius: 7, padding: "7px",
+              style={{ width: "100%", borderRadius: "var(--radius-sm)", padding: "var(--space-8)",
                 fontSize: 12, cursor: st.kind !== "ready" ? "pointer" : "default",
                 background: st.kind !== "ready" ? "rgba(61,220,151,.13)" : "transparent",
                 border: `1px solid ${st.kind !== "ready" ? OK : C.line}`,
                 color: st.kind !== "ready" ? OK : C.muted }}>
               {st.kind === "ready" ? "Принята — любая правка снимет пометку" : "Принять"}</button>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
               {st.kind === "ready"
                 ? "Функция принята: её можно пускать в дело. Любая правка снимет пометку."
                 : `Принять — сказать, что функцию можно пускать в дело.${
@@ -1285,7 +1285,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
                   <button style={{ ...btn(false), fontSize: 12 }}
                     onClick={() => onMarket(first, "service")}>Сделать услугой</button>
                 </div>
-                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6,
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)",
                   lineHeight: 1.5 }}>
                   {"Заказ появится у всех в «Рынке услуг» → «Заказы»; услуга — в «Услуги»."
                     + " Название, описание, ресурсы и срок берутся из функции,"
@@ -1344,13 +1344,13 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
                 onCommit={(v) => up(x.id, { name: v })} />
               <span style={{ fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>
                 {used(x.id) ? `функций: ${used(x.id)}` : "не используется"}</span>
-              <button style={{ ...btn(true, BAD), fontSize: 11, padding: "2px 6px" }} aria-label={`удалить фактор ${x.name}`}
+              <button style={{ ...btn(true, BAD), fontSize: 11, padding: "0 var(--space-4)" }} aria-label={`удалить фактор ${x.name}`}
                 onClick={() => del(x.id)}>✕</button>
             </div>
             {/* Та же подпись, что у функции и ресурса: красная, пока человек
                 не принял. У фактора строения нет — красным он бывает только
                 от этого, и знака «?» здесь не надо. */}
-            <div role="status" className="flex items-center gap-2" style={{ marginTop: 2 }}>
+            <div role="status" className="flex items-center gap-2" style={{ marginTop: 0 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%",
                 background: taken ? OK : BAD }} />
               <Mark text={taken ? "фактор" : "не принят"} label="фактор" ok
@@ -1359,7 +1359,7 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
             {/* Вероятность — свойство самого фактора: сезон удачлив одинаково,
                 сколько бы функций от него ни зависело. Спрашивать её у каждой
                 функции значило бы задавать один вопрос по нескольку раз. */}
-            <div className="flex items-center gap-2" style={{ marginTop: 6 }}>
+            <div className="flex items-center gap-2" style={{ marginTop: "var(--space-4)" }}>
               <span style={S.lbl}>случается с вероятностью</span>
               <Num value={chance} label={`вероятность фактора ${x.name}`}
                 onChange={(v) => up(x.id, { chance: Math.max(0, Math.min(100, Number(v) || 0)) })} />
@@ -1373,7 +1373,7 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
             {/* «Принять» — как у функции: слово человека, снимается правкой. */}
             <button onClick={() => !taken && accept(x.id)} aria-disabled={taken}
               aria-label={`принять фактор ${x.name || "без названия"}`}
-              style={{ width: "100%", marginTop: 8, borderRadius: 7, padding: "7px",
+              style={{ width: "100%", marginTop: "var(--space-8)", borderRadius: "var(--radius-sm)", padding: "var(--space-8)",
                 fontSize: 12, cursor: taken ? "default" : "pointer",
                 background: taken ? "transparent" : "rgba(61,220,151,.13)",
                 border: `1px solid ${taken ? C.line : OK}`,
@@ -1381,7 +1381,7 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
               {taken ? "Принят — любая правка снимет пометку" : "Принять"}</button>
           </div>);
       })}
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         <TxtField value={draft} placeholder="название нового фактора"
           style={{ flex: "1 1 160px" }} onCommit={setDraft} />
         <button style={btn(false)} onClick={add}>+ фактор</button>
@@ -1400,7 +1400,7 @@ export function Factors({ entityId, factors, setFactors, funcs, setFuncs }) {
 export function Kinds({ kinds, onUp, onAdd, onDel, msg }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ marginTop: 10, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+    <div style={{ marginTop: "var(--space-8)", borderTop: `1px solid ${C.line}`, paddingTop: "var(--space-8)" }}>
       <button style={{ background: "none", border: "none", padding: 0, width: "100%",
         textAlign: "left", cursor: "pointer", color: C.muted }}
         aria-expanded={open} onClick={() => setOpen((v) => !v)}>
@@ -1408,10 +1408,10 @@ export function Kinds({ kinds, onUp, onAdd, onDel, msg }) {
         <span style={{ fontSize: 10.5, color: C.muted }}> · {kinds.length}</span>
       </button>
       {open && (<>
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: "var(--space-8)" }}>
           {kinds.map((k) => (
             <div key={k.id} className="flex flex-wrap gap-2"
-              style={{ alignItems: "center", marginBottom: 6 }}>
+              style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
               <TxtField value={k.sign} aria-label={`значок ${k.name}`}
                 style={{ flex: "0 0 52px", textAlign: "center" }}
                 onCommit={(v) => onUp(k.id, "sign", v || "•")} />
@@ -1518,7 +1518,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                   число разошлось бы с вещами, которые можно скачать. */}
               <div style={{ flex: "1 1 110px" }}>
                 <div style={S.lbl}>есть сейчас</div>
-                <div style={{ fontSize: 12.5, padding: "6px 0" }} aria-label="есть сейчас">
+                <div style={{ fontSize: 12.5, padding: "var(--space-4) 0" }} aria-label="есть сейчас">
                   {nm(Number(t.have) || 0)} {t.unit || ""}
                   <span style={{ fontSize: 10.5, color: C.muted }}> · по материалам</span>
                 </div>
@@ -1544,11 +1544,11 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                 return (
                   <button key={k.id} aria-pressed={on}
                     aria-label={`${k.name}: ${t.l || "без названия"}`}
-                    style={{ ...btn(on, on ? ACC : null), fontSize: 11, padding: "3px 7px" }}
+                    style={{ ...btn(on, on ? ACC : null), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
                     onClick={() => up(t.id, { kind: k.id })}>{k.name}</button>);
               })}
             </div>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
               {traitKind(t) === "code"
                 ? "Код создаёт программа. При загрузке прикладывают подтверждение — один файл на все единицы."
                 : traitKind(t) === "text"
@@ -1566,7 +1566,7 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
                 return (
                   <button key={x.id} aria-pressed={on}
                     aria-label={`${x.name}: ${t.l || "без названия"}`}
-                    style={{ ...btn(on, x.color), fontSize: 11, padding: "3px 7px" }}
+                    style={{ ...btn(on, x.color), fontSize: 11, padding: "var(--space-4) var(--space-8)" }}
                     onClick={() => { const z = toggleKind(t, x.id); up(t.id, { ks: z.ks, k: z.k }); }}>
                     {x.sign} {x.name}</button>);
               })}
@@ -1578,13 +1578,13 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
             <Form title="принять">
             <button onClick={() => !taken && accept(t.id)} aria-disabled={taken}
               aria-label={`принять ресурс ${t.l || "без названия"}`}
-              style={{ width: "100%", borderRadius: 7, padding: "7px",
+              style={{ width: "100%", borderRadius: "var(--radius-sm)", padding: "var(--space-8)",
                 fontSize: 12, cursor: taken ? "default" : "pointer",
                 background: taken ? "transparent" : "rgba(61,220,151,.13)",
                 border: `1px solid ${taken ? C.line : OK}`,
                 color: taken ? C.muted : OK }}>
               {taken ? "Принят — любая правка снимет пометку" : "Принять"}</button>
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
               {taken
                 ? "Ресурс принят. Любая правка названия, единицы или вида снимет пометку."
                 : "Принять — сказать, что ресурс описан верно."}
@@ -1592,12 +1592,12 @@ export function Traits({ entityId, traits, setTraits, funcs, tasks = [], materia
             </Form>
           </Card>);
       })}
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
         <TxtField value={draft} placeholder="текст нового ресурса"
           style={{ flex: "1 1 160px" }} onCommit={setDraft} />
         {kinds.map((k) => (
           <button key={k.id} style={{ ...btn(false), borderColor: k.color, color: k.color,
-            fontSize: 11, padding: "3px 7px" }} onClick={() => add(k.id)}>
+            fontSize: 11, padding: "var(--space-4) var(--space-8)" }} onClick={() => add(k.id)}>
             + {k.sign} {k.name}</button>))}
       </div>
       {onUpKind && (
@@ -1645,7 +1645,7 @@ export default function AssetPanel(props) {
   ];
   return (
     <div>
-      <div className="flex gap-2" style={{ marginTop: 10, overflowX: "auto" }}>
+      <div className="flex gap-2" style={{ marginTop: "var(--space-8)", overflowX: "auto" }}>
         {TABS.map(([id, name, n]) => (
           <button key={id} style={{ ...btn(tab === id), fontSize: 12 }}
             onClick={() => setTab(id)}>

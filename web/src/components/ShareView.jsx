@@ -28,7 +28,7 @@ const fmtDT = (v) => {
 /** Одна созданная вещь: номер, что это, кто и когда сделал, и сам файл. */
 function Made({ r }) {
   return (
-    <div style={{ borderTop: `1px solid ${C.line}`, padding: "7px 0" }}>
+    <div style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-8) 0" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         {/* Номер — то же самое, что и внутри: заказчик и исполнитель должны
             звать вещь одинаково. */}
@@ -38,7 +38,7 @@ function Made({ r }) {
         {!!r.trait && (
           <span style={{ fontSize: 11, color: OK }}>{nm(r.qty)} {r.trait}</span>)}
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0, lineHeight: 1.6 }}>
         {fmtDT(r.at)}{r.by ? ` · ${r.by}` : ""}
       </div>
       {/* Сама вещь — её и скачивают. Файла нет — так и сказано: пустое
@@ -46,13 +46,13 @@ function Made({ r }) {
       {r.file
         ? (/^image\//.test(r.file.type || "")
           ? <img src={reportSrc(r.file)} alt={r.file.name}
-              style={{ maxWidth: "100%", borderRadius: 6, marginTop: 6,
+              style={{ maxWidth: "100%", borderRadius: "var(--radius-sm)", marginTop: "var(--space-4)",
                 border: `1px solid ${C.line}` }} />
           : <a href={reportSrc(r.file)} target="_blank" rel="noreferrer"
               download={r.file.name}
-              style={{ fontSize: 10.5, color: ACC, display: "inline-block", marginTop: 4 }}>
+              style={{ fontSize: 10.5, color: ACC, display: "inline-block", marginTop: "var(--space-4)" }}>
               📎 скачать · {r.file.name}</a>)
-        : (<div style={{ fontSize: 10.5, color: WARN, marginTop: 4 }}>
+        : (<div style={{ fontSize: 10.5, color: WARN, marginTop: "var(--space-4)" }}>
             файла нет — при сдаче не приложили</div>)}
     </div>);
 }
@@ -64,7 +64,7 @@ function Facts({ rows = [] }) {
   const shown = rows.filter((r) => r && r.value != null && r.value !== "");
   if (!shown.length) return null;
   return (
-    <div style={{ marginTop: 3 }}>
+    <div style={{ marginTop: "var(--space-4)" }}>
       {shown.map((r) => (
         <div key={r.label} className="flex flex-wrap gap-2"
           style={{ alignItems: "baseline", lineHeight: 1.6 }}>
@@ -83,7 +83,7 @@ function ChangeRow({ c, made = [] }) {
   const [open, setOpen] = useState(false);
   const head = (
     <div className="flex flex-wrap gap-2"
-      style={{ alignItems: "center", fontSize: 11, marginTop: 3 }}>
+      style={{ alignItems: "center", fontSize: 11, marginTop: "var(--space-4)" }}>
       <span style={{ flex: "1 1 110px" }}>{c.trait}</span>
       <span style={{ color: WARN }}>
         прогноз {nm(Math.min(c.lo, c.hi))}…{nm(Math.max(c.lo, c.hi))}</span>
@@ -114,12 +114,12 @@ function ChangeRow({ c, made = [] }) {
    «что внутри». Заголовки совпадают слово в слово нарочно. */
 function Part({ n, title, hint, children }) {
   return (
-    <section style={{ marginTop: 12, borderTop: `1px solid ${C.line}`, paddingTop: 8 }}>
+    <section style={{ marginTop: "var(--space-12)", borderTop: `1px solid ${C.line}`, paddingTop: "var(--space-8)" }}>
       <div style={{ fontSize: 12.5, fontWeight: 700 }}>{n}. {title}</div>
       {hint && (
-        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0, lineHeight: 1.5 }}>
           {hint}</div>)}
-      <div style={{ marginTop: 6 }}>{children}</div>
+      <div style={{ marginTop: "var(--space-4)" }}>{children}</div>
     </section>);
 }
 
@@ -135,8 +135,8 @@ const hoursText = (h) => {
 /** Одна задача: срок, состояние, сколько вышло и что из неё родилось. */
 function Task({ t }) {
   return (
-    <div style={{ borderTop: `1px solid ${C.line}`, padding: "5px 0",
-      marginLeft: 10 }}>
+    <div style={{ borderTop: `1px solid ${C.line}`, padding: "var(--space-4) 0",
+      marginLeft: "var(--space-8)" }}>
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <span style={{ fontSize: 11.5, flex: "1 1 120px" }}>{t.title}</span>
         {!!t.by && <span style={{ fontSize: 10.5, color: C.muted }}>{t.by}</span>}
@@ -145,7 +145,7 @@ function Task({ t }) {
           color: t.canceled ? BAD : t.status === "done" ? OK : WARN }}>
           {t.canceled ? "отменена" : t.status === "done" ? "принято" : t.status}</span>
       </div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0 }}>
         {t.hours == null ? "факта пока нет" : `вышло ${nm(t.hours)} ч`}
       </div>
       {(t.made || []).map((r, i) => (<Made key={`${r.title}-${r.at}-${i}`} r={r} />))}
@@ -162,20 +162,20 @@ function Block({ block, depth = 0 }) {
   const act = block.actual || { done: 0, total: 0, hours: 0 };
   const changes = block.changes || [];
   return (
-    <div style={{ ...S.card, marginBottom: 10, marginLeft: depth ? 8 : 0,
+    <div style={{ ...S.card, marginBottom: "var(--space-8)", marginLeft: depth ? 8 : 0,
       borderLeft: depth ? `2px solid ${C.line}` : undefined }}>
       <div style={{ fontSize: depth ? 13 : 15, fontWeight: 700 }}>
         {block.name || "без названия"}</div>
-      <div style={{ fontSize: 10.5, color: C.muted, marginTop: 3, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
         {block.from ? `с ресурса «${block.from}»` : "ресурс не выбран"}
         {block.upto ? ` · до звена «${block.upto}»` : " · до конца цепочки"}
       </div>
       {block.file && (
         <a href={reportSrc(block.file)} target="_blank" rel="noreferrer"
-          style={{ fontSize: 10.5, color: ACC, display: "inline-block", marginTop: 4 }}>
+          style={{ fontSize: 10.5, color: ACC, display: "inline-block", marginTop: "var(--space-4)" }}>
           📎 {block.file.name}</a>)}
       {block.broken && (
-        <div style={{ fontSize: 11, color: WARN, marginTop: 5, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 11, color: WARN, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
           До этого звена цепочка не доходит: между ним и ресурсом разрыв.</div>)}
       {/* Те же пять разделов, что и у владельца (ReportsPanel, `Part`):
           заказчик должен видеть ровно то, что видит владелец, — иначе
@@ -201,7 +201,7 @@ function Block({ block, depth = 0 }) {
         {plan.steps.filter((s2) => !(s2.short || []).length).map((s2, i) => (
           <div key={`${s2.name}-h${i}`} className="flex flex-wrap gap-2"
             style={{ alignItems: "baseline", fontSize: 10.5, lineHeight: 1.6,
-              borderTop: `1px solid ${C.line}`, padding: "3px 0" }}>
+              borderTop: `1px solid ${C.line}`, padding: "var(--space-4) 0" }}>
             <span style={{ fontSize: 11.5, flex: "1 1 120px" }}>{s2.name}</span>
             <span style={{ color: WARN }}>работы {nm(s2.workLo)}–{nm(s2.workHi)} ч</span>
             {!!s2.doneCount && (
@@ -216,14 +216,14 @@ function Block({ block, depth = 0 }) {
             value: act.done ? `${nm(act.done)} из ${nm(act.total)}` : "ни одной" },
         ]} />
         {!(block.before || []).length && !plan.steps.some((s2) => (s2.tasks || []).length) && (
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.5 }}>
             Задач по этому разделу ещё не заведено.</div>)}
         {!!(block.before || []).length && (<>
-          <div style={{ ...S.lbl, margin: "8px 0 2px" }}>как эти вещи появились</div>
+          <div style={{ ...S.lbl, margin: "var(--space-8) 0 0" }}>как эти вещи появились</div>
           {block.before.map((t, k) => (<Task key={`${t.title}-b${k}`} t={t} />))}
         </>)}
         {plan.steps.filter((s2) => (s2.tasks || []).length).map((s2, i) => (
-          <div key={`${s2.name}-t${i}`} style={{ marginTop: 8 }}>
+          <div key={`${s2.name}-t${i}`} style={{ marginTop: "var(--space-8)" }}>
             <div style={S.lbl}>функция «{s2.name}»</div>
             {s2.tasks.map((t, k) => (<Task key={`${t.title}-${k}`} t={t} />))}
           </div>))}
@@ -247,7 +247,7 @@ export default function ShareView({ token }) {
 
   return (
     <div style={{ background: C.ink, color: C.text, minHeight: "100vh",
-      padding: 12, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
+      padding: "var(--space-12)", fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         {state.loading && (
           <div style={{ ...S.card, fontSize: 12, color: C.muted }}>Открываю…</div>)}
@@ -259,12 +259,12 @@ export default function ShareView({ token }) {
           </div>)}
 
         {state.data && (<>
-          <div style={{ ...S.card, marginBottom: 10 }}>
+          <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
             <div style={S.lbl}>что сделано</div>
             {!!state.data.snapshot?.path?.length && (
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: "var(--space-4)" }}>
                 {state.data.snapshot.path.join(" → ")}</div>)}
-            <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10.5, color: C.muted, marginTop: "var(--space-8)", lineHeight: 1.5 }}>
               Снимок на {fmtDT(state.data.snapshot?.at)}. Показано только то,
               что выбрано в этом блоке; принятые работы — и ничего больше.
             </div>

@@ -44,8 +44,8 @@ import { getRatings } from "../identity.js";
 
 const POLL_MS = 30000;
 const hint = { fontSize: 11.5, color: C.muted, lineHeight: 1.6 };
-const form = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-  padding: 10, marginTop: 8 };
+const form = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+  padding: "var(--space-8)", marginTop: "var(--space-8)" };
 const when = (iso) => {
   const d = new Date(iso || "");
   return isNaN(d.getTime()) ? "" : d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit",
@@ -60,18 +60,18 @@ function Rows({ rows, onChange, label, single = false }) {
   return (
     <div>
       {rows.map((r, i) => (
-        <div key={i} className="flex gap-2" style={{ alignItems: "center", marginTop: 4 }}>
+        <div key={i} className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
           <input aria-label={`${label}: что`} style={{ ...S.inp, flex: "3 1 120px" }}
             placeholder="что" value={r.name} onChange={(e) => set(i, { name: e.target.value })} />
           <input aria-label={`${label}: сколько`} inputMode="decimal"
             style={{ ...S.inp, flex: "1 1 60px", maxWidth: 90 }} placeholder="сколько"
             value={r.qty ?? ""} onChange={(e) => set(i, { qty: e.target.value })} />
           {!single && (
-            <button type="button" style={{ ...btn(false), padding: "4px 8px" }}
+            <button type="button" style={{ ...btn(false), padding: "var(--space-4) var(--space-8)" }}
               aria-label={`${label}: убрать строку`} onClick={() => drop(i)}>✕</button>)}
         </div>))}
       {!single && (
-        <button type="button" style={{ ...btn(false), marginTop: 6, fontSize: 11 }}
+        <button type="button" style={{ ...btn(false), marginTop: "var(--space-4)", fontSize: 11 }}
           onClick={() => onChange([...rows, emptyRow()])}>+ ресурс</button>)}
     </div>
   );
@@ -100,19 +100,19 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
           по смыслу (владелец, 2026-09-20): можно взять готовое. */}
       <NameField label="название заказа" placeholder="название" value={f.name}
         onChange={(v) => up({ name: v })} items={[...orders, ...services]} />
-      <textarea aria-label="содержание заказа" style={{ ...S.inp, minHeight: 64, marginBottom: 6 }}
+      <textarea aria-label="содержание заказа" style={{ ...S.inp, minHeight: 64, marginBottom: "var(--space-4)" }}
         placeholder="содержание: что нужно сделать" value={f.text}
         onChange={(e) => up({ text: e.target.value })} />
-      <div className="flex gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+      <div className="flex gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
         <span style={{ fontSize: 11.5, color: C.muted }}>стоимость</span>
         <input aria-label="стоимость заказа" inputMode="decimal"
           style={{ ...S.inp, maxWidth: 140 }} placeholder="сколько платите"
           value={f.price ?? ""} onChange={(e) => up({ price: e.target.value })} />
       </div>
-      <div style={{ ...S.lbl, marginTop: 6 }}>другие предоставляемые ресурсы</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-4)" }}>другие предоставляемые ресурсы</div>
       <Rows rows={f.resources} onChange={(rows) => up({ resources: rows })} label="ресурс заказа" />
 
-      <div style={{ ...S.lbl, marginTop: 10 }}>подходящие услуги</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>подходящие услуги</div>
       {!services.length && <div style={hint}>Услуг пока никто не выложил.</div>}
       {!!services.length && !fit.length && (
         <div style={hint}>По словам заказа ничего не подошло — вот все услуги.</div>)}
@@ -122,9 +122,9 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
           <button key={s.id} type="button" role="checkbox" aria-checked={on}
             aria-label={`услуга ${s.name}`}
             onClick={() => up({ serviceId: on ? null : s.id })}
-            className="flex gap-2" style={{ width: "100%", textAlign: "left", marginTop: 4,
+            className="flex gap-2" style={{ width: "100%", textAlign: "left", marginTop: "var(--space-4)",
               background: on ? `${OK}22` : C.panel, border: `1px solid ${on ? OK : C.line}`,
-              borderRadius: 6, padding: "6px 8px", color: C.text, cursor: "pointer" }}>
+              borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", color: C.text, cursor: "pointer" }}>
             <span style={{ width: 16, color: OK, fontWeight: 700 }}>{on ? "✓" : ""}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600 }}>{s.name}</div>
@@ -135,7 +135,7 @@ function OrderForm({ initial, services, orders = [], busy, onSave, onCancel,
           </button>);
       })}
 
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !f.name.trim()}
           onClick={() => onSave({ name: f.name.trim(), text: f.text, price: f.price,
             resources: cleanRows(f.resources), serviceId: f.serviceId, funcId: f.funcId })}>
@@ -158,13 +158,13 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
       <div style={S.lbl}>услуга</div>
       <NameField label="название услуги" placeholder="название" value={f.name}
         onChange={(v) => up({ name: v })} items={services} />
-      <textarea aria-label="описание услуги" style={{ ...S.inp, minHeight: 64, marginBottom: 6 }}
+      <textarea aria-label="описание услуги" style={{ ...S.inp, minHeight: 64, marginBottom: "var(--space-4)" }}
         placeholder="описание: что делаете" value={f.text} onChange={(e) => up({ text: e.target.value })} />
-      <div style={{ ...S.lbl, marginTop: 6 }}>какие ресурсы берёт</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-4)" }}>какие ресурсы берёт</div>
       <Rows rows={f.takes} onChange={(rows) => up({ takes: rows })} label="берёт" />
-      <div style={{ ...S.lbl, marginTop: 8 }}>какие выдаёт</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>какие выдаёт</div>
       <Rows rows={f.gives} onChange={(rows) => up({ gives: rows })} label="выдаёт" />
-      <div className="flex gap-2" style={{ alignItems: "center", marginTop: 8 }}>
+      <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
         <span style={{ fontSize: 11.5, color: C.muted }}>за какое время выполняется, дней</span>
         <input aria-label="срок услуги" inputMode="decimal" style={{ ...S.inp, maxWidth: 90 }}
           value={f.days ?? ""} onChange={(e) => up({ days: e.target.value })} />
@@ -174,12 +174,12 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
           принимается, и задача сразу падает в бэклог. Вне рабочего
           времени — обычный путь: обещать за себя круглосуточно нельзя. */}
       <label className="flex items-center gap-2"
-        style={{ marginTop: 10, fontSize: 12, cursor: "pointer" }}>
+        style={{ marginTop: "var(--space-8)", fontSize: 12, cursor: "pointer" }}>
         <input type="checkbox" checked={f.auto} aria-label="принять автоматически в рабочее время"
           onChange={(e) => up({ auto: e.target.checked })} style={{ accentColor: OK }} />
         Принять автоматически в рабочее время
       </label>
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !f.name.trim()}
           onClick={() => onSave({ name: f.name.trim(), text: f.text, takes: cleanRows(f.takes),
             gives: cleanRows(f.gives), days: f.days === "" ? null : f.days, funcId: f.funcId,
@@ -201,18 +201,18 @@ function BriefForm({ initial, busy, onSave, onCancel }) {
   return (
     <div style={form} aria-label="бриф">
       <div style={S.lbl}>договорились: условия</div>
-      <div style={{ ...S.lbl, marginTop: 6, color: C.text }}>заказчик отдаёт</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-4)", color: C.text }}>заказчик отдаёт</div>
       <Rows rows={gives} onChange={setGives} label="отдаёт" />
-      <div style={{ ...S.lbl, marginTop: 8, color: C.text }}>исполнитель выдаёт</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-8)", color: C.text }}>исполнитель выдаёт</div>
       <Rows rows={gets} onChange={setGets} label="получает" single />
-      <div className="flex gap-2" style={{ alignItems: "center", marginTop: 8 }}>
+      <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)" }}>
         <span style={{ fontSize: 11.5, color: C.muted }}>ожидаемое время выполнения, дней</span>
         <input aria-label="срок брифа" inputMode="decimal" style={{ ...S.inp, maxWidth: 90 }}
           value={days} onChange={(e) => setDays(e.target.value)} />
       </div>
-      <textarea aria-label="примечание брифа" style={{ ...S.inp, minHeight: 44, marginTop: 6 }}
+      <textarea aria-label="примечание брифа" style={{ ...S.inp, minHeight: 44, marginTop: "var(--space-4)" }}
         placeholder="примечание (необязательно)" value={note} onChange={(e) => setNote(e.target.value)} />
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy}
           onClick={() => onSave({ gives: cleanRows(gives), gets: cleanRows(gets)[0] || null,
             days: days === "" ? null : days, note })}>Сохранить условия</button>
@@ -252,19 +252,19 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
         <span style={{ fontSize: 12.5, fontWeight: 600 }}>{nameOf(other)}</span>
         <span style={{ fontSize: 10.5, color: C.muted }}>{when(offer.at)}</span>
       </div>
-      <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>{offer.text}</div>
+      <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{offer.text}</div>
 
       {/* ─── чат ─── */}
-      <div style={{ ...S.lbl, marginTop: 8 }}>чат</div>
+      <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>чат</div>
       <div role="log" aria-label="чат отклика" style={{ maxHeight: 220, overflowY: "auto",
-        border: `1px solid ${C.line}`, borderRadius: 6, padding: 6, marginTop: 4, background: C.ink }}>
+        border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4)", marginTop: "var(--space-4)", background: C.ink }}>
         {!(offer.chat || []).length && <div style={hint}>Пока ничего не сказано.</div>}
         {(offer.chat || []).map((c) => {
           const own = String(c.by) === String(me);
           return (
-            <div key={c.id} style={{ marginBottom: 4, textAlign: own ? "right" : "left" }}>
+            <div key={c.id} style={{ marginBottom: "var(--space-4)", textAlign: own ? "right" : "left" }}>
               <span style={{ display: "inline-block", maxWidth: "85%", textAlign: "left",
-                background: own ? `${ACC}22` : C.panel2, borderRadius: 6, padding: "4px 7px",
+                background: own ? `${ACC}22` : C.panel2, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)",
                 fontSize: 12, lineHeight: 1.45 }}>
                 {c.text}
                 <div style={{ fontSize: 9.5, color: C.muted }}>{own ? "вы" : nameOf(c.by)} · {when(c.at)}</div>
@@ -272,7 +272,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
             </div>);
         })}
       </div>
-      <div className="flex gap-2" style={{ marginTop: 6 }}>
+      <div className="flex gap-2" style={{ marginTop: "var(--space-4)" }}>
         <input aria-label="сообщение" style={S.inp} placeholder="написать" value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
@@ -281,7 +281,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
 
       {/* ─── бриф ─── */}
       {!offer.accepted && (
-        <div style={{ marginTop: 10 }}>
+        <div style={{ marginTop: "var(--space-8)" }}>
           {!brief && !editing && (
             <button type="button" style={btn(true, OK)} disabled={busy} onClick={() => setEditing(true)}>
               Договорились</button>)}
@@ -301,13 +301,13 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
               <div style={hint}>
                 {theirs ? `Предложение от ${nameOf(brief.by)}` : "Ваше предложение"} · версия {brief.rev} · {when(brief.at)}
               </div>
-              <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
                 <div><b>заказчик отдаёт:</b> {rowsLine(brief.gives) || "—"}</div>
                 <div><b>исполнитель выдаёт:</b> {rowText(brief.gets) || "—"}</div>
                 <div><b>ожидаемое время:</b> {daysText(brief.days)}</div>
                 {brief.note && <div>{brief.note}</div>}
               </div>
-              <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+              <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
                 <button type="button" style={btn(false)} disabled={busy} onClick={() => setEditing(true)}>
                   Изменить</button>
                 {theirs && (
@@ -322,33 +322,33 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
       {offer.accepted && (
         <div style={{ ...form, borderColor: `${OK}66` }} aria-label="сделка">
           <div style={{ fontSize: 12, color: OK, fontWeight: 600 }}>Договорились · {when(offer.acceptedAt)}</div>
-          <div style={{ fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             <div><b>заказчик отдаёт:</b> {rowsLine(brief?.gives) || "—"}</div>
             <div><b>исполнитель выдаёт:</b> {rowText(brief?.gets) || "—"}</div>
             <div><b>ожидаемое время:</b> {daysText(brief?.days)}</div>
           </div>
-          <div style={{ ...hint, marginTop: 4 }}>
+          <div style={{ ...hint, marginTop: "var(--space-4)" }}>
             {customer
               ? "Задача поставлена исполнителю: она у него на «Задачах», у вас — на «Проверке». Загрузите то, что отдаёте."
               : "Задача у вас на «Задачах» (или на «Проверке» — смотря что открывают ваши роли). Что отдал заказчик — ниже."}
           </div>
-          <div style={{ ...S.lbl, marginTop: 8 }}>ресурсы от заказчика</div>
+          <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>ресурсы от заказчика</div>
           {!(offer.deliveries || []).length && <div style={hint}>Пока ничего не загружено.</div>}
           {(offer.deliveries || []).map((d) => (
-            <div key={d.id} style={{ fontSize: 12, marginTop: 4 }}>
+            <div key={d.id} style={{ fontSize: 12, marginTop: "var(--space-4)" }}>
               {d.name || d.file?.name || "ресурс"}
               {d.text ? <span style={{ color: C.muted }}> — {d.text}</span> : null}
               {d.file && (
                 <a href={reportSrc(d.file)} target="_blank" rel="noreferrer"
-                  style={{ color: ACC, marginLeft: 6 }}>📎 {d.file.name}</a>)}
+                  style={{ color: ACC, marginLeft: "var(--space-4)" }}>📎 {d.file.name}</a>)}
               <span style={{ fontSize: 10, color: C.muted }}> · {when(d.at)}</span>
             </div>))}
           {customer && (
-            <div style={{ marginTop: 8 }}>
-              <input aria-label="название ресурса" style={{ ...S.inp, marginBottom: 4 }}
+            <div style={{ marginTop: "var(--space-8)" }}>
+              <input aria-label="название ресурса" style={{ ...S.inp, marginBottom: "var(--space-4)" }}
                 placeholder="что отдаёте (например, логотип)" value={dlv.name}
                 onChange={(e) => setDlv({ ...dlv, name: e.target.value })} />
-              <textarea aria-label="текст ресурса" style={{ ...S.inp, minHeight: 40, marginBottom: 4 }}
+              <textarea aria-label="текст ресурса" style={{ ...S.inp, minHeight: 40, marginBottom: "var(--space-4)" }}
                 placeholder="текстом — если ресурс словами" value={dlv.text}
                 onChange={(e) => setDlv({ ...dlv, text: e.target.value })} />
               <div className="flex flex-wrap gap-2">
@@ -394,8 +394,8 @@ function SearchBox({ items, label, onPick, value, onChange }) {
       {open && !!found.length && (
         <div role="listbox" aria-label={`${label}: подходящее`}
           style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
-            background: C.panel, border: `1px solid ${ACC}`, borderRadius: 8,
-            marginTop: 2, maxHeight: 220, overflowY: "auto" }}>
+            background: C.panel, border: `1px solid ${ACC}`, borderRadius: "var(--radius-sm)",
+            marginTop: 0, maxHeight: 220, overflowY: "auto" }}>
           {found.map(({ item }) => (
             <button key={item.id} type="button" role="option" aria-selected="false"
               aria-label={`найдено: ${item.name}`}
@@ -403,7 +403,7 @@ function SearchBox({ items, label, onPick, value, onChange }) {
               onClick={() => { onPick(item); setOpen(false); }}
               style={{ display: "block", width: "100%", textAlign: "left",
                 background: "transparent", border: "none", color: C.text,
-                borderBottom: `1px solid ${C.line}`, padding: "6px 9px",
+                borderBottom: `1px solid ${C.line}`, padding: "var(--space-4) var(--space-8)",
                 fontSize: 12, cursor: "pointer" }}>
               <div style={{ fontWeight: 600 }}>{item.name}</div>
               {item.text && (
@@ -420,7 +420,7 @@ function NameField({ value, onChange, items, label, placeholder }) {
   const [open, setOpen] = useState(false);
   const hints = nameHints(value, items);
   return (
-    <div style={{ position: "relative", margin: "6px 0" }}>
+    <div style={{ position: "relative", margin: "var(--space-4) 0" }}>
       <input aria-label={label} placeholder={placeholder} value={value}
         style={{ ...S.inp, width: "100%" }}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
@@ -429,8 +429,8 @@ function NameField({ value, onChange, items, label, placeholder }) {
       {open && !!hints.length && (
         <div role="listbox" aria-label={`${label}: готовые названия`}
           style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
-            background: C.panel, border: `1px solid ${ACC}`, borderRadius: 8,
-            marginTop: 2, maxHeight: 180, overflowY: "auto" }}>
+            background: C.panel, border: `1px solid ${ACC}`, borderRadius: "var(--radius-sm)",
+            marginTop: 0, maxHeight: 180, overflowY: "auto" }}>
           {hints.map((h) => (
             <button key={h.name} type="button" role="option" aria-selected="false"
               aria-label={`название: ${h.name}`}
@@ -438,7 +438,7 @@ function NameField({ value, onChange, items, label, placeholder }) {
               onClick={() => { onChange(h.name); setOpen(false); }}
               style={{ display: "block", width: "100%", textAlign: "left",
                 background: "transparent", border: "none", color: C.text,
-                borderBottom: `1px solid ${C.line}`, padding: "5px 9px",
+                borderBottom: `1px solid ${C.line}`, padding: "var(--space-4) var(--space-8)",
                 fontSize: 12, cursor: "pointer" }}>{h.name}</button>))}
         </div>)}
     </div>);
@@ -511,7 +511,7 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
   const myOffer = (order.offers || []).find((o) => String(o.by) === String(me));
   const status = order.status === "deal" ? "договорились" : order.status === "done" ? "выполнен" : "открыт";
   return (
-    <div style={{ ...S.card, marginBottom: 8,
+    <div style={{ ...S.card, marginBottom: "var(--space-8)",
       borderColor: picked ? ACC : mineOrder ? `${ACC}55` : C.line }}
       aria-label={`заказ ${order.name}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -530,13 +530,13 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
           onSave={(f) => act(() => updateOrder(order.id, f)).then(() => setEdit(false))}
           onCancel={() => setEdit(false)} />
       ) : (<>
-        {order.text && <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{order.text}</div>}
-        <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>
+        {order.text && <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{order.text}</div>}
+        <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
           <div><b>стоимость:</b> {order.price != null ? order.price : "не названа"}</div>
           {!!(order.resources || []).length && <div><b>предоставляет:</b> {rowsLine(order.resources)}</div>}
           {svc && <div><b>выбранная услуга:</b> {svc.name} ({nameOf(svc.by)})</div>}
         </div>
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+        <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
           {mineOrder && order.status === "open" && (
             <button type="button" style={btn(false)} disabled={busy} onClick={() => setEdit(true)}>Правка</button>)}
           {(mineOrder || isOwner) && (
@@ -550,7 +550,7 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
         {replying && (
           <div style={form} aria-label="форма отклика">
             <div style={S.lbl}>ваше предложение — увидит только заказчик</div>
-            <textarea aria-label="текст отклика" style={{ ...S.inp, minHeight: 56, margin: "6px 0" }}
+            <textarea aria-label="текст отклика" style={{ ...S.inp, minHeight: 56, margin: "var(--space-4) 0" }}
               placeholder="что предлагаете: как сделаете, за сколько, когда"
               value={reply} onChange={(e) => setReply(e.target.value)} />
             <div className="flex flex-wrap gap-2">
@@ -565,12 +565,12 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
       {/* Отклики: заказчику — все, откликнувшемуся — свой. Открыть отклик —
           открыть чат. */}
       {!!(order.offers || []).length && (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: "var(--space-8)" }}>
           <div style={S.lbl}>{mineOrder ? "предложения" : "ваше предложение"}</div>
           {(order.offers || []).map((o) => (
             <div key={o.id}>
               {/* Подпись — с кем разговор: заказчику — исполнитель, исполнителю — заказчик. */}
-              <button type="button" style={{ ...btn(openOffer === o.id), marginTop: 4, width: "100%",
+              <button type="button" style={{ ...btn(openOffer === o.id), marginTop: "var(--space-4)", width: "100%",
                 textAlign: "left" }}
                 aria-label={`открыть отклик ${String(o.by) === String(me) ? nameOf(order.by) : nameOf(o.by)}`}
                 onClick={() => setOpenOffer(openOffer === o.id ? null : o.id)}>
@@ -597,7 +597,7 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
   // Статус считает сервер: график лежит у него, и он же знает часовой пояс.
   const statusId = faceOf?.(s.by)?.status || "ready";
   return (
-    <div style={{ ...S.card, marginBottom: 8,
+    <div style={{ ...S.card, marginBottom: "var(--space-8)",
       borderColor: picked ? ACC : mineSvc ? `${ACC}55` : C.line }}
       aria-label={`услуга ${s.name}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -613,7 +613,7 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
         {/* Заказчик должен видеть это до того, как оставит заказ: по такой
             услуге ему не придётся ждать ответа (владелец, 2026-09-20). */}
         {s.auto && (
-          <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 6 }}
+          <div className="flex flex-wrap items-center gap-2" style={{ marginTop: "var(--space-4)" }}
             aria-label="принимает заказ автоматически">
             {/* Статус автора по графику — ПЕРЕД надписью (владелец,
                 2026-09-20): принимает он автоматически только в рабочее
@@ -625,14 +625,14 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
             <Dot color={OK} />
             <span style={{ fontSize: 11.5, color: OK }}>Принимает заказ автоматически</span>
           </div>)}
-        {s.text && <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{s.text}</div>}
-        <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>
+        {s.text && <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{s.text}</div>}
+        <div style={{ fontSize: 12, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
           <div><b>берёт:</b> {rowsLine(s.takes) || "—"}</div>
           <div><b>выдаёт:</b> {rowsLine(s.gives) || "—"}</div>
           <div><b>выполняется за:</b> {daysText(s.days)}</div>
         </div>
         {(mineSvc || isOwner) && (
-          <div className="flex flex-wrap gap-2" style={{ marginTop: 8 }}>
+          <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
             {mineSvc && <button type="button" style={btn(false)} disabled={busy} onClick={() => setEdit(true)}>Правка</button>}
             <button type="button" style={{ ...btn(true, BAD) }} disabled={busy}
               aria-label={`удалить услугу ${s.name}`} onClick={() => act(() => dropService(s.id))}>Удалить</button>
@@ -703,9 +703,9 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
 
   if (!known) {
     return (
-      <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         <div style={S.lbl}>рынок услуг</div>
-        <div style={{ ...hint, marginTop: 6 }}>
+        <div style={{ ...hint, marginTop: "var(--space-4)" }}>
           {solo ? "Рынок услуг живёт на сервере: заказы и услуги видят все зарегистрированные. Откройте приложение через Telegram."
             : "Рынок открыт зарегистрированным: подпишите договор роли — и заказы с услугами появятся здесь."}
         </div>
@@ -714,18 +714,18 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
 
   return (
     <div>
-      <div className="flex gap-2" style={{ marginBottom: 10 }} role="tablist" aria-label="рынок услуг">
+      <div className="flex gap-2" style={{ marginBottom: "var(--space-8)" }} role="tablist" aria-label="рынок услуг">
         {[["orders", `Заказы${orders.length ? ` · ${orders.length}` : ""}`],
           ["services", `Услуги${services.length ? ` · ${services.length}` : ""}`]].map(([k, t]) => (
           <button key={k} type="button" role="tab" aria-selected={sub === k} style={btn(sub === k)}
             onClick={() => { setSub(k); setAdding(null); }}>{t}</button>))}
       </div>
 
-      {!view && <div style={{ ...hint, marginBottom: 8 }}>{msg || "Загружаю…"}</div>}
+      {!view && <div style={{ ...hint, marginBottom: "var(--space-8)" }}>{msg || "Загружаю…"}</div>}
 
       {sub === "orders" && view && (<>
         {/* Поиск — СПРАВА от «+ заказ» (владелец, 2026-09-20). */}
-        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 8 }}>
+        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-8)" }}>
           {adding?.kind !== "order" && (
             <button type="button" style={btn(true, OK)} disabled={busy}
               onClick={() => setAdding({ kind: "order", initial: null })}>+ заказ</button>)}
@@ -745,7 +745,7 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
       </>)}
 
       {sub === "services" && view && (<>
-        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 8 }}>
+        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-8)" }}>
           {adding?.kind !== "service" && (
             <button type="button" style={btn(true, OK)} disabled={busy}
               onClick={() => setAdding({ kind: "service", initial: null })}>+ услуга</button>)}
@@ -767,7 +767,7 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
       {card != null && (
         <PersonModal id={card} me={me} onClose={() => setCard(null)} />)}
 
-      {msg && view && <div role="status" style={{ fontSize: 12, color: WARN, marginTop: 8 }}>{msg}</div>}
+      {msg && view && <div role="status" style={{ fontSize: 12, color: WARN, marginTop: "var(--space-8)" }}>{msg}</div>}
     </div>
   );
 }

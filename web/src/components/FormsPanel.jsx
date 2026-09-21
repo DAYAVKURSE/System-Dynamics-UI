@@ -25,9 +25,9 @@ import { parseNumbered } from "../lib/formText.js";
 /** Какую анкету заполняют по этой роли. «— нет —» — роль ничего не спрашивает. */
 export function RoleFormPick({ role, forms, busy, act }) {
   return (
-    <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+    <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
       <span style={{ fontSize: 10.5, color: C.muted }}>анкета:</span>
-      <select style={{ ...S.inp, flex: "0 1 220px", fontSize: 11.5, padding: "3px 6px" }}
+      <select style={{ ...S.inp, flex: "0 1 220px", fontSize: 11.5, padding: "var(--space-4) var(--space-4)" }}
         value={role.form || ""} disabled={busy}
         aria-label={`анкета роли «${role.name}»`}
         onChange={(e) => act(() => setRoleForm(role.id, e.target.value || null))}>
@@ -54,8 +54,8 @@ function FormCard({ form, busy, act }) {
   };
   return (
     <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-      borderRadius: 8, padding: 8, marginBottom: 6 }}>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+      borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)" }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
         <NameField value={form.name} aria-label={`название анкеты «${form.name}»`}
           style={{ flex: "1 1 160px", fontWeight: 700, fontSize: 12.5 }}
           onCommit={retitle} />
@@ -65,7 +65,7 @@ function FormCard({ form, busy, act }) {
       </div>
       {qs.map((q, i) => (
         <div key={q.id} className="flex flex-wrap gap-2"
-          style={{ alignItems: "center", marginBottom: 4 }}>
+          style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
           <span style={{ fontSize: 10.5, color: C.muted, width: 18, textAlign: "right" }}>
             {i + 1}.</span>
           <TxtField value={q.text} aria-label={`вопрос ${i + 1} анкеты «${form.name}»`}
@@ -75,14 +75,14 @@ function FormCard({ form, busy, act }) {
                 send(qs.map((x) => (x.id === q.id ? { id: x.id, text: v } : x)));
               }
             }} />
-          <button style={{ ...btn(true, BAD), padding: "2px 7px" }} disabled={busy}
+          <button style={{ ...btn(true, BAD), padding: "0 var(--space-8)" }} disabled={busy}
             aria-label={`убрать вопрос ${i + 1} анкеты «${form.name}»`}
             onClick={() => send(qs.filter((x) => x.id !== q.id))}>✕</button>
         </div>))}
       {!qs.length && (
-        <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: "var(--space-4)" }}>
           Вопросов пока нет — человеку показать нечего.</div>)}
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 4 }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
         <TxtField value={text} placeholder="текст вопроса"
           aria-label={`новый вопрос анкеты «${form.name}»`}
           style={{ flex: "1 1 200px", fontSize: 12 }} onCommit={setText} />
@@ -110,7 +110,7 @@ export function FormsSection({ forms, busy, act }) {
     if (f) setText(await f.text());
   };
   return (
-    <div style={{ marginTop: 4 }}>
+    <div style={{ marginTop: "var(--space-4)" }}>
       {(forms || []).map((f) => <FormCard key={f.id} form={f} busy={busy} act={act} />)}
       <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>
         <TxtField value={name} placeholder="название новой анкеты"
@@ -122,14 +122,14 @@ export function FormsSection({ forms, busy, act }) {
           Загрузить анкету</button>
       </div>
       {open && (
-        <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-          padding: 8, marginTop: 8 }}>
+        <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+          padding: "var(--space-8)", marginTop: "var(--space-8)" }}>
           <textarea aria-label="текст анкеты" value={text}
             placeholder={"1. Ваш стек\n2. Уровень"}
             onChange={(e) => setText(e.target.value)}
             style={{ ...S.inp, width: "100%", minHeight: 110, lineHeight: 1.5,
               boxSizing: "border-box" }} />
-          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
+          <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
             <input type="file" accept=".txt,text/plain" aria-label="файл анкеты"
               onChange={fromFile} style={{ fontSize: 11, flex: "1 1 160px" }} />
             <span style={{ fontSize: 10.5, color: parsed.error ? WARN : C.muted }}>
@@ -157,13 +157,13 @@ export function FormsSection({ forms, busy, act }) {
    ════════════════════════════════════════════════════════════════ */
 export function FormAnswers({ forms, answers = {}, mine, onChange }) {
   return (forms || []).map((f) => (
-    <div key={f.id} style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, margin: "4px 0 6px" }}>{f.name}</div>
+    <div key={f.id} style={{ marginBottom: "var(--space-8)" }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, margin: "var(--space-4) 0 var(--space-4)" }}>{f.name}</div>
       {!(f.questions || []).length && (
         <div style={{ fontSize: 11, color: C.muted }}>В этой анкете пока нет вопросов.</div>)}
       {(f.questions || []).map((q) => (
-        <div key={q.id} style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 3, lineHeight: 1.5 }}>
+        <div key={q.id} style={{ marginBottom: "var(--space-8)" }}>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: "var(--space-4)", lineHeight: 1.5 }}>
             {q.text}</div>
           {mine ? (
             <TxtField area value={answers[q.id] || ""} aria-label={q.text}

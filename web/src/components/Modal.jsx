@@ -45,7 +45,7 @@ export default function Modal({ title, children, onClose }) {
       style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         background: "rgba(5,7,12,.62)", backdropFilter: "blur(2px)",
         zIndex: 50, display: "flex", alignItems: "flex-start", justifyContent: "center",
-        padding: 12, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+        padding: "var(--space-12)", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
       <div role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}
         onClick={(e) => e.stopPropagation()}
         style={{ ...S.card, maxWidth: 460, width: "100%", outline: "none",
@@ -96,7 +96,7 @@ export function Mark({ text, ok, onWhy, style, label = text, tone }) {
       {!ok && (
         <button aria-label={`почему «${label}» не сходится`} title="почему подпись красная"
           onClick={(e) => { e.stopPropagation(); onWhy(); }}
-          style={{ marginLeft: 4, width: 15, height: 15, lineHeight: "13px", padding: 0,
+          style={{ marginLeft: "var(--space-4)", width: 15, height: 15, lineHeight: "13px", padding: 0,
             borderRadius: "50%", background: "transparent", color: BAD,
             border: `1px solid ${BAD}`, fontSize: 10, cursor: "pointer" }}>?</button>)}
     </span>);

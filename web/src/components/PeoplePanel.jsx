@@ -101,7 +101,7 @@ function Contract({ role, busy, onSet }) {
     setLoad(false);
   };
   return (
-    <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+    <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
       <span style={{ fontSize: 10.5, color: C.muted }}>договор:</span>
       {role.contract
         ? <a href={reportSrc(role.contract)} target="_blank" rel="noreferrer"
@@ -110,7 +110,7 @@ function Contract({ role, busy, onSet }) {
           style={{ fontSize: 11, color: ACC }}>{role.contract.name || "файл"}</a>
         : <span style={{ fontSize: 10.5, color: WARN }}>
           нет — роль выдаётся без акцепта</span>}
-      <label style={{ ...btn(false), fontSize: 11, padding: "2px 8px",
+      <label style={{ ...btn(false), fontSize: 11, padding: "0 var(--space-8)",
         cursor: load || busy ? "default" : "pointer", opacity: load || busy ? 0.6 : 1 }}>
         {load ? "Загружаю…" : role.contract ? "Заменить" : "Загрузить договор"}
         <input type="file" style={{ display: "none" }} disabled={load || busy}
@@ -118,7 +118,7 @@ function Contract({ role, busy, onSet }) {
           onChange={(e) => pick(e.target.files?.[0])} />
       </label>
       {role.contract && (
-        <button style={{ ...btn(false), fontSize: 10.5, padding: "2px 6px", color: BAD }}
+        <button style={{ ...btn(false), fontSize: 10.5, padding: "0 var(--space-4)", color: BAD }}
           disabled={load || busy} aria-label={`убрать договор роли «${role.name}»`}
           onClick={() => onSet(null)}>×</button>)}
       {err && <span style={{ fontSize: 10.5, color: BAD }}>{err}</span>}
@@ -159,9 +159,9 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
 
   if (!org) {
     return (
-      <div style={{ ...S.card, marginBottom: 10 }}>
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
         <div style={S.lbl}>роли</div>
-        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)" }}>
           {msg || "Загружаю…"}</div>
       </div>);
   }
@@ -173,9 +173,9 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
      и что они открывают, о чём спрашивают АНКЕТЫ. Каждая — своей
      карточкой с заголовком и подсказкой, чтобы глазом было видно, где
      что правится. */
-  const card = { ...S.card, marginBottom: 10, borderColor: `${ACC}55` };
+  const card = { ...S.card, marginBottom: "var(--space-8)", borderColor: `${ACC}55` };
   const title = (t, n) => (
-    <div className="flex items-center gap-2" style={{ marginBottom: 4 }}>
+    <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
       <span style={{ ...S.lbl, color: ACC }}>{t}</span>
       {n != null && <span style={{ fontSize: 10.5, color: C.muted }}>{n}</span>}
     </div>);
@@ -204,12 +204,12 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
         style={{ background: "transparent", border: "none", padding: 0, textAlign: "left",
           color: tone || C.text, fontSize: 10.5, cursor: "pointer" }}>{label}</button>
       {shown === key && (
-        <div className="flex flex-wrap gap-2" style={{ margin: "4px 0 6px" }}>
+        <div className="flex flex-wrap gap-2" style={{ margin: "var(--space-4) 0 var(--space-4)" }}>
           <Download url={url} name={name || "договор"}
             aria-label={`скачать договор ${label}`}
-            style={{ fontSize: 10.5, padding: "2px 8px" }} />
+            style={{ fontSize: 10.5, padding: "0 var(--space-8)" }} />
           <button type="button" aria-label={`посмотреть договор ${label}`}
-            style={{ ...btn(false), fontSize: 10.5, padding: "2px 8px" }}
+            style={{ ...btn(false), fontSize: 10.5, padding: "0 var(--space-8)" }}
             onClick={view}>Посмотреть</button>
           {docErr[key] && (
             <span style={{ fontSize: 10.5, color: BAD }}>{docErr[key]}</span>)}
@@ -235,11 +235,11 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
           {u.username ? <span style={{ color: C.muted }}> @{u.username}</span> : null}
           {u.agent && (
             <span style={{ fontSize: 10, color: WARN, border: `1px solid ${WARN}66`,
-              borderRadius: 3, padding: "1px 5px", marginLeft: 6 }}>агент</span>)}
+              borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)", marginLeft: "var(--space-4)" }}>агент</span>)}
         </span>
         {owner
           ? <span style={{ fontSize: 10.5, color: ACC, border: `1px solid ${ACC}66`,
-              borderRadius: 3, padding: "1px 5px" }}>владелец</span>
+              borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>владелец</span>
           : <>
               {/* Ролей у человека несколько — отметки, а не выбор одной:
                   выпадающий список молча снимал остальные. Рядом с ролью
@@ -260,7 +260,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                     <button key={r.id} aria-pressed={has} disabled={busy}
                       aria-label={`роль «${r.name}»: ${u.name}`}
                       style={{ ...btn(has || asks, has ? OK : asks ? WARN : undefined),
-                        fontSize: 11, padding: "2px 7px" }}
+                        fontSize: 11, padding: "0 var(--space-8)" }}
                       onClick={() => (asks ? setAdd({ user: u, role: r })
                         : act(() => setUserRoles(u.id, has
                           ? (u.roles || []).filter((x) => x !== r.id)
@@ -314,10 +314,10 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
         {title("участники", org.users.length)}
         {people.map(userRow)}
         {!!agents.length && (
-          <div style={{ ...S.lbl, marginTop: 8 }}>агенты</div>)}
+          <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>агенты</div>)}
         {agents.map(userRow)}
         {org.users.length <= 1 && (
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             Кроме вас пока никого.
           </div>)}
       </div>
@@ -329,13 +329,13 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
         {title("роли", org.roles.length)}
         {org.roles.map((r) => (
           <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`,
-            borderRadius: 8, padding: 8, marginBottom: 6 }}>
-            <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+            borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)" }}>
+            <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
               {/* Название роли правится на месте (владелец, 2026-09-18): Enter
                   или уход из поля записывает, пустое — не записывается. */}
               {renaming === r.id ? (
                 <input autoFocus defaultValue={r.name} aria-label={`новое название роли «${r.name}»`}
-                  style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 700, padding: "3px 6px" }}
+                  style={{ ...S.inp, flex: 1, fontSize: 12.5, fontWeight: 700, padding: "var(--space-4) var(--space-4)" }}
                   onBlur={(e) => { const v = e.target.value.trim(); setRenaming(null); if (v && v !== r.name) act(async () => { await renameRole(r.id, v); onRoleRenamed?.(r.id, r.name, v); }); }}
                   onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenaming(null); }} />
               ) : (
@@ -353,9 +353,9 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
             </div>
             {/* Договор роли — документ из формы «договоры» ниже; прежний
                 файл-шаблон показывается, пока он есть у роли. */}
-            <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+            <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
               <span style={{ fontSize: 10.5, color: C.muted }}>договор:</span>
-              <select style={{ ...S.inp, flex: "0 1 220px", fontSize: 11.5, padding: "3px 6px" }}
+              <select style={{ ...S.inp, flex: "0 1 220px", fontSize: 11.5, padding: "var(--space-4) var(--space-4)" }}
                 value={r.doc || ""} disabled={busy} aria-label={`договор роли «${r.name}»`}
                 onChange={(e) => act(() => setRoleDoc(r.id, e.target.value || null))}>
                 <option value="">— нет: роль выдаётся без договора —</option>
@@ -371,7 +371,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
             {/* Анкета — тоже свойство роли: о чём спрашивать человека, решает
                 то, кем он здесь является. */}
             <RoleFormPick role={r} forms={org.forms || []} busy={busy} act={act} />
-            <div style={{ fontSize: 10, color: C.muted, marginBottom: 3 }}>открывает вкладки:</div>
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: "var(--space-4)" }}>открывает вкладки:</div>
             <div className="flex flex-wrap gap-2">
               {ALL_TABS.map((t) => {
                 const acc = accessIn(r, t);
@@ -380,7 +380,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                   <button key={t} disabled={busy}
                     aria-label={`вкладка ${TAB_NAMES[t] || t}: ${acc || "закрыта"}`}
                     style={{ ...btn(!!acc, acc === "rw" ? OK : acc === "r" ? WARN : undefined),
-                      ...(inner ? { fontSize: 10.5, padding: "3px 8px" } : {}) }}
+                      ...(inner ? { fontSize: 10.5, padding: "var(--space-4) var(--space-8)" } : {}) }}
                     onClick={() => act(() => setRoleTabs(r.id, (() => {
                       const map = {};
                       ALL_TABS.forEach((x) => { const a = accessIn(r, x); if (a) map[x] = a; });
@@ -391,7 +391,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
                     {TAB_NAMES[t] || t}{acc ? ` ${acc}` : ""}</button>);})}
             </div>
           </div>))}
-        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: 6 }}>
+        <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
           <TxtField value={newRole} placeholder="название новой роли"
             style={{ flex: "2 1 170px" }} onCommit={setNewRole} />
           <button style={btn(true)} disabled={busy || !newRole.trim()}
@@ -420,7 +420,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
       {add && (
         <Modal title={`${add.user.name} · роль «${add.role.name}»`}
           onClose={() => setAdd(null)}>
-          <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+          <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
             <button type="button" style={btn(true, OK)} disabled={busy}
               aria-label={`добавить участника: ${add.user.name}`}
               onClick={() => {
@@ -437,6 +437,6 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
       {doc && (
         <DocViewer title={doc.title} html={doc.html} editable={false}
           onClose={() => setDoc(null)} />)}
-      {msg && <div style={{ fontSize: 11.5, color: WARN, marginTop: 6 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 11.5, color: WARN, marginTop: "var(--space-4)" }}>{msg}</div>}
     </div>);
 }

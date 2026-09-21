@@ -27,15 +27,15 @@ export default function FramedField({ label, children, required, style }) {
   return (
     <fieldset aria-label={label}
       style={{
-        border: `1px solid ${C.line}`, borderRadius: 6,
+        border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
         // Сверху отступ меньше: часть места уже забрала legend, врезанная в
         // линию. Снизу — больше, иначе поле липнет к рамке.
-        padding: "6px 8px 8px", margin: "0 0 8px",
+        padding: "var(--space-4) var(--space-8) var(--space-8)", margin: "0 0 var(--space-8)",
         // minWidth: 0 — у fieldset своя ширина по содержимому, и без этого
         // он отказывается ужиматься внутри flex/grid на телефоне.
         minWidth: 0, ...style,
       }}>
-      <legend style={{ fontSize: 11, color: C.muted, padding: "0 4px" }}>
+      <legend style={{ fontSize: 11, color: C.muted, padding: "0 var(--space-4)" }}>
         {label}
         {/* Звёздочка — только знак, смысл несёт проверка при отправке.
             Для читалки она скрыта: «Телефон звёздочка» слушать незачем. */}

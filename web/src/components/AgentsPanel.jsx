@@ -46,8 +46,8 @@ export const preview = (text, n = 80) => {
 };
 
 const hint = { fontSize: 11.5, color: C.muted, lineHeight: 1.6 };
-const form = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-  padding: 10, marginTop: 10 };
+const form = { background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+  padding: "var(--space-8)", marginTop: "var(--space-8)" };
 const sameRow = (a, b) => !!a && !!b && a.providerId === b.providerId && a.model === b.model;
 const hasRow = (list, row) => (list || []).some((x) => sameRow(x, row));
 
@@ -161,20 +161,20 @@ export default function AgentsPanel({ me, onChanged }) {
 
   return (<>
     {/* ═══ 1. АГЕНТЫ ═══ */}
-    <div style={{ ...S.card, marginBottom: 10 }}>
+    <div style={{ ...S.card, marginBottom: "var(--space-8)" }}>
       <div style={S.lbl}>агенты</div>
-      <div style={{ ...hint, margin: "6px 0 8px" }}>
+      <div style={{ ...hint, margin: "var(--space-4) 0 var(--space-8)" }}>
         «Ассистент» отвечает в чате бота и в задачах тем, что видно вам самим, и умеет
         делать то же, что вы: взять задачу, сдать, принять. Удалить его нельзя.
       </div>
 
       {!view && (
-        <div style={{ ...hint, marginTop: 6 }}>
+        <div style={{ ...hint, marginTop: "var(--space-4)" }}>
           {msg || (solo ? "Без входа через Telegram агентов нет." : "Загружаю…")}</div>)}
 
       {view && (<>
         {/* Вкладки с именами, а «+ агент» — справа от них (владелец). */}
-        <div className="flex flex-wrap gap-2" style={{ margin: "4px 0 8px", alignItems: "center" }}
+        <div className="flex flex-wrap gap-2" style={{ margin: "var(--space-4) 0 var(--space-8)", alignItems: "center" }}
           role="tablist" aria-label="агенты">
           {agents.map((a) => (
             <button key={a.id} type="button" role="tab" style={btn(agent?.id === a.id)}
@@ -187,7 +187,7 @@ export default function AgentsPanel({ me, onChanged }) {
         </div>
 
         {agent && (
-          <div style={{ border: `1px solid ${ACC}66`, borderRadius: 10, padding: 10 }}>
+          <div style={{ border: `1px solid ${ACC}66`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)" }}>
             <div className="flex flex-wrap items-center gap-2">
               <span style={S.lbl}>{agent.builtin ? "ассистент" : "агент"}</span>
               {renaming && !agent.builtin ? (
@@ -213,7 +213,7 @@ export default function AgentsPanel({ me, onChanged }) {
             {/* ═══ назначения ═══ */}
             <div style={form}>
               <div style={S.lbl}>модели по назначениям</div>
-              <div style={{ ...hint, margin: "4px 0 6px" }}>
+              <div style={{ ...hint, margin: "var(--space-4) 0 var(--space-4)" }}>
                 Выбор — из подключённых моделей (форма «провайдеры и модели» ниже).
                 Чего не выбрали, того у агента нет: он так и скажет, а не придумает.
               </div>
@@ -225,7 +225,7 @@ export default function AgentsPanel({ me, onChanged }) {
                 const value = row ? `${row.providerId}|${row.model}` : "";
                 return (
                   <div key={u.id} className="flex flex-wrap gap-2"
-                    style={{ alignItems: "center", marginTop: 6 }}>
+                    style={{ alignItems: "center", marginTop: "var(--space-4)" }}>
                     <span style={{ fontSize: 11.5, color: C.muted, flex: "1 1 160px" }}>{u.name}</span>
                     <select aria-label={`модель: ${u.name}`} value={value}
                       disabled={busy || !connected.length}
@@ -244,15 +244,15 @@ export default function AgentsPanel({ me, onChanged }) {
               })}
 
               {/* ═══ спрашивать или делать ═══ */}
-              <div style={{ ...S.lbl, marginTop: 10 }}>изменения в приложении</div>
-              <div className="flex flex-wrap gap-2" style={{ marginTop: 4 }}>
+              <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>изменения в приложении</div>
+              <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
                 {[[true, "Спрашивать перед применением"], [false, "Применять сразу"]].map(([v, t]) => (
                   <button key={String(v)} type="button" disabled={busy}
                     aria-label={t} aria-pressed={(agent.ask !== false) === v}
                     style={btn((agent.ask !== false) === v, v ? undefined : WARN)}
                     onClick={() => run(() => updateAgent(agent.id, { ask: v }))}>{t}</button>))}
               </div>
-              <div style={{ ...hint, marginTop: 4 }}>
+              <div style={{ ...hint, marginTop: "var(--space-4)" }}>
                 Права у агента те же, что у вас: чужую задачу он не возьмёт, а модель
                 целиком правит только владелец.
               </div>
@@ -275,20 +275,20 @@ export default function AgentsPanel({ me, onChanged }) {
 
             {/* ═══ удалить ═══ */}
             {!agent.builtin && (
-              <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
+              <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
                 <button type="button" style={{ ...btn(true, BAD) }}
                   disabled={busy} aria-label={`удалить агента ${agent.name}`}
                   onClick={() => setKilling(agent)}>Удалить</button>
               </div>)}
           </div>)}
 
-        {msg && <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }} role="status">{msg}</div>}
+        {msg && <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-8)" }} role="status">{msg}</div>}
       </>)}
 
       {killing && (
         <Modal title={`Удалить агента «${killing.name}»`} onClose={() => setKilling(null)}>
           <div style={{ fontSize: 13, lineHeight: 1.6 }}>Вы уверены? Это действие необратимо</div>
-          <div className="flex gap-2" style={{ marginTop: 12 }}>
+          <div className="flex gap-2" style={{ marginTop: "var(--space-12)" }}>
             <button type="button" style={btn(true, BAD)} disabled={busy}
               onClick={() => killAgent(killing)}>Да</button>
             <button type="button" style={btn(false)} onClick={() => setKilling(null)}>Нет</button>
@@ -298,14 +298,14 @@ export default function AgentsPanel({ me, onChanged }) {
 
     {/* ═══ 2. ПРОВАЙДЕРЫ И МОДЕЛИ ═══ */}
     {view && (
-      <div style={{ ...S.card, marginBottom: 10 }} aria-label="провайдеры и модели">
+      <div style={{ ...S.card, marginBottom: "var(--space-8)" }} aria-label="провайдеры и модели">
         <div style={S.lbl}>провайдеры и модели</div>
-        <div style={{ ...hint, margin: "6px 0 8px" }}>
+        <div style={{ ...hint, margin: "var(--space-4) 0 var(--space-8)" }}>
           Откуда берутся модели: вид API, адрес и ключ. Провайдеров может быть
           несколько; отмеченные модели считаются подключёнными — из них агенты и выбирают.
           Ключи общие на всех ваших агентов: платит один человек.
         </div>
-        <div className="flex flex-wrap gap-2" style={{ margin: "6px 0" }} role="tablist"
+        <div className="flex flex-wrap gap-2" style={{ margin: "var(--space-4) 0" }} role="tablist"
           aria-label="провайдеры">
           {providers.map((p) => (
             <button key={p.id} type="button" role="tab" style={btn(current === p.id)}
@@ -359,7 +359,7 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
   const have = new Set(servers.map((m) => m.url));
 
   return (
-    <div style={{ ...S.card, marginBottom: 10 }} aria-label="mcp-серверы">
+    <div style={{ ...S.card, marginBottom: "var(--space-8)" }} aria-label="mcp-серверы">
       <div className="flex items-center gap-2">
         <span style={{ ...S.lbl, flex: 1 }}>MCP-серверы</span>
         <button type="button" style={btn(false)} disabled={loading}
@@ -370,17 +370,17 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
       {/* Высота формы ограничена, прокрутка внутри (владелец, 2026-09-21):
           в реестре под две сотни серверов, и без предела форма уезжала бы
           на десяток экранов. */}
-      <div style={{ maxHeight: 360, overflowY: "auto", marginTop: 6 }}>
+      <div style={{ maxHeight: 360, overflowY: "auto", marginTop: "var(--space-4)" }}>
       {servers.map((m) => (
         <div key={m.id} aria-label={`mcp-сервер ${m.name}`}
-          style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
-            padding: 8, marginTop: 6 }}>
+          style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)",
+            padding: "var(--space-8)", marginTop: "var(--space-4)" }}>
           <div className="flex flex-wrap items-center gap-2">
             <span style={{ fontSize: 12.5, fontWeight: 700, flex: "1 1 120px" }}>{m.name}</span>
             <span style={{ fontSize: 10.5, color: (m.tools || []).length ? OK : C.muted }}>
               инструментов: {(m.tools || []).length}</span>
           </div>
-          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6, marginTop: 0 }}>
             <div>адрес: {m.url}</div>
             {m.repo && <div>репозиторий: {m.repo}</div>}
             {!!(m.tools || []).length && <div>умеет: {m.tools.join(", ")}</div>}
@@ -388,7 +388,7 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
           {/* «Спросить инструменты» отсюда ушла на форму агента (владелец,
               2026-09-21): спрашивают их тогда, когда выбирают, — и отказ
               сервера человек должен читать там же, где нажал. */}
-          <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+          <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
             <button type="button" style={{ ...btn(true, BAD) }}
               disabled={busy} aria-label={`удалить сервер ${m.name}`}
               onClick={() => setKill(m)}>Удалить</button>
@@ -400,13 +400,13 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
           сервер раскрывает его форму: что он такое, откуда и по какому
           адресу; там же «Добавить» — и он попадает в коллекцию, из которой
           выбирают на форме агента. */}
-      <div style={{ ...S.lbl, marginTop: 12 }}>реестр</div>
-      {err && <div style={{ ...hint, color: BAD, marginTop: 4 }}>{err}</div>}
-      {!list && !err && <div style={{ ...hint, marginTop: 4 }}>Загружаю…</div>}
+      <div style={{ ...S.lbl, marginTop: "var(--space-12)" }}>реестр</div>
+      {err && <div style={{ ...hint, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
+      {!list && !err && <div style={{ ...hint, marginTop: "var(--space-4)" }}>Загружаю…</div>}
       {list && !list.servers.length && !err && (
-        <div style={{ ...hint, marginTop: 4 }}>Реестр ничего не вернул.</div>)}
+        <div style={{ ...hint, marginTop: "var(--space-4)" }}>Реестр ничего не вернул.</div>)}
 
-      <div style={{ marginTop: 4 }}>
+      <div style={{ marginTop: "var(--space-4)" }}>
         {(list?.servers || []).map((r) => {
           const on = open === r.id;
           const added = have.has(r.url);
@@ -415,15 +415,15 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
               <button type="button" aria-expanded={on} aria-label={`сервер ${r.name}`}
                 onClick={() => setOpen(on ? "" : r.id)}
                 style={{ ...S.inp, width: "100%", textAlign: "left", border: "none",
-                  background: "transparent", cursor: "pointer", padding: "7px 2px",
-                  display: "flex", alignItems: "center", gap: 8 }}>
+                  background: "transparent", cursor: "pointer", padding: "var(--space-8) 0",
+                  display: "flex", alignItems: "center", gap: "var(--space-8)" }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{r.name}</span>
                 {added && <span style={{ fontSize: 10, color: OK }}>добавлен</span>}
                 <span style={{ fontSize: 11, color: C.muted }}>{on ? "▾" : "▸"}</span>
               </button>
               {on && (
                 <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-                  borderRadius: 8, padding: 8, marginBottom: 6 }}
+                  borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)" }}
                   aria-label={`форма сервера ${r.name}`}>
                   <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.6 }}>
                     {r.description && <div>{r.description}</div>}
@@ -434,7 +434,7 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
                     {r.repo && <div>репозиторий: {r.repo}</div>}
                   </div>
                   <button type="button" style={{ ...btn(!added, added ? undefined : OK),
-                    marginTop: 8 }}
+                    marginTop: "var(--space-8)" }}
                     disabled={busy || added} aria-label={`добавить сервер ${r.name}`}
                     onClick={() => onAdd({ name: r.name, url: r.url, repo: r.repo })}>
                     {added ? "Уже добавлен" : "Добавить"}</button>
@@ -447,7 +447,7 @@ function McpForm({ servers, busy, onAdd, onDrop }) {
       {kill && (
         <Modal title={`Удалить сервер «${kill.name}»`} onClose={() => setKill(null)}>
           <div style={{ fontSize: 13, lineHeight: 1.6 }}>Вы уверены? Это действие необратимо</div>
-          <div className="flex gap-2" style={{ marginTop: 12 }}>
+          <div className="flex gap-2" style={{ marginTop: "var(--space-12)" }}>
             <button type="button" style={btn(true, BAD)} disabled={busy}
               onClick={() => { const m = kill; setKill(null); onDrop(m); }}>Да</button>
             <button type="button" style={btn(false)} onClick={() => setKill(null)}>Нет</button>
@@ -463,19 +463,19 @@ function NewProvider({ form, setForm, kinds, busy, onAdd }) {
   const kind = kinds.find((k) => k.id === form.kind) || null;
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   return (
-    <div style={{ background: C.panel, borderRadius: 8, padding: 10, marginBottom: 6 }}>
+    <div style={{ background: C.panel, borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginBottom: "var(--space-4)" }}>
       <div style={S.lbl}>новый провайдер</div>
-      <input aria-label="название провайдера" style={{ ...S.inp, marginBottom: 6 }}
+      <input aria-label="название провайдера" style={{ ...S.inp, marginBottom: "var(--space-4)" }}
         placeholder="название — как вы его называете: «Мой OpenRouter»"
         value={form.name} onChange={set("name")} />
-      <select aria-label="вид API" style={{ ...S.inp, marginBottom: 6 }} value={form.kind} onChange={set("kind")}>
+      <select aria-label="вид API" style={{ ...S.inp, marginBottom: "var(--space-4)" }} value={form.kind} onChange={set("kind")}>
         {kinds.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
       </select>
-      <input aria-label="адрес провайдера" style={{ ...S.inp, marginBottom: 6 }}
+      <input aria-label="адрес провайдера" style={{ ...S.inp, marginBottom: "var(--space-4)" }}
         placeholder={kind ? `пусто — ${kind.defaultBaseUrl}` : "адрес"}
         value={form.baseUrl} onChange={set("baseUrl")} />
       <input aria-label="ключ провайдера" type="password" autoComplete="off"
-        style={{ ...S.inp, marginBottom: 6 }} placeholder="ключ — вставьте; наружу он не отдаётся"
+        style={{ ...S.inp, marginBottom: "var(--space-4)" }} placeholder="ключ — вставьте; наружу он не отдаётся"
         value={form.key} onChange={set("key")} />
       <button type="button" style={btn(true, OK)} disabled={busy} onClick={onAdd}>Добавить провайдера</button>
     </div>
@@ -518,24 +518,24 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
   const count = (p.models || []).length;
 
   return (
-    <div style={{ background: C.panel, borderRadius: 8, padding: 10 }}>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+    <div style={{ background: C.panel, borderRadius: "var(--radius-sm)", padding: "var(--space-8)" }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
         <div style={S.lbl}>провайдер · {kind?.name || p.kind}</div>
         <div style={{ fontSize: 11.5, color: p.hasKey ? OK : BAD, marginLeft: "auto" }}>
           {p.hasKey ? "ключ есть" : "ключа нет"}
         </div>
       </div>
-      <input aria-label="название провайдера" style={{ ...S.inp, marginBottom: 6 }}
+      <input aria-label="название провайдера" style={{ ...S.inp, marginBottom: "var(--space-4)" }}
         value={name} onChange={(e) => setName(e.target.value)} />
-      <input aria-label="адрес провайдера" style={{ ...S.inp, marginBottom: 6 }}
+      <input aria-label="адрес провайдера" style={{ ...S.inp, marginBottom: "var(--space-4)" }}
         placeholder={kind ? `пусто — ${kind.defaultBaseUrl}` : "адрес"}
         value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
       <input aria-label="заменить ключ" type="password" autoComplete="off"
-        style={{ ...S.inp, marginBottom: 4 }} value={key}
+        style={{ ...S.inp, marginBottom: "var(--space-4)" }} value={key}
         placeholder={p.hasKey ? "ключ есть — введите новый, чтобы заменить" : "ключа нет — вставьте"}
         onChange={(e) => setKey(e.target.value)} />
-      <div style={{ ...hint, marginBottom: 8 }}>Наружу ключ не отдаётся, только «есть/нет».</div>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 10 }}>
+      <div style={{ ...hint, marginBottom: "var(--space-8)" }}>Наружу ключ не отдаётся, только «есть/нет».</div>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-8)" }}>
         <button type="button" style={btn(true)} disabled={busy || !changed} onClick={save}>Сохранить</button>
         {!confirm && (
           <button type="button" style={btn(false, BAD)} disabled={busy}
@@ -549,11 +549,11 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
       </div>
 
       <div style={S.lbl}>модели</div>
-      <div style={{ ...hint, margin: "4px 0 6px" }}>
+      <div style={{ ...hint, margin: "var(--space-4) 0 var(--space-4)" }}>
         Нажатие подключает модель, повторное — отключает. Подключённые видны в
         назначениях у агентов.{count ? ` Подключено: ${count}.` : " Пока ничего не подключено."}
       </div>
-      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: 6 }}>
+      <div className="flex flex-wrap gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
         <button type="button" style={btn(false)} disabled={busy} onClick={fetchList}>
           {offered ? "Обновить список" : "Загрузить список моделей"}</button>
       </div>
@@ -562,8 +562,8 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
           Для читалки и тестов строка — role="checkbox" с aria-checked. */}
       {rows.length > 0 && (
         <div role="group" aria-label={`модели ${p.name}`}
-          style={{ maxHeight: 220, overflowY: "auto", marginBottom: 6,
-            border: `1px solid ${C.line}`, borderRadius: 6 }}>
+          style={{ maxHeight: 220, overflowY: "auto", marginBottom: "var(--space-4)",
+            border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
           {rows.map((m) => {
             const on = picked(m.id);
             return (
@@ -572,7 +572,7 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
                 className="flex items-center gap-2"
                 style={{ width: "100%", textAlign: "left", background: on ? `${OK}22` : "transparent",
                   border: "none", borderBottom: `1px solid ${C.line}`, color: C.text,
-                  padding: "5px 8px", fontSize: 12, cursor: busy ? "default" : "pointer" }}>
+                  padding: "var(--space-4) var(--space-8)", fontSize: 12, cursor: busy ? "default" : "pointer" }}>
                 <span aria-hidden="true" style={{ width: 16, display: "inline-block",
                   color: OK, fontWeight: 700 }}>{on ? "✓" : ""}</span>
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -582,9 +582,9 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
           })}
         </div>)}
       {!rows.length && !listMsg && (
-        <div style={{ ...hint, marginBottom: 4 }}>
+        <div style={{ ...hint, marginBottom: "var(--space-4)" }}>
           Список пуст — нажмите «Загрузить список моделей».</div>)}
-      {listMsg && <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>{listMsg}</div>}
+      {listMsg && <div style={{ fontSize: 12, color: C.muted, marginTop: "var(--space-4)" }}>{listMsg}</div>}
     </div>
   );
 }
@@ -659,18 +659,18 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
     <div style={form} aria-label="mcp-серверы агента">
       <div style={S.lbl}>3 · MCP-серверы</div>
       {!servers.length && (
-        <div style={{ ...hint, marginTop: 4 }}>
+        <div style={{ ...hint, marginTop: "var(--space-4)" }}>
           Серверов нет — добавьте их в форме ниже.</div>)}
 
       {/* Высота ограничена, прокрутка внутри: серверов может быть двадцать. */}
-      <div style={{ maxHeight: 220, overflowY: "auto", marginTop: 6 }}>
+      <div style={{ maxHeight: 220, overflowY: "auto", marginTop: "var(--space-4)" }}>
         {servers.map((m) => {
           const all = m.tools || [];
           const on = toolsOf(m.id);
           const state = pickState(all, on);
           const shown = open === m.id;
           return (
-            <div key={m.id} style={{ marginBottom: 6 }}>
+            <div key={m.id} style={{ marginBottom: "var(--space-4)" }}>
               <button type="button" aria-expanded={shown} disabled={busy}
                 aria-label={`mcp ${m.name}: ${state === "all" ? "все инструменты"
                   : state === "some" ? "часть инструментов" : "ни одного инструмента"}`}
@@ -684,9 +684,9 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
 
               {shown && (
                 <div style={{ background: C.panel2, border: `1px solid ${C.line}`,
-                  borderRadius: 8, padding: 8, marginTop: 4 }}
+                  borderRadius: "var(--radius-sm)", padding: "var(--space-8)", marginTop: "var(--space-4)" }}
                   aria-label={`инструменты ${m.name}`}>
-                  <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
+                  <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
                     <span style={{ ...S.lbl, flex: 1 }}>инструменты</span>
                     <button type="button" style={btn(false)} disabled={busy || asking === m.id}
                       aria-label={`спросить инструменты ${m.name}`}
@@ -710,14 +710,14 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
                         <button key={t} type="button" role="checkbox" aria-checked={has}
                           disabled={busy} aria-label={`инструмент ${t}`}
                           style={{ ...btn(has, has ? OK : undefined), fontSize: 11,
-                            padding: "2px 7px" }}
+                            padding: "0 var(--space-8)" }}
                           onClick={() => set(m.id, has ? on.filter((x) => x !== t)
                             : [...on, t])}>
                           {has ? "✓ " : ""}{t}</button>);
                     })}
                   </div>
                   {!all.length && asking !== m.id && (
-                    <div style={{ ...hint, marginTop: 6 }}>
+                    <div style={{ ...hint, marginTop: "var(--space-4)" }}>
                       Инструменты ещё не известны.</div>)}
                 </div>)}
             </div>);
@@ -726,7 +726,7 @@ function AgentMcp({ agent, servers, busy, onAsk, onPick }) {
 
       {/* Отказ — здесь же, под кнопкой, а не в чужой карточке наверху:
           именно поэтому «Спросить инструменты» и выглядела нерабочей. */}
-      {err && <div role="status" style={{ fontSize: 11.5, color: BAD, marginTop: 6 }}>{err}</div>}
+      {err && <div role="status" style={{ fontSize: 11.5, color: BAD, marginTop: "var(--space-4)" }}>{err}</div>}
     </div>);
 }
 
@@ -748,9 +748,9 @@ function Skill({ agent, busy, onSave }) {
       <div style={S.lbl}>1 · инструкции</div>
       <textarea aria-label="инструкция агента" rows={4} value={text}
         disabled={busy} onChange={(e) => setText(e.target.value)}
-        style={{ ...S.inp, width: "100%", marginTop: 6, resize: "vertical",
+        style={{ ...S.inp, width: "100%", marginTop: "var(--space-4)", resize: "vertical",
           minHeight: 72, lineHeight: 1.5 }} />
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 6 }}>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
         <button type="button" style={btn(dirty, dirty ? OK : undefined)}
           disabled={busy || !dirty} onClick={() => onSave(text.trim())}>Сохранить</button>
         <button type="button" style={{ ...btn(true, BAD) }}
@@ -805,22 +805,22 @@ function Memory({ agent, busy, setBusy }) {
   return (
     <div style={form}>
       <div style={S.lbl}>2 · память</div>
-      <div style={{ ...hint, margin: "4px 0 8px" }}>
+      <div style={{ ...hint, margin: "var(--space-4) 0 var(--space-8)" }}>
         Заметки и файлы, которые {agent.builtin ? "ассистент" : "агент"} будет знать. Только
         ваши: чужой памяти здесь нет, а вашей нет ни у кого.
         {agent.builtin ? " В чате бота — «запомни: …» или просто пришлите документ." : ""}
       </div>
       {memory === null && <div style={hint}>{memMsg || "Загружаю…"}</div>}
-      {memory && memory.length === 0 && <div style={{ ...hint, marginBottom: 8 }}>Память пуста.</div>}
+      {memory && memory.length === 0 && <div style={{ ...hint, marginBottom: "var(--space-8)" }}>Память пуста.</div>}
       {memory && memory.map((m) => (
         <div key={m.id} className="flex gap-2"
-          style={{ alignItems: "flex-start", padding: "6px 0", borderBottom: `1px solid ${C.line}` }}>
+          style={{ alignItems: "flex-start", padding: "var(--space-4) 0", borderBottom: `1px solid ${C.line}` }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 600 }}>{m.title}</div>
-            {m.text ? <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>{preview(m.text)}</div> : null}
+            {m.text ? <div style={{ fontSize: 11.5, color: C.muted, marginTop: 0 }}>{preview(m.text)}</div> : null}
             {m.file && (
               <a href={m.file.url} target="_blank" rel="noreferrer"
-                style={{ fontSize: 11.5, color: ACC, display: "inline-block", marginTop: 2 }}>
+                style={{ fontSize: 11.5, color: ACC, display: "inline-block", marginTop: 0 }}>
                 📎 {m.file.name}
               </a>)}
           </div>
@@ -828,12 +828,12 @@ function Memory({ agent, busy, setBusy }) {
             aria-label={`удалить из памяти: ${m.title}`}
             onClick={() => forget(m.id)}>Удалить</button>
         </div>))}
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: "var(--space-8)" }}>
         <div style={S.lbl}>добавить текстом</div>
-        <input aria-label="название записи" style={{ ...S.inp, margin: "6px 0" }}
+        <input aria-label="название записи" style={{ ...S.inp, margin: "var(--space-4) 0" }}
           placeholder="название (можно оставить пустым — возьмётся первая строка)"
           value={title} onChange={(e) => setTitle(e.target.value)} />
-        <textarea aria-label="текст записи" style={{ ...S.inp, minHeight: 70, marginBottom: 6 }}
+        <textarea aria-label="текст записи" style={{ ...S.inp, minHeight: 70, marginBottom: "var(--space-4)" }}
           placeholder="что агенту знать"
           value={text} onChange={(e) => setText(e.target.value)} />
         <div className="flex flex-wrap gap-2" style={{ alignItems: "center" }}>

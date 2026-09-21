@@ -153,7 +153,7 @@ export default function SignaturePad({ title = "Поставьте подпис�
     <div role="dialog" aria-label="подпись"
       style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000C",
         zIndex: 60, display: "flex", flexDirection: "column", justifyContent: "center",
-        gap: 8, padding: 12, boxSizing: "border-box", overflowY: "auto" }}>
+        gap: "var(--space-8)", padding: "var(--space-12)", boxSizing: "border-box", overflowY: "auto" }}>
       <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>{title}</div>
       {/* Подсказка стоит НАД полем, а не под ним: под полем её закрывает
           рука, и человек узнаёт про запись темпа уже после подписи. */}
@@ -161,7 +161,7 @@ export default function SignaturePad({ title = "Поставьте подпис�
       <canvas ref={canvas} aria-label="поле подписи"
         onPointerDown={down} onPointerMove={move} onPointerUp={up}
         onPointerCancel={up} onPointerLeave={up}
-        style={{ background: "#fff", borderRadius: 8, border: `1px solid ${C.line}`,
+        style={{ background: "#fff", borderRadius: "var(--radius-sm)", border: `1px solid ${C.line}`,
           width: "100%", height: tall, display: "block",
           // Без touch-action браузер считает росчерк прокруткой и уводит
           // страницу из-под пальца на втором же движении.

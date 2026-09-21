@@ -198,18 +198,18 @@ export default function Pomodoro({ taskId, meId }) {
       <input type="number" min={MIN_MIN} max={MAX_MIN} inputMode="numeric"
         aria-label={`${label} минут`} value={st[field]}
         onChange={(e) => setMin(field, e.target.value)}
-        style={{ ...S.inp, width: 56, padding: "2px 5px", fontSize: 11.5 }} />
+        style={{ ...S.inp, width: 56, padding: "0 var(--space-4)", fontSize: 11.5 }} />
       <span>мин</span>
     </label>);
 
   return (
-    <div style={{ ...S.card, marginBottom: 10 }} aria-label="томат">
+    <div style={{ ...S.card, marginBottom: "var(--space-8)" }} aria-label="томат">
       {/* Заголовок считает проведённые томаты по этой задаче (владелец,
           2026-09-20), а не просто называет раздел. */}
       <div style={S.lbl} aria-label={`томатов: ${st.done || 0}`}>
         Томатов: {st.done || 0}</div>
-      <div className="flex flex-wrap items-center gap-3" style={{ marginTop: 6 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: "0 1 auto" }}>
+      <div className="flex flex-wrap items-center gap-3" style={{ marginTop: "var(--space-4)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)", flex: "0 1 auto" }}>
           {minField("work", "Работа:")}
           {minField("rest", "Перерыв:")}
         </div>
@@ -222,24 +222,24 @@ export default function Pomodoro({ taskId, meId }) {
               fontFamily: "var(--font-sans)",
               color: done ? OK : C.text }}>
             {clockText(left)}</div>
-          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>
+          <div style={{ fontSize: 10.5, color: C.muted, marginTop: 0 }}>
             {st.mode === "rest" ? "перерыв" : "работа"}</div>
         </div>
 
         <div className="flex gap-2" style={{ flex: "0 0 auto" }}>
           <button type="button" aria-label="запустить" title="Запустить"
             disabled={running} onClick={play}
-            style={{ ...btn(true, ACC), padding: "5px 9px", opacity: running ? 0.5 : 1 }}>
+            style={{ ...btn(true, ACC), padding: "var(--space-4) var(--space-8)", opacity: running ? 0.5 : 1 }}>
             <Icon d={PLAY} /></button>
           <button type="button" aria-label="пауза" title="Пауза"
             disabled={!running} onClick={pause}
-            style={{ ...btn(false), padding: "5px 9px", opacity: running ? 1 : 0.5 }}>
+            style={{ ...btn(false), padding: "var(--space-4) var(--space-8)", opacity: running ? 1 : 0.5 }}>
             <Icon d={PAUSE} /></button>
           <button type="button" aria-label="сброс"
             title={st.mode === "work" ? "Сбросить и перейти к перерыву"
               : "Сбросить и перейти к работе"}
             onClick={reset}
-            style={{ ...btn(false), padding: "5px 9px" }}>
+            style={{ ...btn(false), padding: "var(--space-4) var(--space-8)" }}>
             <Icon d={RESET} line /></button>
         </div>
       </div>
