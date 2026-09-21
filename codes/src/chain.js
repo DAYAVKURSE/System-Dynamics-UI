@@ -6,6 +6,8 @@
    Всё здесь — «лучше, чем ничего»: сеть недоступна — вернём null, а не
    уроним сервис; платёж найдётся при следующей проверке.
    ════════════════════════════════════════════════════════════════ */
+import { decodeComment } from "./boc.js";
+
 const TONCENTER = process.env.TONCENTER_URL || "https://toncenter.com/api/v3";
 export const USDT_MASTER = process.env.USDT_MASTER || "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs";
 const NANO = 1e9;
@@ -13,10 +15,27 @@ const USDT_DEC = 1e6;
 
 const headers = () => ({ Accept: "application/json",
   ...(process.env.TONCENTER_API_KEY ? { "X-API-Key": process.env.TONCENTER_API_KEY } : {}) });
+/* Открытый toncenter без ключа пускает около запроса в секунду: идём по
+   одному, не чаще, а на 429 ждём и пробуем ещё раз. */
+const GAP_MS = 1100;
+let lastAt = 0;
+let lane = Promise.resolve();
 async function getJson(url) {
-  const r = await fetch(url, { headers: headers() });
-  if (!r.ok) throw new Error(`${url}: ${r.status}`);
-  return r.json();
+  const run = async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const wait = lastAt + GAP_MS - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      lastAt = Date.now();
+      const r = await fetch(url, { headers: headers() });
+      if (r.status === 429 && attempt === 0) { await new Promise((res) => setTimeout(res, 2500)); continue; }
+      if (!r.ok) throw new Error(`${url}: ${r.status}`);
+      return r.json();
+    }
+    throw new Error(`${url}: 429`);
+  };
+  const p = lane.then(run, run);
+  lane = p.catch(() => {});
+  return p;
 }
 
 let rate = { usd: null, at: 0 };
@@ -47,9 +66,14 @@ export async function jettonBalance(address) {
   return Number.isFinite(b) ? b / USDT_DEC : null;
 }
 
-/* Комментарий перевода: toncenter отдаёт его в `in_msg.message_content.decoded.comment`
-   у обычного перевода и в `forward_payload`/`comment` у jetton-перевода. */
-const commentOf = (m) => String(m?.message_content?.decoded?.comment ?? m?.comment ?? m?.forward_payload?.comment ?? "").trim();
+/* Комментарий перевода: у обычного — в теле входящего сообщения
+   (`message_content.body`, BOC), у jetton-перевода — в `forward_payload`
+   (тоже BOC); разобранное toncenter поле, если оно есть, берём первым. */
+const commentOf = (m) => {
+  const ready = m?.message_content?.decoded?.comment ?? m?.decoded_forward_payload?.comment ?? m?.comment;
+  if (ready != null && String(ready).trim()) return String(ready).trim();
+  return decodeComment(m?.message_content?.body || m?.forward_payload || "");
+};
 
 /**
  * Входящий перевод под ожидающий платёж: тот же комментарий и сумма не

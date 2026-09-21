@@ -7,6 +7,7 @@ import { handle, setHooks } from "../../../codes/src/service.js";
 import { resetKeys } from "../../../codes/src/store.js";
 import * as billing from "../../../codes/src/billing.js";
 import { setTonUsd } from "../../../codes/src/chain.js";
+import { decodeComment } from "../../../codes/src/boc.js";
 
 /* Биллинг сервиса кодов (владелец, 2026-09-21): планы, кошельки,
    платежи, подписки со сроком, напоминания, админ-панель. */
@@ -132,5 +133,28 @@ describe("кошельки и оплата", () => {
     expect(w.stars).toMatchObject({ currency: "XTR", balance: 0 });
     await adm("POST", `/admin/users/${users[0].uid}/cancel`);
     expect((await adm("GET", "/admin/users")).body.users[0]).toMatchObject({ planId: "free", until: null });
+  });
+});
+
+describe("комментарий из BOC", () => {
+  it("текстовый комментарий читается из forward_payload jetton-перевода, чужие тела — пусто", () => {
+    // Настоящий forward_payload из цепочки: «100 Telegram Stars \n\nRef#MVt».
+    expect(decodeComment("te6cckEBAQEAKAAATAAAAAAxMDAgVGVsZWdyYW0gU3RhcnMgCgpSZWYjTVZ0")).toBe("100 Telegram Stars \n\nRef#MVt".trim());
+    expect(decodeComment("")).toBe("");
+    expect(decodeComment("not a boc")).toBe("");
+  });
+  it("платёж по USDT узнаётся по комментарию в forward_payload", async () => {
+    await adm("POST", "/admin/wallets", { currency: "usdt", address: "UQU1" });
+    const reg = (await handle("POST", "/register", { plan: "pro", method: "usdt" })).body;
+    const p = reg.payment;
+    // Комментарий платежа — в BOC текстового комментария: op 0 + текст.
+    const text = Buffer.concat([Buffer.alloc(4), Buffer.from(p.comment, "utf8")]);
+    const cell = Buffer.concat([Buffer.from([0x00, text.length * 2]), text]);
+    const boc = Buffer.concat([Buffer.from("b5ee9c72", "hex"), Buffer.from([0x01, 0x01, 0x01, 0x01, 0x00, cell.length, 0x00]), cell]);
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ jetton_transfers: [
+      { transaction_hash: "j1", amount: String(10 * 1e6), forward_payload: boc.toString("base64") },
+    ] }) }));
+    expect(await billing.checkChain()).toBe(1);
+    expect((await handle("GET", `/payment/${p.id}`)).body.payment.status).toBe("paid");
   });
 });

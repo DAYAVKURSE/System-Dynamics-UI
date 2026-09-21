@@ -10,6 +10,8 @@
    Ключ живёт в localStorage этого устройства: спрашивать его при каждом
    открытии значило бы заставлять человека носить его с собой.
    ════════════════════════════════════════════════════════════════ */
+import { getInitData } from "./telegram.js";
+
 const KEY = "sd_code_key";
 const TOK = "sd_code_token";
 /* Обновляем за пять минут до конца: запрос, отправленный в последнюю
@@ -48,9 +50,13 @@ export function codeInfo() {
   return t && t.exp > Date.now() ? { uid: t.uid, plan: t.plan } : null;
 }
 
+/* Подпись Telegram — с каждым запросом: по ней сервис кодов узнаёт имя
+   и username человека (админ-панель показывает их), а инвойс за звёзды
+   уходит в его чат. Подделать нельзя — подпись проверяет сервер. */
 const call = async (path, body) => {
   const r = await fetch(`/api/codes${path}`, { method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json",
+      "X-Telegram-Init-Data": getInitData() },
     body: JSON.stringify(body || {}) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
@@ -71,9 +77,14 @@ const take = (j, key) => {
  */
 export async function ensureToken() {
   const t = loadTok();
-  if (t && t.exp - Date.now() > EARLY_MS) return t.token;
+  /* Раз за сеанс токен берётся заново даже свежий: с ним уезжает подпись
+     Telegram, по которой сервис кодов запоминает имя и username. */
+  let fresh = false;
+  try { fresh = sessionStorage.getItem("sd_tok_fresh") === "1"; } catch { fresh = true; }
+  if (t && fresh && t.exp - Date.now() > EARLY_MS) return t.token;
   const key = savedKey();
   if (!key) return "";
+  try { sessionStorage.setItem("sd_tok_fresh", "1"); } catch { /* приватный режим */ }
   try {
     take(await call("/token", { key }));
     return codeToken();
