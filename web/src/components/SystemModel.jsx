@@ -32,6 +32,12 @@ import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { autoFlow, crewFor, roleOf, runsOfFunc } from "./TasksBoard.jsx";
 import { swipeFrom, swipeStep, tabAfter } from "../lib/swipe.js";
+import { lensStyle, placeIn } from "../lib/lens.js";
+
+/* Края барабана гаснут: вкладка, уехавшая за обод, не должна обрезаться
+   ровной линией — она должна растворяться (владелец, 2026-09-21). */
+const TABS_MASK = "linear-gradient(90deg, transparent 0, #000 18px,"
+  + " #000 calc(100% - 18px), transparent 100%)";
 import { elbow } from "../lib/paths.js";
 import Timeline from "./Timeline.jsx";
 import ReviewBoard from "./ReviewBoard.jsx";
@@ -1502,6 +1508,45 @@ export default function SystemModel(){
       catch{ /* не умеет — и не надо */ }
     }
   },[tab]);
+  /* ЛУПА НАД РЯДОМ (владелец, 2026-09-21). Счёт — в lib/lens.js, здесь
+     только руки: пройти по вкладкам и положить каждой её вид. Стилем, а
+     не состоянием: ряд перерисовывается на каждый пиксель прокрутки, и
+     setState на такой частоте дёргал бы всё дерево вкладки.
+
+     Ряд едет плавно (`scrollIntoView` выше и сама прокрутка пальцем),
+     поэтому пересчёт висит на кадре: пока ряд движется, кадр идёт, и
+     линза движется вместе с ним. */
+  const shapeTabs=useCallback(()=>{
+    const b=tabsBox.current;
+    if(!b) return;
+    for(const el of b.children){
+      const v=lensStyle(placeIn(b,el));
+      el.style.transform=v.transform;
+      el.style.opacity=v.opacity;
+    }
+  },[]);
+  const tabsRoll=useRef(0);
+  const onTabsScroll=useCallback(()=>{
+    if(typeof requestAnimationFrame!=="function"){ shapeTabs(); return; }
+    if(tabsRoll.current) return;
+    tabsRoll.current=requestAnimationFrame(()=>{ tabsRoll.current=0; shapeTabs(); });
+  },[shapeTabs]);
+  /* Пока ряд доезжает до открытой вкладки, прокрутка идёт сама, а события
+     `scroll` у плавного хода приходят не на каждый кадр. Поэтому после
+     смены вкладки линзу ведём кадрами — полсекунды, ровно на доезд. */
+  useEffect(()=>{
+    shapeTabs();
+    if(typeof requestAnimationFrame!=="function") return undefined;
+    let live=true; const until=Date.now()+600;
+    const step=()=>{ if(!live) return; shapeTabs(); if(Date.now()<until) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+    return ()=>{ live=false; };
+  },[tab,tabsShown,shapeTabs]);
+  useEffect(()=>{
+    if(typeof window==="undefined") return undefined;
+    window.addEventListener("resize",shapeTabs);
+    return ()=>window.removeEventListener("resize",shapeTabs);
+  },[shapeTabs]);
   /* Страница вкладки въезжает с той стороны, откуда пришли: без этого
      смена вкладки — мгновенная подмена, и непонятно, вперёд ты ушёл или
      назад. Сдвиг ставится без перехода, а возврат к нулю — с ним. */
@@ -1599,10 +1644,17 @@ export default function SystemModel(){
           style={{flex:1,minWidth:0,gap:"var(--space-4)",
             background:"rgba(5,7,12,.55)",border:"1px solid var(--border-glass-soft)",
             borderRadius:"var(--radius-pill)",padding:"var(--space-4)"}}>
-          <div ref={tabsBox} className="flex gap-2 no-bar"
-            style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"center"}}>
+          {/* Ряд-барабан: `position:relative` — чтобы вкладка мерилась от
+              него самого (lib/lens.js), вертикальный отступ — чтобы
+              увеличенной вкладке было куда вырасти, а маска по краям
+              гасит то, что уже завернулось за обод. */}
+          <div ref={tabsBox} className="flex gap-2 no-bar" onScroll={onTabsScroll}
+            style={{flex:1,minWidth:0,overflowX:"auto",alignItems:"center",
+              position:"relative",padding:"var(--space-4) 0",
+              maskImage:TABS_MASK,WebkitMaskImage:TABS_MASK}}>
             {tabsShown.map(([k,t])=>(
-              <button key={k} data-tab={k} style={tabStyle(tab===k)}
+              <button key={k} data-tab={k}
+                style={{...tabStyle(tab===k),transformOrigin:"50% 50%",willChange:"transform"}}
                 onClick={()=>goTab(k)}>{t}</button>))}
           </div>
           {/* Стрелка вместо полосы прокрутки: полосу убрали, а знать, что

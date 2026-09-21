@@ -425,7 +425,12 @@ export const btn = (on, col, { solid = false } = {}) => {
      и задумано: кнопок в форме много, и высота каждой решает, помещается
      ли форма на экран. */
   const base = { borderRadius: "var(--radius-md)",
-    padding: "var(--space-4) var(--space-12)", minHeight: "var(--control-h)",
+    /* Вертикальные отступы разные ровно на оптическую поправку: строка
+       опускается, высота кнопки та же (lib/capShift.js). */
+    paddingTop: "calc(var(--space-4) + var(--text-nudge))",
+    paddingBottom: "calc(var(--space-4) - var(--text-nudge))",
+    paddingLeft: "var(--space-12)", paddingRight: "var(--space-12)",
+    minHeight: "var(--control-h)",
     fontSize: 13, lineHeight: "18px", fontWeight: 600, fontFamily: "var(--font-sans)",
     cursor: "pointer", whiteSpace: "nowrap",
     transition: "background .15s ease, border-color .15s ease, box-shadow .15s ease" };
@@ -541,7 +546,10 @@ export const tab = (on) => {
     color: on ? t.text : C.muted,
     boxShadow: on ? t.glow : "none",
     fontWeight: 600, fontSize: 13, lineHeight: "18px",
-    padding: "var(--space-4) var(--space-12)", minHeight: "var(--control-h)",
+    paddingTop: "calc(var(--space-4) + var(--text-nudge))",
+    paddingBottom: "calc(var(--space-4) - var(--text-nudge))",
+    paddingLeft: "var(--space-12)", paddingRight: "var(--space-12)",
+    minHeight: "var(--control-h)",
     cursor: "pointer", whiteSpace: "nowrap",
     fontFamily: "var(--font-sans)",
     transition: "background .15s ease, color .15s ease",
