@@ -208,7 +208,7 @@ describe("вход приложения", () => {
   it("без параметра звонка открывается модель", async () => {
     setUrl("");
     render(<App />);
-    expect(await screen.findByText("Схема")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Схема" })).toBeInTheDocument();
     expect(screen.queryByTestId("call-fit")).toBeNull();
     expect(tg.expand).toHaveBeenCalled();
   });

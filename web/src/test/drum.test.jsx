@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import {
-  BIG, GAP, NOMINAL_W, SMALL, TURN, centers, hold, lensAt, lensStyle, nearest,
+  BITE, DIM, GAP, GROW, NOMINAL_W, bend, centers, dimAt, hold, lens, nearest, radiusOf,
+  settled, shown, step,
 } from "../lib/drum.js";
 import { openTab } from "./openTab.js";
 import { VAR, applyCapShift, capShift } from "../lib/capShift.js";
@@ -10,59 +11,87 @@ import { VAR, applyCapShift, capShift } from "../lib/capShift.js";
 /* ════════════════════════════════════════════════════════════════
    БАРАБАН ВКЛАДОК И НАДПИСЬ ПОСЕРЕДИНЕ (владелец, 2026-09-21)
 
-   «Должен быть эффект увеличения: объекты уменьшаются к краю и
-   увеличиваются посередине ПЛАВНО. Сейчас выглядит так, как будто барабан
-   многоугольный»; «активной вкладкой должна становиться та, которая в
-   середине, а не та, на которую нажали. Барабан не должен реагировать на
-   нажатие»; «надписи должны быть чётко посередине».
+   «Не выглядит как круглый барабан: слова уменьшаются целиком, а не
+   плавно, не видно изгиб. Движение — плавно, с небольшой задержкой и
+   самую малость прерывисто, как будто внутри много шестерёнок. Линза
+   немного увеличивает 60% площади посередине и плавно расплывается к
+   краям»; «активной становится та, которая в середине, а не та, на
+   которую нажали»; «надписи должны быть чётко посередине».
    ════════════════════════════════════════════════════════════════ */
 
+describe("цилиндр", () => {
+  const R = radiusOf(100);
+  it("точка на дуге: посередине — на месте, у обода — ближе к середине и глубже", () => {
+    expect(bend(0, R)).toMatchObject({ dx: 0, dz: 0, th: 0, hidden: false });
+    const b = bend(80, R);
+    expect(b.dx).toBeLessThan(0);          // проекция короче дуги
+    expect(b.dz).toBeLessThan(0);          // ушла вглубь
+    expect(b.th).toBeCloseTo(80 / R, 6);   // угол — дуга на радиус
+    expect(bend(-80, R).th).toBeCloseTo(-b.th, 6);
+    expect(bend(-80, R).dx).toBeCloseTo(-b.dx, 6);
+  });
+  it("дальше четверти оборота буквы не видно", () => {
+    expect(bend(R * 2, R).hidden).toBe(true);
+    expect(bend(R * 1.2, R).hidden).toBe(false);
+  });
+  it("изгиб — внутри слова: две буквы одной вкладки стоят под разными углами", () => {
+    // Буквы на −20 и +20 px от середины своей вкладки — разные углы,
+    // и это и есть видимый изгиб слова, которого не давал поворот целиком.
+    expect(bend(-20, R).th).not.toBeCloseTo(bend(20, R).th, 3);
+    expect(Math.abs(bend(20, R).th)).toBeGreaterThan(0.05);
+  });
+  it("буква у обода гаснет плавно, посередине видна вся", () => {
+    expect(dimAt(0)).toBeCloseTo(1, 6);
+    expect(dimAt(Math.PI / 2)).toBeCloseTo(DIM, 6);
+    const a = dimAt(0.3), b = dimAt(0.6), c = dimAt(0.9);
+    expect(a).toBeGreaterThan(b);
+    expect(b).toBeGreaterThan(c);
+  });
+});
+
 describe("линза", () => {
-  it("крупнее всего посередине, мельче всего у края", () => {
-    expect(lensAt(0).scale).toBeCloseTo(BIG, 5);
-    expect(lensAt(1).scale).toBeCloseTo(SMALL, 5);
-    expect(lensAt(-1).scale).toBeCloseTo(SMALL, 5);
+  it("немного увеличивает середину и ничего — край", () => {
+    expect(lens(0)).toBeCloseTo(1 + GROW, 6);
+    expect(lens(1)).toBeLessThan(1.01);
+    expect(GROW).toBeLessThanOrEqual(0.15);
   });
-
-  it("убывает ПЛАВНО и без единой ступеньки: ни ровных участков, ни изломов", () => {
-    const step = 0.01;
+  it("держит больше половины увеличения на ~60% ширины, дальше гаснет", () => {
+    const half = 1 + GROW / 2;
+    expect(lens(0.29)).toBeGreaterThan(half);   // внутри 60 %
+    expect(lens(0.5)).toBeGreaterThan(half);
+    expect(lens(0.7)).toBeLessThan(half);       // снаружи
+  });
+  it("расплывается плавно: ни ступеней, ни изломов", () => {
     const at = [];
-    for (let u = 0; u <= 1.0001; u += step) at.push(lensAt(u).scale);
+    for (let u = 0; u <= 1.0001; u += 0.01) at.push(lens(u));
     const d = at.slice(1).map((v, i) => v - at[i]);
-    // Всюду убывает — плоских участков, как у прежней кусочной формулы, нет.
-    expect(d.every((v) => v < 0)).toBe(true);
-    // И убывает гладко: соседние приращения отличаются мало, то есть
-    // ломаного угла («грани многоугольника») нигде нет.
+    expect(d.every((v) => v <= 1e-12)).toBe(true);
     const jerk = d.slice(1).map((v, i) => Math.abs(v - d[i]));
-    expect(Math.max(...jerk)).toBeLessThan(0.002);
+    expect(Math.max(...jerk)).toBeLessThan(0.0015);
   });
+});
 
-  it("поворот — прямо по месту: это цилиндр, а не многоугольник", () => {
-    expect(lensAt(0).turn).toBe(0);
-    expect(lensAt(1).turn).toBeCloseTo(TURN, 5);
-    expect(lensAt(-1).turn).toBeCloseTo(-TURN, 5);
-    // Ровно посередине между серединой и краем — ровно половина угла.
-    expect(lensAt(0.5).turn).toBeCloseTo(TURN / 2, 5);
-    // И вглубь вкладка уходит тем дальше, чем сильнее повёрнута.
-    expect(lensAt(1).depth).toBeLessThan(lensAt(0.5).depth);
-    expect(lensAt(0).depth).toBeCloseTo(0, 5);
+describe("тяжёлый ход", () => {
+  it("догоняет цель не сразу — с задержкой — и в конце стоит ровно на ней", () => {
+    let m = { at: 0, v: 0 };
+    m = step(m, 100);
+    expect(m.at).toBeGreaterThan(0);
+    expect(m.at).toBeLessThan(20);                 // первый кадр — малая доля пути
+    for (let i = 0; i < 400; i += 1) m = step(m, 100);
+    expect(settled(m, 100)).toBe(true);
+    expect(m.at).toBeCloseTo(100, 1);
   });
-
-  it("края гаснут, середина — в полную силу, и всё это симметрично", () => {
-    expect(lensAt(0).dim).toBeCloseTo(1, 5);
-    expect(lensAt(1).dim).toBeLessThan(0.5);
-    expect(lensAt(-0.7).dim).toBeCloseTo(lensAt(0.7).dim, 5);
-    expect(lensAt(-0.7).scale).toBeCloseTo(lensAt(0.7).scale, 5);
-    // За краем окна сильнее, чем на краю, уже не бывает.
-    expect(lensAt(4).scale).toBeCloseTo(lensAt(1).scale, 5);
+  it("не перелетает заметно: тяжёлый, а не пружина", () => {
+    let m = { at: 0, v: 0 };
+    let top = 0;
+    for (let i = 0; i < 400; i += 1) { m = step(m, 100); top = Math.max(top, m.at); }
+    expect(top).toBeLessThan(103);
   });
-
-  it("стиль — перспектива, поворот, глубина и размер одной строкой", () => {
-    const v = lensStyle(1);
-    expect(v.transform).toMatch(/^perspective\(\d+px\) rotateY\(-?[\d.]+deg\) translateZ\(-?[\d.]+px\) scale\([\d.]+\)$/);
-    expect(Number(v.opacity)).toBeLessThan(1);
-    expect(lensStyle(0).transform).toContain("rotateY(0.00deg)");
-    expect(Number(lensStyle(0).opacity)).toBe(1);
+  it("зубья: на ходу положение чуть дрожит, в покое — нет", () => {
+    expect(shown(50, 0)).toBe(50);
+    const moving = [40, 41, 42, 43, 44, 45].map((x) => shown(x, 3) - x);
+    expect(Math.max(...moving.map(Math.abs))).toBeGreaterThan(0.3);
+    expect(Math.max(...moving.map(Math.abs))).toBeLessThanOrEqual(BITE + 1e-9);
   });
 });
 
@@ -71,7 +100,6 @@ describe("ряд барабана", () => {
     expect(centers([100, 60, 80], 10)).toEqual([50, 140, 220]);
     expect(centers([])).toEqual([]);
   });
-
   it("ближайшая к середине — та, чей центр ближе", () => {
     const cs = centers([100, 60, 80], 10);
     expect(nearest(cs, 50)).toBe(0);
@@ -79,7 +107,6 @@ describe("ряд барабана", () => {
     expect(nearest(cs, 500)).toBe(2);
     expect(nearest([], 0)).toBe(-1);
   });
-
   it("дальше первой и последней барабан не крутится", () => {
     const cs = centers([100, 60, 80], 10);
     expect(hold(cs, -900)).toBe(cs[0]);
@@ -96,7 +123,6 @@ describe("выбирает середина, а не нажатие", () => {
     expect(was).toHaveAttribute("aria-current", "page");
     const other = screen.getByRole("button", { name: "Схема" });
     other.click();
-    // Ничего не произошло: барабан на нажатие не отзывается.
     expect(screen.getByRole("button", { name: "Задачи" })).toHaveAttribute("aria-current", "page");
     expect(other).not.toHaveAttribute("aria-current");
   });
@@ -106,7 +132,6 @@ describe("выбирает середина, а не нажатие", () => {
     openTab("Схема");
     expect(screen.getByRole("button", { name: "Схема" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Задачи" })).not.toHaveAttribute("aria-current");
-    // И назад — тем же путём.
     openTab("Анкета");
     expect(screen.getByRole("button", { name: "Анкета" })).toHaveAttribute("aria-current", "page");
   });
@@ -114,7 +139,6 @@ describe("выбирает середина, а не нажатие", () => {
   it("недокрутили: посередине осталась прежняя — она и остаётся открытой", () => {
     render(<SystemModel />);
     const drum = document.querySelector("[data-drum]");
-    // Меньше половины вкладки — до соседней не дотянули.
     const short = -(NOMINAL_W + GAP) / 3;
     drum.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
     drum.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: short }));
@@ -122,15 +146,20 @@ describe("выбирает середина, а не нажатие", () => {
     expect(screen.getByRole("button", { name: "Задачи" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("вид вкладок стоит на них с самого начала", () => {
+  it("вид стоит с самого начала: вкладка на дуге, буквы — каждая на своей точке", () => {
     render(<SystemModel />);
     const mid = screen.getByRole("button", { name: "Задачи" });
     const side = screen.getByRole("button", { name: "Рынок услуг" });
     expect(mid.style.transform).toContain("rotateY(0.00deg)");
-    // Открытая крупнее дальней — это и есть увеличение посередине.
     const size = (el) => Number(el.style.transform.match(/scale\(([\d.]+)\)/)[1]);
     expect(size(mid)).toBeGreaterThan(size(side));
-    expect(Number(side.style.opacity)).toBeLessThan(Number(mid.style.opacity));
+    // Буквы — свои элементы, и у каждой свой поворот.
+    const letters = [...side.querySelectorAll("[data-letter]")];
+    expect(letters.map((l) => l.textContent).join("")).toBe("Рынок услуг");
+    expect(letters.every((l) => /rotateY\(/.test(l.style.transform))).toBe(true);
+    // Буква дальней вкладки тусклее буквы открытой.
+    const op = (el) => Number(el.querySelector("[data-letter]").style.opacity);
+    expect(op(side)).toBeLessThan(op(mid));
   });
 });
 

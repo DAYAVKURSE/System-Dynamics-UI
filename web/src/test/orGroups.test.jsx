@@ -157,7 +157,8 @@ describe("в форме", () => {
     const add = screen.getByLabelText("взять ресурс");
     fireEvent.change(add, { target: { value: [...add.options][1].value } });
 
-    expect(screen.getByText("и")).toBeInTheDocument();
+    // Буквы барабана вкладок — тоже элементы с текстом; «и» ищем в форме.
+    expect(screen.getAllByText("и").some((el) => !el.closest("[data-drum]"))).toBe(true);
     const f = dump().funcs.find((x) => x.id === "f_req");
     expect(f.takes[0].group).not.toBe(f.takes[1].group);
   });

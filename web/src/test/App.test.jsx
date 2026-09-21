@@ -16,9 +16,9 @@ describe("App", () => {
     render(<App />);
     // Шапка — имя приложения (владелец, 2026-09-19).
     expect(screen.getByLabelText("blockTree")).toBeInTheDocument();
-    expect(screen.getByText("Задачи")).toBeInTheDocument();
-    expect(screen.getByText("Схема")).toBeInTheDocument();
-    expect(screen.getByText("Инструменты")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Задачи" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Схема" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Инструменты" })).toBeInTheDocument();
     // «Прогноз» — подвкладка под схемой, в главном ряду его нет.
     expect(screen.queryByText("Цели")).toBeNull();
   });

@@ -32,7 +32,10 @@ import GoalsPanel from "./GoalsPanel.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import TasksBoard, { autoFlow, crewFor, roleOf, runsOfFunc } from "./TasksBoard.jsx";
 import { swipeFrom, swipeStep, tabAfter } from "../lib/swipe.js";
-import { GAP, NOMINAL_W, NOMINAL_WIN, centers, hold, lensStyle, nearest } from "../lib/drum.js";
+/* Имена барабана — со своим префиксом: в компоненте есть свои `step` и
+   `settled`, и одноимённый импорт они перекрывали. */
+import { EYE, GAP, NOMINAL_W, NOMINAL_WIN, bend, centers, deg as degOf, dimAt, hold, lens as lensAt,
+  nearest, radiusOf, settled as drumSettled, shown as drumShown, step as drumStep } from "../lib/drum.js";
 
 /* Края барабана гаснут: вкладка, уехавшая за обод, не должна обрезаться
    ровной линией — она должна растворяться (владелец, 2026-09-21). */
@@ -1516,51 +1519,83 @@ export default function SystemModel(){
   const drumWin=useRef(null);
   const drumRow=useRef(null);
   const tabEls=useRef(new Map());
-  const geom=useRef({cs:[],win:NOMINAL_WIN});
-  const at=useRef(0);        // где барабан стоит сейчас
-  const placed=useRef(false);// первый раз ставим без хода
-  const grab=useRef(null);   // палец на барабане
+  const geom=useRef({cs:[],win:NOMINAL_WIN,letters:[]});
+  const motion=useRef({at:0,v:0}); // где барабан и с какой скоростью
+  const aim=useRef(0);              // куда он едет
+  const frame=useRef(0);            // кадр хода
+  const placed=useRef(false);       // первый раз ставим без хода
+  const grab=useRef(null);          // палец на барабане
 
-  /* Разметка: ширины вкладок и окна. Без разметки (тест) — сговорённые
-     числа, чтобы счёт оставался тем же и там. */
+  /* Разметка: ширины вкладок и окна и место каждой буквы внутри своей
+     вкладки. Без разметки (тест) — сговорённые числа. */
   const measure=useCallback(()=>{
     const ws=tabsShown.map(([k])=>{
       const el=tabEls.current.get(k);
       return (el&&el.offsetWidth)||NOMINAL_W;
     });
+    const letters=tabsShown.map(([k])=>{
+      const el=tabEls.current.get(k);
+      if(!el) return [];
+      const mid=(el.clientWidth||NOMINAL_W)/2;
+      return [...el.querySelectorAll("[data-letter]")].map((sp)=>
+        ({el:sp,u:(sp.offsetLeft||0)+(sp.offsetWidth||0)/2-mid}));
+    });
     geom.current={cs:centers(ws),
-      win:(drumWin.current&&drumWin.current.clientWidth)||NOMINAL_WIN};
+      win:(drumWin.current&&drumWin.current.clientWidth)||NOMINAL_WIN,letters};
     return geom.current;
   },[tabsShown]);
 
-  /* Положить всем вкладкам их вид. Стилем, а не состоянием: кадров много,
-     и setState на каждом дёргал бы всё дерево вкладки.
-
-     `smooth` — ход к выбранной вкладке. Ведёт его БРАУЗЕР переходом, а не
-     мы кадрами: это и убирает рывок в конце (владелец, 2026-09-21).
-     Пока барабан крутят пальцем, перехода нет — вкладки идут за пальцем
-     точно. */
-  const paint=useCallback((smooth)=>{
-    const {cs,win}=geom.current;
+  /* Положить всем вкладкам и буквам их вид. Стилем, а не состоянием:
+     кадров много, и setState на каждом дёргал бы всё дерево вкладки.
+     Счёт — в lib/drum.js: вкладка встаёт на дугу целиком, а каждая
+     буква — на свою точку дуги относительно вкладки; так изгиб виден
+     внутри слова. */
+  const paint=useCallback(()=>{
+    const {cs,win,letters}=geom.current;
     const half=(win||NOMINAL_WIN)/2;
-    const go=smooth?"transform .28s ease-out, opacity .28s ease-out":"none";
-    if(drumRow.current){
-      drumRow.current.style.transition=go;
-      drumRow.current.style.transform=`translateX(${(half-at.current).toFixed(2)}px)`;
-    }
+    const R=radiusOf(half);
+    const {at,v}=motion.current;
+    const pos=drumShown(at,v);
+    if(drumRow.current) drumRow.current.style.transform=`translateX(${(half-pos).toFixed(2)}px)`;
     tabsShown.forEach(([k],i)=>{
       const el=tabEls.current.get(k);
       if(!el||cs[i]==null) return;
-      const v=lensStyle((cs[i]-at.current)/half);
-      el.style.transition=go;
-      el.style.transform=v.transform;
-      el.style.opacity=v.opacity;
+      const x=cs[i]-pos;
+      const b=bend(x,R);
+      const g=lensAt(x/half);
+      el.style.transform=`translate3d(${b.dx.toFixed(2)}px,0,${b.dz.toFixed(2)}px)`
+        +` rotateY(${degOf(b.th)}deg) scale(${g.toFixed(3)})`;
+      for(const L of letters[i]||[]){
+        const lb=bend(L.u,R);
+        L.el.style.transform=`translate3d(${lb.dx.toFixed(2)}px,0,${lb.dz.toFixed(2)}px)`
+          +` rotateY(${degOf(lb.th)}deg)`;
+        L.el.style.opacity=dimAt(b.th+lb.th).toFixed(3);
+      }
     });
   },[tabsShown]);
-  const settleTo=useCallback((x,smooth)=>{
-    at.current=hold(geom.current.cs,x);
-    paint(smooth);
+
+  /* Ход — кадрами, пока не доехал: тяжёлый, с задержкой и зубьями
+     (lib/drum.js). Без кадров (тест) — сразу на цель. */
+  const run=useCallback(()=>{
+    motion.current=drumStep(motion.current,aim.current);
+    if(drumSettled(motion.current,aim.current)){
+      motion.current={at:aim.current,v:0};
+      frame.current=0;
+      paint();
+      return;
+    }
+    paint();
+    frame.current=requestAnimationFrame(run);
   },[paint]);
+  const kick=useCallback(()=>{
+    if(typeof requestAnimationFrame!=="function"){
+      motion.current={at:aim.current,v:0}; paint(); return;
+    }
+    if(!frame.current) frame.current=requestAnimationFrame(run);
+  },[paint,run]);
+  useEffect(()=>()=>{
+    if(frame.current&&typeof cancelAnimationFrame==="function") cancelAnimationFrame(frame.current);
+  },[]);
 
   /* Открытая вкладка всегда посередине: свайп по странице меняет вкладку,
      и барабан доезжает следом (владелец, 2026-09-19: «смена вкладки должна
@@ -1569,26 +1604,29 @@ export default function SystemModel(){
   useEffect(()=>{
     const {cs}=measure();
     const i=tabsShown.findIndex(([k])=>k===tab);
-    if(i<0||cs[i]==null){ paint(false); return; }
-    settleTo(cs[i],placed.current);
-    placed.current=true;
-  },[tab,tabsShown,measure,paint,settleTo]);
+    if(i<0||cs[i]==null){ paint(); return; }
+    aim.current=hold(cs,cs[i]);
+    if(!placed.current){ motion.current={at:aim.current,v:0}; placed.current=true; paint(); return; }
+    kick();
+  },[tab,tabsShown,measure,paint,kick]);
   useEffect(()=>{
     if(typeof window==="undefined") return undefined;
     const again=()=>{ const {cs}=measure();
       const i=tabsShown.findIndex(([k])=>k===tab);
-      if(cs[i]!=null) settleTo(cs[i],false); else paint(false); };
+      if(cs[i]!=null){ aim.current=cs[i]; motion.current={at:cs[i],v:0}; }
+      paint(); };
     window.addEventListener("resize",again);
     return ()=>window.removeEventListener("resize",again);
-  },[tab,tabsShown,measure,paint,settleTo]);
+  },[tab,tabsShown,measure,paint]);
 
-  /* Палец на барабане: ряд идёт за ним, отпустили — ближайшая к середине
-     и становится открытой. Нажатие без движения не делает НИЧЕГО: барабан
-     на нажатие не отзывается (владелец, 2026-09-21). */
+  /* Палец на барабане: цель идёт за пальцем, барабан — за целью, с
+     тяжестью. Отпустили — ближайшая к цели вкладка становится открытой.
+     Нажатие без движения не делает НИЧЕГО: барабан на нажатие не
+     отзывается (владелец, 2026-09-21). */
   const drumDown=(e)=>{
     if(e.button!=null&&e.button!==0) return;
     measure();
-    grab.current={x:e.clientX,from:at.current};
+    grab.current={x:e.clientX,from:aim.current};
     if(e.currentTarget.setPointerCapture&&e.pointerId!=null){
       try{ e.currentTarget.setPointerCapture(e.pointerId); }catch{ /* не умеет — не беда */ }
     }
@@ -1596,19 +1634,19 @@ export default function SystemModel(){
   const drumMove=(e)=>{
     const g=grab.current;
     if(!g) return;
-    at.current=hold(geom.current.cs,g.from-(e.clientX-g.x));
-    paint(false);
+    aim.current=hold(geom.current.cs,g.from-(e.clientX-g.x));
+    kick();
   };
   const drumUp=()=>{
     if(!grab.current) return;
     grab.current=null;
     const {cs}=geom.current;
-    const i=nearest(cs,at.current);
+    const i=nearest(cs,aim.current);
     if(i<0) return;
     /* Вкладка меняется В МОМЕНТ ОТПУСКАНИЯ, а не когда доедет: доезд —
        это уже показ выбранного, и ждать его нечего. */
     const next=tabsShown[i]&&tabsShown[i][0];
-    if(next&&next!==tab) goTab(next); else settleTo(cs[i],true);
+    if(next&&next!==tab) goTab(next); else { aim.current=cs[i]; kick(); }
   };
   /* Страница вкладки въезжает с той стороны, откуда пришли: без этого
      смена вкладки — мгновенная подмена, и непонятно, вперёд ты ушёл или
@@ -1718,16 +1756,31 @@ export default function SystemModel(){
             onPointerMove={drumMove} onPointerUp={drumUp} onPointerCancel={drumUp}
             style={{flex:1,minWidth:0,position:"relative",overflow:"hidden",
               height:DRUM_H,touchAction:"pan-y",cursor:"grab",
+              /* Одна перспектива на всё окно: буквы одной вкладки и
+                 соседних лежат в одном пространстве, и цилиндр — один. */
+              perspective:`${EYE}px`,perspectiveOrigin:"50% 50%",
               maskImage:TABS_MASK,WebkitMaskImage:TABS_MASK}}>
             <div ref={drumRow} className="flex items-center"
               style={{position:"absolute",left:0,top:0,height:"100%",
-                gap:`${GAP}px`,willChange:"transform"}}>
+                gap:`${GAP}px`,willChange:"transform",transformStyle:"preserve-3d"}}>
               {tabsShown.map(([k,t])=>(
                 <button key={k} data-tab={k} type="button" tabIndex={-1}
-                  aria-current={tab===k?"page":undefined}
+                  aria-current={tab===k?"page":undefined} aria-label={t}
                   ref={(el)=>{ if(el) tabEls.current.set(k,el); else tabEls.current.delete(k); }}
-                  style={{...tabStyle(tab===k),flex:"0 0 auto",
-                    transformOrigin:"50% 50%",willChange:"transform"}}>{t}</button>))}
+                  /* Ушедшая за обод вкладка показывает нам спину — и спина
+                     скрыта самим браузером (backface), а не нами: так она
+                     остаётся в дереве доступности и её видно тестам. */
+                  style={{...tabStyle(tab===k),flex:"0 0 auto",position:"relative",
+                    transformOrigin:"50% 50%",transformStyle:"preserve-3d",
+                    backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden"}}>
+                  {/* Буква за буквой: каждая встаёт на свою точку дуги —
+                      так и виден изгиб внутри слова. Пробел — тоже буква,
+                      иначе слово из двух половин сомкнётся. */}
+                  {[...t].map((ch,j)=>(
+                    <span key={j} data-letter="" style={{display:"inline-block",
+                      whiteSpace:"pre",transformOrigin:"50% 50%",
+                      backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden"}}>{ch}</span>))}
+                </button>))}
             </div>
           </div>
           {/* Стрелки справа больше нет (владелец, 2026-09-21): барабан
