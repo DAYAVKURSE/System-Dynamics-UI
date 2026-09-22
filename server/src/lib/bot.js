@@ -34,6 +34,7 @@
 
 import { isTaskAction, onTaskButton, onTaskMessage } from "./botTasks.js";
 import { isAssistantAction, onAssistantButton, onAssistantMessage } from "./botAssistant.js";
+import { isDialogsAction } from "./dialogsUi.js";
 
 const nameOf = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(" ")
   || u?.username || String(u?.id || "");
@@ -205,6 +206,29 @@ export async function handleUpdate(update, deps) {
   }
 
   const me = await org.identify(String(from.id), { name: nameOf(from), username: from.username });
+
+  /* ─── ДИАЛОГИ (владелец, 2026-09-22, lib/dialogsUi.js) ───
+     Забаненному бот не отвечает ничем — ни словом, ни кнопкой. «/dialogs»
+     и кнопки под ним — только владельцу сценария; остальным — ничего.
+     Ответ, которого ждал агент (ask_person), уходит ему, а не помощнику. */
+  const dl = deps.dialogs;
+  if (dl?.banned && await dl.banned(from.id)) {
+    if (cb && answer) await answer(cb.id, "");
+    return { ignored: "banned" };
+  }
+  if (cb && dl?.button && isDialogsAction(cb.data)) {
+    if (!me.isOwner) return { ignored: "not owner" };
+    return dl.button(cb, from);
+  }
+  if (msg && dl?.open && /^\/dialogs(?:@\w+)?\s*$/.test(String(msg.text || "").trim())) {
+    if (!me.isOwner) return { ignored: "not owner" };
+    await dl.open(from.id);
+    return { dialogs: true };
+  }
+  if (msg && dl?.reply && me.known && String(msg.text || "").trim() && !/^\//.test(String(msg.text || "").trim())
+    && await dl.reply(from, String(msg.text || "").trim())) {
+    return { replied: true };
+  }
 
   /* «/id» — всем, и незваным в первую очередь: именно незваного просят
      прислать боту /id, чтобы владелец мог позвать его по номеру. Раньше

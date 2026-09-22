@@ -4,7 +4,7 @@ import { telegramUser } from "../middleware/telegramUser.js";
 import { discover, refresh as refreshOauth, stale as staleOauth, startLogin } from "../lib/mcpOauth.js";
 import { addAgentUser, agentUserId, identify, removeUser, renameAgentUser } from "../lib/orgStore.js";
 import {
-  TASKS, addAgent, addMcp, addProvider, agentFor, isBadInput, kindsView, mcpFor, providerFor,
+  BOT_TOKEN_RE, TASKS, addAgent, addMcp, addProvider, agentFor, isBadInput, kindsView, mcpFor, providerFor,
   setMcpAuth,
   removeAgent, removeMcp, removeProvider, setTasks, settingsView, updateAgent, updateMcp,
   updateProvider,
@@ -15,7 +15,7 @@ import { listModels } from "../lib/aiProviders.js";
 import { ask, askNow, cancel as cancelAsk, find } from "../lib/assistantQueue.js";
 import { askFromApp } from "../lib/botAssistant.js";
 import * as memory from "../lib/memoryStore.js";
-import { editMessage, sendPhoto, sendWithKeyboard } from "../lib/telegram.js";
+import { editMessage, getMe, sendPhoto, sendWithKeyboard } from "../lib/telegram.js";
 import { readSchedule } from "../lib/scheduleStore.js";
 import {
   DEFAULT_AGENT, MAX_MEMORY_FILE_BYTES, addMemory, listMemory, removeMemory,
@@ -142,9 +142,23 @@ router.post("/agents", async (req, res, next) => {
 
 router.put("/agents/:id", async (req, res, next) => {
   try {
-    const { name, models, transcribe, uses, mcp, ask: askMode, skill } = req.body || {};
+    const { name, models, transcribe, uses, mcp, ask: askMode, skill, botToken } = req.body || {};
+    /* Токен бота (владелец, 2026-09-22): пустая строка — снять. Перед
+       записью спрашиваем у Telegram, чей это токен: неверный токен —
+       ошибка ввода словами, а не молчащий бот. */
+    let bot;
+    if (botToken !== undefined) {
+      const token = String(botToken || "").trim();
+      if (!token) bot = null;
+      else {
+        if (!BOT_TOKEN_RE.test(token)) return res.status(400).json({ error: "Токен бота выглядит не так: цифры, двоеточие и ключ из BotFather" });
+        const me = await getMe(token).catch(() => null);
+        if (!me?.username) return res.status(400).json({ error: "Telegram не признал этот токен: проверьте его в BotFather" });
+        bot = { token, username: me.username, botId: String(me.id) };
+      }
+    }
     const agent = updateAgent(req.me.id, req.params.id,
-      { name, models, transcribe, uses, mcp, ask: askMode, skill });
+      { name, models, transcribe, uses, mcp, ask: askMode, skill, bot });
     if (!agent) return res.status(404).json({ error: "Агент не найден" });
     if (name !== undefined && req.me.isOwner) await renameAgentUser(agent.id, agent.name);
     res.json(agent);

@@ -117,6 +117,19 @@ const MODEL_RE = /^[A-Za-z0-9._:/-]+$/;
 // то, что безопасно в любом из них.
 const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
+/* ─────── СВОЙ БОТ У АГЕНТА (владелец, 2026-09-22) ───────
+
+   «Агентам я мог назначать токен бота телеграм… чтобы агент мог писать
+   людям и общаться с ними». Токен хранится у агента, наружу не уходит:
+   экрану достаточно username бота и признака «есть». Диалог ассистента
+   остаётся в основном боте, поэтому у встроенного агента токена нет. */
+export const BOT_TOKEN_RE = /^\d{5,}:[A-Za-z0-9_-]{30,}$/;
+const botOf = (raw) => {
+  if (!raw || typeof raw !== "object" || !BOT_TOKEN_RE.test(String(raw.token || ""))) return null;
+  return { token: String(raw.token), username: String(raw.username || "").trim().replace(/^@/, "").slice(0, NAME_LIMIT),
+    botId: String(raw.botId || "").replace(/\D/g, "").slice(0, 20) };
+};
+
 /* Прежняя схема (v1.1): один провайдер и три ключа в .env. Нужна только
    для переноса — один раз, владельцу, у которого ещё нет своего файла. */
 export const KEY_VARS = { openai: "OPENAI_API_KEY", claude: "ANTHROPIC_API_KEY", hf: "HF_API_KEY" };
@@ -360,6 +373,7 @@ function normalize(raw) {
       models: pairsOf(a.models), transcribe: pairOf(a.transcribe),
       uses: usesOf(a.uses), mcp: mcpOf(a.mcp), ask: a.ask !== false,
       skill: String(a.skill || "").slice(0, MAX_SKILL),
+      bot: botOf(a.bot),
     });
     tieTranscribe(rec.agents[rec.agents.length - 1]);
     if (rec.agents.length >= MAX_AGENTS) break;
@@ -465,6 +479,7 @@ const agentView = (a) => ({
   mcp: Object.fromEntries(Object.entries(a.mcp || {}).map(([id, t]) => [id, [...t]])),
   ask: a.ask !== false,
   skill: String(a.skill || ""),
+  bot: a.bot ? { username: a.bot.username || "", botId: a.bot.botId || "" } : null,
 });
 const mcpView = (m) => ({ id: m.id, name: m.name, url: m.url, repo: m.repo,
   tools: [...(m.tools || [])], at: m.at || null,
@@ -574,6 +589,29 @@ export function modelFor(userId, task, { fallback = true } = {}) {
     if (m) return pick({ providerId: p.id, model: m });
   }
   return null;
+}
+
+/**
+ * Модель СВОЕГО агента (владелец, 2026-09-22): назначение «главная», иначе
+ * первая модель коллекции, не занятая другими умениями. Агентам с ботами и
+ * по расписанию отвечает не ассистент, а они сами — своими моделями.
+ * Нет агента или модели — null.
+ */
+export function modelForAgent(userId, agentId) {
+  const rec = readUserSettings(userId);
+  const a = rec.agents.find((x) => x.id === String(agentId));
+  if (!a) return null;
+  const pick = (row) => {
+    const p = row && rec.providers.find((x) => x.id === row.providerId);
+    return p && p.key ? { kind: p.kind, baseUrl: p.baseUrl || DEFAULT_BASE_URL[p.kind], key: p.key,
+      model: row.model, providerName: p.name } : null;
+  };
+  const uses = a.uses || {};
+  const byUse = pick(uses.main);
+  if (byUse) return byUse;
+  const taken = new Set(USE_IDS.filter((u) => u !== "main").map((u) => uses[u]).filter(Boolean)
+    .map((r) => `${r.providerId}|${r.model}`));
+  return a.models.filter((m) => !taken.has(`${m.providerId}|${m.model}`)).map(pick).find(Boolean) || null;
 }
 
 /* ─────── правки ─────── */
@@ -696,7 +734,7 @@ export function addAgent(userId, { name } = {}) {
  * только те поля, что есть в теле. Нет такого агента — null: «не найден»
  * здесь правда, а не ошибка ввода.
  */
-export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, ask, skill } = {}) {
+export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, ask, skill, bot } = {}) {
   const rec = readUserSettings(userId);
   const a = rec.agents.find((x) => x.id === String(id));
   if (!a) return null;
@@ -749,7 +787,51 @@ export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, a
   /* Инструкция-скилл: пустая строка — «удалить», это одно и то же
      действие, и отдельного маршрута ему не нужно. */
   if (skill !== undefined) a.skill = String(skill || "").trim().slice(0, MAX_SKILL);
-  return agentView(writeUserSettings(userId, rec).agents.find((x) => x.id === a.id));
+  /* Бот агента: `bot: null` — снять; `{token, username, botId}` — назначить.
+     Кто такой бот (username), маршрут узнаёт у Telegram до записи: сюда
+     приходит уже проверенное. У ассистента бота нет — его диалог в основном. */
+  if (bot !== undefined) {
+    if (bot == null) a.bot = null;
+    else {
+      if (a.builtin) throw new BadInput("Ассистент говорит через основного бота — свой токен ему не назначить");
+      const clean = botOf(bot);
+      if (!clean) throw new BadInput("Токен бота выглядит не так: цифры, двоеточие и ключ из BotFather");
+      const taken = allAgentBots().find((b) => b.token === clean.token && !(b.userId === String(userId) && b.agentId === a.id));
+      if (taken) throw new BadInput("Этот токен уже назначен другому агенту");
+      a.bot = clean;
+    }
+  }
+  const saved = agentView(writeUserSettings(userId, rec).agents.find((x) => x.id === a.id));
+  notify();
+  return saved;
+}
+
+/* ─────── боты всех агентов ───────
+
+   Опрос Telegram идёт по каждому токену; регистр ботов собирается из всех
+   записей на диске (агенты — только у владельца, но файлов может быть
+   несколько), и пересобирается, как только запись изменилась. */
+const listeners = new Set();
+const notify = () => { listeners.forEach((fn) => { try { fn(); } catch { /* слушатель сам */ } }); };
+/** Подписка на изменение настроек агентов: отписка — возвращённая функция. */
+export function onAgentsChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+
+/** Все агенты с токенами: `{userId, agentId, name, token, username, botId}`. */
+export function allAgentBots() {
+  let files = [];
+  try { files = fs.readdirSync(baseDir()); } catch { return []; }
+  const out = [];
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    const userId = f.slice(0, -5);
+    let raw = null;
+    try { raw = JSON.parse(fs.readFileSync(path.join(baseDir(), f), "utf8")); } catch { continue; }
+    for (const a of (Array.isArray(raw?.agents) ? raw.agents : [])) {
+      const bot = a && !a.builtin && a.id !== BUILTIN_AGENT_ID && AGENT_ID_RE.test(String(a.id)) ? botOf(a.bot) : null;
+      if (bot) out.push({ userId, agentId: String(a.id), name: String(a.name || "").trim() || "агент", ...bot });
+    }
+  }
+  return out;
 }
 
 /** Удаляет агента; встроенного — нельзя, и это говорится словами, а не «не найден». */
@@ -760,6 +842,7 @@ export function removeAgent(userId, id) {
   if (a.builtin) throw new BadInput("Ассистента удалить нельзя");
   rec.agents = rec.agents.filter((x) => x.id !== a.id);
   writeUserSettings(userId, rec);
+  if (a.bot) notify();
   return true;
 }
 

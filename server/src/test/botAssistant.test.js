@@ -36,6 +36,33 @@ const deps = () => ({
 
 beforeEach(() => { sent = []; asked = []; remembered = []; resetAssistantState(); });
 
+/* ПЛАН ПОД «ДУМАЮ…» (владелец, 2026-09-22): очередь отдаёт план через
+   onPlan, бот показывает его в том же сообщении-статусе под часами, а
+   «Готово» оставляет план под собой. Диалог — на диске: вопрос и ответ. */
+describe("план под статусом и запись диалога", () => {
+  it("план приходит в сообщение-статус под часами; «Готово» — с планом; вопрос и ответ записаны в диалог", async () => {
+    const edits = [];
+    const recorded = [];
+    const d = deps();
+    d.send = async (chatId, text) => { sent.push({ chatId, text }); return { message_id: 7 }; };
+    d.edit = async (chatId, messageId, text, keyboard) => { edits.push({ text, keyboard }); };
+    d.dialogs = { record: async (chatId, line) => { recorded.push({ chatId, ...line }); } };
+    d.assistant.ask = async (userId, q, ctx, opts) => {
+      await opts.onPlan("Что нужно сделать: посчитать\n🔵 1. посмотреть → список\nОжидаемый результат: число");
+      return "три";
+    };
+    const r = await onAssistantMessage({ text: "сколько задач?" }, { ...from, last_name: "Иванов", username: "ivan" }, d);
+    await r.done;
+    expect(edits.some((e) => e.text.endsWith("Что нужно сделать: посчитать\n🔵 1. посмотреть → список\nОжидаемый результат: число")
+      && e.text.startsWith(CLOCKS[0]))).toBe(true);
+    expect(edits[edits.length - 1]).toEqual({ text: "Готово\n\nЧто нужно сделать: посчитать\n🔵 1. посмотреть → список\nОжидаемый результат: число", keyboard: null });
+    expect(recorded).toEqual([
+      { chatId: 200, from: "user", name: "Иван Иванов", username: "ivan", text: "сколько задач?" },
+      { chatId: 200, from: "bot", text: "три" },
+    ]);
+  });
+});
+
 describe("что помощник берёт, а что нет", () => {
   it("обычный текст — сразу «🕐 Думаю…», ответ от имени спросившего приходит потом", async () => {
     const r = await onAssistantMessage({ text: "что у меня сегодня?" }, from, deps());

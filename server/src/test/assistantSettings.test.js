@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  KEY_VARS, MAX_AGENTS, NOT_CONFIGURED, TASKS, addAgent, addProvider, agentFor, fromLegacyEnv,
-  modelFor, providerFor, readUserSettings, removeAgent, removeProvider, setTasks, settingsView,
+  KEY_VARS, MAX_AGENTS, NOT_CONFIGURED, TASKS, addAgent, addProvider, agentFor, allAgentBots, fromLegacyEnv,
+  modelFor, onAgentsChange, providerFor, readUserSettings, removeAgent, removeProvider, setTasks, settingsView,
   updateAgent, updateProvider, writeUserSettings,
 } from "../lib/assistantSettings.js";
 
@@ -254,7 +254,7 @@ describe("перенос прежних настроек владельца из
    коллекцией моделей из провайдеров человека. modelFor смотрит сначала в
    коллекцию ассистента, потом — в прежнюю таблицу. */
 describe("агенты", () => {
-  const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "" };
+  const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null };
 
   it("встроенный есть всегда, первым, и его нельзя удалить", () => {
     expect(settingsView("200").agents).toEqual([ASSISTANT]);
@@ -270,7 +270,7 @@ describe("агенты", () => {
 
   it("создание, переименование, удаление; имя обязательно; предел назван числом", () => {
     const a = addAgent("200", { name: "  Юрист   по договорам " });
-    expect(a).toEqual({ id: a.id, name: "Юрист по договорам", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "" });
+    expect(a).toEqual({ id: a.id, name: "Юрист по договорам", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null });
     expect(a.id).toMatch(/^a_[0-9a-f]{8}$/);
     expect(settingsView("200").agents.map((x) => x.id)).toEqual(["assistant", a.id]);
     expect(updateAgent("200", a.id, { name: "Юрист" }).name).toBe("Юрист");
@@ -283,6 +283,29 @@ describe("агенты", () => {
     expect(settingsView("200").agents).toEqual([ASSISTANT]);
     for (let i = 1; i < MAX_AGENTS; i += 1) addAgent("200", { name: `агент ${i}` });
     expect(() => addAgent("200", { name: "лишний" })).toThrow(/не больше 20/);
+  });
+
+  it("бот агента: токен в записи, наружу — username; регистр по всем файлам; один токен — одному агенту; слушатель зовётся", () => {
+    const TOK = "123456789:AAHfiqksKZ8WmR2zSjiQ7_v4TVsBYq3zR7A";
+    const seen = [];
+    const off = onAgentsChange(() => seen.push(1));
+    const a = addAgent("200", { name: "Юрист" });
+    expect(() => updateAgent("200", a.id, { bot: { token: "плохой" } })).toThrow(/BotFather/);
+    expect(() => updateAgent("200", "assistant", { bot: { token: TOK } })).toThrow(/основного бота/);
+    const upd = updateAgent("200", a.id, { bot: { token: TOK, username: "@lawyer_bot", botId: "123456789" } });
+    expect(upd.bot).toEqual({ username: "lawyer_bot", botId: "123456789" });
+    expect(JSON.stringify(settingsView("200"))).not.toContain("AAHfiqks");
+    expect(fs.readFileSync(path.join(process.env.ASSISTANT_DIR, "200.json"), "utf8")).toContain(TOK);
+    expect(allAgentBots()).toEqual([{ userId: "200", agentId: a.id, name: "Юрист", token: TOK, username: "lawyer_bot", botId: "123456789" }]);
+    const b = addAgent("100", { name: "Другой" });
+    expect(() => updateAgent("100", b.id, { bot: { token: TOK } })).toThrow(/уже назначен/);
+    // Тот же агент с тем же токеном — не «другой».
+    expect(updateAgent("200", a.id, { bot: { token: TOK, username: "lawyer_bot" } }).bot.username).toBe("lawyer_bot");
+    expect(updateAgent("200", a.id, { bot: null }).bot).toBeNull();
+    expect(allAgentBots()).toEqual([]);
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    off();
+    removeAgent("200", a.id); removeAgent("100", b.id);
   });
 
   it("пары моделей — только из провайдеров записи и их списков; повторы убираются, порядок сохраняется", () => {

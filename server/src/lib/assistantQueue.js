@@ -1,10 +1,15 @@
 import crypto from "node:crypto";
 import { complete as completeDefault } from "./aiProviders.js";
 import { contextFor as contextForDefault } from "./assistantContext.js";
-import * as oauth from "./mcpOauth.js";
 import * as settings from "./assistantSettings.js";
-import { actionsNote, mcpNote, modelsNote, runAgent, skillNote } from "./assistantAgent.js";
+import { runAgent } from "./assistantAgent.js";
 import { identify } from "./orgStore.js";
+import { SYSTEM_PROMPT, mcpServersFor, systemFor } from "./agentRun.js";
+import { runPlanned } from "./planRunner.js";
+
+/* Слова подсказки живут рядом с разговором агента (lib/agentRun.js): у
+   ботов агентов и задач по расписанию они те же. Отсюда — как и прежде. */
+export { SYSTEM_PROMPT };
 
 /* ════════════════════════════════════════════════════════════════
    ОЧЕРЕДЬ ВОПРОСОВ
@@ -53,11 +58,12 @@ import { identify } from "./orgStore.js";
    ════════════════════════════════════════════════════════════════ */
 
 export const TTL_MS = 3 * 60 * 1000;
-/* Сколько ждать модель. Больше таймаута самого запроса к провайдеру
-   (aiProviders.js), чтобы в обычном случае человек видел его слова —
-   «OpenAI не ответил за 90 секунд», — а этот срок ловил только то, что
-   провайдер пропустил. */
-export const ANSWER_TIMEOUT_MS = 2 * 60 * 1000;
+/* Сколько ждать ответ целиком. Ответ — это план и шаги (владелец,
+   2026-09-22, lib/planRunner.js), то есть несколько запросов к модели, и
+   у каждого свой предел у провайдера (aiProviders.js, 90 секунд) — этот
+   срок ловит только то, что провайдер пропустил, и то, что затянулось
+   на десятки шагов. */
+export const ANSWER_TIMEOUT_MS = 20 * 60 * 1000;
 export const STALE_ERROR = "Вопрос устарел, очередь до него не дошла — задайте его ещё раз";
 export const WAITED_ERROR = "Помощник не ответил за три минуты — спросите ещё раз";
 export const CANCELLED_ERROR = "Отменено";
@@ -68,14 +74,6 @@ export const MAX_CLIENT_CONTEXT = 20000;
 export const DEFAULT_TASK = "chat";
 export const STAGES = ["context", "model", "answer"];
 
-export const SYSTEM_PROMPT = [
-  "Ты — помощник в приложении, где ведётся модель живого дела: активы, их функции,",
-  "ресурсы, цели, задачи и отчёты. Отвечай по-русски, коротко и по делу.",
-  "Отвечай ТОЛЬКО по данным ниже. Чего в данных нет — так и говори: «в данных этого нет».",
-  "Не придумывай числа, имена, сроки и содержание файлов. Не пересчитывай прогноз:",
-  "если вопрос требует расчёта, которого в данных нет, скажи, что расчёт делает приложение.",
-  "Слова «план», «вилка» и «факт» различай: план — то, что записано в модели, факт — сдачи.",
-].join(" ");
 
 /** Сколько ждать сборку контекста. Меньше ответа модели: данные — свои, рядом. */
 export const CONTEXT_TIMEOUT_MS = 30 * 1000;
@@ -185,48 +183,37 @@ export function createQueue({
     try { who = await identify(it.userId, {}, { claim: false }); } catch { /* гость */ }
     const agent = settings.agentFor(it.userId, settings.BUILTIN_AGENT_ID) || {};
     const view = settings.settingsView(it.userId);
-    /* Серверы агента — с УРЕЗАННЫМ списком инструментов: агент выбирает
-       не сервер целиком, а инструменты (владелец, 2026-09-21). Сервер без
-       единого выбранного инструмента агенту не показывается вовсе: звать
-       ему там нечего. */
-    const picked = agent.mcp && typeof agent.mcp === "object" && !Array.isArray(agent.mcp)
-      ? agent.mcp : {};
-    const servers = [];
-    for (const [id, tools] of Object.entries(picked)) {
-      /* Берём ПОЛНУЮ запись (`mcpFor`), а не экранную: в ней лежит вход
-         на сервер, и без него чужой сервер ответит 401. Наружу она не
-         уходит — только в вызов инструмента. Токен OAuth, если истёк,
-         обновляется по refresh-токену (lib/mcpOauth.js). */
-      const m = settings.mcpFor(it.userId, id);
-      if (!m || !tools.length) continue;
-      let auth = m.auth || null;
-      if (oauth.stale(auth)) {
-        try { const next = await oauth.refresh(auth); if (next) { settings.setMcpAuth(it.userId, m.id, next); auth = next; } }
-        catch { /* сервер скажет 401 — и человека позовут войти */ }
-      }
-      servers.push({ ...m, auth, tools: [...tools] });
-    }
-    const system = [
-      SYSTEM_PROMPT,
-      modelsNote(agent, view.providers || []),
-      actionsNote(agent.ask !== false),
-      mcpNote(servers),
-      skillNote(agent.skill),
-      `# Данные\n${context}${extra}`,
-    ].filter(Boolean).join("\n\n");
+    /* Серверы агента — с УРЕЗАННЫМ списком инструментов (владелец,
+       2026-09-21) и входом; собирает их lib/agentRun.js. */
+    const servers = await mcpServersFor(it.userId, agent);
+    const system = systemFor({ agent, providers: view.providers || [], servers,
+      context: `${context}${extra}` });
     try {
-      const text = await withTimeout(runAgent({
-        userId: it.userId, agentId: settings.BUILTIN_AGENT_ID,
-        question: it.question, image: it.image, system, model, complete,
-        isOwner: !!who.isOwner, ask: agent.ask !== false, servers,
-        signal: it.abort.signal,
-        /* Показать подтверждение человеку умеет тот, кто спросил, а не
-           очередь: бот — кнопками, приложение — ничем. */
-        onConfirm: it.onConfirm,
-        /* Чужой сервер требует входа посреди работы — спросить человека
-           умеет тот, кто с ним говорит. */
-        onAuthNeeded: it.onAuthNeeded,
-      }), answerTimeoutMs, `Модель не ответила за ${Math.round(answerTimeoutMs / 60000)} мин`);
+      /* РЕЖИМ ПЛАНИРОВАНИЯ (владелец, 2026-09-22): вопрос идёт через план
+         и шаги (lib/planRunner.js); каждый шаг — свой разговор с
+         инструментами. Снимок экрана — только в первом. План по ходу
+         показывает тот, кто спросил (`onPlan`): бот — под «Думаю…». */
+      let first = true;
+      const run = (q) => {
+        const image = first ? it.image : null;
+        first = false;
+        return runAgent({
+          userId: it.userId, agentId: settings.BUILTIN_AGENT_ID,
+          question: q, image, system, model, complete,
+          isOwner: !!who.isOwner, ask: agent.ask !== false, servers,
+          signal: it.abort.signal,
+          /* Показать подтверждение человеку умеет тот, кто спросил, а не
+             очередь: бот — кнопками, приложение — ничем. */
+          onConfirm: it.onConfirm,
+          /* Чужой сервер требует входа посреди работы — спросить человека
+             умеет тот, кто с ним говорит. */
+          onAuthNeeded: it.onAuthNeeded,
+        });
+      };
+      const r = await withTimeout(runPlanned({ question: it.question, run, onPlan: it.onPlan,
+        signal: it.abort.signal }), answerTimeoutMs,
+      `Модель не ответила за ${Math.round(answerTimeoutMs / 60000)} мин`);
+      const text = r.answer;
       progress(it, "answer");
       finish(it, { status: "done", text });
     } catch (e) {
@@ -255,7 +242,7 @@ export function createQueue({
 
   /** Кладёт вопрос. Ответ — по id, у того же человека. */
   function ask({ userId, question, context = "", task = DEFAULT_TASK, onProgress = null, image = null,
-    onConfirm = null, onAuthNeeded = null }) {
+    onConfirm = null, onAuthNeeded = null, onPlan = null }) {
     sweep();
     const q = String(question || "").trim().slice(0, MAX_QUESTION);
     if (!q) throw new Error("question is required");
@@ -270,6 +257,7 @@ export function createQueue({
       onProgress: typeof onProgress === "function" ? onProgress : null,
       onConfirm: typeof onConfirm === "function" ? onConfirm : null,
       onAuthNeeded: typeof onAuthNeeded === "function" ? onAuthNeeded : null,
+      onPlan: typeof onPlan === "function" ? onPlan : null,
     };
     it.promise = new Promise((resolve, reject) => { it.resolve = resolve; it.reject = reject; });
     // Никто не ждёт обещание — отказ не должен становиться необработанным.
@@ -309,25 +297,23 @@ export function createQueue({
       по нему бот рисует кнопку «Отменить». `signal` снаружи — тот же
       cancel, но от AbortController вызывающего. */
   function askNow(userId, question, context = "", {
-    task = DEFAULT_TASK, onProgress, onConfirm, onAuthNeeded, signal, image = null } = {}) {
-    const { id } = ask({ userId, question, context, task, onProgress, onConfirm, onAuthNeeded, image });
+    task = DEFAULT_TASK, onProgress, onConfirm, onAuthNeeded, onPlan, signal, image = null } = {}) {
+    const { id } = ask({ userId, question, context, task, onProgress, onConfirm, onAuthNeeded, onPlan, image });
     const it = items.get(id);
     if (signal) {
       if (signal.aborted) cancel(id, userId);
       else signal.addEventListener("abort", () => cancel(id, userId), { once: true });
     }
     let timer;
-    const late = new Promise((_, reject) => {
-      timer = setTimeout(() => {
-        // До не начатого очередь так и не дошла — снимаем его, чтобы модель
-        // не отвечала потом в пустоту. Начатый доработает сам.
-        if (!it.started && it.status === "pending") {
-          finish(it, { status: "error", error: WAITED_ERROR });
-        } else reject(new Error(WAITED_ERROR));
-      }, ttlMs);
-      timer.unref?.();
-    });
-    const p = Promise.race([it.promise, late]).finally(() => clearTimeout(timer));
+    /* До не начатого очередь так и не дошла за TTL — снимаем его, чтобы
+       модель не отвечала потом в пустоту. Начатый доработает сам: его
+       предел — answerTimeoutMs (план и шаги идут дольше трёх минут,
+       владелец 2026-09-22), и обещание завершится не позже него. */
+    timer = setTimeout(() => {
+      if (!it.started && it.status === "pending") finish(it, { status: "error", error: WAITED_ERROR });
+    }, ttlMs);
+    timer.unref?.();
+    const p = it.promise.finally(() => clearTimeout(timer));
     p.id = id;
     return p;
   }

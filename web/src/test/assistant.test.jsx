@@ -95,9 +95,10 @@ function settingsServer(providers = [], agents = [ASSISTANT], extra = {}) {
       const b = JSON.parse(opts.body);
       const a = state.agents.find((x) => url.endsWith(`/agents/${x.id}`));
       if (a) {
-        const { uses, ...rest } = b;
+        const { uses, botToken, ...rest } = b;
         Object.assign(a, rest);
         if (uses) a.uses = { ...a.uses, ...uses };
+        if (botToken !== undefined) a.bot = botToken ? { username: "lawyer_bot", botId: "1" } : null;
         return { body: { ...a } };
       }
       const p = state.providers.find((x) => url.endsWith(`/providers/${x.id}`));
@@ -434,6 +435,33 @@ describe("агенты", () => {
     fireEvent.click(within(box).getByRole("button", { name: "Удалить" }));
     await waitFor(() => expect(log.filter((r) => r.method === "PUT"
       && JSON.parse(r.body).skill === "").length).toBe(1));
+  });
+
+  /* СВОЙ БОТ У АГЕНТА (владелец, 2026-09-22): токен уходит PUT-ом полем
+     botToken и назад не приходит — форма показывает только @username. */
+  it("бот агента: поле токена только у своих агентов; «Сохранить» шлёт botToken, «Снять» — пустой", async () => {
+    const other = { ...ASSISTANT, id: "a_1", name: "Юрист", builtin: false, bot: null };
+    const { log } = settingsServer([P1], [ASSISTANT, other]);
+    render(<AgentsPanel me={OWNER} />);
+    await screen.findByLabelText("инструкция агента");
+    expect(screen.queryByLabelText("токен бота")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Юрист" }));
+    const field = await screen.findByLabelText("токен бота");
+    const box = screen.getByLabelText("бот агента");
+    expect(within(box).getByRole("button", { name: "Сохранить" })).toBeDisabled();
+    expect(within(box).getByRole("button", { name: "Снять" })).toBeDisabled();
+    fireEvent.change(field, { target: { value: " 123456789:AAHfiqksKZ8WmR2zSjiQ7_v4TVsBYq3zR7A " } });
+    fireEvent.click(within(box).getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1"))).toBe(true));
+    expect(JSON.parse(log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1")).body))
+      .toEqual({ botToken: "123456789:AAHfiqksKZ8WmR2zSjiQ7_v4TVsBYq3zR7A" });
+    const link = await screen.findByLabelText("бот агента: @lawyer_bot");
+    expect(link.getAttribute("href")).toBe("https://t.me/lawyer_bot");
+    expect(screen.getByLabelText("токен бота").value).toBe("");
+    fireEvent.click(within(box).getByRole("button", { name: "Снять" }));
+    await waitFor(() => expect(log.filter((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1")).length).toBe(2));
+    expect(JSON.parse(log.filter((r) => r.method === "PUT")[1].body)).toEqual({ botToken: "" });
+    await waitFor(() => expect(screen.queryByLabelText("бот агента: @lawyer_bot")).toBeNull());
   });
 
   it("память у каждого агента своя: GET ?agent=, POST с agent", async () => {

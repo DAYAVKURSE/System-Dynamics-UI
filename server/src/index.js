@@ -23,6 +23,38 @@ import { resumeTranscripts, transcribeFile } from "./lib/transcribe.js";
 import * as assistantSettings from "./lib/assistantSettings.js";
 import { findStorage, inStorage, inTaskStorage, listStorages } from "./lib/storages.js";
 import { readModel } from "./lib/workspaceStore.js";
+import * as dialogs from "./lib/dialogStore.js";
+import { onDialogsButton, openDialogs } from "./lib/dialogsUi.js";
+import { takeReply } from "./lib/peopleWait.js";
+import { peopleToolsFor } from "./lib/peopleTools.js";
+import { runAgentPlanned, statusMessage } from "./lib/agentRun.js";
+import { createAgentBots, handleAgentUpdate } from "./lib/agentBots.js";
+import { runAgentDuty, taskQuestion } from "./lib/agentDuty.js";
+import { sendMessage } from "./lib/telegram.js";
+
+/* ─── АГЕНТЫ С БОТАМИ, ДИАЛОГИ, ЗАДАЧИ ПО РАСПИСАНИЮ (владелец, 2026-09-22) ───
+   Владелец сценария — тот, чьи настройки агентов (модели, токены ботов).
+   Ключ диалогов основного бота — `<владелец>_assistant`. */
+const ownerIdOf = async () => String((await org.listOrg()).ownerId || "");
+const mainKey = async () => dialogs.botKey(await ownerIdOf(), "assistant");
+const humanMembers = async () => (await org.listOrg()).users
+  .filter((u) => !u.agent).map((u) => ({ id: String(u.id), name: u.name || "", username: u.username || "" }));
+const agentBotOf = (agentId) => assistantSettings.allAgentBots().find((b) => b.agentId === String(agentId)) || null;
+
+/** Разговор агента — с инструментами «написать/спросить человека». */
+async function runAgentFor({ ownerId, agentId, agentName, question, notes = [], onPlan, title = "", signal = null }) {
+  const bot = agentBotOf(agentId);
+  const key = dialogs.botKey(ownerId, agentId);
+  const extra = peopleToolsFor({
+    key, members: await humanMembers(), mainKey: await mainKey(), agentName,
+    sendVia: {
+      ...(bot ? { agent: (chatId, text) => sendMessage(chatId, text, bot.token) } : {}),
+      ...(process.env.TELEGRAM_BOT_TOKEN ? { main: (chatId, text) => sendMessage(chatId, text) } : {}),
+    },
+  });
+  return runAgentPlanned({ ownerId, agentId, asUserId: org.agentUserId(agentId), question, notes, onPlan,
+    extra, title, signal });
+}
 
 /* В каком хранилище задача — там и работаем (lib/storages.js). */
 const hasTask = async (id) => ((await readModel()).tasks || []).some((t) => t && t.id === id);
@@ -87,6 +119,28 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
         tasksFor: scheduleFor,
       });
       if (sent) console.log(`[scheduler] отправлено напоминаний: ${sent}`);
+      /* Агенты по расписанию (lib/agentDuty.js): в час начала задачи
+         участника-агента он берётся за неё сам, план — в чате владельца. */
+      const ownerId = await ownerIdOf();
+      const agents = ownerId ? (await org.listOrg()).users.filter((u) => u.agent)
+        .map((u) => ({ id: String(u.id), agentId: String(u.id).replace(/^ag_/, ""), name: u.name || "агент" })) : [];
+      const started = await runAgentDuty({
+        agents, store, tasksFor: scheduleFor, log: (m) => console.warn(`[agents] ${m}`),
+        start: async ({ agentId, name, task }) => {
+          const title = `Агент «${name}» начинает задачу «${task.title || "Задача"}»`;
+          const st = await statusMessage({ send: sendWithKeyboard, edit: editMessage, chatId: ownerId, first: title,
+            log: (m) => console.warn(`[agents] ${m}`) });
+          try {
+            const r = await runAgentFor({ ownerId, agentId, agentName: name, question: taskQuestion(task),
+              notes: [`# Твоя задача по расписанию\n${taskQuestion(task)}`], title,
+              onPlan: (t) => st.update(t) });
+            await st.finish(`${title}\n\n${r.answer}`.slice(0, 4000));
+          } catch (e) {
+            await st.finish(`${title}\n\nНе вышло: ${e.message}`.slice(0, 4000));
+          }
+        },
+      });
+      if (started) console.log(`[agents] задач начато агентами: ${started}`);
       /* Попытка публикации оценок — на каждом тике: то, что стало
          анонимным (два разных автора), публикуется, не дожидаясь чтения
          рейтинга. Не больше одной за тик — две сразу назвали бы обоих. */
@@ -246,6 +300,16 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
               /* Группы бот только слушает: сообщение ложится в хранилище чатов,
                  ответа в группу нет никакого (lib/chatStore.js). */
               chats: { record: recordGroupMessage },
+              /* Диалоги основного бота (lib/dialogStore.js): запись, бан,
+                 «/dialogs» владельцу, ответ, которого ждал агент. */
+              dialogs: {
+                record: async (chatId, line) => dialogs.recordDialog(await mainKey(), chatId, line),
+                banned: async (chatId) => dialogs.isBanned(await mainKey(), chatId),
+                open: async (chatId) => openDialogs({ key: await mainKey(), chatId, send: sendWithKeyboard }),
+                button: async (cb) => onDialogsButton(cb, { key: await mainKey(), edit: editMessage,
+                  answer: answerCallback, botName: "ассистент" }),
+                reply: async (from, text) => takeReply(await mainKey(), from.id, text),
+              },
               /* Договоры: «/start agr_<токен>» привязывает соглашение к
                  пришедшему; добавление по пересылке — к ждущему договору
                  роли (lib/contractStore.js). */
@@ -293,3 +357,26 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
 } else {
   console.log("TELEGRAM_BOT_TOKEN не задан — бот приглашений выключен");
 }
+
+/* Боты агентов (lib/agentBots.js): по опросчику на токен, список — из
+   настроек владельца; меняется запись — пересобирается и список. */
+const agentBots = createAgentBots({
+  list: assistantSettings.allAgentBots,
+  getUpdates,
+  log: (m) => console.warn(`[agents] ${m}`),
+  handle: (bot, update) => handleAgentUpdate(bot, update, {
+    send: (chatId, text, keyboard) => sendWithKeyboard(chatId, text, keyboard, bot.token),
+    edit: (chatId, messageId, text, keyboard) => editMessage(chatId, messageId, text, keyboard, bot.token),
+    answer: (id, text) => answerCallback(id, text, bot.token),
+    status: ({ chatId, first }) => statusMessage({ chatId, first,
+      send: (c, t) => sendWithKeyboard(c, t, null, bot.token),
+      edit: (c, m, t, k) => editMessage(c, m, t, k, bot.token),
+      log: (m) => console.warn(`[agents] ${m}`) }),
+    run: ({ question, notes, onPlan }) => runAgentFor({ ownerId: bot.userId, agentId: bot.agentId,
+      agentName: bot.name, question, notes, onPlan }),
+    log: (m) => console.warn(`[agents] ${m}`),
+  }),
+});
+agentBots.refresh();
+assistantSettings.onAgentsChange(() => agentBots.refresh());
+if (agentBots.size()) console.log(`Боты агентов запущены: ${agentBots.size()}`);

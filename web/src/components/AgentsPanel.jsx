@@ -257,6 +257,13 @@ export default function AgentsPanel({ me, onChanged }) {
               </div>
             </div>
 
+            {/* ═══ свой бот (владелец, 2026-09-22) ═══ Только у своих
+                агентов: ассистент говорит через основного бота. */}
+            {!agent.builtin && (
+              <BotToken key={`bot-${agent.id}`} agent={agent} busy={busy}
+                onSave={(token) => run(() => updateAgent(agent.id, { botToken: token }),
+                  token ? "Бот назначен." : "Бот снят.")} />)}
+
             {/* ═══ инструкции ═══ */}
             <Skill key={`skill-${agent.id}`} agent={agent} busy={busy}
               onSave={(text) => run(() => updateAgent(agent.id, { skill: text }),
@@ -899,6 +906,36 @@ function Skill({ agent, busy, onSave }) {
         <button type="button" style={{ ...btn(true, BAD) }}
           disabled={busy || (!saved && !text)}
           onClick={() => { setText(""); onSave(""); }}>Удалить</button>
+      </div>
+    </div>);
+}
+
+/* ─────── свой бот агента (владелец, 2026-09-22) ───────
+
+   «Агентам я мог назначать токен бота телеграм… чтобы агент мог писать
+   людям и общаться с ними». Токен уходит на сервер и назад не приходит:
+   форма видит только имя бота, которое сервер узнал у Telegram. Снять —
+   то же сохранение пустым. */
+function BotToken({ agent, busy, onSave }) {
+  const [token, setToken] = useState("");
+  const name = agent.bot?.username ? `@${agent.bot.username}` : "";
+  return (
+    <div style={form} aria-label="бот агента">
+      <div className="flex flex-wrap items-center gap-2">
+        <span style={S.lbl}>бот</span>
+        {name && <a href={`https://t.me/${agent.bot.username}`} target="_blank" rel="noreferrer"
+          aria-label={`бот агента: ${name}`}
+          style={{ fontSize: "var(--fs-hint)", color: OK, fontWeight: 700 }}>{name}</a>}
+      </div>
+      <input aria-label="токен бота" value={token} disabled={busy} autoComplete="off"
+        onChange={(e) => setToken(e.target.value)}
+        style={{ ...S.inp, width: "100%", marginTop: "var(--space-4)" }} />
+      <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-4)" }}>
+        <button type="button" style={btn(Boolean(token.trim()), token.trim() ? OK : undefined)}
+          disabled={busy || !token.trim()}
+          onClick={() => { const v = token.trim(); setToken(""); onSave(v); }}>Сохранить</button>
+        <button type="button" style={{ ...btn(true, BAD) }} disabled={busy || !name}
+          onClick={() => { setToken(""); onSave(""); }}>Снять</button>
       </div>
     </div>);
 }

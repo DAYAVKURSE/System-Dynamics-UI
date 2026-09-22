@@ -111,7 +111,7 @@ export const actionsNote = (ask) => [
 ].join("\n");
 
 /* Список инструментов: свои плюс чужие, с приставкой. */
-function toolList({ isOwner, servers }) {
+function toolList({ isOwner, servers, extra = [] }) {
   const own = toolsFor({ isOwner });
   const mcp = [];
   servers.forEach((s) => {
@@ -126,7 +126,12 @@ function toolList({ isOwner, servers }) {
       });
     });
   });
-  return [...own, ...mcp];
+  /* Инструменты, данные снаружи (владелец, 2026-09-22): у агента с ботом —
+     «написать человеку», «спросить человека». Каждый со своим `run`. */
+  const given = extra.filter((t) => t && t.name && typeof t.run === "function")
+    .map((t) => ({ name: t.name, description: t.description || t.name,
+      schema: t.schema || { type: "object", properties: {} }, run: t.run }));
+  return [...own, ...mcp, ...given];
 }
 
 /**
@@ -138,9 +143,9 @@ function toolList({ isOwner, servers }) {
 export async function runAgent({
   userId, agentId, question, image = null, system, model, complete,
   isOwner = false, ask = true, servers = [], signal = null, rounds = MAX_ROUNDS,
-  onConfirm = null, onAuthNeeded = null,
+  onConfirm = null, onAuthNeeded = null, extra = [],
 }) {
-  const tools = toolList({ isOwner, servers });
+  const tools = toolList({ isOwner, servers, extra });
   // Снимок экрана (вопрос из приложения) — при первом сообщении, картинкой.
   const messages = [{ role: "user", content: String(question || ""), ...(image?.data ? { image } : {}) }];
   const note = "";
@@ -160,6 +165,9 @@ export async function runAgent({
       let result;
       if (!tool) {
         result = { ok: false, text: `Нет такого инструмента: ${call.name}.` };
+      } else if (tool.run) {
+        try { result = await tool.run(call.args || {}); }
+        catch (e) { result = { ok: false, text: `Не вышло: ${String(e?.message || e).slice(0, 300)}` }; }
       } else if (tool.mcp) {
         try {
           const r = await callTool(tool.mcp.url, tool.mcp.tool, call.args,

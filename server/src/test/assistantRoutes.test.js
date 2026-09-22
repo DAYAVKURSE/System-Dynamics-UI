@@ -86,7 +86,7 @@ describe("настройки", () => {
     expect(res.status).toBe(200);
     expect(res.body.providers).toEqual([]);
     expect(res.body.tasks).toEqual({ chat: null, bot: null, transcribe: null });
-    expect(res.body.agents).toEqual([{ id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "" }]);
+    expect(res.body.agents).toEqual([{ id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null }]);
     expect(res.body.kinds.map((k) => k.id)).toEqual(["openai", "anthropic", "hf"]);
     expect(res.body.kinds[0].defaultBaseUrl).toBe("https://api.openai.com/v1");
     expect(res.body.taskList.map((t) => t.id)).toEqual(["chat", "bot", "transcribe"]);
@@ -363,7 +363,7 @@ describe("агенты", () => {
   it("владелец: 201 и участник-агент в организации; переименование и удаление идут за ним", async () => {
     const created = await request(app).post("/api/assistant/agents").set(as(100)).send({ name: "Юрист" });
     expect(created.status).toBe(201);
-    expect(created.body).toEqual({ id: created.body.id, name: "Юрист", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "" });
+    expect(created.body).toEqual({ id: created.body.id, name: "Юрист", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null });
     const uid = `ag_${created.body.id}`;
     let user = (await orgUsers()).find((u) => u.id === uid);
     expect(user).toMatchObject({ id: uid, name: "Юрист", agent: true, roles: [], addedBy: "100" });
@@ -388,6 +388,40 @@ describe("агенты", () => {
     expect(gone.status).toBe(204);
     expect((await orgUsers()).some((u) => u.id === uid)).toBe(false);
     expect((await request(app).delete(`/api/assistant/agents/${created.body.id}`).set(as(100))).status).toBe(404);
+  });
+
+  it("токен бота агента: проверяется у Telegram, наружу уходит только username; пустой — снять; ассистенту — нельзя", async () => {
+    const { body: a } = await request(app).post("/api/assistant/agents").set(as(100)).send({ name: "Юрист" });
+    const TOK = "123456789:AAHfiqksKZ8WmR2zSjiQ7_v4TVsBYq3zR7A";
+    const calls = [];
+    globalThis.fetch = async (url) => {
+      calls.push(String(url));
+      return { ok: true, json: async () => ({ ok: true, result: { id: 123456789, username: "lawyer_bot" } }) };
+    };
+    const bad = await request(app).put(`/api/assistant/agents/${a.id}`).set(as(100)).send({ botToken: "nope" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/BotFather/);
+    expect(calls).toEqual([]);
+
+    const ok = await request(app).put(`/api/assistant/agents/${a.id}`).set(as(100)).send({ botToken: TOK });
+    expect(ok.status).toBe(200);
+    expect(ok.body.bot).toEqual({ username: "lawyer_bot", botId: "123456789" });
+    expect(JSON.stringify(ok.body)).not.toContain("AAHfiqks");
+    expect(calls[0]).toBe(`https://api.telegram.org/bot${TOK}/getMe`);
+    const view = await request(app).get("/api/assistant/settings").set(as(100));
+    expect(view.body.agents.find((x) => x.id === a.id).bot).toEqual({ username: "lawyer_bot", botId: "123456789" });
+
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: false }) });
+    const refused = await request(app).put(`/api/assistant/agents/${a.id}`).set(as(100)).send({ botToken: "123456789:BBHfiqksKZ8WmR2zSjiQ7_v4TVsBYq3zR7A" });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toMatch(/не признал/);
+
+    const builtin = await request(app).put("/api/assistant/agents/assistant").set(as(100)).send({ botToken: TOK });
+    expect(builtin.status).toBe(400);
+
+    const off = await request(app).put(`/api/assistant/agents/${a.id}`).set(as(100)).send({ botToken: "" });
+    expect(off.body.bot).toBeNull();
+    await request(app).delete(`/api/assistant/agents/${a.id}`).set(as(100));
   });
 
   it("не-владелец: агент только в своих настройках, участника нет; чужого агента не найти", async () => {

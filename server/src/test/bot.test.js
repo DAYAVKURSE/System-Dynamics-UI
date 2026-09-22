@@ -39,6 +39,41 @@ const lastText = () => sent[sent.length - 1]?.text || "";
 const lastKeys = () => (sent[sent.length - 1]?.keyboard?.inline_keyboard || [])
   .flat().map((b) => b.text);
 
+/* ДИАЛОГИ (владелец, 2026-09-22): «/dialogs» — только владельцу, забаненному
+   — ничего, ответ ждущему агенту — ему, а не помощнику. */
+describe("диалоги основного бота", () => {
+  const dialogs = () => {
+    const log = [];
+    return { log,
+      banned: async (chatId) => String(chatId) === "777",
+      open: async (chatId) => { log.push(["open", chatId]); },
+      button: async (cb) => { log.push(["button", cb.data]); return { opened: "5" }; },
+      reply: async (from, text) => { log.push(["reply", from.id, text]); return text === "да"; } };
+  };
+  it("«/dialogs» открывает список владельцу; участнику — ничего", async () => {
+    await org.addUser({ id: "200", name: "Иван", roleId: (await org.listOrg()).roles[0].id, addedBy: "100" });
+    const dl = dialogs();
+    expect(await handleUpdate(msg(owner, { text: "/dialogs" }), { ...deps, dialogs: dl })).toEqual({ dialogs: true });
+    expect(dl.log).toEqual([["open", 100]]);
+    expect(await handleUpdate(msg(forwarded, { text: "/dialogs" }), { ...deps, dialogs: dl })).toEqual({ ignored: "not owner" });
+    expect(sent).toEqual([]);
+    const cb = { update_id: 3, callback_query: { id: "c", from: owner, data: "dl:o:5:0", message: { chat: { id: 100 }, message_id: 1 } } };
+    expect(await handleUpdate(cb, { ...deps, dialogs: dl })).toEqual({ opened: "5" });
+    expect(await handleUpdate({ ...cb, callback_query: { ...cb.callback_query, from: forwarded } }, { ...deps, dialogs: dl })).toEqual({ ignored: "not owner" });
+  });
+  it("забаненному бот не отвечает ничем; ответ, которого ждал агент, уходит ему", async () => {
+    await org.addUser({ id: "200", name: "Иван", roleId: (await org.listOrg()).roles[0].id, addedBy: "100" });
+    const dl = dialogs();
+    expect(await handleUpdate(msg(guest, { text: "/id" }), { ...deps, dialogs: dl })).toEqual({ ignored: "banned" });
+    expect(sent).toEqual([]);
+    expect(await handleUpdate(msg(forwarded, { text: "да" }), { ...deps, dialogs: dl })).toEqual({ replied: true });
+    expect(dl.log).toEqual([["reply", 200, "да"]]);
+    // Не ждали — обычный путь (помощника тут нет: «не разобрал»).
+    await handleUpdate(msg(forwarded, { text: "нет" }), { ...deps, dialogs: dl });
+    expect(sent.length).toBe(1);
+  });
+});
+
 /* ════════════════════════════════════════════════════════════════
    ОДНА КОМАНДА И ПОМОЩНИК (владелец, 2026-09-21)
 

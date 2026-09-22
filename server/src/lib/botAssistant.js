@@ -194,7 +194,7 @@ async function setStatus(deps, e, text, keyboard) {
  * Возвращает { answered: "queued", id, done }: done — обещание, что ответ
  * или ошибка уже ушли в чат; бот его не ждёт, тесты — ждут.
  */
-async function askQuestion(deps, { userId, chatId, question, context = "", image = null }) {
+async function askQuestion(deps, { userId, chatId, question, context = "", image = null, who = null }) {
   const a = deps.assistant || deps;
   const send = deps.send || a.send;
   sweep();
@@ -212,7 +212,7 @@ async function askQuestion(deps, { userId, chatId, question, context = "", image
   const show = () => {
     e.chain = e.chain.then(async () => {
       if (e.done || e.messageId == null) return;
-      const text = tickText(e.tick);
+      const text = withPlan(tickText(e.tick), e.plan);
       // Telegram на «ничего не изменилось» отвечает ошибкой — не шлём то же.
       if (text === e.shown) return;
       e.shown = text;
@@ -258,10 +258,24 @@ async function askQuestion(deps, { userId, chatId, question, context = "", image
     }
   };
 
+  /* ПЛАН ПОД «ДУМАЮ…» (владелец, 2026-09-22): помощник сначала планирует
+     (lib/planRunner.js), и план — что нужно сделать, шаги с 🔵/🟢/🔴,
+     ожидаемый результат — виден в том же сообщении-статусе, под часами.
+     Правки идут той же цепочкой, что и такты. */
+  const onPlan = (text) => { e.plan = String(text || ""); return show(); };
+
+  /* Диалог с человеком — на диске (lib/dialogStore.js): по нему «/dialogs»
+     и «кому бот может писать». Вопрос — сейчас, ответ — когда придёт. */
+  const record = deps.dialogs?.record;
+  if (record) {
+    try { await record(chatId, { from: "user", name: who?.name || "", username: who?.username || "", text: question }); }
+    catch (err) { logOf(deps)(`диалог не записан: ${err.message}`); }
+  }
+
   let raw;
   try {
     raw = a.ask(userId, question.slice(0, MAX_QUESTION), e.context,
-      { task: BOT_TASK, onConfirm, onAuthNeeded, ...(e.image ? { image: e.image } : {}) });
+      { task: BOT_TASK, onConfirm, onAuthNeeded, onPlan, ...(e.image ? { image: e.image } : {}) });
   } catch (err) {
     raw = Promise.reject(err);
   }
@@ -287,6 +301,8 @@ async function askQuestion(deps, { userId, chatId, question, context = "", image
     logOf(deps)(`статус «${THINKING}» не отправлен: ${err.message}`);
   }
   e.messageId = sent?.message_id ?? null;
+  // План мог прийти раньше номера сообщения — показать сразу, не ждать такта.
+  if (e.plan) show();
   /* Часы идут, пока ответа нет. `unref` — чтобы тик не держал процесс
      живым: приложение не должно ждать завершения чужого таймера. */
   if (e.messageId != null) {
@@ -301,6 +317,10 @@ async function askQuestion(deps, { userId, chatId, question, context = "", image
       for (const part of parts) {
         // eslint-disable-next-line no-await-in-loop
         await send(chatId, part);
+      }
+      if (record) {
+        try { await record(chatId, { from: "bot", text: String(answer || "").trim() || "Ответ пуст." }); }
+        catch (err) { logOf(deps)(`ответ в диалог не записан: ${err.message}`); }
       }
       await finishStatus(deps, e, DONE_TEXT);
       return { answered: true, parts: parts.length, id: e.id };
@@ -339,8 +359,12 @@ async function finishStatus(deps, e, text) {
   e.done = true;
   await e.chain.catch(() => {});
   e.at = Date.now();
-  await setStatus(deps, e, text, null);
+  // План остаётся под итогом: по нему видно, что было сделано.
+  await setStatus(deps, e, withPlan(text, e.plan), null);
 }
+
+/** Строка статуса и под ней план, если он есть. */
+export const withPlan = (text, plan) => (plan ? `${text}\n\n${plan}` : text);
 
 /* ─── кнопки под статусом ─── */
 
@@ -493,6 +517,9 @@ export async function askFromApp(deps, { userId, chatId, question, context = "",
  *          { answered: "queued", id, done }: done — обещание, что ответ или
  *          ошибка уже ушли в чат; бот его не ждёт, тесты — ждут.
  */
+const whoOf = (from) => ({ name: [from?.first_name, from?.last_name].filter(Boolean).join(" ").trim(),
+  username: from?.username || "" });
+
 export async function onAssistantMessage(msg, from, deps = {}) {
   if (!msg || !from) return null;
   const a = deps.assistant || deps;
@@ -548,7 +575,7 @@ export async function onAssistantMessage(msg, from, deps = {}) {
         return { error: "no ask" };
       }
       await send(chatId, "Тот вопрос уже не помню — задаю ваш текст как новый вопрос.");
-      const r = await askQuestion(deps, { userId, chatId, question: text });
+      const r = await askQuestion(deps, { userId, chatId, question: text, who: whoOf(from) });
       return { ...r, stale: true };
     }
     if (!ask) {
@@ -560,7 +587,7 @@ export async function onAssistantMessage(msg, from, deps = {}) {
       await a.cancel(prev.queueId ?? prev.id, userId);
     }
     const question = `${prev.question}\n\nУточнение: ${text}`;
-    const r = await askQuestion(deps, { userId, chatId, question, context: prev.context || "" });
+    const r = await askQuestion(deps, { userId, chatId, question, context: prev.context || "", who: whoOf(from) });
     return { ...r, refined: refineId };
   }
 
@@ -652,5 +679,5 @@ export async function onAssistantMessage(msg, from, deps = {}) {
     await send(from.id, "Помощник здесь не подключён.");
     return { error: "no ask" };
   }
-  return askQuestion(deps, { userId, chatId, question: text });
+  return askQuestion(deps, { userId, chatId, question: text, who: whoOf(from) });
 }

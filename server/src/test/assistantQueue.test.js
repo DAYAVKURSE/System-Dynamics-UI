@@ -213,12 +213,38 @@ describe("очередь не молчит и не виснет", () => {
     expect(q.find(a.id, "200")).toMatchObject({ status: "error", error: expect.stringMatching(/не ответила/) });
   });
 
-  it("askNow не висит дольше TTL, даже если модель молчит", async () => {
+  it("askNow не висит дольше предела ответа, даже если модель молчит; не начатый за TTL — «не дошла»", async () => {
     const { q } = make({
-      ttlMs: 30, answerTimeoutMs: 60_000,
+      ttlMs: 30, answerTimeoutMs: 40,
       complete: async () => { await new Promise(() => {}); },
     });
-    await expect(q.askNow("200", "?")).rejects.toThrow(WAITED_ERROR);
+    // Начатый — ждёт предел ответа (план и шаги идут дольше TTL), потом отказ словами.
+    const a = q.askNow("200", "?");
+    // Второй за первым не начнётся, пока тот не отвалится: за TTL до него не дошли.
+    const b = q.askNow("200", "??");
+    await expect(b).rejects.toThrow(WAITED_ERROR);
+    await expect(a).rejects.toThrow(/не ответила/);
+  });
+});
+
+/* ─── РЕЖИМ ПЛАНИРОВАНИЯ (владелец, 2026-09-22) ───
+   Ответ-план (JSON) → шаги → итог; план по ходу — тому, кто спросил
+   (onPlan). Подсказка просит план. Не план — прямой ответ одним запросом
+   (см. тесты выше: они на заглушке словами). */
+describe("план", () => {
+  it("подсказка просит план; JSON-план ведёт по шагам, план виден через onPlan, ответ — итог", async () => {
+    const plan = JSON.stringify({ request: "посчитать", result: "число", steps: [{ action: "посмотреть", expect: "список" }] });
+    const answers = [plan, '{"ok": true, "result": "5 задач"}', "Задач пять."];
+    const { q, calls } = make({ complete: async (p) => { calls.push(p); return answers.shift(); } });
+    const plans = [];
+    const text = await q.askNow("200", "сколько задач?", "", { onPlan: (t) => plans.push(t) });
+    expect(text).toBe("Задач пять.");
+    expect(calls).toHaveLength(3);
+    expect(calls[0].system).toContain("# Планирование");
+    expect(calls[0].messages).toEqual([{ role: "user", content: "сколько задач?" }]);
+    expect(calls[1].messages[0].content).toMatch(/Сейчас выполни шаг 1: посмотреть/);
+    expect(plans[0]).toBe("Что нужно сделать: посчитать\n🔵 1. посмотреть → список\nОжидаемый результат: число");
+    expect(plans[1]).toMatch(/^Что нужно сделать: посчитать\n🟢 1\. /);
   });
 });
 
