@@ -131,11 +131,11 @@ describe("слова — помощнику, и владельцу тоже", ()
   it("«/start» — приветствие с кнопкой панели, и незваному тоже", async () => {
     const r = await handleUpdate(msg(owner, { text: "/start" }), { ...deps, assistant, publicUrl: "https://app.example/" });
     expect(r).toEqual({ welcomed: true });
-    expect(lastText()).toBe("Добро пожаловать! Откройте панель для работы, или напишите мне сообщение");
-    expect(sent[sent.length - 1].keyboard).toEqual({ inline_keyboard: [[{ text: "Открыть панель", web_app: { url: "https://app.example" } }]] });
+    expect(lastText()).toBe("Welcome! Open the panel to get to work, or send me a message");
+    expect(sent[sent.length - 1].keyboard).toEqual({ inline_keyboard: [[{ text: "Open the panel", web_app: { url: "https://app.example" } }]] });
     const g = await handleUpdate(msg(guest, { text: "/start@my_bot" }), { ...deps, assistant });
     expect(g).toEqual({ welcomed: true });
-    expect(lastText()).toMatch(/^Добро пожаловать/);
+    expect(lastText()).toMatch(/^Welcome!/);
     expect(sent[sent.length - 1].keyboard).toBeNull();
     // «/start agr_…» — по-прежнему договор, не приветствие.
     expect(lastText()).not.toMatch(/Не разобрал/);
