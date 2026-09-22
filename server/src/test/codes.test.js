@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { handle } from "../../../codes/src/service.js";
-import { resetKeys } from "../../../codes/src/store.js";
+import { resetKeys, withUsers } from "../../../codes/src/store.js";
 import { savePlan } from "../../../codes/src/billing.js";
 import { decodeToken, verifyToken } from "../../../codes/src/token.js";
 import * as codes from "../lib/codes.js";
@@ -191,6 +191,31 @@ describe("сервер хранилища с включённым сервисо
     expect(other.body.isOwner).toBe(true);
     const links = JSON.parse(await fs.readFile(path.join(process.env.ORG_DIR, "identity.json"), "utf8"));
     expect(links.links[0]).toMatchObject({ uid: r.uid, id: "100", tg: ["100", "200"] });
+  });
+
+  /* Ключ на устройстве, сохранённый без id аккаунта (владелец,
+     2026-09-22): забирает только тот Telegram, к чьей записи он
+     привязан; Telegram из тела запроса не в счёт. */
+  it("старый ключ устройства забирает только его аккаунт; tg из тела не принимается", async () => {
+    const r = await register();
+    await request(app).get("/api/org/me").set(as(100, "Владелец")).set("X-User-Token", r.token).expect(200);
+    const foreign = await request(app).post("/api/codes/token").set(as(200)).send({ key: r.key, adopt: true });
+    expect(foreign.status).toBe(409);
+    expect(foreign.body.token).toBeUndefined();
+    const own = await request(app).post("/api/codes/token").set(as(100)).send({ key: r.key, adopt: true });
+    expect(own.status).toBe(200);
+    expect(own.body.uid).toBe(r.uid);
+    // Не привязанный ещё ни к кому — забирает первый.
+    const fresh = await register();
+    expect((await request(app).post("/api/codes/token").set(as(300)).send({ key: fresh.key, adopt: true })).status).toBe(200);
+    // Ключ на @username: подложить его в тело нельзя.
+    const granted = await register();
+    await withUsers(async (users) => {
+      users.find((u) => u.uid === granted.uid).grant = { planId: "pro", days: 5, for: { username: "petr" } };
+      return { write: true, users };
+    });
+    const spoof = await request(app).post("/api/codes/token").send({ key: granted.key, tg: { id: "1", username: "petr" } });
+    expect(spoof.status).toBe(403);
   });
 
   it("сервис доступен через /api/codes без подписи, список отозванных — нет", async () => {

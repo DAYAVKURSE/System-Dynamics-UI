@@ -8,12 +8,22 @@
    каждый запрос заголовком X-User-Token.
 
    Ключ живёт в localStorage этого устройства: спрашивать его при каждом
-   открытии значило бы заставлять человека носить его с собой.
+   открытии значило бы заставлять человека носить его с собой. Хранилище
+   у устройства одно на все Telegram-аккаунты, поэтому ключ лежит под
+   id аккаунта (владелец, 2026-09-22: с другого аккаунта того же телефона
+   открывалось всё — под чужим ключом). Ключ, сохранённый раньше без id,
+   забирает только тот аккаунт, к чьей записи он привязан.
    ════════════════════════════════════════════════════════════════ */
-import { getInitData } from "./telegram.js";
+import { getInitData, getTelegram } from "./telegram.js";
 
-const KEY = "sd_code_key";
-const TOK = "sd_code_token";
+const LEGACY_KEY = "sd_code_key";
+const LEGACY_TOK = "sd_code_token";
+const tgId = () => {
+  try { return String(getTelegram()?.initDataUnsafe?.user?.id || ""); } catch { return ""; }
+};
+const slot = (base) => (tgId() ? `${base}:${tgId()}` : base);
+const keySlot = () => slot(LEGACY_KEY);
+const tokSlot = () => slot(LEGACY_TOK);
 /* Обновляем за пять минут до конца: запрос, отправленный в последнюю
    секунду, не должен упереться в истёкший токен. */
 const EARLY_MS = 5 * 60 * 1000;
@@ -23,17 +33,19 @@ const write = (k, v) => {
   try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* приватный режим */ }
 };
 
-export const savedKey = () => read(KEY);
+export const savedKey = () => read(keySlot());
 export const normKey = (v) => String(v || "").toUpperCase().replace(/[^0-9A-Z]/g, "")
   .match(/.{1,4}/g)?.join("-") || "";
 
 let tok = null; // {token, exp(ms), uid, plan}
+let tokAt = ""; // под каким аккаунтом он запомнен
 const loadTok = () => {
-  if (tok) return tok;
-  try { tok = JSON.parse(read(TOK) || "null"); } catch { tok = null; }
+  if (tok && tokAt === tokSlot()) return tok;
+  tokAt = tokSlot();
+  try { tok = JSON.parse(read(tokAt) || "null"); } catch { tok = null; }
   return tok;
 };
-const keepTok = (t) => { tok = t; write(TOK, t ? JSON.stringify(t) : ""); };
+const keepTok = (t) => { tok = t; tokAt = tokSlot(); write(tokAt, t ? JSON.stringify(t) : ""); };
 
 /** Токен для заголовка — если он есть и ещё годен. Синхронно. */
 export function codeToken() {
@@ -65,7 +77,7 @@ const call = async (path, body) => {
   return j;
 };
 const take = (j, key) => {
-  if (key) write(KEY, key);
+  if (key) write(keySlot(), key);
   keepTok({ token: j.token, exp: Number(j.exp) * 1000, uid: j.uid, plan: j.plan });
   return { uid: j.uid, plan: j.plan };
 };
@@ -83,13 +95,30 @@ export async function ensureToken() {
   try { fresh = sessionStorage.getItem("sd_tok_fresh") === "1"; } catch { fresh = true; }
   if (t && fresh && t.exp - Date.now() > EARLY_MS) return t.token;
   const key = savedKey();
-  if (!key) return "";
+  if (!key) return adoptLegacy();
   try { sessionStorage.setItem("sd_tok_fresh", "1"); } catch { /* приватный режим */ }
   try {
     take(await call("/token", { key }));
     return codeToken();
   } catch (e) {
     if (e.status === 401) forgetKey();
+    return "";
+  }
+}
+
+/* Ключ, сохранённый до раскладки по аккаунтам: сервер отдаёт его только
+   аккаунту, к чьей записи он привязан. Чужой — остаётся лежать для
+   своего хозяина, этот аккаунт получает экран ключа. */
+async function adoptLegacy() {
+  const old = read(LEGACY_KEY);
+  if (!old || !tgId()) return "";
+  try {
+    take(await call("/token", { key: old, adopt: true }), old);
+    write(LEGACY_KEY, ""); write(LEGACY_TOK, "");
+    try { sessionStorage.setItem("sd_tok_fresh", "1"); } catch { /* приватный режим */ }
+    return codeToken();
+  } catch (e) {
+    if (e.status === 401) { write(LEGACY_KEY, ""); write(LEGACY_TOK, ""); }
     return "";
   }
 }
@@ -139,4 +168,4 @@ export async function rotateKey() {
   take(j, j.key);
   return j.key;
 }
-export function forgetKey() { write(KEY, ""); keepTok(null); }
+export function forgetKey() { write(keySlot(), ""); keepTok(null); }

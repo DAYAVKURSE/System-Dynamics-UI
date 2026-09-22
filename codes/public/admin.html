@@ -69,7 +69,8 @@
     return j;
   };
   const day = (iso) => iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
-  const who = (u) => u.tg ? (u.tg.name || "") + (u.tg.username ? ` @${u.tg.username}` : "") || String(u.tg.id) : u.uid;
+  const who = (u) => u.tg ? (u.tg.name || "") + (u.tg.username ? ` @${u.tg.username}` : "") || String(u.tg.id)
+    : (u.pending && u.pending.for ? (u.pending.for.username ? `@${u.pending.for.username}` : u.pending.for.id) : u.uid);
   const money = (n, c) => n == null ? "—" : `${n} ${c === "XTR" ? "⭐" : c || ""}`;
   const CUR = { ton: "TON", usdt: "USDT" };
 
@@ -95,8 +96,9 @@
         el("div", { class: "row" }, el("b", { class: "grow" }, who(u)), el("span", { class: "muted" }, u.planName)),
         el("div", { class: "bar" }, el("i", { style: `width:${pct}%` })),
         el("div", { class: "row muted", style: "margin-top:4px" },
-          el("span", { class: "grow" }, u.until ? `до ${day(u.until)} · осталось ${left} дн.` : (u.level === "free" ? "бессрочно" : "—")),
-          el("span", {}, money(u.price, u.currency))),
+          el("span", { class: "grow" }, u.pending ? `${u.pending.planName} · ${u.pending.days ? `${u.pending.days} дн.` : "бессрочно"} · ключ не введён`
+            : u.until ? `до ${day(u.until)} · осталось ${left} дн.` : (u.level === "free" ? "бессрочно" : "—")),
+          el("span", {}, u.pending ? money(u.pending.price, "USD") : money(u.price, u.currency))),
         el("div", { class: "field" }, el("div", { class: "lbl" }, "код"), el("div", { class: "mono" }, u.uid)),
         el("div", { class: "btns" }, el("button", { class: "bad", disabled: u.level === "free" ? "" : null,
           onclick: async () => { try { await api("POST", `/users/${u.uid}/cancel`); say("Подписка отменена.", true); users(); } catch (e) { say(e.message); } } },
@@ -140,7 +142,23 @@
     v.append(el("div", { class: "btns" }, el("button", { class: "acc", onclick: async () => { try { await api("POST", "/plans"); plans(); } catch (e) { say(e.message); } } }, "Добавить")));
   }
 
-  /* ─── выдать подписку: форма первой на «Участниках» ─── */
+  /* ─── выдать подписку: форма первой на «Участниках» ───
+     Кому угодно (владелец, 2026-09-22): кто уже с ключом — подписка ему
+     сразу; кого ещё нет — новый ключ, и подписка начнётся, когда он
+     введёт его в приложении. Ключ показывается здесь, пока не выдали
+     следующий: его передают человеку. */
+  let issuedKey = null;
+  const keyBox = () => {
+    if (!issuedKey) return null;
+    const k = issuedKey;
+    const copy = el("button", { class: "acc", onclick: async () => {
+      try { await navigator.clipboard.writeText(k.key); say("Скопировано.", true); }
+      catch { say("Не скопировалось — выделите ключ и скопируйте вручную."); } } }, "Скопировать");
+    return el("div", { class: "field", "aria-label": "выданный ключ" },
+      el("div", { class: "lbl" }, "ключ"),
+      el("div", { class: "mono", style: "user-select:all" }, k.key),
+      el("div", { class: "btns" }, copy));
+  };
   async function issueForm() {
     const { plans } = await api("GET", "/plans");
     const user = el("input", { placeholder: "@username или id", "aria-label": "пользователь" });
@@ -158,7 +176,16 @@
         el("div", { class: "grow field" }, el("div", { class: "lbl" }, "срок, дней"), days)),
       el("div", { class: "btns" }, el("button", { class: "on", onclick: async () => {
         try { const r = await api("POST", "/issue", { user: user.value, planId: sel.value, price: price.value, days: days.value });
-          say(`Выдано: ${who(r.user)} — ${r.user.planId} до ${day(r.user.until) }.`, true); users(); } catch (e) { say(e.message); } } }, "Выдать подписку")));
+          if (r.key) {
+            issuedKey = { key: r.key };
+            await users();
+            say(`Ключ создан: ${who(r.user)} — ${r.user.pending.planName}.`, true);
+          } else {
+            issuedKey = null;
+            await users();
+            say(`Выдано: ${who(r.user)} — ${r.user.planName} до ${day(r.user.until)}.`, true);
+          } } catch (e) { say(e.message); } } }, "Выдать подписку")),
+      keyBox());
   }
 
   /* ─── способы оплаты ─── */

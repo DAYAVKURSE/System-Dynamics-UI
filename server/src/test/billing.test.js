@@ -133,7 +133,6 @@ describe("кошельки и оплата", () => {
 
   it("выдать подписку по @username или id; отменить; участники с остатком дней", async () => {
     await handle("POST", "/register", { plan: "free", tg: { id: "500", username: "Ivan" } });
-    expect((await adm("POST", "/admin/issue", { user: "@nobody", planId: "max" })).status).toBe(404);
     const byName = await adm("POST", "/admin/issue", { user: "@ivan", planId: "max", price: "25", days: "10" });
     expect(byName.status).toBe(200);
     expect(byName.body.user).toMatchObject({ planId: "max", price: 25, days: 10 });
@@ -151,6 +150,51 @@ describe("кошельки и оплата", () => {
     expect((await adm("GET", "/admin/users")).body.users).toEqual([]);
     expect((await handle("GET", "/revoked")).body.uids).toContain(users[0].uid);
     expect((await adm("DELETE", "/admin/users/nope")).status).toBe(404);
+  });
+});
+
+/* Ключ из панели — кому угодно (владелец, 2026-09-22): кого ещё нет,
+   тому новый ключ, и подписка начинается с первого ввода ключа. */
+describe("ключ, выданный из панели", () => {
+  it("тому, кого ещё нет, — ключ; подписка ждёт первого ввода и начинается с него", async () => {
+    const r = await adm("POST", "/admin/issue", { user: "@Petr_1", planId: "pro", price: "7", days: "10" });
+    expect(r.status).toBe(201);
+    expect(r.body.key).toMatch(/^([0-9A-Z]{4}-){7}[0-9A-Z]{4}$/);
+    expect(r.body.user).toMatchObject({ planId: "free", until: null,
+      pending: { planId: "pro", planName: "Pro", days: 10, price: 7, for: { username: "petr_1" } } });
+    // Не тот Telegram — ключ не открывается и подписку не трогает.
+    const wrong = await handle("POST", "/token", { key: r.body.key, tg: { id: "900", username: "other" } });
+    expect(wrong).toMatchObject({ status: 403, body: { error: "Этот ключ выдан другому пользователю Telegram." } });
+    expect((await handle("POST", "/token", { key: r.body.key })).status).toBe(403);
+    // Тот — подписка с этой минуты.
+    const at = Date.now() + 3 * DAY;
+    const ok = await handle("POST", "/token", { key: r.body.key, tg: { id: "901", username: "petr_1" } }, at);
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ plan: "pro", planId: "pro" });
+    expect(Math.round((Date.parse(ok.body.until) - Date.now()) / DAY)).toBe(10);
+    const users = (await adm("GET", "/admin/users")).body.users;
+    expect(users[0]).toMatchObject({ pending: null, planId: "pro", price: 7, tg: { id: "901" } });
+    // Второй ввод — подписка не выдаётся заново.
+    await handle("POST", "/token", { key: r.body.key, tg: { id: "901", username: "petr_1" } });
+    const pays = (await billing.readPayments()).filter((p) => p.method === "issued");
+    expect(pays).toHaveLength(1);
+  });
+
+  it("по id и без имени; уже с ключом — подписка сразу, без нового ключа; неверный ввод — объяснение", async () => {
+    const byId = await adm("POST", "/admin/issue", { user: "12345", planId: "max" });
+    expect(byId.body.user.pending.for).toEqual({ id: "12345" });
+    expect((await handle("POST", "/token", { key: byId.body.key, tg: { id: "12345" } })).body.plan).toBe("max");
+    const anyone = await adm("POST", "/admin/issue", { user: "", planId: "pro" });
+    expect(anyone.body.user.pending.for).toBeNull();
+    expect((await handle("POST", "/token", { key: anyone.body.key })).body.plan).toBe("pro");
+    const again = await adm("POST", "/admin/issue", { user: "12345", planId: "pro" });
+    expect(again.status).toBe(200);
+    expect(again.body.key).toBeUndefined();
+    expect(again.body.user).toMatchObject({ planId: "pro" });
+    expect((await adm("POST", "/admin/issue", { user: "@a b", planId: "pro" })).body.error)
+      .toBe("пользователь: @username или числовой Telegram-id");
+    expect((await adm("POST", "/admin/issue", { user: "@x", planId: "nope" })).status).toBe(404);
+    expect((await adm("POST", "/admin/issue", { user: "@someone", planId: "pro", days: "x" })).status).toBe(400);
   });
 });
 

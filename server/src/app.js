@@ -14,6 +14,7 @@ import marketRouter from "./routes/market.js";
 import issuesRouter from "./routes/issues.js";
 import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import * as codes from "./lib/codes.js";
+import { recordOfUid } from "./lib/identityStore.js";
 import { verifyInitData } from "./lib/telegramAuth.js";
 import { createInvoiceLink } from "./lib/telegram.js";
 import { finishLogin } from "./lib/mcpOauth.js";
@@ -168,7 +169,24 @@ export function createApp() {
        в его чат. Подделать нельзя — подпись проверяется. */
     const body = { ...(req.body || {}) };
     const who = tgOf(req);
+    /* Telegram — ТОЛЬКО из подписи: присланный в теле не в счёт, иначе
+       ключ, выданный на чужой @username, открывался бы кем угодно. */
+    delete body.tg;
     if (who && (path === "/register" || path === "/token" || path === "/plan")) body.tg = who;
+    /* Ключ, сохранённый на устройстве до того, как ключи разложили по
+       аккаунтам (владелец, 2026-09-22: с другого аккаунта того же
+       телефона открывалось всё): его забирает только тот Telegram, к
+       чьей записи он привязан. Введённый вручную ключ — как прежде, с
+       любого Telegram. */
+    const adopt = path === "/token" && body.adopt === true;
+    delete body.adopt;
+    if (adopt) {
+      if (!who) return res.status(409).json({ error: "ключ другого аккаунта", foreign: true });
+      const peek = await codes.proxy("POST", "/token", { key: body.key });
+      if (peek.status >= 400) return res.status(peek.status).json(peek.body);
+      const rec = await recordOfUid(peek.body.uid);
+      if (rec && rec !== who.id) return res.status(409).json({ error: "ключ другого аккаунта", foreign: true });
+    }
     const out = await codes.proxy(req.method, path, body);
     /* Оплата звёздами: инвойс выписывает ОСНОВНОЙ бот — у него токен.
        Ссылку открывает мини-приложение. */

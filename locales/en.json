@@ -1521,6 +1521,7 @@
  "ключ {0}: <ваш токен>": "key {0}: <your token>",
  "Ключ выглядит неверно: 8–512 печатных знаков без пробелов": "The key looks wrong: 8–512 printable characters without spaces",
  "ключ выдан": "key issued",
+ "ключ другого аккаунта": "key of another account",
  "ключ есть": "key present",
  "ключ есть — введите новый, чтобы заменить": "key present — enter a new one to replace",
  "Ключ не подходит.": "The key does not fit.",

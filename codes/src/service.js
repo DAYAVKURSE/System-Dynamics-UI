@@ -28,6 +28,8 @@ import { verifyInitData } from "./initData.js";
    · GET  /internal/expiring, POST /internal/reminded {uid, mark}
    Для админ-панели (заголовок X-Admin-Init-Data админ-бота, только владелец):
    · /admin/users, /admin/plans, /admin/issue, /admin/wallets, /admin/stars
+     (/admin/issue тому, кого ещё нет, — новый ключ с подпиской, которая
+     начнётся с первого ввода ключа)
    ════════════════════════════════════════════════════════════════ */
 const byKey = (users, key) => {
   const k = normKey(key);
@@ -122,8 +124,15 @@ export async function handle(method, url, body = {}, now = Date.now(), headers =
       await billing.expireTick(now);
       const users = await readUsers();
       const u = byKey(users, b.key);
-      await noteTg(u.uid, tgOf(b));
-      return { status: 200, body: await issueToken(u, now) };
+      const tg = tgOf(b);
+      if (u.grant && !billing.grantFits(u.grant.for, tg)) {
+        throw new Bad(403, "Этот ключ выдан другому пользователю Telegram.");
+      }
+      await noteTg(u.uid, tg);
+      // Первый ввод ключа, выданного из панели: подписка начинается сейчас.
+      if (u.grant) await billing.activate(u.uid);
+      const fresh = (await readUsers()).find((x) => x.uid === u.uid) || u;
+      return { status: 200, body: await issueToken(fresh, now) };
     }
     if (method === "POST" && path === "/plan") {
       await billing.expireTick(now);
@@ -195,11 +204,32 @@ export async function handle(method, url, body = {}, now = Date.now(), headers =
       if (method === "PUT" && plan) return { status: 200, body: { plan: await billing.savePlan(plan[1], b) } };
       if (method === "DELETE" && plan) return { status: 200, body: await billing.removePlan(plan[1]) };
       if (method === "POST" && rest === "/issue") {
-        const u = await billing.findUser(b.user);
-        if (!u) throw new Bad(404, "пользователь не найден: он должен сначала открыть приложение");
-        const r = await billing.issue(u.uid, { planId: b.planId, price: b.price, days: b.days });
-        return { status: 200, body: { user: (await billing.adminUsers()).find((x) => x.uid === u.uid) || null,
-          payment: r.payment } };
+        const plan = await billing.planById(b.planId);
+        if (!plan) throw new Bad(404, "план не найден");
+        const days = b.days === "" || b.days == null ? plan.days : Number(b.days);
+        if (!Number.isFinite(days) || days < 0) throw new Bad(400, "срок — число дней");
+        const price = b.price === "" || b.price == null ? plan.price : Number(b.price);
+        if (!Number.isFinite(price) || price < 0) throw new Bad(400, "стоимость — число");
+        const found = await billing.findUser(b.user);
+        if (found) {
+          // Уже с ключом — подписка ему сразу: ключ у него есть.
+          const r = await billing.issue(found.uid, { planId: plan.id, price, days });
+          return { status: 200, body: { user: (await billing.adminUsers()).find((x) => x.uid === found.uid) || null,
+            payment: r.payment } };
+        }
+        /* Ещё не входил — новая запись с ключом; подписка начнётся, когда
+           он введёт ключ в приложении (billing.activate). */
+        const who = billing.grantFor(b.user);
+        const key = newKey();
+        const made = await withUsers(async (users) => {
+          let id = newUid();
+          while (users.some((x) => x.uid === id)) id = newUid();
+          const user = { uid: id, keyHash: hashKey(key), plan: "free", planId: "free", until: null, tg: null,
+            createdAt: new Date(now).toISOString(), payments: [],
+            grant: { planId: plan.id, price, days, for: who, at: new Date(now).toISOString() } };
+          return { write: true, users: [...users, user], result: user };
+        });
+        return { status: 201, body: { key, user: (await billing.adminUsers()).find((x) => x.uid === made.uid) || null } };
       }
       if (method === "GET" && rest === "/wallets") return { status: 200, body: await billing.adminWallets() };
       if (method === "POST" && rest === "/wallets") return { status: 201, body: { wallet: await billing.addWallet(b) } };

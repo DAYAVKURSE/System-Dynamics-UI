@@ -231,6 +231,41 @@ export function issue(uidOf, { planId, price, days }) {
   });
 }
 
+/* ─────── ключ, выданный из панели (владелец, 2026-09-22) ───────
+
+   Подписку и ключ можно выдать кому угодно — и тому, кто ещё ни разу не
+   открывал приложение: запись заводится сразу, с новым ключом и
+   ОТЛОЖЕННОЙ подпиской (`grant`). Действовать она начинает, когда
+   человек вводит ключ в приложении: срок считается с этой минуты. Выдан
+   ключ на @username или id — ввести его может только этот Telegram. */
+export function grantFor(query) {
+  const q = String(query || "").trim().replace(/^@/, "");
+  if (!q) return null;
+  if (/^\d{1,20}$/.test(q)) return { id: q };
+  if (/^[A-Za-z0-9_]{3,32}$/.test(q)) return { username: q.toLowerCase() };
+  throw new Bad(400, "пользователь: @username или числовой Telegram-id");
+}
+export const grantFits = (who, tg) => {
+  if (!who) return true;
+  if (!tg) return false;
+  if (who.id) return String(tg.id || "") === who.id;
+  return String(tg.username || "").toLowerCase() === who.username;
+};
+/** Ключ введён впервые: отложенная подписка включается. Снимается она
+ *  под замком — два входа в одну секунду не выдадут её дважды. */
+export async function activate(uidOf) {
+  const g = await withUsers(async (users) => {
+    const u = users.find((x) => x.uid === String(uidOf));
+    if (!u?.grant) return { write: false, result: null };
+    const grant = u.grant;
+    delete u.grant;
+    u.activatedAt = now();
+    return { write: true, users, result: grant };
+  });
+  if (!g || !(await planById(g.planId))) return null;
+  return issue(uidOf, g);
+}
+
 /** Отмена: план free с этой минуты. */
 export function cancel(uidOf) {
   return withUsers(async (users) => {
@@ -322,7 +357,11 @@ export async function adminUsers() {
     const plan = plans.find((p) => p.id === u.planId) || null;
     const untilMs = u.until ? Date.parse(u.until) : null;
     const daysLeft = untilMs ? Math.max(0, Math.ceil((untilMs - Date.now()) / DAY)) : null;
-    return { uid: u.uid, tg: u.tg || null, createdAt: u.createdAt, planId: u.planId || u.plan || "free",
+    const g = u.grant ? plans.find((p) => p.id === u.grant.planId) : null;
+    return { uid: u.uid, tg: u.tg || null, createdAt: u.createdAt,
+      // Ключ выдан, но ещё не введён: подписка ждёт первого входа.
+      pending: u.grant ? { planId: u.grant.planId, planName: g?.name || u.grant.planId,
+        days: u.grant.days ?? g?.days ?? null, price: u.grant.price ?? null, for: u.grant.for || null } : null, planId: u.planId || u.plan || "free",
       planName: plan?.name || u.planId || u.plan || "free", level: u.plan || "free",
       price: u.price ?? null, currency: u.currency || null, until: u.until || null, daysLeft,
       days: u.days ?? plan?.days ?? null, paidAt: u.paidAt || null, cancelledAt: u.cancelledAt || null };
@@ -346,11 +385,12 @@ export async function adminWallets() {
     history: starsHistory }, wallets };
 }
 
-/** Человек по username или Telegram-id — сервис сам понимает, что прислали. */
+/** Человек по username или Telegram-id — сервис сам понимает, что прислали.
+ *  Удалённые не находятся: их ключ отозван, выдавать им нечего. */
 export async function findUser(query) {
   const q = String(query || "").trim().replace(/^@/, "");
   if (!q) return null;
-  const users = await readUsers();
+  const users = (await readUsers()).filter((u) => !u.removedAt);
   if (/^\d+$/.test(q)) return users.find((u) => String(u.tg?.id || "") === q) || users.find((u) => u.uid === q) || null;
   const low = q.toLowerCase();
   return users.find((u) => String(u.tg?.username || "").toLowerCase() === low) || users.find((u) => u.uid === q) || null;
