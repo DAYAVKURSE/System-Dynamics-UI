@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ACC, Avatar, BAD, C, OK, S, WARN, btn } from "./ui.jsx";
+import { ACC, Avatar, BAD, C, OK, S, WARN, btn, alpha } from "./ui.jsx";
 import { statusColor } from "./ProfilePanel.jsx";
 import { statusOf } from "../lib/workers.js";
 import { nameHints, nearest, search } from "../lib/semantic.js";
@@ -136,7 +136,7 @@ function OrderForm({ initial, services, orders = [], roles = [], busy, onSave, o
             aria-label={`услуга ${s.name}`}
             onClick={() => up({ serviceId: on ? null : s.id })}
             className="flex gap-2" style={{ width: "100%", textAlign: "left", marginTop: "var(--space-4)",
-              background: on ? `${OK}22` : C.panel, border: `1px solid ${on ? OK : C.line}`,
+              background: on ? `${alpha(OK, "22")}` : C.panel, border: `1px solid ${on ? OK : C.line}`,
               borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)", color: C.text, cursor: "pointer" }}>
             <span style={{ width: 16, color: OK, fontWeight: 700 }}>{on ? "✓" : ""}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
@@ -293,7 +293,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
           return (
             <div key={c.id} style={{ marginBottom: "var(--space-4)", textAlign: own ? "right" : "left" }}>
               <span style={{ display: "inline-block", maxWidth: "85%", textAlign: "left",
-                background: own ? `${ACC}22` : C.panel2, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)",
+                background: own ? `${alpha(ACC, "22")}` : C.panel2, borderRadius: "var(--radius-sm)", padding: "var(--space-4) var(--space-8)",
                 fontSize: "var(--fs-hint)", lineHeight: 1.45 }}>
                 {c.text}
                 <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{own ? "вы" : nameOf(c.by)} · {when(c.at)}</div>
@@ -326,7 +326,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
               onSave={(b) => act(() => putBrief(order.id, offer.id, b)).then(() => { setEditing(false); setBriefOpen(true); })}
               onCancel={() => setEditing(false)} />)}
           {brief && briefOpen && !editing && (
-            <div style={{ ...form, borderColor: theirs ? `${WARN}66` : `${ACC}66` }} aria-label="условия">
+            <div style={{ ...form, borderColor: theirs ? `${alpha(WARN, "66")}` : `${alpha(ACC, "66")}` }} aria-label="условия">
               <div style={hint}>
                 {theirs ? `Предложение от ${nameOf(brief.by)}` : "Ваше предложение"} · версия {brief.rev} · {when(brief.at)}
               </div>
@@ -349,7 +349,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
 
       {/* ─── сделка ─── */}
       {offer.accepted && (
-        <div style={{ ...form, borderColor: `${OK}66` }} aria-label="сделка">
+        <div style={{ ...form, borderColor: `${alpha(OK, "66")}` }} aria-label="сделка">
           <div style={{ fontSize: "var(--fs-hint)", color: OK, fontWeight: 600 }}>Договорились · {when(offer.acceptedAt)}</div>
           <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
             <div><b>заказчик отдаёт:</b> {rowsLine(brief?.gives) || "—"}</div>
@@ -541,7 +541,7 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
   const status = order.status === "deal" ? "договорились" : order.status === "done" ? "выполнен" : "открыт";
   return (
     <div style={{ ...S.card, marginBottom: "var(--space-8)",
-      borderColor: picked ? ACC : mineOrder ? `${ACC}55` : C.line }}
+      borderColor: picked ? ACC : mineOrder ? `${alpha(ACC, "55")}` : C.line }}
       aria-label={`заказ ${order.name}`}>
       <div className="flex flex-wrap items-center gap-2">
         {/* Кружок с лицом автора — ПЕРЕД названием (владелец,
@@ -627,7 +627,7 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
   const statusId = faceOf?.(s.by)?.status || "ready";
   return (
     <div style={{ ...S.card, marginBottom: "var(--space-8)",
-      borderColor: picked ? ACC : mineSvc ? `${ACC}55` : C.line }}
+      borderColor: picked ? ACC : mineSvc ? `${alpha(ACC, "55")}` : C.line }}
       aria-label={`услуга ${s.name}`}>
       <div className="flex flex-wrap items-center gap-2">
         <PersonDot id={s.by} nameOf={nameOf} faceOf={faceOf} onOpen={onOpenPerson} />

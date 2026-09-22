@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ACC, BAD, C, OK, S, WARN, btn, tintOf, TxtField } from "./ui.jsx";
+import { ACC, BAD, C, OK, S, WARN, btn, tintOf, TxtField, alpha } from "./ui.jsx";
 import Modal from "./Modal.jsx";
 import {
   addAgent, addMcp, addMemory, addProvider, dropAgent, dropMcp, dropMemory, dropProvider,
@@ -186,7 +186,7 @@ export default function AgentsPanel({ me, onChanged }) {
         </div>
 
         {agent && (
-          <div style={{ border: `1px solid ${ACC}66`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)" }}>
+          <div style={{ border: `1px solid ${alpha(ACC, "66")}`, borderRadius: "var(--radius-sm)", padding: "var(--space-8)" }}>
             <div className="flex flex-wrap items-center gap-2">
               <span style={S.lbl}>{agent.builtin ? "ассистент" : "агент"}</span>
               {renaming && !agent.builtin ? (
@@ -572,7 +572,7 @@ function ProviderCard({ p, kind, busy, onSave, onDrop, onModels, onToggle }) {
               <button key={m.id} type="button" role="checkbox" aria-checked={on} disabled={busy}
                 aria-label={`модель ${m.id}`} onClick={() => onToggle({ providerId: p.id, model: m.id })}
                 className="flex items-center gap-2"
-                style={{ width: "100%", textAlign: "left", background: on ? `${OK}22` : "transparent",
+                style={{ width: "100%", textAlign: "left", background: on ? `${alpha(OK, "22")}` : "transparent",
                   border: "none", borderBottom: `1px solid ${C.line}`, color: C.text,
                   padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)", cursor: busy ? "default" : "pointer" }}>
                 <span aria-hidden="true" style={{ width: 16, display: "inline-block",

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, Stars, TimeBar, TxtField, ScrollRail, DANGER_LINE } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, Download, NumField, Stars, TimeBar, TxtField, ScrollRail, DANGER_LINE, alpha } from "./ui.jsx";
 import { DUR_UNITS, WORKER_KINDS, crewOf, eligible, hoursOf, missingGives,
   rangeText, requiredGives, shortage, handMate, fixedPerson, uniqPorts } from "../lib/funcs.js";
 import { MARK_MAX, MARK_MIN } from "../lib/workers.js";
@@ -1075,7 +1075,7 @@ export function Discussion({task,meId,nameOf,onSend,onClose,ro=false}){
           const role=roleInTask(task,m.by);
           return (
             <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"88%",
-              background:mine?`${ACC}22`:C.panel2,
+              background:mine?`${alpha(ACC, "22")}`:C.panel2,
               border:`1px solid ${mine?ACC:C.line}`,borderRadius: "var(--radius-sm)",padding: "var(--space-4) var(--space-8)"}}>
               {/* Дата, роль и имя — у каждого сообщения (владелец,
                   2026-09-20): в задаче говорят трое, и кто именно сказал,

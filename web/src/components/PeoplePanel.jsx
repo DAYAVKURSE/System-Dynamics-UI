@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { C, OK, WARN, BAD, ACC, S, btn, Download, TxtField , statusEdge} from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, S, btn, Download, TxtField , statusEdge, alpha } from "./ui.jsx";
 import { renameRole,
   ALL_TABS, TAB_NAMES, addRole, listOrg, removeRole, removeUser, setRoleContract, setRoleTabs,
   setUserRoles,
@@ -173,7 +173,7 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
      и что они открывают, о чём спрашивают АНКЕТЫ. Каждая — своей
      карточкой с заголовком и подсказкой, чтобы глазом было видно, где
      что правится. */
-  const card = { ...S.card, marginBottom: "var(--space-8)", borderColor: `${ACC}55` };
+  const card = { ...S.card, marginBottom: "var(--space-8)", borderColor: `${alpha(ACC, "55")}` };
   const title = (t, n) => (
     <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-4)" }}>
       <span style={{ ...S.lbl, color: ACC }}>{t}</span>
@@ -234,11 +234,11 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
           {u.name}
           {u.username ? <span style={{ color: C.muted }}> @{u.username}</span> : null}
           {u.agent && (
-            <span style={{ fontSize: "var(--fs-hint)", color: WARN, border: `1px solid ${WARN}66`,
+            <span style={{ fontSize: "var(--fs-hint)", color: WARN, border: `1px solid ${alpha(WARN, "66")}`,
               borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)", marginLeft: "var(--space-4)" }}>агент</span>)}
         </span>
         {owner
-          ? <span style={{ fontSize: "var(--fs-hint)", color: ACC, border: `1px solid ${ACC}66`,
+          ? <span style={{ fontSize: "var(--fs-hint)", color: ACC, border: `1px solid ${alpha(ACC, "66")}`,
               borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>владелец</span>
           : <>
               {/* Ролей у человека несколько — отметки, а не выбор одной:

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm, DiffBoxes, WAS_STYLE , statusEdge} from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm, DiffBoxes, WAS_STYLE , statusEdge, alpha } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
 import { PROC_STATUS, dropHypo, newProc, procLabel, resolveProc, syncProcFuncs, tidyProcText } from "../lib/process.js";
@@ -86,7 +86,7 @@ function Bracket({ side, children }) {
   const anchor = { display: "inline-block", width: 0, height: "1em", verticalAlign: "text-bottom", position: "relative", overflow: "visible" };
   const arc = { position: "absolute", top: -6, height: "1.55em", width: 7, border: `2px solid ${c}`, pointerEvents: "none", boxSizing: "border-box" };
   return (
-    <span data-bracket={side} style={{ background: `${c}1F`, boxShadow: `0 0 0 3px ${c}1F`, borderRadius: "var(--radius-sm)",
+    <span data-bracket={side} style={{ background: `${alpha(c, "1F")}`, boxShadow: `0 0 0 3px ${alpha(c, "1F")}`, borderRadius: "var(--radius-sm)",
       WebkitBoxDecorationBreak: "clone", boxDecorationBreak: "clone" }}>
       <span style={anchor}><i style={{ ...arc, left: -11, borderRight: "none", borderRadius: "8px 0 0 8px" }} /></span>
       {children}
@@ -173,8 +173,8 @@ function Backdrop({ text, paint, style, noteGap = 0, activeRow = -1, caretRow = 
                 основному тексту (владелец, 2026-09-18). */}
             {r?.note && (
               <span data-note={r.note} style={{ position: "absolute", right: 4 + (i === activeRow ? noteGap : 0), top: "-0.45em", color: C.muted,
-                fontSize: "var(--fs-hint)", lineHeight: 1.4, opacity: 0.6, background: `${C.ink}b3`, padding: "0 var(--space-4)", borderRadius: "var(--radius-sm)",
-                border: `1px solid ${C.line}66`, whiteSpace: "nowrap", maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis" }}>
+                fontSize: "var(--fs-hint)", lineHeight: 1.4, opacity: 0.6, background: `${alpha(C.ink, "b3")}`, padding: "0 var(--space-4)", borderRadius: "var(--radius-sm)",
+                border: `1px solid ${alpha(C.line, "66")}`, whiteSpace: "nowrap", maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.note}</span>)}
             {r?.error && (
               <span data-mark="error" style={{ position: "absolute", right: 0, top: 0, color: BAD,
@@ -773,7 +773,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
                 onClick={() => choose(it)}
                 onTouchEnd={(e) => { e.stopPropagation(); touchEnd(e, () => choose(it)); }}
                 style={{ padding: "var(--space-8) var(--space-8)", fontSize: "var(--fs-body)", cursor: "pointer", touchAction: "pan-y",
-                  background: i === cursor ? `${C.line}88` : "transparent" }}>
+                  background: i === cursor ? `${alpha(C.line, "88")}` : "transparent" }}>
                 <span style={{ color: C.muted }}>{it.kind} </span>{it.name}
                 {it.note && <span style={{ color: C.muted }}> — {it.note}</span>}
               </div>))}
@@ -931,14 +931,14 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
             {pickPerson && (
               <div role="listbox" aria-label={`сотрудники: ${whoName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
                 <div role="option" aria-selected={!whoHand && !whoPerson} onClick={() => { rewrite(setAuto(text, whoRow)); setPickPerson(false); }}
-                  style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: !whoHand && !whoPerson ? `${C.line}88` : "transparent" }}>автоматически</div>
+                  style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: !whoHand && !whoPerson ? `${alpha(C.line, "88")}` : "transparent" }}>автоматически</div>
                 {procHands.map((h) => (
                   <div key={h} role="option" aria-selected={whoHand === h} onClick={() => { rewrite(setHand(text, whoRow, h)); setPickPerson(false); }}
-                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: whoHand === h ? `${C.line}88` : "transparent" }}>
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: whoHand === h ? `${alpha(C.line, "88")}` : "transparent" }}>
                     <span style={{ background: handColor(h), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{h}</span></div>))}
                 {persons.map((pp) => (
                   <div key={pp.id} role="option" aria-selected={whoPerson === pp.name} onClick={() => { rewrite(setPerson(text, whoRow, pp.name)); setPickPerson(false); }}
-                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: whoPerson === pp.name ? `${C.line}88` : "transparent" }}>{pp.name}</div>))}
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: whoPerson === pp.name ? `${alpha(C.line, "88")}` : "transparent" }}>{pp.name}</div>))}
                 {!persons.length && <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", color: C.muted }}>сотрудников с этой должностью нет</div>}
               </div>)}
           </div>
@@ -974,7 +974,7 @@ function ProcText({ value = "", model, proc: proc0, onCommit, label, usedHands =
               <div role="listbox" aria-label={`закреплённые ресурсы: ${resName}`} style={{ maxHeight: 150, overflowY: "auto", border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)" }}>
                 {procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).map((v) => (
                   <div key={v} role="option" aria-selected={resRef && res.varName === v} onClick={() => useVar(v)}
-                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: resRef && res.varName === v ? `${C.line}88` : "transparent" }}>
+                    style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", cursor: "pointer", background: resRef && res.varName === v ? `${alpha(C.line, "88")}` : "transparent" }}>
                     <span style={{ background: handColor(v), color: DARK, borderRadius: "var(--radius-sm)", padding: "0 var(--space-4)" }}>{v}</span></div>))}
                 {!procVars.filter((v) => !(resVar && !resRef && v === resVar.varName)).length && (
                   <div style={{ padding: "var(--space-4) var(--space-4)", fontSize: "var(--fs-hint)", color: C.muted }}>закреплённых ресурсов в этом процессе нет — «Закрепить ресурс» у нужного</div>)}

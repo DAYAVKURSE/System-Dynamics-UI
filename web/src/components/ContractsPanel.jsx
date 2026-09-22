@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ACC, BAD, C, OK, S, WARN, btn } from "./ui.jsx";
+import { ACC, BAD, C, OK, S, WARN, btn, alpha } from "./ui.jsx";
 import Modal from "./Modal.jsx";
 import FramedField from "./FramedField.jsx";
 import SignaturePad from "./SignaturePad.jsx";
@@ -87,7 +87,7 @@ export function PlaceholderFields({ placeholders = [], values = {}, onChange, re
         <input aria-label={`${label}: ${p.key}`} type={dateKey ? "date" : "text"}
           inputMode={p.key === "sum" ? "decimal" : undefined}
           style={{ ...S.inp, padding: "var(--space-4) var(--space-8)", fontSize: "var(--fs-hint)",
-            borderColor: must && !String(v).trim() ? `${BAD}88` : C.line }}
+            borderColor: must && !String(v).trim() ? `${alpha(BAD, "88")}` : C.line }}
           value={v} disabled={disabled}
           onChange={(e) => onChange({ ...values, [p.key]: e.target.value })} />
       </FramedField>);
@@ -198,11 +198,11 @@ export function DiffForms({ forms, title, empty = "Изменений нет." }
     const sg = SIGN[f.sign] || SIGN["+"];
     const mark = (p) => {
       if (!p.hl) return undefined;
-      const base = { background: `${color}33`, fontWeight: 600, borderRadius: "var(--radius-sm)", padding: "0 0" };
+      const base = { background: `${alpha(color, "33")}`, fontWeight: 600, borderRadius: "var(--radius-sm)", padding: "0 0" };
       if (f.sign !== "±") return { ...base, color };
       // В замене видно и старое, и новое: старое — зачёркнутым и тише.
       return p.t === "del"
-        ? { ...base, background: `${color}1f`, color: C.muted, fontWeight: 400, textDecoration: "line-through" }
+        ? { ...base, background: `${alpha(color, "1f")}`, color: C.muted, fontWeight: 400, textDecoration: "line-through" }
         : { ...base, color };
     };
     return (
@@ -387,7 +387,7 @@ function CollapsedBar({ title, dirty, onExpand, onClose }) {
   return (
     <div role="region" aria-label={`свёрнутый документ ${title}`}
       style={{ position: "fixed", left: 8, right: 8, bottom: 8, zIndex: 55,
-        background: "rgba(29,40,57,.95)", border: `1px solid ${ACC}66`, borderRadius: "var(--radius-sm)",
+        background: "rgba(29,40,57,.95)", border: `1px solid ${alpha(ACC, "66")}`, borderRadius: "var(--radius-sm)",
         boxShadow: "0 -2px 12px #0008", display: "flex", alignItems: "center", gap: "var(--space-8)", padding: "var(--space-4) var(--space-8) var(--space-4) var(--space-12)" }}>
       <button type="button" aria-label={`развернуть документ ${title}`} onClick={onExpand}
         style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", color: "#fff",

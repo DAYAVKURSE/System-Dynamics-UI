@@ -27,7 +27,7 @@ import { handColor } from "../lib/hands.js";
 import { syncProcFuncs } from "../lib/process.js";
 import { procFuncs as procFuncs2, replaceName, setFuncHead, setTaskChecks } from "../lib/proc2.js";
 import { Brand, C, OK, WARN, BAD, NEU, ACC, ICON, IconButton, NameField, S, TAB_LINE,
-  tab as tabStyle, tintOf, btn, durText, nm, NumField, TxtField, DiffBoxes, WAS_STYLE , VIO} from "./ui.jsx";
+  tab as tabStyle, tintOf, btn, durText, nm, NumField, TxtField, DiffBoxes, WAS_STYLE , VIO, alpha } from "./ui.jsx";
 import { WHY_ASSET, WHY_FUNC, WHY_TRAIT, WORKER_KINDS, activeFuncs, checkAsset, countWorkers,
   crewOf,
   normalizeAssets,
@@ -190,7 +190,7 @@ function Chart({lo,hi,fact,months,goalLine,cursorMonth}){
       {Array.from({length:months+1}).map((_,i)=>i%step===0&&(
         <text key={i} x={x(i)} y={H-8} textAnchor="middle" fontSize="10" fill={C.muted}
           fontFamily="var(--font-sans)">{i}м</text>))}
-      {band&&<polygon points={band} fill={`${WARN}22`} stroke="none"/>}
+      {band&&<polygon points={band} fill={`${alpha(WARN, "22")}`} stroke="none"/>}
       {!!HI.length&&<polyline fill="none" stroke={WARN} strokeWidth="1.6"
         points={HI.map((v,i)=>`${x(i)},${y(v)}`).join(" ")}/>}
       {!!LO.length&&<polyline fill="none" stroke={WARN} strokeWidth="1.6"
@@ -473,7 +473,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
       {/* Пока схема спит — подпись: одно нажатие и она берёт жесты себе. */}
       {!live&&(
         <div aria-hidden="true" style={{position:"absolute",right:8,top:8,zIndex:2,pointerEvents:"none",
-          fontSize:"var(--fs-hint)",color:C.muted,background:`${C.ink}cc`,border:`1px solid ${C.line}`,
+          fontSize:"var(--fs-hint)",color:C.muted,background:`${alpha(C.ink, "cc")}`,border:`1px solid ${C.line}`,
           borderRadius: "var(--radius-sm)",padding: "0 var(--space-4)"}}>нажмите, чтобы двигать схему</div>)}
       <svg ref={svgRef} viewBox={viewBox(cam.current)} width="100%" height="100%"
         preserveAspectRatio="xMidYMid meet" style={{display:"block"}}

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm } from "./ui.jsx";
+import { C, OK, WARN, BAD, NEU, ACC, S, btn, nm, alpha } from "./ui.jsx";
 import { hoursOf } from "../lib/funcs.js";
 import { STATUSES, funcLabel, statusName } from "./TasksBoard.jsx";
 import { reportSrc } from "../storage.js";
@@ -173,7 +173,7 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
                   border: `1px solid ${on ? ACC : C.line}` }}>
                   <span style={{ position: "absolute", top: 0, bottom: 0,
                     left: `${pct(now)}%`, width: 0,
-                    borderLeft: `1px dashed ${ACC}99` }} />
+                    borderLeft: `1px dashed ${alpha(ACC, "99")}` }} />
                   <div style={{ position: "absolute", top: 4, bottom: 4,
                     left: `${pct(bar.from)}%`,
                     width: `${Math.max(1.5, pct(bar.to) - pct(bar.from))}%`,

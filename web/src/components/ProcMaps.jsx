@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { orthPath } from "../lib/paths.js";
-import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
+import { C, OK, WARN, BAD, ACC, S, btn, nm, alpha } from "./ui.jsx";
 import { parseText, ROLE_KINDS } from "../lib/proc2.js";
 import { hoursRange, everyRange } from "../lib/funcs.js";
 import { handColor } from "../lib/hands.js";
@@ -337,7 +337,9 @@ function Timeline({ plan }) {
     <Pannable label="таймлайн процесса" wide={width} tall={tall} lockAxis>
       <div style={{ position: "relative", width, minHeight: tall, fontSize: "var(--fs-hint)" }}>
         {marks.map((i) => (
-          <div key={i} style={{ position: "absolute", left: i * PX + 8, top: 0, bottom: 0, borderLeft: `1px solid ${C.line}66` }}>
+          <div key={i} style={{ position: "absolute", left: i * PX + 8, top: 0, bottom: 0, /* Линии линейки — цветом рамок целиком: токен рамки сам
+              полупрозрачный, и его 40 % на тёмном не видно. */
+            borderLeft: `1px solid ${C.line}` }}>
             <span style={{ position: "absolute", top: 2, left: 3, color: C.muted, fontSize: "var(--fs-hint)", whiteSpace: "nowrap" }}>{i} {u}</span>
           </div>))}
         <div style={{ position: "relative", paddingTop: "var(--space-24)" }}>
@@ -346,7 +348,7 @@ function Timeline({ plan }) {
               {/* Полоса — кнопка: жест на ней раскрывает задачу, а не двигает карту. */}
               <button type="button" data-drag-handle="" aria-label={`задача ${t.name}`} aria-expanded={!!open[t.key]}
                 title={`${t.func} · ${t.name}`} onClick={() => toggle(t.key)}
-                style={{ width: t.w, height: 20, background: `${ACC}${open[t.key] ? "55" : "33"}`, border: `1px solid ${ACC}`,
+                style={{ width: t.w, height: 20, background: alpha(ACC, open[t.key] ? "55" : "33"), border: `1px solid ${ACC}`,
                   borderRadius: "var(--radius-sm)", color: C.text, padding: "0 var(--space-4)", whiteSpace: "nowrap", overflow: "hidden",
                   textOverflow: "ellipsis", boxSizing: "border-box", lineHeight: "17px", textAlign: "left",
                   font: "inherit", cursor: "pointer", display: "block" }}>

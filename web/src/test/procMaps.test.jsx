@@ -122,6 +122,11 @@ describe("кнопки под полем", () => {
     expect(within(dlg).getByLabelText("задача собрать")).toBeInTheDocument();
     expect(within(dlg).getByLabelText("таймлайн процесса")).toBeInTheDocument();   // окно, в котором двигаются
     expect(within(dlg).getAllByText(/2 дн/).length).toBeGreaterThan(0);
+    /* Линии линейки — годным цветом (владелец, 2026-09-22: «полосы линейки
+       так и не появились»): «${C.line}66» на переменной CSS браузер
+       выбрасывал молча. */
+    const rule = within(dlg).getByText("1 дн").parentElement;
+    expect(rule.style.borderLeft).toMatch(/^1px solid color-mix\(in srgb, var\(--border-glass\) 40%, transparent\)$/);
     fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
     expect(screen.queryByRole("dialog", { name: "Таймлайн процесса" })).toBeNull();
   });
