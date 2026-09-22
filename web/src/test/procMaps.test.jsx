@@ -126,7 +126,7 @@ describe("кнопки под полем", () => {
        так и не появились»): «${C.line}66» на переменной CSS браузер
        выбрасывал молча. */
     const rule = within(dlg).getByText("1 дн").parentElement;
-    expect(rule.style.borderLeft).toMatch(/^1px solid color-mix\(in srgb, var\(--border-glass\) 40%, transparent\)$/);
+    expect(rule.style.borderLeft).toBe("1px solid var(--border-glass)");
     fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
     expect(screen.queryByRole("dialog", { name: "Таймлайн процесса" })).toBeNull();
   });
