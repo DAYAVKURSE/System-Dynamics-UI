@@ -1454,6 +1454,11 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                     </>)}
                   </div>);
               })}
+              {/* Претензии к тексту — СРАЗУ под полем, над кнопкой «+ функция»
+                  (владелец, 2026-09-22: «должна появляться над кнопкой»), а не
+                  под разбором: там их находили, только долистав. */}
+              {!!issues.length && !!p.text.trim() && (
+                <div data-proc-issues="" style={{ fontSize: "var(--fs-hint)", color: BAD, margin: "0 0 var(--space-8)", lineHeight: 1.5 }}>{issues.map((w, i) => <div key={i}>{w}</div>)}</div>)}
               <button type="button" aria-label="добавить функцию процесса" onClick={() => addPart(p)}
                 style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)", marginBottom: "var(--space-4)" }}>+ функция</button>
 
@@ -1496,9 +1501,6 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
                         </div>))}
                     </div>))}
                 </div>))}
-
-              {!!issues.length && !!p.text.trim() && (
-                <div style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)", lineHeight: 1.5 }}>{issues.map((w, i) => <div key={i}>{w}</div>)}</div>)}
 
               <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
                 {PROC_STATUS.map(([id, name]) => {

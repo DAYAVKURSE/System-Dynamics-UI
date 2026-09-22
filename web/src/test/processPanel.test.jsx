@@ -630,6 +630,18 @@ describe("описание процесса и меню функции (влад
     expect(container.querySelectorAll("[data-func-head]").length).toBe(2);
   });
 
+  /* ПРЕТЕНЗИИ — СРАЗУ ПОД ПОЛЕМ (владелец, 2026-09-22: «появляется слишком
+     высоко, а должна появляться над кнопкой»): над «+ функция», не под разбором. */
+  it("ошибки текста стоят под полем, над кнопкой «+ функция»", async () => {
+    const area = addProc();
+    write(area, "Задача: лид\nКто Пользователи\nБерёт: заявки 2");
+    const issues = await waitFor(() => container.querySelector("[data-proc-issues]"));
+    expect(issues.textContent).toMatch(/строка 2/);
+    const add = screen.getByRole("button", { name: "добавить функцию процесса" });
+    expect(area.compareDocumentPosition(issues) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(issues.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("переменная одной функции видна в другой: подставляется как ссылка", async () => {
     const area = addProc();
     write(area, "Задача: Принять\nКто: Пользователи\nОтдаёт: заявки 1 (лид)");
