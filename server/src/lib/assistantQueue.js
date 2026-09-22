@@ -211,9 +211,14 @@ export function createQueue({
         });
       };
       const r = await withTimeout(runPlanned({ question: it.question, run, onPlan: it.onPlan,
-        signal: it.abort.signal, stopWhen: (t) => t.startsWith(ASKED_TEXT) }), answerTimeoutMs,
+        signal: it.abort.signal, stopWhen: (t) => t.startsWith(ASKED_TEXT), resume: it.resume }), answerTimeoutMs,
       `Модель не ответила за ${Math.round(answerTimeoutMs / 60000)} мин`);
       const text = r.answer;
+      /* План остановился на подтверждении: кто спросил, тот и продолжит его
+         после кнопки (`onStopped` → `resume`), см. lib/planRunner.js. */
+      if (r.stopped && r.plan && it.onStopped) {
+        try { it.onStopped({ plan: r.plan, at: r.at }); } catch { /* не запомнили — продолжения не будет */ }
+      }
       progress(it, "answer");
       finish(it, { status: "done", text });
     } catch (e) {
@@ -242,7 +247,7 @@ export function createQueue({
 
   /** Кладёт вопрос. Ответ — по id, у того же человека. */
   function ask({ userId, question, context = "", task = DEFAULT_TASK, onProgress = null, image = null,
-    onConfirm = null, onAuthNeeded = null, onPlan = null }) {
+    onConfirm = null, onAuthNeeded = null, onPlan = null, onStopped = null, resume = null }) {
     sweep();
     const q = String(question || "").trim().slice(0, MAX_QUESTION);
     if (!q) throw new Error("question is required");
@@ -258,6 +263,8 @@ export function createQueue({
       onConfirm: typeof onConfirm === "function" ? onConfirm : null,
       onAuthNeeded: typeof onAuthNeeded === "function" ? onAuthNeeded : null,
       onPlan: typeof onPlan === "function" ? onPlan : null,
+      onStopped: typeof onStopped === "function" ? onStopped : null,
+      resume: resume && typeof resume === "object" ? resume : null,
     };
     it.promise = new Promise((resolve, reject) => { it.resolve = resolve; it.reject = reject; });
     // Никто не ждёт обещание — отказ не должен становиться необработанным.
@@ -297,8 +304,8 @@ export function createQueue({
       по нему бот рисует кнопку «Отменить». `signal` снаружи — тот же
       cancel, но от AbortController вызывающего. */
   function askNow(userId, question, context = "", {
-    task = DEFAULT_TASK, onProgress, onConfirm, onAuthNeeded, onPlan, signal, image = null } = {}) {
-    const { id } = ask({ userId, question, context, task, onProgress, onConfirm, onAuthNeeded, onPlan, image });
+    task = DEFAULT_TASK, onProgress, onConfirm, onAuthNeeded, onPlan, onStopped, resume, signal, image = null } = {}) {
+    const { id } = ask({ userId, question, context, task, onProgress, onConfirm, onAuthNeeded, onPlan, onStopped, resume, image });
     const it = items.get(id);
     if (signal) {
       if (signal.aborted) cancel(id, userId);

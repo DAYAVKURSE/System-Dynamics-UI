@@ -50,6 +50,62 @@ describe("снимок из приложения не отправился", () 
   });
 });
 
+describe("план продолжается после кнопки", () => {
+  /* Действие откладывается настоящим путём (runAction с ask: true) — так
+     подтверждение и продолжение проверяются вместе. */
+  let dir;
+  let actions;
+  let ws;
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "sd-resume-"));
+    process.env.WORKSPACE_DIR = path.join(dir, "ws");
+    process.env.UNDO_DIR = path.join(dir, "undo");
+    vi.resetModules();
+    actions = await import("../lib/assistantActions.js");
+    ws = await import("../lib/workspaceStore.js");
+    actions.resetPendingActions();
+    await ws.writeModel({ tasks: [{ id: "tk1", title: "Задача", status: "backlog", assignee: "200", setter: "100" }] });
+  });
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
+
+  it("«Да» под подтверждением — тот же вопрос задаётся заново с места остановки, и план доходит до конца", async () => {
+    const mod = await import("../lib/botAssistant.js");
+    mod.resetAssistantState();
+    const d = deps();
+    const asks = [];
+    let pendingId = null;
+    d.assistant.ask = async (userId, q, ctx, opts) => {
+      asks.push({ q, resume: opts.resume || null });
+      if (!opts.resume) {
+        const r = await actions.runAction("task_take", { taskId: "tk1" },
+          { userId: "200", agentId: "assistant", ask: true, onConfirm: opts.onConfirm });
+        pendingId = r.id;
+        opts.onStopped({ plan: { request: "сдать", result: "сдано", steps: [
+          { action: "взять", expect: "взято", state: "pending", result: "" },
+          { action: "сдать", expect: "сдано", state: "pending", result: "" }] }, at: 0 });
+        return `Жду вашего подтверждения — оно отправлено отдельным сообщением с кнопками:\n${r.words}`;
+      }
+      return "Сдано.";
+    };
+    d.answer = async () => {};
+    d.edit = async () => {};
+    d.org = { identify: async () => ({ isOwner: false }) };
+    const r = await mod.onAssistantMessage({ text: "сдай задачу" }, from, d);
+    await r.done;
+    expect(asks).toHaveLength(1);
+    expect(sent.some((m) => m.text.startsWith("Подтвердите изменение:"))).toBe(true);
+    const pressed = await mod.onAssistantButton({ id: "cb", data: `ai:ok:${pendingId}`, from,
+      message: { chat: { id: 200 }, message_id: 1 } }, from, d);
+    expect(pressed).toMatchObject({ applied: pendingId, ok: true });
+    expect(pressed.resumed).toBeTruthy();
+    expect((await ws.readModel()).tasks[0].status).toBe("progress");
+    await pressed.resumedDone;
+    expect(asks).toHaveLength(2);
+    expect(asks[1]).toMatchObject({ q: "сдай задачу", resume: { at: 0, outcome: "applied", plan: { request: "сдать" } } });
+    expect(sent[sent.length - 1].text).toBe("Сдано.");
+  });
+});
+
 describe("план под статусом и запись диалога", () => {
   it("план приходит в сообщение-статус под часами; «Готово» — с планом; вопрос и ответ записаны в диалог", async () => {
     const edits = [];

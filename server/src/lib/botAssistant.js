@@ -162,10 +162,13 @@ export const statusKeyboard = (id) => ({
    отвеченным вопросом — законный ход (переспросить точнее), и для него
    нужен текст исходного вопроса. */
 const inflight = new Map();   // id → { id, queueId, userId, chatId, question, messageId, done, at }
+/* Подтверждение → вопрос, план которого его ждёт (владелец, 2026-09-22):
+   после кнопки план продолжается с того же шага. */
+const confirmOf = new Map();  // pending id → id вопроса
 const refining = new Map();   // userId → { id: вопрос, который уточняют, at: когда нажали }
 export const KEEP_DONE_MS = 10 * 60 * 1000;
 
-export function resetAssistantState() { inflight.clear(); refining.clear(); }
+export function resetAssistantState() { inflight.clear(); refining.clear(); confirmOf.clear(); }
 
 /* Забывается и отвеченное давнее, и давнее «жду уточнение»: срок один,
    чтобы «Уточнить» не пережило вопрос, который уточняет. */
@@ -194,7 +197,7 @@ async function setStatus(deps, e, text, keyboard) {
  * Возвращает { answered: "queued", id, done }: done — обещание, что ответ
  * или ошибка уже ушли в чат; бот его не ждёт, тесты — ждут.
  */
-async function askQuestion(deps, { userId, chatId, question, context = "", image = null, who = null }) {
+async function askQuestion(deps, { userId, chatId, question, context = "", image = null, who = null, resume = null }) {
   const a = deps.assistant || deps;
   const send = deps.send || a.send;
   sweep();
@@ -228,6 +231,7 @@ async function askQuestion(deps, { userId, chatId, question, context = "", image
   const onConfirm = async ({ id, words }) => {
     try {
       await send(chatId, `${CONFIRM_LEAD}\n${words}`, confirmKeyboard(id));
+      confirmOf.set(String(id), e.id);
       return true;
     } catch (err) {
       logOf(deps)(`подтверждение не отправлено: ${err.message}`);
@@ -263,11 +267,14 @@ async function askQuestion(deps, { userId, chatId, question, context = "", image
      ожидаемый результат — виден в том же сообщении-статусе, под часами.
      Правки идут той же цепочкой, что и такты. */
   const onPlan = (text) => { e.plan = String(text || ""); return show(); };
+  /* План остановился на подтверждении — запоминаем, где: после кнопки он
+     продолжится с этого шага (см. onAssistantButton). */
+  const onStopped = (state) => { e.resume = state; };
 
   /* Диалог с человеком — на диске (lib/dialogStore.js): по нему «/dialogs»
      и «кому бот может писать». Вопрос — сейчас, ответ — когда придёт. */
   const record = deps.dialogs?.record;
-  if (record) {
+  if (record && !resume) {
     try { await record(chatId, { from: "user", name: who?.name || "", username: who?.username || "", text: question }); }
     catch (err) { logOf(deps)(`диалог не записан: ${err.message}`); }
   }
@@ -275,7 +282,8 @@ async function askQuestion(deps, { userId, chatId, question, context = "", image
   let raw;
   try {
     raw = a.ask(userId, question.slice(0, MAX_QUESTION), e.context,
-      { task: BOT_TASK, onConfirm, onAuthNeeded, onPlan, ...(e.image ? { image: e.image } : {}) });
+      { task: BOT_TASK, onConfirm, onAuthNeeded, onPlan, onStopped, ...(resume ? { resume } : {}),
+        ...(e.image ? { image: e.image } : {}) });
   } catch (err) {
     raw = Promise.reject(err);
   }
@@ -404,11 +412,25 @@ export async function onAssistantButton(cb, from, deps = {}) {
       await answer(cb.id, p ? "Это не ваше изменение" : "Это подтверждение уже не действует");
       return { stale: true };
     }
+    /* ПЛАН ПРОДОЛЖАЕТСЯ ПОСЛЕ КНОПКИ (владелец, 2026-09-22: «после
+       выполнения первого действия агент перестаёт выполнять план»): «Да» —
+       шаг сделан, дальше следующий; «Нет» — шаг не дал результата, план
+       пересобирается. Тот же вопрос задаётся заново с места остановки. */
+    const goOn = async (outcome) => {
+      const qid = confirmOf.get(String(pid));
+      confirmOf.delete(String(pid));
+      const prev = qid ? inflight.get(qid) : null;
+      if (!prev?.resume) return null;
+      const resume = { ...prev.resume, outcome };
+      prev.resume = null;
+      return askQuestion(deps, { userId, chatId, question: prev.question, context: prev.context || "", resume });
+    };
     if (!yes) {
       cancelPending(pid);
       await answer(cb.id, "Отменено");
       await restyle(`${REFUSED_LEAD}\n${p.words}`, null);
-      return { cancelled: pid };
+      const next = await goOn("refused");
+      return { cancelled: pid, ...(next ? { resumed: next.id, resumedDone: next.done } : {}) };
     }
     let who = { isOwner: false };
     try { who = await (deps.org?.identify?.(userId, {}, { claim: false })) || who; }
@@ -420,7 +442,8 @@ export async function onAssistantButton(cb, from, deps = {}) {
     if (r?.ok && r.undoId) await restyle(`${APPLIED_LEAD}\n${p.words}`, undoKeyboard(r.undoId));
     else await restyle(`${p.words}`, null);
     await send(chatId, r?.text || "Изменение уже не действует.");
-    return { applied: pid, ok: !!r?.ok };
+    const next = r?.ok ? await goOn("applied") : null;
+    return { applied: pid, ok: !!r?.ok, ...(next ? { resumed: next.id, resumedDone: next.done } : {}) };
   }
 
   if (data.startsWith(AI_UNDO)) {

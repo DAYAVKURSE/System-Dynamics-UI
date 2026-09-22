@@ -126,35 +126,60 @@ const finalPrompt = (plan) => [
 
 export const UNSOLVED_LEAD = "Не справился, нужна ваша помощь:";
 export const CANCELLED = "Отменено";
+export const CONFIRMED_RESULT = "подтверждено человеком и применено";
+export const REFUSED_RESULT = "человек отказал — изменение не сделано";
+export const WAITING_RESULT = "ждёт подтверждения человека";
 
 /**
  * Прогнать просьбу через план.
  * `run(prompt)` — один разговор модели с инструментами, возвращает текст.
  * `onPlan(text)` — план словами при каждом изменении.
- * Возвращает `{planned, answer, plan, unsolved}`.
+ * `stopWhen(text)` — ответ, на котором план обрывается: изменение ждёт
+ * подтверждения человека кнопками (ASKED_TEXT в runAgent) — дальше идти
+ * нельзя, шаги опирались бы на несделанное. Такой ответ и есть ответ
+ * человеку; возвращается `{stopped: true, plan, at}`.
+ * `resume: {plan, at, outcome}` — ПРОДОЛЖЕНИЕ ПОСЛЕ КНОПКИ (владелец,
+ * 2026-09-22: «после выполнения первого действия агент перестаёт
+ * выполнять план»): «applied» — шаг `at` сделан, дальше следующий;
+ * «refused» — шаг не дал результата, план пересобирается с него. Нового
+ * планирования при этом нет.
+ * Возвращает `{planned, answer, plan, unsolved, stopped?, at?}`.
  */
 export async function runPlanned({ question, run, onPlan = null, signal = null,
-  maxReplans = MAX_REPLANS, title = "", stopWhen = null }) {
-  /* Ответ, на котором план обрывается: изменение ждёт подтверждения
-     человека кнопками (ASKED_TEXT в runAgent) — дальше идти нельзя, шаги
-     опирались бы на несделанное. Такой ответ и есть ответ человеку. */
-  const stopped = (text) => Boolean(stopWhen && stopWhen(String(text || "")));
+  maxReplans = MAX_REPLANS, title = "", stopWhen = null, resume = null }) {
   const show = async (plan) => {
     if (!onPlan) return;
     try { await onPlan(render(plan, { title })); } catch { /* статус не показался */ }
   };
   const halt = () => { if (signal?.aborted) throw new Error(CANCELLED); };
+  const stopped = (text) => Boolean(stopWhen && stopWhen(String(text || "")));
 
-  const first = await run(question);
-  const plan = parsePlan(first);
-  if (!plan || stopped(first)) return { planned: false, answer: first, plan: null, unsolved: false };
-  if (plan.impossible) {
-    return { planned: true, answer: `${UNSOLVED_LEAD} ${plan.impossible}`, plan: null, unsolved: true };
+  let plan;
+  let i = 0;
+  let refused = -1;
+  if (resume?.plan?.steps?.length) {
+    plan = { ...resume.plan, steps: resume.plan.steps.map((st) => ({ ...st })) };
+    const at = Math.min(Math.max(0, Number(resume.at) || 0), plan.steps.length - 1);
+    const step = plan.steps[at];
+    if (resume.outcome === "refused") {
+      step.state = "failed"; step.result = REFUSED_RESULT;
+      i = at; refused = at;
+    } else {
+      step.state = "done"; step.result = CONFIRMED_RESULT;
+      i = at + 1;
+    }
+    await show(plan);
+  } else {
+    const first = await run(question);
+    plan = parsePlan(first);
+    if (!plan || stopped(first)) return { planned: false, answer: first, plan: null, unsolved: false };
+    if (plan.impossible) {
+      return { planned: true, answer: `${UNSOLVED_LEAD} ${plan.impossible}`, plan: null, unsolved: true };
+    }
+    await show(plan);
   }
-  await show(plan);
 
   let replans = 0;
-  let i = 0;
   const unsolved = (why) => ({ planned: true, plan, unsolved: true,
     answer: `${UNSOLVED_LEAD} ${why}\n\n${render(plan)}` });
   /* Пересбор: сделанные шаги, совпавшие словами, остаются сделанными;
@@ -166,38 +191,51 @@ export async function runPlanned({ question, run, onPlan = null, signal = null,
     const next = parsePlan(await run(replanPrompt(plan, at, why)));
     if (!next) return unsolved(why);
     if (next.impossible) return { planned: true, plan, unsolved: true, answer: `${UNSOLVED_LEAD} ${next.impossible}` };
-    let resume = 0;
-    while (resume < at && resume < next.steps.length
-      && next.steps[resume].action === plan.steps[resume].action) {
-      next.steps[resume] = { ...plan.steps[resume] };
-      resume += 1;
+    let from = 0;
+    while (from < at && from < next.steps.length
+      && next.steps[from].action === plan.steps[from].action) {
+      next.steps[from] = { ...plan.steps[from] };
+      from += 1;
     }
     plan.request = next.request || plan.request;
     plan.result = next.result || plan.result;
     plan.steps = next.steps;
-    i = resume;
+    i = from;
     await show(plan);
     return null;
   };
-
-  while (i < plan.steps.length) {
-    halt();
-    const step = plan.steps[i];
-    const raw = await run(stepPrompt(plan, i));
-    if (stopped(raw)) return { planned: true, answer: String(raw).trim(), plan, unsolved: false, stopped: true };
-    const out = parseStep(raw);
-    step.result = out.result;
-    if (out.ok) {
-      step.state = "done";
+  /* Шаги по одному до конца плана; null — все сделаны, иначе — чем всё кончилось. */
+  const walk = async () => {
+    while (i < plan.steps.length) {
+      halt();
+      const step = plan.steps[i];
+      const raw = await run(stepPrompt(plan, i));
+      if (stopped(raw)) {
+        step.result = WAITING_RESULT;
+        return { planned: true, answer: String(raw).trim(), plan, unsolved: false, stopped: true, at: i };
+      }
+      const out = parseStep(raw);
+      step.result = out.result;
+      if (out.ok) {
+        step.state = "done";
+        await show(plan);
+        i += 1;
+        continue;
+      }
+      step.state = "failed";
       await show(plan);
-      i += 1;
-      continue;
+      const stop = await replan(i, out.result);
+      if (stop) return stop;
     }
-    step.state = "failed";
-    await show(plan);
-    const stop = await replan(i, out.result);
+    return null;
+  };
+
+  if (refused >= 0) {
+    const stop = await replan(refused, REFUSED_RESULT);
     if (stop) return stop;
   }
+  const end = await walk();
+  if (end) return end;
   halt();
   for (;;) {
     const text = await run(finalPrompt(plan));
@@ -207,18 +245,7 @@ export async function runPlanned({ question, run, onPlan = null, signal = null,
     }
     const stop = await replan(plan.steps.length, str(j.notDone, 1000));
     if (stop) return stop;
-    while (i < plan.steps.length) {
-      halt();
-      const step = plan.steps[i];
-      const raw = await run(stepPrompt(plan, i));
-      if (stopped(raw)) return { planned: true, answer: String(raw).trim(), plan, unsolved: false, stopped: true };
-      const out = parseStep(raw);
-      step.result = out.result;
-      if (out.ok) { step.state = "done"; await show(plan); i += 1; continue; }
-      step.state = "failed";
-      await show(plan);
-      const again = await replan(i, out.result);
-      if (again) return again;
-    }
+    const again = await walk();
+    if (again) return again;
   }
 }

@@ -232,6 +232,23 @@ describe("очередь не молчит и не виснет", () => {
    (onPlan). Подсказка просит план. Не план — прямой ответ одним запросом
    (см. тесты выше: они на заглушке словами). */
 describe("план", () => {
+  it("остановка на подтверждении: onStopped получает план и шаг; resume продолжает без нового планирования", async () => {
+    const plan = JSON.stringify({ request: "сдать", result: "сдано", steps: [{ action: "взять", expect: "взято" }, { action: "сдать", expect: "сдано" }] });
+    const answers = [plan, "Жду вашего подтверждения — оно отправлено отдельным сообщением с кнопками:\nвзять"];
+    const { q, calls } = make({ complete: async (p) => { calls.push(p); return answers.shift(); } });
+    const stopped = [];
+    const text = await q.askNow("200", "сдай", "", { onStopped: (st) => stopped.push(st) });
+    expect(text).toMatch(/^Жду вашего подтверждения/);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]).toMatchObject({ at: 0, plan: { request: "сдать" } });
+    const answers2 = ['{"ok": true, "result": "сдано"}', "Сдано."];
+    const { q: q2, calls: calls2 } = make({ complete: async (p) => { calls2.push(p); return answers2.shift(); } });
+    const again = await q2.askNow("200", "сдай", "", { resume: { ...stopped[0], outcome: "applied" } });
+    expect(again).toBe("Сдано.");
+    expect(calls2).toHaveLength(2);
+    expect(calls2[0].messages[0].content).toMatch(/Сейчас выполни шаг 2: сдать/);
+  });
+
   it("подсказка просит план; JSON-план ведёт по шагам, план виден через onPlan, ответ — итог", async () => {
     const plan = JSON.stringify({ request: "посчитать", result: "число", steps: [{ action: "посмотреть", expect: "список" }] });
     const answers = [plan, '{"ok": true, "result": "5 задач"}', "Задач пять."];

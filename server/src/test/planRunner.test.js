@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  DONE, FAILED, MAX_STEPS, PENDING, PLAN_NOTE, UNSOLVED_LEAD, parseJson, parsePlan, parseStep, render,
-  runPlanned, strike,
+  CONFIRMED_RESULT, DONE, FAILED, MAX_STEPS, PENDING, PLAN_NOTE, UNSOLVED_LEAD, WAITING_RESULT, parseJson, parsePlan,
+  parseStep, render, runPlanned, strike,
 } from "../lib/planRunner.js";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -144,6 +144,38 @@ describe("выполнение", () => {
     const r = await runPlanned({ question: "x", run: m.run, stopWhen: (t) => t.startsWith("Жду вашего подтверждения") });
     expect(r).toMatchObject({ planned: true, stopped: true, answer: "Жду вашего подтверждения — кнопки отправлены:\nвзять задачу" });
     expect(m.prompts).toHaveLength(2);
+  });
+
+  /* ПОСЛЕ КНОПКИ ПЛАН ПРОДОЛЖАЕТСЯ (владелец, 2026-09-22: «после выполнения
+     первого действия агент перестаёт выполнять план»). */
+  it("остановка на подтверждении отдаёт план и номер шага; «Да» продолжает со следующего без нового планирования", async () => {
+    const stop = (t) => t.startsWith("Жду");
+    const m = scripted([plan(["взять", "сдать"]), "Жду подтверждения:\nвзять"]);
+    const r = await runPlanned({ question: "x", run: m.run, stopWhen: stop });
+    expect(r).toMatchObject({ stopped: true, at: 0 });
+    expect(r.plan.steps[0].result).toBe(WAITING_RESULT);
+
+    const shown = [];
+    const c = scripted([ok("сдано"), "Всё сделано."]);
+    const r2 = await runPlanned({ question: "x", run: c.run, stopWhen: stop, onPlan: (t) => shown.push(t),
+      resume: { plan: r.plan, at: r.at, outcome: "applied" } });
+    expect(r2.answer).toBe("Всё сделано.");
+    expect(c.prompts[0]).toMatch(/Сейчас выполни шаг 2: сдать/);
+    expect(c.prompts[0]).toMatch(new RegExp(`1\\. взять .*\\[сделан: ${CONFIRMED_RESULT}\\]`));
+    expect(shown[0]).toContain(`${DONE} 1. ${strike("взять → взять — есть")}`);
+    expect(shown[0]).toContain(`${PENDING} 2. сдать`);
+  });
+
+  it("«Нет» — шаг не дал результата, план пересобирается с него", async () => {
+    const stop = (t) => t.startsWith("Жду");
+    const m = scripted([plan(["взять", "сдать"]), "Жду подтверждения:\nвзять"]);
+    const r = await runPlanned({ question: "x", run: m.run, stopWhen: stop });
+    const c = scripted([plan(["спросить владельца", "сдать"]), ok("разрешил"), ok("сдано"), "Готово."]);
+    const r2 = await runPlanned({ question: "x", run: c.run, stopWhen: stop,
+      resume: { plan: r.plan, at: r.at, outcome: "refused" } });
+    expect(r2.answer).toBe("Готово.");
+    expect(c.prompts[0]).toMatch(/Шаг 1 не дал ожидаемого результата: человек отказал/);
+    expect(c.prompts[1]).toMatch(/Сейчас выполни шаг 1: спросить владельца/);
   });
 
   it("итог «не достигнут» — ещё круг плана; отмена останавливает между шагами", async () => {
