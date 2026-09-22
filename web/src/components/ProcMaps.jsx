@@ -814,7 +814,10 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
       style={{ position: "fixed", inset: 0, zIndex: 60, background: "#0008", display: "flex",
         alignItems: "center", justifyContent: "center", padding: "var(--space-8)" }}>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ ...S.card, width: "min(760px, 100%)", height: "min(76dvh, 620px)", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
+        style={{ ...S.card, width: "min(760px, 100%)", display: "flex", flexDirection: "column", gap: "var(--space-8)",
+          /* Майнд-карта — во всю длину экрана (владелец, 2026-09-22): обе
+             формы делят высоту, своей прокрутки у окна нет. */
+          height: mode === "timeline" ? "min(76dvh, 620px)" : "calc(100dvh - 2 * var(--space-8))" }}>
         <div className="flex items-center gap-2">
           <span style={S.lbl}>{mode === "timeline" ? "таймлайн" : "майнд-карта"}</span>
           <span style={{ flex: 1, fontSize: "var(--fs-body)", fontWeight: 700 }}>{proc?.name || "процесс"}</span>
@@ -825,16 +828,16 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
         {mode === "timeline"
           ? <Timeline plan={plan} />
           : (
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto",
+            <div style={{ flex: 1, minHeight: 0,
               display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
-              {/* У каждой формы — своя высота: окно карты (Pannable) заполняет
-                  родителя, а в прокручиваемом столбце без высоты у него
-                  было ноль — карта не показывалась вовсе. */}
-              <div data-map="ресурсы" style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "min(52dvh, 440px)" }}>
+              {/* Формы делят высоту окна 3:2, без своей прокрутки: окно карты
+                  (Pannable) заполняет родителя, а без заданной высоты у него
+                  был ноль — карта не показывалась вовсе. */}
+              <div data-map="ресурсы" style={{ display: "flex", flexDirection: "column", flexGrow: 3, flexShrink: 1, flexBasis: 0, minHeight: 0 }}>
                 <div style={S.lbl}>движение ресурсов</div>
                 <MindMap plan={plan} layout={layout} onLayout={putLayout} />
               </div>
-              <div data-map="люди" style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "min(40dvh, 340px)" }}>
+              <div data-map="люди" style={{ display: "flex", flexDirection: "column", flexGrow: 2, flexShrink: 1, flexBasis: 0, minHeight: 0 }}>
                 <div style={S.lbl}>взаимодействие сотрудников</div>
                 <CrewMap plan={plan} />
               </div>

@@ -103,10 +103,16 @@ describe("кнопки под полем", () => {
     fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
     const mind = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
     expect(mind.parentElement).toBe(document.body);
+    // Окно во всю длину экрана, формы делят его 3:2, прокрутки у столбца нет.
+    const card = mind.firstElementChild;
+    expect(card.style.height).toBe("calc(100dvh - 2 * var(--space-8))");
+    const column = mind.querySelector("[data-map='ресурсы']").parentElement;
+    expect(column.style.overflowY).toBe("");
     const res = mind.querySelector("[data-map='ресурсы']");
     const crew = mind.querySelector("[data-map='люди']");
-    expect(res.style.height).toBe("min(52dvh, 440px)");
-    expect(crew.style.height).toBe("min(40dvh, 340px)");
+    expect(res.style.flexGrow).toBe("3");
+    expect(crew.style.flexGrow).toBe("2");
+    expect(res.style.minHeight).toBe("0");
     expect(within(res).getByLabelText("майнд-карта процесса")).toBeInTheDocument();
   });
 
