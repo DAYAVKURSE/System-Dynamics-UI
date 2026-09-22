@@ -624,6 +624,10 @@ describe("модель переживает то, что должна", () => {
     fireEvent.change(nameBox, { target: { value: "с функцией" } });
     fireEvent.blur(nameBox);
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    // Сохранение — коммит с описанием (владелец, 2026-09-22).
+    const dlg = await screen.findByRole("dialog", { name: "Сохранение сценария" });
+    fireEvent.change(within(dlg).getByLabelText("описание коммита"), { target: { value: "с функцией" } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Сохранить" }));
     await waitFor(() => expect(container.textContent).toMatch(/Сохранено/));
 
     // Стираем функцию и грузим сценарий обратно.

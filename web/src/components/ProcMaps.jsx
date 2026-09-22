@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { orthPath } from "../lib/paths.js";
 import { C, OK, WARN, BAD, ACC, S, btn, nm } from "./ui.jsx";
 import { parseText, ROLE_KINDS } from "../lib/proc2.js";
@@ -803,12 +804,17 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
     return next;
   });
   const title = mode === "timeline" ? "Таймлайн процесса" : "Майнд-карта процесса";
-  return (
+  /* Окно — ПОРТАЛОМ в `body`, как Modal.jsx (владелец, 2026-09-22: «таймлайн
+     не показывает линейку, майнд-карта не открывается»): карточка процесса
+     — стекло с `backdrop-filter`, а такой предок становится системой
+     отсчёта для `position: fixed`, и окно вставало относительно карточки
+     — верх со шкалой уезжал за экран. Высота — от видимой области (dvh). */
+  const node = (
     <div role="dialog" aria-label={title} onClick={onClose}
       style={{ position: "fixed", inset: 0, zIndex: 60, background: "#0008", display: "flex",
         alignItems: "center", justifyContent: "center", padding: "var(--space-8)" }}>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ ...S.card, width: "min(760px, 100%)", height: "min(76vh, 620px)", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
+        style={{ ...S.card, width: "min(760px, 100%)", height: "min(76dvh, 620px)", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
         <div className="flex items-center gap-2">
           <span style={S.lbl}>{mode === "timeline" ? "таймлайн" : "майнд-карта"}</span>
           <span style={{ flex: 1, fontSize: "var(--fs-body)", fontWeight: 700 }}>{proc?.name || "процесс"}</span>
@@ -821,15 +827,19 @@ export default function ProcMaps({ mode, proc, model, onClose }) {
           : (
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto",
               display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
-              <div>
+              {/* У каждой формы — своя высота: окно карты (Pannable) заполняет
+                  родителя, а в прокручиваемом столбце без высоты у него
+                  было ноль — карта не показывалась вовсе. */}
+              <div data-map="ресурсы" style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "min(52dvh, 440px)" }}>
                 <div style={S.lbl}>движение ресурсов</div>
                 <MindMap plan={plan} layout={layout} onLayout={putLayout} />
               </div>
-              <div>
+              <div data-map="люди" style={{ display: "flex", flexDirection: "column", flex: "0 0 auto", height: "min(40dvh, 340px)" }}>
                 <div style={S.lbl}>взаимодействие сотрудников</div>
                 <CrewMap plan={plan} />
               </div>
             </div>)}
       </div>
     </div>);
+  return typeof document === "undefined" ? node : createPortal(node, document.body);
 }

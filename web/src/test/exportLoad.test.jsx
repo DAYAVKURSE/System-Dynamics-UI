@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel, { docFrom } from "../components/SystemModel.jsx";
 import { newTask } from "../components/TasksBoard.jsx";
 import { normalizeGoals } from "../lib/goals.js";
@@ -84,21 +84,35 @@ describe("версии сценария на вкладке выгрузки (в
     if (!container.querySelector("textarea")) fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
   };
 
+  /* Сохранение — коммит с описанием (владелец, 2026-09-22): кнопка
+     открывает окно, схема сохраняется из него. */
+  const commit = async (note) => {
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    const dlg = await screen.findByRole("dialog", { name: "Сохранение сценария" });
+    const ok = within(dlg).getByRole("button", { name: "Сохранить" });
+    expect(ok).toBeDisabled();                       // без описания не сохраняется
+    fireEvent.change(within(dlg).getByLabelText("описание коммита"), { target: { value: note } });
+    fireEvent.click(ok);
+    await screen.findByText(/Сохранено/);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Сохранение сценария" })).toBeNull());
+  };
+
   it("после выбора сценария — кнопка с числом версий; версия раскрывается двумя формами", async () => {
     openTools();
     // Сохраняем схему дважды: две версии, во второй — новый актив.
     fireEvent.change(screen.getByPlaceholderText("имя сценария"), { target: { value: "Моя схема" } });
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    await screen.findByText(/Сохранено/);
+    await commit("первая");
     openTab("Схема");
     fireEvent.click(screen.getByRole("button", { name: "+ актив" }));
     openTools();
-    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    await screen.findByText(/Сохранено/);
+    await commit("добавил актив");
 
     const btn = await screen.findByRole("button", { name: "версии сценария" });
     await waitFor(() => expect(btn.textContent).toMatch(/Версии \(2\)/));
     fireEvent.click(btn);
+    // Описание коммита — под строкой версии.
+    expect(await screen.findByLabelText("описание версии 2")).toHaveTextContent("добавил актив");
+    expect(screen.getByLabelText("описание версии 1")).toHaveTextContent("первая");
     fireEvent.click(await screen.findByRole("button", { name: "версия 2" }));
     /* Три формы: зелёная «+», жёлтая «±» между ними и красная «−»
        (владелец, 2026-09-20). */
@@ -113,5 +127,22 @@ describe("версии сценария на вкладке выгрузки (в
     // eslint-disable-next-line no-bitwise
     expect(both.compareDocumentPosition(minus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await waitFor(() => expect(plus.textContent).toMatch(/актив/));
+  });
+});
+
+/* ОПИСАНИЕ КОММИТА (владелец, 2026-09-22): значок «сохранить» в шапке при
+   названном сценарии открывает окно с полем; пустое описание не пускает. */
+describe("окно описания коммита", () => {
+  it("значок в шапке с именем сценария открывает окно; «Отмена» закрывает без сохранения", async () => {
+    openTab("Инструменты");
+    if (!container.querySelector("textarea")) fireEvent.click(screen.getByRole("button", { name: "Выгрузка" }));
+    fireEvent.change(screen.getByPlaceholderText("имя сценария"), { target: { value: "Схема" } });
+    fireEvent.click(screen.getByRole("button", { name: "сохранить" }));
+    const dlg = await screen.findByRole("dialog", { name: "Сохранение сценария" });
+    expect(within(dlg).getByText("Схема")).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "Сохранить" })).toBeDisabled();
+    fireEvent.click(within(dlg).getByRole("button", { name: "Отмена" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Сохранение сценария" })).toBeNull());
+    expect(screen.queryByText(/Сохранено/)).toBeNull();
   });
 });

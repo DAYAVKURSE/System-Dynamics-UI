@@ -266,7 +266,7 @@ function NewDocForm({ busy, act, onDone }) {
 
 /* ─────── один документ: «Редактировать», название в рамке, плейсхолдеры, версии ─────── */
 
-function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer }) {
+function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer, nameOf = null }) {
   const ver = last(doc);
   const [phOpen, setPhOpen] = useState(false);
   const [versions, setVersions] = useState(false);
@@ -356,7 +356,7 @@ function DocCard({ doc, opened, onEdit, busy, act, onDrop, html, setHtml, viewer
                   style={{ ...btn(isOpen), textAlign: "left", width: "100%" }}
                   onClick={() => setOpenVer(isOpen ? null : v.id)}>
                   <span style={{ color: i === 0 ? OK : C.muted }}>{i === 0 ? "● " : "○ "}</span>
-                  {when(v.at)}{i === 0 ? " · последняя" : ""}{idx === 0 ? " · первая" : ""}</button>
+                  {when(v.at)}{v.by ? ` · ${nameOf ? (nameOf(v.by) || v.by) : v.by}` : ""}{i === 0 ? " · последняя" : ""}{idx === 0 ? " · первая" : ""}</button>
                 {isOpen && (
                   <div style={{ padding: "var(--space-4) 0 var(--space-4) var(--space-4)" }}>
                     <div className="flex flex-wrap gap-2">
@@ -402,7 +402,8 @@ function CollapsedBar({ title, dirty, onExpand, onClose }) {
 }
 
 /** Раздел «договоры» на «Ролях»: список документов и загрузка нового. */
-export function DocsSection({ docs = [], busy, act }) {
+/* `nameOf` — имя человека по id: версии подписаны автором (владелец, 2026-09-22). */
+export function DocsSection({ docs = [], busy, act, nameOf = null }) {
   const [adding, setAdding] = useState(false);
   const [edit, setEdit] = useState(null);      // {doc, html} — документ в правке (может быть свёрнут)
   const [shown, setShown] = useState(false);   // документ на экране
@@ -436,7 +437,7 @@ export function DocsSection({ docs = [], busy, act }) {
   return (
     <div style={{ marginTop: "var(--space-4)" }}>
       {docs.map((d) => (
-        <DocCard key={d.id} doc={d} opened={edit?.doc.id === d.id} onEdit={openEdit} busy={busy} act={act}
+        <DocCard key={d.id} doc={d} opened={edit?.doc.id === d.id} onEdit={openEdit} busy={busy} act={act} nameOf={nameOf}
           html={edit?.doc.id === d.id ? html : null} setHtml={setHtml} viewer={openVersion}
           onDrop={(doc) => act(async () => { await removeDoc(doc.id); if (edit?.doc.id === doc.id) { setEdit(null); setShown(false); } })} />))}
       {!docs.length && <div style={{ ...hint, marginBottom: "var(--space-4)" }}>Договоров пока нет.</div>}

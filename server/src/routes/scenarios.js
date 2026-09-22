@@ -1,10 +1,21 @@
 import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
+import { identify } from "../lib/orgStore.js";
 import { listScenarios, getScenario, saveScenario, deleteScenario, touchScenario, listVersions, getVersion }
   from "../lib/scenarioStore.js";
 
 const router = Router();
 router.use(telegramUser);
+
+/* Автор версии — имя из анкеты (владелец, 2026-09-22): версия сценария,
+   как коммит, подписана тем, кто сохранил. Само имя клиент не присылает —
+   подпись должна быть той, что знает сервер. */
+async function authorOf(req) {
+  try {
+    const me = await identify(req.telegramUserId, req.telegramProfile || {}, { claim: false });
+    return me?.name || req.telegramProfile?.name || "";
+  } catch { return req.telegramProfile?.name || ""; }
+}
 
 router.get("/", async (req, res, next) => {
   try {
@@ -60,7 +71,7 @@ router.post("/:id/open", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   try {
-    const entry = await saveScenario(req.telegramUserId, req.body || {});
+    const entry = await saveScenario(req.telegramUserId, { ...(req.body || {}), by: await authorOf(req) });
     res.status(201).json(entry);
   } catch (e) {
     if (e.message.includes("required") || e.message.includes("most") || e.message.includes("limit")) {
@@ -72,7 +83,7 @@ router.post("/", async (req, res, next) => {
 
 router.put("/:id", async (req, res, next) => {
   try {
-    const entry = await saveScenario(req.telegramUserId, { ...(req.body || {}), id: req.params.id });
+    const entry = await saveScenario(req.telegramUserId, { ...(req.body || {}), id: req.params.id, by: await authorOf(req) });
     res.json(entry);
   } catch (e) {
     if (e.message.includes("required") || e.message.includes("most") || e.message.includes("limit")) {

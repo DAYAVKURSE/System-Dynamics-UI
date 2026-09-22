@@ -15,6 +15,7 @@ import RegisterPanel from "./RegisterPanel.jsx";
 import { issuesUnread as issuesUnread_ } from "../identity.js";
 import CodeGate from "./CodeGate.jsx";
 import Splash, { SPLASH_MS } from "./Splash.jsx";
+import CommitModal from "./CommitModal.jsx";
 import SettingsModal from "./SettingsModal.jsx";
 import { tabLocked } from "../plans.js";
 import { setStorage } from "../session.js";
@@ -692,10 +693,14 @@ function ScenarioVersions({ id, when, stamp = "", onLoad }) {
               <button type="button" aria-expanded={which === v.v} aria-label={`версия ${v.v}`}
                 onClick={() => show(v)} className="flex items-center gap-2"
                 style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
-                <span style={{ fontSize: "var(--fs-hint)", whiteSpace: "nowrap" }}>{which === v.v ? "▾" : "▸"} №{v.v}</span>
+                <span style={{ fontSize: "var(--fs-hint)", whiteSpace: "nowrap" }}>{which === v.v ? "▾" : "▸"} №{v.v}{v.by ? ` · ${v.by}` : ""}</span>
                 <span style={{ flex: 1, fontSize: "var(--fs-hint)", color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
                   {when(v.at)}</span>
               </button>
+              {/* Описание коммита — под строкой версии (владелец, 2026-09-22). */}
+              {v.note && (
+                <div aria-label={`описание версии ${v.v}`} style={{ fontSize: "var(--fs-hint)", color: C.muted,
+                  overflowWrap: "anywhere" }}>{v.note}</div>)}
               {/* «Загрузить версию» — на каждой строке (владелец, 2026-09-21). */}
               {onLoad && (
                 <div className="flex gap-2" style={{ marginTop: "var(--space-4)" }}>
@@ -1283,13 +1288,15 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
     refreshSavedList();
     detectStorage().then(k=>{ setSavedKind(k); setSavedWhere(STORAGE_LABEL[k]||""); }).catch(()=>{});
   },[tab,tool]);
-  const saveToDisk=async()=>{
+  /* Сохранение — коммит (владелец, 2026-09-22): с описанием (`note`) из
+     модального окна и подписью автора. */
+  const saveToDisk=async(note="")=>{
     setSavedBusy(true);
     try{
       const isUpdate=savedSel&&savedList.some(s=>s.id===savedSel);
       const snapshot=doc;
       const saved=await saveScenario({id:isUpdate?savedSel:null,name:saveName,
-        data:snapshot});
+        data:snapshot,note:String(note||""),by:me.name||me.profile?.name||""});
       savedDoc.current=snapshot; clearDraft(); setRecovery(null);
       setSavedMsg(`Сохранено: «${saved.name}».`);
       setSavedSel(saved.id);
@@ -1302,9 +1309,16 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
   /* Значок «сохранить» в шапке: сохраняет туда же, куда и кнопка во
      вкладке «Инструменты». Имени у сценария ещё нет — там его и называют,
      поэтому значок открывает то место, а не выдумывает имя за человека. */
+  /* Окно описания коммита: открывается, когда имя сценария уже есть;
+     без имени — сначала туда, где его называют. */
+  const [commitAsk,setCommitAsk]=useState(false);
+  const askCommit=()=>{
+    if(!saveName.trim()){ saveToDisk(); return; }
+    setCommitAsk(true);
+  };
   const saveNow=()=>{
     if(!saveName.trim()){ setTab("tools"); setTool("export"); return; }
-    saveToDisk();
+    setCommitAsk(true);
   };
   const openScenario=useCallback(async(id,{guard}={})=>{
     const s=await getScenario(id);
@@ -2246,6 +2260,7 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
             Выбранный на схеме актив подсвечивает процессы, где он занят. */}
         {under==="edit" && (
           <ProcessPanel procs={procs} setProcs={setProcs} people={people} rolesOf={rolesOf}
+            author={me.name||me.profile?.name||""}
             selected={sel} shown={procsOpen} onToggle={setProcsOpen}
             onOpenAsset={id=>setSel(id)} onOpenTrait={openTraitCard}
             onOpenWorkers={openWorkersCard}
@@ -2551,7 +2566,7 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
                 onChange={e=>setSaveName(e.target.value)}
                 onBlur={e=>setSaveName(e.target.value)}
                 style={{...S.inp,flex:"1 1 160px"}}/>
-              <button style={btn(true)} disabled={savedBusy} onClick={saveToDisk}>
+              <button style={btn(true)} disabled={savedBusy} onClick={askCommit}>
                 Сохранить</button>
             </div>
             <div className="flex flex-wrap gap-2" style={{marginBottom: "var(--space-8)"}}>
@@ -2584,6 +2599,9 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
           шапке, и уходить за ним никуда не нужно. */}
       {issueOpen && (
         <IssueModal onClose={()=>setIssueOpen(false)} onSend={sendIssue} seen={issueSeen}/>)}
+      {commitAsk && (
+        <CommitModal name={saveName} onClose={()=>setCommitAsk(false)}
+          onSave={(note)=>{ setCommitAsk(false); return saveToDisk(note); }}/>)}
       {wand && wand!=="taking" && (
         <WandModal seen={wand} onClose={()=>setWand(null)} onSend={askFromApp}/>)}
 

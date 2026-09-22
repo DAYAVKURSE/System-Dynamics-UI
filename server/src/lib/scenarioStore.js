@@ -83,7 +83,10 @@ export async function getScenario(userId, id) {
   return { ...entry, data: JSON.parse(raw) };
 }
 
-export async function saveScenario(userId, { id, name, data } = {}) {
+const MAX_NOTE_LEN = 500;
+/* `note` — описание коммита (владелец, 2026-09-22): каждое сохранение —
+   версия, и у версии, как у коммита, есть сообщение и автор (`by`). */
+export async function saveScenario(userId, { id, name, data, note, by } = {}) {
   const trimmedName = typeof name === "string" ? name.trim() : "";
   if (!trimmedName) throw new Error("name is required");
   if (trimmedName.length > MAX_NAME_LEN) throw new Error(`name must be at most ${MAX_NAME_LEN} characters`);
@@ -118,7 +121,8 @@ export async function saveScenario(userId, { id, name, data } = {}) {
   const was = wasVersions;
   const v = (was[was.length - 1]?.v || 0) + 1;
   await fs.writeFile(path.join(dir, `${scenarioId}.v${v}.json`), JSON.stringify(data), "utf8");
-  const versions = [...was, { v, at: savedAt, name: trimmedName }];
+  const versions = [...was, { v, at: savedAt, name: trimmedName,
+    note: String(note || "").trim().slice(0, MAX_NOTE_LEN), by: String(by || "").trim().slice(0, 120) }];
   const extra = versions.length - MAX_VERSIONS;
   if (extra > 0) {
     await Promise.all(versions.slice(0, extra).map((old) => fs.rm(path.join(dir, `${scenarioId}.v${old.v}.json`), { force: true })));
@@ -135,7 +139,7 @@ export async function listVersions(userId, id) {
   const manifest = await readManifest(userDir(userId));
   const entry = manifest.find((m) => m.id === id);
   if (!entry) return null;
-  return (entry.versions || []).map(({ v, at, name }) => ({ v, at, name }));
+  return (entry.versions || []).map(({ v, at, name, note = "", by = "" }) => ({ v, at, name, note, by }));
 }
 
 /** Снимок версии: данные схемы, какими они были при том сохранении. */

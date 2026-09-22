@@ -404,7 +404,8 @@ export default function PeoplePanel({ me, onPeople, onChanged, onRoleRenamed }) 
       {/* ═══ 3. ДОГОВОРЫ ═══ */}
       <div style={card} aria-label="договоры">
         {title("договоры", (org.docs || []).length)}
-        <DocsSection docs={org.docs || []} busy={busy} act={act} />
+        <DocsSection docs={org.docs || []} busy={busy} act={act}
+          nameOf={(id) => (org.users || []).find((u) => String(u.id) === String(id))?.name || ""} />
       </div>
 
       {/* ═══ 4. АНКЕТЫ ═══ */}

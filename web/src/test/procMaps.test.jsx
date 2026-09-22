@@ -90,6 +90,26 @@ describe("кнопки под полем", () => {
     fireEvent.blur(area);
   });
 
+  /* Окно карты — порталом в body, у обеих форм майнд-карты своя высота
+     (владелец, 2026-09-22: «таймлайн не показывает линейку, майнд-карта не
+     открывается»): внутри стеклянной карточки fixed считался от неё, а
+     окно карты без высоты схлопывалось в ноль. */
+  it("окно карты стоит прямо в body, а у форм майнд-карты есть высота", () => {
+    fireEvent.click(screen.getByRole("button", { name: "таймлайн процесса" }));
+    const dlg = screen.getByRole("dialog", { name: "Таймлайн процесса" });
+    expect(dlg.parentElement).toBe(document.body);
+    expect(container.contains(dlg)).toBe(false);
+    fireEvent.click(within(dlg).getByRole("button", { name: "закрыть карту" }));
+    fireEvent.click(screen.getByRole("button", { name: "майнд-карта процесса" }));
+    const mind = screen.getByRole("dialog", { name: "Майнд-карта процесса" });
+    expect(mind.parentElement).toBe(document.body);
+    const res = mind.querySelector("[data-map='ресурсы']");
+    const crew = mind.querySelector("[data-map='люди']");
+    expect(res.style.height).toBe("min(52dvh, 440px)");
+    expect(crew.style.height).toBe("min(40dvh, 340px)");
+    expect(within(res).getByLabelText("майнд-карта процесса")).toBeInTheDocument();
+  });
+
   it("таймлайн открывается окном с задачей и шкалой; закрывается крестиком", () => {
     fireEvent.click(screen.getByRole("button", { name: "таймлайн процесса" }));
     const dlg = screen.getByRole("dialog", { name: "Таймлайн процесса" });
@@ -220,7 +240,7 @@ describe("кнопки под полем", () => {
     expect(node.textContent).toContain("берёт: заявки");
     expect(node.textContent).toContain("отдаёт: активные пользователи");
     // Двигать карту можно: у окна есть слой перетаскивания.
-    expect(container.querySelector("[data-pannable]")).not.toBeNull();
+    expect(document.querySelector("[data-pannable]")).not.toBeNull();
   });
 
   it("блок тянется один: карта под ним стоит на месте (владелец, 2026-09-18)", () => {

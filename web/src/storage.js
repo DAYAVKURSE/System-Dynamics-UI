@@ -176,21 +176,23 @@ export async function getScenario(id) {
   return localGet(id);
 }
 
-export async function saveScenario({ id, name, data }) {
+/* `note` — описание коммита, `by` — автор (владелец, 2026-09-22): сервер
+   подписывает версию сам, `by` нужен только памяти браузера. */
+export async function saveScenario({ id, name, data, note = "", by = "" }) {
   const trimmed = String(name || "").trim();
   if (!trimmed) throw new Error("Впиши имя сценария.");
   const kind = await detectStorage();
-  if (kind === "server") return serverSave({ id, name: trimmed, data });
+  if (kind === "server") return serverSave({ id, name: trimmed, data, note });
   if (kind === "cloud") return cloudSave({ id, name: trimmed, data });
-  return localSave({ id, name: trimmed, data });
+  return localSave({ id, name: trimmed, data, note, by });
 }
 
-/** Версии сценария: {v, at, name} — новые последними. Где версий нет, пусто. */
+/** Версии сценария: {v, at, name, note, by} — новые последними. Где версий нет, пусто. */
 export async function listScenarioVersions(id) {
   if (!id) return [];
   const kind = await detectStorage();
   if (kind === "server") { try { return await serverVersions(id); } catch { return []; } }
-  if (kind === "local") return localVersions(id).map(({ v, at, name }) => ({ v, at, name }));
+  if (kind === "local") return localVersions(id).map(({ v, at, name, note = "", by = "" }) => ({ v, at, name, note, by }));
   return [];
 }
 
@@ -370,8 +372,8 @@ const serverTouch = (id) =>
 const serverDelete = (id) =>
   serverJson(`/api/scenarios/${encodeURIComponent(id)}`, { method: "DELETE" });
 
-function serverSave({ id, name, data }) {
-  const body = JSON.stringify({ name, data });
+function serverSave({ id, name, data, note = "" }) {
+  const body = JSON.stringify({ name, data, note });
   return id
     ? serverJson(`/api/scenarios/${encodeURIComponent(id)}`, { method: "PUT", body })
     : serverJson("/api/scenarios", { method: "POST", body });
@@ -522,7 +524,7 @@ function localVersions(id) {
   const store = localRead();
   return (store.versions && store.versions[id]) || [];
 }
-async function localSave({ id, name, data }) {
+async function localSave({ id, name, data, note = "", by = "" }) {
   const store = localRead();
   const existing = id ? store.index.find((e) => e.id === id) : null;
   const entry = { id: existing ? existing.id : newId(), name, savedAt: nowIso(),
@@ -531,7 +533,7 @@ async function localSave({ id, name, data }) {
   store.data[entry.id] = JSON.stringify(data);
   const was = (store.versions && store.versions[entry.id]) || [];
   const v = (was[was.length - 1]?.v || 0) + 1;
-  store.versions = { ...(store.versions || {}), [entry.id]: [...was, { v, at: entry.savedAt, name, data }].slice(-LOCAL_VERSIONS) };
+  store.versions = { ...(store.versions || {}), [entry.id]: [...was, { v, at: entry.savedAt, name, data, note, by }].slice(-LOCAL_VERSIONS) };
   localWrite(store);
   return entry;
 }

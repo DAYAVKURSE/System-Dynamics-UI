@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { DRAFT_V, clearDraft, draftKey, readDraft, saveDraft } from "../lib/draft.js";
 import { openTab } from "./openTab.js";
@@ -265,6 +265,10 @@ describe("черновик и диск", () => {
     fireEvent.change(name, { target: { value: "Рабочий" } });
     fireEvent.blur(name);
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    // Сохранение — коммит с описанием (владелец, 2026-09-22).
+    const dlg = await screen.findByRole("dialog", { name: "Сохранение сценария" });
+    fireEvent.change(within(dlg).getByLabelText("описание коммита"), { target: { value: "рабочий" } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() => expect(screen.getByText(/Сохранено/)).toBeTruthy());
     expect(readDraft()).toBeNull();

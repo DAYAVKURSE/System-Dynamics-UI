@@ -1163,7 +1163,7 @@ function Versions({ proc, model, onSave }) {
                   onClick={() => setWhich(shown ? null : v.id)}
                   className="flex items-center gap-2"
                   style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
-                  <span style={{ fontSize: "var(--fs-hint)", whiteSpace: "nowrap" }}>{shown ? "▾" : "▸"} {when(v.at)}</span>
+                  <span style={{ fontSize: "var(--fs-hint)", whiteSpace: "nowrap" }}>{shown ? "▾" : "▸"} {when(v.at)}{v.by ? ` · ${v.by}` : ""}</span>
                   <span style={{ flex: 1, fontSize: "var(--fs-hint)", color: C.muted, textAlign: "right", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{v.note || "—"}</span>
                 </button>
                 {shown && <TaskDiff {...diffTasks(prev?.text ?? "", v.text, model)} />}
@@ -1177,7 +1177,7 @@ function Versions({ proc, model, onSave }) {
 export default function ProcessPanel({ procs = [], setProcs, entities = [], setEntities,
   traits = [], setTraits, funcs = [], setFuncs, onDropFuncs, kinds = [],
   positions = [], people = [], rolesOf, selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
-  shown: shownProp, onToggle }) {
+  shown: shownProp, onToggle, author = "" }) {
   const [openChip, setOpenChip] = useState(null);
   const [naming, setNaming] = useState(null);
   const [modal, setModal] = useState(null);   // {proc, mode:"export"|"import", text}
@@ -1276,7 +1276,8 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   /* Описание и прочие поля записи — без пересборки функций: текст не тронут. */
   const setProc = (p, patchObj) => setProcs(patch(p.id, (x) => ({ ...x, ...patchObj })));
   const saveVersion = (p, note, text = p.text) => {
-    const v = { id: `v${Date.now().toString(36)}${(p.versions || []).length.toString(36)}`, at: new Date().toISOString(), text, note };
+    /* `by` — кто сохранил (владелец, 2026-09-22): версия подписана автором. */
+    const v = { id: `v${Date.now().toString(36)}${(p.versions || []).length.toString(36)}`, at: new Date().toISOString(), text, note, by: author };
     commit({ procs: patch(p.id, (x) => ({ ...x, versions: [...(x.versions || []), v] })) });
   };
   const setStatus = (p, status) => {
@@ -1289,7 +1290,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
     // Принятие — само по себе версия, если текст с прошлой версии менялся.
     const last = (p.versions || [])[(p.versions || []).length - 1];
     const versions = (last?.text ?? "") !== p.text
-      ? [...(p.versions || []), { id: `v${Date.now().toString(36)}`, at: new Date().toISOString(), text: p.text, note: status === "on" ? "принято" : "принято гипотетически" }]
+      ? [...(p.versions || []), { id: `v${Date.now().toString(36)}`, at: new Date().toISOString(), text: p.text, note: status === "on" ? "принято" : "принято гипотетически", by: author }]
       : (p.versions || []);
     commit({ procs: patch(p.id, (x) => ({ ...x, status, versions })) });
   };

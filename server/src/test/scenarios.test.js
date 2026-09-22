@@ -149,6 +149,14 @@ describe("версии сценария (владелец, 2026-09-19)", () => {
     const list = await request(app).get(`/api/scenarios/${id}/versions`);
     expect(list.status).toBe(200);
     expect(list.body.map((v) => v.v)).toEqual([1, 2]);
+    // Версия подписана автором, описание — из запроса (владелец, 2026-09-22).
+    const third = await request(app).put(`/api/scenarios/${id}`)
+      .send({ name: "Схема версий", data: { entities: [] }, note: "  убрал всё  " });
+    expect(third.status).toBe(200);
+    const list3 = (await request(app).get(`/api/scenarios/${id}/versions`)).body;
+    expect(list3[2]).toMatchObject({ v: 3, note: "убрал всё" });
+    expect(list3[2].by).toBeTruthy();
+    expect(list3[0].note).toBe("");
 
     const v1 = await request(app).get(`/api/scenarios/${id}/versions/1`);
     expect(v1.body.data.entities[0].name).toBe("Первый");
