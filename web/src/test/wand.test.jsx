@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
 import { clearLog, fieldNote, labelOf, logText, record, tail, watchApp } from "../lib/appLog.js";
 import { screenText } from "../lib/screenText.js";
@@ -131,6 +131,38 @@ describe("кнопка в шапке и окно", () => {
     expect(posts[0].screen).toMatch(/Вкладки: /);
     expect(posts[0].screen).not.toMatch(/Вопрос ассистенту/);
     expect(posts[0].log).toMatch(/открыта вкладка «Схема»/);
+    // Галочка «отправить скриншот» не стояла — снимка в вопросе нет.
+    expect(posts[0].shot).toBeNull();
     expect(await screen.findByRole("status")).toHaveTextContent("Ответ придёт в чат бота.");
+  });
+
+  /* ГАЛОЧКА «ОТПРАВИТЬ СКРИНШОТ» (владелец, 2026-09-22): как в сообщении об
+     ошибке — снимок уходит в чат вместе с вопросом только по галочке. */
+  it("снимок уходит только по галочке; не снялся заранее — снимается при отправке", async () => {
+    const { WandModal } = await import("../components/WandModal.jsx");
+    const sent = [];
+    render(<WandModal seen={{ screen: "Вкладки: [Задачи]", log: "л", shot: "data:image/png;base64,AAAA" }}
+      onClose={() => {}} onSend={async (q) => { sent.push(q); }} />);
+    const box = screen.getByRole("checkbox", { name: "отправить скриншот" });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    fireEvent.change(screen.getByLabelText("вопрос ассистенту", { selector: "textarea" }),
+      { target: { value: "Что это?" } });
+    fireEvent.click(screen.getByRole("button", { name: "вопрос ассистенту" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({ question: "Что это?", screen: "Вкладки: [Задачи]", log: "л",
+      shot: "data:image/png;base64,AAAA" });
+    cleanup();
+    render(<WandModal seen={{ screen: "э", log: "л", shot: null }} onClose={() => {}}
+      capture={async () => ({ shot: "data:image/png;base64,BBBB" })}
+      onSend={async (q) => { sent.push(q); }} />);
+    const late = screen.getByRole("checkbox", { name: "отправить скриншот" });
+    expect(late).not.toBeDisabled();
+    fireEvent.click(late);
+    fireEvent.change(screen.getByLabelText("вопрос ассистенту", { selector: "textarea" }),
+      { target: { value: "А это?" } });
+    fireEvent.click(screen.getByRole("button", { name: "вопрос ассистенту" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1].shot).toBe("data:image/png;base64,BBBB");
   });
 });

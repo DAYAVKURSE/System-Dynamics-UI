@@ -102,10 +102,20 @@ describe("окно сообщения об ошибке", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
     await waitFor(() => expect(sent).toHaveLength(2));
     expect(sent[1]).toEqual(["снова", { log: "л", shot: "data:image/png;base64,AAAA" }]);
-    // Снимка нет (не снялся) — галочка выключена.
+    // Снимок при нажатии не снялся — галочка всё равно нажимается, снимок
+    // снимается при отправке (владелец, 2026-09-22).
     cleanup();
-    render(<IssueModal onClose={() => {}} seen={{ log: "л", shot: null }} onSend={async () => {}} />);
-    expect(screen.getByRole("checkbox", { name: "отправить скриншот" })).toBeDisabled();
+    render(<IssueModal onClose={() => {}} seen={{ log: "л", shot: null }}
+      capture={async () => ({ shot: "data:image/png;base64,BBBB" })}
+      onSend={async (t, extra) => { sent.push([t, extra]); }} />);
+    const late = screen.getByRole("checkbox", { name: "отправить скриншот" });
+    expect(late).not.toBeDisabled();
+    fireEvent.click(late);
+    expect(late).toBeChecked();
+    fireEvent.change(screen.getByLabelText("сообщение об ошибке"), { target: { value: "поздно" } });
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    await waitFor(() => expect(sent).toHaveLength(3));
+    expect(sent[2]).toEqual(["поздно", { log: "л", shot: "data:image/png;base64,BBBB" }]);
   });
 
   it("сервер отказал — окно остаётся и говорит словами", async () => {

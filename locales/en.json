@@ -3234,7 +3234,6 @@
  "ью": "",
  "экран": "screen",
  "экран — половины там нет ни у какого мини-приложения. Зато его можно": "screen — no mini app has a half there. But it can be",
- "Экран в момент вопроса": "The screen at the moment of the question",
  "экран показывается": "screen is being shared",
  "электрик": "",
  "эта": "this",
@@ -3295,5 +3294,6 @@
  "TELEGRAM_BOT_TOKEN не задан — бот приглашений выключен": "",
  "TELEGRAM_BOT_TOKEN не задан — планировщик напоминаний выключен": "",
  "timeline · вся работа во времени": "timeline · all work over time",
- "true — принять, false — вернуть": "true — accept, false — return"
+ "true — принять, false — вернуть": "true — accept, false — return",
+ "Экран в момент вопроса": "The screen at the moment of the question"
 }

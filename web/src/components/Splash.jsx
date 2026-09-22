@@ -8,6 +8,11 @@ import { C, Logo } from "./ui.jsx";
    `scripts/logo-loader.mjs` (там же описано, что и как крутится). Это
    SMIL-файл в <img>: ни скрипта, ни перерисовок React на каждый кадр.
    Системная настройка «меньше движения» — неподвижный `Logo`. */
+/* Сколько окно держится самое меньшее: сервер отвечает за доли секунды,
+   и без этого логотип мелькал бы, не успев повернуться. Оборот и первые
+   упавшие яблоки укладываются в это время (владелец, 2026-09-22). */
+export const SPLASH_MS = 3400;
+
 const reduced = () => typeof window !== "undefined" && typeof window.matchMedia === "function"
   && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 

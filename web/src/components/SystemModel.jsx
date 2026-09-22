@@ -14,7 +14,7 @@ import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
 import { issuesUnread as issuesUnread_ } from "../identity.js";
 import CodeGate from "./CodeGate.jsx";
-import Splash from "./Splash.jsx";
+import Splash, { SPLASH_MS } from "./Splash.jsx";
 import SettingsModal from "./SettingsModal.jsx";
 import { tabLocked } from "../plans.js";
 import { setStorage } from "../session.js";
@@ -711,9 +711,10 @@ function ScenarioVersions({ id, when, stamp = "", onLoad }) {
     </div>);
 }
 
-/* `splash` — окно загрузки (Splash.jsx), пока сервер не ответил, кто мы.
-   В тестах выключено: они смотрят на приложение сразу. */
-export default function SystemModel({splash=import.meta.env.MODE!=="test"}={}){
+/* `splash` — окно загрузки (Splash.jsx): пока сервер не ответил, кто мы,
+   и не меньше `splashMs`, чтобы логотип успел повернуться. В тестах
+   выключено: они смотрят на приложение сразу. */
+export default function SystemModel({splash=import.meta.env.MODE!=="test",splashMs=SPLASH_MS}={}){
   const [entities,setEntities]=useState(ENTITIES0);
   const [traits,setTraits]=useState(TRAITS0);
   const [kinds,setKinds]=useState(KINDS0);
@@ -797,6 +798,8 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test"}={}){
   const [procsOpen,setProcsOpen]=useState(false);
   const [me,setMe]=useState(SOLO);
   const [booted,setBooted]=useState(false);
+  const [splashHeld,setSplashHeld]=useState(true);
+  useEffect(()=>{ const t=setTimeout(()=>setSplashHeld(false),splashMs); return ()=>clearTimeout(t); },[splashMs]);
   /* Выбранный раздел схемы может оказаться закрытым для роли — тогда
      открывается первый, который ей доступен (владелец, 2026-09-20).
      Иначе вкладка показывала бы пустоту под рядом кнопок. */
@@ -1807,7 +1810,7 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test"}={}){
   /* Сервис кодов включён, ключа на устройстве нет — сначала ключ
      (владелец, 2026-09-21): без него хранилище не отвечает, и показывать
      нечего. */
-  if(splash&&!booted) return <Splash/>;
+  if(splash&&(!booted||splashHeld)) return <Splash/>;
 
   if(me.needsCode) return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding: "var(--space-12)",

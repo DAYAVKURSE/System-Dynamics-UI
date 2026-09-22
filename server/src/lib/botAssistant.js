@@ -455,8 +455,8 @@ export async function onAssistantButton(cb, from, deps = {}) {
    ответ приходит в чат бота — там же он и продолжает разговор кнопкой
    «Уточнить». Вместе с вопросом приходит то, что он видел на экране:
    текстом — в подсказку модели, картинкой — в чат, чтобы было видно, о
-   чём спрашивали. Сам вопрос тоже кладётся в чат: ответ без вопроса
-   читался бы как реплика ниоткуда. */
+   чём спрашивали. Сам вопрос тоже кладётся в чат (подписью к картинке,
+   если она есть): ответ без вопроса читался бы как реплика ниоткуда. */
 export const APP_LEAD = "Вопрос из приложения:";
 export async function askFromApp(deps, { userId, chatId, question, context = "", shot = null }) {
   const a = deps.assistant || deps;
@@ -464,11 +464,21 @@ export async function askFromApp(deps, { userId, chatId, question, context = "",
   const q = String(question || "").trim();
   if (!q) throw new Error("question is required");
   if (!send || !a.ask) throw new Error("Помощник здесь не подключён");
-  await send(chatId, `${APP_LEAD}\n${q}`);
+  /* Снимок и вопрос — одним сообщением: вопрос подписью к картинке
+     (владелец, 2026-09-22). Подпись у Telegram не длиннее 1024 знаков:
+     длинный вопрос — отдельно текстом, картинка следом без подписи. Не
+     отправилась картинка — вопрос всё равно уходит текстом. */
+  const lead = `${APP_LEAD}\n${q}`;
+  let told = false;
   if (shot?.length && deps.tg?.sendPhoto) {
-    try { await deps.tg.sendPhoto(chatId, { bytes: shot, name: "screen.png", caption: "Экран в момент вопроса" }); }
-    catch (err) { logOf(deps)(`снимок экрана не отправлен: ${err.message}`); }
+    const fits = lead.length <= 1024;
+    if (!fits) { await send(chatId, lead); told = true; }
+    try {
+      await deps.tg.sendPhoto(chatId, { bytes: shot, name: "screen.png", caption: fits ? lead : "" });
+      told = true;
+    } catch (err) { logOf(deps)(`снимок экрана не отправлен: ${err.message}`); }
   }
+  if (!told) await send(chatId, lead);
   const image = shot?.length ? { mime: "image/png", data: Buffer.from(shot).toString("base64") } : null;
   return askQuestion(deps, { userId, chatId, question: q, context, image });
 }

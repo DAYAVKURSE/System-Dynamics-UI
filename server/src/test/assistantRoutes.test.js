@@ -533,11 +533,12 @@ describe("вопрос из приложения", () => {
       .send({ question: "Почему тут пусто?", screen: "Вкладки: [Задачи]\nПРОГНОЗ", log: "12:00 кнопка «сохранить»", shot });
     expect(r.status).toBe(202);
     await new Promise((res) => setTimeout(res, 50));
-    const texts = tg.filter((c) => c.method === "sendMessage").map((c) => c.body.text);
-    expect(texts[0]).toBe("Вопрос из приложения:\nПочему тут пусто?");
+    // Снимок и вопрос — одним сообщением: вопрос подписью к картинке.
     const photo = tg.find((c) => c.method === "sendPhoto");
     expect(photo.body.photo).toBe("<9>");
-    expect(photo.body.caption).toBe("Экран в момент вопроса");
+    expect(photo.body.caption).toBe("Вопрос из приложения:\nПочему тут пусто?");
+    const texts = tg.filter((c) => c.method === "sendMessage").map((c) => c.body.text);
+    expect(texts).not.toContain("Вопрос из приложения:\nПочему тут пусто?");
     // Пустой вопрос — 400.
     expect((await request(app).post("/api/assistant/ask-from-app").set(as(200)).send({ question: " " })).status).toBe(400);
   });

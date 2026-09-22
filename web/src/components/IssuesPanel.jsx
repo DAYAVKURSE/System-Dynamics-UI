@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Avatar, BAD, C, OK, S, btn } from "./ui.jsx";
 import Modal from "./Modal.jsx";
+import { ShotCheck, captureScreen, shotToSend } from "./WandModal.jsx";
 import { dropIssue, fixIssue, issuesSeen, listIssues } from "../identity.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -136,13 +137,14 @@ export default function IssuesPanel({ me, onSeen }) {
    посреди работы, и уводить за ней на отдельную вкладку значит требовать,
    чтобы человек сначала вспомнил, куда идти, а потом — что хотел
    сказать. Поле одно, и просьба над ним — ровно та, что заказана. */
-export function IssueModal({ onClose, onSend, seen = null }) {
+export function IssueModal({ onClose, onSend, seen = null, capture = captureScreen }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   /* Снимок экрана — только по галочке (владелец, 2026-09-21): на экране
      бывает чужое, и человек решает сам. Снят он в момент нажатия на
-     значок (`seen`), до окна — окно на снимке не нужно. */
+     значок (`seen`), до окна; не снялся тогда — снимается при отправке
+     (WandModal.shotToSend), окно в снимок не попадает. */
   const [withShot, setWithShot] = useState(false);
 
   const send = async () => {
@@ -150,7 +152,8 @@ export function IssueModal({ onClose, onSend, seen = null }) {
     if (!body) return;
     setBusy(true); setMsg("");
     try {
-      await onSend(body, { log: seen?.log || "", shot: withShot && seen?.shot ? seen.shot : null });
+      const shot = await shotToSend(withShot, seen, capture);
+      await onSend(body, { log: seen?.log || "", shot });
       onClose();
     } catch (e) { setMsg(e.message); setBusy(false); }
   };
@@ -162,12 +165,7 @@ export function IssueModal({ onClose, onSend, seen = null }) {
         disabled={busy} onChange={(e) => setText(e.target.value)}
         style={{ ...S.inp, width: "100%", marginTop: "var(--space-8)", resize: "vertical",
           minHeight: 90, lineHeight: 1.5 }} />
-      <label className="flex items-center gap-2" style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-8)",
-        cursor: seen?.shot ? "pointer" : "default", opacity: seen?.shot ? 1 : 0.5 }}>
-        <input type="checkbox" checked={withShot} disabled={busy || !seen?.shot}
-          onChange={(e) => setWithShot(e.target.checked)} />
-        отправить скриншот
-      </label>
+      <ShotCheck checked={withShot} onChange={setWithShot} disabled={busy} />
       {msg && <div role="status" style={{ fontSize: "var(--fs-hint)", color: BAD, marginTop: "var(--space-4)" }}>{msg}</div>}
       <div className="flex gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !text.trim()}

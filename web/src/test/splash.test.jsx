@@ -40,11 +40,21 @@ describe("окно загрузки в приложении", () => {
       return { ok: true, json: async () => ({}) };
     });
     resetIdentity();
-    render(<SystemModel splash />);
+    render(<SystemModel splash splashMs={0} />);
     expect(screen.getByLabelText("загрузка")).toBeInTheDocument();
     expect(screen.queryByLabelText("blockTree")).toBeNull();
     answer();
     await waitFor(() => expect(screen.queryByLabelText("загрузка")).toBeNull());
+    expect(screen.getByLabelText("blockTree")).toBeInTheDocument();
+  });
+  it("держится не меньше заданного, даже если сервер ответил сразу", async () => {
+    global.fetch = vi.fn(async () => ({ ok: false }));
+    resetIdentity();
+    render(<SystemModel splash splashMs={250} />);
+    expect(screen.getByLabelText("загрузка")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(screen.getByLabelText("загрузка")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText("загрузка")).toBeNull(), { timeout: 1500 });
     expect(screen.getByLabelText("blockTree")).toBeInTheDocument();
   });
 });

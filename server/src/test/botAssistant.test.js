@@ -721,14 +721,26 @@ describe("вопрос из приложения", () => {
     const seen = [];
     d.assistant.ask = (userId, q, ctx) => { seen.push({ q, ctx }); return Promise.resolve("вот ответ"); };
     const photos = [];
-    d.tg = { sendPhoto: async (chatId, p) => { photos.push({ chatId, name: p.name, size: p.bytes.length }); } };
+    d.tg = { sendPhoto: async (chatId, p) => { photos.push({ chatId, name: p.name, size: p.bytes.length, caption: p.caption }); } };
     const r = await askFromApp(d, { userId: "200", chatId: 200, question: "Почему тут пусто?",
       context: "## Экран\nВкладки: [Задачи]", shot: Buffer.from("png") });
     await r.done;
-    expect(sent[0].text).toBe(`${APP_LEAD}\nПочему тут пусто?`);
-    expect(photos).toEqual([{ chatId: 200, name: "screen.png", size: 3 }]);
+    // Вопрос — подписью к снимку, одним сообщением (владелец, 2026-09-22).
+    expect(photos).toEqual([{ chatId: 200, name: "screen.png", size: 3, caption: `${APP_LEAD}\nПочему тут пусто?` }]);
+    expect(sent.map((m) => m.text)).not.toContain(`${APP_LEAD}\nПочему тут пусто?`);
     expect(seen).toEqual([{ q: "Почему тут пусто?", ctx: "## Экран\nВкладки: [Задачи]" }]);
     expect(sent.map((m) => m.text)).toContain("вот ответ");
+    // Длинный вопрос в подпись не влезает — текстом, картинка следом.
+    const long = "х".repeat(1100);
+    const r2 = await askFromApp(d, { userId: "200", chatId: 200, question: long, shot: Buffer.from("png") });
+    await r2.done;
+    expect(photos[1].caption).toBe("");
+    expect(sent.map((m) => m.text)).toContain(`${APP_LEAD}\n${long}`);
+    // Картинка не ушла — вопрос всё равно в чате текстом.
+    d.tg.sendPhoto = async () => { throw new Error("нет сети"); };
+    const r3 = await askFromApp(d, { userId: "200", chatId: 200, question: "Ещё?", shot: Buffer.from("png") });
+    await r3.done;
+    expect(sent.map((m) => m.text)).toContain(`${APP_LEAD}\nЕщё?`);
   });
 
   it("без снимка обходится, а пустой вопрос — отказ", async () => {

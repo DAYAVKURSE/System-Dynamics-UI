@@ -40,8 +40,10 @@ export default function Modal({ title, children, onClose }) {
     };
   }, [onClose]);
 
+  // data-modal — чтобы снимок экрана (WandModal.captureScreen) не включал
+  // само окно, если снимают, когда оно уже открыто.
   const node = (
-    <div role="presentation" onClick={onClose}
+    <div role="presentation" onClick={onClose} data-modal=""
       style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         background: "rgba(5,7,12,.62)", backdropFilter: "blur(2px)",
         zIndex: 50, display: "flex", alignItems: "flex-start", justifyContent: "center",
