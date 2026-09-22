@@ -307,6 +307,59 @@ export function parseText(text = "", model = {}, proc = {}) {
   };
   const ensureBranch = (row) => { if (!branch) newTask("", row); return branch; };
   const err = (row, message) => errors.push({ row, line: row + 1, message });
+  /* ─── Ошибки синтаксиса словами (владелец, 2026-09-22: «если пользователь
+     что-то вводит неправильно — под полем предупреждение с текстом, что
+     именно») ───
+     · метка без двоеточия или с другим знаком: «Кто Партнёр», «Кто; Партнёр»;
+     · метка с опечаткой: «Отдоёт: …»;
+     · пустая метка: «Отдаёт:» без ресурса;
+     · незакрытая или лишняя скобка в строке;
+     · «Кому:» после «Берёт:» и «От кого:» после «Отдаёт:»;
+     · «Если:» без «То:» и задачи за ним;
+     · повтор «Кто:», «Берёт:», «Отдаёт:» в одной задаче — одна задача,
+       одно действие. */
+  const plain = (kind) => LABEL_TEXT[kind].replace(/:$/, "");
+  const badLabel = (trimmed) => {
+    const m = trimmed.match(/^([А-Яа-яЁё]+(?:\s+[А-Яа-яЁё]+)?)/);
+    if (!m) return null;
+    for (const head of [m[1], m[1].split(/\s+/)[0]]) {
+      const kind = LABEL_KIND.get(nameKey(head));
+      if (!kind) continue;
+      const after = trimmed.slice(head.length).trimStart();
+      const ch = after[0] || "";
+      if (ch === ":") return null;
+      return /[^А-Яа-яЁёA-Za-z0-9«»"(]/.test(ch)
+        ? `«${head}${ch}» — после метки должно стоять двоеточие, а не «${ch}»: «${plain(kind)}: …»`
+        : `«${head}» — после метки нужно двоеточие: «${plain(kind)}: …»`;
+    }
+    return null;
+  };
+  const dist = (a, b) => {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j += 1) d[0][j] = j;
+    for (let i = 1; i <= a.length; i += 1) for (let j = 1; j <= b.length; j += 1) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    return d[a.length][b.length];
+  };
+  const typoLabel = (trimmed) => {
+    const m = trimmed.match(/^([А-Яа-яЁё]+(?:\s+[А-Яа-яЁё]+)?)\s*:/);
+    if (!m) return null;
+    const k = nameKey(m[1]);
+    if (LABEL_KIND.has(k) || k.length < 3) return null;
+    let best = null;
+    LABEL_KIND.forEach((kind, w) => { const d = dist(k, w); if (d <= 2 && d < w.length / 2 && (!best || d < best.d)) best = { d, kind }; });
+    return best ? `«${m[1]}:» — такой метки нет; похоже на «${plain(best.kind)}:»` : null;
+  };
+  const unbalanced = (text) => {
+    for (const [o, c] of [["(", ")"], ["{", "}"], ["[", "]"]]) {
+      const opens = (text.match(new RegExp(`\\${o}`, "g")) || []).length;
+      const closes = (text.match(new RegExp(`\\${c}`, "g")) || []).length;
+      if (opens > closes) return `не закрыта скобка «${o}»`;
+      if (closes > opens) return `лишняя закрывающая скобка «${c}»`;
+    }
+    return null;
+  };
   rows.forEach((raw, row) => {
     const line = raw;
     const trimmed = line.trim();
@@ -419,10 +472,13 @@ export function parseText(text = "", model = {}, proc = {}) {
         last = "else"; lastStep = null; lastWho = null; return;
       }
       if (lab.kind === "who") {
-        const w = { ...parseWho(rest, rs, model), row };
+        const ub = unbalanced(rest); if (ub) err(row, ub);
+        const w = { ...parseWho(rest, rs, model), row, labeled: true };
         branch.who.push(w); lastWho = w; last = "who"; lastStep = null; return;
       }
       if (lab.kind === "take" || lab.kind === "give") {
+        if (!rest.trim()) { err(row, `«${LABEL_TEXT[lab.kind]}» — назовите ресурс`); last = lab.kind; lastStep = null; return; }
+        const ub = unbalanced(rest); if (ub) err(row, ub);
         const items = splitItems(rest, rs).map((it) => parseItem(it, traits, countItems(branch)));
         const step = { kind: lab.kind, items, row, label: lab.label, plural: lab.plural, or: [], to: null, from: null, tos: [], froms: [],
           span: items.length ? { start: items[0].span.start, end: items[items.length - 1].span.end } : { start: rs, end: rs } };
@@ -430,6 +486,10 @@ export function parseText(text = "", model = {}, proc = {}) {
       }
       if (lab.kind === "to" || lab.kind === "from") {
         if (!lastStep) { err(row, `«${LABEL_TEXT[lab.kind]}» без «Берёт:»/«Отдаёт:» перед ней`); return; }
+        if (lab.kind === "to" && lastStep.kind === "take") { err(row, "«Кому:» после «Берёт:» — кто отдаёт, пишется в «От кого:»"); return; }
+        if (lab.kind === "from" && lastStep.kind === "give") { err(row, "«От кого:» после «Отдаёт:» — кто получает, пишется в «Кому:»"); return; }
+        if (!rest.trim()) { err(row, lab.kind === "to" ? "«Кому:» — назовите, кому" : "«От кого:» — назовите, от кого"); return; }
+        { const ub = unbalanced(rest); if (ub) err(row, ub); }
         /* Получатель/отправитель — как участник (владелец, 2026-09-18):
            «{рука}» и «@сотрудник» читаются, роли на этих строках не в счёт. */
         const w = parseWho(rest, rs, model);
@@ -455,12 +515,15 @@ export function parseText(text = "", model = {}, proc = {}) {
       }
       if (lab.kind === "or") {
         if (!lastStep) { err(row, "«Или:» без «Отдаёт:» перед ней"); return; }
+        if (!rest.trim()) { err(row, "«Или:» — назовите ресурс варианта"); return; }
+        { const ub = unbalanced(rest); if (ub) err(row, ub); }
         splitItems(rest, rs).forEach((it) => lastStep.or.push({ ...parseItem(it, traits, countItems(branch)), row }));
         last = "or"; return;
       }
       return;
     }
     // Без метки.
+    { const bad = badLabel(trimmed) || typoLabel(trimmed); if (bad) { err(row, bad); return; } }
     if (atStart || !last) {
       if (gap >= 2 || !fn || (fn.tasks.length === 0 && !fn.name)) {
         if (fn && !fn.name && fn.tasks.length === 0) { fn.name = trimmed; fn.span = { start: line.length - line.trimStart().length, end: line.trimEnd().length }; fn.row = row; }
@@ -509,6 +572,21 @@ export function parseText(text = "", model = {}, proc = {}) {
   // Обязательное: «Кто» без «Берёт»/«Отдаёт».
   funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => {
     if (b.who.length && !b.steps.length) err(b.who[0].row, "после «Кто:» нужно «Берёт:» или «Отдаёт:»");
+  })));
+  if (pending) err(pending.row, "«Если:» — после условия нужны «То:» и задача");
+  /* Одна задача — одно действие (владелец, 2026-09-22): второе «Кто:»,
+     «Берёт:» или «Отдаёт:» в той же задаче — это уже другая задача. */
+  funcs.forEach((f) => f.tasks.forEach((t) => t.branches.forEach((b) => {
+    const twice = (kind, rowsOf) => {
+      if (rowsOf.length < 2) return;
+      const how = kind === "who"
+        ? "ещё одного участника пишите следующей строкой без метки, а другое действие — отдельной задачей"
+        : "вынесите второе в отдельную задачу";
+      err(rowsOf[1], `в задаче «${t.name || "без названия"}» «${LABEL_TEXT[kind]}» повторяется (строки ${rowsOf.map((r) => r + 1).join(", ")}) — одна задача — одно действие: ${how}`);
+    };
+    twice("who", b.who.filter((w) => w.labeled).map((w) => w.row));
+    twice("take", b.steps.filter((s) => s.kind === "take").map((s) => s.row));
+    twice("give", b.steps.filter((s) => s.kind === "give").map((s) => s.row));
   })));
   return { funcs, errors, rows };
 }
