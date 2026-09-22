@@ -295,14 +295,24 @@ describe("статус и кнопки под ним", () => {
      отпустят, или падает по отмене. Отпускаются ВСЕ ждущие вызовы, а не
      последний: под нагрузкой второй вызов модели успевает встать до
      «отпустить», и первый иначе висел бы вечно. */
+  /* «Отпустить» раньше, чем модель спросили (под нагрузкой очередь доходит
+     до неё позже, чем тест успел подождать), — не потеря: ответ ждёт
+     следующего вызова. Иначе вызов висел бы вечно, и тест падал по
+     времени (так и было в CI, 2026-09-22). */
+  let ready = null;
   const complete = (p) => new Promise((resolve, reject) => {
     calls.push(p);
+    if (ready != null) { const t = ready; ready = null; resolve(t); return; }
     pending.push(resolve);
     p.signal.addEventListener("abort", () => reject(new Error("Запрос отменён")));
   });
-  const release = (text) => { pending.splice(0).forEach((r) => r(text)); };
+  const release = (text) => {
+    if (pending.length) pending.splice(0).forEach((r) => r(text));
+    else ready = text;
+  };
+  const ids = [];
   const live = () => ({
-    assistant: { ask: queue.askNow, cancel: queue.cancel, memory },
+    assistant: { ask: (...a) => { const p = queue.askNow(...a); ids.push(p.id); return p; }, cancel: queue.cancel, memory },
     send: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); return { message_id: sent.length }; },
     edit: async (chatId, messageId, text, keyboard) => { edits.push({ chatId, messageId, text, keyboard }); },
     answer: async (id, text) => { answered.push({ id, text }); },
@@ -310,10 +320,17 @@ describe("статус и кнопки под ним", () => {
   const press = (data, who = from) => onAssistantButton(
     { id: "cb1", data, from: who, message: { message_id: 1, chat: { id: who.id } } }, who, live());
   const keys = (k) => (k?.inline_keyboard || []).flat().map((b) => [b.text, b.callback_data]);
-  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const settle = async () => {
+    for (let i = 0; i < 400; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 5));
+      const waiting = ids.some((id) => queue.find(id)?.status === "pending");
+      if (!waiting || pending.length) return;
+    }
+  };
 
   beforeEach(() => {
-    edits = []; answered = []; calls = []; pending = [];
+    edits = []; answered = []; calls = []; pending = []; ready = null; ids.length = 0;
     queue = createQueue({ complete, modelFor: () => MODEL, contextFor: async () => "ctx", log: () => {} });
   });
 
@@ -531,22 +548,45 @@ describe("статус и кнопки под ним", () => {
    утром «Уточнить» молча склеивало вечерний вопрос с утренним, а если
    утренний уже был забыт — вечерний текст выбрасывался с «задайте заново». */
 describe("«Уточнить» — срок ожидания", () => {
-  let queue, calls, release;
+  let queue, calls;
   const MODEL = { kind: "openai", key: "sk-test-0123456789", model: "gpt-4o-mini", providerName: "OpenAI" };
-  const complete = (p) => new Promise((resolve) => { calls.push(p); release = resolve; });
+  /* Как и выше: «отпустить» до вызова модели — ответ ждёт следующего
+     вызова, а не теряется (под нагрузкой тест падал по времени). */
+  let pending = [];
+  let ready = null;
+  const complete = (p) => new Promise((resolve) => {
+    calls.push(p);
+    if (ready != null) { const t = ready; ready = null; resolve(t); return; }
+    pending.push(resolve);
+  });
+  const release = (text) => {
+    if (pending.length) pending.splice(0).forEach((r) => r(text));
+    else ready = text;
+  };
+  const ids = [];
   const live = () => ({
-    assistant: { ask: queue.askNow, cancel: queue.cancel, memory },
+    assistant: { ask: (...a) => { const p = queue.askNow(...a); ids.push(p.id); return p; }, cancel: queue.cancel, memory },
     send: async (chatId, text, keyboard) => { sent.push({ chatId, text, keyboard }); return { message_id: sent.length }; },
     edit: async () => {},
     answer: async () => {},
   });
   const refine = (id) => onAssistantButton(
     { id: "cb1", data: `ai:refine:${id}`, from, message: { message_id: 1, chat: { id: from.id } } }, from, live());
-  const settle = () => new Promise((r) => setTimeout(r, 5));
+  /* «Дать улечься» — не пять миллисекунд, а пока очередь не дойдёт до
+     модели (или всё уже отвечено): под нагрузкой (CI, 2026-09-22) пяти
+     миллисекунд не хватало, и тесты рассыпались по времени. */
+  const settle = async () => {
+    for (let i = 0; i < 400; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 5));
+      const waiting = ids.some((id) => queue.find(id)?.status === "pending");
+      if (!waiting || pending.length) return;
+    }
+  };
   const tick = (ms) => vi.setSystemTime(Date.now() + ms);
 
   beforeEach(() => {
-    calls = [];
+    calls = []; pending = []; ready = null; ids.length = 0;
     queue = createQueue({ complete, modelFor: () => MODEL, contextFor: async () => "ctx", log: () => {} });
     vi.useFakeTimers({ toFake: ["Date"] });
   });
