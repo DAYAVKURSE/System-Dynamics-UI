@@ -134,7 +134,11 @@ export const CANCELLED = "Отменено";
  * Возвращает `{planned, answer, plan, unsolved}`.
  */
 export async function runPlanned({ question, run, onPlan = null, signal = null,
-  maxReplans = MAX_REPLANS, title = "" }) {
+  maxReplans = MAX_REPLANS, title = "", stopWhen = null }) {
+  /* Ответ, на котором план обрывается: изменение ждёт подтверждения
+     человека кнопками (ASKED_TEXT в runAgent) — дальше идти нельзя, шаги
+     опирались бы на несделанное. Такой ответ и есть ответ человеку. */
+  const stopped = (text) => Boolean(stopWhen && stopWhen(String(text || "")));
   const show = async (plan) => {
     if (!onPlan) return;
     try { await onPlan(render(plan, { title })); } catch { /* статус не показался */ }
@@ -143,7 +147,7 @@ export async function runPlanned({ question, run, onPlan = null, signal = null,
 
   const first = await run(question);
   const plan = parsePlan(first);
-  if (!plan) return { planned: false, answer: first, plan: null, unsolved: false };
+  if (!plan || stopped(first)) return { planned: false, answer: first, plan: null, unsolved: false };
   if (plan.impossible) {
     return { planned: true, answer: `${UNSOLVED_LEAD} ${plan.impossible}`, plan: null, unsolved: true };
   }
@@ -179,7 +183,9 @@ export async function runPlanned({ question, run, onPlan = null, signal = null,
   while (i < plan.steps.length) {
     halt();
     const step = plan.steps[i];
-    const out = parseStep(await run(stepPrompt(plan, i)));
+    const raw = await run(stepPrompt(plan, i));
+    if (stopped(raw)) return { planned: true, answer: String(raw).trim(), plan, unsolved: false, stopped: true };
+    const out = parseStep(raw);
     step.result = out.result;
     if (out.ok) {
       step.state = "done";
@@ -204,7 +210,9 @@ export async function runPlanned({ question, run, onPlan = null, signal = null,
     while (i < plan.steps.length) {
       halt();
       const step = plan.steps[i];
-      const out = parseStep(await run(stepPrompt(plan, i)));
+      const raw = await run(stepPrompt(plan, i));
+      if (stopped(raw)) return { planned: true, answer: String(raw).trim(), plan, unsolved: false, stopped: true };
+      const out = parseStep(raw);
       step.result = out.result;
       if (out.ok) { step.state = "done"; await show(plan); i += 1; continue; }
       step.state = "failed";

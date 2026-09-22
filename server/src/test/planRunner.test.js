@@ -139,6 +139,13 @@ describe("выполнение", () => {
       .toMatchObject({ unsolved: true, answer: `${UNSOLVED_LEAD} нечем` });
   });
 
+  it("ответ «жду подтверждения» обрывает план: он и есть ответ человеку", async () => {
+    const m = scripted([plan(["взять", "сдать"]), "Жду вашего подтверждения — кнопки отправлены:\nвзять задачу"]);
+    const r = await runPlanned({ question: "x", run: m.run, stopWhen: (t) => t.startsWith("Жду вашего подтверждения") });
+    expect(r).toMatchObject({ planned: true, stopped: true, answer: "Жду вашего подтверждения — кнопки отправлены:\nвзять задачу" });
+    expect(m.prompts).toHaveLength(2);
+  });
+
   it("итог «не достигнут» — ещё круг плана; отмена останавливает между шагами", async () => {
     const m = scripted([plan(["а"]), ok("а"), '{"notDone": "б не сделано"}', plan(["а", "б"]), ok("б"), "Теперь всё."]);
     const r = await runPlanned({ question: "x", run: m.run });

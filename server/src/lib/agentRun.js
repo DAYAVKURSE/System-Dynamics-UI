@@ -1,6 +1,6 @@
 import * as oauth from "./mcpOauth.js";
 import * as settings from "./assistantSettings.js";
-import { actionsNote, mcpNote, modelsNote, runAgent, skillNote } from "./assistantAgent.js";
+import { ASKED_TEXT, actionsNote, mcpNote, modelsNote, runAgent, skillNote } from "./assistantAgent.js";
 import { contextFor as contextForDefault } from "./assistantContext.js";
 import { complete as completeDefault } from "./aiProviders.js";
 import { identify } from "./orgStore.js";
@@ -86,7 +86,7 @@ export async function runAgentPlanned({
     userId: who, agentId, question: q, system, model, complete,
     isOwner, ask: agent.ask !== false, servers, signal, onConfirm, onAuthNeeded, extra,
   });
-  return runPlanned({ question, run, onPlan, signal, title });
+  return runPlanned({ question, run, onPlan, signal, title, stopWhen: (t) => t.startsWith(ASKED_TEXT) });
 }
 
 /* ─────── сообщение-статус с планом ───────

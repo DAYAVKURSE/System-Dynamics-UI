@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { complete as completeDefault } from "./aiProviders.js";
 import { contextFor as contextForDefault } from "./assistantContext.js";
 import * as settings from "./assistantSettings.js";
-import { runAgent } from "./assistantAgent.js";
+import { ASKED_TEXT, runAgent } from "./assistantAgent.js";
 import { identify } from "./orgStore.js";
 import { SYSTEM_PROMPT, mcpServersFor, systemFor } from "./agentRun.js";
 import { runPlanned } from "./planRunner.js";
@@ -211,7 +211,7 @@ export function createQueue({
         });
       };
       const r = await withTimeout(runPlanned({ question: it.question, run, onPlan: it.onPlan,
-        signal: it.abort.signal }), answerTimeoutMs,
+        signal: it.abort.signal, stopWhen: (t) => t.startsWith(ASKED_TEXT) }), answerTimeoutMs,
       `Модель не ответила за ${Math.round(answerTimeoutMs / 60000)} мин`);
       const text = r.answer;
       progress(it, "answer");
