@@ -14,7 +14,6 @@ import { callFromLocation } from "../calls.js";
 import RegisterPanel from "./RegisterPanel.jsx";
 import { issuesUnread as issuesUnread_ } from "../identity.js";
 import CodeGate from "./CodeGate.jsx";
-import Splash from "./LogoLoader.jsx";
 import SettingsModal from "./SettingsModal.jsx";
 import { tabLocked } from "../plans.js";
 import { setStorage } from "../session.js";
@@ -711,9 +710,7 @@ function ScenarioVersions({ id, when, stamp = "", onLoad }) {
     </div>);
 }
 
-/* `splash` — окно загрузки (LogoLoader.jsx), пока сервер не ответил, кто
-   мы. В тестах выключено: они смотрят на приложение сразу. */
-export default function SystemModel({splash=import.meta.env.MODE!=="test"}={}){
+export default function SystemModel(){
   const [entities,setEntities]=useState(ENTITIES0);
   const [traits,setTraits]=useState(TRAITS0);
   const [kinds,setKinds]=useState(KINDS0);
@@ -796,7 +793,6 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test"}={}){
   // Спойлер процессов на «Управлении»: закрыт при открытии, помнится в сеансе.
   const [procsOpen,setProcsOpen]=useState(false);
   const [me,setMe]=useState(SOLO);
-  const [booted,setBooted]=useState(false);
   /* Выбранный раздел схемы может оказаться закрытым для роли — тогда
      открывается первый, который ей доступен (владелец, 2026-09-20).
      Иначе вкладка показывала бы пустоту под рядом кнопок. */
@@ -838,8 +834,7 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test"}={}){
     else whoAmI().then(m=>setMe(m)).catch(()=>{});
   };
   useEffect(()=>{ let live=true;
-    whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{})
-      .then(()=>{ if(live) setBooted(true); });
+    whoAmI().then(m=>{ if(live) setMe(m); }).catch(()=>{});
     return ()=>{ live=false; };
   },[]);
   /* Люди нужны не только на своей вкладке: их выбирают в воркеры актива и
@@ -1807,8 +1802,6 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test"}={}){
   /* Сервис кодов включён, ключа на устройстве нет — сначала ключ
      (владелец, 2026-09-21): без него хранилище не отвечает, и показывать
      нечего. */
-  if(splash&&!booted) return <Splash/>;
-
   if(me.needsCode) return (
     <div style={{background:C.ink,color:C.text,minHeight:"100%",padding: "var(--space-12)",
       fontFamily:"var(--font-sans)"}}>
