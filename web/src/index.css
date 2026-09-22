@@ -58,7 +58,8 @@ body::after {
   z-index: -1;
   pointer-events: none;
   background: url("/bg-cubes.jpg") repeat 0 0 / 512px 512px;
-  opacity: 0.28;
+  /* 0,22 — на пятую часть тусклее первых 0,28 (владелец, 2026-09-22). */
+  opacity: 0.22;
 }
 
 /* Родные чекбоксы и радио — в мяте и циане системы, а не в синем

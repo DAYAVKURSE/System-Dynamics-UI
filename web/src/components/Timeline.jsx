@@ -20,6 +20,7 @@ import { barOf } from "../lib/timelineDoc.js";
    ════════════════════════════════════════════════════════════════ */
 
 const DAY = 86400000;
+const ROW = 34;   // высота строки задачи в общем поле
 const fmtD = (ms) => new Date(ms).toLocaleDateString("ru-RU",
   { day: "2-digit", month: "2-digit", year: "2-digit" });
 const fmtDT = (v) => {
@@ -139,57 +140,67 @@ export default function Timeline({ tasks, funcs = [], traits = [], entities = []
       <div style={{ ...S.card, marginBottom: "var(--space-8)", overflowX: "auto",
         WebkitOverflowScrolling: "touch" }}>
         <div style={{ minWidth: 560 }}>
-          {/* Шкала времени */}
+          {/* Шкала времени: даты по засечкам, а на месте сегодняшнего дня —
+              одно слово «сегодня», дата под ним не пишется (владелец,
+              2026-09-22: слово накладывалось на дату). */}
           <div style={{ display: "flex", marginBottom: "var(--space-4)" }}>
             <div style={{ width: 150, flex: "0 0 150px" }} />
             <div style={{ flex: 1, position: "relative", height: 16 }}>
-              {ticks.map((t, i) => (
+              {ticks.filter((t) => Math.abs(pct(t) - pct(now)) > 14).map((t, i) => (
                 <span key={i} style={{ position: "absolute", left: `${pct(t)}%`,
                   transform: "translateX(-50%)", fontSize: "var(--fs-hint)", color: C.muted,
                   whiteSpace: "nowrap" }}>{fmtD(t)}</span>))}
-              <span style={{ position: "absolute", left: `${pct(now)}%`, bottom: -2,
+              <span aria-label="сегодня" style={{ position: "absolute", left: `${pct(now)}%`,
                 transform: "translateX(-50%)", fontSize: "var(--fs-hint)", color: ACC,
                 whiteSpace: "nowrap" }}>сегодня</span>
             </div>
           </div>
 
-          {rows.map(({ t, func, bar }) => {
-            const st = STATUSES.find((x) => x.id === t.status) || { color: NEU, name: "—" };
-            const on = t.id === openId;
-            const subs = t.submissions || [];
-            return (
-              <div key={t.id} style={{ display: "flex", alignItems: "center",
-                marginBottom: "var(--space-4)", cursor: "pointer" }}
-                onClick={() => setOpenId(on ? null : t.id)}>
-                <div style={{ width: 150, flex: "0 0 150px", paddingRight: "var(--space-8)",
-                  fontSize: "var(--fs-hint)", color: on ? ACC : C.text, lineHeight: 1.35,
-                  overflow: "hidden" }}>
-                  {t.title}
-                  <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
-                    {funcLabel(func, entities)}{funcTag(func)}</div>
-                </div>
-                <div style={{ flex: 1, position: "relative", height: 26,
-                  background: C.ink, borderRadius: "var(--radius-sm)",
-                  border: `1px solid ${on ? ACC : C.line}` }}>
-                  <span style={{ position: "absolute", top: 0, bottom: 0,
-                    left: `${pct(now)}%`, width: 0,
-                    borderLeft: `1px dashed ${alpha(ACC, "99")}` }} />
-                  <div style={{ position: "absolute", top: 4, bottom: 4,
-                    left: `${pct(bar.from)}%`,
-                    width: `${Math.max(1.5, pct(bar.to) - pct(bar.from))}%`,
-                    background: st.color, borderRadius: "var(--radius-sm)", opacity: on ? 1 : 0.85 }} />
-                  {/* Сдачи — отметки поверх полосы: видно, когда именно отчитались. */}
-                  {subs.map((sb) => {
-                    const at = ms(sb.at);
-                    return at == null ? null : (
-                      <span key={sb.id} title={fmtDT(sb.at)}
-                        style={{ position: "absolute", top: 2, bottom: 2,
-                          left: `${pct(at)}%`, width: 2, background: C.text,
-                          transform: "translateX(-1px)" }} />);
-                  })}
-                </div>
-              </div>);
-          })}
+          {/* Полосы — в ОДНОМ поле, а не в рамке под каждую задачу (владелец,
+              2026-09-22); линия сегодняшнего дня идёт через все задачи. */}
+          <div style={{ display: "flex" }}>
+            <div style={{ width: 150, flex: "0 0 150px" }}>
+              {rows.map(({ t, func }) => {
+                const on = t.id === openId;
+                return (
+                  <div key={t.id} onClick={() => setOpenId(on ? null : t.id)}
+                    style={{ height: ROW, boxSizing: "border-box", paddingRight: "var(--space-8)",
+                      fontSize: "var(--fs-hint)", color: on ? ACC : C.text, lineHeight: 1.35,
+                      overflow: "hidden", cursor: "pointer" }}>
+                    {t.title}
+                    <div style={{ fontSize: "var(--fs-hint)", color: C.muted }}>
+                      {funcLabel(func, entities)}{funcTag(func)}</div>
+                  </div>);
+              })}
+            </div>
+            <div aria-label="поле таймлайна" style={{ flex: 1, position: "relative", background: C.ink,
+              borderRadius: "var(--radius-sm)", border: `1px solid ${C.line}` }}>
+              <span aria-label="линия сегодняшнего дня" style={{ position: "absolute", top: 0, bottom: 0,
+                left: `${pct(now)}%`, width: 0, borderLeft: `1px dashed ${alpha(ACC, "99")}` }} />
+              {rows.map(({ t, bar }) => {
+                const st = STATUSES.find((x) => x.id === t.status) || { color: NEU, name: "—" };
+                const on = t.id === openId;
+                const subs = t.submissions || [];
+                return (
+                  <div key={t.id} onClick={() => setOpenId(on ? null : t.id)}
+                    style={{ position: "relative", height: ROW, cursor: "pointer" }}>
+                    <div style={{ position: "absolute", top: 8, bottom: 8, left: `${pct(bar.from)}%`,
+                      width: `${Math.max(1.5, pct(bar.to) - pct(bar.from))}%`,
+                      background: st.color, borderRadius: "var(--radius-sm)", opacity: on ? 1 : 0.85,
+                      outline: on ? `1px solid ${ACC}` : "none" }} />
+                    {/* Сдачи — отметки поверх полосы: видно, когда именно отчитались. */}
+                    {subs.map((sb) => {
+                      const at = ms(sb.at);
+                      return at == null ? null : (
+                        <span key={sb.id} title={fmtDT(sb.at)}
+                          style={{ position: "absolute", top: 6, bottom: 6,
+                            left: `${pct(at)}%`, width: 2, background: C.text,
+                            transform: "translateX(-1px)" }} />);
+                    })}
+                  </div>);
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
