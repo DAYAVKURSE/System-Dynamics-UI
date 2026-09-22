@@ -44,9 +44,9 @@ describe("журнал действий", () => {
     expect(tail().length).toBe(5);
     document.body.innerHTML = "";
   });
-  it("хранит последние сорок и не больше", () => {
-    for (let i = 0; i < 50; i += 1) record(`шаг ${i}`);
-    expect(tail()).toHaveLength(40);
+  it("хранит последние восемьдесят и не больше", () => {
+    for (let i = 0; i < 90; i += 1) record(`шаг ${i}`);
+    expect(tail()).toHaveLength(80);
     expect(tail()[0].text).toBe("шаг 10");
   });
   it("подпись элемента — aria-label, иначе текст", () => {

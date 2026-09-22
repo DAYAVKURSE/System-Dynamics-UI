@@ -326,7 +326,11 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
               contracts: {
                 /* Ссылка на договор ведёт в чьё-то хранилище: ищем, в чьё. */
                 claim: async (token, who) => {
-                  const sid = await findStorage(async () => (await org.listOrg()).agreements
+                  /* Список договоров — в сырой записи (`readOrg`): наружу
+                     `listOrg` их не отдаёт, и `.some` падал на undefined
+                     (владелец, 2026-09-22: «Cannot read properties of
+                     undefined (reading 'some')» по ссылке регистрации). */
+                  const sid = await findStorage(async () => ((await org.readOrg()).agreements || [])
                     .some((a) => a.token === String(token || "")));
                   return inStorage(sid || "main", () => claimAgreement(token, who));
                 },

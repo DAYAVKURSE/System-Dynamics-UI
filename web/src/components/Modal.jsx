@@ -46,12 +46,14 @@ export default function Modal({ title, children, onClose }) {
     <div role="presentation" onClick={onClose} data-modal=""
       style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
         background: "rgba(5,7,12,.62)", backdropFilter: "blur(2px)",
-        zIndex: 50, display: "flex", alignItems: "flex-start", justifyContent: "center",
+        /* Окно — в середине видимой области (владелец, 2026-09-22), а не у
+           верхнего края; выше экрана оно не бывает: высота ограничена dvh. */
+        zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center",
         padding: "var(--space-12)", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
       <div role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}
         onClick={(e) => e.stopPropagation()}
         style={{ ...S.card, maxWidth: 460, width: "100%", outline: "none",
-          margin: "max(12px, 4dvh) 0", maxHeight: "calc(100dvh - 24px)", overflow: "auto",
+          margin: "auto 0", maxHeight: "calc(100dvh - 24px)", overflow: "auto",
           boxSizing: "border-box" }}>
         <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-12)" }}>
           <span style={{ fontSize: "var(--fs-title)", lineHeight: "22px", fontWeight: 600, flex: 1 }}>

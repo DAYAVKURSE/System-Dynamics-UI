@@ -39,6 +39,17 @@ beforeEach(() => { sent = []; asked = []; remembered = []; resetAssistantState()
 /* ПЛАН ПОД «ДУМАЮ…» (владелец, 2026-09-22): очередь отдаёт план через
    onPlan, бот показывает его в том же сообщении-статусе под часами, а
    «Готово» оставляет план под собой. Диалог — на диске: вопрос и ответ. */
+describe("снимок из приложения не отправился", () => {
+  it("вопрос уходит текстом, и отдельной строкой — почему нет картинки", async () => {
+    const d = deps();
+    d.tg = { sendPhoto: async () => { throw new Error("PHOTO_INVALID_DIMENSIONS"); } };
+    const r = await askFromApp(d, { userId: "200", chatId: 200, question: "что это?", shot: Buffer.from("png") });
+    await r.done;
+    expect(sent[0].text).toBe(`${APP_LEAD}\nчто это?`);
+    expect(sent[1].text).toBe("Снимок экрана не отправился: PHOTO_INVALID_DIMENSIONS");
+  });
+});
+
 describe("план под статусом и запись диалога", () => {
   it("план приходит в сообщение-статус под часами; «Готово» — с планом; вопрос и ответ записаны в диалог", async () => {
     const edits = [];

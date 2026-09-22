@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ACC, BAD, C, OK, S, WARN, btn, alpha } from "./ui.jsx";
 import Modal from "./Modal.jsx";
 import FramedField from "./FramedField.jsx";
@@ -130,8 +131,8 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
     if (dirty && typeof window !== "undefined" && !window.confirm("Закрыть без сохранения правок?")) return;
     onClose?.();
   };
-  return (
-    <div role="dialog" aria-label={`документ ${title}`} aria-modal="true"
+  const node = (
+    <div role="dialog" aria-label={`документ ${title}`} aria-modal="true" data-modal=""
       style={{ position: "fixed", inset: 0, zIndex: 60, background: "var(--bg-base)",
         overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
       <div style={{ position: "fixed", top: 10, right: 12, zIndex: 61, display: "flex",
@@ -175,6 +176,9 @@ export function DocViewer({ title, html, editable = true, dirty = false, busy = 
           fontSize: "var(--fs-body)", lineHeight: 1.6, outline: "none", boxSizing: "border-box" }} />
     </div>
   );
+  /* Порталом в body (владелец, 2026-09-22): окно на весь экран не должно
+     зависеть от стеклянной карточки, в которой его позвали. */
+  return typeof document === "undefined" ? node : createPortal(node, document.body);
 }
 
 /* ─────── изменения формами: «+» зелёная, «±» жёлтая, «−» красная ─────── */

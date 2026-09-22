@@ -465,7 +465,7 @@ const SchemeSVG=React.forwardRef(function SchemeSVG({entities,traits,funcs,moves
   return (
     /* Окно фиксированной высоты: страница под ним не двигается, что бы ни
        делали с масштабом. `touch-action: none` — жесты внутри наши. */
-    <div ref={box} data-scheme-box="" data-live={live?"1":"0"}
+    <div ref={box} data-scheme-box="" data-pannable="" data-live={live?"1":"0"}
       onPointerDownCapture={armTouch} onPointerUp={armEnd} onPointerCancel={()=>{tap.current=null;}}
       style={{height:"min(56vh, 520px)",minHeight:280,overflow:"hidden",touchAction:live?"none":"pan-y",
         position:"relative",border:`1px solid ${C.line}`,borderRadius: "var(--radius-sm)",background:C.ink,
@@ -863,9 +863,12 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
     return ()=>{ live=false; };
   },[me.known,me.solo]);
   const [tool,setTool]=useState("people");
-  /* Сколько сообщений об ошибках не прочитано: спрашивается при входе и
-     раз в минуту; гаснет, когда список открыли. */
+  /* Сколько сообщений об ошибках НЕ РЕШЕНО (владелец, 2026-09-22: «счётчик
+     должен содержать количество нерешённых проблем и обнуляться, когда
+     проблемы решены»): спрашивается при входе, раз в минуту, после
+     отправки сообщения и после «исправлено»/удаления в списке. */
   const [issuesUnread,setIssuesUnread]=useState(0);
+  const pullIssues=useCallback(()=>issuesUnread_().then(n=>setIssuesUnread(n)).catch(()=>{}),[]);
   useEffect(()=>{
     if(!me.known||me.solo) return undefined;
     let live=true;
@@ -1290,12 +1293,20 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
   },[tab,tool]);
   /* Сохранение — коммит (владелец, 2026-09-22): с описанием (`note`) из
      модального окна и подписью автора. */
+  /* Имя не задано — новый сценарий с именем по времени (владелец,
+     2026-09-22: «если строка не задана, то просто должен создаваться
+     новый сценарий»); прежде сервер отвечал «name is required». */
+  const autoName=()=>{
+    const d=new Date(); const p=(n)=>String(n).padStart(2,"0");
+    return `Сценарий ${p(d.getDate())}.${p(d.getMonth()+1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
   const saveToDisk=async(note="")=>{
     setSavedBusy(true);
     try{
-      const isUpdate=savedSel&&savedList.some(s=>s.id===savedSel);
+      const named=saveName.trim();
+      const isUpdate=!!named&&savedSel&&savedList.some(s=>s.id===savedSel);
       const snapshot=doc;
-      const saved=await saveScenario({id:isUpdate?savedSel:null,name:saveName,
+      const saved=await saveScenario({id:isUpdate?savedSel:null,name:named||autoName(),
         data:snapshot,note:String(note||""),by:me.name||me.profile?.name||""});
       savedDoc.current=snapshot; clearDraft(); setRecovery(null);
       setSavedMsg(`Сохранено: «${saved.name}».`);
@@ -1312,14 +1323,8 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
   /* Окно описания коммита: открывается, когда имя сценария уже есть;
      без имени — сначала туда, где его называют. */
   const [commitAsk,setCommitAsk]=useState(false);
-  const askCommit=()=>{
-    if(!saveName.trim()){ saveToDisk(); return; }
-    setCommitAsk(true);
-  };
-  const saveNow=()=>{
-    if(!saveName.trim()){ setTab("tools"); setTool("export"); return; }
-    setCommitAsk(true);
-  };
+  const askCommit=()=>{ setCommitAsk(true); };
+  const saveNow=()=>{ setCommitAsk(true); };
   const openScenario=useCallback(async(id,{guard}={})=>{
     const s=await getScenario(id);
     if(!s) throw new Error("Сценарий не найден.");
@@ -2481,7 +2486,7 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
                 /* Непрочитанные сообщения об ошибках — красным кружком справа
                    от названия (владелец, 2026-09-21): рисует CSS по
                    data-badge, чтобы ряд остался рядом из одних кнопок. */
-                aria-label={k==="issues"&&issuesUnread>0?`${t}, непрочитанных: ${issuesUnread}`:t}
+                aria-label={k==="issues"&&issuesUnread>0?`${t}, нерешённых: ${issuesUnread}`:t}
                 data-badge={k==="issues"&&issuesUnread>0?String(issuesUnread):undefined}
                 onClick={()=>setTool(k)}>{t}</button>))}
         </div>)}
@@ -2531,7 +2536,7 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
       {/* Issues — сообщения об ошибках, присланные значком из шапки
           (владелец, 2026-09-21): список и «Удалить» рядом с каждым. */}
       {tab==="tools" && me.tabs.includes("tools") && tool==="issues" && (
-        <IssuesPanel me={me} onSeen={()=>setIssuesUnread(0)}/>)}
+        <IssuesPanel me={me} onChange={pullIssues}/>)}
 
       {tab==="tools" && me.tabs.includes("tools") && tool==="calls" && (
         <CallsBoard me={me} people={people} openCall={openCall}
@@ -2598,9 +2603,10 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
       {/* Окно сообщения об ошибке — поверх любой вкладки: значок стоит в
           шапке, и уходить за ним никуда не нужно. */}
       {issueOpen && (
-        <IssueModal onClose={()=>setIssueOpen(false)} onSend={sendIssue} seen={issueSeen}/>)}
+        <IssueModal onClose={()=>setIssueOpen(false)} seen={issueSeen}
+          onSend={async(...a)=>{ const r=await sendIssue(...a); pullIssues(); return r; }}/>)}
       {commitAsk && (
-        <CommitModal name={saveName} onClose={()=>setCommitAsk(false)}
+        <CommitModal name={saveName.trim()||autoName()} onClose={()=>setCommitAsk(false)}
           onSave={(note)=>{ setCommitAsk(false); return saveToDisk(note); }}/>)}
       {wand && wand!=="taking" && (
         <WandModal seen={wand} onClose={()=>setWand(null)} onSend={askFromApp}/>)}

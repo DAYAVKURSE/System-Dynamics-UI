@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { C, S, btn, ACC, BAD } from "./ui.jsx";
 import { newSignature, addPoint, isEnough, signatureRecord } from "../lib/signature.js";
 
@@ -149,8 +150,11 @@ export default function SignaturePad({ title = "Поставьте подпис�
     } finally { setBusy(false); }
   };
 
-  return (
-    <div role="dialog" aria-label="подпись"
+  /* Порталом в body и без всплытия нажатий (владелец, 2026-09-22: в окне
+     приглашения «Поставить подпись» не работала — нажатие по полю подписи
+     всплывало до подложки окна и закрывало его). */
+  const node = (
+    <div role="dialog" aria-label="подпись" data-modal="" onClick={(e) => e.stopPropagation()}
       style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000C",
         zIndex: 60, display: "flex", flexDirection: "column", justifyContent: "center",
         gap: "var(--space-8)", padding: "var(--space-12)", boxSizing: "border-box", overflowY: "auto" }}>
@@ -179,4 +183,5 @@ export default function SignaturePad({ title = "Поставьте подпис�
       </div>
       <div style={{ ...S.lbl, fontSize: "var(--fs-hint)" }}>{by ? `подписывает: ${by}` : ""}</div>
     </div>);
+  return typeof document === "undefined" ? node : createPortal(node, document.body);
 }

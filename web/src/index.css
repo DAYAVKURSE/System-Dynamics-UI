@@ -209,6 +209,18 @@ button {
   [style*="backdrop-filter"] { backdrop-filter: none !important; }
 }
 
+/* РЕЖИМ СНИМКА ЭКРАНА (владелец, 2026-09-22): на время снимка стекло —
+   сплошное, как в «уменьшить прозрачность»: библиотеки снимка не рисуют
+   backdrop-filter, и стекло выходило светлой плашкой. */
+:root[data-shot] {
+  --surface-glass: #131a26;
+  --surface-glass-strong: #1b2432;
+}
+:root[data-shot] [style*="backdrop-filter"] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+/* Тени — долой: html2canvas рисует внутреннюю светлую тень (шапка, карточки)
+   сплошной серой заливкой, и стекло выходило светлой плашкой. */
+:root[data-shot] * { box-shadow: none !important; }
+
 /* Красный кружок с числом справа от надписи кнопки (владелец, 2026-09-21:
    непрочитанные на «Issues»). Через data-badge, а не вложенным элементом:
    ряд из одних кнопок должен остаться сеткой. */

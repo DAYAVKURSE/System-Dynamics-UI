@@ -103,6 +103,18 @@ describe("сообщения об ошибках", () => {
     expect((await request(app).get(r.body.shot)).status).toBe(404);
   });
 
+  /* КРУЖОК — НЕРЕШЁННЫЕ (владелец, 2026-09-22): считаются сообщения без
+     «исправлено»; решённые и удалённые из счёта уходят. */
+  it("«/unread» отдаёт open — сколько не решено: растёт с сообщением, падает с «исправлено» и удалением", async () => {
+    const a = await request(app).post("/api/issues").set(as(200)).send({ text: "первая" });
+    const b = await request(app).post("/api/issues").set(as(200)).send({ text: "вторая" });
+    expect((await request(app).get("/api/issues/unread").set(as(100))).body.open).toBe(2);
+    await request(app).post(`/api/issues/${a.body.id}/fixed`).set(as(100));
+    expect((await request(app).get("/api/issues/unread").set(as(100))).body.open).toBe(1);
+    await request(app).delete(`/api/issues/${b.body.id}`).set(as(100));
+    expect((await request(app).get("/api/issues/unread").set(as(100))).body).toMatchObject({ open: 0 });
+  });
+
   it("незваный не пишет и не читает", async () => {
     expect((await request(app).post("/api/issues").set(as(300))
       .send({ text: "привет" })).status).toBe(403);

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { BAD, OK, S, btn } from "./ui.jsx";
 import Modal from "./Modal.jsx";
-import { logText } from "../lib/appLog.js";
+import { logText, record } from "../lib/appLog.js";
 import { screenText } from "../lib/screenText.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -21,7 +21,7 @@ import { screenText } from "../lib/screenText.js";
    2026-09-22) — как в сообщении об ошибке: на экране бывает чужое.
    ════════════════════════════════════════════════════════════════ */
 
-const SHOT_WIDTH = 720;
+const SHOT_WIDTH = 1080;
 /* Прозрачная точка вместо картинки, которую не удалось забрать (аватарка
    с чужого домена): без неё html-to-image оставлял ссылку, и на телефоне
    снимок не собирался вовсе. */
@@ -56,6 +56,14 @@ async function shootWithHtml2canvas(bg, w, h, pixelRatio) {
   return png && png.length > 200 ? png : null;
 }
 
+/* РЕЖИМ СНИМКА (владелец, 2026-09-22: «скриншоты очень кривые и не
+   отвечают действительности»). Ни одна из библиотек не рисует
+   `backdrop-filter`: стекло на снимке выходило светлой плашкой с нечитаемым
+   текстом. На время снимка страница помечается `data-shot`, и стекло
+   становится сплошным (index.css) — тем же, что и в режиме «уменьшить
+   прозрачность». Снимок берётся в разрешении экрана (DPR), а не в CSS-
+   пикселях: 411 точек в ширину читались как каша. */
+const SHOT_ATTR = "shot";
 export async function captureScreen(root = typeof document === "undefined" ? null : document.body) {
   const screen = screenText(root);
   const log = logText();
@@ -67,11 +75,17 @@ export async function captureScreen(root = typeof document === "undefined" ? nul
   if (root && canvasOk) {
     const bg = getComputedStyle(document.body).backgroundColor || "#0b0f14";
     const w = window.innerWidth, h = window.innerHeight;
-    const pixelRatio = Math.min(1, SHOT_WIDTH / Math.max(1, w));
-    for (const shoot of [shootWithHtmlToImage, shootWithHtml2canvas]) {
-      try { shot = await shoot(bg, w, h, pixelRatio); } catch { shot = null; }
-      if (shot) break;
-    }
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const pixelRatio = Math.min(dpr, SHOT_WIDTH / Math.max(1, w));
+    document.documentElement.dataset[SHOT_ATTR] = "1";
+    try {
+      for (const shoot of [shootWithHtmlToImage, shootWithHtml2canvas]) {
+        try { shot = await shoot(bg, w, h, pixelRatio); }
+        catch (e) { shot = null; record(`снимок (${shoot.name}) не вышел: ${String(e?.message || e).slice(0, 80)}`); }
+        if (shot) break;
+      }
+    } finally { delete document.documentElement.dataset[SHOT_ATTR]; }
+    if (!shot) record("снимок экрана не получился");
   }
   return { screen, log, shot };
 }

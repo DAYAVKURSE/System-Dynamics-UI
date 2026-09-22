@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ACC, Avatar, BAD, C, OK, S, WARN, btn } from "./ui.jsx";
 import {
   ALL_TABS, TAB_NAMES, addByCode, addVirtual, dropAccessCode, getAccessCode, listVirtual,
@@ -37,8 +38,9 @@ const mono = { fontFamily: "var(--font-sans)" };
    Развилка одинаковая, и рисовать её дважды значило бы разойтись в
    мелочах. */
 function Modal({ children, onClose }) {
-  return (
-    <div role="dialog" aria-modal="true"
+  /* Порталом в body (владелец, 2026-09-22): fixed внутри стекла — не от экрана. */
+  const node = (
+    <div role="dialog" aria-modal="true" data-modal=""
       onClick={onClose}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)",
         display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: "var(--space-16)" }}>
@@ -48,6 +50,7 @@ function Modal({ children, onClose }) {
         {children}
       </div>
     </div>);
+  return typeof document === "undefined" ? node : createPortal(node, document.body);
 }
 
 /* ─────── ФОРМА КОДА ДОСТУПА (владелец, 2026-09-20) ───────

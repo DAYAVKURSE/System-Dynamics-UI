@@ -2,7 +2,7 @@ import { Router } from "express";
 import { telegramUser } from "../middleware/telegramUser.js";
 import { avatarOf, identify, listOrg } from "../lib/orgStore.js";
 import { aliasOf } from "../lib/alias.js";
-import { BadInput, addIssue, fixedText, listIssues, markFixed, markSeen, readShot, removeIssue, shotUrl,
+import { BadInput, addIssue, fixedText, listIssues, markFixed, markSeen, openCount, readShot, removeIssue, shotUrl,
   unreadCount } from "../lib/issuesStore.js";
 import { readSchedule } from "../lib/scheduleStore.js";
 import { sendMessage } from "../lib/telegram.js";
@@ -87,11 +87,12 @@ router.get("/", async (req, res, next) => {
   } catch (e) { return fail(res, e, next); }
 });
 
-/* Сколько не прочитано — для красного кружка на кнопке вкладки. */
+/* Для красного кружка на кнопке: сколько НЕ РЕШЕНО (`open`) — владелец,
+   2026-09-22; `unread` (не прочитано) остаётся для прежних читателей. */
 router.get("/unread", async (req, res, next) => {
   try {
-    if (!mayRead(req.me)) return res.json({ unread: 0 });
-    return res.json({ unread: await unreadCount() });
+    if (!mayRead(req.me)) return res.json({ unread: 0, open: 0 });
+    return res.json({ unread: await unreadCount(), open: await openCount() });
   } catch (e) { return fail(res, e, next); }
 });
 /* Список открыли — всё прочитано. */

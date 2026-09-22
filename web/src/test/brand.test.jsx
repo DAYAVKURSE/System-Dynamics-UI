@@ -67,10 +67,13 @@ describe("шапка", () => {
     expect(tab.style.borderRadius).toBe("var(--radius-pill)");
   });
 
-  it("«сохранить» без имени сценария уводит туда, где его называют", () => {
+  /* Без имени — новый сценарий с именем по времени (владелец, 2026-09-22),
+     а не поход туда, где его называют. */
+  it("«сохранить» без имени сценария открывает описание коммита с именем по времени", () => {
     render(<SystemModel />);
     fireEvent.click(screen.getByRole("button", { name: "сохранить" }));
-    expect(screen.getByPlaceholderText("имя сценария")).toBeInTheDocument();
+    const dlg = screen.getByRole("dialog", { name: "Сохранение сценария" });
+    expect(dlg.textContent).toMatch(/Сценарий \d\d\.\d\d\.\d{4} \d\d:\d\d/);
   });
 });
 

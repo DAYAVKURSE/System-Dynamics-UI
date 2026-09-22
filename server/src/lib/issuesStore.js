@@ -148,6 +148,12 @@ export async function removeIssue(id) {
 export async function unreadCount() {
   return (await readIssues()).filter((x) => !x.seenAt).length;
 }
+/* Сколько НЕ РЕШЕНО — для красного кружка на кнопке (владелец,
+   2026-09-22: «счётчик должен содержать количество нерешённых проблем и
+   обнуляться, когда проблемы решены»). Решённая — с `fixedAt`. */
+export async function openCount() {
+  return (await readIssues()).filter((x) => !x.fixedAt).length;
+}
 export async function markSeen() {
   return withIssues(async (list) => {
     const at = new Date().toISOString();

@@ -93,6 +93,12 @@ const fits = () => {
 
 describe("схема просыпается одним нажатием (владелец, 2026-09-18)", () => {
   const box = () => container.querySelector("[data-scheme-box]");
+  /* Движение пальцем по схеме — её жест, а не свайп вкладок (владелец,
+     2026-09-22: «вожу по ней пальцем — вкладка переключаться не должна»):
+     окно схемы помечено data-pannable, и lib/swipe.js его не считает. */
+  it("окно схемы помечено data-pannable: свайп по ней вкладку не меняет", () => {
+    expect(box()).toHaveAttribute("data-pannable");
+  });
   it("пока не нажали — жесты пальца уходят странице; одно касание будит, нажатие вне усыпляет", () => {
     expect(box().dataset.live).toBe("0");
     expect(box().style.touchAction).toBe("pan-y");

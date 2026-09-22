@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { C, OK, WARN, BAD, ACC, NEU, S, btn, nm, DiffBoxes, WAS_STYLE , statusEdge, alpha } from "./ui.jsx";
 import { Section } from "./AssetPanel.jsx";
 import { normalizeFunc } from "../lib/funcs.js";
@@ -1093,8 +1094,11 @@ function TextModal({ title, value, onChange, onClose, onLoad }) {
     r.onload = () => onChange(String(r.result || ""));
     r.readAsText(f);
   };
-  return (
-    <div role="dialog" aria-label={title} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--space-12)" }}
+  /* Порталом в body (владелец, 2026-09-22: окно выгрузки появлялось ниже
+     видимой области): `position: fixed` внутри стеклянной карточки
+     (backdrop-filter) считается от неё, а не от экрана. */
+  const node = (
+    <div role="dialog" aria-label={title} data-modal="" style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--space-12)" }}
       onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ ...S.card, width: "min(640px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", gap: "var(--space-8)" }}>
         <div className="flex items-center gap-2"><span style={S.lbl}>{title}</span><span style={{ flex: 1 }} />
@@ -1111,6 +1115,7 @@ function TextModal({ title, value, onChange, onClose, onLoad }) {
         </div>
       </div>
     </div>);
+  return typeof document === "undefined" ? node : createPortal(node, document.body);
 }
 
 /* ─────── версии ─────── */

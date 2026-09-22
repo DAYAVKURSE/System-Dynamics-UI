@@ -820,8 +820,12 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
   const togglePerson = (id, kind, pid) => up(id, (f) => ({
     ...f, [kind]: f[kind].includes(pid) ? f[kind].filter((z) => z !== pid) : [...f[kind], pid],
   }));
+  /* Новая функция — «новая функция», а её первая задача — «новая
+     задача» (владелец, 2026-09-22: задача звалась именем функции).
+     Имя функции живёт в `chain.name`, поэтому цепочка заводится сразу. */
   const add = () => {
-    const f = newFunc(entityId);
+    const f = newFunc(entityId, "новая задача");
+    f.chain = { id: f.id, name: "новая функция", step: 1, of: 1 };
     setFuncs((p) => [...p, f]);
     setOpen(f.id);
   };
@@ -883,7 +887,11 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
            совпадает с id первой задачи, и та не сворачивалась (владелец,
            2026-09-18). */
         const gKey = `func:${g.id}`;
-        const gOpen = open === gKey || g.list.some((x) => x.id === open);
+        /* `${gKey}:shut` — функция открыта, а её единственная задача
+           свёрнута (владелец, 2026-09-22: задачу нельзя было свернуть —
+           открытая функция держала её открытой). */
+        const gShut = `${gKey}:shut`;
+        const gOpen = open === gKey || open === gShut || g.list.some((x) => x.id === open);
         const states = g.list.map((x) => funcState(x, { traits, factors }));
         const allReady = states.every((x) => x.kind === "ready");
         const first = g.list[0];
@@ -898,7 +906,7 @@ export function Funcs({ entityId, funcs, setFuncs, traits, entities = [], worker
         return (
           <Card key={f.id} title={f.name} titleLabel="задачи"
             onTitle={(v) => up(f.id, (x) => ({ ...x, name: v }))}
-            open={tOpen} onToggle={() => setOpen(tOpen ? gKey : f.id)}
+            open={tOpen} onToggle={() => setOpen(tOpen ? (g.list.length === 1 ? gShut : gKey) : f.id)}
             onDelete={() => { setFuncs((p) => p.filter((x) => x.id !== f.id)); setOpen(gKey); }}
             accent={st.kind === "ready" ? OK : BAD}
             /* role="status" — чтобы смена состояния («готова» → «не принята»)

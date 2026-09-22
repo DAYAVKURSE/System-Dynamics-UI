@@ -404,10 +404,26 @@ describe("функция заводится и живёт", () => {
     expect(rec.map((f) => f.name)).toContain("проверить макет");
   });
 
-  it("название правится и переживает выгрузку", () => {
+  /* Новая функция — «новая функция», её задача — «новая задача» (владелец,
+     2026-09-22); имя функции живёт в цепочке, имя задачи — своё. */
+  it("название правится и переживает выгрузку; задача новой функции зовётся «новая задача»", () => {
     addFunc();
+    expect(dump().funcs.pop()).toMatchObject({ name: "новая задача", chain: { name: "новая функция", step: 1 } });
     renameEl(screen.getAllByLabelText("название функции").pop(), "вёрстка страницы");
-    expect(dump().funcs.pop().name).toBe("вёрстка страницы");
+    const f = dump().funcs.pop();
+    expect(f.chain.name).toBe("вёрстка страницы");
+    expect(f.name).toBe("новая задача");
+  });
+
+  it("единственную задачу функции можно свернуть и развернуть, функция при этом открыта", () => {
+    addFunc();
+    const tasks = screen.getAllByRole("button", { name: "свернуть задачи" });
+    fireEvent.click(tasks[tasks.length - 1]);
+    expect(screen.getAllByRole("button", { name: "развернуть задачи" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "свернуть функции" }).length).toBeGreaterThan(0);
+    const shut = screen.getAllByRole("button", { name: "развернуть задачи" });
+    fireEvent.click(shut[shut.length - 1]);
+    expect(screen.getAllByRole("button", { name: "свернуть задачи" }).length).toBeGreaterThan(0);
   });
 });
 

@@ -25,7 +25,7 @@ const when = (v) => {
     { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
-export default function IssuesPanel({ me, onSeen }) {
+export default function IssuesPanel({ me, onSeen, onChange }) {
   const [list, setList] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,13 +46,14 @@ export default function IssuesPanel({ me, onSeen }) {
       const r = await fixIssue(x.id);
       setFixed((f) => ({ ...f, [x.id]: r.told ? "Отправлено." : "Отмечено; сообщение не ушло." }));
       await load();
+      onChange?.();
     } catch (e) { setMsg(e.message); }
     finally { setBusy(false); }
   };
 
   const drop = async (id) => {
     setBusy(true); setMsg("");
-    try { await dropIssue(id); await load(); }
+    try { await dropIssue(id); await load(); onChange?.(); }
     catch (e) { setMsg(e.message); }
     finally { setBusy(false); }
   };

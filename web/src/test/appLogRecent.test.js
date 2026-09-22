@@ -2,21 +2,21 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { clearLog, fieldNote, recent, recentText, record, scrub } from "../lib/appLog.js";
 
 /* ЛЕНТА К СООБЩЕНИЮ ОБ ОШИБКЕ (владелец, 2026-09-21): последние действия
-   за две минуты, но не меньше десяти (всего меньше — все), без
+   за две минуты, но не меньше пятидесяти (всего меньше — все), без
    чувствительных данных. */
 beforeEach(() => clearLog());
 
 describe("recent", () => {
-  it("за две минуты, если их не меньше десяти; иначе — последние десять; всего меньше — все", () => {
+  it("за две минуты, если их не меньше пятидесяти; иначе — последние пятьдесят; всего меньше — все", () => {
     const now = 1_000_000_000;
-    for (let i = 0; i < 25; i += 1) record(`шаг ${i}`, now - (25 - i) * 10_000);   // раз в 10 с, 250 с назад…
+    for (let i = 0; i < 70; i += 1) record(`шаг ${i}`, now - (70 - i) * 2_000);   // раз в 2 с, 140 с назад…
     const got = recent({ now });
-    // За 120 с — шаги с 13-го по 24-й: двенадцать, больше десяти.
-    expect(got.map((e) => e.text)).toEqual(Array.from({ length: 12 }, (_, i) => `шаг ${13 + i}`));
+    // За 120 с — шаги с 10-го по 69-й: шестьдесят, больше пятидесяти.
+    expect(got.map((e) => e.text)).toEqual(Array.from({ length: 60 }, (_, i) => `шаг ${10 + i}`));
     clearLog();
-    for (let i = 0; i < 15; i += 1) record(`шаг ${i}`, now - (15 - i) * 60_000);   // раз в минуту
-    // За две минуты — два, мало: берём последние десять.
-    expect(recent({ now }).map((e) => e.text)).toEqual(Array.from({ length: 10 }, (_, i) => `шаг ${5 + i}`));
+    for (let i = 0; i < 60; i += 1) record(`шаг ${i}`, now - (60 - i) * 60_000);   // раз в минуту
+    // За две минуты — два, мало: берём последние пятьдесят (владелец, 2026-09-22).
+    expect(recent({ now }).map((e) => e.text)).toEqual(Array.from({ length: 50 }, (_, i) => `шаг ${10 + i}`));
     clearLog();
     record("один", now - 5_000); record("два", now - 1_000);
     expect(recent({ now }).map((e) => e.text)).toEqual(["один", "два"]);

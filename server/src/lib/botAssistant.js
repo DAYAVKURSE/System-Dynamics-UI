@@ -500,7 +500,13 @@ export async function askFromApp(deps, { userId, chatId, question, context = "",
     try {
       await deps.tg.sendPhoto(chatId, { bytes: shot, name: "screen.png", caption: fits ? lead : "" });
       told = true;
-    } catch (err) { logOf(deps)(`снимок экрана не отправлен: ${err.message}`); }
+    } catch (err) {
+      /* Не ушла картинка — человеку об этом говорится словами (владелец,
+         2026-09-22: «скриншот в чат не пришёл»), а не только в журнал. */
+      logOf(deps)(`снимок экрана не отправлен: ${err.message}`);
+      if (!told) { await send(chatId, lead); told = true; }
+      await send(chatId, `Снимок экрана не отправился: ${err.message}`);
+    }
   }
   if (!told) await send(chatId, lead);
   const image = shot?.length ? { mime: "image/png", data: Buffer.from(shot).toString("base64") } : null;

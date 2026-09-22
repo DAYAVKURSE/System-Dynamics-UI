@@ -254,7 +254,9 @@ export const dropIssue = (id) =>
   json(`/api/issues/${encodeURIComponent(id)}`, { method: "DELETE" });
 /* Непрочитанные — красным кружком на кнопке вкладки; «Исправлено» —
    отправителю сообщение в бот (владелец, 2026-09-21). */
-export const issuesUnread = () => json("/api/issues/unread").then((r) => r.unread || 0);
+/* Кружок на кнопке — НЕРЕШЁННЫЕ (владелец, 2026-09-22); прежний `unread`
+   — запасной, если сервер старый. */
+export const issuesUnread = () => json("/api/issues/unread").then((r) => (r.open ?? r.unread) || 0);
 export const issuesSeen = () => json("/api/issues/seen", { method: "POST" });
 export const fixIssue = (id) => json(`/api/issues/${encodeURIComponent(id)}/fixed`, { method: "POST" });
 
