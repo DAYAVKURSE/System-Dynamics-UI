@@ -89,7 +89,10 @@ export async function handleAgentUpdate(bot, update, deps) {
       question: text.slice(0, MAX_QUESTION), notes, chatId,
       onPlan: (t) => { plan = t; if (status) status.update(render()); },
     });
-    const out = String(answer || "").trim() || "Ответ пуст.";
+    /* Планировщик отдаёт не строку, а `{answer, plan, …}` (владелец,
+       2026-09-22: в чат уходило «[object Object]»). Слова — в `answer`. */
+    const words = answer && typeof answer === "object" ? answer.answer : answer;
+    const out = String(words || "").trim() || "Ответ пуст.";
     await deps.send(chatId, out);
     await recordDialog(key, chatId, { from: "bot", text: out });
     if (timer) clearInterval(timer);

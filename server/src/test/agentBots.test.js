@@ -74,6 +74,14 @@ describe("сообщение человека боту агента", () => {
     expect(dialog.messages.slice(-2).map((m) => `${m.from}:${m.text}`)).toEqual(["user:Добрый день", "bot:Здравствуйте, Пётр"]);
   });
 
+  it("ответ планировщика — объект `{answer}`: в чат уходят слова, а не «[object Object]»", async () => {
+    const d = deps();
+    d.run = async () => ({ planned: true, answer: "Три процесса: приём, звонок, сдача.", plan: null, unsolved: false });
+    expect(await handleAgentUpdate(BOT, message(petr, "что знаешь о процессах?"), d)).toEqual({ answered: true });
+    expect(d.sent[1].text).toBe("Три процесса: приём, звонок, сдача.");
+    expect((await readDialog(K, 500)).messages.pop().text).toBe("Три процесса: приём, звонок, сдача.");
+  });
+
   it("забаненному — ничего; команды и группы — мимо; «/start» — приветствие", async () => {
     await recordDialog(K, 500, { name: "Пётр", text: "x" });
     await setBanned(K, 500, true);

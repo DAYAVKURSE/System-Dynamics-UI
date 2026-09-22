@@ -376,8 +376,8 @@ const agentBots = createAgentBots({
       send: (c, t) => sendWithKeyboard(c, t, null, bot.token),
       edit: (c, m, t, k) => editMessage(c, m, t, k, bot.token),
       log: (m) => console.warn(`[agents] ${m}`) }),
-    run: ({ question, notes, onPlan }) => runAgentFor({ ownerId: bot.userId, agentId: bot.agentId,
-      agentName: bot.name, question, notes, onPlan }),
+    run: async ({ question, notes, onPlan }) => (await runAgentFor({ ownerId: bot.userId, agentId: bot.agentId,
+      agentName: bot.name, question, notes, onPlan })).answer,
     log: (m) => console.warn(`[agents] ${m}`),
   }),
 });
