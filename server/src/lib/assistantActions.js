@@ -1,4 +1,4 @@
-import { listOrg } from "./orgStore.js";
+import { listOrg, setProfile } from "./orgStore.js";
 import { addMessage, deferTask, dropTask, readModel, reviewTask, setupTask, submitTask,
   takeTask, withModel, writeModel } from "./workspaceStore.js";
 import { addUndo, takeUndo, undoById } from "./undoStore.js";
@@ -73,7 +73,7 @@ const taskWord = (t) => `«${t?.title || "задача"}»`;
 const ACTIONS = {
   task_take: {
     what: "взять задачу в работу",
-    writes: true,
+    writes: true, category: "tasks",
     schema: { type: "object", properties: { taskId: { type: "string",
       description: "id задачи" } }, required: ["taskId"] },
     say: (a) => `взять задачу ${a.taskId} в работу`,
@@ -85,7 +85,7 @@ const ACTIONS = {
   },
   task_drop: {
     what: "вернуть задачу в бэклог",
-    writes: true,
+    writes: true, category: "tasks",
     schema: { type: "object", properties: { taskId: { type: "string" } }, required: ["taskId"] },
     say: (a) => `вернуть задачу ${a.taskId} в бэклог`,
     run: async (userId, a) => {
@@ -96,7 +96,7 @@ const ACTIONS = {
   },
   task_defer: {
     what: "отложить задачу",
-    writes: true,
+    writes: true, category: "tasks",
     schema: { type: "object", properties: { taskId: { type: "string" },
       until: { type: "string", description: "до какого момента, ISO" } },
     required: ["taskId"] },
@@ -109,7 +109,7 @@ const ACTIONS = {
   },
   task_submit: {
     what: "сдать работу по задаче",
-    writes: true,
+    writes: true, category: "tasks",
     schema: { type: "object", properties: { taskId: { type: "string" },
       text: { type: "string", description: "отчёт словами" },
       hours: { type: "number", description: "сколько часов ушло" } },
@@ -127,7 +127,7 @@ const ACTIONS = {
   },
   task_review: {
     what: "принять или вернуть сданную работу",
-    writes: true,
+    writes: true, category: "tasks",
     schema: { type: "object", properties: { taskId: { type: "string" },
       accept: { type: "boolean", description: "true — принять, false — вернуть" },
       comment: { type: "string", description: "при возврате обязателен" } },
@@ -142,9 +142,11 @@ const ACTIONS = {
     },
   },
   task_setup: {
-    what: "поставить задачу: срок, исполнитель, проверяющий",
-    writes: true,
-    schema: { type: "object", properties: { taskId: { type: "string" },
+    what: "поставить УЖЕ СУЩЕСТВУЮЩУЮ задачу: срок, исполнитель, проверяющий."
+      + " Новую задачу этим не завести — id берётся из tasks_list, а не придумывается",
+    writes: true, category: "tasks",
+    schema: { type: "object", properties: {
+      taskId: { type: "string", description: "id СУЩЕСТВУЮЩЕЙ задачи — из tasks_list, не выдуманный" },
       title: { type: "string" }, body: { type: "string" },
       end: { type: "string", description: "срок" },
       assignee: { type: "string" }, reviewer: { type: "string" },
@@ -166,7 +168,7 @@ const ACTIONS = {
   },
   task_say: {
     what: "сказать в обсуждении задачи",
-    writes: true,
+    writes: true, category: "tasks",
     schema: { type: "object", properties: { taskId: { type: "string" },
       text: { type: "string" },
       role: { type: "string", description: "assignee | setter | reviewer" } },
@@ -183,7 +185,7 @@ const ACTIONS = {
   /* ─── модель целиком: только владельцу, как и в приложении ─── */
   proc_write: {
     what: "создать или переписать технологический процесс",
-    writes: true, owner: true,
+    writes: true, owner: true, category: "process",
     schema: { type: "object", properties: {
       name: { type: "string", description: "название процесса" },
       text: { type: "string", description: "текст процесса построчно: «Задача: …», «Кто: …», «Берёт: …», «Отдаёт: …»" },
@@ -203,7 +205,7 @@ const ACTIONS = {
   },
   trait_set: {
     what: "поменять, сколько ресурса есть",
-    writes: true, owner: true,
+    writes: true, owner: true, category: "scheme",
     schema: { type: "object", properties: { traitId: { type: "string" },
       have: { type: "number" } }, required: ["traitId", "have"] },
     say: (a) => `поставить ресурсу ${a.traitId} количество ${a.have}`,
@@ -221,7 +223,7 @@ const ACTIONS = {
   },
   func_set: {
     what: "поменять поля функции",
-    writes: true, owner: true,
+    writes: true, owner: true, category: "functions",
     schema: { type: "object", properties: { funcId: { type: "string" },
       fields: { type: "object", description: "что поменять: name, dur, durUnit, every, everyUnit" } },
     required: ["funcId", "fields"] },
@@ -242,7 +244,7 @@ const ACTIONS = {
   },
   crew_set: {
     what: "поменять список воркеров актива",
-    writes: true, owner: true,
+    writes: true, owner: true, category: "scheme",
     schema: { type: "object", properties: { entityId: { type: "string" },
       crew: { type: "array", items: { type: "string" }, description: "id людей" } },
     required: ["entityId", "crew"] },
@@ -257,6 +259,34 @@ const ACTIONS = {
         entities: entities.map((x) => (String(x.id) === id ? { ...x, crew } : x)) });
       return ok(`У актива «${e.name || id}» теперь ${crew.length} воркер(ов).`);
     }),
+  },
+
+  /* ─── напоминания собеседника (владелец, 2026-09-23) ───
+     За сколько предупреждать — решает сам человек, а не тот, кто ставит
+     задачу («предупреждают ЕГО, и на сколько заранее ему удобно, знает
+     он»). Поэтому действие всегда меняет самого СПРАШИВАЮЩЕГО, того же
+     `userId`, с кем идёт разговор, — никогда чужие настройки. */
+  reminder_set: {
+    what: "поменять свои напоминания: за сколько предупреждать до начала задачи и до дедлайна",
+    writes: true, category: "reminders",
+    schema: { type: "object", properties: {
+      warnMin: { type: "number", description: "минут до начала задачи, 0–1440" },
+      deadlinePct: { type: "number", description: "доля срока до дедлайна, от 0 до 1" },
+    } },
+    say: (a) => {
+      const bits = [];
+      if (a.warnMin != null) bits.push(`за ${a.warnMin} мин до начала`);
+      if (a.deadlinePct != null) bits.push(`за ${Math.round(Number(a.deadlinePct) * 100)}% срока до дедлайна`);
+      return `изменить напоминания: ${bits.join(", ") || "без изменений"}`;
+    },
+    run: async (userId, a) => {
+      if (a.warnMin == null && a.deadlinePct == null) {
+        return no("Скажите, что поменять: за сколько минут до начала или за какую долю срока до дедлайна.");
+      }
+      const p = await setProfile(userId, { warnMin: a.warnMin, deadlinePct: a.deadlinePct });
+      if (!p) return no("Вас ещё нет среди участников — напоминания настраивать пока нечему.");
+      return ok(`Напоминания: за ${p.warnMin} мин до начала, за ${Math.round((p.deadlinePct || 0) * 100)}% срока до дедлайна.`);
+    },
   },
 
   /* ─── чтение: не требует подтверждения никогда ─── */
@@ -286,9 +316,23 @@ const whyNot = (error) => ({
 
 export const ACTION_IDS = Object.keys(ACTIONS);
 
-/** Инструменты для модели: имя, что делает и какие поля принимает. */
-export const toolsFor = ({ isOwner = false } = {}) => ACTION_IDS
+/* Названия прав — только для слов отказа здесь; сам список категорий и
+   их подписи для экрана — в assistantSettings.js (RIGHTS), это поле их не
+   повторяет, а просто читает. */
+const RIGHT_NAME = { scheme: "редактировать схему", process: "редактировать техпроцесс",
+  functions: "редактировать функции", tasks: "редактировать задачи", reminders: "менять напоминания" };
+
+/** Может ли действие сработать при данных правах агента: без прав (`rights` не задан) — всегда да. */
+const rightsAllow = (action, rights) => !action.category || !rights || rights[action.category] === true;
+
+/** Инструменты для модели: имя, что делает и какие поля принимает.
+ * `rights` — права АГЕНТА (владелец, 2026-09-23): нет — ограничений нет
+ * (так у ассистента, он работает под правами того, кто спросил); есть —
+ * действие категории, которой в правах не хватает, в список не попадает
+ * вовсе — агент физически не может его позвать, не только не должен. */
+export const toolsFor = ({ isOwner = false, rights = null } = {}) => ACTION_IDS
   .filter((id) => !ACTIONS[id].owner || isOwner)
+  .filter((id) => rightsAllow(ACTIONS[id], rights))
   .map((id) => ({ name: id, description: ACTIONS[id].what, schema: ACTIONS[id].schema }));
 
 /* Слова подтверждения — одни на все места: и в сообщении человеку, и в
@@ -307,14 +351,31 @@ export const CONFIRM_ASKED = "Изменение НЕ сделано: челов
  * нельзя: об этом ей говорит сам ответ инструмента.
  */
 export async function runAction(name, args, {
-  userId, agentId, isOwner = false, ask = true, onConfirm = null,
+  userId, agentId, isOwner = false, ask = true, onConfirm = null, rights = null,
 }) {
   const action = ACTIONS[name];
   if (!action) return no(`Нет такого действия: ${name}.`);
   if (action.owner && !isOwner) {
     return no("Это меняет модель целиком — так может только владелец.");
   }
+  /* Вторая граница, не только список инструментов (владелец, 2026-09-23:
+     «физически не смогут сделать то, чего нет у них в правах»): даже если
+     имя действия пришло вызовом мимо схемы (или список составили раньше,
+     чем права поменялись), делать его без права всё равно нельзя. */
+  if (!rightsAllow(action, rights)) {
+    return no(`У агента нет права «${RIGHT_NAME[action.category] || action.category}» — так он не может.`);
+  }
   if (action.writes && ask) {
+    /* Спрашивать подтверждение имеет смысл только для того, что МОЖЕТ
+       получиться: несуществующая задача не появится оттого, что человек
+       нажал кнопку (владелец, 2026-09-23: «нажал подтверждение, после
+       чего агент сказал, что такой задачи нет»). Проверяем это здесь, а
+       не только в самом действии при нажатии, — иначе клик уходит
+       впустую, а отказ приходит только ПОСЛЕ него. */
+    if (args?.taskId != null) {
+      const exists = ((await readModel()).tasks || []).some((t) => String(t.id) === String(args.taskId));
+      if (!exists) return no("Такой задачи нет.");
+    }
     sweepPending();
     const words = action.say ? action.say(args || {}) : action.what;
     const id = `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;

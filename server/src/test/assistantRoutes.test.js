@@ -86,7 +86,7 @@ describe("настройки", () => {
     expect(res.status).toBe(200);
     expect(res.body.providers).toEqual([]);
     expect(res.body.tasks).toEqual({ chat: null, bot: null, transcribe: null });
-    expect(res.body.agents).toEqual([{ id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null }]);
+    expect(res.body.agents).toEqual([{ id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null, rights: null }]);
     expect(res.body.kinds.map((k) => k.id)).toEqual(["openai", "anthropic", "hf"]);
     expect(res.body.kinds[0].defaultBaseUrl).toBe("https://api.openai.com/v1");
     expect(res.body.taskList.map((t) => t.id)).toEqual(["chat", "bot", "transcribe"]);
@@ -363,7 +363,7 @@ describe("агенты", () => {
   it("владелец: 201 и участник-агент в организации; переименование и удаление идут за ним", async () => {
     const created = await request(app).post("/api/assistant/agents").set(as(100)).send({ name: "Юрист" });
     expect(created.status).toBe(201);
-    expect(created.body).toEqual({ id: created.body.id, name: "Юрист", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null });
+    expect(created.body).toEqual({ id: created.body.id, name: "Юрист", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null, rights: { scheme: false, process: false, functions: false, tasks: false, reminders: false } });
     const uid = `ag_${created.body.id}`;
     let user = (await orgUsers()).find((u) => u.id === uid);
     expect(user).toMatchObject({ id: uid, name: "Юрист", agent: true, roles: [], addedBy: "100" });
@@ -421,6 +421,23 @@ describe("агенты", () => {
 
     const off = await request(app).put(`/api/assistant/agents/${a.id}`).set(as(100)).send({ botToken: "" });
     expect(off.body.bot).toBeNull();
+    await request(app).delete(`/api/assistant/agents/${a.id}`).set(as(100));
+  });
+
+  it("права агента: по умолчанию выключены, правятся PUT-ом, отдаются в /settings — с каталогом прав", async () => {
+    const { body: a } = await request(app).post("/api/assistant/agents").set(as(100)).send({ name: "Юрист" });
+    const NONE = { scheme: false, process: false, functions: false, tasks: false, reminders: false };
+    expect(a.rights).toEqual(NONE);
+    const put = await request(app).put(`/api/assistant/agents/${a.id}`).set(as(100)).send({ rights: { tasks: true } });
+    expect(put.status).toBe(200);
+    expect(put.body.rights).toEqual({ ...NONE, tasks: true });
+    const view = await request(app).get("/api/assistant/settings").set(as(100));
+    expect(view.body.agents.find((x) => x.id === a.id).rights).toEqual({ ...NONE, tasks: true });
+    // Каталог — имя и что оно значит, чтобы форма не выдумывала подписи сама.
+    expect(view.body.rights.map((r) => r.id)).toEqual(["scheme", "process", "functions", "tasks", "reminders"]);
+    expect(view.body.rights.find((r) => r.id === "tasks").name).toBe("редактировать задачи");
+    const bad = await request(app).put(`/api/assistant/agents/${a.id}`).set(as(100)).send({ rights: { чужое: true } });
+    expect(bad.status).toBe(400);
     await request(app).delete(`/api/assistant/agents/${a.id}`).set(as(100));
   });
 

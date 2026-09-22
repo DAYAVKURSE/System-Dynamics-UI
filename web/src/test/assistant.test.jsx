@@ -29,8 +29,16 @@ const USES = [
   { id: "transcribe", name: "Расшифровка голоса" },
 ];
 const NO_USES = { main: null, voice: null, draw: null, vision: null, transcribe: null };
+const RIGHTS = [
+  { id: "scheme", name: "редактировать схему", what: "менять количество ресурсов и состав воркеров актива" },
+  { id: "process", name: "редактировать техпроцесс", what: "создавать и переписывать технологические процессы" },
+  { id: "functions", name: "редактировать функции", what: "менять срок, повтор и название функций" },
+  { id: "tasks", name: "редактировать задачи", what: "брать, сдавать, откладывать, ставить задачи и писать в их обсуждении" },
+  { id: "reminders", name: "напоминания", what: "менять собеседнику, за сколько его предупреждать" },
+];
+const NO_RIGHTS = { scheme: false, process: false, functions: false, tasks: false, reminders: false };
 const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [],
-  transcribe: null, uses: { ...NO_USES }, mcp: [], ask: true };
+  transcribe: null, uses: { ...NO_USES }, mcp: [], ask: true, rights: null };
 const P1 = { id: "p_1", name: "Мой OpenAI", kind: "openai", baseUrl: "", models: ["gpt-4.1", "gpt-4o-mini"], hasKey: true };
 
 /** Подменный сервер: отвечает по адресу и методу, запоминает запросы. */
@@ -59,7 +67,7 @@ function settingsServer(providers = [], agents = [ASSISTANT], extra = {}) {
   const log = server({
     "GET /api/assistant/settings": () => ({ body: { providers: state.providers.map(view),
       agents: state.agents.map((a) => ({ ...a })), kinds: KINDS, tasks: {}, taskList: [],
-      mcp: state.mcp.map((m) => ({ ...m })), uses: USES } }),
+      mcp: state.mcp.map((m) => ({ ...m })), uses: USES, rights: RIGHTS } }),
     "GET /api/assistant/mcp/registry": () => ({ body: { url: "https://registry.example",
       servers: extra.registry || [{ id: "io.github.x/weather", name: "weather",
         full: "io.github.x/weather", description: "погода по городу", version: "1.0.0",
@@ -95,9 +103,10 @@ function settingsServer(providers = [], agents = [ASSISTANT], extra = {}) {
       const b = JSON.parse(opts.body);
       const a = state.agents.find((x) => url.endsWith(`/agents/${x.id}`));
       if (a) {
-        const { uses, botToken, ...rest } = b;
+        const { uses, botToken, rights, ...rest } = b;
         Object.assign(a, rest);
         if (uses) a.uses = { ...a.uses, ...uses };
+        if (rights) a.rights = { ...a.rights, ...rights };
         if (botToken !== undefined) a.bot = botToken ? { username: "lawyer_bot", botId: "1" } : null;
         return { body: { ...a } };
       }
@@ -462,6 +471,32 @@ describe("агенты", () => {
     await waitFor(() => expect(log.filter((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1")).length).toBe(2));
     expect(JSON.parse(log.filter((r) => r.method === "PUT")[1].body)).toEqual({ botToken: "" });
     await waitFor(() => expect(screen.queryByLabelText("бот агента: @lawyer_bot")).toBeNull());
+  });
+
+  /* ПРАВА АГЕНТА (владелец, 2026-09-23): «агентам должны выбираться права…
+     чтобы пользователь, обратившийся к агенту, не мог навредить
+     приложению». Чекбоксы, только у своих агентов, по умолчанию все сняты. */
+  it("права: чекбоксы только у своих агентов, по умолчанию сняты, каждый шлёт свой patch", async () => {
+    const other = { ...ASSISTANT, id: "a_1", name: "Юрист", builtin: false, bot: null, rights: { ...NO_RIGHTS } };
+    const { log } = settingsServer([P1], [ASSISTANT, other]);
+    render(<AgentsPanel me={OWNER} />);
+    await screen.findByLabelText("инструкция агента");
+    expect(screen.queryByLabelText("права агента")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Юрист" }));
+    const box = await screen.findByLabelText("права агента");
+    RIGHTS.forEach((r) => expect(within(box).getByLabelText(r.name)).not.toBeChecked());
+    fireEvent.click(within(box).getByLabelText("редактировать задачи"));
+    await waitFor(() => expect(log.some((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1"))).toBe(true));
+    expect(JSON.parse(log.find((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1")).body))
+      .toEqual({ rights: { tasks: true } });
+    await waitFor(() => expect(within(box).getByLabelText("редактировать задачи")).toBeChecked());
+    fireEvent.click(within(box).getByLabelText("напоминания"));
+    await waitFor(() => expect(log.filter((r) => r.method === "PUT" && r.url.endsWith("/agents/a_1")).length).toBe(2));
+    // Второе право не сбрасывает первое.
+    await waitFor(() => expect(within(box).getByLabelText("редактировать задачи")).toBeChecked());
+    expect(within(box).getByLabelText("напоминания")).toBeChecked();
+    RIGHTS.filter((r) => !["tasks", "reminders"].includes(r.id))
+      .forEach((r) => expect(within(box).getByLabelText(r.name)).not.toBeChecked());
   });
 
   it("память у каждого агента своя: GET ?agent=, POST с agent", async () => {

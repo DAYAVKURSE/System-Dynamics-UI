@@ -142,7 +142,7 @@ router.post("/agents", async (req, res, next) => {
 
 router.put("/agents/:id", async (req, res, next) => {
   try {
-    const { name, models, transcribe, uses, mcp, ask: askMode, skill, botToken } = req.body || {};
+    const { name, models, transcribe, uses, mcp, ask: askMode, skill, botToken, rights } = req.body || {};
     /* Токен бота (владелец, 2026-09-22): пустая строка — снять. Перед
        записью спрашиваем у Telegram, чей это токен: неверный токен —
        ошибка ввода словами, а не молчащий бот. */
@@ -158,7 +158,7 @@ router.put("/agents/:id", async (req, res, next) => {
       }
     }
     const agent = updateAgent(req.me.id, req.params.id,
-      { name, models, transcribe, uses, mcp, ask: askMode, skill, bot });
+      { name, models, transcribe, uses, mcp, ask: askMode, skill, bot, rights });
     if (!agent) return res.status(404).json({ error: "Агент не найден" });
     if (name !== undefined && req.me.isOwner) await renameAgentUser(agent.id, agent.name);
     res.json(agent);

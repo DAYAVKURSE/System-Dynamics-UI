@@ -22,6 +22,8 @@ export const SYSTEM_PROMPT = [
   "Не придумывай числа, имена, сроки и содержание файлов. Не пересчитывай прогноз:",
   "если вопрос требует расчёта, которого в данных нет, скажи, что расчёт делает приложение.",
   "Слова «план», «вилка» и «факт» различай: план — то, что записано в модели, факт — сдачи.",
+  "Ответ — только обычный текст для человека: без служебных тегов, пометок и отчётов",
+  "о безопасности или модерации — они здесь никому не нужны и не по делу.",
 ].join(" ");
 
 /**
@@ -46,11 +48,12 @@ export async function mcpServersFor(userId, agent) {
 }
 
 /** Подсказка агента целиком. `notes` — что добавить перед данными (переписка, задача). */
-export function systemFor({ agent, providers = [], servers = [], context = "", notes = [], plan = true, actions = true }) {
+export function systemFor({ agent, providers = [], servers = [], context = "", notes = [], plan = true, actions = true,
+  rights = null }) {
   return [
     SYSTEM_PROMPT,
     modelsNote(agent, providers),
-    actions ? actionsNote(agent.ask !== false) : "",
+    actions ? actionsNote(agent.ask !== false, rights) : "",
     mcpNote(servers),
     skillNote(agent.skill),
     plan ? PLAN_NOTE : "",
@@ -95,11 +98,16 @@ export async function runAgentPlanned({
   }
   const servers = await mcpServersFor(ownerId, agent);
   const providers = settings.settingsView(ownerId).providers || [];
-  const system = systemFor({ agent, providers, servers, context, notes, actions: !stranger });
+  /* Права агента (владелец, 2026-09-23): `agent.rights` — null у ассистента
+     (агенты им никогда не вызываются как этот, но на всякий случай), объект
+     у заведённого агента. Посторонний и так без своих инструментов вовсе
+     (`ownTools:false` ниже) — права ему не нужны и не переданы. */
+  const rights = stranger ? null : agent.rights;
+  const system = systemFor({ agent, providers, servers, context, notes, actions: !stranger, rights });
   const run = (q) => runAgent({
     userId: who, agentId, question: q, system, model, complete,
     isOwner, ask: agent.ask !== false, servers, signal, onConfirm, onAuthNeeded,
-    extra: stranger ? [] : extra, ownTools: !stranger,
+    extra: stranger ? [] : extra, ownTools: !stranger, rights,
   });
   return runPlanned({ question, run, onPlan, signal, title, resume, stopWhen: (t) => t.startsWith(ASKED_TEXT) });
 }

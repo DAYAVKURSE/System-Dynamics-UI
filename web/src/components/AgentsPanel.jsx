@@ -264,6 +264,14 @@ export default function AgentsPanel({ me, onChanged }) {
                 onSave={(token) => run(() => updateAgent(agent.id, { botToken: token }),
                   token ? "Бот назначен." : "Бот снят.")} />)}
 
+            {/* ═══ права (владелец, 2026-09-23) ═══ Только у своих агентов:
+                у ассистента их нет — он работает под правами того, кто
+                спросил. По умолчанию всё выключено: агент физически не
+                сможет то, чего здесь не отметили. */}
+            {!agent.builtin && (
+              <Rights key={`rights-${agent.id}`} agent={agent} rights={view.rights || []} busy={busy}
+                onToggle={(id, v) => run(() => updateAgent(agent.id, { rights: { [id]: v } }))} />)}
+
             {/* ═══ инструкции ═══ */}
             <Skill key={`skill-${agent.id}`} agent={agent} busy={busy}
               onSave={(text) => run(() => updateAgent(agent.id, { skill: text }),
@@ -937,6 +945,36 @@ function BotToken({ agent, busy, onSave }) {
         <button type="button" style={{ ...btn(true, BAD) }} disabled={busy || !name}
           onClick={() => { setToken(""); onSave(""); }}>Снять</button>
       </div>
+    </div>);
+}
+
+/* ─────── права агента (владелец, 2026-09-23) ───────
+
+   «Агентам должны выбираться права… чтобы пользователь, обратившийся к
+   агенту, не мог навредить приложению. Агенты должны знать о своих
+   правах и физически не смогут сделать то, чего в правах нет».
+
+   Чекбоксы, не переключатель: правами можно владеть сразу несколькими.
+   По умолчанию всё выключено — владелец включает то, что нужно именно
+   этому агенту, а не выключает лишнее из полного набора. */
+function Rights({ agent, rights, busy, onToggle }) {
+  const own = agent.rights || {};
+  return (
+    <div style={form} aria-label="права агента">
+      <div style={S.lbl}>права</div>
+      <div style={{ ...hint, margin: "var(--space-4) 0 var(--space-4)" }}>
+        Без права агент не увидит нужный инструмент вовсе — не забудет спросить,
+        а физически не сможет его позвать.
+      </div>
+      {rights.map((r) => (
+        <label key={r.id} className="flex items-start gap-2" style={{ marginTop: "var(--space-4)", cursor: busy ? "default" : "pointer" }}>
+          <input type="checkbox" checked={own[r.id] === true} disabled={busy}
+            aria-label={r.name} onChange={(e) => onToggle(r.id, e.target.checked)} />
+          <span>
+            <span style={{ fontSize: "var(--fs-body)" }}>{r.name}</span>
+            <span style={{ ...hint, display: "block" }}>{r.what}</span>
+          </span>
+        </label>))}
     </div>);
 }
 

@@ -1,4 +1,4 @@
-import { USES } from "./assistantSettings.js";
+import { RIGHTS, USES } from "./assistantSettings.js";
 import { runAction, toolsFor }
   from "./assistantActions.js";
 import { callTool } from "./mcp.js";
@@ -95,26 +95,54 @@ ${text}`;
    несделанное: инструмент, требующий подтверждения, ничего не меняет, и
    «готово» после него было бы ложью. Не спрашивать — потому что спросит
    приложение, кнопками, и второй вопрос словами человеку не нужен. */
-export const actionsNote = (ask) => [
-  "# Что ты умеешь делать",
-  "У тебя есть инструменты приложения. Права у тебя те же, что у человека,"
-  + " который спрашивает: чужую задачу взять не выйдет, и отказ придёт словами.",
-  ask
+/* `rights` — права АГЕНТА (владелец, 2026-09-23): у ассистента их нет
+   (null) — он работает под правами того, кто спросил, как и раньше; у
+   заведённого агента это отдельный, более узкий свод, и подсказка должна
+   назвать его словами — иначе «физически не смогут» превратилось бы в
+   «не знают, что нельзя, и пробуют». */
+export const actionsNote = (ask, rights = null) => {
+  const lines = ["# Что ты умеешь делать"];
+  if (rights) {
+    const have = RIGHTS.filter((r) => rights[r.id]).map((r) => r.name);
+    const lack = RIGHTS.filter((r) => !rights[r.id]).map((r) => r.name);
+    lines.push("У тебя есть инструменты приложения, но не все: владелец ограничил, что тебе можно менять."
+      + " Это не то же самое, что права человека, который спрашивает: даже если он сам мог бы что-то"
+      + " сделать, тебе может быть нельзя.");
+    lines.push(have.length ? `Тебе МОЖНО: ${have.join(", ")}.`
+      : "Тебе нельзя менять модель ни в чём — только читать, считать и разговаривать.");
+    if (lack.length) {
+      lines.push(`Тебе НЕЛЬЗЯ (владелец не дал право): ${lack.join(", ")}.`
+        + " Соответствующих инструментов у тебя физически нет: не пытайся их звать,"
+        + " не спрашивай разрешения и не выдумывай, будто сделал, — просто скажи, что это не в твоих правах.");
+    }
+  } else {
+    lines.push("У тебя есть инструменты приложения. Права у тебя те же, что у человека,"
+      + " который спрашивает: чужую задачу взять не выйдет, и отказ придёт словами.");
+  }
+  lines.push(ask
     ? "ИЗМЕНЕНИЯ ПРИМЕНЯЮТСЯ ТОЛЬКО ПОСЛЕ ПОДТВЕРЖДЕНИЯ ЧЕЛОВЕКА."
       + " Подтверждение спрашивает само приложение — кнопками, отдельным сообщением."
       + " Ты разрешения НЕ спрашиваешь и ответа НЕ ждёшь: зови нужный инструмент сразу."
       + " Он ответит, что подтверждение отправлено, — значит изменение ЕЩЁ НЕ СДЕЛАНО:"
       + " не зови его второй раз и не пиши, что сделал."
     : "Изменения применяй сразу, без лишних вопросов, и коротко отчитайся, что сделал."
-      + " Так настроен этот агент.",
-  "Читать и считать можно без спроса.",
-].join("\n");
+      + " Так настроен этот агент.");
+  lines.push("Читать и считать можно без спроса.");
+  /* Владелец, 2026-09-23: «нажал подтверждение, после чего агент сказал,
+     что такой задачи нет» — модель звала task_setup с выдуманным id, раз
+     попросили «создать задачу». Новых задач инструменты не заводят: они
+     появляются в приложении вместе с функцией. */
+  lines.push("Новую задачу инструментами не завести — их заводит человек в приложении, вместе с функцией."
+    + " Если просят создать задачу, так и скажи: сам её не заведёшь, а поставить (срок, исполнителя) можешь"
+    + " только уже существующую, по её id из tasks_list, — не выдумывай id.");
+  return lines.join("\n");
+};
 
 /* Список инструментов: свои плюс чужие, с приставкой. */
-function toolList({ isOwner, servers, extra = [], ownTools = true }) {
+function toolList({ isOwner, servers, extra = [], ownTools = true, rights = null }) {
   /* Без своих инструментов (владелец, 2026-09-22): агент говорит с
      посторонним — задач, людей и модели ему показывать нечего. */
-  const own = ownTools ? toolsFor({ isOwner }) : [];
+  const own = ownTools ? toolsFor({ isOwner, rights }) : [];
   const mcp = [];
   servers.forEach((s) => {
     (s.tools || []).forEach((t) => {
@@ -145,9 +173,9 @@ function toolList({ isOwner, servers, extra = [], ownTools = true }) {
 export async function runAgent({
   userId, agentId, question, image = null, system, model, complete,
   isOwner = false, ask = true, servers = [], signal = null, rounds = MAX_ROUNDS,
-  onConfirm = null, onAuthNeeded = null, extra = [], ownTools = true,
+  onConfirm = null, onAuthNeeded = null, extra = [], ownTools = true, rights = null,
 }) {
-  const tools = toolList({ isOwner, servers, extra, ownTools });
+  const tools = toolList({ isOwner, servers, extra, ownTools, rights });
   // Снимок экрана (вопрос из приложения) — при первом сообщении, картинкой.
   const messages = [{ role: "user", content: String(question || ""), ...(image?.data ? { image } : {}) }];
   const note = "";
@@ -199,7 +227,7 @@ export async function runAgent({
         }
       } else {
         result = await runAction(call.name, call.args,
-          { userId, agentId, isOwner, ask, onConfirm });
+          { userId, agentId, isOwner, ask, onConfirm, rights });
       }
       messages.push({ role: "tool", callId: call.id, name: call.name,
         content: String(result?.text || (result?.ok ? "готово" : "не вышло")) });

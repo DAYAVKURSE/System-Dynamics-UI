@@ -127,6 +127,25 @@ describe("спрашивать или делать", () => {
     expect(actions.pendingById(shown[0].id)).toBeNull();
   });
 
+  /* КЛИК ЧЕЛОВЕКА НЕ ТРАТИТСЯ ВПУСТУЮ (владелец, 2026-09-23: «нажал
+     подтверждение, после чего агент сказал, что такой задачи нет»):
+     несуществующая задача отклоняется ДО того, как спросили подтверждение,
+     а не после кнопки. */
+  it("несуществующая задача — отказ сразу, подтверждение не спрашивается вовсе", async () => {
+    await ws.writeModel({ tasks: MODEL });
+    const shown = [];
+    const { complete } = scripted([
+      { text: "", calls: [{ id: "c1", name: "task_setup", args: { taskId: "test-task-001", title: "Т" } }] },
+      { text: "Такой задачи нет.", calls: [] },
+    ]);
+    const said = await agentMod.runAgent({ userId: "100", agentId: "assistant",
+      question: "создай новую задачу", system: "S", model: {}, complete, ask: true, isOwner: true,
+      onConfirm: async (p) => { shown.push(p); return true; } });
+    expect(shown).toEqual([]);
+    expect(said).toBe("Такой задачи нет.");
+    expect((await ws.readModel()).tasks).toEqual(MODEL);
+  });
+
   it("«Отменить» снимает отложенное, и модель его больше не применит", async () => {
     await ws.writeModel({ tasks: MODEL });
     const shown = [];
@@ -187,6 +206,76 @@ describe("что у агента есть", () => {
     expect(note).toMatch(/разрешения НЕ спрашиваешь/);
     expect(note).toMatch(/не пиши, что сделал/);
     expect(agentMod.actionsNote(false)).toMatch(/применяй сразу/);
+  });
+});
+
+/* ПРАВА АГЕНТА (владелец, 2026-09-23): «агентам должны выбираться права…
+   агенты физически не смогут сделать то, чего нет у них в правах».
+   Двойная граница: список инструментов у модели не содержит запрещённого
+   (агент его не видит вовсе), а `runAction` отказывает и в обход списка. */
+describe("права агента", () => {
+  const NONE = { scheme: false, process: false, functions: false, tasks: false, reminders: false };
+
+  it("без прав (null) — ограничений нет, как у ассистента; с правами — только разрешённые категории", () => {
+    const own = actions.toolsFor({ isOwner: true, rights: null }).map((t) => t.name);
+    expect(own).toContain("proc_write");
+    expect(own).toContain("task_take");
+    const restricted = actions.toolsFor({ isOwner: true, rights: { ...NONE, tasks: true } }).map((t) => t.name);
+    expect(restricted).toContain("task_take");
+    expect(restricted).toContain("task_setup");
+    expect(restricted).not.toContain("proc_write");
+    expect(restricted).not.toContain("trait_set");
+    expect(restricted).not.toContain("func_set");
+    expect(restricted).not.toContain("reminder_set");
+    // Чтение — всегда, прав не спрашивает: без единого права список не пуст.
+    expect(actions.toolsFor({ isOwner: true, rights: NONE }).map((t) => t.name)).toEqual(["tasks_list"]);
+  });
+
+  it("правами, а не только именем инструмента: runAction отказывает и без списка, владельцу тоже", async () => {
+    await ws.writeModel({ tasks: MODEL });
+    const r = await actions.runAction("task_take", { taskId: "tk1" },
+      { userId: "200", agentId: "a1", isOwner: true, ask: false, rights: NONE });
+    expect(r.ok).toBe(false);
+    expect(r.text).toMatch(/У агента нет права «редактировать задачи»/);
+    expect((await ws.readModel()).tasks[0].status).toBe("backlog");
+    const ok = await actions.runAction("task_take", { taskId: "tk1" },
+      { userId: "200", agentId: "a1", isOwner: true, ask: false, rights: { ...NONE, tasks: true } });
+    expect(ok.ok).toBe(true);
+  });
+
+  it("действие без права не появляется у модели — она не может ни разу его позвать", async () => {
+    await ws.writeModel({ tasks: MODEL });
+    const { complete, seen } = scripted([{ text: "У меня нет права редактировать задачи.", calls: [] }]);
+    const out = await agentMod.runAgent({ userId: "200", agentId: "a1", question: "возьми tk1",
+      system: "S", model: {}, complete, ask: false, isOwner: true, rights: NONE });
+    expect(out).toBe("У меня нет права редактировать задачи.");
+    expect(seen[0].tools.map((t) => t.name)).not.toContain("task_take");
+    expect((await ws.readModel()).tasks[0].status).toBe("backlog");
+  });
+
+  it("подсказка называет, что можно и что нельзя — словами, а не молчит об ограничении", () => {
+    const restricted = agentMod.actionsNote(true, { ...NONE, reminders: true });
+    expect(restricted).toMatch(/Тебе МОЖНО: напоминания/);
+    expect(restricted).toMatch(/Тебе НЕЛЬЗЯ \(владелец не дал право\): редактировать схему, редактировать техпроцесс, редактировать функции, редактировать задачи/);
+    expect(restricted).toMatch(/физически нет/);
+    expect(agentMod.actionsNote(true, NONE)).toMatch(/нельзя менять модель ни в чём/);
+    // Без прав (ассистент) — прежний текст, никакого «нельзя».
+    const unrestricted = agentMod.actionsNote(true, null);
+    expect(unrestricted).toMatch(/Права у тебя те же, что у человека/);
+    expect(unrestricted).not.toMatch(/владелец не дал право/);
+  });
+
+  it("напоминания меняет только СВОИ — того, кто разговаривает, не чужие", async () => {
+    const org = await import("../lib/orgStore.js");
+    await org.identify("200", { name: "Иван" });
+    const { complete } = scripted([
+      { text: "", calls: [{ id: "c1", name: "reminder_set", args: { warnMin: 20 } }] },
+      { text: "Готово.", calls: [] },
+    ]);
+    await agentMod.runAgent({ userId: "200", agentId: "a1", question: "напоминай мне за 20 минут",
+      system: "S", model: {}, complete, ask: false, rights: { ...NONE, reminders: true } });
+    const me = await org.identify("200", {}, { claim: false });
+    expect(me.profile.warnMin).toBe(20);
   });
 });
 

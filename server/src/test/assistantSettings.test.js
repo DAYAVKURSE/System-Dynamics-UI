@@ -254,7 +254,7 @@ describe("перенос прежних настроек владельца из
    коллекцией моделей из провайдеров человека. modelFor смотрит сначала в
    коллекцию ассистента, потом — в прежнюю таблицу. */
 describe("агенты", () => {
-  const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null };
+  const ASSISTANT = { id: "assistant", name: "Ассистент", builtin: true, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null, rights: null };
 
   it("встроенный есть всегда, первым, и его нельзя удалить", () => {
     expect(settingsView("200").agents).toEqual([ASSISTANT]);
@@ -270,7 +270,7 @@ describe("агенты", () => {
 
   it("создание, переименование, удаление; имя обязательно; предел назван числом", () => {
     const a = addAgent("200", { name: "  Юрист   по договорам " });
-    expect(a).toEqual({ id: a.id, name: "Юрист по договорам", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null });
+    expect(a).toEqual({ id: a.id, name: "Юрист по договорам", builtin: false, models: [], transcribe: null, uses: { main: null, voice: null, draw: null, vision: null, transcribe: null }, mcp: {}, ask: true, skill: "", bot: null, rights: { scheme: false, process: false, functions: false, tasks: false, reminders: false } });
     expect(a.id).toMatch(/^a_[0-9a-f]{8}$/);
     expect(settingsView("200").agents.map((x) => x.id)).toEqual(["assistant", a.id]);
     expect(updateAgent("200", a.id, { name: "Юрист" }).name).toBe("Юрист");
@@ -306,6 +306,23 @@ describe("агенты", () => {
     expect(seen.length).toBeGreaterThanOrEqual(3);
     off();
     removeAgent("200", a.id); removeAgent("100", b.id);
+  });
+
+  /* ПРАВА АГЕНТА (владелец, 2026-09-23): по умолчанию всё выключено —
+     «чтобы пользователь, обратившийся к агенту, не мог навредить
+     приложению»; у ассистента прав нет вовсе (он не заведён этим путём). */
+  it("права: по умолчанию всё выключено; правятся по одному; неизвестное имя — отказ; у ассистента их нет", () => {
+    const NONE = { scheme: false, process: false, functions: false, tasks: false, reminders: false };
+    const a = addAgent("200", { name: "Юрист" });
+    expect(a.rights).toEqual(NONE);
+    expect(updateAgent("200", a.id, { rights: { tasks: true } }).rights).toEqual({ ...NONE, tasks: true });
+    // Второе право добавляется, первое остаётся.
+    expect(updateAgent("200", a.id, { rights: { reminders: true } }).rights).toEqual({ ...NONE, tasks: true, reminders: true });
+    expect(updateAgent("200", a.id, { rights: { tasks: false } }).rights).toEqual({ ...NONE, reminders: true });
+    expect(() => updateAgent("200", a.id, { rights: { чужое: true } })).toThrow(/Нет такого права/);
+    expect(() => updateAgent("200", "assistant", { rights: { tasks: true } })).toThrow(/У ассистента нет отдельных прав/);
+    expect(agentFor("200", "assistant").rights).toBeNull();
+    removeAgent("200", a.id);
   });
 
   it("пары моделей — только из провайдеров записи и их списков; повторы убираются, порядок сохраняется", () => {

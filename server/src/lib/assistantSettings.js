@@ -67,6 +67,37 @@ export const USES = [
   { id: "transcribe", name: "Расшифровка голоса", what: "текст из записи" },
 ];
 export const USE_IDS = USES.map((u) => u.id);
+
+/* ─────── ПРАВА АГЕНТА (владелец, 2026-09-23) ───────
+
+   «Агенты должны знать о своих правах и ограничениях… и физически не
+   смогут сделать то, чего нет у них в правах». Модель у агента может
+   быть мощной, а собеседник — кем угодно, кто нашёл бота: без отдельных
+   прав любой, кто написал агенту, получал бы доступ ко всем действиям,
+   какие есть в приложении вообще (в рамках своих собственных, но всё
+   же). Права — ЗА АГЕНТОМ, а не за собеседником: чего агенту не дали,
+   того он не сделает, даже если спрашивает сам владелец.
+
+   По умолчанию — всё выключено: агент только читает и разговаривает,
+   пока владелец не включит нужное явно. У ассистента прав нет вовсе —
+   он всегда работает под собственными правами того, кто спросил, как и
+   раньше; это поле — только у заведённых агентов. */
+export const RIGHTS = [
+  { id: "scheme", name: "редактировать схему", what: "менять количество ресурсов и состав воркеров актива" },
+  { id: "process", name: "редактировать техпроцесс", what: "создавать и переписывать технологические процессы" },
+  { id: "functions", name: "редактировать функции", what: "менять срок, повтор и название функций" },
+  { id: "tasks", name: "редактировать задачи", what: "брать, сдавать, откладывать, ставить задачи и писать в их обсуждении" },
+  { id: "reminders", name: "напоминания", what: "менять собеседнику, за сколько его предупреждать" },
+];
+export const RIGHT_IDS = RIGHTS.map((r) => r.id);
+const emptyRights = () => Object.fromEntries(RIGHT_IDS.map((id) => [id, false]));
+/* Чужой JSON в права не пускаем дальше известных ключей и булевых значений:
+   как и остальная запись, это на диске, и читает её только код ниже. */
+const rightsOf = (raw) => {
+  const out = emptyRights();
+  if (raw && typeof raw === "object") RIGHT_IDS.forEach((id) => { if (raw[id] === true) out[id] = true; });
+  return out;
+};
 export const MAX_MCP = 20;
 /* Инструментов у сервера бывает много; предел тот же, что у списка
    инструментов в `lib/mcp.js`. */
@@ -374,6 +405,7 @@ function normalize(raw) {
       uses: usesOf(a.uses), mcp: mcpOf(a.mcp), ask: a.ask !== false,
       skill: String(a.skill || "").slice(0, MAX_SKILL),
       bot: botOf(a.bot),
+      rights: rightsOf(a.rights),
     });
     tieTranscribe(rec.agents[rec.agents.length - 1]);
     if (rec.agents.length >= MAX_AGENTS) break;
@@ -480,6 +512,9 @@ const agentView = (a) => ({
   ask: a.ask !== false,
   skill: String(a.skill || ""),
   bot: a.bot ? { username: a.bot.username || "", botId: a.bot.botId || "" } : null,
+  /* Права — только у заведённых агентов; у ассистента их нет вовсе: он
+     всегда работает под правами того, кто спросил. */
+  rights: a.builtin ? null : { ...(a.rights || emptyRights()) },
 });
 const mcpView = (m) => ({ id: m.id, name: m.name, url: m.url, repo: m.repo,
   tools: [...(m.tools || [])], at: m.at || null,
@@ -491,7 +526,8 @@ const mcpView = (m) => ({ id: m.id, name: m.name, url: m.url, repo: m.repo,
 export function settingsView(userId) {
   const rec = readUserSettings(userId);
   return { providers: rec.providers.map(providerView), tasks: { ...rec.tasks },
-    agents: rec.agents.map(agentView), mcp: rec.mcp.map(mcpView), uses: USES.map((u) => ({ ...u })) };
+    agents: rec.agents.map(agentView), mcp: rec.mcp.map(mcpView), uses: USES.map((u) => ({ ...u })),
+    rights: RIGHTS.map((r) => ({ ...r })) };
 }
 
 /** Агент человека — копия или null. Чужого не найти: файл свой. */
@@ -734,7 +770,7 @@ export function addAgent(userId, { name } = {}) {
  * только те поля, что есть в теле. Нет такого агента — null: «не найден»
  * здесь правда, а не ошибка ввода.
  */
-export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, ask, skill, bot } = {}) {
+export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, ask, skill, bot, rights } = {}) {
   const rec = readUserSettings(userId);
   const a = rec.agents.find((x) => x.id === String(id));
   if (!a) return null;
@@ -799,6 +835,18 @@ export function updateAgent(userId, id, { name, models, transcribe, uses, mcp, a
       const taken = allAgentBots().find((b) => b.token === clean.token && !(b.userId === String(userId) && b.agentId === a.id));
       if (taken) throw new BadInput("Этот токен уже назначен другому агенту");
       a.bot = clean;
+    }
+  }
+  /* Права: приходят по одной — правят названное, остальные остаются как
+     были (владелец, 2026-09-23: «агенты физически не смогут сделать то,
+     чего нет у них в правах»). У ассистента прав нет — он не заводится
+     этим маршрутом и работает под правами того, кто спросил. */
+  if (rights !== undefined && rights && typeof rights === "object") {
+    if (a.builtin) throw new BadInput("У ассистента нет отдельных прав — он работает под вашими собственными");
+    a.rights = { ...(a.rights || emptyRights()) };
+    for (const [k, v] of Object.entries(rights)) {
+      if (!RIGHT_IDS.includes(k)) throw new BadInput(`Нет такого права: «${k}»`);
+      a.rights[k] = v === true;
     }
   }
   const saved = agentView(writeUserSettings(userId, rec).agents.find((x) => x.id === a.id));
