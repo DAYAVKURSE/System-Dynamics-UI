@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -130,13 +130,12 @@ describe("инструменты «люди»", () => {
     await recordDialog(K, 5, { name: "Пётр", text: "привет" });
     const { by } = make();
     const p = by.ask_person.run({ who: "Пётр", question: "Согласны?" });
-    await new Promise((r) => setTimeout(r, 5));
-    expect(isWaiting(K, 5)).toBe(true);
+    // Ждём, пока вопрос уйдёт и начнётся ожидание: под нагрузкой (CI) пяти миллисекунд не хватало.
+    await vi.waitFor(() => expect(isWaiting(K, 5)).toBe(true));
     expect(takeReply(K, 5, "да")).toBe(true);
     expect(await p).toEqual({ ok: true, text: "Пётр ответил: да" });
     const q = by.ask_person.run({ who: "ivan", question: "Срок?", minutes: 0.0001 });
-    await new Promise((r) => setTimeout(r, 5));
-    expect(isWaiting(botKey("100", "assistant"), 200)).toBe(true);
+    await vi.waitFor(() => expect(isWaiting(botKey("100", "assistant"), 200)).toBe(true));
     // Срок не больше минуты в округлении: минимальный — секунда.
     resetWaiting();
     // Снятое ожидание — тот же «не ответил».
