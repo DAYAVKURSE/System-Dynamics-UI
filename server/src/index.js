@@ -41,9 +41,20 @@ const humanMembers = async () => (await org.listOrg()).users
   .filter((u) => !u.agent).map((u) => ({ id: String(u.id), name: u.name || "", username: u.username || "" }));
 const agentBotOf = (agentId) => assistantSettings.allAgentBots().find((b) => b.agentId === String(agentId)) || null;
 
-/** Разговор агента — с инструментами «написать/спросить человека». */
+/**
+ * Разговор агента — с инструментами «написать/спросить человека».
+ *
+ * `onConfirm`/`resume` — подтверждение изменения и продолжение плана
+ * после кнопки (владелец, 2026-09-23: «агенты должны общаться так же,
+ * как и ассистент» — у ассистента подтверждение уже работало, а у бота
+ * агента `onConfirm` никуда не передавался, и действие, ждущее
+ * подтверждения, само отвечало «подтвердить не вышло», не спросив
+ * человека). `onStopped` зовём здесь же, а не заставляем каждую дверь
+ * читать `r.stopped` самой: план остановился на подтверждении — тот, кто
+ * спросил, запоминает где, чтобы продолжить после кнопки.
+ */
 async function runAgentFor({ ownerId, agentId, agentName, question, notes = [], onPlan, title = "", signal = null,
-  asUserId = null, stranger = false }) {
+  asUserId = null, stranger = false, onConfirm = null, onStopped = null, resume = null }) {
   const bot = agentBotOf(agentId);
   const key = dialogs.botKey(ownerId, agentId);
   const extra = peopleToolsFor({
@@ -53,8 +64,12 @@ async function runAgentFor({ ownerId, agentId, agentName, question, notes = [], 
       ...(process.env.TELEGRAM_BOT_TOKEN ? { main: (chatId, text) => sendMessage(chatId, text) } : {}),
     },
   });
-  return runAgentPlanned({ ownerId, agentId, asUserId: asUserId || org.agentUserId(agentId), question, notes, onPlan,
-    extra, title, signal, stranger });
+  const r = await runAgentPlanned({ ownerId, agentId, asUserId: asUserId || org.agentUserId(agentId), question, notes,
+    onPlan, extra, title, signal, stranger, onConfirm, resume });
+  if (r.stopped && r.plan && onStopped) {
+    try { onStopped({ plan: r.plan, at: r.at }); } catch { /* не запомнили — продолжения не будет */ }
+  }
+  return r;
 }
 
 /* Кто пишет боту агента — тем и живёт разговор (владелец, 2026-09-22):
@@ -386,8 +401,9 @@ const agentBots = createAgentBots({
       send: (c, t) => sendWithKeyboard(c, t, null, bot.token),
       edit: (c, m, t, k) => editMessage(c, m, t, k, bot.token),
       log: (m) => console.warn(`[agents] ${m}`) }),
-    run: async ({ question, notes, onPlan, from }) => (await runAgentFor({ ownerId: bot.userId, agentId: bot.agentId,
-      agentName: bot.name, question, notes, onPlan, ...(await personScope(from)) })).answer,
+    run: async ({ question, notes, onPlan, from, onConfirm, onStopped, resume }) => (await runAgentFor({
+      ownerId: bot.userId, agentId: bot.agentId, agentName: bot.name, question, notes, onPlan, onConfirm, onStopped,
+      resume, ...(await personScope(from)) })).answer,
     log: (m) => console.warn(`[agents] ${m}`),
   }),
 });

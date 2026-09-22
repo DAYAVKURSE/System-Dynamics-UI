@@ -78,7 +78,7 @@ export const STRANGER_CONTEXT = "Этот человек — не участни
  */
 export async function runAgentPlanned({
   ownerId, agentId, asUserId = null, question, notes = [], onPlan = null, signal = null,
-  extra = [], onConfirm = null, onAuthNeeded = null, title = "", stranger = false,
+  extra = [], onConfirm = null, onAuthNeeded = null, title = "", stranger = false, resume = null,
   complete = completeDefault, contextFor = contextForDefault, modelFor = settings.modelForAgent,
 }) {
   const agent = settings.agentFor(ownerId, agentId);
@@ -101,7 +101,7 @@ export async function runAgentPlanned({
     isOwner, ask: agent.ask !== false, servers, signal, onConfirm, onAuthNeeded,
     extra: stranger ? [] : extra, ownTools: !stranger,
   });
-  return runPlanned({ question, run, onPlan, signal, title, stopWhen: (t) => t.startsWith(ASKED_TEXT) });
+  return runPlanned({ question, run, onPlan, signal, title, resume, stopWhen: (t) => t.startsWith(ASKED_TEXT) });
 }
 
 /* ─────── сообщение-статус с планом ───────

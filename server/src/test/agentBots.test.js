@@ -10,6 +10,8 @@ import { STRANGER_CONTEXT, runAgentPlanned, statusMessage, systemFor } from "../
 import { PLAN_NOTE } from "../lib/planRunner.js";
 import { addAgent, addProvider, updateAgent, updateProvider } from "../lib/assistantSettings.js";
 import { identify } from "../lib/orgStore.js";
+import * as actions from "../lib/assistantActions.js";
+import { readModel, writeModel } from "../lib/workspaceStore.js";
 
 /* ═══════════════════════════════════════════════════════════════
    БОТЫ АГЕНТОВ
@@ -111,6 +113,113 @@ describe("сообщение человека боту агента", () => {
     expect(await handleAgentUpdate(BOT, message(petr, "?"), d)).toEqual({ error: "модель не выбрана" });
     expect(d.sent[1].text).toBe("модель не выбрана");
     expect(d.edits[d.edits.length - 1].text).toMatch(/^Не вышло/);
+  });
+});
+
+/* ПОДТВЕРЖДЕНИЕ И ПРОДОЛЖЕНИЕ ПЛАНА (владелец, 2026-09-23: «агенты должны
+   общаться так же, как и ассистент, с созданием плана»). Раньше `onConfirm`
+   боту агента не передавался вовсе, и любое действие, требующее
+   подтверждения, само отвечало «подтвердить не вышло», ни разу не спросив
+   человека: план на этом не останавливался кнопками, а просто рассыпался
+   («агент не запрашивал разрешение»). */
+describe("подтверждение изменения и продолжение плана", () => {
+  beforeEach(async () => {
+    actions.resetPendingActions();
+    await writeModel({ tasks: [{ id: "tk1", title: "Задача", status: "backlog", assignee: "500", setter: "100" }] });
+  });
+
+  it("действие, требующее подтверждения, спрашивает кнопками — как у ассистента", async () => {
+    const d = deps();
+    let pendingId = null;
+    d.run = async (opts) => {
+      if (!opts.resume) {
+        const r = await actions.runAction("task_take", { taskId: "tk1" },
+          { userId: "500", agentId: BOT.agentId, ask: true, onConfirm: opts.onConfirm });
+        pendingId = r.id;
+        opts.onStopped({ plan: { request: "взять задачу", result: "задача в работе",
+          steps: [{ action: "взять", expect: "взято", state: "pending", result: "" }] }, at: 0 });
+        return `Жду вашего подтверждения — оно отправлено отдельным сообщением с кнопками:\n${r.words}`;
+      }
+      return "Готово, сдано.";
+    };
+    const r = await handleAgentUpdate(BOT, message(petr, "возьми задачу в работу"), d);
+    expect(r.answered).toBe(true);
+    const confirmMsg = d.sent.find((m) => m.text.startsWith("Подтвердите изменение:"));
+    expect(confirmMsg).toBeTruthy();
+    expect(confirmMsg.text).toContain("взять задачу tk1 в работу");
+    expect(confirmMsg.keyboard.inline_keyboard.flat().map((b) => b.callback_data))
+      .toEqual([`ai:ok:${pendingId}`, `ai:no:${pendingId}`]);
+    expect((await readModel()).tasks[0].status).toBe("backlog");   // ещё не сделано
+  });
+
+  it("«Да» под подтверждением применяет изменение и продолжает план тем же вопросом", async () => {
+    const d = deps();
+    let pendingId = null;
+    d.run = async (opts) => {
+      if (!opts.resume) {
+        const r = await actions.runAction("task_take", { taskId: "tk1" },
+          { userId: "500", agentId: BOT.agentId, ask: true, onConfirm: opts.onConfirm });
+        pendingId = r.id;
+        opts.onStopped({ plan: { request: "взять задачу", result: "задача в работе",
+          steps: [{ action: "взять", expect: "взято", state: "pending", result: "" }] }, at: 0 });
+        return `Жду вашего подтверждения — оно отправлено отдельным сообщением с кнопками:\n${r.words}`;
+      }
+      return "Готово, сдано.";
+    };
+    await handleAgentUpdate(BOT, message(petr, "возьми задачу в работу"), d);
+    const cb = { update_id: 2, callback_query: { id: "c1", from: petr, data: `ai:ok:${pendingId}`,
+      message: { chat: { id: 500 }, message_id: 1 } } };
+    const pressed = await handleAgentUpdate(BOT, cb, d);
+    expect(pressed).toMatchObject({ applied: pendingId, ok: true, resumed: true });
+    expect((await readModel()).tasks[0].status).toBe("progress");
+    // Кнопки под подтверждением сменились на «Отменить изменения»; итог — новым сообщением.
+    expect(d.edits.some((e) => e.text.startsWith("Изменение внесено:")
+      && e.keyboard?.inline_keyboard?.flat().some((b) => b.callback_data.startsWith("ai:undo:")))).toBe(true);
+    expect(d.sent[d.sent.length - 1].text).toBe("Готово, сдано.");
+    expect((await readDialog(K, 500)).messages.pop().text).toBe("Готово, сдано.");
+  });
+
+  it("«Нет» отменяет изменение, не трогает модель, и план тоже продолжается", async () => {
+    const d = deps();
+    let pendingId = null;
+    d.run = async (opts) => {
+      if (!opts.resume) {
+        const r = await actions.runAction("task_take", { taskId: "tk1" },
+          { userId: "500", agentId: BOT.agentId, ask: true, onConfirm: opts.onConfirm });
+        pendingId = r.id;
+        opts.onStopped({ plan: { request: "взять задачу", result: "задача в работе",
+          steps: [{ action: "взять", expect: "взято", state: "pending", result: "" }] }, at: 0 });
+        return `Жду вашего подтверждения — оно отправлено отдельным сообщением с кнопками:\n${r.words}`;
+      }
+      return "Хорошо, оставил как было.";
+    };
+    await handleAgentUpdate(BOT, message(petr, "возьми задачу в работу"), d);
+    const cb = { update_id: 2, callback_query: { id: "c1", from: petr, data: `ai:no:${pendingId}`,
+      message: { chat: { id: 500 }, message_id: 1 } } };
+    const pressed = await handleAgentUpdate(BOT, cb, d);
+    expect(pressed).toMatchObject({ cancelled: pendingId, resumed: true });
+    expect((await readModel()).tasks[0].status).toBe("backlog");
+    expect(d.edits.some((e) => e.text.startsWith("Изменение отменено:"))).toBe(true);
+    expect(d.sent[d.sent.length - 1].text).toBe("Хорошо, оставил как было.");
+  });
+
+  it("чужая кнопка — «это не ваше изменение», ничего не меняется", async () => {
+    const d = deps();
+    let pendingId = null;
+    d.run = async (opts) => {
+      const r = await actions.runAction("task_take", { taskId: "tk1" },
+        { userId: "500", agentId: BOT.agentId, ask: true, onConfirm: opts.onConfirm });
+      pendingId = r.id;
+      return `Жду вашего подтверждения — оно отправлено отдельным сообщением с кнопками:\n${r.words}`;
+    };
+    await handleAgentUpdate(BOT, message(petr, "возьми задачу в работу"), d);
+    const answers = [];
+    d.answer = async (id, text) => { answers.push(text); };
+    const cb = { update_id: 2, callback_query: { id: "c1", from: owner, data: `ai:ok:${pendingId}`,
+      message: { chat: { id: 500 }, message_id: 1 } } };
+    expect(await handleAgentUpdate(BOT, cb, d)).toEqual({ stale: true });
+    expect(answers).toEqual(["Это не ваше изменение"]);
+    expect((await readModel()).tasks[0].status).toBe("backlog");
   });
 });
 
