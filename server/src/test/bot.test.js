@@ -126,6 +126,21 @@ describe("слова — помощнику, и владельцу тоже", ()
     expect(lastText()).toMatch(/только участникам/);
   });
 
+  /* «/start» (владелец, 2026-09-22): приветствие с кнопкой панели, а не
+     «Не разобрал»; незваному — тоже, о модели в нём ничего нет. */
+  it("«/start» — приветствие с кнопкой панели, и незваному тоже", async () => {
+    const r = await handleUpdate(msg(owner, { text: "/start" }), { ...deps, assistant, publicUrl: "https://app.example/" });
+    expect(r).toEqual({ welcomed: true });
+    expect(lastText()).toBe("Добро пожаловать! Откройте панель для работы, или напишите мне сообщение");
+    expect(sent[sent.length - 1].keyboard).toEqual({ inline_keyboard: [[{ text: "Открыть панель", web_app: { url: "https://app.example" } }]] });
+    const g = await handleUpdate(msg(guest, { text: "/start@my_bot" }), { ...deps, assistant });
+    expect(g).toEqual({ welcomed: true });
+    expect(lastText()).toMatch(/^Добро пожаловать/);
+    expect(sent[sent.length - 1].keyboard).toBeNull();
+    // «/start agr_…» — по-прежнему договор, не приветствие.
+    expect(lastText()).not.toMatch(/Не разобрал/);
+  });
+
   it("не слова — одна строка, а не список умений", async () => {
     const r = await handleUpdate(msg(owner, { sticker: { file_id: "s1" } }), { ...deps, assistant });
     expect(r).toEqual({ helped: true });

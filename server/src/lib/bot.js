@@ -145,6 +145,7 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
    пересылка, незнакомая команда. Одна строка, а не список умений: слова
    уходят помощнику и до этого места не доходят. */
 const NOT_PARSED = "Не разобрал.";
+export const WELCOME = "Добро пожаловать! Откройте панель для работы, или напишите мне сообщение";
 
 /**
  * @param update  объект обновления Telegram
@@ -311,6 +312,16 @@ export async function handleUpdate(update, deps) {
       await send(from.id, `Не вышло: ${e.message}`);
       return { error: e.message };
     }
+  }
+
+  /* «/start» без хвоста — приветствие с кнопкой панели (владелец,
+     2026-09-22: бот отвечал «Не разобрал»). Отвечаем и незваному: это
+     первое, что нажимает любой, и ничего о модели здесь нет. */
+  if (msg && /^\/start(?:@\w+)?\s*$/.test(String(msg.text || "").trim())) {
+    const url = String(deps.publicUrl || "").replace(/\/+$/, "");
+    const keyboard = url ? { inline_keyboard: [[{ text: "Открыть панель", web_app: { url } }]] } : null;
+    await send(from.id, WELCOME, keyboard);
+    return { welcomed: true };
   }
 
   /* Незваному бот не отвечает содержательно: он не должен рассказывать
