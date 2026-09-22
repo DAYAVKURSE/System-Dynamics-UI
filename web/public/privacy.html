@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>blockTree — Политика конфиденциальности</title>
+<style>
+  :root { --bg:#0b0f14; --panel:#131a22; --line:rgba(255,255,255,.12); --text:#e8edf2; --muted:#8a96a3; --mint:#5eead4; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--text); }
+  body { font:15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", sans-serif; padding:20px 16px 48px; }
+  main { max-width:720px; margin:0 auto; }
+  .lang { position:fixed; top:12px; right:12px; display:flex; gap:6px; z-index:2; }
+  .lang button { font:inherit; font-size:13px; font-weight:700; color:var(--text); background:var(--panel); border:1px solid var(--line);
+    border-radius:999px; padding:6px 12px; cursor:pointer; }
+  .lang button[aria-pressed="true"] { border-color:var(--mint); color:var(--mint); background:rgba(94,234,212,.12); }
+  h1 { font-size:22px; line-height:1.3; margin:44px 0 4px; }
+  h2 { font-size:16px; margin:28px 0 8px; }
+  p, li { margin:0 0 8px; }
+  ul { padding-left:20px; margin:0 0 8px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .brand { color:var(--mint); font-weight:700; }
+  section[data-lang] { display:none; }
+  html[lang="ru"] section[data-lang="ru"], html[lang="en"] section[data-lang="en"], html[lang="zh"] section[data-lang="zh"] { display:block; }
+</style>
+</head>
+<body>
+<nav class="lang" aria-label="язык / language / 语言">
+  <button type="button" data-set="ru" aria-pressed="true">RU</button>
+  <button type="button" data-set="en" aria-pressed="false">EN</button>
+  <button type="button" data-set="zh" aria-pressed="false">中文</button>
+</nav>
+<main>
+
+<section data-lang="ru">
+  <h1>Политика конфиденциальности</h1>
+  <p class="muted">Приложение <span class="brand">blockTree</span> · действует с 22 сентября 2026 года</p>
+
+  <h2>1. Кто обрабатывает данные</h2>
+  <p>Оператор данных — индивидуальный предприниматель (ԱՁ, Республика Армения) Фролов Данил Сергеевич (далее — «Оператор»). Оператор предоставляет приложение blockTree: мини-приложение и бот в Telegram для описания устройства бизнеса, постановки задач, отчётов и работы с помощником на основе моделей искусственного интеллекта (далее — «Сервис»).</p>
+  <p>Связаться с Оператором по вопросам этой политики можно в чате бота blockTree в Telegram — того, из которого открывается приложение.</p>
+
+  <h2>2. Какие данные обрабатываются</h2>
+  <p><b>Данные учётной записи Telegram.</b> Идентификатор пользователя, имя, имя пользователя (username), фотография профиля и язык интерфейса — их передаёт Telegram при открытии приложения. По ним Сервис узнаёт вас и подписывает ваши действия.</p>
+  <p><b>Анкета.</b> Имя, которым вы назвали себя в приложении, выбранный язык, роль и то, что вы сами указали в анкете.</p>
+  <p><b>Содержимое, которое вы создаёте.</b> Схемы, сценарии и их версии (с описанием и именем автора), задачи, сдачи и оценки, отчёты, файлы материалов, договоры и их версии, цели, техпроцессы, сообщения в задачах, объявления на рынке услуг и заказы.</p>
+  <p><b>Звонки.</b> Видео и звук звонка записываются только после нажатия кнопки записи; звук пишется по каждому участнику отдельно. Записи и их расшифровки (с именами говорящих) хранятся у владельца хранилища и удаляются им в приложении.</p>
+  <p><b>Сообщения об ошибках.</b> Текст сообщения, лента ваших последних действий в приложении (за две минуты, не меньше десяти событий; адреса почты, ключи, длинные идентификаторы и номера в ней заменены словами) и снимок экрана — только если вы поставили галочку «отправить скриншот».</p>
+  <p><b>Вопросы помощнику.</b> Текст вопроса, описание того, что было на экране, лента последних действий и снимок экрана — только по галочке. Ответ приходит в чат бота.</p>
+  <p><b>Настройки помощника.</b> Ключи доступа к провайдерам моделей искусственного интеллекта и адреса MCP-серверов, которые вы подключили сами. Ключи хранятся на сервере в файле с доступом только для Сервиса и не показываются другим людям.</p>
+  <p><b>Платежи.</b> При оплате подписки — план, сумма, способ оплаты (Telegram Stars, TON или USDT), адрес кошелька, с которого пришёл платёж, и время. Данных банковских карт Сервис не получает.</p>
+  <p><b>Технические данные.</b> Записи в памяти браузера и в облачном хранилище Telegram (последняя открытая схема, язык, черновик, раскладка карт), журналы сервера с временем запросов и ошибками.</p>
+
+  <h2>3. Зачем и на каком основании</h2>
+  <ul>
+    <li><b>Работа Сервиса</b> — исполнение пользовательского соглашения: без учётной записи Telegram и содержимого, которое вы создаёте, приложение не может работать.</li>
+    <li><b>Ваше согласие</b> — записи звонков, снимки экрана, отправка вопросов провайдерам моделей и подключение MCP-серверов. Согласие даётся действием (нажатие записи, галочка, ввод ключа) и может быть отозвано в любой момент.</li>
+    <li><b>Законный интерес Оператора</b> — безопасность, разбор ошибок, защита от злоупотреблений, учёт оплат.</li>
+  </ul>
+
+  <h2>4. Кому данные передаются</h2>
+  <ul>
+    <li><b>Telegram</b> — приложение работает внутри Telegram; сообщения, файлы, снимки и записи, которые Сервис присылает вам в чат, проходят через серверы Telegram по его условиям.</li>
+    <li><b>Провайдеры моделей искусственного интеллекта</b>, которых вы выбрали сами (по своим ключам). Им уходят текст вопроса, контекст экрана и последних действий, снимок экрана (если приложен), голосовые сообщения для расшифровки и записи звонков при транскрибации — по условиям выбранного провайдера.</li>
+    <li><b>MCP-серверы</b>, которые вы подключили сами, — данные, необходимые для выполнения запроса.</li>
+    <li><b>Платёжные сервисы</b>: Telegram Stars; для TON и USDT — публичные сервисы просмотра блокчейна и курсов (только адрес кошелька и сумма).</li>
+    <li><b>Хостинг-провайдер</b>, на чьих серверах работает Сервис.</li>
+    <li><b>Другие участники вашего хранилища</b> — в объёме их ролей: имя, анкета, задачи, оценки и версии, к которым им открыт доступ.</li>
+  </ul>
+  <p>Оператор не продаёт данные и не передаёт их рекламным сетям.</p>
+
+  <h2>5. Где и сколько хранятся</h2>
+  <p>Данные хранятся на сервере Оператора. Содержимое хранится, пока существует ваше хранилище или хранилище, в котором вы участвуете. Записи звонков и расшифровки — пока владелец хранилища не удалит их в приложении. Сообщения об ошибках со снимками — до разбора и не дольше года. Журналы сервера — не дольше 90 дней. Данные об оплатах — в течение срока, установленного законом для учёта.</p>
+
+  <h2>6. Ваши права</h2>
+  <ul>
+    <li>Узнать, какие данные о вас есть, и получить копию — сценарий выгружается в приложении файлом.</li>
+    <li>Исправить данные — в анкете и в настройках.</li>
+    <li>Удалить данные или учётную запись — по запросу в чате бота. Удаление содержимого, к которому есть доступ у других участников, согласуется с владельцем хранилища.</li>
+    <li>Отозвать согласие — удалить ключи провайдеров и MCP-серверы в настройках, не ставить галочки на снимки, не включать запись.</li>
+  </ul>
+  <p>Запросы рассматриваются в течение 30 дней.</p>
+
+  <h2>7. Защита данных</h2>
+  <p>Доступ к API возможен только с подписью Telegram, которую нельзя подделать; соединение защищено HTTPS; ключи и токены не хранятся в исходном коде; файлы с ключами доступны только Сервису. Снимки экрана к сообщениям об ошибках доступны по случайному адресу, который нельзя угадать.</p>
+
+  <h2>8. Возраст</h2>
+  <p>Сервис предназначен для лиц старше 18 лет. Оператор не собирает данные детей намеренно; если такое обнаружится, данные будут удалены.</p>
+
+  <h2>9. Изменения политики</h2>
+  <p>Новая редакция публикуется на этой странице с указанием даты. Продолжая пользоваться Сервисом после публикации, вы принимаете новую редакцию.</p>
+
+  <h2>10. Контакты</h2>
+  <p>Индивидуальный предприниматель (ԱՁ) Фролов Данил Сергеевич, Республика Армения. Чат бота blockTree в Telegram.</p>
+</section>
+
+<section data-lang="en">
+  <h1>Privacy Policy</h1>
+  <p class="muted"><span class="brand">blockTree</span> app · effective 22 September 2026</p>
+
+  <h2>1. Who processes your data</h2>
+  <p>The data controller is Danil Sergeevich Frolov, individual entrepreneur (ԱՁ, Republic of Armenia) (the "Operator"). The Operator provides blockTree: a Telegram mini app and bot for describing how a business works, assigning tasks, reporting, and working with an assistant built on artificial intelligence models (the "Service").</p>
+  <p>You can contact the Operator about this policy in the chat of the blockTree bot in Telegram, the one the app opens from.</p>
+
+  <h2>2. What data we process</h2>
+  <p><b>Telegram account data.</b> User id, name, username, profile photo and interface language. Telegram passes them when the app opens; the Service uses them to recognise you and sign your actions.</p>
+  <p><b>Profile.</b> The name you gave yourself in the app, the chosen language, your role and whatever you entered in the profile.</p>
+  <p><b>Content you create.</b> Schemes, scenarios and their versions (with a message and the author's name), tasks, submissions and ratings, reports, material files, contracts and their versions, goals, processes, task messages, marketplace listings and orders.</p>
+  <p><b>Calls.</b> Video and audio of a call are recorded only after the record button is pressed; audio is captured per participant. Recordings and their transcripts (with speaker names) are kept by the workspace owner and deleted by them in the app.</p>
+  <p><b>Bug reports.</b> The message text, the log of your last actions in the app (two minutes, at least ten events; e-mail addresses, keys, long identifiers and numbers in it are replaced with words) and a screenshot, only if you ticked "send screenshot".</p>
+  <p><b>Questions to the assistant.</b> The question text, a description of what was on screen, the recent action log and a screenshot, only if ticked. The answer arrives in the bot chat.</p>
+  <p><b>Assistant settings.</b> Access keys for artificial intelligence model providers and addresses of MCP servers that you connected yourself. Keys are stored on the server in a file readable only by the Service and are never shown to other people.</p>
+  <p><b>Payments.</b> When paying for a plan: the plan, amount, payment method (Telegram Stars, TON or USDT), the wallet address the payment came from, and time. The Service never receives bank card details.</p>
+  <p><b>Technical data.</b> Entries in browser storage and Telegram cloud storage (last opened scheme, language, draft, map layouts) and server logs with request times and errors.</p>
+
+  <h2>3. Why and on what basis</h2>
+  <ul>
+    <li><b>Running the Service</b> — performance of the user agreement: without your Telegram account and the content you create the app cannot work.</li>
+    <li><b>Your consent</b> — call recordings, screenshots, sending questions to model providers and connecting MCP servers. Consent is given by an action (pressing record, ticking a box, entering a key) and can be withdrawn at any time.</li>
+    <li><b>The Operator's legitimate interest</b> — security, investigating errors, preventing abuse, accounting for payments.</li>
+  </ul>
+
+  <h2>4. Who receives the data</h2>
+  <ul>
+    <li><b>Telegram</b> — the app runs inside Telegram; messages, files, screenshots and recordings the Service sends to your chat pass through Telegram's servers under its terms.</li>
+    <li><b>Artificial intelligence model providers</b> you chose yourself (with your own keys). They receive the question text, the screen and recent-action context, the screenshot (if attached), voice messages for transcription and call recordings when transcribing, under the chosen provider's terms.</li>
+    <li><b>MCP servers</b> you connected yourself — the data needed to perform the request.</li>
+    <li><b>Payment services</b>: Telegram Stars; for TON and USDT, public blockchain explorers and rate services (wallet address and amount only).</li>
+    <li><b>The hosting provider</b> whose servers run the Service.</li>
+    <li><b>Other members of your workspace</b> — within their roles: name, profile, tasks, ratings and versions they have access to.</li>
+  </ul>
+  <p>The Operator does not sell data and does not pass it to advertising networks.</p>
+
+  <h2>5. Where and how long</h2>
+  <p>Data is stored on the Operator's server. Content is kept while your workspace, or a workspace you take part in, exists. Call recordings and transcripts are kept until the workspace owner deletes them in the app. Bug reports with screenshots are kept until reviewed and no longer than a year. Server logs are kept no longer than 90 days. Payment records are kept for the period required by law for accounting.</p>
+
+  <h2>6. Your rights</h2>
+  <ul>
+    <li>Learn what data we hold about you and get a copy: a scenario can be exported as a file in the app.</li>
+    <li>Correct your data in the profile and settings.</li>
+    <li>Delete your data or account by request in the bot chat. Deleting content other members can access is agreed with the workspace owner.</li>
+    <li>Withdraw consent: remove provider keys and MCP servers in settings, leave screenshot boxes unticked, do not start recording.</li>
+  </ul>
+  <p>Requests are handled within 30 days.</p>
+
+  <h2>7. Security</h2>
+  <p>The API accepts only requests signed by Telegram, which cannot be forged; the connection is protected by HTTPS; keys and tokens are not kept in the source code; key files are readable only by the Service. Screenshots attached to bug reports are available at a random address that cannot be guessed.</p>
+
+  <h2>8. Age</h2>
+  <p>The Service is intended for persons over 18. The Operator does not knowingly collect children's data; if such data is found it will be deleted.</p>
+
+  <h2>9. Changes to this policy</h2>
+  <p>A new version is published on this page with its date. By continuing to use the Service after publication you accept the new version.</p>
+
+  <h2>10. Contact</h2>
+  <p>Danil Sergeevich Frolov, individual entrepreneur (ԱՁ), Republic of Armenia. The blockTree bot chat in Telegram.</p>
+</section>
+
+<section data-lang="zh">
+  <h1>隐私政策</h1>
+  <p class="muted"><span class="brand">blockTree</span> 应用 · 自 2026 年 9 月 22 日起生效</p>
+
+  <h2>1. 数据处理者</h2>
+  <p>数据控制者为个体经营者（ԱՁ，亚美尼亚共和国）Danil Sergeevich Frolov（以下称"运营者"）。运营者提供 blockTree：一个 Telegram 小程序和机器人，用于描述业务结构、分配任务、生成报告，并与基于人工智能模型的助手协作（以下称"服务"）。</p>
+  <p>有关本政策的问题，可在 Telegram 中 blockTree 机器人的聊天（即打开应用的那个聊天）中联系运营者。</p>
+
+  <h2>2. 处理哪些数据</h2>
+  <p><b>Telegram 账户数据。</b>用户 ID、姓名、用户名、头像和界面语言。打开应用时由 Telegram 传递；服务据此识别您并为您的操作署名。</p>
+  <p><b>个人资料。</b>您在应用中填写的名字、所选语言、角色以及您自行填写的其他内容。</p>
+  <p><b>您创建的内容。</b>方案、场景及其版本（含提交说明和作者姓名）、任务、交付与评分、报告、材料文件、合同及其版本、目标、工艺流程、任务中的消息、服务市场的发布和订单。</p>
+  <p><b>通话。</b>仅在按下录制按钮后才录制通话的视频和音频；音频按参与者分别录制。录音及其转写（含发言人姓名）由工作区所有者保存，并由其在应用中删除。</p>
+  <p><b>错误报告。</b>报告文本、您在应用中最近的操作日志（两分钟内，至少十条；其中的邮箱、密钥、长标识符和号码已替换为文字），以及截图——仅当您勾选"发送截图"时。</p>
+  <p><b>向助手提问。</b>问题文本、屏幕内容描述、最近操作日志和截图——仅在勾选时。回答发送到机器人聊天。</p>
+  <p><b>助手设置。</b>您自行接入的人工智能模型提供商的访问密钥和 MCP 服务器地址。密钥保存在服务器上仅服务可读的文件中，不会向他人展示。</p>
+  <p><b>支付。</b>购买订阅时：套餐、金额、支付方式（Telegram Stars、TON 或 USDT）、付款来源钱包地址和时间。服务不会获取银行卡信息。</p>
+  <p><b>技术数据。</b>浏览器存储和 Telegram 云存储中的记录（最近打开的方案、语言、草稿、地图布局），以及含请求时间和错误的服务器日志。</p>
+
+  <h2>3. 目的与依据</h2>
+  <ul>
+    <li><b>提供服务</b>——履行用户协议：没有 Telegram 账户和您创建的内容，应用无法运行。</li>
+    <li><b>您的同意</b>——通话录制、截图、向模型提供商发送问题以及接入 MCP 服务器。同意通过操作作出（按下录制、勾选、输入密钥），并可随时撤回。</li>
+    <li><b>运营者的合法利益</b>——安全、错误排查、防止滥用、支付记账。</li>
+  </ul>
+
+  <h2>4. 数据接收方</h2>
+  <ul>
+    <li><b>Telegram</b>——应用在 Telegram 内运行；服务发送到您聊天中的消息、文件、截图和录音按 Telegram 的条款经过其服务器。</li>
+    <li><b>人工智能模型提供商</b>——由您自行选择（使用您自己的密钥）。他们会收到问题文本、屏幕和最近操作的上下文、截图（如附带）、用于转写的语音消息以及转写时的通话录音，适用所选提供商的条款。</li>
+    <li><b>MCP 服务器</b>——由您自行接入，接收执行请求所需的数据。</li>
+    <li><b>支付服务</b>：Telegram Stars；TON 和 USDT 使用公开的区块链浏览器和汇率服务（仅钱包地址和金额）。</li>
+    <li><b>托管服务商</b>——运行服务的服务器提供方。</li>
+    <li><b>您工作区的其他成员</b>——在其角色范围内：姓名、资料、任务、评分和其有权访问的版本。</li>
+  </ul>
+  <p>运营者不出售数据，也不向广告网络传递数据。</p>
+
+  <h2>5. 存储地点与期限</h2>
+  <p>数据存储在运营者的服务器上。内容在您的工作区或您参与的工作区存在期间保留。通话录音和转写保留至工作区所有者在应用中删除。带截图的错误报告保留至处理完毕，且不超过一年。服务器日志不超过 90 天。支付记录按法律规定的记账期限保存。</p>
+
+  <h2>6. 您的权利</h2>
+  <ul>
+    <li>了解我们持有哪些关于您的数据并获取副本：场景可在应用中导出为文件。</li>
+    <li>在资料和设置中更正数据。</li>
+    <li>通过机器人聊天申请删除数据或账户。删除其他成员可访问的内容需与工作区所有者协商。</li>
+    <li>撤回同意：在设置中删除提供商密钥和 MCP 服务器，不勾选截图，不开启录制。</li>
+  </ul>
+  <p>请求将在 30 天内处理。</p>
+
+  <h2>7. 数据安全</h2>
+  <p>API 仅接受带有 Telegram 签名的请求，该签名无法伪造；连接受 HTTPS 保护；密钥和令牌不保存在源代码中；密钥文件仅服务可读。错误报告附带的截图通过无法猜测的随机地址提供。</p>
+
+  <h2>8. 年龄</h2>
+  <p>服务面向 18 岁以上人士。运营者不会有意收集儿童数据；如发现此类数据，将予以删除。</p>
+
+  <h2>9. 政策变更</h2>
+  <p>新版本将在本页发布并注明日期。发布后继续使用服务即表示接受新版本。</p>
+
+  <h2>10. 联系方式</h2>
+  <p>个体经营者（ԱՁ）Danil Sergeevich Frolov，亚美尼亚共和国。Telegram 中的 blockTree 机器人聊天。</p>
+</section>
+
+</main>
+<script>
+  (function () {
+    var TITLES = { ru: "blockTree — Политика конфиденциальности", en: "blockTree — Privacy Policy", zh: "blockTree — 隐私政策" };
+    var buttons = document.querySelectorAll(".lang button");
+    function set(lang, push) {
+      if (!TITLES[lang]) lang = "ru";
+      document.documentElement.lang = lang;
+      document.title = TITLES[lang];
+      for (var i = 0; i < buttons.length; i++) buttons[i].setAttribute("aria-pressed", String(buttons[i].getAttribute("data-set") === lang));
+      if (push && window.history && history.replaceState) {
+        var u = new URL(window.location.href); u.searchParams.set("lang", lang); history.replaceState(null, "", u.toString());
+      }
+    }
+    for (var j = 0; j < buttons.length; j++) buttons[j].addEventListener("click", function () { set(this.getAttribute("data-set"), true); });
+    var fromUrl = new URLSearchParams(window.location.search).get("lang");
+    set(fromUrl || "ru", false);
+  })();
+</script>
+</body>
+</html>

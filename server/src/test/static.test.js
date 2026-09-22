@@ -15,6 +15,7 @@ beforeAll(async () => {
   process.env.STATIC_DIR = tmp;
   await fs.writeFile(path.join(tmp, "index.html"), "<title>Схема</title>");
   await fs.writeFile(path.join(tmp, "call.html"), "<title>Звонок</title>");
+  await fs.writeFile(path.join(tmp, "privacy.html"), "<title>Политика конфиденциальности</title>");
 });
 afterAll(async () => {
   if (prev === undefined) delete process.env.STATIC_DIR; else process.env.STATIC_DIR = prev;
@@ -29,6 +30,17 @@ describe("страницы", () => {
       const res = await request(app).get(p);
       expect(res.status).toBe(200);
       expect(res.text).toContain("Звонок");
+    }
+  });
+
+  it("/privacy и /privacy/ отдают политику конфиденциальности без кеша", async () => {
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    for (const p of ["/privacy", "/privacy/"]) {
+      const res = await request(app).get(p);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Политика конфиденциальности");
+      expect(res.headers["cache-control"]).toMatch(/no-store/);
     }
   });
 

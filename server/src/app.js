@@ -241,6 +241,10 @@ app.use("/api/scenarios", scenariosRouter);
   // Звонок — отдельная страница с собственным входом (web/call.html): она
   // открывается как самостоятельное мини-приложение, без вкладок модели.
   const callHtml = path.join(staticDir, "call.html");
+  /* Политика конфиденциальности (web/public/privacy.html) — самостоятельная
+     страница на трёх языках; её адрес указывается в настройках бота
+     (владелец, 2026-09-22). */
+  const privacyHtml = path.join(staticDir, "privacy.html");
   /* Кеширование раздаётся двумя разными правилами, и это важнее, чем кажется.
 
      Имя файла сборки несёт хеш содержимого (`main-DL949TAp.js`): изменилось
@@ -281,6 +285,7 @@ app.use("/api/scenarios", scenariosRouter);
         res.sendFile(callHtml);
       });
     }
+    if (fs.existsSync(privacyHtml)) app.get(/^\/privacy\/?$/, page(privacyHtml));
     app.get(/^(?!\/api\/).*/, page(indexHtml));
   }
 
