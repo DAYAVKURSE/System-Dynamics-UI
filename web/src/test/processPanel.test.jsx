@@ -642,6 +642,24 @@ describe("описание процесса и меню функции (влад
     expect(issues.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  /* ДВА НАЖАТИЯ НА ТЕЛЕФОНЕ ИДУТ МЕДЛЕННЕЕ ЩЕЛЧКА (владелец, 2026-09-22:
+     «жму два раза — она просто сворачивается и разворачивается»). */
+  it("название функции: два нажатия с промежутком в 0,4 с — правка, а не свернуть-развернуть", async () => {
+    const area = addProc();
+    write(area, "Функция: Приём\nЗадача: лид\nКто: Пользователи\nБерёт: заявки 2");
+    const name = await waitFor(() => { const n = container.querySelector("[data-func-name]"); expect(n).not.toBeNull(); return n; });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(name);
+      vi.advanceTimersByTime(400);
+      expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);   // не свернулась
+      fireEvent.click(name);
+      expect(screen.getByLabelText("название функции процесса")).toBeInTheDocument();
+      vi.advanceTimersByTime(1000);
+      expect(screen.getAllByLabelText("текст процесса").length).toBeGreaterThan(0);   // и потом не свернулась
+    } finally { vi.useRealTimers(); }
+  });
+
   it("переменная одной функции видна в другой: подставляется как ссылка", async () => {
     const area = addProc();
     write(area, "Задача: Принять\nКто: Пользователи\nОтдаёт: заявки 1 (лид)");

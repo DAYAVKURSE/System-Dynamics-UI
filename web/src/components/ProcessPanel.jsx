@@ -1186,10 +1186,15 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
      при нажатии на заголовок»): держим id свёрнутых — новый процесс открыт. */
   const [shut, setShut] = useState(() => new Set());
   /* Заголовок: одно нажатие сворачивает, два — правят имя. Сворачиваем НЕ
-     сразу, а через четверть секунды: иначе первое нажатие двойного успевает
+     сразу, а с задержкой: иначе первое нажатие двойного успевает
      свернуть карточку, страница подпрыгивает, и второе нажатие уходит мимо
-     (видно на длинном списке процессов). */
+     (видно на длинном списке процессов). Задержка — полсекунды, а не
+     четверть (владелец, 2026-09-22: «жму два раза — она просто
+     сворачивается и разворачивается»): на телефоне два нажатия идут
+     медленнее, чем двойной щелчок мышью, и в четверть секунды не
+     укладывались — каждое считалось одинарным. */
   const tap = useRef(null);
+  const TAP_GAP_MS = 500;
   const flip = (id) => setShut((was) => {
     const next = new Set(was);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -1202,7 +1207,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
       tap.current = null;
       if (first === id) { onSecond(); return; }
     }
-    tap.current = { id, timer: setTimeout(() => { tap.current = null; flip(id); }, 260) };
+    tap.current = { id, timer: setTimeout(() => { tap.current = null; flip(id); }, TAP_GAP_MS) };
   };
   const [shownOwn, setShownOwn] = useState(false);
   const shown = shownProp ?? shownOwn;
