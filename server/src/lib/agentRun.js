@@ -46,11 +46,11 @@ export async function mcpServersFor(userId, agent) {
 }
 
 /** Подсказка агента целиком. `notes` — что добавить перед данными (переписка, задача). */
-export function systemFor({ agent, providers = [], servers = [], context = "", notes = [], plan = true }) {
+export function systemFor({ agent, providers = [], servers = [], context = "", notes = [], plan = true, actions = true }) {
   return [
     SYSTEM_PROMPT,
     modelsNote(agent, providers),
-    actionsNote(agent.ask !== false),
+    actions ? actionsNote(agent.ask !== false) : "",
     mcpNote(servers),
     skillNote(agent.skill),
     plan ? PLAN_NOTE : "",
@@ -65,9 +65,20 @@ export function systemFor({ agent, providers = [], servers = [], context = "", n
  * имени действовать: участник-агент `ag_<id>` у владельца, иначе сам
  * владелец. Ответ — текст; план по ходу — `onPlan`.
  */
+export const STRANGER_CONTEXT = "Этот человек — не участник модели. Данных о модели, задачах и людях у тебя НЕТ,"
+  + " и говорить о них нечего: отвечай только по переписке с ним и его словам.";
+
+/**
+ * `asUserId` — чьими данными и правами живёт разговор: участник, который
+ * пишет агенту (его задачи, его права — как у ассистента), или сам
+ * участник-агент `ag_<id>` для задачи по расписанию. `null` — посторонний
+ * (владелец, 2026-09-22: «агент не должен знать никакой информации,
+ * которая не относится к пользователю, который к нему обращается»): без
+ * данных модели и без её инструментов, только переписка и скилл.
+ */
 export async function runAgentPlanned({
   ownerId, agentId, asUserId = null, question, notes = [], onPlan = null, signal = null,
-  extra = [], onConfirm = null, onAuthNeeded = null, title = "",
+  extra = [], onConfirm = null, onAuthNeeded = null, title = "", stranger = false,
   complete = completeDefault, contextFor = contextForDefault, modelFor = settings.modelForAgent,
 }) {
   const agent = settings.agentFor(ownerId, agentId);
@@ -76,15 +87,19 @@ export async function runAgentPlanned({
   if (!model) throw new Error(`У агента «${agent.name}» не выбрана модель — назначьте её в Инструментах → Агенты`);
   const who = String(asUserId || ownerId);
   let context = "";
-  try { context = await contextFor(who); } catch (e) { context = `(данные не собрались: ${e.message})`; }
   let isOwner = false;
-  try { isOwner = Boolean((await identify(who, {}, { claim: false })).isOwner); } catch { isOwner = false; }
+  if (stranger) context = STRANGER_CONTEXT;
+  else {
+    try { context = await contextFor(who); } catch (e) { context = `(данные не собрались: ${e.message})`; }
+    try { isOwner = Boolean((await identify(who, {}, { claim: false })).isOwner); } catch { isOwner = false; }
+  }
   const servers = await mcpServersFor(ownerId, agent);
   const providers = settings.settingsView(ownerId).providers || [];
-  const system = systemFor({ agent, providers, servers, context, notes });
+  const system = systemFor({ agent, providers, servers, context, notes, actions: !stranger });
   const run = (q) => runAgent({
     userId: who, agentId, question: q, system, model, complete,
-    isOwner, ask: agent.ask !== false, servers, signal, onConfirm, onAuthNeeded, extra,
+    isOwner, ask: agent.ask !== false, servers, signal, onConfirm, onAuthNeeded,
+    extra: stranger ? [] : extra, ownTools: !stranger,
   });
   return runPlanned({ question, run, onPlan, signal, title, stopWhen: (t) => t.startsWith(ASKED_TEXT) });
 }

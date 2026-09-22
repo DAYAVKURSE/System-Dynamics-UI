@@ -86,7 +86,7 @@ export async function handleAgentUpdate(bot, update, deps) {
   timer?.unref?.();
   try {
     const answer = await deps.run({
-      question: text.slice(0, MAX_QUESTION), notes, chatId,
+      question: text.slice(0, MAX_QUESTION), notes, chatId, from,
       onPlan: (t) => { plan = t; if (status) status.update(render()); },
     });
     /* Планировщик отдаёт не строку, а `{answer, plan, …}` (владелец,

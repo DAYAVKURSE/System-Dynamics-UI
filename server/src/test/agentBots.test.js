@@ -6,7 +6,7 @@ import { botKey, readDialog, recordDialog, setBanned } from "../lib/dialogStore.
 import { resetWaiting, waitReply } from "../lib/peopleWait.js";
 import { DONE_TEXT, createAgentBots, handleAgentUpdate } from "../lib/agentBots.js";
 import { CLOCKS, THINKING } from "../lib/botAssistant.js";
-import { runAgentPlanned, statusMessage, systemFor } from "../lib/agentRun.js";
+import { STRANGER_CONTEXT, runAgentPlanned, statusMessage, systemFor } from "../lib/agentRun.js";
 import { PLAN_NOTE } from "../lib/planRunner.js";
 import { addAgent, addProvider, updateAgent, updateProvider } from "../lib/assistantSettings.js";
 import { identify } from "../lib/orgStore.js";
@@ -51,7 +51,7 @@ function deps(answer = "Здравствуйте, Пётр") {
     status: ({ chatId, first }) => statusMessage({ chatId, first,
       send: async (c, t) => { sent.push({ chatId: c, text: t }); return { message_id: sent.length }; },
       edit: async (c, m, t, k) => { edits.push({ chatId: c, messageId: m, text: t, keyboard: k }); } }),
-    run: async ({ question, notes, onPlan }) => { runs.push({ question, notes }); if (onPlan) await onPlan("Что нужно сделать: ответить"); return answer; },
+    run: async ({ question, notes, onPlan, from }) => { runs.push({ question, notes, from }); if (onPlan) await onPlan("Что нужно сделать: ответить"); return answer; },
   };
 }
 
@@ -63,6 +63,7 @@ describe("сообщение человека боту агента", () => {
     const r = await handleAgentUpdate(BOT, message(petr, "Добрый день"), d);
     expect(r).toEqual({ answered: true });
     expect(d.runs[0].question).toBe("Добрый день");
+    expect(d.runs[0].from).toMatchObject({ id: 500 });
     expect(d.runs[0].notes[0]).toMatch(/# С кем говоришь\nПётр \(@petr\), id 500\. Ты — агент «Юрист»/);
     expect(d.runs[0].notes[1]).toBe("# Переписка с ним до этого\nчеловек: раньше спрашивал\nЮрист: раньше отвечал");
     expect(d.sent[0].text).toBe(`${CLOCKS[0]} ${THINKING}`);
@@ -161,6 +162,35 @@ describe("разговор агента с планом", () => {
     let at = -1;
     order.forEach((m) => { const i = s.indexOf(m); expect(i).toBeGreaterThan(at); at = i; });
     expect(s).toContain(PLAN_NOTE);
+  });
+
+  /* ЧУЖОМУ — НИЧЕГО (владелец, 2026-09-22): посторонний не получает ни
+     данных модели, ни её инструментов; участник — свои данные, как у
+     ассистента. */
+  it("посторонний: без данных модели и без инструментов приложения; участник — своими данными", async () => {
+    await identify("100", { name: "Владелец" });
+    const p = addProvider("100", { name: "OpenAI", kind: "openai", key: "sk-test-0123456789" });
+    updateProvider("100", p.id, { models: ["gpt-4.1"] });
+    const a = addAgent("100", { name: "Юрист" });
+    updateAgent("100", a.id, { models: [{ providerId: p.id, model: "gpt-4.1" }] });
+    const seen = [];
+    const asked = [];
+    const r = await runAgentPlanned({ ownerId: "100", agentId: a.id, asUserId: null, stranger: true, question: "что за процессы у компании?",
+      complete: async (req) => { seen.push(req); return "Про компанию не знаю."; },
+      contextFor: async (u) => { asked.push(u); return "СЕКРЕТНЫЕ ДАННЫЕ"; },
+      extra: [{ name: "people_list", description: "кому", run: async () => ({ ok: true, text: "" }) }] });
+    expect(r.answer).toBe("Про компанию не знаю.");
+    expect(asked).toEqual([]);
+    expect(seen[0].system).toContain(STRANGER_CONTEXT);
+    expect(seen[0].system).not.toContain("СЕКРЕТНЫЕ");
+    expect(seen[0].system).not.toContain("# Что ты умеешь делать");
+    expect(seen[0].tools.map((t) => t.name)).toEqual([]);
+    // Участник — его данные, его инструменты.
+    const r2 = await runAgentPlanned({ ownerId: "100", agentId: a.id, asUserId: "200", question: "мои задачи?",
+      complete: async (req) => { seen.push(req); return "ок"; }, contextFor: async (u) => `данные ${u}` });
+    expect(r2.answer).toBe("ок");
+    expect(seen[1].system).toContain("# Данные\nданные 200");
+    expect(seen[1].tools.map((t) => t.name)).toContain("tasks_list");
   });
 
   it("свой агент: модель — его собственная; действует как участник-агент; без модели — ошибка словами", async () => {

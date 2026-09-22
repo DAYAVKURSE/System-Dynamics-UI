@@ -111,8 +111,10 @@ export const actionsNote = (ask) => [
 ].join("\n");
 
 /* Список инструментов: свои плюс чужие, с приставкой. */
-function toolList({ isOwner, servers, extra = [] }) {
-  const own = toolsFor({ isOwner });
+function toolList({ isOwner, servers, extra = [], ownTools = true }) {
+  /* Без своих инструментов (владелец, 2026-09-22): агент говорит с
+     посторонним — задач, людей и модели ему показывать нечего. */
+  const own = ownTools ? toolsFor({ isOwner }) : [];
   const mcp = [];
   servers.forEach((s) => {
     (s.tools || []).forEach((t) => {
@@ -143,9 +145,9 @@ function toolList({ isOwner, servers, extra = [] }) {
 export async function runAgent({
   userId, agentId, question, image = null, system, model, complete,
   isOwner = false, ask = true, servers = [], signal = null, rounds = MAX_ROUNDS,
-  onConfirm = null, onAuthNeeded = null, extra = [],
+  onConfirm = null, onAuthNeeded = null, extra = [], ownTools = true,
 }) {
-  const tools = toolList({ isOwner, servers, extra });
+  const tools = toolList({ isOwner, servers, extra, ownTools });
   // Снимок экрана (вопрос из приложения) — при первом сообщении, картинкой.
   const messages = [{ role: "user", content: String(question || ""), ...(image?.data ? { image } : {}) }];
   const note = "";

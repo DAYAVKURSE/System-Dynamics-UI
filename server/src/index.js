@@ -42,7 +42,8 @@ const humanMembers = async () => (await org.listOrg()).users
 const agentBotOf = (agentId) => assistantSettings.allAgentBots().find((b) => b.agentId === String(agentId)) || null;
 
 /** Разговор агента — с инструментами «написать/спросить человека». */
-async function runAgentFor({ ownerId, agentId, agentName, question, notes = [], onPlan, title = "", signal = null }) {
+async function runAgentFor({ ownerId, agentId, agentName, question, notes = [], onPlan, title = "", signal = null,
+  asUserId = null, stranger = false }) {
   const bot = agentBotOf(agentId);
   const key = dialogs.botKey(ownerId, agentId);
   const extra = peopleToolsFor({
@@ -52,8 +53,17 @@ async function runAgentFor({ ownerId, agentId, agentName, question, notes = [], 
       ...(process.env.TELEGRAM_BOT_TOKEN ? { main: (chatId, text) => sendMessage(chatId, text) } : {}),
     },
   });
-  return runAgentPlanned({ ownerId, agentId, asUserId: org.agentUserId(agentId), question, notes, onPlan,
-    extra, title, signal });
+  return runAgentPlanned({ ownerId, agentId, asUserId: asUserId || org.agentUserId(agentId), question, notes, onPlan,
+    extra, title, signal, stranger });
+}
+
+/* Кто пишет боту агента — тем и живёт разговор (владелец, 2026-09-22):
+   участник модели — его данными и правами, как у ассистента; посторонний
+   — без данных модели вовсе. */
+async function personScope(from) {
+  let me = { known: false };
+  try { me = await org.identify(String(from.id), {}, { claim: false }); } catch { me = { known: false }; }
+  return me.known ? { asUserId: String(from.id), stranger: false } : { asUserId: null, stranger: true };
 }
 
 /* В каком хранилище задача — там и работаем (lib/storages.js). */
@@ -376,8 +386,8 @@ const agentBots = createAgentBots({
       send: (c, t) => sendWithKeyboard(c, t, null, bot.token),
       edit: (c, m, t, k) => editMessage(c, m, t, k, bot.token),
       log: (m) => console.warn(`[agents] ${m}`) }),
-    run: async ({ question, notes, onPlan }) => (await runAgentFor({ ownerId: bot.userId, agentId: bot.agentId,
-      agentName: bot.name, question, notes, onPlan })).answer,
+    run: async ({ question, notes, onPlan, from }) => (await runAgentFor({ ownerId: bot.userId, agentId: bot.agentId,
+      agentName: bot.name, question, notes, onPlan, ...(await personScope(from)) })).answer,
     log: (m) => console.warn(`[agents] ${m}`),
   }),
 });
