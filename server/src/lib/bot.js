@@ -128,16 +128,32 @@ const boardItem = (id, title, name, link, description) => ({
   reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску", url: link }]] },
 });
 
+/* Пустой запрос — что можно завести, по пункту на каждое: «и то и то»
+   (владелец, 2026-09-25: «после пробела он пытается запустить звонок, а
+   должен и то и то выдавать»). Доску без названия не заведёшь — пункт
+   просит его. */
+const BOARD_HINT = {
+  type: "article", id: "board-hint", title: "🧠 Новая доска",
+  description: "напишите тему доски",
+  input_message_content: { message_text: "Наберите после имени бота тему доски." },
+};
+
+/**
+ * Доски в выдаче: `fresh` — что завести (новая доска или отказ), `found` —
+ * уже созданные, подходящие к набранному. Порядок в выдаче собирает
+ * onInline: сперва «новая доска» и «новый звонок», потом найденные доски.
+ */
 async function boardResults(q, from, me, { boards, boardLink }) {
-  if (!(me.isOwner || (me.tabs || []).includes("brainstorm"))) return [NO_BOARDS];
+  if (!(me.isOwner || (me.tabs || []).includes("brainstorm"))) return { fresh: [NO_BOARDS], found: [] };
   const typed = String(q.query || "").trim();
   const name = typed.replace(/\s+/g, " ").slice(0, BOARD_NAME_MAX).trim();
   const needle = name.toLowerCase();
   const all = await boards.listBoards({ storage: MAIN });
   const shown = (needle ? all.filter((b) => b.name.toLowerCase().includes(needle)) : all)
     .slice(0, BOARD_LIMIT);
-  const out = shown.map((b) => boardItem(b.id, b.name, b.name, boardLink(b.id), "Доска"));
-  if (!needle || all.some((b) => b.name.trim().toLowerCase() === needle)) return out;
+  const found = shown.map((b) => boardItem(b.id, `🧠 ${b.name}`, b.name, boardLink(b.id), "Доска"));
+  if (!needle) return { fresh: [BOARD_HINT], found };
+  if (all.some((b) => b.name.trim().toLowerCase() === needle)) return { fresh: [], found };
 
   /* Такой доски нет — новая, и заводится СРАЗУ: ссылка в кнопке обязана
      работать в момент отправки, второго шага «подтвердите» в инлайне нет.
@@ -159,12 +175,11 @@ async function boardResults(q, from, me, { boards, boardLink }) {
   } catch (e) {
     // Предел досок хранилища — отказ словами, пунктом выдачи.
     if (!e?.status || e.status >= 500) throw e;
-    out.push({ type: "article", id: "board-refused", title: e.message,
-      input_message_content: { message_text: e.message } });
-    return out;
+    return { fresh: [{ type: "article", id: "board-refused", title: e.message,
+      input_message_content: { message_text: e.message } }], found };
   }
-  out.push(boardItem(draft.id, `Новая доска «${draft.name}»`, draft.name, boardLink(draft.id)));
-  return out;
+  return { fresh: [boardItem(draft.id, `🧠 Новая доска «${draft.name}»`, draft.name, boardLink(draft.id))],
+    found };
 }
 
 /* ─────── инлайн-режим: встреча ─────── */
@@ -172,8 +187,8 @@ async function meetingResults(q, from, { calls, appLink }) {
   const parsed = calls.parseMeeting(q.query || "");
   if (!q.query || !q.query.trim()) {
     return [{
-      type: "article", id: "hint", title: "Напишите время и тему",
-      description: "например: завтра 15:00 разбор прогноза",
+      type: "article", id: "hint", title: "📹 Новый звонок",
+      description: "напишите время и тему, например: завтра 15:00 разбор прогноза",
       input_message_content: { message_text:
         "Наберите после имени бота время и тему: «завтра 15:00 разбор прогноза»." },
     }];
@@ -194,7 +209,10 @@ async function meetingResults(q, from, { calls, appLink }) {
   return [{
     type: "article",
     id: m.id,
-    title: parsed.atText ? `${parsed.atText} — ${parsed.title}` : parsed.title,
+    // «Новый звонок» — словами в заголовке: рядом стоит «Новая доска», и
+    // голое «а» не говорило, что это звонок (владелец, 2026-09-25).
+    title: parsed.atText ? `📹 Новый звонок: ${parsed.atText} — ${parsed.title}`
+      : `📹 Новый звонок «${parsed.title}»`,
     description: parsed.ok
       ? "Отправить приглашение со ссылкой на звонок"
       : "Время не разобрал — отправлю без него",
@@ -225,9 +243,10 @@ async function onInline(q, from, deps) {
     const rid = org.recordIdFor ? await org.recordIdFor(String(from.id)) : String(from.id);
     return org.identify(rid, { name: nameOf(from), username: from.username }, { claim: false });
   });
-  const results = [];
-  if (boards) results.push(...await boardResults(q, from, me, deps));
-  if (calls && me.known) results.push(...await meetingResults(q, from, deps));
+  const b = boards ? await boardResults(q, from, me, deps) : { fresh: [], found: [] };
+  const meeting = calls && me.known ? await meetingResults(q, from, deps) : [];
+  // Сперва что завести — новая доска и новый звонок, — потом готовые доски.
+  const results = [...b.fresh, ...meeting, ...b.found];
   if (!results.length && !me.known) {
     return answerInline(q.id, [], {
       button: { text: "Вас ещё не позвали в модель", start_parameter: "start" },

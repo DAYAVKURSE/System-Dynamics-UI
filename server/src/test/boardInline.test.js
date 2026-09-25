@@ -38,6 +38,8 @@ const q = (from, query) => ({ update_id: 1, inline_query: { id: `iq-${from.id}`,
 const last = () => answers[answers.length - 1];
 const ask = async (from, query) => { await handleUpdate(q(from, query), deps); return last(); };
 const boardItems = (a) => a.results.filter((r) => r.id.startsWith("board_"));
+// Пункт «новая доска» — первым в выдаче, до звонка (владелец, 2026-09-25).
+const newBoard = (a) => a.results.find((r) => r.title.startsWith("🧠 Новая доска «"));
 
 beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), "sd-board-inline-"));
@@ -64,17 +66,19 @@ beforeEach(async () => {
 });
 
 describe("инлайн: доски", () => {
-  it("пустой запрос — все доски MAIN, новые сверху, без черновиков; потом встреча", async () => {
+  it("пустой запрос — «новая доска» и «новый звонок», потом все доски MAIN, новые сверху, без черновиков", async () => {
     const a = await boards.createBoard({ name: "Идеи к релизу", by: "100" });
     await boards.createBoard({ name: "черновик", by: "100", draft: true });
     const b = await boards.createBoard({ name: "Названия продукта", by: "200" });
     await boards.createBoard({ name: "Чужое хранилище", by: "300", storage: "300" });
     const res = await ask(owner, "");
     expect(res.extra).toEqual({ cache_time: 0, is_personal: true });
-    expect(res.results.map((r) => r.id)).toEqual([`board_${b.id}`, `board_${a.id}`, "hint"]);
-    const item = res.results[0];
+    expect(res.results.map((r) => r.id)).toEqual(["board-hint", "hint", `board_${b.id}`, `board_${a.id}`]);
+    expect(res.results[0].title).toBe("🧠 Новая доска");
+    expect(res.results[1].title).toBe("📹 Новый звонок");
+    const item = res.results[2];
     expect(item).toEqual({
-      type: "article", id: `board_${b.id}`, title: "Названия продукта", description: "Доска",
+      type: "article", id: `board_${b.id}`, title: "🧠 Названия продукта", description: "Доска",
       input_message_content: { message_text: "Названия продукта", disable_web_page_preview: true },
       reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску",
         url: `https://t.me/bot/call?startapp=board_${b.id}` }]] },
@@ -87,10 +91,10 @@ describe("инлайн: доски", () => {
     const a = await boards.createBoard({ name: "Идеи к релизу", by: "100" });
     await boards.createBoard({ name: "Названия", by: "100" });
     const res = await ask(owner, "идеи");
-    const items = boardItems(res);
-    expect(items[0].id).toBe(`board_${a.id}`);
-    // «идеи» ≠ «Идеи к релизу» — новая доска предлагается следом.
-    expect(items[1].title).toBe("Новая доска «идеи»");
+    // «идеи» ≠ «Идеи к релизу» — новая доска первой, звонок, потом найденная.
+    expect(res.results[0].title).toBe("🧠 Новая доска «идеи»");
+    expect(res.results[1].title).toBe("📹 Новый звонок «идеи»");
+    expect(res.results[2].id).toBe(`board_${a.id}`);
     answers.length = 0;
     const exact = await ask(owner, "  ИДЕИ К РЕЛИЗУ ");
     expect(boardItems(exact).map((r) => r.id)).toEqual([`board_${a.id}`]);
@@ -98,8 +102,8 @@ describe("инлайн: доски", () => {
 
   it("нет такой — новая доска заводится сразу, черновиком, по ссылке в кнопке", async () => {
     const res = await ask(owner, "Куда расти в 2027");
-    const item = boardItems(res)[0];
-    expect(item.title).toBe("Новая доска «Куда расти в 2027»");
+    const item = newBoard(res);
+    expect(item.title).toBe("🧠 Новая доска «Куда расти в 2027»");
     expect(item.input_message_content).toEqual({ message_text: "Куда расти в 2027",
       disable_web_page_preview: true });
     const id = item.id.replace(/^board_/, "");
@@ -119,9 +123,9 @@ describe("инлайн: доски", () => {
 
   it("набор по буквам: каждое новое имя — свой черновик, отправленный не переименовывается", async () => {
     // «Идеи для Q4» ушла в чат (пункт выбран), и человек сразу набирает другое.
-    const sent = boardItems(await ask(owner, "Идеи для Q4")).at(-1).id;
+    const sent = newBoard(await ask(owner, "Идеи для Q4")).id;
     const ids = [];
-    for (const typed of ["И", "Ит", "Итоги"]) ids.push(boardItems(await ask(owner, typed)).at(-1).id);
+    for (const typed of ["И", "Ит", "Итоги"]) ids.push(newBoard(await ask(owner, typed)).id);
     const first = await boards.getBoard(sent.replace(/^board_/, ""));
     expect(first.name).toBe("Идеи для Q4");
     expect(ids).not.toContain(sent);
@@ -130,13 +134,13 @@ describe("инлайн: доски", () => {
     // Та же фраза ещё раз — тот же черновик, а не второй с тем же именем.
     answers.length = 0;
     const again = await ask(owner, "Идеи для Q4");
-    expect(boardItems(again).at(-1)).toMatchObject({ id: sent, title: "Новая доска «Идеи для Q4»" });
+    expect(newBoard(again)).toMatchObject({ id: sent, title: "🧠 Новая доска «Идеи для Q4»" });
     expect((await boards.listBoards({ drafts: true })).filter((b) => b.name === "Идеи для Q4"))
       .toHaveLength(1);
   });
 
   it("выбранный пункт (отзыв инлайна) помечает черновик отправленным", async () => {
-    const id = boardItems(await ask(owner, "В чат")).at(-1).id;
+    const id = newBoard(await ask(owner, "В чат")).id;
     const out = await handleUpdate({ update_id: 2, chosen_inline_result: { result_id: id, from: owner,
       query: "В чат" } }, deps);
     expect(out).toEqual({ chosen: id });
@@ -158,14 +162,14 @@ describe("инлайн: доски", () => {
   });
 
   it("другая фраза — другой черновик; открытую доску продолжение набора не переименовывает", async () => {
-    const first = boardItems(await ask(owner, "Идеи")).at(-1).id.replace(/^board_/, "");
-    const second = boardItems(await ask(owner, "Совсем другое")).at(-1).id.replace(/^board_/, "");
+    const first = newBoard(await ask(owner, "Идеи")).id.replace(/^board_/, "");
+    const second = newBoard(await ask(owner, "Совсем другое")).id.replace(/^board_/, "");
     expect(second).not.toBe(first);
     expect((await boards.getBoard(first)).name).toBe("Идеи");
 
     // Черновик открыли, а человек дописывает ту же фразу — новая доска, старая цела.
     await boards.enterBoard(second, { id: "555", name: "Из чата" });
-    const third = boardItems(await ask(owner, "Совсем другое дело")).at(-1).id.replace(/^board_/, "");
+    const third = newBoard(await ask(owner, "Совсем другое дело")).id.replace(/^board_/, "");
     expect(third).not.toBe(second);
     expect((await boards.getBoard(second)).name).toBe("Совсем другое");
   });
@@ -175,13 +179,13 @@ describe("инлайн: доски", () => {
     const res = await ask(owner, "");
     expect(boardItems(res)).toHaveLength(20);
     expect(res.results.length).toBeLessThanOrEqual(50);
-    expect(boardItems(res)[0].title).toBe("Доска 24");
+    expect(boardItems(res)[0].title).toBe("🧠 Доска 24");
   });
 
   it("право — у роли с вкладкой brainstorm, не только у владельца", async () => {
     const res = await ask(ivan, "Мозговой штурм");
-    const item = boardItems(res).at(-1);
-    expect(item.title).toBe("Новая доска «Мозговой штурм»");
+    const item = newBoard(res);
+    expect(item.title).toBe("🧠 Новая доска «Мозговой штурм»");
     expect((await boards.getBoard(item.id.replace(/^board_/, ""))).by).toBe("200");
   });
 
@@ -193,8 +197,8 @@ describe("инлайн: доски", () => {
     const vera = { id: 600, first_name: "Вера" };
     const res = await ask(vera, "Вера предлагает");
     expect(res.results.some((r) => r.id === "no-boards")).toBe(false);
-    const item = boardItems(res).at(-1);
-    expect(item.title).toBe("Новая доска «Вера предлагает»");
+    const item = newBoard(res);
+    expect(item.title).toBe("🧠 Новая доска «Вера предлагает»");
     // Доска узнаёт людей по Telegram-id — создатель тоже он.
     expect((await boards.getBoard(item.id.replace(/^board_/, ""))).by).toBe("600");
     // И встреча — как у позванного.

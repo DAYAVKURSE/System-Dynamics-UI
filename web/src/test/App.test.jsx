@@ -37,6 +37,24 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Войти в звонок" })).toBeInTheDocument();
   });
 
+  /* Ссылка «🧠 Открыть доску» из инлайна ведёт в главное мини-приложение
+     бота (владелец, 2026-09-25: «открывает основное приложение, а не
+     доску»): оно обязано показать доску, а не вкладки модели. */
+  it("по ссылке на доску открывается доска, а не вся модель", async () => {
+    setUrl("#tgWebAppData=user%3D%7B%7D&tgWebAppStartParam=board_abc123XYZ-_");
+    const prev = global.fetch;
+    const seen = [];
+    global.fetch = async (url) => { seen.push(String(url));
+      return { ok: false, status: 404, json: async () => ({ error: "Доски нет." }) }; };
+    try {
+      render(<App />);
+      expect(screen.queryByLabelText("blockTree")).not.toBeInTheDocument();
+      expect(screen.queryByText("Инструменты")).not.toBeInTheDocument();
+      expect(await screen.findByText("Доски нет.")).toBeInTheDocument();
+      expect(seen.some((u) => u.includes("/api/boards/abc123XYZ-_"))).toBe(true);
+    } finally { global.fetch = prev; }
+  });
+
   it("стартовая модель рендерится: у неё есть функции", () => {
     render(<App />);
     // Функции живут в карточке актива: на доске задач их списка нет —
