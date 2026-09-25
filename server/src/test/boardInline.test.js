@@ -66,25 +66,38 @@ beforeEach(async () => {
 });
 
 describe("инлайн: доски", () => {
-  it("пустой запрос — «новая доска» и «новый звонок», потом все доски MAIN, новые сверху, без черновиков", async () => {
-    const a = await boards.createBoard({ name: "Идеи к релизу", by: "100" });
+  it("пустой запрос — ровно две записи: «новая доска» и «новый звонок», без готовых досок", async () => {
+    await boards.createBoard({ name: "Идеи к релизу", by: "100" });
     await boards.createBoard({ name: "черновик", by: "100", draft: true });
-    const b = await boards.createBoard({ name: "Названия продукта", by: "200" });
-    await boards.createBoard({ name: "Чужое хранилище", by: "300", storage: "300" });
+    await boards.createBoard({ name: "Названия продукта", by: "200" });
     const res = await ask(owner, "");
     expect(res.extra).toEqual({ cache_time: 0, is_personal: true });
-    expect(res.results.map((r) => r.id)).toEqual(["board-hint", "hint", `board_${b.id}`, `board_${a.id}`]);
+    expect(res.results.map((r) => r.id)).toEqual(["board-hint", "hint"]);
     expect(res.results[0].title).toBe("🧠 Новая доска");
     expect(res.results[1].title).toBe("📹 Новый звонок");
+    // Пустой запрос ничего не заводит.
+    expect(await boards.listBoards({ drafts: true })).toHaveLength(3);
+  });
+
+  it("готовые доски — при наборе: подходящие по имени, новые сверху, без черновиков и чужих хранилищ", async () => {
+    const a = await boards.createBoard({ name: "Идеи к релизу", by: "100" });
+    await boards.createBoard({ name: "Идеи черновые", by: "100", draft: true });
+    const b = await boards.createBoard({ name: "Идеи названий", by: "200" });
+    await boards.createBoard({ name: "Идеи чужие", by: "300", storage: "300" });
+    const res = await ask(owner, "идеи");
+    // Точного совпадения нет — первой «Новая доска «идеи»», за ней звонок, потом найденные.
+    const ids = res.results.map((r) => r.id);
+    expect(ids[0]).toMatch(/^board_/);
+    expect((await boards.getBoard(ids[0].slice(6)))).toMatchObject({ name: "идеи", draft: true });
+    expect(ids.slice(1)).toEqual([res.results[1].id, `board_${b.id}`, `board_${a.id}`]);
+    expect(res.results[1].title).toBe("📹 Новый звонок «идеи»");
     const item = res.results[2];
     expect(item).toEqual({
-      type: "article", id: `board_${b.id}`, title: "🧠 Названия продукта", description: "Доска",
-      input_message_content: { message_text: "Названия продукта", disable_web_page_preview: true },
+      type: "article", id: `board_${b.id}`, title: "🧠 Идеи названий", description: "Доска",
+      input_message_content: { message_text: "Идеи названий", disable_web_page_preview: true },
       reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску",
         url: `https://t.me/bot/call?startapp=board_${b.id}` }]] },
     });
-    // Пустой запрос ничего не заводит.
-    expect(await boards.listBoards({ drafts: true })).toHaveLength(4);
   });
 
   it("набранное фильтрует доски без учёта регистра; точное совпадение — без новой", async () => {
@@ -176,10 +189,11 @@ describe("инлайн: доски", () => {
 
   it("не больше 20 досок в выдаче", async () => {
     for (let i = 0; i < 25; i += 1) await boards.createBoard({ name: `Доска ${i}`, by: "100" });
-    const res = await ask(owner, "");
-    expect(boardItems(res)).toHaveLength(20);
+    const res = await ask(owner, "доска");
+    // 20 найденных плюс «Новая доска «доска»» (точного совпадения нет).
+    expect(boardItems(res)).toHaveLength(21);
     expect(res.results.length).toBeLessThanOrEqual(50);
-    expect(boardItems(res)[0].title).toBe("🧠 Доска 24");
+    expect(boardItems(res)[1].title).toBe("🧠 Доска 24");
   });
 
   it("право — у роли с вкладкой brainstorm, не только у владельца", async () => {

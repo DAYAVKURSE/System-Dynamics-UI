@@ -128,10 +128,12 @@ const boardItem = (id, title, name, link, description) => ({
   reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску", url: link }]] },
 });
 
-/* Пустой запрос — что можно завести, по пункту на каждое: «и то и то»
-   (владелец, 2026-09-25: «после пробела он пытается запустить звонок, а
-   должен и то и то выдавать»). Доску без названия не заведёшь — пункт
-   просит его. */
+/* Пустой запрос — РОВНО ДВА пункта, что можно завести: «Новая доска» и
+   «Новый звонок» (владелец, 2026-09-25: «после пробела он пытается
+   запустить звонок, а должен и то и то выдавать»; «там должно быть две
+   кнопки»). Готовые доски при пустом запросе не показываются — они
+   появляются, когда человек начинает набирать название. Доску без
+   названия не заведёшь — пункт просит его. */
 const BOARD_HINT = {
   type: "article", id: "board-hint", title: "🧠 Новая доска",
   description: "напишите тему доски",
@@ -148,11 +150,10 @@ async function boardResults(q, from, me, { boards, boardLink }) {
   const typed = String(q.query || "").trim();
   const name = typed.replace(/\s+/g, " ").slice(0, BOARD_NAME_MAX).trim();
   const needle = name.toLowerCase();
+  if (!needle) return { fresh: [BOARD_HINT], found: [] };
   const all = await boards.listBoards({ storage: MAIN });
-  const shown = (needle ? all.filter((b) => b.name.toLowerCase().includes(needle)) : all)
-    .slice(0, BOARD_LIMIT);
-  const found = shown.map((b) => boardItem(b.id, `🧠 ${b.name}`, b.name, boardLink(b.id), "Доска"));
-  if (!needle) return { fresh: [BOARD_HINT], found };
+  const found = all.filter((b) => b.name.toLowerCase().includes(needle)).slice(0, BOARD_LIMIT)
+    .map((b) => boardItem(b.id, `🧠 ${b.name}`, b.name, boardLink(b.id), "Доска"));
   if (all.some((b) => b.name.trim().toLowerCase() === needle)) return { fresh: [], found };
 
   /* Такой доски нет — новая, и заводится СРАЗУ: ссылка в кнопке обязана
