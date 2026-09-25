@@ -22,7 +22,8 @@
      задачи и память, и отвечает тем же, чем ответил бы в приложении.
 
    Инлайн-режим («@бот завтра 15:00 разбор») остался: он не команда и не
-   подсказка, а отдельный способ позвать на созвон прямо из чата.
+   подсказка, а отдельный способ позвать на созвон прямо из чата. С
+   2026-09-25 в той же выдаче — брейншторм-доски (см. onInline).
 
    Вся логика — чистая функция `handleUpdate`: она получает обновление и
    зависимости (хранилище, отправку) аргументами, поэтому проверяется
@@ -35,6 +36,7 @@
 import { isTaskAction, onTaskButton, onTaskMessage } from "./botTasks.js";
 import { isAssistantAction, onAssistantButton, onAssistantMessage } from "./botAssistant.js";
 import { isDialogsAction } from "./dialogsUi.js";
+import { MAIN, inStorage } from "./storages.js";
 
 const nameOf = (u) => [u?.first_name, u?.last_name].filter(Boolean).join(" ")
   || u?.username || String(u?.id || "");
@@ -51,6 +53,10 @@ const isGroupChat = (chat) => chat?.type === "group" || chat?.type === "supergro
    фраза или пауза в несколько минут — новая встреча. */
 const inlineDraft = new Map();   // id пользователя → { id, query, at }
 const INLINE_REUSE_MS = 3 * 60 * 1000;
+
+/** Та же ли это фраза, что набиралась только что: пачка ≤ 3 мин и одно начало. */
+const sameBurst = (prev, typed, now) => Boolean(prev) && now - prev.at < INLINE_REUSE_MS
+  && (typed.startsWith(prev.query) || prev.query.startsWith(typed));
 
 /* Имя осталось прежним: его зовут тесты, а чистить теперь нечего,
    кроме черновика инлайн-встречи. */
@@ -93,24 +99,84 @@ const meetingCard = (m) => [m.title, m.at].filter(Boolean).join("\n");
 /** Кнопка под приглашением. Одна: другой цели у приглашения нет. */
 const meetingButtons = (link) => [[{ text: "📹 Подключиться", url: link }]];
 
-async function onInline(q, from, { org, calls, answerInline, appLink, botName }) {
-  const parsed = calls.parseMeeting(q.query || "");
-  // claim: false — набранный в чужом чате инлайн-запрос не должен делать
-  // человека владельцем модели, даже если владелец ещё не назначен.
-  const me = await org.identify(String(from.id), { name: nameOf(from), username: from.username },
-    { claim: false });
-  if (!me.known) {
-    return answerInline(q.id, [], {
-      button: { text: "Вас ещё не позвали в модель", start_parameter: "start" },
-    });
+/* ─────── инлайн-режим: брейншторм-доски (владелец, 2026-09-25) ───────
+
+   «при вводе в инлайн режиме в выпадающем списке должны показываться уже
+   созданные доски, чтобы я мог нажать на какую-либо из них и выбрать. Если
+   вводимого названия нету, то должна создаваться новая доска. у
+   пользователя нет прав на создание досок, то при вводе, в выпадающем
+   списке у него должен быть один пункт, в котором это будет написано. И
+   даже если он отправит, в сообщении будет написано, что у него нет прав
+   на создание таких досок.»
+
+   Права — как у вкладки «Брейншторм» в хранилище MAIN: владелец или роль с
+   `brainstorm`. Доски выдачи — тоже MAIN: инлайн набирают в чужом чате, и
+   другого хранилища, кроме главного, у бота здесь нет. */
+const BOARD_LIMIT = 20;
+const BOARD_NAME_MAX = 120;
+
+const NO_BOARDS = {
+  type: "article", id: "no-boards", title: "Нет прав на создание досок",
+  input_message_content: { message_text: "У вас нет прав на создание досок." },
+};
+
+/** Пункт выдачи «доска»: сообщение — её имя, кнопка — открыть. */
+const boardItem = (id, title, name, link, description) => ({
+  type: "article", id: `board_${id}`, title,
+  ...(description ? { description } : {}),
+  input_message_content: { message_text: name, disable_web_page_preview: true },
+  reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску", url: link }]] },
+});
+
+async function boardResults(q, from, me, { boards, boardLink }) {
+  if (!(me.isOwner || (me.tabs || []).includes("brainstorm"))) return [NO_BOARDS];
+  const typed = String(q.query || "").trim();
+  const name = typed.replace(/\s+/g, " ").slice(0, BOARD_NAME_MAX).trim();
+  const needle = name.toLowerCase();
+  const all = await boards.listBoards({ storage: MAIN });
+  const shown = (needle ? all.filter((b) => b.name.toLowerCase().includes(needle)) : all)
+    .slice(0, BOARD_LIMIT);
+  const out = shown.map((b) => boardItem(b.id, b.name, b.name, boardLink(b.id), "Доска"));
+  if (!needle || all.some((b) => b.name.trim().toLowerCase() === needle)) return out;
+
+  /* Такой доски нет — новая, и заводится СРАЗУ: ссылка в кнопке обязана
+     работать в момент отправки, второго шага «подтвердите» в инлайне нет.
+     Черновиком — пока её не открыли, её не видно ни в списке, ни в
+     приложении: иначе каждый недописанный набор оставлял бы доску.
+
+     Черновик НЕ переименовывается, пока человек дописывает фразу (в
+     отличие от встречи): любой промежуточный пункт выдачи мог уже уйти в чат, и
+     переименование подменило бы доску под отправленной ссылкой, а два
+     сообщения повели бы на одну доску. Поэтому на каждое новое имя — свой
+     черновик; то же имя ещё раз — тот же. Брошенные черновики стор
+     убирает сам: срок и предел на создателя (lib/boardStore.js). */
+  const uid = String(from.id);
+  let draft;
+  try {
+    draft = await boards.findDraft({ storage: MAIN, by: uid, name })
+      || await boards.createBoard({ name, storage: MAIN, by: uid, byName: me.name || nameOf(from),
+        draft: true });
+  } catch (e) {
+    // Предел досок хранилища — отказ словами, пунктом выдачи.
+    if (!e?.status || e.status >= 500) throw e;
+    out.push({ type: "article", id: "board-refused", title: e.message,
+      input_message_content: { message_text: e.message } });
+    return out;
   }
+  out.push(boardItem(draft.id, `Новая доска «${draft.name}»`, draft.name, boardLink(draft.id)));
+  return out;
+}
+
+/* ─────── инлайн-режим: встреча ─────── */
+async function meetingResults(q, from, { calls, appLink }) {
+  const parsed = calls.parseMeeting(q.query || "");
   if (!q.query || !q.query.trim()) {
-    return answerInline(q.id, [{
+    return [{
       type: "article", id: "hint", title: "Напишите время и тему",
       description: "например: завтра 15:00 разбор прогноза",
       input_message_content: { message_text:
         "Наберите после имени бота время и тему: «завтра 15:00 разбор прогноза»." },
-    }]);
+    }];
   }
 
   // Встреча заводится сразу: ссылка должна работать в тот момент, когда
@@ -120,14 +186,12 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
   const typed = String(q.query || "").trim();
   const prev = inlineDraft.get(String(from.id));
   const now = Date.now();
-  const sameBurst = prev && now - prev.at < INLINE_REUSE_MS
-    && (typed.startsWith(prev.query) || prev.query.startsWith(typed));
   const fields = { title: parsed.title, at: parsed.atText, text: parsed.text };
-  const m = (sameBurst && await calls.updateMeeting(prev.id, fields))
+  const m = (sameBurst(prev, typed, now) && await calls.updateMeeting(prev.id, fields))
     || await calls.createMeeting({ ...fields, by: from.id });
   inlineDraft.set(String(from.id), { id: m.id, query: typed, at: now });
   const link = appLink(m.id);
-  return answerInline(q.id, [{
+  return [{
     type: "article",
     id: m.id,
     title: parsed.atText ? `${parsed.atText} — ${parsed.title}` : parsed.title,
@@ -139,7 +203,37 @@ async function onInline(q, from, { org, calls, answerInline, appLink, botName })
       // мини-приложение. Ради него терять окно звонка незачем.
       disable_web_page_preview: true },
     reply_markup: { inline_keyboard: meetingButtons(link) },
-  }], { cache_time: 0, is_personal: true });
+  }];
+}
+
+/**
+ * Инлайн-запрос: сначала доски, потом встреча — одной выдачей.
+ *
+ * Кто в модели не состоит, встреч не заводит, а досок — тем более: у него
+ * в выдаче ровно один пункт «Нет прав на создание досок». Без досок
+ * (зависимости `boards` нет) — как было: пустая выдача с кнопкой.
+ */
+async function onInline(q, from, deps) {
+  const { org, calls, boards, answerInline } = deps;
+  // claim: false — набранный в чужом чате инлайн-запрос не должен делать
+  // человека владельцем модели, даже если владелец ещё не назначен.
+  // Хранилище — главное: бот живёт вне запросов приложения. Кто работает
+  // под страницей виртуального сотрудника (привязал к ней Telegram), тот
+  // и здесь — она, как в приложении (middleware/telegramUser.js): иначе
+  // вкладка у него открыта, а инлайн говорит «нет прав».
+  const me = await inStorage(MAIN, async () => {
+    const rid = org.recordIdFor ? await org.recordIdFor(String(from.id)) : String(from.id);
+    return org.identify(rid, { name: nameOf(from), username: from.username }, { claim: false });
+  });
+  const results = [];
+  if (boards) results.push(...await boardResults(q, from, me, deps));
+  if (calls && me.known) results.push(...await meetingResults(q, from, deps));
+  if (!results.length && !me.known) {
+    return answerInline(q.id, [], {
+      button: { text: "Вас ещё не позвали в модель", start_parameter: "start" },
+    });
+  }
+  return answerInline(q.id, results.slice(0, 50), { cache_time: 0, is_personal: true });
 }
 
 /* Что сказать на то, чего бот не разобрал: стикер, фото вне шага сдачи,
@@ -163,6 +257,17 @@ export async function handleUpdate(update, deps) {
   if (pre) {
     if (deps.billing?.preCheckout) await deps.billing.preCheckout(pre.id, true);
     return { preCheckout: pre.id };
+  }
+  /* ─── выбранный пункт инлайна (владелец, 2026-09-25) ───
+     Приходит, только если в @BotFather включён отзыв инлайна
+     (/setinlinefeedback). Черновик доски, ушедший в чат, помечается
+     отправленным: срок и предел черновиков его больше не вытеснят — его
+     ссылка у людей. Отвечать на это обновление нечем и некому. */
+  const chosen = update?.chosen_inline_result;
+  if (chosen) {
+    const picked = /^board_(.+)$/.exec(String(chosen.result_id || ""));
+    if (picked && deps.boards?.markDraftSent) await deps.boards.markDraftSent(picked[1]);
+    return { chosen: String(chosen.result_id || "") };
   }
   const msg = update?.message;
   const edited = update?.edited_message;
@@ -198,9 +303,10 @@ export async function handleUpdate(update, deps) {
   }
 
   // Позвать на созвон может любой, кого позвали в модель, — не только
-  // владелец: иначе исполнитель не смог бы предложить встречу.
+  // владелец: иначе исполнитель не смог бы предложить встречу. Доски —
+  // тот, кому открыт «Брейншторм» (см. onInline).
   if (inline) {
-    if (!deps.calls) return { ignored: "no calls" };
+    if (!deps.calls && !deps.boards) return { ignored: "no calls" };
     await onInline(inline, from, deps);
     return { inline: String(from.id) };
   }

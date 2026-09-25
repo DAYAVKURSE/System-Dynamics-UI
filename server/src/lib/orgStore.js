@@ -38,9 +38,12 @@ const TAB_ALIAS = { json: "tools:export", calls: "tools:calls",
    должна уметь открыть «Звонки», не открывая «Выгрузку». Внутренние
    пишутся через двоеточие: «tools:calls». Открытая внутренняя открывает и
    свою верхнюю — иначе до неё не дойти. */
+/* «Брейншторм» — верхняя вкладка сразу после «Отчётов» (владелец,
+   2026-09-25): доски со стикерами; право на неё — и право заводить доски
+   (routes/boards.js). */
 export const TABS = ["market", "me", "tasks", "review",
   "scheme", "scheme:edit", "scheme:time", "scheme:sim",
-  "reports",
+  "reports", "brainstorm",
   "tools", "tools:people", "tools:assistant", "tools:virtual", "tools:reminders",
   "tools:calls", "tools:issues", "tools:export"];
 /* Право на вкладке: «r» — только смотреть, «rw» — ещё и править

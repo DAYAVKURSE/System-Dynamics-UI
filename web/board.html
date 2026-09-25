@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Доска</title>
+    <!--
+      SDK Telegram здесь НЕ подключается тегом — по той же причине, что и у
+      звонка (call.html): такой тег блокирует разбор документа, и молчащий
+      telegram.org оставляет пустой экран без единой надписи. SDK грузит
+      src/board-main.jsx — со сроком и не мешая странице рисоваться.
+    -->
+  </head>
+  <body>
+    <!--
+      Заглушка до запуска приложения: если доска не запустится — не
+      загрузился бандл, старый WebView не понял код, — человек увидит хотя
+      бы адрес, по которому его открыли. React при монтировании заменяет
+      содержимое #root, и заглушка исчезает сама.
+    -->
+    <div id="root">
+      <div id="boot" style="min-height: 200px; padding: 16px; box-sizing: border-box;
+        background: #0e1420; color: #8fa0bc; font-size: 13px; line-height: 1.6;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;">
+        Загружаю доску…
+      </div>
+    </div>
+    <script>
+      (function () {
+        var first = "";
+        window.addEventListener("error", function (e) {
+          if (!first) first = String(e.message || "") + (e.filename ? " (" + e.filename + ")" : "");
+        });
+        setTimeout(function () {
+          var b = document.getElementById("boot");
+          if (!b) return;                     // приложение запустилось и заменило заглушку
+          var here = location.origin + location.pathname;
+          b.style.color = "#E6EDF7";
+          b.innerHTML = "<b>Доска не запустилась.</b><br><br>Открыто по адресу:<br><code>"
+            + here.replace(/[<>&]/g, "") + "</code>"
+            + (first ? "<br><br>Ошибка: " + first.replace(/[<>&]/g, "") : "");
+        }, 8000);
+      })();
+    </script>
+    <script type="module" src="/src/board-main.jsx"></script>
+  </body>
+</html>

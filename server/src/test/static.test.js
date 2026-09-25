@@ -15,6 +15,7 @@ beforeAll(async () => {
   process.env.STATIC_DIR = tmp;
   await fs.writeFile(path.join(tmp, "index.html"), "<title>Схема</title>");
   await fs.writeFile(path.join(tmp, "call.html"), "<title>Звонок</title>");
+  await fs.writeFile(path.join(tmp, "board.html"), "<title>Доска</title>");
   await fs.writeFile(path.join(tmp, "privacy.html"), "<title>Политика конфиденциальности</title>");
 });
 afterAll(async () => {
@@ -31,6 +32,21 @@ describe("страницы", () => {
       expect(res.status).toBe(200);
       expect(res.text).toContain("Звонок");
     }
+  });
+
+  /* Брейншторм-доска (владелец, 2026-09-25) — своя страница, как звонок:
+     ссылка из чата без мини-приложения ведёт на /board?board=<id>. */
+  it("/board, /board/ и /board?board=… отдают страницу доски без кеша", async () => {
+    const { createApp } = await import("../app.js");
+    const app = createApp();
+    for (const p of ["/board", "/board/", "/board?board=abc", "/board/abc"]) {
+      const res = await request(app).get(p);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Доска");
+      expect(res.headers["cache-control"]).toMatch(/no-store/);
+    }
+    // «/boards» — не доска: это адрес модели.
+    expect((await request(app).get("/boards")).text).toContain("Схема");
   });
 
   it("/privacy и /privacy/ отдают политику конфиденциальности без кеша", async () => {

@@ -1,47 +1,51 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import CallApp from "./components/CallApp.jsx";
+import { loadTelegramSdk } from "./telegramSdk.js";
+import { boardFromLocation } from "./boards.js";
 import "./index.css";
 
 /* ════════════════════════════════════════════════════════════════
    ОТДЕЛЬНЫЙ ВХОД ДЛЯ ЗВОНКА (web/call.html → /call)
 
    SDK Telegram грузится ОТСЮДА, а не тегом в <head>, и это не
-   украшательство. Тег `<script src="https://telegram.org/…">` в шапке
-   блокирует разбор документа: пока ответ не пришёл, браузер не читает
-   даже <body>. Если telegram.org не отказывает, а МОЛЧИТ — плохая сеть,
-   блокировка у провайдера, — страница не рисует вообще ничего, и снаружи
-   это выглядит как чёрный экран без единой надписи. Проверено браузером:
-   при быстром отказе текст виден через 2 секунды, при молчании — не виден
-   и через 10.
+   украшательство — см. telegramSdk.js: тег в шапке при молчащем
+   telegram.org оставляет чёрный экран без единой надписи. Страница
+   рисуется сразу (в ней лежит заглушка), а SDK приходит со сроком. Не
+   пришёл за пять секунд — открываем звонок без него: гостем войти можно
+   и так, а чёрный экран не помогает никому.
 
-   Поэтому: страница рисуется сразу (в ней лежит заглушка), а SDK грузится
-   уже отсюда и со сроком. Не пришёл за пять секунд — открываем звонок без
-   него: гостем войти можно и так, а чёрный экран не помогает никому.
+   ДОСКА — ЧЕРЕЗ ЭТО ЖЕ ПРИЛОЖЕНИЕ (владелец, 2026-09-25). Ссылка на
+   брейншторм-доску ведёт в то же мини-приложение, что и звонок
+   (`startapp=board_<id>`): так владельцу не нужно заводить в @BotFather
+   ещё одно. Параметр доски (или `?board=` в адресе) — рисуем доску, а не
+   звонок; её код подгружается отдельно и звонку ничего не весит.
    ════════════════════════════════════════════════════════════════ */
 
-const SDK = "https://telegram.org/js/telegram-web-app.js";
-const SDK_TIMEOUT_MS = 5000;
+/* Код доски подгружается ДО первого рендера, а не ленивым компонентом:
+   React при первом рендере стирает заглушку #boot («Загружаю доску…»), и
+   пока подгружался бы код, экран был бы пустым. А если подгрузка не
+   удалась (связь оборвалась между бандлом и кусочком доски), ленивый
+   компонент уронил бы корень — и страховка call.html, которая через 8 с
+   ищет #boot, уже не нашла бы её: пустой экран навсегда. Так заглушка
+   стоит, пока код не пришёл, а не пришёл — через 8 с она сама скажет
+   «Доска не запустилась.» с причиной. */
+const root = () => ReactDOM.createRoot(document.getElementById("root"));
 
-function loadTelegramSdk() {
-  return new Promise((done) => {
-    if (typeof window === "undefined" || window.Telegram?.WebApp) return done();
-    let settled = false;
-    const finish = () => { if (!settled) { settled = true; done(); } };
-    const timer = setTimeout(finish, SDK_TIMEOUT_MS);
-    const stop = () => { clearTimeout(timer); finish(); };
-    try {
-      const s = document.createElement("script");
-      s.src = SDK;
-      s.async = true;
-      s.addEventListener("load", stop);
-      s.addEventListener("error", stop);
-      document.head.appendChild(s);
-    } catch { stop(); }
-    return undefined;
-  });
-}
-
-loadTelegramSdk().then(() => {
-  ReactDOM.createRoot(document.getElementById("root")).render(<CallApp />);
+loadTelegramSdk().then(async () => {
+  // Параметр смотрим уже ПОСЛЕ SDK: `start_param` разбирает он.
+  if (!boardFromLocation()) {
+    root().render(<CallApp />);
+    return;
+  }
+  let BoardApp;
+  try {
+    ({ default: BoardApp } = await import("./components/BoardApp.jsx"));
+  } catch (e) {
+    // Причину — в заглушку call.html: она собирает первую ошибку страницы.
+    try { window.dispatchEvent(new ErrorEvent("error", { message: String(e?.message || e) })); }
+    catch { /* старый WebView — хватит и заглушки */ }
+    return;
+  }
+  root().render(<BoardApp />);
 });

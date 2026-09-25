@@ -270,6 +270,9 @@ jobs:
           CHATS_DIR=${DEPLOY_PATH_R}/data/chats
           # Диалоги ботов с людьми (ассистент и боты агентов): «/dialogs», бан.
           DIALOGS_DIR=${DEPLOY_PATH_R}/data/dialogs
+          # Брейншторм-доски: без этой строки они легли бы в app/server/data,
+          # а app/ каждый деплой переписывается rsync --delete.
+          BOARDS_DIR=${DEPLOY_PATH_R}/data/boards
           # Рынок и сообщения об ошибках — в том же переживающем деплой
           # data/. Без этих двух строк они легли бы в app/server/data, а
           # app/ каждый деплой переписывается rsync --delete: заказы и

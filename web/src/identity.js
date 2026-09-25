@@ -23,6 +23,9 @@ import { currentStorage, sessionHeaders, setStorage } from "./session.js";
 export const ALL_TABS = ["market", "me", "tasks", "review",
   "scheme", "scheme:edit", "scheme:time", "scheme:sim",
   "reports",
+  /* Брейншторм-доски (владелец, 2026-09-25): верхняя, сразу за отчётами.
+     Кому открыта вкладка — тот и заводит доски. */
+  "brainstorm",
   "tools", "tools:people", "tools:assistant", "tools:virtual", "tools:reminders",
   "tools:calls", "tools:issues", "tools:export"];
 
@@ -34,7 +37,7 @@ export const TAB_NAMES = {
   market: "Маркет", me: "Анкета",
   tasks: "Задачи", review: "Проверка", scheme: "Схема",
   "scheme:edit": "Управление", "scheme:time": "Деятельность", "scheme:sim": "Цели",
-  reports: "Отчёты", tools: "Инструменты",
+  reports: "Отчёты", brainstorm: "Брейншторм", tools: "Инструменты",
   "tools:people": "Роли", "tools:assistant": "Агенты",
   "tools:virtual": "Виртуальные сотрудники",
   "tools:reminders": "Напоминания", "tools:calls": "Звонки",

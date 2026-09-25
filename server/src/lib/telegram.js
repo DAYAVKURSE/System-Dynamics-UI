@@ -136,8 +136,14 @@ export async function getUpdates(offset, timeout = 25,
     // edited_message — ради чатов групп: правка сообщения ложится в
     // хранилище новой строкой (lib/chatStore.js), иначе помощник цитировал
     // бы то, что человек уже исправил.
-    + // pre_checkout_query — оплата звёздами: без ответа на него платёж не пройдёт.
-    + encodeURIComponent(JSON.stringify(["message", "edited_message", "callback_query", "inline_query", "pre_checkout_query"]));
+    // pre_checkout_query — оплата звёздами: без ответа на него платёж не пройдёт.
+    // chosen_inline_result — какой пункт инлайна ушёл в чат: черновик доски
+    // с такой ссылкой больше не вытесняется (lib/boardStore.js). Приходит,
+    // только если отзыв инлайна включён в @BotFather (/setinlinefeedback).
+    // (Здесь стоял лишний «+» перед комментарием: «+ +encodeURIComponent(…)»
+    // давало allowed_updates=NaN, и Telegram список не применял вовсе.)
+    + encodeURIComponent(JSON.stringify(["message", "edited_message", "callback_query", "inline_query",
+      "chosen_inline_result", "pre_checkout_query"]));
   const res = await fetch(url);
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.description || `Telegram ответил ${res.status}`);

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { CURRENCY, DEFAULT_PLANS, STARS_PER_USD_DEFAULT, cleanPlan, methodOf } from "./plans.js";
+import { CURRENCY, DEFAULT_PLANS, STARS_PER_USD_DEFAULT, cleanPlan, methodOf, storedPlan } from "./plans.js";
 import { dataFile, readJson, readUsers, serial, writeJson, withUsers } from "./store.js";
 import { accountBalance, findIncoming, jettonBalance, tonUsd } from "./chain.js";
 
@@ -26,7 +26,8 @@ const DAY = 86400000;
 /* ─────── планы ─────── */
 export async function listPlans() {
   const list = await readJson(dataFile("plans.json"), null);
-  return Array.isArray(list) && list.length ? list.map((p) => cleanPlan(p, p)) : DEFAULT_PLANS.map((p) => ({ ...p }));
+  // Сохранённые планы — с вкладками, появившимися после их записи (plans.js storedPlan).
+  return Array.isArray(list) && list.length ? list.map(storedPlan) : DEFAULT_PLANS.map((p) => ({ ...p }));
 }
 const writePlans = (list) => writeJson(dataFile("plans.json"), list);
 export const planById = async (id) => (await listPlans()).find((p) => p.id === String(id)) || null;

@@ -86,6 +86,33 @@ export function callLinkFor(
   return `https://t.me/${botName}/${callApp}?startapp=call_${id}&mode=compact`;
 }
 
+/* ─────── ССЫЛКА НА БРЕЙНШТОРМ-ДОСКУ (владелец, 2026-09-25) ───────
+
+   Доска открывается ТЕМ ЖЕ мини-приложением, что и звонок: заводить
+   владельцу в @BotFather ещё одно приложение ради доски незачем. Страница
+   звонка сама узнаёт доску по параметру `startapp=board_<id>` и рисует
+   доску вместо звонка (web/src/call-main.jsx).
+
+   Отличия от ссылки на звонок — два:
+   · параметр `board_<id>` вместо `call_<id>`;
+   · БЕЗ mode=compact: доска — «на весь экран», так просил владелец.
+
+   Ни главного приложения, ни отдельного — ссылка на страницу /board. */
+
+/** Прямой адрес страницы доски — без Telegram. */
+export const boardPageLink = ({ publicUrl = "" } = {}, boardId) =>
+  `${publicUrl}/board?board=${encodeURIComponent(String(boardId))}`;
+
+export function boardLinkFor(
+  { botName = "", callApp = "", callMain = false, publicUrl = "" } = {}, boardId,
+) {
+  const id = String(boardId);
+  if (!botName || !startParamOk(id)) return boardPageLink({ publicUrl }, id);
+  if (callMain) return `https://t.me/${botName}?startapp=board_${id}`;
+  if (!callApp) return boardPageLink({ publicUrl }, id);
+  return `https://t.me/${botName}/${callApp}?startapp=board_${id}`;
+}
+
 /** Ведёт ли ссылка в мини-приложение (а не на обычную страницу). */
 export const isAppLink = (link) => String(link || "").startsWith("https://t.me/");
 

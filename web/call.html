@@ -31,6 +31,14 @@
     </div>
     <script>
       (function () {
+        /* Через это же приложение открывается и брейншторм-доска
+           (startapp=board_…, владелец, 2026-09-25) — тогда и заглушка
+           говорит о доске, а не о звонке. */
+        var board = /(^|[?&#])(board=|tgWebAppStartParam=board_)/.test(location.search + "&" + location.hash.replace(/^#/, "&"));
+        if (board) {
+          var boot0 = document.getElementById("boot");
+          if (boot0) boot0.textContent = "Загружаю доску…";
+        }
         var first = "";
         window.addEventListener("error", function (e) {
           if (!first) first = String(e.message || "") + (e.filename ? " (" + e.filename + ")" : "");
@@ -40,7 +48,8 @@
           if (!b) return;                     // приложение запустилось и заменило заглушку
           var here = location.origin + location.pathname;
           b.style.color = "#E6EDF7";
-          b.innerHTML = "<b>Звонок не запустился.</b><br><br>Открыто по адресу:<br><code>"
+          b.innerHTML = "<b>" + (board ? "Доска не запустилась." : "Звонок не запустился.")
+            + "</b><br><br>Открыто по адресу:<br><code>"
             + here.replace(/[<>&]/g, "") + "</code>"
             + (/\/call\/?$/.test(location.pathname)
               ? ""

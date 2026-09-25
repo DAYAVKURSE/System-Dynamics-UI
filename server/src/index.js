@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { callLinkEnv, callLinkFor } from "./lib/links.js";
+import { boardLinkFor, callLinkEnv, callLinkFor } from "./lib/links.js";
 import { createApp } from "./app.js";
 import { runTick } from "./lib/scheduler.js";
 import { scheduleFor } from "./lib/scheduleTasks.js";
@@ -10,6 +10,7 @@ import * as codes from "./lib/codes.js";
 import { handleUpdate } from "./lib/bot.js";
 import * as org from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
+import * as boards from "./lib/boardStore.js";
 import { setSetting } from "./lib/envStore.js";
 import { deferTask, setupStateFor, submitTask, takeTask, taskFor, withModel, writeModel }
   from "./lib/workspaceStore.js";
@@ -91,6 +92,17 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`System Dynamics UI server listening on port ${PORT}`);
 });
+
+/* Брейншторм-доски пишутся на диск с задержкой (lib/boardStore.js):
+   перезапуск (pm2 шлёт SIGINT, деплой — тоже) не должен терять последние
+   четверть секунды правок. Дописываем и выходим. */
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.once(sig, () => {
+    boards.flushBoards()
+      .catch((e) => console.error(`[boards] запись при остановке не удалась: ${e.message}`))
+      .finally(() => process.exit(0));
+  });
+}
 
 /* Расшифровки, оборванные перезапуском: запись «идёт» пережить перезапуск
    не может — ждал её этот процесс, и его больше нет. Байты на месте —
@@ -221,6 +233,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   // отдельное приложение звонка (TELEGRAM_CALL_APP), иначе страница
   // /call. На модель ссылка не ведёт ни в одном из случаев.
   const appLink = (callId) => callLinkFor(callLinkEnv(process.env, botName), callId);
+  /* Доска открывается тем же мини-приложением, что и звонок, но на весь
+     экран и с параметром board_<id> (lib/links.js, boardLinkFor). */
+  const boardLink = (boardId) => boardLinkFor(callLinkEnv(process.env, botName), boardId);
   /* Отдельное мини-приложение звонка. Завести его можно только руками в
      @BotFather (метода Bot API для этого нет вовсе), а вот запомнить его
      короткое имя владелец может из чата: «/callapp call». Значение живёт
@@ -262,6 +277,9 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
           try {
             await handleUpdate(u, {
               org, calls,
+              /* Брейншторм-доски в инлайн-выдаче (владелец, 2026-09-25):
+                 список досок MAIN, черновик новой доски и ссылка на неё. */
+              boards, boardLink,
               /* Кнопки под уведомлением двигают задачу на общем складе
                  работы — там же, где её двигает нажатие на доске. «Отложено
                  до» ставится в расписание сразу: бот отложил — бот и напомнит,

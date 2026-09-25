@@ -71,6 +71,7 @@ import { WandModal, captureScreen } from "./WandModal.jsx";
 import { askFromApp } from "../assistant.js";
 import { record as recordAction } from "../lib/appLog.js";
 import ReportsPanel from "./ReportsPanel.jsx";
+import BrainstormPanel from "./BrainstormPanel.jsx";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { countKind, dropKind } from "../lib/traits.js";
 import { normalizeMaterials, withStock } from "../lib/units.js";
@@ -607,8 +608,10 @@ export const SELF_TAB=["me","Анкета"];
 /* «Рынок услуг» — первой, перед анкетой (владелец, 2026-09-13), и всем:
    заказ оставляет любой зарегистрированный, роль тут не спрашивается. */
 export const MARKET_TAB=["market","Маркет"];
+/* «Брейншторм» — доски со стикерами (владелец, 2026-09-25): сразу за
+   отчётами, перед инструментами — тот же порядок, что в ALL_TABS. */
 export const TAB_LIST=[MARKET_TAB,SELF_TAB,["tasks","Задачи"],["review","Проверка"],
-  ["scheme","Схема"],["reports","Отчёты"],["tools","Инструменты"]];
+  ["scheme","Схема"],["reports","Отчёты"],["brainstorm","Брейншторм"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
 /* Документ из внешней записи — сценария с диска или JSON из выгрузки —
@@ -2102,6 +2105,13 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
           nameOf={personName} materials={materials} setMaterials={setMaterials} meId={me.id}
           runsOf={runsOf}
           focus={reportFocus} onFocus={setReportFocus}/>)}
+
+      {/* ═══ БРЕЙНШТОРМ · доски со стикерами ═══
+          Те же доски, что открываются из общего чата мини-приложением, и
+          слева — меню всех досок хранилища (владелец, 2026-09-25). Кому
+          вкладка открыта, тот и заводит доски — это проверяет сервер. */}
+      {tab==="brainstorm" && (me.isOwner||me.solo||me.tabs.includes("brainstorm")) && (
+        <BrainstormPanel/>)}
 
       {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && me.tabs.includes("tasks") && (

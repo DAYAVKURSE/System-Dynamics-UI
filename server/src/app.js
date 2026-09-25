@@ -9,6 +9,7 @@ import orgRouter from "./routes/org.js";
 import workspaceRouter from "./routes/workspace.js";
 import sharesRouter from "./routes/shares.js";
 import callsRouter from "./routes/calls.js";
+import boardsRouter from "./routes/boards.js";
 import assistantRouter from "./routes/assistant.js";
 import marketRouter from "./routes/market.js";
 import issuesRouter from "./routes/issues.js";
@@ -240,6 +241,10 @@ app.use("/api/scenarios", scenariosRouter);
      lib/shareStore.js). */
   app.use("/api/shares", sharesRouter);
   app.use("/api/calls", callsRouter);
+  /* Брейншторм-доски (владелец, 2026-09-25): список и создание — из
+     вкладки «Брейншторм», сама доска — любому со ссылкой по подписи
+     Telegram (см. routes/boards.js). */
+  app.use("/api/boards", boardsRouter);
   /* Помощник: настройки (ключ ставит владелец, наружу не уходит), вопрос в
      два шага и память. Только позванным. Файл памяти — сырые байты, поэтому
      свой парсер тела внутри маршрута (см. routes/assistant.js). */
@@ -259,6 +264,9 @@ app.use("/api/scenarios", scenariosRouter);
   // Звонок — отдельная страница с собственным входом (web/call.html): она
   // открывается как самостоятельное мини-приложение, без вкладок модели.
   const callHtml = path.join(staticDir, "call.html");
+  /* Брейншторм-доска — тоже самостоятельная страница (web/board.html):
+     мини-приложение на весь экран, без вкладок модели. */
+  const boardHtml = path.join(staticDir, "board.html");
   /* Политика конфиденциальности (web/public/privacy.html) — самостоятельная
      страница на трёх языках; её адрес указывается в настройках бота
      (владелец, 2026-09-22). */
@@ -303,6 +311,8 @@ app.use("/api/scenarios", scenariosRouter);
         res.sendFile(callHtml);
       });
     }
+    // Как и у звонка — и всё, что под /board: ссылка бывает с хвостом.
+    if (fs.existsSync(boardHtml)) app.get(/^\/board(\/.*)?$/, page(boardHtml));
     if (fs.existsSync(privacyHtml)) app.get(/^\/privacy\/?$/, page(privacyHtml));
     app.get(/^(?!\/api\/).*/, page(indexHtml));
   }

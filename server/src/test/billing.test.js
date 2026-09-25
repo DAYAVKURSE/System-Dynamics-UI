@@ -58,12 +58,51 @@ describe("планы", () => {
   it("у плана свои вкладки: по уровню, пока не выбрали; вложенная тянет родителя", async () => {
     const list = await billing.listPlans();
     expect(list.find((p) => p.id === "free").tabs).toEqual(["market", "me", "tasks"]);
-    expect(list.find((p) => p.id === "max").tabs).toHaveLength(17);
+    // 18: «Брейншторм» (владелец, 2026-09-25) — max открывает всё.
+    expect(list.find((p) => p.id === "max").tabs).toHaveLength(18);
+    expect(list.find((p) => p.id === "max").tabs).toContain("brainstorm");
     const saved = await billing.savePlan("pro", { tabs: ["tools:calls", "me", "nope"] });
     expect(saved.tabs).toEqual(["me", "tools", "tools:calls"]);
     // Правка без вкладок их не трогает.
     expect((await billing.savePlan("pro", { name: "Pro+" })).tabs).toEqual(["me", "tools", "tools:calls"]);
     expect((await billing.savePlan("pro", { tabs: [] })).tabs).toEqual([]);
+  });
+
+  /* Новая вкладка и сохранённые планы (владелец, 2026-09-25): план,
+     записанный в панели до «Брейншторма», хранит свой список вкладок — без
+     переноса Max так и не открыл бы новую вкладку даже владельцу. */
+  it("вкладка, появившаяся после записи плана: max и «всё отмечено» получают её, выбранные поштучно — нет", async () => {
+    const before = ["market", "me", "tasks", "review", "scheme", "scheme:edit", "scheme:time", "scheme:sim",
+      "reports", "tools", "tools:people", "tools:assistant", "tools:virtual", "tools:reminders",
+      "tools:calls", "tools:issues", "tools:export"];
+    await fs.mkdir(process.env.CODES_DIR, { recursive: true });
+    await fs.writeFile(path.join(process.env.CODES_DIR, "plans.json"), JSON.stringify([
+      { id: "free", name: "Free", price: 0, days: 0, level: "free", tabs: ["market", "me", "tasks"] },
+      { id: "pro", name: "Pro", price: 10, days: 30, level: "pro", tabs: ["me", "tasks"] },
+      { id: "max", name: "Max", price: 30, days: 30, level: "max", tabs: before },
+      { id: "team", name: "Команда", price: 20, days: 30, level: "pro", tabs: before },
+      { id: "cut", name: "Урезанный max", price: 25, days: 30, level: "max", tabs: ["me", "tasks"] },
+    ]));
+    const tabsOfPlan = async (id) => (await billing.planById(id)).tabs;
+    expect(await tabsOfPlan("max")).toContain("brainstorm");
+    expect(await tabsOfPlan("max")).toHaveLength(18);
+    expect(await tabsOfPlan("team")).toContain("brainstorm");
+    expect(await tabsOfPlan("cut")).toContain("brainstorm");
+    expect(await tabsOfPlan("pro")).toEqual(["me", "tasks"]);
+    expect(await tabsOfPlan("free")).toEqual(["market", "me", "tasks"]);
+    // В токен уходит тот же список.
+    expect((await handle("GET", "/plans")).body.plans.find((p) => p.id === "max").tabs).toContain("brainstorm");
+
+    // Правка без вкладок записывает уже дополненный список.
+    await billing.savePlan("max", { name: "Max+" });
+    const saved = JSON.parse(await fs.readFile(path.join(process.env.CODES_DIR, "plans.json"), "utf8"));
+    expect(saved.find((p) => p.id === "max").tabs).toContain("brainstorm");
+    expect(saved.find((p) => p.id === "max").knownTabs).toContain("brainstorm");
+    // Владелец снял вкладку сам — она не возвращается.
+    await billing.savePlan("max", { tabs: before });
+    expect(await tabsOfPlan("max")).not.toContain("brainstorm");
+    await billing.savePlan("team", { tabs: before });
+    expect(await tabsOfPlan("team")).not.toContain("brainstorm");
   });
 
   it("панель — только владельцу и только с подписью админ-бота", async () => {

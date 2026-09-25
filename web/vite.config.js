@@ -12,13 +12,15 @@ export default defineConfig({
   base,
   // Перевод интерфейса: текст в JSX оборачивается вызовом t (см. i18n-babel.js).
   plugins: [react({ babel: { plugins: [i18nBabel] } })],
-  // Две страницы: модель (index.html) и отдельное окно звонка (call.html →
-  // /call). У звонка свой бандл: ему не нужны схема, прогноз и задачи.
+  // Три страницы: модель (index.html), отдельное окно звонка (call.html →
+  // /call) и брейншторм-доска (board.html → /board, владелец, 2026-09-25).
+  // У звонка и доски свои бандлы: им не нужны схема, прогноз и задачи.
   build: {
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         call: fileURLToPath(new URL("./call.html", import.meta.url)),
+        board: fileURLToPath(new URL("./board.html", import.meta.url)),
       },
     },
   },
