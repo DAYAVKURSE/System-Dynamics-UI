@@ -60,7 +60,7 @@ const sameBurst = (prev, typed, now) => Boolean(prev) && now - prev.at < INLINE_
 
 /* Имя осталось прежним: его зовут тесты, а чистить теперь нечего,
    кроме черновика инлайн-встречи. */
-export function resetPending() { inlineDraft.clear(); emptyBoard.clear(); }
+export function resetPending() { inlineDraft.clear(); emptyBoard.clear(); emptyCall.clear(); }
 
 /* ─────── инлайн-режим: позвать на созвон ───────
    Инлайн-запрос набирается в любом чате: «@бот завтра 15:00 разбор
@@ -112,7 +112,6 @@ const meetingButtons = (link) => [[{ text: "📹 Подключиться", url:
    Права — как у вкладки «Брейншторм» в хранилище MAIN: владелец или роль с
    `brainstorm`. Доски выдачи — тоже MAIN: инлайн набирают в чужом чате, и
    другого хранилища, кроме главного, у бота здесь нет. */
-const BOARD_LIMIT = 20;
 const BOARD_NAME_MAX = 120;
 
 /* Значок строки (владелец, 2026-09-25: «добавь подходящие изображения
@@ -142,90 +141,86 @@ const boardItem = (id, title, name, link, description, icon) => ({
   reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску", url: link }]] },
 });
 
-/* Пустой запрос — РОВНО ДВА пункта, и оба РАБОТАЮТ: «Новая доска» и
-   «Новый звонок» (владелец, 2026-09-25: «после пробела он пытается
-   запустить звонок, а должен и то и то выдавать»; «там должно быть две
-   кнопки»; «кнопка „новая доска“ не работает — она требует написать имя
-   доски, нахуй мне тогда эта кнопка»). Доска заводится сразу, с именем
-   «Доска N» по счёту досок хранилища.
-   Готовые доски при пустом запросе не показываются — они появляются,
-   когда человек начинает набирать название.
+/* В выдаче ВСЕГДА РОВНО ДВЕ ЗАПИСИ, и обе создают сразу (владелец,
+   2026-09-25: «две записи»; «доски не появляются, когда начинаешь их
+   набирать — я тебе не говорил этого делать»; «если ты в другом чате
+   создаёшь доску, ты не должен видеть другие доски»; «звонок тоже
+   создавался при нажатии, без ввода названия»):
+
+   · «Новая доска» — пустой запрос: доска «Доска N» по счёту досок
+     хранилища; набранное — доска с этим именем;
+   · «Новый звонок» — пустой запрос: звонок «Звонок» без времени;
+     набранное — время и тема из набранного, как и прежде.
+
+   Готовые доски в инлайне не показываются никогда: доску открывают из
+   того чата, куда её отправили, либо из приложения (вкладка «Брейншторм»).
 
    Пустой запрос Telegram шлёт при каждом открытии инлайна и при стирании
-   набранного — поэтому одна и та же доска держится на человека несколько
-   минут (как черновик встречи при наборе), а не заводится заново на
-   каждый запрос. Звонок при пустом запросе — как и был: подсказка. */
+   набранного — поэтому одна и та же доска (и звонок) держится на человека
+   несколько минут, а не заводится заново на каждый запрос. */
 const emptyBoard = new Map();   // id пользователя → { id, at }
+const emptyCall = new Map();    // id пользователя → { id, at }
+const DEFAULT_CALL_TITLE = "Звонок";
 
-/**
- * Доски в выдаче: `fresh` — что завести (новая доска или отказ), `found` —
- * уже созданные, подходящие к набранному. Порядок в выдаче собирает
- * onInline: сперва «новая доска» и «новый звонок», потом найденные доски.
- */
+/** Пункт «Новая доска» — один, всегда; или «нет прав». */
 async function boardResults(q, from, me, { boards, boardLink, publicUrl }) {
-  if (!(me.isOwner || (me.tabs || []).includes("brainstorm"))) return { fresh: [noBoards(publicUrl)], found: [] };
-  const fresh = thumb(publicUrl, "new-board");
-  const ready = thumb(publicUrl, "board");
-  const typed = String(q.query || "").trim();
-  const name = typed.replace(/\s+/g, " ").slice(0, BOARD_NAME_MAX).trim();
-  const needle = name.toLowerCase();
+  if (!(me.isOwner || (me.tabs || []).includes("brainstorm"))) return [noBoards(publicUrl)];
+  const icon = thumb(publicUrl, "new-board");
+  const name = String(q.query || "").trim().replace(/\s+/g, " ").slice(0, BOARD_NAME_MAX).trim();
   const uid = String(from.id);
-  const all = await boards.listBoards({ storage: MAIN });
-  if (!needle) {
-    const now = Date.now();
-    const kept = emptyBoard.get(uid);
-    let draft = kept && now - kept.at < INLINE_REUSE_MS ? await boards.getBoard(kept.id) : null;
-    if (!draft || !draft.draft) {
-      try {
-        draft = await boards.createBoard({ name: `Доска ${all.length + 1}`, storage: MAIN, by: uid,
-          byName: me.name || nameOf(from), draft: true });
-      } catch (e) {
-        if (!e?.status || e.status >= 500) throw e;
-        return { fresh: [refusedItem(publicUrl, e.message)], found: [] };
-      }
-      emptyBoard.set(uid, { id: draft.id, at: now });
-    }
-    return { fresh: [boardItem(draft.id, "🧠 Новая доска", draft.name, boardLink(draft.id), draft.name, fresh)],
-      found: [] };
-  }
-  const found = all.filter((b) => b.name.toLowerCase().includes(needle)).slice(0, BOARD_LIMIT)
-    .map((b) => boardItem(b.id, `🧠 ${b.name}`, b.name, boardLink(b.id), "Доска", ready));
-  if (all.some((b) => b.name.trim().toLowerCase() === needle)) return { fresh: [], found };
-
-  /* Такой доски нет — новая, и заводится СРАЗУ: ссылка в кнопке обязана
-     работать в момент отправки, второго шага «подтвердите» в инлайне нет.
-     Черновиком — пока её не открыли, её не видно ни в списке, ни в
-     приложении: иначе каждый недописанный набор оставлял бы доску.
-
-     Черновик НЕ переименовывается, пока человек дописывает фразу (в
-     отличие от встречи): любой промежуточный пункт выдачи мог уже уйти в чат, и
-     переименование подменило бы доску под отправленной ссылкой, а два
-     сообщения повели бы на одну доску. Поэтому на каждое новое имя — свой
-     черновик; то же имя ещё раз — тот же. Брошенные черновики стор
-     убирает сам: срок и предел на создателя (lib/boardStore.js). */
-  let draft;
+  const byName = me.name || nameOf(from);
   try {
-    draft = await boards.findDraft({ storage: MAIN, by: uid, name })
-      || await boards.createBoard({ name, storage: MAIN, by: uid, byName: me.name || nameOf(from),
-        draft: true });
+    if (!name) {
+      const now = Date.now();
+      const kept = emptyBoard.get(uid);
+      let draft = kept && now - kept.at < INLINE_REUSE_MS ? await boards.getBoard(kept.id) : null;
+      if (!draft || !draft.draft) {
+        const count = (await boards.listBoards({ storage: MAIN })).length;
+        draft = await boards.createBoard({ name: `Доска ${count + 1}`, storage: MAIN, by: uid, byName, draft: true });
+        emptyBoard.set(uid, { id: draft.id, at: now });
+      }
+      return [boardItem(draft.id, "🧠 Новая доска", draft.name, boardLink(draft.id), draft.name, icon)];
+    }
+    /* Набранное — имя доски. Заводится СРАЗУ, черновиком: ссылка в кнопке
+       обязана работать в момент отправки, а черновик не виден нигде, пока
+       его не открыли, — иначе каждый недописанный набор оставлял бы доску.
+
+       Черновик НЕ переименовывается, пока человек дописывает фразу (в
+       отличие от встречи): любой промежуточный пункт выдачи мог уже уйти в
+       чат, и переименование подменило бы доску под отправленной ссылкой.
+       Поэтому на каждое новое имя — свой черновик; то же имя ещё раз — тот
+       же. Брошенные черновики стор убирает сам (lib/boardStore.js). */
+    const draft = await boards.findDraft({ storage: MAIN, by: uid, name })
+      || await boards.createBoard({ name, storage: MAIN, by: uid, byName, draft: true });
+    return [boardItem(draft.id, `🧠 Новая доска «${draft.name}»`, draft.name, boardLink(draft.id), undefined, icon)];
   } catch (e) {
     // Предел досок хранилища — отказ словами, пунктом выдачи.
     if (!e?.status || e.status >= 500) throw e;
-    return { fresh: [refusedItem(publicUrl, e.message)], found };
+    return [refusedItem(publicUrl, e.message)];
   }
-  return { fresh: [boardItem(draft.id, `🧠 Новая доска «${draft.name}»`, draft.name, boardLink(draft.id),
-    undefined, fresh)], found };
 }
 
 /* ─────── инлайн-режим: встреча ─────── */
-async function meetingResults(q, from, { calls, appLink }) {
+async function meetingResults(q, from, { calls, appLink, publicUrl }) {
   const parsed = calls.parseMeeting(q.query || "");
+  const icon = thumb(publicUrl, "call");
   if (!q.query || !q.query.trim()) {
+    /* Пустой запрос — звонок заводится сразу, «Звонок» без времени: кнопка
+       создаёт, а не просит набрать (владелец, 2026-09-25). Несколько минут
+       подряд — один и тот же, см. emptyBoard выше. */
+    const uid = String(from.id);
+    const now = Date.now();
+    const kept = emptyCall.get(uid);
+    let m = kept && now - kept.at < INLINE_REUSE_MS ? await calls.getMeeting(kept.id) : null;
+    if (!m) {
+      m = await calls.createMeeting({ title: DEFAULT_CALL_TITLE, at: "", text: "", by: from.id });
+      emptyCall.set(uid, { id: m.id, at: now });
+    }
     return [{
-      type: "article", id: "hint", title: "Напишите время и тему",
-      description: "например: завтра 15:00 разбор прогноза",
-      input_message_content: { message_text:
-        "Наберите после имени бота время и тему: «завтра 15:00 разбор прогноза»." },
+      type: "article", id: m.id, title: "📹 Новый звонок", ...icon,
+      description: "Отправить приглашение со ссылкой на звонок",
+      input_message_content: { message_text: meetingCard(m), disable_web_page_preview: true },
+      reply_markup: { inline_keyboard: meetingButtons(appLink(m.id)) },
     }];
   }
 
@@ -245,6 +240,7 @@ async function meetingResults(q, from, { calls, appLink }) {
     type: "article",
     id: m.id,
     title: parsed.atText ? `${parsed.atText} — ${parsed.title}` : parsed.title,
+    ...icon,
     description: parsed.ok
       ? "Отправить приглашение со ссылкой на звонок"
       : "Время не разобрал — отправлю без него",
@@ -275,10 +271,11 @@ async function onInline(q, from, deps) {
     const rid = org.recordIdFor ? await org.recordIdFor(String(from.id)) : String(from.id);
     return org.identify(rid, { name: nameOf(from), username: from.username }, { claim: false });
   });
-  const b = boards ? await boardResults(q, from, me, deps) : { fresh: [], found: [] };
-  const meeting = calls && me.known ? await meetingResults(q, from, deps) : [];
-  // Сперва что завести — новая доска и новый звонок, — потом готовые доски.
-  const results = [...b.fresh, ...meeting, ...b.found];
+  // Две записи: «Новая доска» и «Новый звонок» (или «нет прав» вместо доски).
+  const results = [
+    ...(boards ? await boardResults(q, from, me, deps) : []),
+    ...(calls && me.known ? await meetingResults(q, from, deps) : []),
+  ];
   if (!results.length && !me.known) {
     return answerInline(q.id, [], {
       button: { text: "Вас ещё не позвали в модель", start_parameter: "start" },

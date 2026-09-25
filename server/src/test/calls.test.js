@@ -209,9 +209,12 @@ describe("инлайн-режим", () => {
     expect(await getMeeting(id)).toBeTruthy();
   });
 
-  it("пустой запрос показывает подсказку, а не пустоту", async () => {
+  it("пустой запрос — «Новый звонок», и он заведён: пункт создаёт, а не просит набрать", async () => {
     await handleUpdate(q(owner, ""), deps);
-    expect(last().results[0].description).toMatch(/завтра 15:00/);
+    const item = last().results[0];
+    expect(item.title).toBe("📹 Новый звонок");
+    expect((await getMeeting(item.id)).title).toBe("Звонок");
+    expect(item.reply_markup.inline_keyboard[0][0].text).toBe("📹 Подключиться");
   });
 
   it("без разобранного времени так и сказано в подсказке", async () => {

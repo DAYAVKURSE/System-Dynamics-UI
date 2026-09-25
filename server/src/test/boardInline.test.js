@@ -69,7 +69,7 @@ beforeEach(async () => {
 });
 
 describe("инлайн: доски", () => {
-  it("пустой запрос — ровно две записи: «Новая доска» заводит «Доска N», звонок — как был", async () => {
+  it("всегда ровно две записи, обе создают: пустой запрос — «Доска N» и «Звонок»", async () => {
     await boards.createBoard({ name: "Идеи к релизу", by: "100" });
     await boards.createBoard({ name: "черновик", by: "100", draft: true });
     await boards.createBoard({ name: "Названия продукта", by: "200" });
@@ -84,12 +84,15 @@ describe("инлайн: доски", () => {
         url: `https://t.me/bot/call?startapp=board_${b.id.slice(6)}` }]] },
     });
     expect(await boards.getBoard(b.id.slice(6))).toMatchObject({ name: "Доска 3", draft: true, by: "100" });
-    expect(c).toMatchObject({ id: "hint", title: "Напишите время и тему" });
-    expect(await calls.listMeetings()).toHaveLength(0);
-    // Пустой запрос ещё раз (Telegram шлёт его при каждом открытии) — та же доска.
+    expect(c).toMatchObject({ title: "📹 Новый звонок", ...ICON("call"),
+      input_message_content: { message_text: "Звонок" } });
+    expect(c.reply_markup.inline_keyboard[0][0]).toEqual({ text: "📹 Подключиться",
+      url: `https://t.me/bot/call?startapp=call_${c.id}&mode=compact` });
+    expect((await calls.getMeeting(c.id)).title).toBe("Звонок");
+    // Пустой запрос ещё раз (Telegram шлёт его при каждом открытии) — та же пара.
     answers.length = 0;
     const again = await ask(owner, "");
-    expect(again.results.map((r) => r.id)).toEqual([b.id, "hint"]);
+    expect(again.results.map((r) => r.id)).toEqual([b.id, c.id]);
     // Доску открыли — следующая «Новая доска» уже другая.
     await boards.enterBoard(b.id.slice(6), { id: "555", name: "Из чата" });
     const next = await ask(owner, "");
@@ -97,38 +100,15 @@ describe("инлайн: доски", () => {
     expect(next.results[0].description).toBe("Доска 4");
   });
 
-  it("готовые доски — при наборе: подходящие по имени, новые сверху, без черновиков и чужих хранилищ", async () => {
-    const a = await boards.createBoard({ name: "Идеи к релизу", by: "100" });
-    await boards.createBoard({ name: "Идеи черновые", by: "100", draft: true });
-    const b = await boards.createBoard({ name: "Идеи названий", by: "200" });
-    await boards.createBoard({ name: "Идеи чужие", by: "300", storage: "300" });
-    const res = await ask(owner, "идеи");
-    // Точного совпадения нет — первой «Новая доска «идеи»», за ней звонок, потом найденные.
-    const ids = res.results.map((r) => r.id);
-    expect(ids[0]).toMatch(/^board_/);
-    expect((await boards.getBoard(ids[0].slice(6)))).toMatchObject({ name: "идеи", draft: true });
-    expect(ids.slice(1)).toEqual([res.results[1].id, `board_${b.id}`, `board_${a.id}`]);
-    expect(res.results[1].title).toBe("идеи");
-    const item = res.results[2];
-    expect(item).toEqual({
-      type: "article", id: `board_${b.id}`, title: "🧠 Идеи названий", description: "Доска", ...ICON("board"),
-      input_message_content: { message_text: "Идеи названий", disable_web_page_preview: true },
-      reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску",
-        url: `https://t.me/bot/call?startapp=board_${b.id}` }]] },
-    });
-  });
-
-  it("набранное фильтрует доски без учёта регистра; точное совпадение — без новой", async () => {
-    const a = await boards.createBoard({ name: "Идеи к релизу", by: "100" });
-    await boards.createBoard({ name: "Названия", by: "100" });
-    const res = await ask(owner, "идеи");
-    // «идеи» ≠ «Идеи к релизу» — новая доска первой, звонок, потом найденная.
-    expect(res.results[0].title).toBe("🧠 Новая доска «идеи»");
-    expect(res.results[1].title).toBe("идеи");
-    expect(res.results[2].id).toBe(`board_${a.id}`);
-    answers.length = 0;
-    const exact = await ask(owner, "  ИДЕИ К РЕЛИЗУ ");
-    expect(boardItems(exact).map((r) => r.id)).toEqual([`board_${a.id}`]);
+  it("набранное — две записи: «Новая доска «…»» и звонок; готовые доски не показываются никогда", async () => {
+    const a = await boards.createBoard({ name: "Идеи", by: "100" });
+    const res = await ask(owner, "Идеи");
+    expect(res.results).toHaveLength(2);
+    expect(res.results.map((r) => r.id)).not.toContain(`board_${a.id}`);
+    expect(res.results[0].title).toBe("🧠 Новая доска «Идеи»");
+    expect(res.results[0]).toMatchObject(ICON("new-board"));
+    expect(res.results[1]).toMatchObject({ title: "Идеи", ...ICON("call") });
+    expect(res.results[1].reply_markup.inline_keyboard[0][0].text).toBe("📹 Подключиться");
   });
 
   it("нет такой — новая доска заводится сразу, черновиком, по ссылке в кнопке", async () => {
@@ -203,15 +183,6 @@ describe("инлайн: доски", () => {
     const third = newBoard(await ask(owner, "Совсем другое дело")).id.replace(/^board_/, "");
     expect(third).not.toBe(second);
     expect((await boards.getBoard(second)).name).toBe("Совсем другое");
-  });
-
-  it("не больше 20 досок в выдаче", async () => {
-    for (let i = 0; i < 25; i += 1) await boards.createBoard({ name: `Доска ${i}`, by: "100" });
-    const res = await ask(owner, "доска");
-    // 20 найденных плюс «Новая доска «доска»» (точного совпадения нет).
-    expect(boardItems(res)).toHaveLength(21);
-    expect(res.results.length).toBeLessThanOrEqual(50);
-    expect(boardItems(res)[1].title).toBe("🧠 Доска 24");
   });
 
   it("право — у роли с вкладкой brainstorm, не только у владельца", async () => {
