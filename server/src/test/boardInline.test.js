@@ -66,17 +66,35 @@ beforeEach(async () => {
 });
 
 describe("инлайн: доски", () => {
-  it("пустой запрос — ровно две записи: «новая доска» и «новый звонок», без готовых досок", async () => {
+  it("пустой запрос — ровно две записи, и обе заводят: «Доска N» и «Звонок»", async () => {
     await boards.createBoard({ name: "Идеи к релизу", by: "100" });
     await boards.createBoard({ name: "черновик", by: "100", draft: true });
     await boards.createBoard({ name: "Названия продукта", by: "200" });
     const res = await ask(owner, "");
     expect(res.extra).toEqual({ cache_time: 0, is_personal: true });
-    expect(res.results.map((r) => r.id)).toEqual(["board-hint", "hint"]);
-    expect(res.results[0].title).toBe("🧠 Новая доска");
-    expect(res.results[1].title).toBe("📹 Новый звонок");
-    // Пустой запрос ничего не заводит.
-    expect(await boards.listBoards({ drafts: true })).toHaveLength(3);
+    expect(res.results).toHaveLength(2);
+    const [b, c] = res.results;
+    expect(b).toEqual({
+      type: "article", id: b.id, title: "🧠 Новая доска", description: "Доска 3",
+      input_message_content: { message_text: "Доска 3", disable_web_page_preview: true },
+      reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску",
+        url: `https://t.me/bot/call?startapp=board_${b.id.slice(6)}` }]] },
+    });
+    expect(await boards.getBoard(b.id.slice(6))).toMatchObject({ name: "Доска 3", draft: true, by: "100" });
+    expect(c.title).toBe("📹 Новый звонок");
+    expect(c.input_message_content.message_text).toBe("Звонок");
+    expect(c.reply_markup.inline_keyboard[0][0]).toEqual({ text: "📹 Подключиться",
+      url: `https://t.me/bot/call?startapp=call_${c.id}&mode=compact` });
+    expect((await calls.getMeeting(c.id)).title).toBe("Звонок");
+    // Пустой запрос ещё раз (Telegram шлёт его при каждом открытии) — та же пара.
+    answers.length = 0;
+    const again = await ask(owner, "");
+    expect(again.results.map((r) => r.id)).toEqual([b.id, c.id]);
+    // Доску открыли — следующая «Новая доска» уже другая.
+    await boards.enterBoard(b.id.slice(6), { id: "555", name: "Из чата" });
+    const next = await ask(owner, "");
+    expect(next.results[0].id).not.toBe(b.id);
+    expect(next.results[0].description).toBe("Доска 4");
   });
 
   it("готовые доски — при наборе: подходящие по имени, новые сверху, без черновиков и чужих хранилищ", async () => {

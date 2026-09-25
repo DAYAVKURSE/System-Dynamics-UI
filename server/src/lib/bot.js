@@ -60,7 +60,7 @@ const sameBurst = (prev, typed, now) => Boolean(prev) && now - prev.at < INLINE_
 
 /* Имя осталось прежним: его зовут тесты, а чистить теперь нечего,
    кроме черновика инлайн-встречи. */
-export function resetPending() { inlineDraft.clear(); }
+export function resetPending() { inlineDraft.clear(); emptyBoard.clear(); emptyCall.clear(); }
 
 /* ─────── инлайн-режим: позвать на созвон ───────
    Инлайн-запрос набирается в любом чате: «@бот завтра 15:00 разбор
@@ -128,17 +128,22 @@ const boardItem = (id, title, name, link, description) => ({
   reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску", url: link }]] },
 });
 
-/* Пустой запрос — РОВНО ДВА пункта, что можно завести: «Новая доска» и
+/* Пустой запрос — РОВНО ДВА пункта, и оба РАБОТАЮТ: «Новая доска» и
    «Новый звонок» (владелец, 2026-09-25: «после пробела он пытается
    запустить звонок, а должен и то и то выдавать»; «там должно быть две
-   кнопки»). Готовые доски при пустом запросе не показываются — они
-   появляются, когда человек начинает набирать название. Доску без
-   названия не заведёшь — пункт просит его. */
-const BOARD_HINT = {
-  type: "article", id: "board-hint", title: "🧠 Новая доска",
-  description: "напишите тему доски",
-  input_message_content: { message_text: "Наберите после имени бота тему доски." },
-};
+   кнопки»; «кнопка „новая доска“ не работает — она требует написать имя
+   доски, нахуй мне тогда эта кнопка»). Доска заводится сразу, с именем
+   «Доска N» по счёту досок хранилища; звонок — с названием «Звонок».
+   Готовые доски при пустом запросе не показываются — они появляются,
+   когда человек начинает набирать название.
+
+   Пустой запрос Telegram шлёт при каждом открытии инлайна и при стирании
+   набранного — поэтому одна и та же пара «доска + звонок» держится на
+   человека несколько минут (как черновик встречи при наборе), а не
+   заводится заново на каждый запрос. */
+const emptyBoard = new Map();   // id пользователя → { id, at }
+const emptyCall = new Map();    // id пользователя → { id, at }
+const DEFAULT_CALL_TITLE = "Звонок";
 
 /**
  * Доски в выдаче: `fresh` — что завести (новая доска или отказ), `found` —
@@ -150,8 +155,26 @@ async function boardResults(q, from, me, { boards, boardLink }) {
   const typed = String(q.query || "").trim();
   const name = typed.replace(/\s+/g, " ").slice(0, BOARD_NAME_MAX).trim();
   const needle = name.toLowerCase();
-  if (!needle) return { fresh: [BOARD_HINT], found: [] };
+  const uid = String(from.id);
   const all = await boards.listBoards({ storage: MAIN });
+  if (!needle) {
+    const now = Date.now();
+    const kept = emptyBoard.get(uid);
+    let draft = kept && now - kept.at < INLINE_REUSE_MS ? await boards.getBoard(kept.id) : null;
+    if (!draft || !draft.draft) {
+      try {
+        draft = await boards.createBoard({ name: `Доска ${all.length + 1}`, storage: MAIN, by: uid,
+          byName: me.name || nameOf(from), draft: true });
+      } catch (e) {
+        if (!e?.status || e.status >= 500) throw e;
+        return { fresh: [{ type: "article", id: "board-refused", title: e.message,
+          input_message_content: { message_text: e.message } }], found: [] };
+      }
+      emptyBoard.set(uid, { id: draft.id, at: now });
+    }
+    return { fresh: [boardItem(draft.id, "🧠 Новая доска", draft.name, boardLink(draft.id), draft.name)],
+      found: [] };
+  }
   const found = all.filter((b) => b.name.toLowerCase().includes(needle)).slice(0, BOARD_LIMIT)
     .map((b) => boardItem(b.id, `🧠 ${b.name}`, b.name, boardLink(b.id), "Доска"));
   if (all.some((b) => b.name.trim().toLowerCase() === needle)) return { fresh: [], found };
@@ -167,7 +190,6 @@ async function boardResults(q, from, me, { boards, boardLink }) {
      сообщения повели бы на одну доску. Поэтому на каждое новое имя — свой
      черновик; то же имя ещё раз — тот же. Брошенные черновики стор
      убирает сам: срок и предел на создателя (lib/boardStore.js). */
-  const uid = String(from.id);
   let draft;
   try {
     draft = await boards.findDraft({ storage: MAIN, by: uid, name })
@@ -187,11 +209,22 @@ async function boardResults(q, from, me, { boards, boardLink }) {
 async function meetingResults(q, from, { calls, appLink }) {
   const parsed = calls.parseMeeting(q.query || "");
   if (!q.query || !q.query.trim()) {
+    /* Пустой запрос — звонок заводится сразу, «Звонок» без времени: кнопка
+       должна работать, а не просить набрать что-то (владелец, 2026-09-25).
+       Несколько минут подряд — один и тот же, см. emptyBoard выше. */
+    const uid = String(from.id);
+    const now = Date.now();
+    const kept = emptyCall.get(uid);
+    let m = kept && now - kept.at < INLINE_REUSE_MS ? await calls.getMeeting(kept.id) : null;
+    if (!m) {
+      m = await calls.createMeeting({ title: DEFAULT_CALL_TITLE, at: "", text: "", by: from.id });
+      emptyCall.set(uid, { id: m.id, at: now });
+    }
     return [{
-      type: "article", id: "hint", title: "📹 Новый звонок",
-      description: "напишите время и тему, например: завтра 15:00 разбор прогноза",
-      input_message_content: { message_text:
-        "Наберите после имени бота время и тему: «завтра 15:00 разбор прогноза»." },
+      type: "article", id: m.id, title: "📹 Новый звонок",
+      description: "Отправить приглашение со ссылкой на звонок",
+      input_message_content: { message_text: meetingCard(m), disable_web_page_preview: true },
+      reply_markup: { inline_keyboard: meetingButtons(appLink(m.id)) },
     }];
   }
 
