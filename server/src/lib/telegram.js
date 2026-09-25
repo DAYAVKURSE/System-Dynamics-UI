@@ -1,4 +1,5 @@
 import { trFor, trKeyboardFor } from "./i18n.js";
+import { botState } from "./botState.js";
 
 /* Отправка обычных текстовых сообщений через Bot API.
    Напоминания приходят как простое сообщение от бота — без разметки и
@@ -162,7 +163,13 @@ export async function answerInline(id, results, extra = {},
   const data = await res.json().catch(() => ({}));
   // Инлайн-ответ живёт секунды: если опоздали, Telegram отвечает ошибкой, и
   // ронять на этом опрос обновлений незачем.
-  if (!res.ok || !data.ok) console.warn(`[bot] инлайн-ответ не принят: ${data.description || res.status}`);
+  if (!res.ok || !data.ok) {
+    console.warn(`[bot] инлайн-ответ не принят: ${data.description || res.status}`);
+    botState.inlineError = `answerInlineQuery: ${data.description || res.status}`;
+  } else {
+    botState.inlineAnswered += 1;
+    botState.inlineError = null;
+  }
   return data.result;
 }
 

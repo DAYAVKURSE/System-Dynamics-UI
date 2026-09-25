@@ -8,6 +8,7 @@ import { answerCallback, answerInline, answerPreCheckout, editMessage, getFile, 
   sendWithKeyboard } from "./lib/telegram.js";
 import * as codes from "./lib/codes.js";
 import { handleUpdate } from "./lib/bot.js";
+import { botState } from "./lib/botState.js";
 import * as org from "./lib/orgStore.js";
 import * as calls from "./lib/callStore.js";
 import * as boards from "./lib/boardStore.js";
@@ -216,6 +217,14 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       try {
         const u = await getMe();
         botName = u?.username || "";
+        // Включён ли инлайн в @BotFather (/setinline): без этого Telegram
+        // инлайн-запросов не шлёт вовсе, и ни доски, ни звонка из чата нет.
+        if (u) {
+          botState.inlineSupported = Boolean(u.supports_inline_queries);
+          if (!u.supports_inline_queries) {
+            console.warn("[bot] инлайн-режим выключен: включите его в @BotFather командой /setinline");
+          }
+        }
         // Маршруты звонков собирают ту же ссылку-приглашение и берут имя
         // отсюда: заводить ради одной строки общий модуль состояния незачем.
         if (botName) process.env.BOT_NAME = botName;
@@ -274,6 +283,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
         const updates = await getUpdates(offset);
         for (const u of updates) {
           offset = u.update_id + 1;
+          if (u.inline_query) { botState.inlineQueries += 1; botState.inlineLastAt = new Date().toISOString(); }
           try {
             await handleUpdate(u, {
               org, calls,
@@ -389,6 +399,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
             });
           } catch (e) {
             console.error(`[bot] обновление не обработано: ${e.message}`);
+            if (u.inline_query) botState.inlineError = `обработка: ${e.message}`;
           }
         }
       } catch (e) {

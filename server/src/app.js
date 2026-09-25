@@ -15,6 +15,7 @@ import marketRouter from "./routes/market.js";
 import issuesRouter from "./routes/issues.js";
 import { callLinkEnv, callLinkFor } from "./lib/links.js";
 import * as codes from "./lib/codes.js";
+import { inlineView } from "./lib/botState.js";
 import { recordOfUid } from "./lib/identityStore.js";
 import { verifyInitData } from "./lib/telegramAuth.js";
 import { createInvoiceLink } from "./lib/telegram.js";
@@ -146,6 +147,9 @@ export function createApp() {
       // Здесь нет ничего тайного: имя бота и имя приложения и так стоят в
       // каждой отправленной ссылке, а id встречи заменён на «ID».
       callLink: callLinkFor(callLinkEnv(process.env, process.env.BOT_NAME || ""), "ID"),
+      // Инлайн-режим бота: включён ли в @BotFather, доходят ли запросы и
+      // принимает ли Telegram ответы (lib/botState.js).
+      inline: inlineView(),
     }),
   );
 
