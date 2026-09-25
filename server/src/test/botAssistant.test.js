@@ -497,6 +497,16 @@ describe("статус и кнопки под ним", () => {
       expect(edits.map((e) => e.text)).toEqual([tickText(1), tickText(2), tickText(3)]);
       edits.forEach((e) => expect(keys(e.keyboard)).toHaveLength(2));
       release("Задач нет.");
+      /* Время фальшивое: всё, что по дороге к ответу ждёт таймера, само
+         не дождётся (CI, 2026-09-23: тест стоял 20 секунд). Двигаем его,
+         пока ответ не ушёл, и отвечаем модели, если она спросит ещё. */
+      let over = false;
+      r.done.then(() => { over = true; });
+      for (let i = 0; i < 400 && !over; i += 1) {
+        if (pending.length) release("Задач нет.");
+        // eslint-disable-next-line no-await-in-loop
+        await vi.advanceTimersByTimeAsync(5);
+      }
       await r.done;
       expect(edits[edits.length - 1]).toMatchObject({ text: "Готово", keyboard: null });
       // Ответ пришёл — часы встали: дальше правок нет.
