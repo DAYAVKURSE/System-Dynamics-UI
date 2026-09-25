@@ -1,14 +1,17 @@
 /* ════════════════════════════════════════════════════════════════
-   ЯЗЫК ПРИЛОЖЕНИЯ (владелец, 2026-09-21)
+   ЯЗЫК ПРИЛОЖЕНИЯ (владелец, 2026-09-21; файлы-языки — 2026-09-25)
 
-   Исходный текст интерфейса — русский, и он же ключ: словари
-   `locales/en.json` и `locales/zh.json` в корне репозитория — это
-   «русская строка → перевод», одни и для приложения, и для бота. Новый
-   язык — ещё один такой файл и строка в LANGS здесь и в
-   `server/src/lib/i18n.js`; строки в код вписывать не нужно: сборка
-   (web/i18n-babel.js) сама оборачивает текст в JSX вызовом `t`, а
-   `scripts/i18n-extract.mjs` в корне собирает ключи из приложения и
-   сервера.
+   Исходный текст интерфейса — русский, и он же ключ. Словари лежат в
+   `locales/` в корне репозитория, одни и для приложения, и для бота:
+   ФАЙЛ — ЭТО ЯЗЫК, а имя файла — его название в меню (владелец,
+   2026-09-25: «чтобы я мог туда новый файл потом добавить, и язык сразу
+   появился в меню… название этого языка должно быть названием файла»).
+   `locales/English.json` → «English», `locales/中文.json` → «中文».
+   Русский — исходный, файла у него нет, он в меню всегда и первым.
+
+   Строки в код вписывать не нужно: сборка (web/i18n-babel.js) сама
+   оборачивает текст в JSX вызовом `t`, а `scripts/i18n-extract.mjs` в
+   корне собирает ключи из приложения и сервера во все файлы языков.
 
    Строки с подстановками хранятся с «{0}», «{1}»: шаблон в JSX
    (`Осталось ${n} дн.`) превращается в `t("Осталось {0} дн.", [n])`, а
@@ -18,21 +21,22 @@
    Язык живёт в localStorage (`sd_lang`) и в анкете на сервере: смена —
    перезагрузка страницы, чтобы всё переключилось разом.
    ════════════════════════════════════════════════════════════════ */
-/* Словари — одни на приложение и сервер: `locales/` в корне репозитория. */
-import en from "../../../locales/en.json";
-import zh from "../../../locales/zh.json";
-
-export const LANGS = [
-  ["ru", "Русский"],
-  ["en", "English"],
-  ["zh", "中文"],
-];
-const DICTS = { en, zh };
+export const RU = "Русский";
+/* Все файлы `locales/*.json` — в сборку сразу: новый файл — новый язык. */
+const FILES = import.meta.glob("../../../locales/*.json", { eager: true, import: "default" });
+const DICTS = Object.fromEntries(Object.entries(FILES)
+  .map(([file, dict]) => [decodeURIComponent(file.split("/").pop().replace(/\.json$/, "")), dict || {}]));
+export const LANGS = [[RU, RU], ...Object.keys(DICTS).sort((a, b) => a.localeCompare(b)).map((n) => [n, n])];
+/* Коды до того, как языком стал файл: записаны в анкетах и localStorage. */
+const OLD = { ru: RU, en: "English", zh: "中文" };
 const KEY = "sd_lang";
 const CYR = /[Ѐ-ӿ]/;
 
 const read = () => { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } };
-export const langOf = (v) => (LANGS.some(([k]) => k === v) ? v : "ru");
+export const langOf = (v) => {
+  const k = OLD[String(v)] || String(v || "");
+  return k === RU || k in DICTS ? k : RU;
+};
 let lang = langOf(read());
 export const currentLang = () => lang;
 /** Сменить язык: запомнить и перезагрузить страницу (вне теста). */
@@ -114,7 +118,7 @@ function glue(s, list) {
  */
 export function t(key, args) {
   const k = String(key ?? "");
-  if (lang === "ru") return args ? fill(k, args) : k;
+  if (lang === RU) return args ? fill(k, args) : k;
   const dict = DICTS[lang] || {};
   const hit = dict[k];
   if (hit) return args ? fill(hit, args) : hit;
@@ -124,7 +128,7 @@ export function t(key, args) {
 
 /** Перевод строки, собранной в коде: точное совпадение или шаблон с «{n}». */
 export function tx(value) {
-  if (lang === "ru" || typeof value !== "string" || !CYR.test(value)) return value;
+  if (lang === RU || typeof value !== "string" || !CYR.test(value)) return value;
   const dict = DICTS[lang] || {};
   const hit = dict[value];
   if (hit) return hit;

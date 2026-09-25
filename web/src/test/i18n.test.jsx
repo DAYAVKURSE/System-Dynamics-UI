@@ -11,7 +11,7 @@ import React from "react";
    русской, если нет. Строки с подстановками — по шаблону «{0}».
    ═══════════════════════════════════════════════════════════════ */
 
-vi.mock("../../../locales/en.json", () => ({ default: {
+vi.mock("../../../locales/English.json", () => ({ default: {
   "Сохранить": "Save",
   "Осталось {0} дн.": "{0} days left",
   "Отправил {0} в чат": "Sent {0} to the chat",
@@ -20,25 +20,25 @@ vi.mock("../../../locales/en.json", () => ({ default: {
   "Готово: ": "Done: ",
   " · ещё": " · more",
 } }));
-vi.mock("../../../locales/zh.json", () => ({ default: { "Сохранить": "保存" } }));
+vi.mock("../../../locales/中文.json", () => ({ default: { "Сохранить": "保存" } }));
 
 let i18n;
-beforeEach(async () => { localStorage.clear(); i18n = await import("../i18n/t.js"); i18n.setLang("ru"); });
-afterEach(() => { i18n.setLang("ru"); });
+beforeEach(async () => { localStorage.clear(); i18n = await import("../i18n/t.js"); i18n.setLang("Русский"); });
+afterEach(() => { i18n.setLang("Русский"); });
 
 describe("t и tx", () => {
   it("на русском — ключ как есть; на английском — перевод, без перевода — русский", () => {
     expect(i18n.t("Сохранить")).toBe("Сохранить");
-    i18n.setLang("en");
-    expect(i18n.currentLang()).toBe("en");
-    expect(localStorage.getItem("sd_lang")).toBe("en");
+    i18n.setLang("English");
+    expect(i18n.currentLang()).toBe("English");
+    expect(localStorage.getItem("sd_lang")).toBe("English");
     expect(i18n.t("Сохранить")).toBe("Save");
     expect(i18n.t("Такого нет")).toBe("Такого нет");
-    i18n.setLang("zh");
+    i18n.setLang("中文");
     expect(i18n.t("Сохранить")).toBe("保存");
   });
   it("подстановки: шаблон в JSX и строка, собранная заранее", () => {
-    i18n.setLang("en");
+    i18n.setLang("English");
     expect(i18n.t("Осталось {0} дн.", [5])).toBe("5 days left");
     expect(i18n.tx("Осталось 12 дн.")).toBe("12 days left");
     expect(i18n.tx("Отправил запись в чат")).toBe("Sent запись to the chat");
@@ -49,12 +49,16 @@ describe("t и tx", () => {
     expect(i18n.tx("Готово: 3 · ещё")).toBe("Done: 3 · more");
     expect(i18n.tx("Взял в работу: Сайт")).toBe("Taken into work: Сайт");
   });
+  it("языки — из файлов locales/: имя файла и есть название в меню, русский первым", () => {
+    expect(i18n.LANGS).toEqual([["Русский", "Русский"], ["English", "English"], ["中文", "中文"]]);
+    expect(i18n.langOf("zh")).toBe("中文");
+  });
   it("незнакомый язык — русский; язык с сервера сильнее запомненного", () => {
     i18n.setLang("xx");
-    expect(i18n.currentLang()).toBe("ru");
-    expect(i18n.syncLang("en")).toBe(true);
-    expect(i18n.currentLang()).toBe("en");
-    expect(i18n.syncLang("en")).toBe(false);
+    expect(i18n.currentLang()).toBe("Русский");
+    expect(i18n.syncLang("en")).toBe(true)   // старый код анкеты → English;
+    expect(i18n.currentLang()).toBe("English");
+    expect(i18n.syncLang("English")).toBe(false);
     expect(i18n.syncLang("")).toBe(false);
   });
 });
@@ -70,7 +74,7 @@ describe("сборка оборачивает JSX", () => {
       </div>);
   }
   it("текст, атрибуты, шаблоны и выражения — по словарю выбранного языка", () => {
-    i18n.setLang("en");
+    i18n.setLang("English");
     render(<Card n={3} label="Сохранить" />);
     const b = screen.getByRole("button", { name: "сохранить анкету" });
     expect(b).toHaveTextContent("Save");

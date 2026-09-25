@@ -3,29 +3,53 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /* ════════════════════════════════════════════════════════════════
-   ЯЗЫК СООБЩЕНИЙ БОТА (владелец, 2026-09-21)
+   ЯЗЫК СООБЩЕНИЙ БОТА (владелец, 2026-09-21; файлы-языки — 2026-09-25)
 
-   Словари — `locales/{en,zh}.json` в корне репозитория, одни на
-   приложение и сервер: «русская строка → перевод». Исходные тексты бота
-   остаются в коде по-русски; переводится ИСХОДЯЩЕЕ — в telegram.js
-   каждое сообщение и подписи кнопок проходят через `trFor(chatId, …)`:
-   построчно, точным совпадением или по шаблону с «{n}» (текст, собранный
-   с именами и числами, подбирается регулярным выражением по ключу).
+   Словари — `locales/*.json` в корне репозитория, одни на приложение и
+   сервер: «русская строка → перевод». ФАЙЛ — ЭТО ЯЗЫК, имя файла — его
+   название (владелец, 2026-09-25): `English.json` → «English». Список
+   языков читается с диска, ничего вписывать не нужно. Русский —
+   исходный, файла у него нет.
+
+   Исходные тексты бота остаются в коде по-русски; переводится
+   ИСХОДЯЩЕЕ — в telegram.js каждое сообщение и подписи кнопок проходят
+   через `trFor(chatId, …)`: построчно, точным совпадением или по шаблону
+   с «{n}» (текст, собранный с именами и числами, подбирается регулярным
+   выражением по ключу).
 
    Язык человека — из анкеты (`lang` в orgStore.setProfile); хранится и
    здесь, в `langs.json` рядом с identity.json (ORG_DIR): чат с ботом
    идёт без хранилища, а анкета живёт в хранилище.
    ════════════════════════════════════════════════════════════════ */
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const LANGS = ["ru", "en", "zh"];
-export const langOf = (v) => (LANGS.includes(String(v)) ? String(v) : "ru");
+export const RU = "Русский";
+const localesDir = () => process.env.LOCALES_DIR || path.resolve(here, "../../../locales");
+/* Коды до того, как языком стал файл: записаны в анкетах и langs.json. */
+const OLD = { ru: RU, en: "English", zh: "中文" };
+/* Список языков — с диска, не чаще раза в несколько секунд: новый файл
+   виден без перезапуска, а каждое сообщение бота диск не дёргает. */
+let listed = { at: 0, names: [] };
+export function languages() {
+  if (Date.now() - listed.at > 5000) {
+    let names = [];
+    try {
+      names = fs.readdirSync(localesDir()).filter((f) => f.endsWith(".json"))
+        .map((f) => f.slice(0, -5)).sort((a, b) => a.localeCompare(b));
+    } catch { names = []; }
+    listed = { at: Date.now(), names };
+  }
+  return [RU, ...listed.names];
+}
+export const langOf = (v) => {
+  const k = OLD[String(v)] || String(v || "");
+  return languages().includes(k) ? k : RU;
+};
 const CYR = /[\u0400-\u04FF]/;
 
-const localesDir = () => process.env.LOCALES_DIR || path.resolve(here, "../../../locales");
 const dicts = new Map();   // lang → {dict, templates}
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function load(lang) {
-  if (lang === "ru") return null;
+  if (lang === RU) return null;
   if (dicts.has(lang)) return dicts.get(lang);
   let dict = {};
   try { dict = JSON.parse(fs.readFileSync(path.join(localesDir(), `${lang}.json`), "utf8")); } catch { dict = {}; }
@@ -53,7 +77,7 @@ function load(lang) {
   return out;
 }
 /** Сбросить словари (тесты; после правки файлов). */
-export const resetDicts = () => dicts.clear();
+export const resetDicts = () => { dicts.clear(); listed = { at: 0, names: [] }; };
 
 const fill = (s, args) => String(s).replace(/\{(\d+)\}/g, (_, i) => (args[Number(i)] == null ? "" : String(args[Number(i)])));
 const trLine = (d, line) => {
@@ -102,7 +126,7 @@ export function tr(lang, text) {
 }
 /** Клавиатура — подписи кнопок; сами данные (callback_data, url) не трогаются. */
 export function trKeyboard(lang, keyboard) {
-  if (!keyboard || typeof keyboard !== "object" || langOf(lang) === "ru") return keyboard;
+  if (!keyboard || typeof keyboard !== "object" || langOf(lang) === RU) return keyboard;
   const rows = (list) => list.map((row) => row.map((b) => (b && typeof b === "object" && typeof b.text === "string"
     ? { ...b, text: tr(lang, b.text) } : b)));
   const out = { ...keyboard };
@@ -126,7 +150,7 @@ export function userLang(userId) { return langOf(readLangs()[String(userId)]); }
 export async function setUserLang(userId, lang) {
   const map = readLangs();
   const next = langOf(lang);
-  if (next === "ru") delete map[String(userId)]; else map[String(userId)] = next;
+  if (next === RU) delete map[String(userId)]; else map[String(userId)] = next;
   await fs.promises.mkdir(baseDir(), { recursive: true });
   await fs.promises.writeFile(file(), JSON.stringify(map, null, 2), "utf8");
   return next;

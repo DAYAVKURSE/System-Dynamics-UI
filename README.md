@@ -43,7 +43,7 @@ web/                    React + Vite фронтенд (сама модель + T
   src/storage.js         Хранилище сценариев: сервер → облако Telegram → браузер
 server/                 Express-бэкенд: отдаёт фронтенд + API /api/scenarios
 codes/                  Сервис кодов и биллинг: ключи, токены, планы, подписки, оплата, админ-бот (docs/DEPLOYMENT.md 6.8)
-locales/          — словари интерфейса и бота: en.json, zh.json (ключ — русская строка); scripts/i18n-extract.mjs собирает ключи
+locales/          — словари интерфейса и бота: файл — язык, имя файла — его название в меню (English.json, 中文.json; ключ — русская строка); scripts/i18n-extract.mjs собирает ключи
   public/admin.html      Панель подписок (мини-приложение админ-бота)
   src/lib/links.js       Ссылка-приглашение на звонок (только отдельное приложение)
 deploy/

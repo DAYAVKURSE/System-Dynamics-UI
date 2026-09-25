@@ -1,7 +1,7 @@
 /* Собирает ключи перевода из web/src и server/src: русский текст в JSX,
    строки-атрибуты и все строковые литералы с кириллицей (их подбирает tx
-   на лету), шаблоны — в виде «…{0}…». Пишет locales/keys.json и добавляет
-   недостающие ключи в locales/en.json и locales/zh.json пустыми (пустое =
+   на лету), шаблоны — в виде «…{0}…». Пишет scripts/i18n-keys.json и добавляет
+   недостающие ключи во все locales/*.json пустыми (пустое =
    «перевода нет, остаётся русский»); ключи, которых в коде больше нет,
    остаются в конце файла.
    Запуск из корня: node scripts/i18n-extract.mjs */
@@ -63,8 +63,10 @@ function walk(dir) {
 TREES.forEach((t) => walk(path.join(ROOT, t)));
 const list = [...keys].sort((a, b) => a.localeCompare(b, "ru"));
 const out = path.join(ROOT, "locales");
-fs.writeFileSync(path.join(out, "keys.json"), `${JSON.stringify(list, null, 1)}\n`);
-for (const lang of ["en", "zh"]) {
+fs.writeFileSync(path.join(ROOT, "scripts", "i18n-keys.json"), `${JSON.stringify(list, null, 1)}\n`);
+// Языки — файлы в locales/: каждый получает недостающие ключи пустыми.
+const langs = fs.readdirSync(out).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).sort();
+for (const lang of langs) {
   const file = path.join(out, `${lang}.json`);
   const dict = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
   let added = 0;

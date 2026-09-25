@@ -82,7 +82,7 @@ describe("экран ключа", () => {
     expect(await screen.findByLabelText("вход по ключу")).toBeInTheDocument();
     expect(screen.getByLabelText("регистрация")).toBeInTheDocument();
     expect(calls.some((c) => c.url.includes("/api/org/me"))).toBe(false);
-  });
+  }, 20000);   // первый рендер приложения в наборе — до 4 с и на свободной машине
 
   it("регистрация: план, способ оплаты для платного, ключ на сохранение, вход", async () => {
     server(OWNER);
@@ -148,7 +148,7 @@ describe("план гасит вкладки", () => {
     expect(screen.queryByRole("button", { name: "мой план" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "настройки" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("combobox", { name: "язык" })).toHaveValue("ru");
+    expect(within(dialog).getByRole("combobox", { name: "язык" })).toHaveValue("Русский");
     expect(await within(dialog).findByRole("button", { name: "мой план" })).toBeInTheDocument();
   });
 
