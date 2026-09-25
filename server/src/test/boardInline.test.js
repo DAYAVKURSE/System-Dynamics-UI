@@ -29,7 +29,10 @@ const deps = {
   appLink: (id) => `https://t.me/bot/call?startapp=call_${id}&mode=compact`,
   boardLink: (id) => `https://t.me/bot/call?startapp=board_${id}`,
   botName: "bot",
+  publicUrl: "https://app.test/",
 };
+const ICON = (name) => ({ thumbnail_url: `https://app.test/inline/${name}.png`,
+  thumbnail_width: 256, thumbnail_height: 256 });
 const owner = { id: 100, first_name: "Владелец" };
 const ivan = { id: 200, first_name: "Иван" };
 const petr = { id: 300, first_name: "Пётр" };
@@ -66,7 +69,7 @@ beforeEach(async () => {
 });
 
 describe("инлайн: доски", () => {
-  it("пустой запрос — ровно две записи, и обе заводят: «Доска N» и «Звонок»", async () => {
+  it("пустой запрос — ровно две записи: «Новая доска» заводит «Доска N», звонок — как был", async () => {
     await boards.createBoard({ name: "Идеи к релизу", by: "100" });
     await boards.createBoard({ name: "черновик", by: "100", draft: true });
     await boards.createBoard({ name: "Названия продукта", by: "200" });
@@ -75,21 +78,18 @@ describe("инлайн: доски", () => {
     expect(res.results).toHaveLength(2);
     const [b, c] = res.results;
     expect(b).toEqual({
-      type: "article", id: b.id, title: "🧠 Новая доска", description: "Доска 3",
+      type: "article", id: b.id, title: "🧠 Новая доска", description: "Доска 3", ...ICON("new-board"),
       input_message_content: { message_text: "Доска 3", disable_web_page_preview: true },
       reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску",
         url: `https://t.me/bot/call?startapp=board_${b.id.slice(6)}` }]] },
     });
     expect(await boards.getBoard(b.id.slice(6))).toMatchObject({ name: "Доска 3", draft: true, by: "100" });
-    expect(c.title).toBe("📹 Новый звонок");
-    expect(c.input_message_content.message_text).toBe("Звонок");
-    expect(c.reply_markup.inline_keyboard[0][0]).toEqual({ text: "📹 Подключиться",
-      url: `https://t.me/bot/call?startapp=call_${c.id}&mode=compact` });
-    expect((await calls.getMeeting(c.id)).title).toBe("Звонок");
-    // Пустой запрос ещё раз (Telegram шлёт его при каждом открытии) — та же пара.
+    expect(c).toMatchObject({ id: "hint", title: "Напишите время и тему" });
+    expect(await calls.listMeetings()).toHaveLength(0);
+    // Пустой запрос ещё раз (Telegram шлёт его при каждом открытии) — та же доска.
     answers.length = 0;
     const again = await ask(owner, "");
-    expect(again.results.map((r) => r.id)).toEqual([b.id, c.id]);
+    expect(again.results.map((r) => r.id)).toEqual([b.id, "hint"]);
     // Доску открыли — следующая «Новая доска» уже другая.
     await boards.enterBoard(b.id.slice(6), { id: "555", name: "Из чата" });
     const next = await ask(owner, "");
@@ -108,10 +108,10 @@ describe("инлайн: доски", () => {
     expect(ids[0]).toMatch(/^board_/);
     expect((await boards.getBoard(ids[0].slice(6)))).toMatchObject({ name: "идеи", draft: true });
     expect(ids.slice(1)).toEqual([res.results[1].id, `board_${b.id}`, `board_${a.id}`]);
-    expect(res.results[1].title).toBe("📹 Новый звонок «идеи»");
+    expect(res.results[1].title).toBe("идеи");
     const item = res.results[2];
     expect(item).toEqual({
-      type: "article", id: `board_${b.id}`, title: "🧠 Идеи названий", description: "Доска",
+      type: "article", id: `board_${b.id}`, title: "🧠 Идеи названий", description: "Доска", ...ICON("board"),
       input_message_content: { message_text: "Идеи названий", disable_web_page_preview: true },
       reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску",
         url: `https://t.me/bot/call?startapp=board_${b.id}` }]] },
@@ -124,7 +124,7 @@ describe("инлайн: доски", () => {
     const res = await ask(owner, "идеи");
     // «идеи» ≠ «Идеи к релизу» — новая доска первой, звонок, потом найденная.
     expect(res.results[0].title).toBe("🧠 Новая доска «идеи»");
-    expect(res.results[1].title).toBe("📹 Новый звонок «идеи»");
+    expect(res.results[1].title).toBe("идеи");
     expect(res.results[2].id).toBe(`board_${a.id}`);
     answers.length = 0;
     const exact = await ask(owner, "  ИДЕИ К РЕЛИЗУ ");
@@ -189,7 +189,7 @@ describe("инлайн: доски", () => {
     await handleUpdate(q(owner, "Ещё одна"), { ...deps, boards: full });
     const refused = last().results.find((r) => r.id === "board-refused");
     expect(refused).toEqual({ type: "article", id: "board-refused", title: "В хранилище уже 200 досок.",
-      input_message_content: { message_text: "В хранилище уже 200 досок." } });
+      ...ICON("no-boards"), input_message_content: { message_text: "В хранилище уже 200 досок." } });
   });
 
   it("другая фраза — другой черновик; открытую доску продолжение набора не переименовывает", async () => {
@@ -240,7 +240,7 @@ describe("инлайн: доски", () => {
 
 describe("инлайн: нет прав на доски", () => {
   const NO = {
-    type: "article", id: "no-boards", title: "Нет прав на создание досок",
+    type: "article", id: "no-boards", title: "Нет прав на создание досок", ...ICON("no-boards"),
     input_message_content: { message_text: "У вас нет прав на создание досок." },
   };
 

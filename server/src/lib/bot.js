@@ -60,7 +60,7 @@ const sameBurst = (prev, typed, now) => Boolean(prev) && now - prev.at < INLINE_
 
 /* Имя осталось прежним: его зовут тесты, а чистить теперь нечего,
    кроме черновика инлайн-встречи. */
-export function resetPending() { inlineDraft.clear(); emptyBoard.clear(); emptyCall.clear(); }
+export function resetPending() { inlineDraft.clear(); emptyBoard.clear(); }
 
 /* ─────── инлайн-режим: позвать на созвон ───────
    Инлайн-запрос набирается в любом чате: «@бот завтра 15:00 разбор
@@ -115,15 +115,29 @@ const meetingButtons = (link) => [[{ text: "📹 Подключиться", url:
 const BOARD_LIMIT = 20;
 const BOARD_NAME_MAX = 120;
 
-const NO_BOARDS = {
-  type: "article", id: "no-boards", title: "Нет прав на создание досок",
-  input_message_content: { message_text: "У вас нет прав на создание досок." },
+/* Значок строки (владелец, 2026-09-25: «добавь подходящие изображения
+   для строк в списке инлайн-режима»): картинки лежат в web/public/inline
+   и раздаются вместе с приложением. Telegram берёт их только по
+   публичному https-адресу — без PUBLIC_URL строки идут без значка. */
+const thumb = (publicUrl, name) => {
+  const url = String(publicUrl || "").replace(/\/+$/, "");
+  return url ? { thumbnail_url: `${url}/inline/${name}.png`, thumbnail_width: 256, thumbnail_height: 256 } : {};
 };
+const noBoards = (publicUrl) => ({
+  type: "article", id: "no-boards", title: "Нет прав на создание досок",
+  ...thumb(publicUrl, "no-boards"),
+  input_message_content: { message_text: "У вас нет прав на создание досок." },
+});
+const refusedItem = (publicUrl, text) => ({
+  type: "article", id: "board-refused", title: text, ...thumb(publicUrl, "no-boards"),
+  input_message_content: { message_text: text },
+});
 
 /** Пункт выдачи «доска»: сообщение — её имя, кнопка — открыть. */
-const boardItem = (id, title, name, link, description) => ({
+const boardItem = (id, title, name, link, description, icon) => ({
   type: "article", id: `board_${id}`, title,
   ...(description ? { description } : {}),
+  ...icon,
   input_message_content: { message_text: name, disable_web_page_preview: true },
   reply_markup: { inline_keyboard: [[{ text: "🧠 Открыть доску", url: link }]] },
 });
@@ -133,25 +147,25 @@ const boardItem = (id, title, name, link, description) => ({
    запустить звонок, а должен и то и то выдавать»; «там должно быть две
    кнопки»; «кнопка „новая доска“ не работает — она требует написать имя
    доски, нахуй мне тогда эта кнопка»). Доска заводится сразу, с именем
-   «Доска N» по счёту досок хранилища; звонок — с названием «Звонок».
+   «Доска N» по счёту досок хранилища.
    Готовые доски при пустом запросе не показываются — они появляются,
    когда человек начинает набирать название.
 
    Пустой запрос Telegram шлёт при каждом открытии инлайна и при стирании
-   набранного — поэтому одна и та же пара «доска + звонок» держится на
-   человека несколько минут (как черновик встречи при наборе), а не
-   заводится заново на каждый запрос. */
+   набранного — поэтому одна и та же доска держится на человека несколько
+   минут (как черновик встречи при наборе), а не заводится заново на
+   каждый запрос. Звонок при пустом запросе — как и был: подсказка. */
 const emptyBoard = new Map();   // id пользователя → { id, at }
-const emptyCall = new Map();    // id пользователя → { id, at }
-const DEFAULT_CALL_TITLE = "Звонок";
 
 /**
  * Доски в выдаче: `fresh` — что завести (новая доска или отказ), `found` —
  * уже созданные, подходящие к набранному. Порядок в выдаче собирает
  * onInline: сперва «новая доска» и «новый звонок», потом найденные доски.
  */
-async function boardResults(q, from, me, { boards, boardLink }) {
-  if (!(me.isOwner || (me.tabs || []).includes("brainstorm"))) return { fresh: [NO_BOARDS], found: [] };
+async function boardResults(q, from, me, { boards, boardLink, publicUrl }) {
+  if (!(me.isOwner || (me.tabs || []).includes("brainstorm"))) return { fresh: [noBoards(publicUrl)], found: [] };
+  const fresh = thumb(publicUrl, "new-board");
+  const ready = thumb(publicUrl, "board");
   const typed = String(q.query || "").trim();
   const name = typed.replace(/\s+/g, " ").slice(0, BOARD_NAME_MAX).trim();
   const needle = name.toLowerCase();
@@ -167,16 +181,15 @@ async function boardResults(q, from, me, { boards, boardLink }) {
           byName: me.name || nameOf(from), draft: true });
       } catch (e) {
         if (!e?.status || e.status >= 500) throw e;
-        return { fresh: [{ type: "article", id: "board-refused", title: e.message,
-          input_message_content: { message_text: e.message } }], found: [] };
+        return { fresh: [refusedItem(publicUrl, e.message)], found: [] };
       }
       emptyBoard.set(uid, { id: draft.id, at: now });
     }
-    return { fresh: [boardItem(draft.id, "🧠 Новая доска", draft.name, boardLink(draft.id), draft.name)],
+    return { fresh: [boardItem(draft.id, "🧠 Новая доска", draft.name, boardLink(draft.id), draft.name, fresh)],
       found: [] };
   }
   const found = all.filter((b) => b.name.toLowerCase().includes(needle)).slice(0, BOARD_LIMIT)
-    .map((b) => boardItem(b.id, `🧠 ${b.name}`, b.name, boardLink(b.id), "Доска"));
+    .map((b) => boardItem(b.id, `🧠 ${b.name}`, b.name, boardLink(b.id), "Доска", ready));
   if (all.some((b) => b.name.trim().toLowerCase() === needle)) return { fresh: [], found };
 
   /* Такой доски нет — новая, и заводится СРАЗУ: ссылка в кнопке обязана
@@ -198,33 +211,21 @@ async function boardResults(q, from, me, { boards, boardLink }) {
   } catch (e) {
     // Предел досок хранилища — отказ словами, пунктом выдачи.
     if (!e?.status || e.status >= 500) throw e;
-    return { fresh: [{ type: "article", id: "board-refused", title: e.message,
-      input_message_content: { message_text: e.message } }], found };
+    return { fresh: [refusedItem(publicUrl, e.message)], found };
   }
-  return { fresh: [boardItem(draft.id, `🧠 Новая доска «${draft.name}»`, draft.name, boardLink(draft.id))],
-    found };
+  return { fresh: [boardItem(draft.id, `🧠 Новая доска «${draft.name}»`, draft.name, boardLink(draft.id),
+    undefined, fresh)], found };
 }
 
 /* ─────── инлайн-режим: встреча ─────── */
 async function meetingResults(q, from, { calls, appLink }) {
   const parsed = calls.parseMeeting(q.query || "");
   if (!q.query || !q.query.trim()) {
-    /* Пустой запрос — звонок заводится сразу, «Звонок» без времени: кнопка
-       должна работать, а не просить набрать что-то (владелец, 2026-09-25).
-       Несколько минут подряд — один и тот же, см. emptyBoard выше. */
-    const uid = String(from.id);
-    const now = Date.now();
-    const kept = emptyCall.get(uid);
-    let m = kept && now - kept.at < INLINE_REUSE_MS ? await calls.getMeeting(kept.id) : null;
-    if (!m) {
-      m = await calls.createMeeting({ title: DEFAULT_CALL_TITLE, at: "", text: "", by: from.id });
-      emptyCall.set(uid, { id: m.id, at: now });
-    }
     return [{
-      type: "article", id: m.id, title: "📹 Новый звонок",
-      description: "Отправить приглашение со ссылкой на звонок",
-      input_message_content: { message_text: meetingCard(m), disable_web_page_preview: true },
-      reply_markup: { inline_keyboard: meetingButtons(appLink(m.id)) },
+      type: "article", id: "hint", title: "Напишите время и тему",
+      description: "например: завтра 15:00 разбор прогноза",
+      input_message_content: { message_text:
+        "Наберите после имени бота время и тему: «завтра 15:00 разбор прогноза»." },
     }];
   }
 
@@ -243,10 +244,7 @@ async function meetingResults(q, from, { calls, appLink }) {
   return [{
     type: "article",
     id: m.id,
-    // «Новый звонок» — словами в заголовке: рядом стоит «Новая доска», и
-    // голое «а» не говорило, что это звонок (владелец, 2026-09-25).
-    title: parsed.atText ? `📹 Новый звонок: ${parsed.atText} — ${parsed.title}`
-      : `📹 Новый звонок «${parsed.title}»`,
+    title: parsed.atText ? `${parsed.atText} — ${parsed.title}` : parsed.title,
     description: parsed.ok
       ? "Отправить приглашение со ссылкой на звонок"
       : "Время не разобрал — отправлю без него",
