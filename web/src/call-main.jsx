@@ -4,6 +4,10 @@ import CallApp from "./components/CallApp.jsx";
 import { loadTelegramSdk } from "./telegramSdk.js";
 import { boardFromLocation } from "./boards.js";
 import "./index.css";
+import { installTokenRefresh } from "./codes.js";
+
+// Токен кода обновляется сам: открытое дольше часа не упирается в отказ.
+installTokenRefresh();
 
 /* ════════════════════════════════════════════════════════════════
    ОТДЕЛЬНЫЙ ВХОД ДЛЯ ЗВОНКА (web/call.html → /call)

@@ -3,6 +3,10 @@ import ReactDOM from "react-dom/client";
 import BoardApp from "./components/BoardApp.jsx";
 import { loadTelegramSdk } from "./telegramSdk.js";
 import "./index.css";
+import { installTokenRefresh } from "./codes.js";
+
+// Токен кода обновляется сам: открытое дольше часа не упирается в отказ.
+installTokenRefresh();
 
 /* ════════════════════════════════════════════════════════════════
    ОТДЕЛЬНЫЙ ВХОД ДЛЯ ДОСКИ (web/board.html → /board, владелец, 2026-09-25)

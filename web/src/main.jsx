@@ -4,6 +4,10 @@ import App from "./App.jsx";
 import "./index.css";
 import { applyCapShift } from "./lib/capShift.js";
 import { watchApp } from "./lib/appLog.js";
+import { installTokenRefresh } from "./codes.js";
+
+// Токен кода обновляется сам: открытое дольше часа не упирается в отказ.
+installTokenRefresh();
 
 /* Надпись должна стоять посередине кнопки, а не «как будто выше»
    (владелец, 2026-09-21): поправка меряется шрифтом этого устройства —

@@ -94,6 +94,11 @@ export async function ensureToken() {
   let fresh = false;
   try { fresh = sessionStorage.getItem("sd_tok_fresh") === "1"; } catch { fresh = true; }
   if (t && fresh && t.exp - Date.now() > EARLY_MS) return t.token;
+  return renewToken();
+}
+
+/** Новый токен по ключу — сейчас, даже если прежний ещё не истёк. */
+async function renewToken() {
   const key = savedKey();
   if (!key) return adoptLegacy();
   try { sessionStorage.setItem("sd_tok_fresh", "1"); } catch { /* приватный режим */ }
@@ -104,6 +109,49 @@ export async function ensureToken() {
     if (e.status === 401) forgetKey();
     return "";
   }
+}
+
+/* ─── ТОКЕН ОБНОВЛЯЕТСЯ САМ (владелец, 2026-09-26: «code token is required») ───
+
+   Токен живёт час, а брался только при открытии приложения: открытое
+   дольше часа приложение — и доска, открытая из чата, — получало этот
+   отказ на каждый запрос. Теперь каждый запрос к серверу сперва
+   обновляет почти истёкший токен по ключу, а отказ «нужен токен»
+   обновляет его и повторяет запрос один раз. Одно место на все модули
+   запросов: разложить по ним — и забытый модуль снова упирался бы в
+   истёкший токен. Нет ключа (сервис кодов выключен, страница звонка у
+   незарегистрированного) — запросы идут как шли. */
+let renewing = null;
+const renewOnce = () => (renewing ||= renewToken().finally(() => { renewing = null; }));
+const nearEnd = () => { const t = loadTok(); return !t || t.exp - Date.now() <= EARLY_MS; };
+const withToken = (init, token) => {
+  const headers = new Headers((init && init.headers) || {});
+  headers.set("X-User-Token", token);
+  return { ...(init || {}), headers };
+};
+const apiPath = (input) => {
+  const url = typeof input === "string" ? input : (input && input.url) || String(input || "");
+  try { return new URL(url, "http://x").pathname; } catch { return url; }
+};
+const needsToken = (path) => path.startsWith("/api/") && !path.startsWith("/api/codes")
+  && path !== "/api/health";
+
+export function installTokenRefresh(w = typeof window === "undefined" ? null : window) {
+  if (!w || typeof w.fetch !== "function" || w.fetch.tokenRefresh) return;
+  const base = w.fetch.bind(w);
+  const wrapped = async (input, init) => {
+    if (!needsToken(apiPath(input)) || !savedKey()) return base(input, init);
+    if (nearEnd()) await renewOnce();
+    const now = codeToken();
+    const first = await base(input, now ? withToken(init, now) : init);
+    if (first.status !== 401) return first;
+    const body = await first.clone().json().catch(() => null);
+    if (!body || !body.needsCode) return first;
+    const next = await renewOnce();
+    return next ? base(input, withToken(init, next)) : first;
+  };
+  wrapped.tokenRefresh = true;
+  w.fetch = wrapped;
 }
 
 /* Ключ, сохранённый до раскладки по аккаунтам: сервер отдаёт его только
