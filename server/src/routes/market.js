@@ -5,8 +5,8 @@ import { aliasOf } from "../lib/alias.js";
 import { peopleOf as workPeopleOf, readModel, viewFor as workViewFor }
   from "../lib/workspaceStore.js";
 import {
-  BadInput, PROC_ROLES, acceptBrief, acceptRequestBrief, addChat, addDelivery, addOffer, addOrder,
-  addRequest, addRequestChat, addRequestDelivery, addService, dealOf, otherSide, peopleOf,
+  BadInput, acceptBrief, acceptRequestBrief, addChat, addDelivery, addOffer, addOrder,
+  addRequest, addRequestChat, addRequestDelivery, addService, dealOf, otherSide, peopleOf, procRolesIn,
   readMarket, removeOrder, removeService, serviceViewFor, setBrief, setRequestBrief, updateOrder,
   updateService, viewFor,
 } from "../lib/marketStore.js";
@@ -191,7 +191,9 @@ const tellWorker = async (svcBy, order, task) => {
    неё ему тут нечего открыть. Спрашиваются у заказа и у заявки на
    услугу одинаково. */
 const rolesError = async (body = {}) => {
-  if (!PROC_ROLES.includes(String(body.procRole || ""))) return "Выберите роль в техпроцессе";
+  if (!procRolesIn(body.procRoles != null ? body.procRoles : body.procRole).length) {
+    return "Выберите роль в техпроцессе";
+  }
   const roleId = String(body.roleId || "").trim();
   const roles = (await listOrg()).roles || [];
   if (!roleId || !roles.some((r) => r.id === roleId)) return "Выберите роль в сценарии";
@@ -247,7 +249,7 @@ router.post("/orders", async (req, res, next) => {
 router.put("/orders/:id", async (req, res, next) => {
   try {
     const body = req.body || {};
-    if ("procRole" in body || "roleId" in body) {
+    if ("procRoles" in body || "procRole" in body || "roleId" in body) {
       const bad = await rolesError(body);
       if (bad) return res.status(400).json({ error: bad });
     }
@@ -291,7 +293,9 @@ const tellAccepted = (deal, by) => tell(otherSide(deal, by), async () => {
   if (mine(to, deal.executor)) {
     return [order ? `Вас приняли на выполнение заказа «${deal.name}».`
       : `Вас приняли на выполнение услуги «${deal.name}».`,
-    `Ваша роль в задаче: ${PROC_NAME[deal.procRole]}.`];
+    deal.procRoles.length > 1
+      ? `Ваши роли в задаче: ${deal.procRoles.map((r) => PROC_NAME[r]).join(", ")}.`
+      : `Ваша роль в задаче: ${PROC_NAME[deal.procRoles[0]]}.`];
   }
   const who = await nameFor(to, by);
   return [order ? `${who} принял(а) ваше предложение по заказу «${deal.name}».`

@@ -40,15 +40,19 @@ beforeEach(() => { server(VIEW); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; });
 
 describe("заказ с двумя ролями нанятого (владелец, 2026-09-26)", () => {
-  it("роль в техпроцессе и роль в сценарии из своих ролей уезжают с заказом", async () => {
+  it("роли в техпроцессе (несколько) и роль в сценарии из своих ролей уезжают с заказом", async () => {
     render(<MarketPanel me={ME} roles={ROLES} />);
     await screen.findByRole("tab", { name: /Услуги · 1/ });
     fireEvent.click(screen.getByRole("button", { name: "+ заказ" }));
     expect(screen.queryByLabelText("роль соискателя")).toBeNull();
-    const proc = screen.getByLabelText("роль в техпроцессе");
-    expect(proc).toHaveValue("assignee");
-    expect([...proc.options].map((o) => o.textContent)).toEqual(["постановщик", "исполнитель", "проверяющий"]);
-    fireEvent.change(proc, { target: { value: "reviewer" } });
+    /* Ролей в техпроцессе несколько (владелец, 2026-09-26): исполнитель
+       бывает и постановщиком, и проверяющим. По умолчанию — исполнитель. */
+    const proc = screen.getByRole("group", { name: "роль в техпроцессе" });
+    const boxes = within(proc).getAllByRole("checkbox");
+    expect(boxes.map((b) => b.getAttribute("aria-label"))).toEqual(["постановщик", "исполнитель", "проверяющий"]);
+    expect(boxes.map((b) => b.checked)).toEqual([false, true, false]);
+    fireEvent.click(within(proc).getByLabelText("проверяющий"));
+    fireEvent.click(within(proc).getByLabelText("постановщик"));
     const sel = screen.getByLabelText("роль в сценарии");
     expect(sel).toHaveValue("r1");
     fireEvent.change(sel, { target: { value: "r2" } });
@@ -56,7 +60,7 @@ describe("заказ с двумя ролями нанятого (владеле
     fireEvent.click(screen.getByRole("button", { name: "Оставить заказ" }));
     await screen.findByLabelText("заказ Логотип");
     const post = log.find((r) => r.method === "POST" && r.url.endsWith("/orders"));
-    expect(post.body).toMatchObject({ name: "Логотип", procRole: "reviewer", roleId: "r2" });
+    expect(post.body).toMatchObject({ name: "Логотип", procRoles: ["setter", "assignee", "reviewer"], roleId: "r2" });
   });
 });
 

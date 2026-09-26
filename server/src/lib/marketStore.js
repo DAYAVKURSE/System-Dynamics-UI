@@ -72,13 +72,23 @@ export const ORDER_STATUS = ["open", "deal", "done"];
    быть постановщик, исполнитель или проверяющий, и роль в сценарии, где
    выбираются те роли, которые установлены у заказчика в ролях».
 
-   Роль в техпроцессе (`procRole`) решает, кем нанятый встанет в задаче
-   сделки; две другие роли задачи — у заказчика. Роль в сценарии
-   (`roleId`) — прежняя «роль соискателя»: её нанятый получает в
-   хранилище заказчика. Записи до этого дня знали только вторую —
-   нанятый там исполнитель. */
+   Роли в техпроцессе (`procRoles`) решают, кем нанятый встанет в задаче
+   сделки; их может быть несколько (владелец, 2026-09-26: «исполнитель
+   может быть и постановщиком, и исполнителем, и проверяющим»), остальные
+   роли задачи — у заказчика. Роль в сценарии (`roleId`) — прежняя «роль
+   соискателя»: её нанятый получает в хранилище заказчика. Записи до
+   этого знали одну роль (`procRole`) или ни одной — тогда нанятый
+   исполнитель. */
 export const PROC_ROLES = ["setter", "assignee", "reviewer"];
-const procRoleOf = (v) => (PROC_ROLES.includes(String(v)) ? String(v) : "assignee");
+/** Роли в техпроцессе из входа: список (или прежняя одна), по порядку, без повторов. */
+export const procRolesIn = (v) => {
+  const list = (Array.isArray(v) ? v : v == null || v === "" ? [] : [v]).map(String);
+  return PROC_ROLES.filter((r) => list.includes(r));
+};
+const procRolesOf = (x = {}) => {
+  const got = procRolesIn(x.procRoles != null ? x.procRoles : x.procRole);
+  return got.length ? got : ["assignee"];
+};
 
 const MAX_NAME = 120;
 const MAX_TEXT = 4000;
@@ -238,7 +248,7 @@ export function addOrder(userId, fields = {}) {
       name, text: str(fields.text, MAX_TEXT),
       resources: rows(fields.resources),
       funcId: sid(fields.funcId), serviceId: sid(fields.serviceId),
-      procRole: procRoleOf(fields.procRole), roleId: sid(fields.roleId), storage: current(),
+      procRoles: procRolesOf(fields), roleId: sid(fields.roleId), storage: current(),
       status: "open", offers: [],
     };
     m.orders.push(order);
@@ -261,7 +271,10 @@ export function updateOrder(userId, id, fields = {}) {
     if ("text" in fields) order.text = str(fields.text, MAX_TEXT);
     if ("resources" in fields) order.resources = rows(fields.resources);
     if ("serviceId" in fields) order.serviceId = sid(fields.serviceId);
-    if ("procRole" in fields) order.procRole = procRoleOf(fields.procRole);
+    if ("procRoles" in fields || "procRole" in fields) {
+      order.procRoles = procRolesOf(fields);
+      delete order.procRole;
+    }
     if ("roleId" in fields) order.roleId = sid(fields.roleId);
     await writeMarket(m);
     return orderViewFor(order, userId);
@@ -379,7 +392,7 @@ function offerDeal(m, orderId, offerId) {
   return {
     kind: "order", order, thread: offer, customer: String(order.by), executor: String(offer.by),
     name: order.name, text: order.text, storage: order.storage || MAIN,
-    procRole: procRoleOf(order.procRole), roleId: order.roleId || null,
+    procRoles: procRolesOf(order), roleId: order.roleId || null,
     funcId: svc?.funcId || order.funcId || null, days: svc?.days ?? null,
     ref: { orderId: order.id, offerId: offer.id },
     taken: () => order.status !== "open",
@@ -395,7 +408,7 @@ function requestDeal(m, serviceId, requestId) {
   return {
     kind: "service", service: s, thread: r, customer: String(r.by), executor: String(s.by),
     name: s.name, text: r.text, storage: r.storage || MAIN,
-    procRole: procRoleOf(r.procRole), roleId: r.roleId || null,
+    procRoles: procRolesOf(r), roleId: r.roleId || null,
     funcId: s.funcId || null, days: s.days ?? null,
     ref: { serviceId: s.id, requestId: r.id },
     // Услуга не заказ: по ней договариваются с каждым заказавшим.
@@ -456,11 +469,11 @@ export function addRequest(userId, serviceId, fields = {}) {
     let r = (s.requests || []).find((x) => mine(x.by, userId) && !x.accepted);
     if (r) {
       r.text = text;
-      if ("procRole" in fields) r.procRole = procRoleOf(fields.procRole);
+      if ("procRoles" in fields || "procRole" in fields) { r.procRoles = procRolesOf(fields); delete r.procRole; }
       if ("roleId" in fields) r.roleId = sid(fields.roleId);
       r.storage = current();
     } else {
-      r = newThread(userId, { id: uid("req"), text, procRole: procRoleOf(fields.procRole),
+      r = newThread(userId, { id: uid("req"), text, procRoles: procRolesOf(fields),
         roleId: sid(fields.roleId), storage: current() });
       s.requests = [...(s.requests || []), r];
     }
@@ -629,7 +642,7 @@ function taskFor(deal) {
   if (b.gives?.length) lines.push(`Заказчик отдаёт: ${b.gives.map(rowText).join(", ")}.`);
   if (b.gets) lines.push(`Исполнитель выдаёт: ${rowText(b.gets)}.`);
   if (b.note) lines.push(b.note);
-  const who = (r) => (deal.procRole === r ? deal.executor : deal.customer);
+  const who = (r) => (deal.procRoles.includes(r) ? deal.executor : deal.customer);
   return {
     id: uid("tk"), funcId: deal.funcId,
     title: deal.name, body: lines.join("\n"),
@@ -644,7 +657,7 @@ function taskFor(deal) {
 /** Задача сделки по отклику на заказ — как её заведёт `accept`. */
 export function taskOf(order, offer, svc) {
   return taskFor({ thread: offer, customer: String(order.by), executor: String(offer.by),
-    name: order.name, text: order.text, procRole: procRoleOf(order.procRole),
+    name: order.name, text: order.text, procRoles: procRolesOf(order),
     funcId: svc?.funcId || order.funcId || null, days: svc?.days ?? null,
     ref: { orderId: order.id, offerId: offer.id } });
 }

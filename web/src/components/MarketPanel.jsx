@@ -88,17 +88,28 @@ const cleanRows = (rows) => rows.map((r) => ({ name: String(r.name || "").trim()
    «Вместо роли соискателя сделай два поля: роль в техпроцессе, где может
    быть постановщик, исполнитель или проверяющий, и роль в сценарии, где
    выбираются те роли, которые установлены у заказчика в ролях». Одни и
-   те же — у заказа и у заявки на услугу. */
+   те же — у заказа и у заявки на услугу. Ролей в техпроцессе можно
+   выбрать несколько (владелец, 2026-09-26): нанятый бывает и
+   постановщиком, и исполнителем, и проверяющим. */
 export const PROC_ROLES = [["setter", "постановщик"], ["assignee", "исполнитель"], ["reviewer", "проверяющий"]];
+/** Роли записи: список, прежняя одна роль или по умолчанию — исполнитель. */
+export const procRolesOf = (x) => (Array.isArray(x?.procRoles) ? x.procRoles
+  : x?.procRole ? [x.procRole] : ["assignee"]);
 
-function RoleFields({ procRole, roleId, roles = [], onChange }) {
+function RoleFields({ procRoles = [], roleId, roles = [], onChange }) {
+  const flip = (k) => onChange({ procRoles: PROC_ROLES.map(([r]) => r)
+    .filter((r) => (r === k ? !procRoles.includes(k) : procRoles.includes(r))) });
   return (<>
     <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>роль в техпроцессе</div>
-    <select aria-label="роль в техпроцессе" value={procRole || "assignee"}
-      onChange={(e) => onChange({ procRole: e.target.value })}
-      style={{ ...S.inp, marginTop: "var(--space-4)" }}>
-      {PROC_ROLES.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
-    </select>
+    <div className="flex flex-wrap gap-2" role="group" aria-label="роль в техпроцессе"
+      style={{ marginTop: "var(--space-4)" }}>
+      {PROC_ROLES.map(([k, t]) => (
+        <label key={k} className="flex items-center gap-2"
+          style={{ fontSize: "var(--fs-hint)", cursor: "pointer" }}>
+          <input type="checkbox" aria-label={t} checked={procRoles.includes(k)} onChange={() => flip(k)} />
+          {t}
+        </label>))}
+    </div>
     {!!roles.length && (<>
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>роль в сценарии</div>
       <select aria-label="роль в сценарии" value={roleId || ""}
@@ -116,7 +127,7 @@ function OrderForm({ initial, services, orders = [], roles = [], busy, onSave, o
   saveLabel = "Оставить заказ" }) {
   const [f, setF] = useState({ name: "", text: "",
     serviceId: null, funcId: null, ...initial,
-    procRole: initial?.procRole || "assignee", roleId: initial?.roleId || (roles[0]?.id ?? ""),
+    procRoles: procRolesOf(initial), roleId: initial?.roleId || (roles[0]?.id ?? ""),
     resources: initial?.resources?.length ? initial.resources : [emptyRow()] });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
   /* Подходящие услуги — сразу, по мере набора: заказчик видит, кто уже
@@ -138,7 +149,7 @@ function OrderForm({ initial, services, orders = [], roles = [], busy, onSave, o
       <div style={{ ...S.lbl, marginTop: "var(--space-4)" }}>предоставляемые ресурсы</div>
       <Rows rows={f.resources} onChange={(rows) => up({ resources: rows })} label="ресурс заказа" />
 
-      <RoleFields procRole={f.procRole} roleId={f.roleId} roles={roles} onChange={up} />
+      <RoleFields procRoles={f.procRoles} roleId={f.roleId} roles={roles} onChange={up} />
 
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>подходящие услуги</div>
       {!services.length && <div style={hint}>Услуг пока никто не выложил.</div>}
@@ -167,7 +178,7 @@ function OrderForm({ initial, services, orders = [], roles = [], busy, onSave, o
         <button type="button" style={btn(true, OK)} disabled={busy || !f.name.trim()}
           onClick={() => onSave({ name: f.name.trim(), text: f.text,
             resources: cleanRows(f.resources), serviceId: f.serviceId, funcId: f.funcId,
-            procRole: f.procRole, ...(f.roleId ? { roleId: f.roleId } : {}) })}>
+            procRoles: f.procRoles, ...(f.roleId ? { roleId: f.roleId } : {}) })}>
           {saveLabel}</button>
         <button type="button" style={btn(false)} onClick={onCancel}>Отмена</button>
       </div>
@@ -197,12 +208,13 @@ function ServiceForm({ initial, services = [], busy, onSave, onCancel,
       <Rows rows={f.takes} onChange={(rows) => up({ takes: rows })} label="берёт" />
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>какие выдаёт</div>
       <Rows rows={f.gives} onChange={(rows) => up({ gives: rows })} label="выдаёт" />
-      <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-8)", flexWrap: "wrap" }}>
-        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>за какое время выполняется</span>
-        <input aria-label="срок услуги" inputMode="decimal" style={{ ...S.inp, maxWidth: 90 }}
+      {/* Срок и его единица — в одной строке (владелец, 2026-09-26). */}
+      <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>за какое время выполняется</div>
+      <div className="flex gap-2" style={{ alignItems: "center", marginTop: "var(--space-4)", flexWrap: "nowrap" }}>
+        <input aria-label="срок услуги" inputMode="decimal" style={{ ...S.inp, flex: "1 1 0", minWidth: 0 }}
           value={f.dur ?? ""} onChange={(e) => up({ dur: e.target.value })} />
         <select aria-label="единица срока" value={f.durUnit}
-          onChange={(e) => up({ durUnit: e.target.value })} style={{ ...S.inp, maxWidth: 120 }}>
+          onChange={(e) => up({ durUnit: e.target.value })} style={{ ...S.inp, flex: "1 1 0", minWidth: 0 }}>
           {DUR_UNITS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
         </select>
       </div>
@@ -639,7 +651,7 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
   picked = false, onOpenStorage, roles = [] }) {
   const [edit, setEdit] = useState(false);
   const [ordering, setOrdering] = useState(false);
-  const [ask, setAsk] = useState({ text: "", procRole: "assignee", roleId: roles[0]?.id ?? "" });
+  const [ask, setAsk] = useState({ text: "", procRoles: ["assignee"], roleId: roles[0]?.id ?? "" });
   const [openReq, setOpenReq] = useState(null);
   const mineSvc = String(s.by) === String(me);
   const requests = s.requests || [];
@@ -700,11 +712,11 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
             <textarea aria-label="текст заявки" style={{ ...S.inp, minHeight: 56, marginBottom: "var(--space-4)" }}
               placeholder="что нужно сделать" value={ask.text}
               onChange={(e) => setAsk({ ...ask, text: e.target.value })} />
-            <RoleFields procRole={ask.procRole} roleId={ask.roleId} roles={roles}
+            <RoleFields procRoles={ask.procRoles} roleId={ask.roleId} roles={roles}
               onChange={(patch) => setAsk({ ...ask, ...patch })} />
             <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
               <button type="button" style={btn(true, OK)} disabled={busy || !ask.text.trim()}
-                onClick={() => act(() => addRequest(s.id, { text: ask.text.trim(), procRole: ask.procRole,
+                onClick={() => act(() => addRequest(s.id, { text: ask.text.trim(), procRoles: ask.procRoles,
                   ...(ask.roleId ? { roleId: ask.roleId } : {}) }))
                   .then((r) => { if (r) { setOrdering(false); setAsk({ ...ask, text: "" }); } })}>
                 Отправить заявку</button>

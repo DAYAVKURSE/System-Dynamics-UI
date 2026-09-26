@@ -56,7 +56,7 @@ beforeEach(async () => {
 });
 
 const order = (who = 200, fields = {}) => request(app).post("/api/market/orders").set(as(who))
-  .send({ name: "Сайт-визитка", text: "три страницы", procRole: "assignee", roleId: role.id,
+  .send({ name: "Сайт-визитка", text: "три страницы", procRoles: ["assignee"], roleId: role.id,
     resources: [{ name: "логотип", qty: 1 }, { name: "тексты", qty: 3 }], ...fields });
 
 describe("заказы и услуги", () => {
@@ -64,7 +64,7 @@ describe("заказы и услуги", () => {
     expect((await request(app).get("/api/market").set(as(999))).status).toBe(403);
     const r = await order();
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ name: "Сайт-визитка", status: "open", by: "200", procRole: "assignee",
+    expect(r.body).toMatchObject({ name: "Сайт-визитка", status: "open", by: "200", procRoles: ["assignee"],
       resources: [{ name: "логотип", qty: 1 }, { name: "тексты", qty: 3 }] });
     const seen = await request(app).get("/api/market").set(as(300));
     expect(seen.body.orders.map((o) => o.name)).toEqual(["Сайт-визитка"]);
@@ -348,8 +348,8 @@ describe("две роли, услуги и уведомления", () => {
   const to = (id) => sent.filter((x) => x.chat === String(id)).map((x) => x.text);
 
   it("роль в техпроцессе «проверяющий»: нанятый проверяет, ставит и делает заказчик", async () => {
-    const o = (await order(200, { procRole: "reviewer" })).body;
-    expect(o.procRole).toBe("reviewer");
+    const o = (await order(200, { procRoles: ["reviewer"] })).body;
+    expect(o.procRoles).toEqual(["reviewer"]);
     const off = (await request(app).post(`/api/market/orders/${o.id}/offers`).set(as(300)).send({ text: "проверю" })).body;
     const base = `/api/market/orders/${o.id}/offers/${off.id}`;
     await request(app).put(`${base}/brief`).set(as(300)).send({ gets: { name: "отчёт" }, days: 1 });
@@ -358,7 +358,7 @@ describe("две роли, услуги и уведомления", () => {
   });
 
   it("без роли в техпроцессе заказа нет", async () => {
-    const r = await order(200, { procRole: "" });
+    const r = await order(200, { procRoles: [] });
     expect(r.status).toBe(400);
     expect(r.body.error).toBe("Выберите роль в техпроцессе");
   });
@@ -372,6 +372,24 @@ describe("две роли, услуги и уведомления", () => {
     const got = (await readMarket()).orders.find((x) => x.id === o.id);
     expect(got).not.toHaveProperty("price");
     expect(got.resources.at(-1)).toEqual({ name: "Деньги", qty: 30000 });
+  });
+
+  /* «Исполнитель может быть и постановщиком, и исполнителем, и
+     проверяющим» (владелец, 2026-09-26): ролей в техпроцессе несколько. */
+  it("несколько ролей в техпроцессе: все они — у нанятого", async () => {
+    const o = (await order(200, { procRoles: ["reviewer", "setter", "assignee", "чужая"] })).body;
+    expect(o.procRoles).toEqual(["setter", "assignee", "reviewer"]);
+    const off = (await request(app).post(`/api/market/orders/${o.id}/offers`).set(as(300)).send({ text: "всё сам" })).body;
+    const base = `/api/market/orders/${o.id}/offers/${off.id}`;
+    await request(app).put(`${base}/brief`).set(as(300)).send({ gets: { name: "сайт" }, days: 1 });
+    const acc = await request(app).post(`${base}/accept`).set(as(200));
+    expect(acc.body.task).toMatchObject({ setter: "300", assignee: "300", reviewer: "300" });
+    await vi.waitFor(() => expect(to(300).some((t) => t.includes("Ваши роли в задаче: постановщик, исполнитель, проверяющий."))).toBe(true));
+  });
+
+  it("прежняя одна роль (`procRole`) читается как список из неё", async () => {
+    const o = (await order(200, { procRoles: undefined, procRole: "reviewer" })).body;
+    expect(o.procRoles).toEqual(["reviewer"]);
   });
 
   it("предложение — автору заказа, сообщение — другой стороне, принятие — соискателю", async () => {
@@ -403,13 +421,13 @@ describe("две роли, услуги и уведомления", () => {
       .send({ name: "Вёрстка", private: false, days: 5 })).body;
     const url = `/api/market/services/${svc.id}/requests`;
     // Своя услуга не заказывается; без ролей — отказ.
-    expect((await request(app).post(url).set(as(300)).send({ text: "сам", procRole: "assignee", roleId: role.id })).status).toBe(400);
+    expect((await request(app).post(url).set(as(300)).send({ text: "сам", procRoles: ["assignee"], roleId: role.id })).status).toBe(400);
     expect((await request(app).post(url).set(as(200)).send({ text: "нужно" })).status).toBe(400);
     const r = await request(app).post(url).set(as(200))
-      .send({ text: "сверстать лендинг", procRole: "assignee", roleId: role.id });
+      .send({ text: "сверстать лендинг", procRoles: ["assignee"], roleId: role.id });
     expect(r.status).toBe(201);
     const req = r.body.requests[0];
-    expect(req).toMatchObject({ by: "200", text: "сверстать лендинг", procRole: "assignee", roleId: role.id });
+    expect(req).toMatchObject({ by: "200", text: "сверстать лендинг", procRoles: ["assignee"], roleId: role.id });
     await vi.waitFor(() => expect(to(300)).toHaveLength(1));
     expect(to(300)[0]).toContain("Новая заявка на услугу «Вёрстка»");
 
@@ -448,7 +466,7 @@ describe("две роли, услуги и уведомления", () => {
     const svc = (await request(app).post("/api/market/services").set(as(300))
       .send({ name: "Вёрстка", private: false, gives: [{ name: "макет", qty: 1 }], days: 3, auto: true })).body;
     const r = await request(app).post(`/api/market/services/${svc.id}/requests`).set(as(200))
-      .send({ text: "сверстать", procRole: "assignee", roleId: role.id });
+      .send({ text: "сверстать", procRoles: ["assignee"], roleId: role.id });
     expect(r.body.auto).toBe(true);
     expect(r.body.requests[0].accepted).toBe(true);
     await vi.waitFor(() => expect(to(300).some((t) => t.includes("Вас приняли"))).toBe(true));

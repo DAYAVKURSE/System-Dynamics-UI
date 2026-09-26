@@ -157,14 +157,14 @@ describe("рынок между хранилищами", () => {
 
     // Без двух ролей нанятого заказ не оставить.
     const bad = await request(app).post("/api/market/orders").set(as(200, "Иван"))
-      .send({ name: "Сайт", text: "три страницы", procRole: "assignee" });
+      .send({ name: "Сайт", text: "три страницы", procRoles: ["assignee"] });
     expect(bad.status).toBe(400);
     expect(bad.body.error).toBe("Выберите роль в сценарии");
     const noProc = await request(app).post("/api/market/orders").set(as(200, "Иван"))
       .send({ name: "Сайт", text: "три страницы", roleId: role.id });
     expect(noProc.body.error).toBe("Выберите роль в техпроцессе");
     const ord = await request(app).post("/api/market/orders").set(as(200, "Иван"))
-      .send({ name: "Сайт", text: "три страницы", procRole: "assignee", roleId: role.id });
+      .send({ name: "Сайт", text: "три страницы", procRoles: ["assignee"], roleId: role.id });
     expect(ord.status).toBe(201);
     expect(ord.body.roleId).toBe(role.id);
     expect(ord.body.storage).toBe("200");

@@ -162,7 +162,7 @@ describe("вкладка", () => {
     fireEvent.click(screen.getByRole("button", { name: "Оставить заказ" }));
     await screen.findByLabelText("заказ Сверстать три страницы");
     const post = log.find((r) => r.method === "POST" && r.url.endsWith("/orders"));
-    expect(post.body).toEqual({ name: "Сверстать три страницы", text: "макет готов", procRole: "assignee",
+    expect(post.body).toEqual({ name: "Сверстать три страницы", text: "макет готов", procRoles: ["assignee"],
       resources: [{ name: "макет", qty: 1 }], serviceId: "s1", funcId: null });
     expect(screen.getByText(/выбранная услуга:/).parentElement.textContent).toContain("Вёрстка страниц");
   });
@@ -174,6 +174,10 @@ describe("вкладка", () => {
     const name = await screen.findByLabelText("название услуги");
     expect(name).toHaveValue("Вёрстка");
     expect(screen.getByLabelText("срок услуги")).toHaveValue("2");
+    // Срок и его единица — в одной строке, без переноса (владелец, 2026-09-26).
+    const row = screen.getByLabelText("срок услуги").parentElement;
+    expect(screen.getByLabelText("единица срока").parentElement).toBe(row);
+    expect(row.style.flexWrap).toBe("nowrap");
     expect(screen.getByLabelText("берёт: что")).toHaveValue("макет");
     expect(onDone).toHaveBeenCalled();
     fireEvent.change(name, { target: { value: "Вёрстка по макету" } });
@@ -268,12 +272,14 @@ describe("заявка на услугу", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Заказать" }));
     fireEvent.change(screen.getByLabelText("текст заявки"), { target: { value: "сверстать лендинг" } });
-    fireEvent.change(screen.getByLabelText("роль в техпроцессе"), { target: { value: "setter" } });
+    // Ролей в техпроцессе можно несколько (владелец, 2026-09-26).
+    const proc = screen.getByRole("group", { name: "роль в техпроцессе" });
+    fireEvent.click(within(proc).getByLabelText("постановщик"));
     expect(screen.getByLabelText("роль в сценарии")).toHaveValue("r1");
     fireEvent.click(screen.getByRole("button", { name: "Отправить заявку" }));
     const open = await screen.findByRole("button", { name: "открыть заявку Мастер" });
     expect(srv.log.find((r) => r.url.endsWith("/services/s1/requests")).body)
-      .toEqual({ text: "сверстать лендинг", procRole: "setter", roleId: "r1" });
+      .toEqual({ text: "сверстать лендинг", procRoles: ["setter", "assignee"], roleId: "r1" });
     // Открытая заявка уже есть — второй «Заказать» не нужен.
     expect(screen.queryByRole("button", { name: "Заказать" })).toBeNull();
     fireEvent.click(open);
@@ -288,7 +294,7 @@ describe("заявка на услугу", () => {
     const srv = marketServer({ me: "300" });
     seed(srv);
     srv.state.services[0].requests = [{ id: "r1", by: "200", at: "2026-09-13T11:00:00Z", text: "лендинг",
-      procRole: "assignee", roleId: "r1", chat: [], brief: null, accepted: false, deliveries: [] }];
+      procRoles: ["assignee"], roleId: "r1", chat: [], brief: null, accepted: false, deliveries: [] }];
     render(<MarketPanel me={{ ...ME, id: "300" }} />);
     fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
     // Своя услуга не заказывается.
