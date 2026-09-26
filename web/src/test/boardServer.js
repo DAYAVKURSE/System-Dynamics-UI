@@ -84,6 +84,20 @@ export function boardServer(initial, { list = [], me = "100" } = {}) {
       bump((x) => { x.stickers.push({ id: `s${nextSid++}`, by: me, text: "", createdAt: "", updatedAt: "" }); }, id);
       return res(view(id), 201);
     }
+    // Статус стикера — ставит создатель доски (владелец, 2026-09-26).
+    const st = rest.match(/^\/stickers\/([^/]+)\/status$/);
+    if (st && method === "POST") {
+      if (String(b.by) !== String(me)) return res({ error: "Статус стикера меняет только создатель доски." }, 403);
+      const s = b.stickers.find((x) => x.id === st[1]);
+      if (!s) return res({ error: "Стикера нет." }, 404);
+      bump(() => { s.status = body?.status ?? null; }, id);
+      return res(view(id));
+    }
+    if (rest === "/applied" && method === "PUT") {
+      bump((x) => { x.applied = body?.applied === true; }, id);
+      boardList = boardList.map((x) => (x.id === id ? { ...x, applied: body?.applied === true } : x));
+      return res({ rev: b.rev });
+    }
     const sm = rest.match(/^\/stickers\/([^/]+)$/);
     if (sm) {
       const s = b.stickers.find((x) => x.id === sm[1]);

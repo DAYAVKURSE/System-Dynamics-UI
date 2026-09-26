@@ -12,16 +12,19 @@ let container;
 beforeEach(() => { localStorage.clear(); ({ container } = render(<SystemModel />)); });
 
 const scheme = () => openTab("Схема");
+/* Техпроцессы живут в блоках вкладки «Концепты» (владелец, 2026-09-26):
+   блока нет — заводим, и «+ технологический процесс» в первом блоке. */
 const openProc = () => {
-  scheme();
-  fireEvent.click(screen.getByRole("button", { name: "Управление" }));
-  const toggle = screen.getByRole("button", { name: "технологические процессы" });
-  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+  openTab("Концепты");
+  if (!screen.queryAllByRole("button", { name: "+ технологический процесс" }).length) {
+    fireEvent.click(screen.getByRole("button", { name: "+ блок" }));
+  }
 };
 const addProc = () => {
   openProc();
-  fireEvent.click(screen.getByRole("button", { name: "+ процесс" }));
-  return screen.getByLabelText("текст процесса");
+  fireEvent.click(screen.getAllByRole("button", { name: "+ технологический процесс" })[0]);
+  const all = screen.getAllByLabelText("текст процесса");
+  return all[all.length - 1];
 };
 /* Правка включается двойным нажатием на текст (владелец, 2026-09-18). */
 const edit = (el) => { fireEvent.doubleClick(el); fireEvent.focus(el); };
@@ -524,6 +527,7 @@ describe("роли, статусы, функции", () => {
     expect(f.gives[0]).toMatchObject({ lo: 1, hi: 1 });
     expect(m.traits.find((t) => t.e === "mkt" && t.l === "заявки")).toMatchObject({ hypo: true });
     // Принятие само сохранило версию.
+    openTab("Концепты");
     expect(screen.getByRole("button", { name: "прошлые версии" })).toHaveTextContent("(1)");
   });
 
@@ -722,10 +726,14 @@ describe("галочка гипотез", () => {
   it("стоит под ползунком прогноза всегда — и до гипотетического процесса, и после", async () => {
     const area = addProc();
     write(area, TEXT);
-    // Гипотетических процессов ещё нет, а галочка уже на месте.
+    // Гипотетических процессов ещё нет, а галочка уже на месте. Прогноз —
+    // на «Схеме», процессы — на «Концептах» (владелец, 2026-09-26).
+    scheme();
     const first = screen.getByLabelText("прогноз на схеме");
     expect(within(first).getByLabelText("включить гипотезы")).toBeChecked();
+    openTab("Концепты");
     fireEvent.click(screen.getByRole("button", { name: "Принято гипотетически" }));
+    scheme();
     const sim = screen.getByLabelText("прогноз на схеме");
     const box = await waitFor(() => within(sim).getByLabelText("включить гипотезы"));
     expect(box).toBeChecked();

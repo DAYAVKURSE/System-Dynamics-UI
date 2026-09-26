@@ -48,7 +48,10 @@ export function Section({ title, hint, addLabel, onAdd, empty, children, count }
         {count != null && <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{count}</span>}
         <span style={{ flex: 1 }} />
         {onAdd && (
-          <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)" }} onClick={onAdd}>
+          <button style={{ ...btn(false), paddingTop: "calc(var(--btn-py) + var(--text-nudge))", paddingBottom: "calc(var(--btn-py) - var(--text-nudge))", paddingLeft: "var(--space-8)", paddingRight: "var(--space-8)",
+            /* Длинная подпись («+ технологический процесс» в узком блоке
+               «Концептов») переносится, а не вылезает за край. */
+            maxWidth: "100%", whiteSpace: "normal", height: "auto" }} onClick={onAdd}>
             {addLabel}</button>)}
       </div>
       {hint && (

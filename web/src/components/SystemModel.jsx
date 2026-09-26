@@ -71,7 +71,8 @@ import { WandModal, captureScreen } from "./WandModal.jsx";
 import { askFromApp } from "../assistant.js";
 import { record as recordAction } from "../lib/appLog.js";
 import ReportsPanel from "./ReportsPanel.jsx";
-import BrainstormPanel from "./BrainstormPanel.jsx";
+import ConceptsPanel from "./ConceptsPanel.jsx";
+import { normalizeConcepts, withProcBlocks } from "../lib/concepts.js";
 import { normalizeReports, reportFromLocation } from "../lib/reports.js";
 import { countKind, dropKind } from "../lib/traits.js";
 import { normalizeMaterials, withStock } from "../lib/units.js";
@@ -611,7 +612,7 @@ export const MARKET_TAB=["market","Маркет"];
 /* «Брейншторм» — доски со стикерами (владелец, 2026-09-25): сразу за
    отчётами, перед инструментами — тот же порядок, что в ALL_TABS. */
 export const TAB_LIST=[MARKET_TAB,SELF_TAB,["tasks","Задачи"],["review","Проверка"],
-  ["scheme","Схема"],["reports","Отчёты"],["brainstorm","Брейншторм"],["tools","Инструменты"]];
+  ["scheme","Схема"],["reports","Отчёты"],["brainstorm","Концепты"],["tools","Инструменты"]];
 
 /* ════════════════ ГЛАВНОЕ ════════════════ */
 /* Документ из внешней записи — сценария с диска или JSON из выгрузки —
@@ -635,6 +636,8 @@ export function docFrom(data,cur){
     reports:normalizeReports(arr(d.reports,cur.reports)),
     materials:normalizeMaterials(arr(d.materials,cur.materials)),
     procs:normalizeProcs(arr(d.procs,cur.procs)),
+    /* Блоки «Концептов» (владелец, 2026-09-26): живут вместе с процессами. */
+    concepts:normalizeConcepts(arr(d.concepts,cur.concepts||[])),
   };
 }
 
@@ -747,6 +750,9 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
      Часть документа: из них собираются функции, и без них самих функции
      нельзя было бы ни пересобрать, ни снять. */
   const [procs,setProcs]=useState([]);
+  /* Блоки вкладки «Концепты» (lib/concepts.js): дерево, у блока — доска и
+     свои процессы (`blockId` у процесса). Часть документа, как процессы. */
+  const [concepts,setConcepts]=useState([]);
   /* Считать ли гипотетически принятые процессы. Состояние интерфейса, не
      документа: галочка — вопрос «а что если», и в сохранённую модель ответ
      на него не уезжает. Включена с самого начала (владелец, 2026-09-20:
@@ -802,8 +808,6 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
   const [simMonth,setSimMonth]=useState(0);
   // Что открыто под схемой: правка модели или её будущее.
   const [under,setUnder]=useState("edit");
-  // Спойлер процессов на «Управлении»: закрыт при открытии, помнится в сеансе.
-  const [procsOpen,setProcsOpen]=useState(false);
   const [me,setMe]=useState(SOLO);
   const [booted,setBooted]=useState(false);
   const [splashHeld,setSplashHeld]=useState(true);
@@ -912,8 +916,8 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
 
   // ─── история правок: отмена и возврат ───
   const doc=useMemo(()=>({entities,traits,kinds,tasks,funcs,goals,factors,reports,materials,
-    procs}),
-    [entities,traits,kinds,tasks,funcs,goals,factors,reports,materials,procs]);
+    procs,concepts}),
+    [entities,traits,kinds,tasks,funcs,goals,factors,reports,materials,procs,concepts]);
   /* Ресурсы с посчитанным «есть»: расчёт, доска задач и карточка ресурса
      смотрят на остаток по материалам, а не на записанное число. Правят
      при этом `traits` — по id, так что подмена здесь их не задевает. */
@@ -935,7 +939,11 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
     setFactors(normalizeFactors(d.factors));
     setReports(normalizeReports(d.reports));
     setMaterials(normalizeMaterials(d.materials));
-    setProcs(normalizeProcs(d.procs));
+    /* У каждого процесса — блок «Концептов»: процесс без блока получает
+       свой, с тем же названием (владелец, 2026-09-26: «блок на каждый»). */
+    const withBlocks=withProcBlocks({procs:normalizeProcs(d.procs),concepts:d.concepts});
+    setProcs(withBlocks.procs);
+    setConcepts(withBlocks.concepts);
     setSel(s=>d.entities.some(e=>e.id===s)?s:(d.entities[0]?.id??null));
   },[]);
   const hist=useHistory(doc,restoreDoc);
@@ -1128,6 +1136,7 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
     reports:w?.reports||[],
     materials:w?.materials||[],
     procs:w?.procs||[],
+    concepts:w?.concepts||[],
   }),[]);
   /* Чужие схемы — плакардами в окне схемы (владелец, 2026-09-21;
      ForeignSchemes.jsx): срез участника, приведённый к виду документа. */
@@ -2111,7 +2120,27 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
           слева — меню всех досок хранилища (владелец, 2026-09-25). Кому
           вкладка открыта, тот и заводит доски — это проверяет сервер. */}
       {tab==="brainstorm" && (me.isOwner||me.solo||me.tabs.includes("brainstorm")) && (
-        <BrainstormPanel/>)}
+        <ConceptsPanel concepts={concepts} setConcepts={setConcepts} procs={procs}
+          /* Флаг «у доски есть техпроцесс» доскам сообщает только тот, у
+             кого вся модель: у позванного — срез без блоков, и он снял бы
+             флаг со всех досок. */
+          syncApplied={Boolean(me.isOwner||me.solo)}
+          renderProcs={(blockId)=>(
+            <ProcessPanel procs={procs} setProcs={setProcs} people={people} rolesOf={rolesOf}
+              blockId={blockId}
+              author={me.name||me.profile?.name||""}
+              selected={null}
+              /* Нажали на актив, ресурс или должность в шаге — открываем их
+                 на «Схеме → Управление», где их карточки. */
+              onOpenAsset={id=>{ setSel(id); setUnder("edit"); setTab("scheme"); }}
+              onOpenTrait={id=>{ openTraitCard(id); setUnder("edit"); setTab("scheme"); }}
+              onOpenWorkers={id=>{ openWorkersCard(id); setUnder("edit"); setTab("scheme"); }}
+              entities={entities} setEntities={setEntities}
+              traits={traits} setTraits={setTraits} kinds={kinds}
+              funcs={funcs} setFuncs={setFuncs}
+              makeEntity={freshEntity}
+              positions={roles}
+              onDropFuncs={ids=>setTasks(p=>p.filter(t=>!ids.includes(t.funcId)))}/>)}/>)}
 
       {/* ═══ ЗАДАЧИ ═══ */}
       {tab==="tasks" && me.tabs.includes("tasks") && (
@@ -2270,25 +2299,9 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
             :under==="time"?"Что делает в текущий момент"
               :"Что будет делать система"}</div>
 
-        {/* Процессы — первыми на «Управлении», под спойлером: раздел
-            открывают нажатием, а до того он не заслоняет карточку актива.
-            Выбранный на схеме актив подсвечивает процессы, где он занят. */}
-        {under==="edit" && (
-          <ProcessPanel procs={procs} setProcs={setProcs} people={people} rolesOf={rolesOf}
-            author={me.name||me.profile?.name||""}
-            selected={sel} shown={procsOpen} onToggle={setProcsOpen}
-            onOpenAsset={id=>setSel(id)} onOpenTrait={openTraitCard}
-            onOpenWorkers={openWorkersCard}
-            entities={entities} setEntities={setEntities}
-            traits={traits} setTraits={setTraits} kinds={kinds}
-            funcs={funcs} setFuncs={setFuncs}
-            makeEntity={freshEntity}
-            /* Должности — те же, что у функций в карточке актива; новая
-               заводится на сервере и возвращается, чтобы встать в выбор. */
-            positions={roles}
-            /* Задачи по снятым функциям процесса — как при удалении актива:
-               выполнять больше нечего. */
-            onDropFuncs={ids=>setTasks(p=>p.filter(t=>!ids.includes(t.funcId)))}/>)}
+        {/* Технологические процессы переехали во вкладку «Концепты»
+            (владелец, 2026-09-26: «убери этот функционал с вкладки
+            „Схема“ и перенеси на эту вкладку») — в блоки. */}
 
         {/* Таймлайну — все функции, не только считаемые: задача по
             гипотетической функции есть и при выключенной галочке, и

@@ -94,6 +94,16 @@ export const setStickerText = (id, sid, text, { keepalive = false } = {}) => {
 export const deleteSticker = (id, sid) => onBoard(`${boardUrl(id)}/stickers/${enc(sid)}`,
   { method: "DELETE" });
 
+/* Статус стикера (владелец, 2026-09-26): «не подходит», «на доработку»,
+   «подходит», «применена»; null — снять. Ставит создатель доски —
+   проверяет сервер. Ответ — `{ board }`. */
+export const setStickerStatus = (id, sid, status) => onBoard(`${boardUrl(id)}/stickers/${enc(sid)}/status`,
+  { method: "POST", body: JSON.stringify({ status }) });
+
+/** Есть ли у доски техпроцесс в блоке «Концептов» — из основного приложения. */
+export const setBoardApplied = (id, applied) => call(`${boardUrl(id)}/applied`,
+  { method: "PUT", body: JSON.stringify({ applied: Boolean(applied) }) }, appHeaders());
+
 /* Участниками управляет только создатель доски — проверяет сервер. */
 export const blockMember = (id, uid) => onBoard(`${boardUrl(id)}/members/${enc(uid)}/block`,
   { method: "POST" });

@@ -79,11 +79,10 @@ describe("кнопки под полем", () => {
   beforeEach(() => {
     localStorage.clear();
     ({ container } = render(<SystemModel />));
-    openTab("Схема");
-    fireEvent.click(screen.getByRole("button", { name: "Управление" }));
-    const toggle = screen.getByRole("button", { name: "технологические процессы" });
-    if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
-    fireEvent.click(screen.getByRole("button", { name: "+ процесс" }));
+    // Техпроцессы — в блоках «Концептов» (владелец, 2026-09-26).
+    openTab("Концепты");
+    fireEvent.click(screen.getByRole("button", { name: "+ блок" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ технологический процесс" }));
     const area = screen.getByLabelText("текст процесса");
     fireEvent.focus(area);
     fireEvent.change(area, { target: { value: "Задача: собрать\nСрок: 2 дн\nКто: Пользователи\nБерёт: заявки 5\nОтдаёт: активные пользователи 3" } });

@@ -49,6 +49,14 @@ export const MAX_DRAFTS_PER_CREATOR = 1000;
 /* Страховка на весь файл: при ней новая доска не заводится — чужие не трогаются. */
 export const MAX_BOARDS_TOTAL = 20000;
 export const MAX_STICKERS = 500;
+/* Статусы стикера (владелец, 2026-09-26): «не подходит», «на доработку»,
+   «подходит», «применена». Ставит их создатель доски. «Применена» ещё и
+   сама: стикер «подходит» на доске, у которой в блоке «Концептов» есть
+   техпроцесс (`applied` у доски), показывается «применена» — и обратно,
+   когда процесса не стало. */
+export const STICKER_STATUSES = ["no", "rework", "fit", "applied"];
+/** Статус, который видят: «подходит» на доске с техпроцессом — «применена». */
+export const shownStatus = (b, s) => (s.status === "fit" && b.applied ? "applied" : s.status || null);
 export const NAME_MAX = 120;
 export const TEXT_MAX = 2000;
 const WRITE_DELAY_MS = 250;
@@ -97,6 +105,9 @@ function normalize(b) {
     color: str(b.color) || BOARD_COLORS[0],
     draft: b.draft === true,
     ...(b.draft === true && b.sent === true ? { sent: true } : {}),
+    // У доски есть техпроцесс в блоке «Концептов» (setApplied): её стикеры
+    // «подходит» показываются «применена».
+    applied: b.applied === true,
     createdAt: str(b.createdAt) || nowIso(),
     rev: Number.isFinite(Number(b.rev)) ? Number(b.rev) : 1,
     members: (Array.isArray(b.members) ? b.members : []).filter((m) => m && m.id != null)
@@ -105,6 +116,7 @@ function normalize(b) {
     removed: (Array.isArray(b.removed) ? b.removed : []).map(str).filter(Boolean),
     stickers: (Array.isArray(b.stickers) ? b.stickers : []).filter((s) => s && s.id != null)
       .map((s) => ({ id: str(s.id), by: str(s.by), text: str(s.text).slice(0, TEXT_MAX),
+        status: STICKER_STATUSES.includes(s.status) ? s.status : null,
         createdAt: str(s.createdAt) || nowIso(), updatedAt: str(s.updatedAt || s.createdAt) || nowIso() })),
   };
 }
@@ -270,6 +282,7 @@ function newMember(b, id, name, joinedAt) {
 
 /** Сводка для списков — без стикеров и участников. */
 export const summary = (b) => ({ id: b.id, name: b.name, color: b.color, by: b.by, byName: b.byName,
+  applied: Boolean(b.applied),
   stickers: b.stickers.length, createdAt: b.createdAt });
 
 const byAge = (x, y) => x.createdAt.localeCompare(y.createdAt);
@@ -529,6 +542,35 @@ export async function deleteSticker(id, sid, uid) {
   const s = ownSticker(b, sid, uid);
   b.stickers.splice(b.stickers.indexOf(s), 1);
   touch(b);
+  return b.rev;
+}
+
+/* ─────── статус стикера: ставит создатель доски ─────── */
+
+export async function setStickerStatus(id, sid, actor, status) {
+  await load();
+  const b = must(id);
+  gate(b, actor);
+  if (b.by !== String(actor)) throw new BoardError(403, "Статус стикера меняет только создатель доски.");
+  const s = b.stickers.find((x) => x.id === String(sid));
+  if (!s) throw new BoardError(404, "Стикера нет.");
+  const next = status == null || status === "" ? null : String(status);
+  if (next !== null && !STICKER_STATUSES.includes(next)) throw new BoardError(400, "Нет такого статуса.");
+  if (s.status !== next) {
+    s.status = next;
+    touch(b);
+  }
+  return b.rev;
+}
+
+/** Есть ли у доски техпроцесс в блоке «Концептов» — ставит основное приложение. */
+export async function setApplied(id, applied) {
+  await load();
+  const b = must(id);
+  if (b.applied !== Boolean(applied)) {
+    b.applied = Boolean(applied);
+    touch(b);
+  }
   return b.rev;
 }
 

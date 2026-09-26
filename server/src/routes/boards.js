@@ -185,13 +185,14 @@ function viewOf(b, org, me) {
   return {
     id: b.id, name: b.name, color: b.color, by: b.by,
     byName: (creator && creator.name) || b.byName || "",
-    createdAt: b.createdAt, rev: b.rev,
+    createdAt: b.createdAt, rev: b.rev, applied: Boolean(b.applied),
     me: String(me), isCreator: b.by === String(me),
     members,
     stickers: b.stickers
       .map((s, i) => ({ s, i }))
       .sort((x, y) => x.s.createdAt.localeCompare(y.s.createdAt) || x.i - y.i)
-      .map(({ s }) => ({ id: s.id, by: s.by, text: s.text, createdAt: s.createdAt, updatedAt: s.updatedAt })),
+      .map(({ s }) => ({ id: s.id, by: s.by, text: s.text, status: boards.shownStatus(b, s),
+        createdAt: s.createdAt, updatedAt: s.updatedAt })),
   };
 }
 
@@ -333,6 +334,31 @@ router.delete("/:id/stickers/:sid", boardUser, async (req, res, next) => {
   try {
     await enter(req);
     const rev = await boards.deleteSticker(req.params.id, req.params.sid, req.boardUserId);
+    return res.json({ rev });
+  } catch (e) { return fail(res, e, next); }
+});
+
+/* ─────── статус стикера: только создатель доски ─────── */
+
+router.post("/:id/stickers/:sid/status", boardUser, async (req, res, next) => {
+  try {
+    await enter(req);
+    await boards.setStickerStatus(req.params.id, req.params.sid, req.boardUserId, req.body?.status ?? null);
+    return res.json({ board: await viewFor(req.params.id, req.boardUserId) });
+  } catch (e) { return fail(res, e, next); }
+});
+
+/* ─────── «есть техпроцесс»: основное приложение, вкладка «Концепты» ───────
+   Блоки и процессы живут в модели хранилища, которую пишет приложение, —
+   оно и сообщает доске, есть ли у её блока техпроцесс. Право — как на
+   вкладку, и только для доски этого же хранилища. */
+router.put("/:id/applied", telegramUser, boardUser, async (req, res, next) => {
+  try {
+    const { ok } = await brainstormRights(req);
+    if (!ok) return res.status(403).json({ error: "Нет доступа к брейншторму." });
+    const b = await boards.getBoard(req.params.id);
+    if (!b || b.draft || b.storage !== (req.storage || MAIN)) return res.status(404).json({ error: "Доски нет." });
+    const rev = await boards.setApplied(req.params.id, req.body?.applied === true);
     return res.json({ rev });
   } catch (e) { return fail(res, e, next); }
 });

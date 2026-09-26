@@ -1182,7 +1182,14 @@ function Versions({ proc, model, onSave }) {
 export default function ProcessPanel({ procs = [], setProcs, entities = [], setEntities,
   traits = [], setTraits, funcs = [], setFuncs, onDropFuncs, kinds = [],
   positions = [], people = [], rolesOf, selected = null, onOpenAsset, onOpenTrait, onOpenWorkers,
-  shown: shownProp, onToggle, author = "" }) {
+  shown: shownProp, onToggle, author = "", blockId }) {
+  /* В блоке «Концептов» (владелец, 2026-09-26: «перенеси полностью его
+     сюда») — те же процессы и то же поле, но видны только процессы этого
+     блока, а новый заводится в нём. Правки при этом идут по ВСЕМ процессам
+     (`commit`): функции пересобираются по всем, и процессы других блоков
+     не теряют своих. */
+  const inBlock = blockId !== undefined;
+  const visible = inBlock ? procs.filter((p) => (p.blockId || null) === (blockId || null)) : procs;
   const [openChip, setOpenChip] = useState(null);
   const [naming, setNaming] = useState(null);
   const [modal, setModal] = useState(null);   // {proc, mode:"export"|"import", text}
@@ -1215,7 +1222,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
     tap.current = { id, timer: setTimeout(() => { tap.current = null; flip(id); }, TAP_GAP_MS) };
   };
   const [shownOwn, setShownOwn] = useState(false);
-  const shown = shownProp ?? shownOwn;
+  const shown = inBlock ? true : (shownProp ?? shownOwn);
   const toggle = () => (onToggle ? onToggle(!shown) : setShownOwn((v) => !v));
   const model = { entities, traits, positions, people, rolesOf };
   const usedHands = () => allHands(procs, model);
@@ -1243,7 +1250,7 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
     commit({ procs: procs.map((p) => (isV1(p.text) ? { ...p, text: fromV1(p.text, resolveProc(p, model).steps) } : p)) });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const add = () => commit({ procs: [...procs, newProc()] });
+  const add = () => commit({ procs: [...procs, inBlock ? { ...newProc(), blockId } : newProc()] });
   const rename = (p, name) => commit({ procs: patch(p.id, (x) => ({ ...x, name: name.trim() })) });
   const setText = (p, text) => commit({ procs: patch(p.id, (x) => ({ ...x, text: indentText(tidyProcText(text)) })) });
   /* Части процесса — функции: своё поле у каждой (владелец, 2026-09-19).
@@ -1328,18 +1335,18 @@ export default function ProcessPanel({ procs = [], setProcs, entities = [], setE
   const traitOptions = (assetId) => traits.filter((t) => !assetId || t.e === assetId).map((t) => ({ id: t.id, name: t.l }));
 
   return (
-    <div style={{ ...S.card, marginTop: "var(--space-8)" }}>
-      <button type="button" aria-expanded={shown} aria-label="технологические процессы" onClick={toggle} className="flex items-center gap-2"
+    <div style={inBlock ? { minWidth: 0 } : { ...S.card, marginTop: "var(--space-8)" }}>
+      {!inBlock && <button type="button" aria-expanded={shown} aria-label="технологические процессы" onClick={toggle} className="flex items-center gap-2"
         style={{ width: "100%", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: C.text, textAlign: "left" }}>
         <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{shown ? "▾" : "▸"}</span>
         <span style={S.lbl}>технологические процессы</span>
         <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>{procs.length}</span>
         {!!selected && !!involved.length && <span style={{ fontSize: "var(--fs-hint)", color: ACC }}>· с активом «{selName}»: {involved.length}</span>}
-      </button>
+      </button>}
       {shown && (
-      <Section title="" addLabel="+ процесс" onAdd={add}
-        empty={procs.length ? null : "Процессов пока нет."}>
-        {procs.map((p) => {
+      <Section title="" addLabel={inBlock ? "+ технологический процесс" : "+ процесс"} onAdd={add}
+        empty={inBlock || procs.length ? null : "Процессов пока нет."}>
+        {visible.map((p) => {
           const { funcs: pf } = parseText(p.text, model, p);
           const issues = issuesOf(p, model);
           const can = issues.length === 0;

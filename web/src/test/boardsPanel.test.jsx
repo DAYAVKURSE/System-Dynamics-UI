@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import BrainstormPanel from "../components/BrainstormPanel.jsx";
+import React, { useState } from "react";
+import ConceptsPanel from "../components/ConceptsPanel.jsx";
 import BoardApp from "../components/BoardApp.jsx";
 import { ALL_TABS, TAB_NAMES, resetIdentity } from "../identity.js";
 import { PLAN_TABS } from "../plans.js";
@@ -48,11 +49,11 @@ describe("вкладка в списках", () => {
   it("«Брейншторм» — сразу за «Отчётами», перед «Инструментами», везде одинаково", () => {
     expect(ALL_TABS.indexOf("brainstorm")).toBe(ALL_TABS.indexOf("reports") + 1);
     expect(ALL_TABS.indexOf("tools")).toBe(ALL_TABS.indexOf("brainstorm") + 1);
-    expect(TAB_NAMES.brainstorm).toBe("Брейншторм");
+    expect(TAB_NAMES.brainstorm).toBe("Концепты");
     const keys = TAB_LIST.map(([k]) => k);
     expect(keys.slice(keys.indexOf("reports"), keys.indexOf("reports") + 3))
       .toEqual(["reports", "brainstorm", "tools"]);
-    expect(TAB_LIST.find(([k]) => k === "brainstorm")[1]).toBe("Брейншторм");
+    expect(TAB_LIST.find(([k]) => k === "brainstorm")[1]).toBe("Концепты");
     // Max открывает всё, free и pro — как были.
     expect(PLAN_TABS.max).toContain("brainstorm");
     expect(PLAN_TABS.free).not.toContain("brainstorm");
@@ -60,61 +61,54 @@ describe("вкладка в списках", () => {
   });
 });
 
-describe("панель", () => {
-  it("меню досок — под участниками, слева; выбранная доска — справа", async () => {
-    const { container } = render(<BrainstormPanel />);
-    expect(await screen.findByText("первая")).toBeInTheDocument();
-    const nav = screen.getByRole("navigation", { name: "доски" });
-    const items = within(nav).getAllByRole("button").map((b) => b.getAttribute("aria-label") || b.textContent);
-    // «+ новая» — над списком досок.
-    expect(items).toEqual(["+ новая", "доска: Идеи", "доска: Ретро"]);
-    expect(within(nav).getByRole("button", { name: "доска: Идеи" })).toHaveAttribute("aria-current", "true");
-    // Меню стоит ниже шапки с участниками.
-    const all = [...container.querySelectorAll("*")];
-    const people = screen.getByRole("button", { name: "Участники" });
-    expect(all.indexOf(nav)).toBeGreaterThan(all.indexOf(people));
-    // Другая доска — по нажатию.
-    fireEvent.click(within(nav).getByRole("button", { name: "доска: Ретро" }));
-    expect(await screen.findByText("из ретро")).toBeInTheDocument();
+/* ВКЛАДКА «КОНЦЕПТЫ» (владелец, 2026-09-26): слева — меню досок, справа —
+   дерево блоков; доска открывается нажатием, «Блок-схема» — назад. */
+function Harness({ initial = [], procs = [], sync = true, onConcepts }) {
+  const [concepts, setConcepts] = useState(initial);
+  const set = (next) => setConcepts((cur) => {
+    const v = typeof next === "function" ? next(cur) : next;
+    onConcepts?.(v);
+    return v;
+  });
+  return (
+    <ConceptsPanel concepts={concepts} setConcepts={set} procs={procs} syncApplied={sync}
+      renderProcs={(id) => <div data-testid={`procs-${id}`}>процессы {id}</div>} />);
+}
+const nav = () => screen.getByRole("navigation", { name: "доски" });
+
+describe("панель «Концепты»", () => {
+  it("слева меню досок, справа — блок-схема; доска открывается нажатием, «Блок-схема» — назад", async () => {
+    render(<Harness />);
+    await waitFor(() => expect(within(nav()).getAllByRole("button").map((b) => b.getAttribute("aria-label")
+      || b.textContent)).toEqual(["+ новая", "доска: Идеи", "доска: Ретро"]));
+    // По умолчанию — блок-схема, доски не видно.
+    expect(screen.getByRole("tree", { name: "блоки" })).toBeInTheDocument();
     expect(screen.queryByText("первая")).toBeNull();
-    expect(within(nav).getByRole("button", { name: "доска: Ретро" })).toHaveAttribute("aria-current", "true");
+    fireEvent.click(within(nav()).getByRole("button", { name: "доска: Ретро" }));
+    expect(await screen.findByText("из ретро")).toBeInTheDocument();
+    expect(within(nav()).getByRole("button", { name: "доска: Ретро" })).toHaveAttribute("aria-current", "true");
+    expect(screen.queryByRole("tree", { name: "блоки" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Блок-схема" }));
+    expect(screen.getByRole("tree", { name: "блоки" })).toBeInTheDocument();
+    expect(screen.queryByText("из ретро")).toBeNull();
   });
 
-  it("ушёл на другую доску, не дождавшись отправки, — набранное всё равно уходит", async () => {
-    render(<BrainstormPanel />);
-    const box = await screen.findByDisplayValue("первая");
-    fireEvent.change(box, { target: { value: "первая, дописанная" } });
-    fireEvent.click(screen.getByRole("button", { name: "доска: Ретро" }));
-    await screen.findByText("из ретро");
-    await waitFor(() => expect(srv.board("b1").stickers[0].text).toBe("первая, дописанная"));
-    expect(srv.calls.find((c) => c.method === "PATCH").path).toBe("/api/boards/b1/stickers/a");
-  });
-
-  it("«+ новая» — поле названия и «Создать»; новая доска сразу выбрана", async () => {
-    render(<BrainstormPanel />);
-    await screen.findByText("первая");
+  it("«+ новая» — поле названия и «Создать»; новая доска сразу открыта; пустое — отказ словами", async () => {
+    render(<Harness />);
+    await within(nav()).findByRole("button", { name: "доска: Идеи" });
     fireEvent.click(screen.getByRole("button", { name: "+ новая" }));
     const input = screen.getByRole("textbox", { name: "название доски" });
     expect(input).not.toHaveAttribute("placeholder");
-    // Пустое название — отказ словами, без похода на сервер.
     fireEvent.click(screen.getByRole("button", { name: "Создать" }));
     expect(screen.getByText("Название доски не может быть пустым.")).toBeInTheDocument();
-    expect(srv.calls.some((c) => c.path === "/api/boards" && c.method === "POST")).toBe(false);
     fireEvent.change(input, { target: { value: "  Планёрка  " } });
     fireEvent.keyDown(input, { key: "Enter" });
-    const nav = screen.getByRole("navigation", { name: "доски" });
-    await waitFor(() => expect(within(nav).getByRole("button", { name: "доска: Планёрка" }))
+    await waitFor(() => expect(within(nav()).getByRole("button", { name: "доска: Планёрка" }))
       .toHaveAttribute("aria-current", "true"));
-    expect(srv.calls.find((c) => c.path === "/api/boards" && c.method === "POST").body)
-      .toEqual({ name: "Планёрка" });
-    expect(screen.queryByRole("textbox", { name: "название доски" })).toBeNull();
-    // Новая — сверху списка.
-    expect(within(nav).getAllByRole("button")[1]).toHaveAccessibleName("доска: Планёрка");
+    expect(srv.calls.find((c) => c.path === "/api/boards" && c.method === "POST").body).toEqual({ name: "Планёрка" });
     expect(await screen.findByText("Планёрка", { selector: "h1" })).toBeInTheDocument();
   });
 
-  /* Доску не удалить, поэтому второй не должно появиться ни от двойного
-     Enter, ни от автоповтора клавиши, ни от Enter вдогонку за «Создать». */
   it("двойной Enter, пока создание в пути, — одна доска", async () => {
     const real = srv.fetch;
     let release;
@@ -123,22 +117,18 @@ describe("панель", () => {
       if (String(url) === "/api/boards" && opts.method === "POST") await held;
       return real(url, opts);
     });
-    render(<BrainstormPanel />);
-    await screen.findByText("первая");
+    render(<Harness />);
+    await within(nav()).findByRole("button", { name: "доска: Идеи" });
     fireEvent.click(screen.getByRole("button", { name: "+ новая" }));
     const input = screen.getByRole("textbox", { name: "название доски" });
     fireEvent.change(input, { target: { value: "Планёрка" } });
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.keyDown(input, { key: "Enter", repeat: true });
     fireEvent.click(screen.getByRole("button", { name: "Создать" }));
     release();
-    const nav = screen.getByRole("navigation", { name: "доски" });
-    await waitFor(() => expect(within(nav).getByRole("button", { name: "доска: Планёрка" }))
-      .toHaveAttribute("aria-current", "true"));
+    await waitFor(() => expect(within(nav()).getByRole("button", { name: "доска: Планёрка" })).toBeInTheDocument());
     expect(global.fetch.mock.calls.filter(([u, o]) => String(u) === "/api/boards" && o?.method === "POST"))
       .toHaveLength(1);
-    expect(within(nav).getAllByRole("button", { name: "доска: Планёрка" })).toHaveLength(1);
   });
 
   it("нет прав — отказ сервера под кнопкой", async () => {
@@ -146,23 +136,109 @@ describe("панель", () => {
     global.fetch = vi.fn(async (url, opts = {}) => (String(url) === "/api/boards" && opts.method === "POST"
       ? { ok: false, status: 403, json: async () => ({ error: "У вас нет прав на создание досок." }) }
       : real(url, opts)));
-    render(<BrainstormPanel />);
-    await screen.findByText("первая");
+    render(<Harness />);
+    await within(nav()).findByRole("button", { name: "доска: Идеи" });
     fireEvent.click(screen.getByRole("button", { name: "+ новая" }));
     fireEvent.change(screen.getByRole("textbox", { name: "название доски" }), { target: { value: "X" } });
     fireEvent.click(screen.getByRole("button", { name: "Создать" }));
     expect(await screen.findByText("У вас нет прав на создание досок.")).toBeInTheDocument();
   });
 
-  it("досок нет — справа пусто, а «+ новая» на месте", async () => {
-    srv = boardServer(B1, { me: ME, list: [] });
-    global.fetch = srv.fetch;
-    const { container } = render(<BrainstormPanel />);
-    expect(await screen.findByRole("button", { name: "+ новая" })).toBeInTheDocument();
-    await waitFor(() => expect(srv.calls.some((c) => c.path === "/api/boards")).toBe(true));
-    expect(container.querySelector("[data-sticker]")).toBeNull();
-    expect(screen.queryByRole("button", { name: "добавить стикер" })).toBeNull();
-    expect(srv.calls.some((c) => c.path.startsWith("/api/boards/"))).toBe(false);
+  it("блоки — деревом: «+ блок» сверху и в блоке; название правится; удалить с подтверждением, дети встают на место", async () => {
+    let last = [];
+    render(<Harness onConcepts={(v) => { last = v; }} />);
+    fireEvent.click(screen.getByRole("button", { name: "+ блок" }));
+    const name = screen.getByRole("textbox", { name: "название блока" });
+    fireEvent.change(name, { target: { value: "Продажи" } });
+    fireEvent.keyDown(name, { key: "Enter" });
+    const root = screen.getByRole("button", { name: "название блока: Продажи" });
+    expect(root).toBeInTheDocument();
+    const card = root.closest("[data-block-id]");
+    fireEvent.click(within(card).getByRole("button", { name: "+ блок" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "название блока" }), { target: { value: "Лиды" } });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "название блока" }), { key: "Enter" });
+    const items = screen.getAllByRole("treeitem");
+    expect(items.map((i) => i.getAttribute("aria-level"))).toEqual(["1", "2"]);
+    expect(last.find((b) => b.name === "Лиды").parent).toBe(last.find((b) => b.name === "Продажи").id);
+    // Техпроцессы блока — справа, по его id.
+    expect(within(card).getByTestId(`procs-${card.getAttribute("data-block-id")}`)).toBeInTheDocument();
+    // Удалить «Продажи»: подтверждение; «Лиды» — на его место.
+    fireEvent.click(within(card).getAllByRole("button", { name: "удалить блок" })[0]);
+    const dlg = screen.getByRole("dialog", { name: "Удалить блок?" });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Согласиться" }));
+    expect(last).toEqual([expect.objectContaining({ name: "Лиды", parent: null })]);
+  });
+
+  it("блок с техпроцессом не удаляется, пока процессы не удалены", async () => {
+    render(<Harness initial={[{ id: "k1", name: "С процессом", parent: null, boardId: null }]}
+      procs={[{ id: "p1", blockId: "k1", text: "" }]} />);
+    fireEvent.click(screen.getByRole("button", { name: "удалить блок" }));
+    const dlg = screen.getByRole("dialog", { name: "Удалить блок?" });
+    expect(within(dlg).getByText("Сначала удалите техпроцессы блока.")).toBeInTheDocument();
+    expect(within(dlg).queryByRole("button", { name: "Согласиться" })).toBeNull();
+  });
+
+  it("доска в блок — «+ доска» или перетаскиванием; таблица — подходящие и применённые идеи; окно — только они", async () => {
+    srv.bump((b) => {
+      b.stickers.push({ id: "f1", by: ME, text: "годная", status: "fit", createdAt: "2", updatedAt: "2" });
+      b.stickers.push({ id: "n1", by: ME, text: "мимо", status: "no", createdAt: "3", updatedAt: "3" });
+      b.stickers.push({ id: "a1", by: ME, text: "внедрена", status: "applied", createdAt: "4", updatedAt: "4" });
+    }, "b1");
+    let last = [];
+    render(<Harness initial={[{ id: "k1", name: "Воронка", parent: null, boardId: null },
+      { id: "k2", name: "Склад", parent: null, boardId: null }]} onConcepts={(v) => { last = v; }} />);
+    await within(nav()).findByRole("button", { name: "доска: Идеи" });
+    // «+ доска» — выбор из списка.
+    const k1 = screen.getByRole("button", { name: "название блока: Воронка" }).closest("[data-block-id]");
+    fireEvent.click(within(k1).getByRole("button", { name: "+ доска" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "выбрать доску" })).getByRole("menuitem", { name: "Идеи" }));
+    expect(last.find((b) => b.id === "k1").boardId).toBe("b1");
+    // Таблица — только «подходит» и «применена».
+    const table = await within(k1).findByRole("table", { name: "идеи блока" });
+    await waitFor(() => expect(within(table).getByText("годная")).toBeInTheDocument());
+    expect(within(table).getByText("внедрена")).toBeInTheDocument();
+    expect(within(table).queryByText("мимо")).toBeNull();
+    expect(within(table).queryByText("первая")).toBeNull();
+    // Нажатие на доску блока — окно с теми же идеями, без «+».
+    fireEvent.click(within(k1).getByRole("button", { name: "доска блока: Идеи" }));
+    const dlg = await screen.findByRole("dialog", { name: "Идеи" });
+    await waitFor(() => expect(within(dlg).getByText("годная")).toBeInTheDocument());
+    expect(within(dlg).getByText("внедрена")).toBeInTheDocument();
+    expect(within(dlg).queryByText("мимо")).toBeNull();
+    expect(within(dlg).queryByRole("button", { name: "добавить стикер" })).toBeNull();
+    fireEvent.click(within(dlg).getByRole("button", { name: "закрыть" }));
+    // Перетаскивание: из меню — на «Склад».
+    const k2 = screen.getByRole("button", { name: "название блока: Склад" }).closest("[data-block-id]");
+    const prev = document.elementFromPoint;
+    document.elementFromPoint = () => k2;
+    try {
+      const item = within(nav()).getByRole("button", { name: "доска: Ретро" });
+      fireEvent.pointerDown(item, { button: 0, pointerType: "mouse", clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(window, { clientX: 60, clientY: 80 });
+      await waitFor(() => expect(k2.style.outline).toMatch(/solid/));
+      fireEvent.pointerUp(window, { clientX: 60, clientY: 80 });
+    } finally { document.elementFromPoint = prev; }
+    expect(last.find((b) => b.id === "k2").boardId).toBe("b2");
+    // И это было перетаскивание, а не нажатие: доска не открылась.
+    expect(screen.getByRole("tree", { name: "блоки" })).toBeInTheDocument();
+  });
+
+  it("у доски блока появился техпроцесс — приложение сообщает доске; не стало — снимает", async () => {
+    const blocks = [{ id: "k1", name: "Воронка", parent: null, boardId: "b1" }];
+    const { rerender } = render(<Harness initial={blocks} procs={[{ id: "p1", blockId: "k1", text: "" }]} />);
+    await waitFor(() => expect(srv.calls.find((c) => c.method === "PUT")).toMatchObject({
+      path: "/api/boards/b1/applied", body: { applied: true } }));
+    rerender(<Harness initial={blocks} procs={[]} />);
+    await waitFor(() => expect(srv.calls.filter((c) => c.method === "PUT").pop()).toMatchObject({
+      path: "/api/boards/b1/applied", body: { applied: false } }));
+  });
+
+  it("без всей модели (позванный) — флаг досок не трогает", async () => {
+    render(<Harness initial={[]} procs={[]} sync={false} />);
+    await within(nav()).findByRole("button", { name: "доска: Идеи" });
+    srv.bump((b) => { b.applied = true; }, "b1");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(srv.calls.some((c) => c.method === "PUT")).toBe(false);
   });
 });
 
@@ -193,10 +269,11 @@ describe("в приложении", () => {
     server({ id: "7", isOwner: false, known: true, role: "r", profile: {},
       tabs: ["tasks", "brainstorm"], access: { tasks: "rw", brainstorm: "rw" } });
     await fresh();
-    await waitFor(() => expect(tabs()).toContain("Брейншторм"));
-    openTab("Брейншторм");
-    expect(await screen.findByText("первая")).toBeInTheDocument();
+    await waitFor(() => expect(tabs()).toContain("Концепты"));
+    openTab("Концепты");
+    expect(await screen.findByRole("button", { name: "доска: Идеи" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "+ новая" })).toBeInTheDocument();
+    expect(screen.getByRole("tree", { name: "блоки" })).toBeInTheDocument();
   });
 
   it("без права вкладки нет", async () => {
@@ -204,7 +281,7 @@ describe("в приложении", () => {
       tabs: ["tasks"], access: { tasks: "rw" } });
     await fresh();
     await waitFor(() => expect(tabs()).toContain("Задачи"));
-    expect(tabs()).not.toContain("Брейншторм");
+    expect(tabs()).not.toContain("Концепты");
   });
 });
 

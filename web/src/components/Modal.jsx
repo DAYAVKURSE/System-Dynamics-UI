@@ -23,7 +23,7 @@ import { C, BAD, S, btn } from "./ui.jsx";
    `vh` считает и полосы, которых на экране нет.
    ════════════════════════════════════════════════════════════════ */
 
-export default function Modal({ title, children, onClose }) {
+export default function Modal({ title, children, onClose, wide = false }) {
   const box = useRef(null);
   const cameFrom = useRef(null);
 
@@ -52,7 +52,7 @@ export default function Modal({ title, children, onClose }) {
         padding: "var(--space-12)", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
       <div role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}
         onClick={(e) => e.stopPropagation()}
-        style={{ ...S.card, maxWidth: 460, width: "100%", outline: "none",
+        style={{ ...S.card, maxWidth: wide ? 920 : 460, width: "100%", outline: "none",
           margin: "auto 0", maxHeight: "calc(100dvh - 24px)", overflow: "auto",
           boxSizing: "border-box" }}>
         <div className="flex items-center gap-2" style={{ marginBottom: "var(--space-12)" }}>

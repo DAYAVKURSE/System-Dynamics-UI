@@ -4,7 +4,8 @@ import { C, BAD, WARN, ACC, OK, btn } from "./ui.jsx";
 import Modal from "./Modal.jsx";
 import { inkOn, initials } from "../boardColors.js";
 import {
-  addSticker, blockMember, deleteSticker, getBoard, removeMember, setStickerText, unblockMember,
+  addSticker, blockMember, deleteSticker, getBoard, removeMember, setStickerStatus, setStickerText,
+  unblockMember,
 } from "../boards.js";
 
 /* ════════════════════════════════════════════════════════════════
@@ -51,6 +52,21 @@ const FALLBACK = "#6A7FB5";
    слева направо и переносится вниз; вбок доска не растёт. */
 const STICKER_COLS = "repeat(auto-fill, minmax(min(148px, 100%), 1fr))";
 const MAIN_ACTION = "linear-gradient(135deg, var(--accent-mint), var(--accent-cyan))";
+
+/* ─────── статусы стикера (владелец, 2026-09-26) ───────
+   Значок справа внизу стикера; нажатие раскрывает список с названиями.
+   Выбирает создатель доски, остальные только видят. «Применена» —
+   «подходит» на доске, у которой в блоке «Концептов» есть техпроцесс:
+   её ставит и приложение само (сервер отдаёт уже показываемый статус). */
+export const STICKER_STATUS = {
+  no: { label: "Не подходит", color: "#FF5A78", path: "M7 7l10 10M17 7L7 17" },
+  rework: { label: "На доработку", color: "#FFC24D", path: "M19 12a7 7 0 1 1-2.05-4.95M19 5v4h-4" },
+  fit: { label: "Подходит", color: "#3CF2A0", path: "M5 12.5l4.5 4.5L19 7.5" },
+  applied: { label: "Применена", color: "#49E1FF",
+    path: "M12 4l2.35 4.76 5.25.77-3.8 3.7.9 5.23L12 16l-4.7 2.46.9-5.23-3.8-3.7 5.25-.77z" },
+};
+export const STATUS_ORDER = ["no", "rework", "fit", "applied"];
+const BADGE = 24;
 
 /* Текст людей — имена и стикеры — не переводится: сборка оборачивает
    выражения в JSX переводом (i18n-babel.js), и русский стикер в
@@ -320,6 +336,87 @@ function MemberMenu({ anchor, m, count, canManage, onBlock, onUnblock, onRemove,
   return typeof document === "undefined" ? node : createPortal(node, document.body);
 }
 
+function StatusIcon({ status, size = 14 }) {
+  const st = STICKER_STATUS[status];
+  if (!st) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true"
+        stroke="currentColor" strokeWidth="2.2" strokeDasharray="3.2 3">
+        <circle cx="12" cy="12" r="8" />
+      </svg>);
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={status === "applied" ? "currentColor" : "none"}
+      aria-hidden="true" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d={st.path} />
+    </svg>);
+}
+
+/* Список статусов у значка стикера: портал, рядом со значком и внутри
+   экрана — как меню участника. */
+function StatusMenu({ anchor, status, canSet, onPick, onClose }) {
+  const box = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const W = 188;
+  const place = useCallback(() => {
+    const r = anchor?.getBoundingClientRect?.();
+    if (!r) return;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    const h = box.current?.offsetHeight || 0;
+    const left = Math.max(8, Math.min(r.right - W, vw - W - 8));
+    let top = r.bottom + 6;
+    if (h && vh && top + h > vh - 8 && r.top - h - 6 >= 8) top = r.top - h - 6;
+    setPos({ top, left });
+  }, [anchor]);
+  useLayoutEffect(() => { place(); }, [place]);
+  useEffect(() => {
+    const outside = (e) => {
+      if (box.current?.contains(e.target) || anchor?.contains?.(e.target)) return;
+      onClose();
+    };
+    const key = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", key);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("keydown", key);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [anchor, onClose, place]);
+  const node = (
+    <div ref={box} role="menu" aria-label="статус стикера" data-noswipe=""
+      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 46, width: W,
+        boxSizing: "border-box", background: "var(--bg-elevated)", color: C.text,
+        border: "1px solid var(--border-glass)", borderRadius: "var(--radius-md)",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,.12), 0 18px 40px rgba(0,0,0,.55)",
+        padding: 6, fontFamily: "var(--font-sans)" }}>
+      {STATUS_ORDER.map((k) => {
+        const st = STICKER_STATUS[k];
+        const on = status === k;
+        return (
+          <button key={k} type="button" role="menuitemradio" aria-checked={on} disabled={!canSet}
+            onClick={() => onPick(on ? null : k)}
+            style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 36,
+              padding: "6px 8px", border: "none", borderRadius: "var(--radius-sm)",
+              background: on ? `${st.color}22` : "transparent", color: C.text, textAlign: "left",
+              cursor: canSet ? "pointer" : "default", fontFamily: "var(--font-sans)",
+              fontSize: "var(--fs-body)", fontWeight: on ? 700 : 500 }}>
+            <span aria-hidden="true" style={{ width: 22, height: 22, flex: "0 0 22px", borderRadius: "50%",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: st.color, color: inkOn(st.color) }}>
+              <StatusIcon status={k} size={13} />
+            </span>
+            {st.label}
+          </button>);
+      })}
+    </div>);
+  return typeof document === "undefined" ? node : createPortal(node, document.body);
+}
+
 /* ─────── поле своего стикера ───────
    Без рамки и растёт вниз вместе с текстом: стикер — лист, а не форма. */
 function StickerText({ sid, value, ink, onChange }) {
@@ -339,8 +436,12 @@ function StickerText({ sid, value, ink, onChange }) {
         fontFamily: "var(--font-sans)", fontSize: "var(--fs-title)", lineHeight: "20px" }} />);
 }
 
-function Sticker({ s, author, mine, text, onType, onDelete }) {
+function Sticker({ s, author, mine, text, onType, onDelete, canSetStatus, onStatus }) {
   const [focus, setFocus] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const badge = useRef(null);
+  const st = STICKER_STATUS[s.status];
+  const closeMenu = useCallback(() => setMenu(false), []);
   const color = author?.color || FALLBACK;
   const ink = inkOn(color);
   const name = author?.name || "";
@@ -373,7 +474,23 @@ function Sticker({ s, author, mine, text, onType, onDelete }) {
       {mine
         ? <StickerText sid={s.id} value={text} ink={ink} onChange={onType} />
         : <div style={{ fontSize: "var(--fs-title)", lineHeight: "20px", whiteSpace: "pre-wrap",
-          overflowWrap: "anywhere" }}>{raw(text)}</div>}
+          overflowWrap: "anywhere", flex: "1 1 auto" }}>{raw(text)}</div>}
+      {/* Статус — значком справа внизу; нажатие раскрывает названия. */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "auto" }}>
+        <button ref={badge} type="button" data-status={s.status || ""}
+          aria-label={`статус: ${st ? st.label : "без статуса"}`} aria-expanded={menu}
+          onClick={() => setMenu((v) => !v)}
+          style={{ width: BADGE, height: BADGE, flex: `0 0 ${BADGE}px`, borderRadius: "50%", padding: 0,
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            border: st ? "1.5px solid rgba(0,0,0,.18)" : `1.5px solid ${ink}55`,
+            background: st ? st.color : `${ink}14`, color: st ? inkOn(st.color) : `${ink}99`,
+            boxShadow: st ? "0 2px 6px rgba(0,0,0,.25)" : "none" }}>
+          <StatusIcon status={s.status} />
+        </button>
+      </div>
+      {menu && (
+        <StatusMenu anchor={badge.current} status={s.status} canSet={canSetStatus}
+          onClose={closeMenu} onPick={(k) => { setMenu(false); onStatus(k); }} />)}
     </div>);
 }
 
@@ -404,7 +521,13 @@ function Gone({ text }) {
  * прокручивается вниз; `onBoard` — каждое новое состояние (цвет — шапке
  * Telegram).
  */
-export default function BoardView({ boardId = null, side = null, fill = false, onBoard }) {
+/**
+ * `only` — показывать только стикеры с этими статусами (окно доски в блоке
+ * «Концептов»: подходящие и применённые идеи); `readOnly` — без «+», без
+ * правки текста и удаления: смотреть, а не писать.
+ */
+export default function BoardView({ boardId = null, side = null, fill = false, onBoard,
+  only = null, readOnly = false }) {
   const [board, setBoard] = useState(null);
   const [gone, setGone] = useState(null);
   const [drafts, setDrafts] = useState({});
@@ -569,7 +692,8 @@ export default function BoardView({ boardId = null, side = null, fill = false, o
 
   const members = board?.members || [];
   const byId = useMemo(() => new Map(members.map((m) => [String(m.id), m])), [members]);
-  const stickers = (board?.stickers || []).filter((s) => !hidden.has(s.id));
+  const stickers = (board?.stickers || []).filter((s) => !hidden.has(s.id)
+    && (!only || only.includes(s.status)));
   const countOf = (id) => stickers.filter((s) => String(s.by) === String(id)).length;
   const me = board ? String(board.me) : "";
   const open = menuFor != null ? byId.get(String(menuFor)) : null;
@@ -596,11 +720,13 @@ export default function BoardView({ boardId = null, side = null, fill = false, o
         <div role="list" aria-label="стикеры" style={{ display: "grid", gridTemplateColumns: STICKER_COLS,
           gap: 12, alignItems: "start" }}>
           {stickers.map((s) => {
-            const mine = String(s.by) === me;
+            const mine = !readOnly && String(s.by) === me;
             return (
               <Sticker key={s.id} s={s} author={byId.get(String(s.by))} mine={mine}
                 text={mine && s.id in drafts ? drafts[s.id] : (s.text || "")}
-                onType={(t) => store.type(s.id, t)} onDelete={() => dropSticker(s.id)} />);
+                onType={(t) => store.type(s.id, t)} onDelete={() => dropSticker(s.id)}
+                canSetStatus={Boolean(board.isCreator) && !readOnly}
+                onStatus={(k) => act(() => setStickerStatus(boardId, s.id, k))} />);
           })}
         </div>
       </>);
@@ -619,7 +745,7 @@ export default function BoardView({ boardId = null, side = null, fill = false, o
           /* Во вкладке прокручивается страница; `clip`, а не `hidden`:
              hidden сделал бы доску своим окном прокрутки, и «+» перестал
              бы держаться у низа экрана. */
-          : { minHeight: "calc(100dvh - 140px)", overflowX: "clip",
+          : { minHeight: readOnly ? 240 : "calc(100dvh - 140px)", overflowX: "clip",
             borderRadius: "var(--radius-lg)", border: "1px solid var(--border-glass-soft)",
             padding: "12px 12px 12px" }) }}>
 
@@ -683,7 +809,7 @@ export default function BoardView({ boardId = null, side = null, fill = false, o
 
       {/* ═══ тело: меню досок (во вкладке) и сама доска ═══ */}
       <div style={{ display: "flex", gap: 12, flex: "1 0 auto", alignItems: "flex-start",
-        paddingTop: "var(--space-8)", paddingBottom: live ? 76 : 0, minWidth: 0 }}>
+        paddingTop: "var(--space-8)", paddingBottom: live && !readOnly ? 76 : 0, minWidth: 0 }}>
         {side && (
           <aside style={{ flex: "0 0 clamp(112px, 28%, 148px)", minWidth: 0 }}>{side}</aside>)}
         <div style={{ flex: "1 1 auto", minWidth: 0 }}>{main}</div>
@@ -691,7 +817,7 @@ export default function BoardView({ boardId = null, side = null, fill = false, o
 
       {/* «+» — плавает в правом нижнем углу доски: липнет к низу экрана,
           пока доска длиннее него, и стоит в её углу, когда короче. */}
-      {live && (
+      {live && !readOnly && (
         <div style={{ position: "sticky", zIndex: 6, height: 0, display: "flex",
           justifyContent: "flex-end", pointerEvents: "none",
           bottom: fill ? "calc(16px + env(safe-area-inset-bottom, 0px))" : 16 }}>

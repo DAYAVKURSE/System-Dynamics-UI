@@ -26,7 +26,7 @@ export const TAB_NAMES = {
   market: "Маркет", me: "Анкета",
   tasks: "Задачи", review: "Проверка", scheme: "Схема",
   "scheme:edit": "Управление", "scheme:time": "Деятельность", "scheme:sim": "Цели",
-  reports: "Отчёты", brainstorm: "Брейншторм", tools: "Инструменты",
+  reports: "Отчёты", brainstorm: "Концепты", tools: "Инструменты",
   "tools:people": "Роли", "tools:assistant": "Агенты",
   "tools:virtual": "Виртуальные сотрудники",
   "tools:reminders": "Напоминания", "tools:calls": "Звонки",

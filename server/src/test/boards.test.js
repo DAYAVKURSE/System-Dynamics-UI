@@ -204,7 +204,7 @@ describe("вкладка «Брейншторм»", () => {
   it("стоит сразу после «Отчётов» — и на сервере, и в сервисе кодов", () => {
     expect(org.TABS.indexOf("brainstorm")).toBe(org.TABS.indexOf("reports") + 1);
     expect(CODES_TABS).toEqual(org.TABS);
-    expect(TAB_NAMES.brainstorm).toBe("Брейншторм");
+    expect(TAB_NAMES.brainstorm).toBe("Концепты");
   });
 
   it("max открывает её сам; free и pro — без изменений", () => {
@@ -295,8 +295,8 @@ describe("стор досок", () => {
     await boards.createBoard({ name: "чужая", by: "2", storage: "2" });
     expect((await boards.listBoards({ storage: "main" })).map((x) => x.id)).toEqual([b.id, a.id]);
     expect(await boards.listBoards({ storage: "main" })).toEqual([
-      { id: b.id, name: "B", color: b.color, by: "1", byName: "", stickers: 0, createdAt: b.createdAt },
-      { id: a.id, name: "A", color: a.color, by: "1", byName: "", stickers: 0, createdAt: a.createdAt },
+      { id: b.id, name: "B", color: b.color, by: "1", byName: "", applied: false, stickers: 0, createdAt: b.createdAt },
+      { id: a.id, name: "A", color: a.color, by: "1", byName: "", applied: false, stickers: 0, createdAt: a.createdAt },
     ]);
     expect(await boards.listBoards({ storage: "main", drafts: true })).toHaveLength(3);
   });
@@ -483,7 +483,7 @@ describe("список и создание досок", () => {
     expect(list.body.boards.map((x) => x.id)).toEqual([b.id, a.id]);
     // Имя создателя — из организации (identify только что обновил его из подписи).
     expect(list.body.boards[0]).toEqual({ id: b.id, name: "Вторая", color: b.color, by: "200",
-      byName: "Иван", stickers: 0, createdAt: b.createdAt });
+      byName: "Иван", applied: false, stickers: 0, createdAt: b.createdAt });
     expect(a.color).not.toBe(b.color);
   });
 
@@ -560,7 +560,7 @@ describe("доска: вход и вид", () => {
     const res = await open(b.id, 777, "Гость Чатов");
     expect(res.status).toBe(200);
     const v = res.body.board;
-    expect(Object.keys(v).sort()).toEqual(["by", "byName", "color", "createdAt", "id", "isCreator", "me",
+    expect(Object.keys(v).sort()).toEqual(["applied", "by", "byName", "color", "createdAt", "id", "isCreator", "me",
       "members", "name", "rev", "stickers"]);
     expect(v).toMatchObject({ id: b.id, name: "Идеи", color: b.color, by: "100", byName: "Владелец",
       me: "777", isCreator: false, stickers: [] });
@@ -705,7 +705,8 @@ describe("доска: стикеры", () => {
     const list = s2.body.board.stickers;
     expect(list.map((s) => s.by)).toEqual(["200", "777"]);
     expect(list[1]).toMatchObject({ by: "777", text: "" });
-    expect(Object.keys(list[0]).sort()).toEqual(["by", "createdAt", "id", "text", "updatedAt"]);
+    expect(Object.keys(list[0]).sort()).toEqual(["by", "createdAt", "id", "status", "text", "updatedAt"]);
+    expect(list[0].status).toBeNull();
     // Первый стикер гостя вписал его в участники.
     expect(s2.body.board.members.find((m) => m.id === "777")).toMatchObject({ stickers: 1 });
 
@@ -773,6 +774,58 @@ describe("доска: стикеры", () => {
     const res = await request(app).post(`/api/boards/${b.id}/stickers`).set(as(100, "Владелец"));
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("На доске уже 500 стикеров.");
+  });
+});
+
+/* Статусы стикера (владелец, 2026-09-26): ставит создатель доски;
+   «подходит» на доске с техпроцессом в блоке «Концептов» — «применена». */
+describe("доска: статусы стикеров", () => {
+  it("статус ставит только создатель; незнакомый — отказ; снять — null", async () => {
+    await setupOrg();
+    const b = await newBoard();
+    const add = await request(app).post(`/api/boards/${b.id}/stickers`).set(as(200, "Иван"));
+    const sid = add.body.board.stickers[0].id;
+    const set = (who, status) => request(app).post(`/api/boards/${b.id}/stickers/${sid}/status`)
+      .set(as(who, "Кто")).send({ status });
+    const foreign = await set(200, "fit");
+    expect(foreign.status).toBe(403);
+    expect(foreign.body.error).toBe("Статус стикера меняет только создатель доски.");
+    expect((await set(100, "maybe")).body.error).toBe("Нет такого статуса.");
+    for (const st of ["no", "rework", "fit", "applied"]) {
+      const r = await set(100, st);
+      expect(r.status).toBe(200);
+      expect(r.body.board.stickers[0].status).toBe(st);
+    }
+    expect((await set(100, null)).body.board.stickers[0].status).toBeNull();
+    await request(app).post(`/api/boards/${b.id}/stickers/nope/status`).set(as(100, "В")).send({ status: "fit" })
+      .expect(404);
+  });
+
+  it("«подходит» становится «применена», пока у доски есть техпроцесс; ставит приложение с правом на вкладку", async () => {
+    await setupOrg();
+    const b = await newBoard();
+    const add = await request(app).post(`/api/boards/${b.id}/stickers`).set(as(100, "Владелец"));
+    await request(app).post(`/api/boards/${b.id}/stickers`).set(as(100, "Владелец"));
+    const [s1, s2] = (await open(b.id, 100, "Владелец")).body.board.stickers;
+    await request(app).post(`/api/boards/${b.id}/stickers/${s1.id}/status`).set(as(100, "В")).send({ status: "fit" });
+    await request(app).post(`/api/boards/${b.id}/stickers/${s2.id}/status`).set(as(100, "В")).send({ status: "rework" });
+    void add;
+    // Без права на вкладку — нельзя; из чужого хранилища — доски нет.
+    await request(app).put(`/api/boards/${b.id}/applied`).set(inMain(300, "Пётр")).send({ applied: true }).expect(403);
+    const other = await boards.createBoard({ name: "Чужая", storage: "555", by: "555" });
+    await request(app).put(`/api/boards/${other.id}/applied`).set(inMain(100, "Владелец")).send({ applied: true })
+      .expect(404);
+    const before = (await open(b.id, 100, "Владелец")).body.board.rev;
+    await request(app).put(`/api/boards/${b.id}/applied`).set(inMain(100, "Владелец")).send({ applied: true })
+      .expect(200);
+    let v = (await open(b.id, 200, "Иван")).body.board;
+    expect(v.rev).toBeGreaterThan(before);
+    expect(v.applied).toBe(true);
+    expect(v.stickers.map((s) => s.status)).toEqual(["applied", "rework"]);
+    await request(app).put(`/api/boards/${b.id}/applied`).set(inMain(200, "Иван")).send({ applied: false })
+      .expect(200);
+    v = (await open(b.id, 200, "Иван")).body.board;
+    expect(v.stickers.map((s) => s.status)).toEqual(["fit", "rework"]);
   });
 });
 
