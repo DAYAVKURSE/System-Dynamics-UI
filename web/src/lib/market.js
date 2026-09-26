@@ -59,7 +59,6 @@ export function orderFromFunc(f = {}, { traits = [] } = {}) {
   return {
     name: String(f.name || "").trim(),
     text: funcText(f),
-    price: null,
     resources: rowsOf(f.takes, traits),
     funcId: f.id || null,
     serviceId: null,

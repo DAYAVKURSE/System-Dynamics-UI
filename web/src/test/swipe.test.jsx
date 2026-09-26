@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import SystemModel from "../components/SystemModel.jsx";
+import { openTab } from "./openTab.js";
 import { SWIPE_SHARE, swipeFrom, swipeStep, tabAfter } from "../lib/swipe.js";
 
 /* СВАЙП ПЕРЕКЛЮЧАЕТ ВКЛАДКИ (владелец, 2026-09-19): «движение которого
@@ -50,6 +51,7 @@ describe("свайп по экрану", () => {
     const { container } = render(<SystemModel />);
     const root = container.firstChild;
     const W = window.innerWidth;
+    openTab("Задачи");
     // Открыты «Задачи»; влево — «Проверка», она в ряду следующая.
     swipe(root, W - 20, 20);
     expect(screen.getByText(/ждут постановки/i)).toBeInTheDocument();

@@ -684,6 +684,7 @@ describe("«Инструменты» и роли", () => {
       return { ok: true, json: async () => ({ savedAt: null }) };
     });
     await fresh();
+    await waitFor(() => openTab("Задачи"));
     await waitFor(() => expect(screen.getByText("Моя работа")).toBeTruthy());
     expect(screen.queryByText("Я проверяю")).toBeNull();
   });

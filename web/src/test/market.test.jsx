@@ -31,9 +31,9 @@ describe("слова из функции", () => {
     expect(serviceFromFunc(FUNC, { traits: TRAITS })).toEqual({ name: "Вёрстка", text: "по макету",
       takes: [{ name: "макет", qty: 1 }], gives: [{ name: "страница", qty: 3 }], days: 2, dur: 2, durUnit: "day", funcId: "f1" });
   });
-  it("заказ: заказчик даёт то, что функция берёт; цена не угадывается", () => {
+  it("заказ: заказчик даёт то, что функция берёт; стоимости нет — деньги тоже ресурс", () => {
     expect(orderFromFunc(FUNC, { traits: TRAITS })).toEqual({ name: "Вёрстка", text: "по макету",
-      price: null, resources: [{ name: "макет", qty: 1 }], funcId: "f1", serviceId: null });
+      resources: [{ name: "макет", qty: 1 }], funcId: "f1", serviceId: null });
     expect(rowsOf([{ trait: "нет" }], TRAITS)).toEqual([]);
     expect(daysOf({ dur: 0 })).toBe(null);
   });
@@ -59,6 +59,12 @@ function marketServer({ me = "200", people = { 200: "Заказчик", 300: "М
       offers: o.offers.filter((f) => o.by === me || f.by === me) })) });
   const findOffer = (url) => {
     const m = String(url).match(/orders\/([^/]+)\/offers\/([^/]+)/);
+    if (!m) {
+      // Заявка на услугу — тот же разговор (владелец, 2026-09-26).
+      const r = String(url).match(/services\/([^/]+)\/requests\/([^/]+)/);
+      const s = state.services.find((x) => x.id === r[1]);
+      return { o: {}, f: s.requests.find((x) => x.id === r[2]) };
+    }
     const o = state.orders.find((x) => x.id === m[1]);
     return { o, f: o.offers.find((x) => x.id === m[2]) };
   };
@@ -75,6 +81,13 @@ function marketServer({ me = "200", people = { 200: "Заказчик", 300: "М
     if (method === "POST" && /\/services$/.test(url)) {
       const s = { id: `s${state.services.length + 1}`, by: me, at: "2026-09-13T10:00:00Z", ...body };
       state.services.push(s); return ok(s, 201);
+    }
+    if (method === "POST" && /\/requests$/.test(url)) {
+      const s = state.services.find((x) => String(url).includes(`/services/${x.id}/`));
+      s.requests = s.requests || [];
+      s.requests.push({ id: `r${s.requests.length + 1}`, by: me, at: "2026-09-13T11:00:00Z", chat: [], brief: null,
+        accepted: false, deliveries: [], ...body });
+      return ok(s, 201);
     }
     if (method === "POST" && /\/offers$/.test(url)) {
       const o = state.orders.find((x) => String(url).includes(`/orders/${x.id}/`));
@@ -127,7 +140,7 @@ describe("вкладка", () => {
     expect(screen.getByText(/живёт на сервере/)).toBeInTheDocument();
   });
 
-  it("две вкладки внутри; заказ — название, содержание, стоимость, ресурсы; подходящая услуга выбирается", async () => {
+  it("две вкладки внутри; заказ — название, содержание, ресурсы, две роли; подходящая услуга выбирается", async () => {
     const { state, log } = marketServer();
     state.services.push({ id: "s1", by: "300", at: "2026-09-13T09:00:00Z", name: "Вёрстка страниц", text: "",
       takes: [{ name: "макет", qty: 1 }], gives: [{ name: "страница", qty: 3 }], days: 2 },
@@ -138,7 +151,8 @@ describe("вкладка", () => {
     fireEvent.click(screen.getByRole("button", { name: "+ заказ" }));
     fireEvent.change(screen.getByLabelText("название заказа"), { target: { value: "Сверстать три страницы" } });
     fireEvent.change(screen.getByLabelText("содержание заказа"), { target: { value: "макет готов" } });
-    fireEvent.change(screen.getByLabelText("стоимость заказа"), { target: { value: "30000" } });
+    // Стоимости нет (владелец, 2026-09-26): деньги — такой же ресурс.
+    expect(screen.queryByLabelText("стоимость заказа")).toBeNull();
     fireEvent.change(screen.getByLabelText("ресурс заказа: что"), { target: { value: "макет" } });
     fireEvent.change(screen.getByLabelText("ресурс заказа: сколько"), { target: { value: "1" } });
     // Подходящие — только по словам: «Уборка» не показана.
@@ -148,7 +162,7 @@ describe("вкладка", () => {
     fireEvent.click(screen.getByRole("button", { name: "Оставить заказ" }));
     await screen.findByLabelText("заказ Сверстать три страницы");
     const post = log.find((r) => r.method === "POST" && r.url.endsWith("/orders"));
-    expect(post.body).toEqual({ name: "Сверстать три страницы", text: "макет готов", price: "30000",
+    expect(post.body).toEqual({ name: "Сверстать три страницы", text: "макет готов", procRole: "assignee",
       resources: [{ name: "макет", qty: 1 }], serviceId: "s1", funcId: null });
     expect(screen.getByText(/выбранная услуга:/).parentElement.textContent).toContain("Вёрстка страниц");
   });
@@ -173,7 +187,7 @@ describe("вкладка", () => {
 describe("отклик, чат, бриф, сделка", () => {
   const seed = (srv) => {
     srv.state.orders.push({ id: "o1", by: "200", at: "2026-09-13T10:00:00Z", name: "Сайт", text: "три страницы",
-      price: 30000, resources: [{ name: "логотип", qty: 1 }], status: "open", serviceId: null, offers: [] });
+      resources: [{ name: "логотип", qty: 1 }], status: "open", serviceId: null, offers: [] });
   };
 
   it("исполнитель откликается; открыть отклик — открыть чат", async () => {
@@ -236,6 +250,65 @@ describe("отклик, чат, бриф, сделка", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отдать текстом" }));
     await waitFor(() => expect(within(screen.getByLabelText("сделка")).getByText(/во вложении/)).toBeInTheDocument());
     expect(srv.log.find((r) => r.url.endsWith("/deliveries")).body).toEqual({ name: "логотип", text: "во вложении" });
+  });
+});
+
+/* ─────── ЗАЯВКА НА УСЛУГУ (владелец, 2026-09-26) ───────
+   «Также и с услугами, там должен быть такой же чат и подтверждение
+   работы»: услугу заказывают с карточки, дальше — тот же разговор. */
+describe("заявка на услугу", () => {
+  const ROLES = [{ id: "r1", name: "верстальщик" }];
+  const seed = (srv) => srv.state.services.push({ id: "s1", by: "300", at: "2026-09-13T09:00:00Z",
+    name: "Вёрстка", text: "", takes: [], gives: [], days: 2 });
+
+  it("заказчик заказывает с карточки: текст и две роли; потом — чат", async () => {
+    const srv = marketServer({ me: "200" });
+    seed(srv);
+    render(<MarketPanel me={ME} roles={ROLES} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Заказать" }));
+    fireEvent.change(screen.getByLabelText("текст заявки"), { target: { value: "сверстать лендинг" } });
+    fireEvent.change(screen.getByLabelText("роль в техпроцессе"), { target: { value: "setter" } });
+    expect(screen.getByLabelText("роль в сценарии")).toHaveValue("r1");
+    fireEvent.click(screen.getByRole("button", { name: "Отправить заявку" }));
+    const open = await screen.findByRole("button", { name: "открыть заявку Мастер" });
+    expect(srv.log.find((r) => r.url.endsWith("/services/s1/requests")).body)
+      .toEqual({ text: "сверстать лендинг", procRole: "setter", roleId: "r1" });
+    // Открытая заявка уже есть — второй «Заказать» не нужен.
+    expect(screen.queryByRole("button", { name: "Заказать" })).toBeNull();
+    fireEvent.click(open);
+    fireEvent.change(screen.getByLabelText("сообщение"), { target: { value: "когда сможете?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    await waitFor(() => expect(within(screen.getByRole("log", { name: "чат заявки" }))
+      .getByText("когда сможете?")).toBeInTheDocument());
+    expect(srv.log.find((r) => r.url.endsWith("/requests/r1/chat")).body).toEqual({ text: "когда сможете?" });
+  });
+
+  it("автор услуги видит заявку, пишет условия; принимает заказчик", async () => {
+    const srv = marketServer({ me: "300" });
+    seed(srv);
+    srv.state.services[0].requests = [{ id: "r1", by: "200", at: "2026-09-13T11:00:00Z", text: "лендинг",
+      procRole: "assignee", roleId: "r1", chat: [], brief: null, accepted: false, deliveries: [] }];
+    render(<MarketPanel me={{ ...ME, id: "300" }} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Услуги/ }));
+    // Своя услуга не заказывается.
+    await screen.findByLabelText("услуга Вёрстка");
+    expect(screen.queryByRole("button", { name: "Заказать" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "открыть заявку Заказчик" }));
+    fireEvent.click(screen.getByRole("button", { name: "Договорились" }));
+    fireEvent.change(screen.getByLabelText("получает: что"), { target: { value: "лендинг" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить условия" }));
+    await screen.findByRole("button", { name: "есть предложение" });
+    expect(srv.log.find((r) => r.url.endsWith("/requests/r1/brief")).body)
+      .toMatchObject({ gets: { name: "лендинг", qty: null } });
+    // Заказчик видит предложение и принимает.
+    srv.setMe("200");
+    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    fireEvent.change(screen.getByLabelText("сообщение"), { target: { value: "ок" } });
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "есть предложение" }))
+      .toHaveAttribute("data-tone", "theirs"));
   });
 });
 

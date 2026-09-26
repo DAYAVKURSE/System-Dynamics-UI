@@ -6,8 +6,8 @@ import { nameHints, nearest, search } from "../lib/semantic.js";
 import { SORTS, activeCount, emptyFilter, filterItems, pickedRes, resourcesIn, sortItems }
   from "../lib/marketSort.js";
 import {
-  acceptOffer, addDelivery, addOffer, addOrder, addService, dropOrder, dropService, getMarket,
-  getMarketPerson, putBrief, sendChat, updateOrder, updateService,
+  addOffer, addOrder, addRequest, addService, dropOrder, dropService, getMarket,
+  getMarketPerson, offerApi, requestApi, updateOrder, updateService,
 } from "../market.js";
 import {
   DUR_UNITS, daysFrom, daysText, durText, emptyRow, matchServices, orderFromFunc, rowsLine, rowText, serviceFromFunc,
@@ -83,12 +83,40 @@ const cleanRows = (rows) => rows.map((r) => ({ name: String(r.name || "").trim()
   qty: r.qty === "" || r.qty == null ? null : Number(String(r.qty).replace(",", ".")) }))
   .filter((r) => r.name);
 
-/* ─────── форма заказа: слова, цена, ресурсы, подходящие услуги ─────── */
+/* ─────── две роли нанятого (владелец, 2026-09-26) ───────
+
+   «Вместо роли соискателя сделай два поля: роль в техпроцессе, где может
+   быть постановщик, исполнитель или проверяющий, и роль в сценарии, где
+   выбираются те роли, которые установлены у заказчика в ролях». Одни и
+   те же — у заказа и у заявки на услугу. */
+export const PROC_ROLES = [["setter", "постановщик"], ["assignee", "исполнитель"], ["reviewer", "проверяющий"]];
+
+function RoleFields({ procRole, roleId, roles = [], onChange }) {
+  return (<>
+    <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>роль в техпроцессе</div>
+    <select aria-label="роль в техпроцессе" value={procRole || "assignee"}
+      onChange={(e) => onChange({ procRole: e.target.value })}
+      style={{ ...S.inp, marginTop: "var(--space-4)" }}>
+      {PROC_ROLES.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+    </select>
+    {!!roles.length && (<>
+      <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>роль в сценарии</div>
+      <select aria-label="роль в сценарии" value={roleId || ""}
+        onChange={(e) => onChange({ roleId: e.target.value })}
+        style={{ ...S.inp, marginTop: "var(--space-4)" }}>
+        {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+      </select>
+    </>)}
+  </>);
+}
+
+/* ─────── форма заказа: слова, ресурсы, роли, подходящие услуги ─────── */
 
 function OrderForm({ initial, services, orders = [], roles = [], busy, onSave, onCancel,
   saveLabel = "Оставить заказ" }) {
-  const [f, setF] = useState({ name: "", text: "", price: "",
-    serviceId: null, funcId: null, roleId: initial?.roleId || (roles[0]?.id ?? ""), ...initial,
+  const [f, setF] = useState({ name: "", text: "",
+    serviceId: null, funcId: null, ...initial,
+    procRole: initial?.procRole || "assignee", roleId: initial?.roleId || (roles[0]?.id ?? ""),
     resources: initial?.resources?.length ? initial.resources : [emptyRow()] });
   const up = (patch) => setF((x) => ({ ...x, ...patch }));
   /* Подходящие услуги — сразу, по мере набора: заказчик видит, кто уже
@@ -105,25 +133,12 @@ function OrderForm({ initial, services, orders = [], roles = [], busy, onSave, o
       <textarea aria-label="содержание заказа" style={{ ...S.inp, minHeight: 64, marginBottom: "var(--space-4)" }}
         placeholder="содержание: что нужно сделать" value={f.text}
         onChange={(e) => up({ text: e.target.value })} />
-      <div className="flex gap-2" style={{ alignItems: "center", marginBottom: "var(--space-4)" }}>
-        <span style={{ fontSize: "var(--fs-hint)", color: C.muted }}>стоимость</span>
-        <input aria-label="стоимость заказа" inputMode="decimal"
-          style={{ ...S.inp, maxWidth: 140 }} placeholder="сколько платите"
-          value={f.price ?? ""} onChange={(e) => up({ price: e.target.value })} />
-      </div>
-      <div style={{ ...S.lbl, marginTop: "var(--space-4)" }}>другие предоставляемые ресурсы</div>
+      {/* Стоимости нет (владелец, 2026-09-26): деньги — такой же ресурс,
+          как остальные. */}
+      <div style={{ ...S.lbl, marginTop: "var(--space-4)" }}>предоставляемые ресурсы</div>
       <Rows rows={f.resources} onChange={(rows) => up({ resources: rows })} label="ресурс заказа" />
 
-      {/* Роль соискателя — из своей схемы (владелец, 2026-09-21): нанятый
-          получит её в хранилище заказчика. */}
-      {!!roles.length && (<>
-        <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>роль соискателя</div>
-        <select aria-label="роль соискателя" value={f.roleId || ""}
-          onChange={(e) => up({ roleId: e.target.value })}
-          style={{ ...S.inp, marginTop: "var(--space-4)" }}>
-          {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-      </>)}
+      <RoleFields procRole={f.procRole} roleId={f.roleId} roles={roles} onChange={up} />
 
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>подходящие услуги</div>
       {!services.length && <div style={hint}>Услуг пока никто не выложил.</div>}
@@ -150,9 +165,9 @@ function OrderForm({ initial, services, orders = [], roles = [], busy, onSave, o
 
       <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
         <button type="button" style={btn(true, OK)} disabled={busy || !f.name.trim()}
-          onClick={() => onSave({ name: f.name.trim(), text: f.text, price: f.price,
+          onClick={() => onSave({ name: f.name.trim(), text: f.text,
             resources: cleanRows(f.resources), serviceId: f.serviceId, funcId: f.funcId,
-            ...(f.roleId ? { roleId: f.roleId } : {}) })}>
+            procRole: f.procRole, ...(f.roleId ? { roleId: f.roleId } : {}) })}>
           {saveLabel}</button>
         <button type="button" style={btn(false)} onClick={onCancel}>Отмена</button>
       </div>
@@ -251,31 +266,34 @@ function BriefForm({ initial, busy, onSave, onCancel }) {
   );
 }
 
-/* ─────── отклик = чат + бриф + сделка ─────── */
+/* ─────── отклик = чат + бриф + сделка ───────
 
-function OfferView({ order, offer, me, nameOf, busy, act }) {
+   Тот же разговор — у заявки на услугу (владелец, 2026-09-26): кто
+   заказчик и что вызывать, приходит снаружи (`customerId`, `api`). */
+
+function OfferView({ offer, customerId, executorId = offer.by, api, me, nameOf, busy, act, label = "отклик" }) {
   const [text, setText] = useState("");
   const [briefOpen, setBriefOpen] = useState(false);   // «Есть предложение» раскрыто
   const [editing, setEditing] = useState(false);
   const [dlv, setDlv] = useState({ name: "", text: "" });
   const fileRef = useRef(null);
-  const customer = String(order.by) === String(me);
-  const other = customer ? offer.by : order.by;
+  const customer = String(customerId) === String(me);
+  const other = customer ? executorId : customerId;
   const brief = offer.brief;
   const theirs = brief && String(brief.by) !== String(me);
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    act(() => sendChat(order.id, offer.id, t)).then(() => setText(""));
+    act(() => api.chat(t)).then(() => setText(""));
   };
   const upload = async (file) => {
     if (!file) return;
     const saved = await act(() => putReportFile(file, { kind: "market" }));
-    if (saved) await act(() => addDelivery(order.id, offer.id, { name: dlv.name || file.name, file: saved }));
+    if (saved) await act(() => api.deliver({ name: dlv.name || file.name, file: saved }));
     if (fileRef.current) fileRef.current.value = "";
   };
   return (
-    <div style={form} aria-label={`отклик ${nameOf(offer.by)}`}>
+    <div style={form} aria-label={`${label} ${nameOf(offer.by)}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span style={S.lbl}>{customer ? "исполнитель" : "заказчик"}</span>
         <span style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>{nameOf(other)}</span>
@@ -285,7 +303,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
 
       {/* ─── чат ─── */}
       <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>чат</div>
-      <div role="log" aria-label="чат отклика" style={{ maxHeight: 220, overflowY: "auto",
+      <div role="log" aria-label={label === "заявка" ? "чат заявки" : "чат отклика"} style={{ maxHeight: 220, overflowY: "auto",
         border: `1px solid ${C.line}`, borderRadius: "var(--radius-sm)", padding: "var(--space-4)", marginTop: "var(--space-4)", background: C.ink }}>
         {!(offer.chat || []).length && <div style={hint}>Пока ничего не сказано.</div>}
         {(offer.chat || []).map((c) => {
@@ -323,7 +341,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
               Есть предложение{theirs ? "" : " (ваше)"}</button>)}
           {editing && (
             <BriefForm initial={brief} busy={busy}
-              onSave={(b) => act(() => putBrief(order.id, offer.id, b)).then(() => { setEditing(false); setBriefOpen(true); })}
+              onSave={(b) => act(() => api.brief(b)).then(() => { setEditing(false); setBriefOpen(true); })}
               onCancel={() => setEditing(false)} />)}
           {brief && briefOpen && !editing && (
             <div style={{ ...form, borderColor: theirs ? `${alpha(WARN, "66")}` : `${alpha(ACC, "66")}` }} aria-label="условия">
@@ -341,7 +359,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
                   Изменить</button>
                 {theirs && (
                   <button type="button" style={btn(true, OK)} disabled={busy}
-                    onClick={() => act(() => acceptOffer(order.id, offer.id))}>Принять предложение</button>)}
+                    onClick={() => act(() => api.accept())}>Принять предложение</button>)}
                 {!theirs && <span style={hint}>Принять должна другая сторона.</span>}
               </div>
             </div>)}
@@ -357,9 +375,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
             <div><b>ожидаемое время:</b> {daysText(brief?.days)}</div>
           </div>
           <div style={{ ...hint, marginTop: "var(--space-4)" }}>
-            {customer
-              ? "Задача поставлена исполнителю: она у него на «Задачах», у вас — на «Проверке». Загрузите то, что отдаёте."
-              : "Задача у вас на «Задачах» (или на «Проверке» — смотря что открывают ваши роли). Что отдал заказчик — ниже."}
+            {customer ? "Задача заведена. Загрузите то, что отдаёте." : "Задача заведена. Что отдал заказчик — ниже."}
           </div>
           <div style={{ ...S.lbl, marginTop: "var(--space-8)" }}>ресурсы от заказчика</div>
           {!(offer.deliveries || []).length && <div style={hint}>Пока ничего не загружено.</div>}
@@ -382,7 +398,7 @@ function OfferView({ order, offer, me, nameOf, busy, act }) {
                 onChange={(e) => setDlv({ ...dlv, text: e.target.value })} />
               <div className="flex flex-wrap gap-2">
                 <button type="button" style={btn(true)} disabled={busy || (!dlv.name.trim() && !dlv.text.trim())}
-                  onClick={() => act(() => addDelivery(order.id, offer.id, dlv)).then(() => setDlv({ name: "", text: "" }))}>
+                  onClick={() => act(() => api.deliver(dlv)).then(() => setDlv({ name: "", text: "" }))}>
                   Отдать текстом</button>
                 <label style={{ ...btn(false), display: "inline-block" }}>
                   Отдать файлом
@@ -561,7 +577,6 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
       ) : (<>
         {order.text && <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{order.text}</div>}
         <div style={{ fontSize: "var(--fs-hint)", marginTop: "var(--space-4)", lineHeight: 1.6 }}>
-          <div><b>стоимость:</b> {order.price != null ? order.price : "не названа"}</div>
           {!!(order.resources || []).length && <div><b>предоставляет:</b> {rowsLine(order.resources)}</div>}
           {svc && <div><b>выбранная услуга:</b> {svc.name} ({nameOf(svc.by)})</div>}
         </div>
@@ -610,7 +625,8 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
                 {(o.chat || []).length ? <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}> · сообщений: {o.chat.length}</span> : null}
               </button>
               {openOffer === o.id && (
-                <OfferView order={order} offer={o} me={me} nameOf={nameOf} busy={busy} act={act} />)}
+                <OfferView offer={o} customerId={order.by} api={offerApi(order.id, o.id)}
+                  me={me} nameOf={nameOf} busy={busy} act={act} />)}
             </div>))}
         </div>)}
     </div>
@@ -620,9 +636,14 @@ function OrderCard({ order, me, nameOf, faceOf, onOpenPerson, services, busy, ac
 /* ─────── карточка услуги ─────── */
 
 function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
-  picked = false, onOpenStorage }) {
+  picked = false, onOpenStorage, roles = [] }) {
   const [edit, setEdit] = useState(false);
+  const [ordering, setOrdering] = useState(false);
+  const [ask, setAsk] = useState({ text: "", procRole: "assignee", roleId: roles[0]?.id ?? "" });
+  const [openReq, setOpenReq] = useState(null);
   const mineSvc = String(s.by) === String(me);
+  const requests = s.requests || [];
+  const myOpen = requests.find((r) => String(r.by) === String(me) && !r.accepted);
   // Статус считает сервер: график лежит у него, и он же знает часовой пояс.
   const statusId = faceOf?.(s.by)?.status || "ready";
   return (
@@ -667,6 +688,29 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
           <div><b>выдаёт:</b> {rowsLine(s.gives) || "—"}</div>
           <div><b>выполняется за:</b> {durText(s)}</div>
         </div>
+        {/* Услугу заказывают с карточки (владелец, 2026-09-26): дальше —
+            тот же чат и то же «Договорились», что у отклика на заказ. */}
+        {!mineSvc && !s.customer && !myOpen && !ordering && (
+          <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
+            <button type="button" style={btn(true, OK)} disabled={busy} onClick={() => setOrdering(true)}>
+              Заказать</button>
+          </div>)}
+        {ordering && (
+          <div style={form} aria-label="форма заявки">
+            <textarea aria-label="текст заявки" style={{ ...S.inp, minHeight: 56, marginBottom: "var(--space-4)" }}
+              placeholder="что нужно сделать" value={ask.text}
+              onChange={(e) => setAsk({ ...ask, text: e.target.value })} />
+            <RoleFields procRole={ask.procRole} roleId={ask.roleId} roles={roles}
+              onChange={(patch) => setAsk({ ...ask, ...patch })} />
+            <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
+              <button type="button" style={btn(true, OK)} disabled={busy || !ask.text.trim()}
+                onClick={() => act(() => addRequest(s.id, { text: ask.text.trim(), procRole: ask.procRole,
+                  ...(ask.roleId ? { roleId: ask.roleId } : {}) }))
+                  .then((r) => { if (r) { setOrdering(false); setAsk({ ...ask, text: "" }); } })}>
+                Отправить заявку</button>
+              <button type="button" style={btn(false)} onClick={() => setOrdering(false)}>Отмена</button>
+            </div>
+          </div>)}
         {(mineSvc || isOwner) && (
           <div className="flex flex-wrap gap-2" style={{ marginTop: "var(--space-8)" }}>
             {/* Работа для другого делается в ЕГО хранилище (владелец,
@@ -679,6 +723,28 @@ function ServiceCard({ s, me, nameOf, faceOf, onOpenPerson, busy, act, isOwner,
               aria-label={`удалить услугу ${s.name}`} onClick={() => act(() => dropService(s.id))}>Удалить</button>
           </div>)}
       </>)}
+
+      {/* Заявки: автору услуги — все, заказавшему — свои. */}
+      {!!requests.length && (
+        <div style={{ marginTop: "var(--space-8)" }}>
+          <div style={S.lbl}>{mineSvc ? "заявки" : "ваша заявка"}</div>
+          {requests.map((r) => (
+            <div key={r.id}>
+              <button type="button" style={{ ...btn(openReq === r.id), marginTop: "var(--space-4)", width: "100%",
+                textAlign: "left" }}
+                aria-label={`открыть заявку ${String(r.by) === String(me) ? nameOf(s.by) : nameOf(r.by)}`}
+                onClick={() => setOpenReq(openReq === r.id ? null : r.id)}>
+                <span style={{ fontWeight: 600 }}>{String(r.by) === String(me) ? "вы" : nameOf(r.by)}</span>
+                <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}> · {r.text.length > 60 ? `${r.text.slice(0, 59)}…` : r.text}</span>
+                {r.accepted ? <span style={{ color: OK, fontSize: "var(--fs-hint)" }}> · сделка</span>
+                  : r.brief ? <span style={{ color: String(r.brief.by) === String(me) ? ACC : WARN, fontSize: "var(--fs-hint)" }}> · есть предложение</span> : null}
+                {(r.chat || []).length ? <span style={{ color: C.muted, fontSize: "var(--fs-hint)" }}> · сообщений: {r.chat.length}</span> : null}
+              </button>
+              {openReq === r.id && (
+                <OfferView offer={r} customerId={r.by} executorId={s.by} api={requestApi(s.id, r.id)}
+                  label="заявка" me={me} nameOf={nameOf} busy={busy} act={act} />)}
+            </div>))}
+        </div>)}
     </div>
   );
 }
@@ -898,6 +964,7 @@ export default function MarketPanel({ me, traits = [], draft = null, onDraftDone
         {sortItems(filterItems(orderedBy(pickService, services.slice().reverse()), flt, { faceOf, services }),
           sort, { faceOf, picked: pickedRes(flt) }).map((s) => (
           <ServiceCard key={s.id} s={s} me={view.me} nameOf={nameOf} faceOf={faceOf} onOpenStorage={onOpenStorage}
+            roles={roles}
             onOpenPerson={setCard} busy={busy} act={act} picked={s.id === pickService}
             isOwner={Boolean(me?.isOwner)} />))}
       </>)}

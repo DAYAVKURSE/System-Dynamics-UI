@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { resetIdentity } from "../identity.js";
+import { openTab } from "./openTab.js";
 
 /* Обновление у позванного без перезагрузки.
 
@@ -41,7 +42,10 @@ const fresh = async () => {
   vi.resetModules();
   resetIdentity();
   const { default: SystemModel } = await import("../components/SystemModel.jsx");
-  return render(<SystemModel />);
+  const out = render(<SystemModel />);
+  // Открывается анкета (владелец, 2026-09-26); задачи — докрутив барабан.
+  await waitFor(() => openTab("Задачи"));
+  return out;
 };
 
 const EXEC = { id: "2", isOwner: false, known: true,

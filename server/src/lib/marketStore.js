@@ -66,6 +66,20 @@ export const ORDER_STATUS = ["open", "deal", "done"];
    других. Услуги приватны по умолчанию; открыть услугу всем — выбор
    автора на форме. */
 
+/* ─── ДВЕ РОЛИ СОИСКАТЕЛЯ (владелец, 2026-09-26) ───
+
+   «Вместо роли соискателя сделай два поля: роль в техпроцессе, где может
+   быть постановщик, исполнитель или проверяющий, и роль в сценарии, где
+   выбираются те роли, которые установлены у заказчика в ролях».
+
+   Роль в техпроцессе (`procRole`) решает, кем нанятый встанет в задаче
+   сделки; две другие роли задачи — у заказчика. Роль в сценарии
+   (`roleId`) — прежняя «роль соискателя»: её нанятый получает в
+   хранилище заказчика. Записи до этого дня знали только вторую —
+   нанятый там исполнитель. */
+export const PROC_ROLES = ["setter", "assignee", "reviewer"];
+const procRoleOf = (v) => (PROC_ROLES.includes(String(v)) ? String(v) : "assignee");
+
 const MAX_NAME = 120;
 const MAX_TEXT = 4000;
 const MAX_CHAT = 2000;
@@ -85,11 +99,24 @@ const file = () => path.join(baseDir(), "market.json");
 
 const EMPTY = () => ({ orders: [], services: [] });
 
+/* Стоимости у заказа больше нет (владелец, 2026-09-26): «пускай
+   останутся только ресурсы, чтобы деньги указывали так же, как и все
+   остальные ресурсы». Названная когда-то стоимость не пропадает — она
+   становится строкой ресурсов «Деньги». */
+export const MONEY = "Деньги";
+const noPrice = (o) => {
+  if (!o || !("price" in o)) return o;
+  const { price, ...rest } = o;
+  if (price == null) return rest;
+  return { ...rest, resources: [...(Array.isArray(rest.resources) ? rest.resources : []),
+    { name: MONEY, qty: price }] };
+};
+
 export async function readMarket() {
   try {
     const parsed = JSON.parse(await fs.readFile(file(), "utf8"));
     return {
-      orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+      orders: Array.isArray(parsed.orders) ? parsed.orders.map(noPrice) : [],
       services: Array.isArray(parsed.services) ? parsed.services : [],
     };
   } catch { return EMPTY(); }
@@ -157,11 +184,23 @@ export function orderViewFor(order, userId) {
 export const canSeeService = (s, userId) => s.private !== true
   || mine(s.by, userId) || (s.customer != null && mine(s.customer, userId));
 
+/** Заявка на услугу — как отклик: видна автору услуги и заказавшему. */
+export const canSeeRequest = (s, r, userId) => mine(s.by, userId) || mine(r.by, userId);
+
+/** Услуга глазами человека: чужие заявки убраны, свои — целиком. */
+export function serviceViewFor(s, userId) {
+  return {
+    ...s,
+    requests: (s.requests || []).filter((r) => canSeeRequest(s, r, userId)),
+    requestCount: (s.requests || []).length,
+  };
+}
+
 export async function viewFor(userId) {
   const m = await readMarket();
   return {
     orders: m.orders.map((o) => orderViewFor(o, userId)),
-    services: m.services.filter((s) => canSeeService(s, userId)),
+    services: m.services.filter((s) => canSeeService(s, userId)).map((s) => serviceViewFor(s, userId)),
   };
 }
 
@@ -176,7 +215,14 @@ export function peopleOf(view) {
       if (f.brief?.by != null) ids.add(String(f.brief.by));
     });
   });
-  (view.services || []).forEach((s) => ids.add(String(s.by)));
+  (view.services || []).forEach((s) => {
+    ids.add(String(s.by));
+    (s.requests || []).forEach((r) => {
+      ids.add(String(r.by));
+      (r.chat || []).forEach((c) => ids.add(String(c.by)));
+      if (r.brief?.by != null) ids.add(String(r.brief.by));
+    });
+  });
   return ids;
 }
 
@@ -189,10 +235,10 @@ export function addOrder(userId, fields = {}) {
     if (m.orders.length >= MAX_LIST) throw new BadInput("Заказов слишком много — удалите старые");
     const order = {
       id: uid("ord"), by: String(userId), at: now(),
-      name, text: str(fields.text, MAX_TEXT), price: num(fields.price),
+      name, text: str(fields.text, MAX_TEXT),
       resources: rows(fields.resources),
       funcId: sid(fields.funcId), serviceId: sid(fields.serviceId),
-      roleId: sid(fields.roleId), storage: current(),
+      procRole: procRoleOf(fields.procRole), roleId: sid(fields.roleId), storage: current(),
       status: "open", offers: [],
     };
     m.orders.push(order);
@@ -213,9 +259,9 @@ export function updateOrder(userId, id, fields = {}) {
       order.name = name;
     }
     if ("text" in fields) order.text = str(fields.text, MAX_TEXT);
-    if ("price" in fields) order.price = num(fields.price);
     if ("resources" in fields) order.resources = rows(fields.resources);
     if ("serviceId" in fields) order.serviceId = sid(fields.serviceId);
+    if ("procRole" in fields) order.procRole = procRoleOf(fields.procRole);
     if ("roleId" in fields) order.roleId = sid(fields.roleId);
     await writeMarket(m);
     return orderViewFor(order, userId);
@@ -305,7 +351,19 @@ export function removeService(userId, id, { isOwner = false } = {}) {
   });
 }
 
-/* ─────── отклики и чат ─────── */
+/* ─────── отклики, заявки и чат ─────── */
+
+/* ─── РАЗГОВОР О РАБОТЕ ───
+
+   Отклик на заказ и заявка на услугу — один и тот же разговор двоих
+   (владелец, 2026-09-26: «также и с услугами, там должен быть такой же
+   чат и подтверждение работы»): чат, бриф «Договорились» → «Есть
+   предложение» → принять, сделка с задачей и ресурсы после неё. Разница
+   только в том, кто заказчик и кто исполнитель:
+     · отклик — заказчик пишет заказ, исполнитель откликается;
+     · заявка — исполнитель выложил услугу, заказчик её заказывает.
+   Поэтому всё ниже работает с `deal` — описанием разговора, — а откуда
+   он, знают две функции, `offerDeal` и `requestDeal`. */
 
 const findOffer = (m, orderId, offerId) => {
   const order = m.orders.find((o) => o.id === String(orderId));
@@ -314,9 +372,51 @@ const findOffer = (m, orderId, offerId) => {
   if (!offer) throw new BadInput("Отклик не найден", 404);
   return { order, offer };
 };
-const party = (order, offer, userId) => {
-  if (!canSeeOffer(order, offer, userId)) throw new BadInput("Это не ваш отклик", 403);
+
+function offerDeal(m, orderId, offerId) {
+  const { order, offer } = findOffer(m, orderId, offerId);
+  const svc = m.services.find((s) => s.id === (offer.serviceId || order.serviceId));
+  return {
+    kind: "order", order, thread: offer, customer: String(order.by), executor: String(offer.by),
+    name: order.name, text: order.text, storage: order.storage || MAIN,
+    procRole: procRoleOf(order.procRole), roleId: order.roleId || null,
+    funcId: svc?.funcId || order.funcId || null, days: svc?.days ?? null,
+    ref: { orderId: order.id, offerId: offer.id },
+    taken: () => order.status !== "open",
+    close: () => { order.status = "deal"; },
+  };
+}
+
+function requestDeal(m, serviceId, requestId) {
+  const s = m.services.find((x) => x.id === String(serviceId));
+  if (!s) throw new BadInput("Услуга не найдена", 404);
+  const r = (s.requests || []).find((x) => x.id === String(requestId));
+  if (!r) throw new BadInput("Заявка не найдена", 404);
+  return {
+    kind: "service", service: s, thread: r, customer: String(r.by), executor: String(s.by),
+    name: s.name, text: r.text, storage: r.storage || MAIN,
+    procRole: procRoleOf(r.procRole), roleId: r.roleId || null,
+    funcId: s.funcId || null, days: s.days ?? null,
+    ref: { serviceId: s.id, requestId: r.id },
+    // Услуга не заказ: по ней договариваются с каждым заказавшим.
+    taken: () => false,
+    close: () => {},
+  };
+}
+
+const party = (deal, userId) => {
+  if (!mine(deal.customer, userId) && !mine(deal.executor, userId)) {
+    throw new BadInput(deal.kind === "order" ? "Это не ваш отклик" : "Это не ваша заявка", 403);
+  }
 };
+
+/** Другая сторона разговора — для уведомлений. */
+export const otherSide = (deal, userId) => (mine(deal.customer, userId) ? deal.executor : deal.customer);
+
+const newThread = (userId, fields) => ({
+  id: uid("off"), by: String(userId), at: now(), text: fields.text,
+  chat: [], brief: null, accepted: false, taskId: null, deliveries: [], ...fields,
+});
 
 /** Отклик — предложение заказчику. Один на человека: второй правит первый. */
 export function addOffer(userId, orderId, fields = {}) {
@@ -332,9 +432,7 @@ export function addOffer(userId, orderId, fields = {}) {
       offer.text = text;
       if ("serviceId" in fields) offer.serviceId = sid(fields.serviceId);
     } else {
-      offer = { id: uid("off"), by: String(userId), at: now(), text,
-        serviceId: sid(fields.serviceId), chat: [], brief: null, accepted: false,
-        taskId: null, deliveries: [] };
+      offer = newThread(userId, { text, serviceId: sid(fields.serviceId) });
       order.offers = [...(order.offers || []), offer];
     }
     await writeMarket(m);
@@ -342,17 +440,49 @@ export function addOffer(userId, orderId, fields = {}) {
   });
 }
 
-export function addChat(userId, orderId, offerId, text) {
+/**
+ * Заявка на услугу — заказ одному исполнителю. Заказавший, как автор
+ * заказа, выбирает две роли нанятого и оставляет его работу в своём
+ * хранилище. Одна открытая заявка на человека: вторая правит первую.
+ */
+export function addRequest(userId, serviceId, fields = {}) {
   return withMarket(async (m) => {
-    const { order, offer } = findOffer(m, orderId, offerId);
-    party(order, offer, userId);
-    const t = str(text, MAX_CHAT);
-    if (!t) throw new BadInput("Пустое сообщение не отправляется");
-    const line = { id: uid("msg"), by: String(userId), at: now(), text: t };
-    offer.chat = [...(offer.chat || []), line];
+    const s = m.services.find((x) => x.id === String(serviceId));
+    if (!s) throw new BadInput("Услуга не найдена", 404);
+    if (!canSeeService(s, userId)) throw new BadInput("Услуга не найдена", 404);
+    if (mine(s.by, userId)) throw new BadInput("Свою услугу не заказывают");
+    const text = str(fields.text, MAX_TEXT);
+    if (!text) throw new BadInput("Напишите, что нужно сделать");
+    let r = (s.requests || []).find((x) => mine(x.by, userId) && !x.accepted);
+    if (r) {
+      r.text = text;
+      if ("procRole" in fields) r.procRole = procRoleOf(fields.procRole);
+      if ("roleId" in fields) r.roleId = sid(fields.roleId);
+      r.storage = current();
+    } else {
+      r = newThread(userId, { id: uid("req"), text, procRole: procRoleOf(fields.procRole),
+        roleId: sid(fields.roleId), storage: current() });
+      s.requests = [...(s.requests || []), r];
+    }
     await writeMarket(m);
-    return offer;
+    return r;
   });
+}
+
+const chatIn = (m, deal, userId, text) => {
+  party(deal, userId);
+  const t = str(text, MAX_CHAT);
+  if (!t) throw new BadInput("Пустое сообщение не отправляется");
+  const line = { id: uid("msg"), by: String(userId), at: now(), text: t };
+  deal.thread.chat = [...(deal.thread.chat || []), line];
+  return writeMarket(m).then(() => deal.thread);
+};
+
+export function addChat(userId, orderId, offerId, text) {
+  return withMarket((m) => chatIn(m, offerDeal(m, orderId, offerId), userId, text));
+}
+export function addRequestChat(userId, serviceId, requestId, text) {
+  return withMarket((m) => chatIn(m, requestDeal(m, serviceId, requestId), userId, text));
 }
 
 /* ─────── бриф: «Договорились» → «Есть предложение» ─────── */
@@ -362,79 +492,96 @@ export function addChat(userId, orderId, offerId, text) {
  * другой стороны кнопка «Есть предложение» окрашена: ей есть что принять.
  * Правка после принятия невозможна — сделка заключена.
  */
+const briefIn = async (m, deal, userId, fields) => {
+  party(deal, userId);
+  const offer = deal.thread;
+  if (offer.accepted) throw new BadInput("Предложение уже принято — бриф закрыт");
+  const gives = rows(fields.gives);
+  const gets = one(fields.gets);
+  const days = num(fields.days);
+  if (!gives.length && !gets) throw new BadInput("Назовите хотя бы что отдаёте или что получаете");
+  offer.brief = {
+    by: String(userId), at: now(), rev: (offer.brief?.rev || 0) + 1,
+    gives, gets, days, note: str(fields.note, MAX_TEXT),
+  };
+  await writeMarket(m);
+  return offer;
+};
+
 export function setBrief(userId, orderId, offerId, fields = {}) {
-  return withMarket(async (m) => {
-    const { order, offer } = findOffer(m, orderId, offerId);
-    party(order, offer, userId);
-    if (offer.accepted) throw new BadInput("Предложение уже принято — бриф закрыт");
-    const gives = rows(fields.gives);
-    const gets = one(fields.gets);
-    const days = num(fields.days);
-    if (!gives.length && !gets) throw new BadInput("Назовите хотя бы что отдаёте или что получаете");
-    offer.brief = {
-      by: String(userId), at: now(), rev: (offer.brief?.rev || 0) + 1,
-      gives, gets, days, note: str(fields.note, MAX_TEXT),
-    };
-    await writeMarket(m);
-    return offer;
-  });
+  return withMarket((m) => briefIn(m, offerDeal(m, orderId, offerId), userId, fields));
+}
+export function setRequestBrief(userId, serviceId, requestId, fields = {}) {
+  return withMarket((m) => briefIn(m, requestDeal(m, serviceId, requestId), userId, fields));
 }
 
 /**
  * Принять предложение может только та сторона, что его НЕ писала: своё
  * предложение принимать не у кого. Сделка: заказ закрывается для других
- * откликов, у исполнителя заводится задача в модели владельца.
+ * откликов, у нанятого заводится задача в хранилище заказчика.
  */
+const acceptIn = async (m, deal, userId) => {
+  party(deal, userId);
+  const offer = deal.thread;
+  if (!offer.brief) throw new BadInput("Предложения ещё нет — сначала «Договорились»");
+  if (offer.accepted) throw new BadInput("Уже принято");
+  if (mine(offer.brief.by, userId)) throw new BadInput("Это ваше предложение — принять его должна другая сторона");
+  if (deal.taken()) throw new BadInput("По заказу уже договорились с другим исполнителем");
+  /* Задача — в хранилище заказчика: там, где заказ оставили. */
+  const task = await inStorage(deal.storage, () => withModel(async (model) => {
+    const t = taskFor(deal);
+    model.tasks = [...(model.tasks || []), t];
+    await writeModel(model);
+    return t;
+  }));
+  offer.accepted = true;
+  offer.acceptedBy = String(userId);
+  offer.acceptedAt = now();
+  offer.taskId = task.id;
+  deal.close();
+  await writeMarket(m);
+  /* Найм: роль в сценарии в хранилище заказчика (с договором, если он
+     у роли есть) и услуга у исполнителя. Ошибка тут сделку не
+     отменяет: задача уже заведена, и без неё было бы хуже. Рынок уже
+     в руках (`m`) — очередь второй раз не берётся. */
+  try { await hire(m, deal, task); }
+  catch (e) { console.error(`[market] найм по ${deal.kind === "order" ? "заказу" : "услуге"} ${deal.name}: ${e.message}`); }
+  return { offer, task };
+};
+
 export function acceptBrief(userId, orderId, offerId) {
-  return withMarket(async (m) => {
-    const { order, offer } = findOffer(m, orderId, offerId);
-    party(order, offer, userId);
-    if (!offer.brief) throw new BadInput("Предложения ещё нет — сначала «Договорились»");
-    if (offer.accepted) throw new BadInput("Уже принято");
-    if (mine(offer.brief.by, userId)) throw new BadInput("Это ваше предложение — принять его должна другая сторона");
-    if (order.status !== "open") throw new BadInput("По заказу уже договорились с другим исполнителем");
-    const svc = m.services.find((s) => s.id === (offer.serviceId || order.serviceId));
-    /* Задача — в хранилище заказчика: там, где заказ оставили. */
-    const storage = order.storage || MAIN;
-    const task = await inStorage(storage, () => withModel(async (model) => {
-      const t = taskOf(order, offer, svc);
-      model.tasks = [...(model.tasks || []), t];
-      await writeModel(model);
-      return t;
-    }));
-    offer.accepted = true;
-    offer.acceptedBy = String(userId);
-    offer.acceptedAt = now();
-    offer.taskId = task.id;
-    order.status = "deal";
-    await writeMarket(m);
-    /* Найм: роль соискателя в хранилище заказчика (с договором, если он
-       у роли есть) и услуга у исполнителя. Ошибка тут сделку не
-       отменяет: задача уже заведена, и без неё было бы хуже. Рынок уже
-       в руках (`m`) — очередь второй раз не берётся. */
-    try { await hire(m, order, offer, task); }
-    catch (e) { console.error(`[market] найм по заказу ${order.id}: ${e.message}`); }
-    return { offer, task };
-  });
+  return withMarket((m) => acceptIn(m, offerDeal(m, orderId, offerId), userId));
+}
+export function acceptRequestBrief(userId, serviceId, requestId) {
+  return withMarket((m) => acceptIn(m, requestDeal(m, serviceId, requestId), userId));
+}
+
+/** Разговор по id — для уведомлений маршрута: кто с кем и о чём. */
+export async function dealOf(kind, parentId, threadId) {
+  const m = await readMarket();
+  return kind === "order" ? offerDeal(m, parentId, threadId) : requestDeal(m, parentId, threadId);
 }
 
 /* ─────── найм и услуга исполнителя ─────── */
 
-async function hire(m, order, offer, task) {
-  const storage = order.storage || MAIN;
-  if (order.roleId) {
+async function hire(m, deal, task) {
+  const storage = deal.storage;
+  const hired = deal.executor;
+  if (deal.roleId) {
     await inStorage(storage, async () => {
       const org = await readOrg();
-      if (!org.roles.some((r) => r.id === order.roleId)) return;
-      const was = org.users.find((u) => u.id === String(offer.by));
-      const name = was?.name || `участник ${offer.by}`;
+      if (!org.roles.some((r) => r.id === deal.roleId)) return;
+      const was = org.users.find((u) => u.id === hired);
+      const name = was?.name || `участник ${hired}`;
       /* addUser: роль с договором-файлом ложится в `pending` — человек
          подпишет его, войдя в хранилище заказчика. */
-      await addUser({ id: offer.by, name, roleId: order.roleId, addedBy: order.by });
+      await addUser({ id: hired, name, roleId: deal.roleId, addedBy: deal.customer });
     });
   }
-  await noteWorkIn(m, offer.by, { name: order.name, text: order.text, customer: order.by,
-    storage, taskId: task.id, orderId: order.id, roleId: order.roleId || null });
+  /* Работа для другого — у нанятого в его хранилище. По заявке на
+     услугу запись одна на заявку: её id стоит на месте id заказа. */
+  await noteWorkIn(m, hired, { name: deal.name, text: deal.text, customer: deal.customer,
+    storage, taskId: task.id, orderId: deal.ref.orderId || deal.ref.requestId, roleId: deal.roleId });
 }
 
 /**
@@ -469,46 +616,61 @@ async function noteWorkIn(m, executorId, { name, text = "", customer, storage, t
 }
 
 /* Задача сделки: постановка уже была — это бриф, поэтому сразу в бэклог.
-   Постановщик и проверяющий — заказчик: он и ставил, и примет. Срок — по
-   брифу, назначен рукой: это обещание, а не производная от начала. */
-export function taskOf(order, offer, svc) {
-  const b = offer.brief || {};
+   Нанятый встаёт в задаче на свою роль в техпроцессе, две другие — у
+   заказчика: он и ставил, и примет, если не отдал это нанятому. Срок —
+   по брифу, назначен рукой: это обещание, а не производная от начала. */
+function taskFor(deal) {
+  const b = deal.thread.brief || {};
   const start = new Date();
-  const days = b.days != null ? b.days : (svc?.days ?? null);
+  const days = b.days != null ? b.days : deal.days;
   const end = days != null ? new Date(start.getTime() + days * 86400000) : null;
   const lines = [];
-  if (order.text) lines.push(order.text);
+  if (deal.text) lines.push(deal.text);
   if (b.gives?.length) lines.push(`Заказчик отдаёт: ${b.gives.map(rowText).join(", ")}.`);
   if (b.gets) lines.push(`Исполнитель выдаёт: ${rowText(b.gets)}.`);
   if (b.note) lines.push(b.note);
+  const who = (r) => (deal.procRole === r ? deal.executor : deal.customer);
   return {
-    id: uid("tk"), funcId: svc?.funcId || order.funcId || null,
-    title: order.name, body: lines.join("\n"),
+    id: uid("tk"), funcId: deal.funcId,
+    title: deal.name, body: lines.join("\n"),
     status: "backlog", taken: false, canceled: false, deferredAt: null,
-    setter: String(order.by), assignee: String(offer.by), reviewer: String(order.by),
+    setter: who("setter"), assignee: who("assignee"), reviewer: who("reviewer"),
     start: start.toISOString(), end: end ? end.toISOString() : null, endBy: "hand",
-    market: { orderId: order.id, offerId: offer.id },
+    market: deal.ref,
     submissions: [], reviews: [], chat: [],
   };
+}
+
+/** Задача сделки по отклику на заказ — как её заведёт `accept`. */
+export function taskOf(order, offer, svc) {
+  return taskFor({ thread: offer, customer: String(order.by), executor: String(offer.by),
+    name: order.name, text: order.text, procRole: procRoleOf(order.procRole),
+    funcId: svc?.funcId || order.funcId || null, days: svc?.days ?? null,
+    ref: { orderId: order.id, offerId: offer.id } });
 }
 const rowText = (r) => (r.qty != null ? `${r.name} × ${r.qty}` : r.name);
 
 /* ─────── что заказчик отдаёт после сделки ─────── */
 
+const deliveryIn = async (m, deal, userId, fields) => {
+  const offer = deal.thread;
+  if (!mine(deal.customer, userId)) throw new BadInput("Ресурсы по сделке загружает заказчик", 403);
+  if (!offer.accepted) throw new BadInput("Сделки ещё нет — загружать пока нечего");
+  const name = str(fields.name, MAX_NAME);
+  const text = str(fields.text, MAX_TEXT);
+  const f = fields.file && typeof fields.file === "object"
+    ? { id: str(fields.file.id, 80), name: str(fields.file.name, MAX_NAME), url: str(fields.file.url, 400) }
+    : null;
+  if (!name && !text && !f) throw new BadInput("Назовите ресурс, приложите файл или напишите текст");
+  offer.deliveries = [...(offer.deliveries || []),
+    { id: uid("dlv"), by: String(userId), at: now(), name, text, file: f?.id || f?.url ? f : null }];
+  await writeMarket(m);
+  return offer;
+};
+
 export function addDelivery(userId, orderId, offerId, fields = {}) {
-  return withMarket(async (m) => {
-    const { order, offer } = findOffer(m, orderId, offerId);
-    if (!mine(order.by, userId)) throw new BadInput("Ресурсы по сделке загружает заказчик", 403);
-    if (!offer.accepted) throw new BadInput("Сделки ещё нет — загружать пока нечего");
-    const name = str(fields.name, MAX_NAME);
-    const text = str(fields.text, MAX_TEXT);
-    const f = fields.file && typeof fields.file === "object"
-      ? { id: str(fields.file.id, 80), name: str(fields.file.name, MAX_NAME), url: str(fields.file.url, 400) }
-      : null;
-    if (!name && !text && !f) throw new BadInput("Назовите ресурс, приложите файл или напишите текст");
-    offer.deliveries = [...(offer.deliveries || []),
-      { id: uid("dlv"), by: String(userId), at: now(), name, text, file: f?.id || f?.url ? f : null }];
-    await writeMarket(m);
-    return offer;
-  });
+  return withMarket((m) => deliveryIn(m, offerDeal(m, orderId, offerId), userId, fields));
+}
+export function addRequestDelivery(userId, serviceId, requestId, fields = {}) {
+  return withMarket((m) => deliveryIn(m, requestDeal(m, serviceId, requestId), userId, fields));
 }

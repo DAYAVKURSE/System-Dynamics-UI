@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import SystemModel from "../components/SystemModel.jsx";
+import { openTab } from "./openTab.js";
 import TasksBoard, { TaskSetup, autoFlow, autoStatus, floorStatus, newTask,
   selfReview, selfSet } from "../components/TasksBoard.jsx";
 import { saveDraft } from "../lib/draft.js";
@@ -250,6 +251,7 @@ describe("во всём приложении, а не только на откр
     saveDraft(DOC, { name: "Черновик" });
     render(<SystemModel />);
     fireEvent.click(screen.getByRole("button", { name: /Восстановить/ }));
+    openTab("Задачи");
     const backlog = screen.getByText("Бэклог").closest("div").parentElement;
     expect(within(backlog).getByText("Задача A")).toBeInTheDocument();
   });

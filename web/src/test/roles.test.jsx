@@ -202,6 +202,7 @@ describe("общая модель ходит через сервер", () => {
       tasks: [{ id: "tk", goalId: "t1", title: "Присланная задача", status: "backlog",
         assignee: "2", reviewer: "1", submissions: [], comments: [] }] });
     await fresh();
+    await waitFor(() => openTab("Задачи"));
     await waitFor(() => expect(screen.getByText("Присланная задача")).toBeTruthy());
 
     // И он ничего на сервер не пишет: модель ему не принадлежит. Ждём
@@ -257,6 +258,7 @@ describe("кому какие задачи видны", () => {
       role: { id: "executor", name: "исполнитель" }, tabs: ["tasks"] },
     model(TASKS));
     await fresh();
+    await waitFor(() => openTab("Задачи"));
     await waitFor(() => expect(screen.getByText("Моя задача")).toBeTruthy());
     expect(screen.queryByText("Чужая задача")).toBeNull();
   });

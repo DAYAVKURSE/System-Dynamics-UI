@@ -767,10 +767,12 @@ export default function SystemModel({splash=import.meta.env.MODE!=="test",splash
   const [reportFocus,setReportFocus]=useState(()=>
     reportFromLocation(typeof window==="undefined"?"":window.location.search));
   /* Пришли по ссылке на блок карты — открываем сразу отчёты: человек
-     просил не приложение вообще, а конкретный раздел. */
+     просил не приложение вообще, а конкретный раздел. Иначе — анкета
+     (владелец, 2026-09-26): она посередине барабана при открытии, и
+     открыта должна быть она же. */
   const [tab,setTab]=useState(()=>(
     reportFromLocation(typeof window==="undefined"?"":window.location.search)
-      ?"reports":"tasks"));
+      ?"reports":SELF_TAB[0]));
   const [sel,setSel]=useState("usr");
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [why,setWhy]=useState(null);

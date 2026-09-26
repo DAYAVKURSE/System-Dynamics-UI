@@ -39,19 +39,24 @@ const VIEW = { me: "200", people: { 200: "вы", 300: "Иван" }, faces: {}, o
 beforeEach(() => { server(VIEW); });
 afterEach(() => { vi.restoreAllMocks(); delete global.fetch; });
 
-describe("заказ с ролью соискателя", () => {
-  it("роль выбирается из своих ролей и уезжает с заказом", async () => {
+describe("заказ с двумя ролями нанятого (владелец, 2026-09-26)", () => {
+  it("роль в техпроцессе и роль в сценарии из своих ролей уезжают с заказом", async () => {
     render(<MarketPanel me={ME} roles={ROLES} />);
     await screen.findByRole("tab", { name: /Услуги · 1/ });
     fireEvent.click(screen.getByRole("button", { name: "+ заказ" }));
-    const sel = screen.getByLabelText("роль соискателя");
+    expect(screen.queryByLabelText("роль соискателя")).toBeNull();
+    const proc = screen.getByLabelText("роль в техпроцессе");
+    expect(proc).toHaveValue("assignee");
+    expect([...proc.options].map((o) => o.textContent)).toEqual(["постановщик", "исполнитель", "проверяющий"]);
+    fireEvent.change(proc, { target: { value: "reviewer" } });
+    const sel = screen.getByLabelText("роль в сценарии");
     expect(sel).toHaveValue("r1");
     fireEvent.change(sel, { target: { value: "r2" } });
     fireEvent.change(screen.getByLabelText("название заказа"), { target: { value: "Логотип" } });
     fireEvent.click(screen.getByRole("button", { name: "Оставить заказ" }));
     await screen.findByLabelText("заказ Логотип");
     const post = log.find((r) => r.method === "POST" && r.url.endsWith("/orders"));
-    expect(post.body).toMatchObject({ name: "Логотип", roleId: "r2" });
+    expect(post.body).toMatchObject({ name: "Логотип", procRole: "reviewer", roleId: "r2" });
   });
 });
 

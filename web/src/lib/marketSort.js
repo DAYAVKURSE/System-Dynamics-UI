@@ -20,8 +20,6 @@ export const SORTS = [
   ["", "без сортировки"],
   ["date:desc", "по дате: сначала новые"],
   ["date:asc", "по дате: сначала старые"],
-  ["price:desc", "по стоимости: сначала дороже"],
-  ["price:asc", "по стоимости: сначала дешевле"],
   ["rating:desc", "по рейтингу: сначала выше"],
   ["rating:asc", "по рейтингу: сначала ниже"],
   ["done:desc", "по выполненным работам: сначала больше"],
@@ -87,7 +85,6 @@ export function sortItems(items = [], key = "", { faceOf = () => ({}), picked = 
   const dir = dirRaw === "asc" ? 1 : -1;
   const val = (it) => {
     if (field === "date") return stamp(it.at);
-    if (field === "price") return num(it.price);
     if (field === "rating") return num(faceOf(it.by)?.rating);
     if (field === "done") return num(faceOf(it.by)?.done) ?? 0;
     if (field === "res") return resQty(it, picked);
@@ -96,7 +93,7 @@ export function sortItems(items = [], key = "", { faceOf = () => ({}), picked = 
   return [...items]
     .map((it, i) => ({ it, i, v: val(it) }))
     .sort((a, b) => {
-      // Чего нет (рейтинга ещё нет, цены не назвали) — в конец при любом направлении.
+      // Чего нет (рейтинга ещё нет) — в конец при любом направлении.
       if (a.v == null && b.v == null) return a.i - b.i;
       if (a.v == null) return 1;
       if (b.v == null) return -1;

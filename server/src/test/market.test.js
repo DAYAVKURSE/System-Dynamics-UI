@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
@@ -56,7 +56,7 @@ beforeEach(async () => {
 });
 
 const order = (who = 200, fields = {}) => request(app).post("/api/market/orders").set(as(who))
-  .send({ name: "Сайт-визитка", text: "три страницы", price: 30000, roleId: role.id,
+  .send({ name: "Сайт-визитка", text: "три страницы", procRole: "assignee", roleId: role.id,
     resources: [{ name: "логотип", qty: 1 }, { name: "тексты", qty: 3 }], ...fields });
 
 describe("заказы и услуги", () => {
@@ -64,7 +64,7 @@ describe("заказы и услуги", () => {
     expect((await request(app).get("/api/market").set(as(999))).status).toBe(403);
     const r = await order();
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ name: "Сайт-визитка", price: 30000, status: "open", by: "200",
+    expect(r.body).toMatchObject({ name: "Сайт-визитка", status: "open", by: "200", procRole: "assignee",
       resources: [{ name: "логотип", qty: 1 }, { name: "тексты", qty: 3 }] });
     const seen = await request(app).get("/api/market").set(as(300));
     expect(seen.body.orders.map((o) => o.name)).toEqual(["Сайт-визитка"]);
@@ -84,9 +84,10 @@ describe("заказы и услуги", () => {
     expect((await order(200, { name: "" })).status).toBe(400);
     const o = (await order()).body;
     expect((await request(app).put(`/api/market/orders/${o.id}`).set(as(300)).send({ name: "чужой" })).status).toBe(403);
-    const upd = await request(app).put(`/api/market/orders/${o.id}`).set(as(200)).send({ name: "Лендинг", price: "25 000" });
+    const upd = await request(app).put(`/api/market/orders/${o.id}`).set(as(200)).send({ name: "Лендинг", price: 25000 });
     expect(upd.body.name).toBe("Лендинг");
-    expect(upd.body.price).toBe(null);
+    // Стоимости у заказа нет (владелец, 2026-09-26): деньги — строкой ресурсов.
+    expect(upd.body).not.toHaveProperty("price");
     expect((await request(app).delete(`/api/market/orders/${o.id}`).set(as(300))).status).toBe(403);
     expect((await request(app).delete(`/api/market/orders/${o.id}`).set(as(100))).status).toBe(204);
   });
@@ -324,5 +325,132 @@ describe("принимает заказ автоматически", () => {
     await service(true);
     const r = await order(200);
     expect(r.body.status).toBe("open");
+  });
+});
+
+/* ─────── ДВЕ РОЛИ, СТОИМОСТЬ, УСЛУГИ, УВЕДОМЛЕНИЯ (владелец, 2026-09-26) ───────
+
+   Роль в техпроцессе решает, кем нанятый встанет в задаче сделки; роль в
+   сценарии — какую роль он получит у заказчика. Стоимости у заказа нет:
+   деньги — строка ресурсов. Услугу заказывают с карточки, и дальше — тот
+   же разговор, что у отклика. О каждом шаге другой стороне пишет бот. */
+const { notify } = await import("../routes/market.js");
+const { readMarket } = await import("../lib/marketStore.js");
+
+describe("две роли, услуги и уведомления", () => {
+  let sent;
+  const real = notify.send;
+  beforeEach(() => {
+    sent = [];
+    notify.send = async (chat, text) => { sent.push({ chat: String(chat), text }); };
+  });
+  afterAll(() => { notify.send = real; });
+  const to = (id) => sent.filter((x) => x.chat === String(id)).map((x) => x.text);
+
+  it("роль в техпроцессе «проверяющий»: нанятый проверяет, ставит и делает заказчик", async () => {
+    const o = (await order(200, { procRole: "reviewer" })).body;
+    expect(o.procRole).toBe("reviewer");
+    const off = (await request(app).post(`/api/market/orders/${o.id}/offers`).set(as(300)).send({ text: "проверю" })).body;
+    const base = `/api/market/orders/${o.id}/offers/${off.id}`;
+    await request(app).put(`${base}/brief`).set(as(300)).send({ gets: { name: "отчёт" }, days: 1 });
+    const acc = await request(app).post(`${base}/accept`).set(as(200));
+    expect(acc.body.task).toMatchObject({ setter: "200", assignee: "200", reviewer: "300" });
+  });
+
+  it("без роли в техпроцессе заказа нет", async () => {
+    const r = await order(200, { procRole: "" });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe("Выберите роль в техпроцессе");
+  });
+
+  it("стоимость, названная раньше, становится строкой ресурсов «Деньги»", async () => {
+    const o = (await order()).body;
+    const file = path.join(process.env.MARKET_DIR, "market.json");
+    const raw = JSON.parse(await fs.readFile(file, "utf8"));
+    raw.orders[0].price = 30000;
+    await fs.writeFile(file, JSON.stringify(raw));
+    const got = (await readMarket()).orders.find((x) => x.id === o.id);
+    expect(got).not.toHaveProperty("price");
+    expect(got.resources.at(-1)).toEqual({ name: "Деньги", qty: 30000 });
+  });
+
+  it("предложение — автору заказа, сообщение — другой стороне, принятие — соискателю", async () => {
+    const o = (await order()).body;
+    const off = (await request(app).post(`/api/market/orders/${o.id}/offers`).set(as(300)).send({ text: "сделаю за 4 дня" })).body;
+    await vi.waitFor(() => expect(to(200)).toHaveLength(1));
+    expect(to(200)[0]).toContain("Новое предложение по заказу «Сайт-визитка»");
+    expect(to(200)[0]).toContain("сделаю за 4 дня");
+    // Правка своего отклика — не новое предложение.
+    await request(app).post(`/api/market/orders/${o.id}/offers`).set(as(300)).send({ text: "за 3 дня" });
+    const base = `/api/market/orders/${o.id}/offers/${off.id}`;
+    await request(app).post(`${base}/chat`).set(as(200)).send({ text: "когда начнёте?" });
+    await vi.waitFor(() => expect(to(300)).toHaveLength(1));
+    expect(to(300)[0]).toContain("Новое сообщение по заказу «Сайт-визитка»");
+    expect(to(300)[0]).toContain("когда начнёте?");
+    await request(app).post(`${base}/chat`).set(as(300)).send({ text: "завтра" });
+    await vi.waitFor(() => expect(to(200)).toHaveLength(2));
+    expect(to(200)[1]).toContain("завтра");
+    await request(app).put(`${base}/brief`).set(as(300)).send({ gets: { name: "сайт" }, days: 3 });
+    await request(app).post(`${base}/accept`).set(as(200));
+    await vi.waitFor(() => expect(to(300)).toHaveLength(2));
+    expect(to(300)[1]).toContain("Вас приняли на выполнение заказа «Сайт-визитка»");
+    expect(to(300)[1]).toContain("Ваша роль в задаче: исполнитель");
+    expect(to(200)).toHaveLength(2);
+  });
+
+  it("заявка на услугу: тот же чат, бриф, сделка и уведомления", async () => {
+    const svc = (await request(app).post("/api/market/services").set(as(300))
+      .send({ name: "Вёрстка", private: false, days: 5 })).body;
+    const url = `/api/market/services/${svc.id}/requests`;
+    // Своя услуга не заказывается; без ролей — отказ.
+    expect((await request(app).post(url).set(as(300)).send({ text: "сам", procRole: "assignee", roleId: role.id })).status).toBe(400);
+    expect((await request(app).post(url).set(as(200)).send({ text: "нужно" })).status).toBe(400);
+    const r = await request(app).post(url).set(as(200))
+      .send({ text: "сверстать лендинг", procRole: "assignee", roleId: role.id });
+    expect(r.status).toBe(201);
+    const req = r.body.requests[0];
+    expect(req).toMatchObject({ by: "200", text: "сверстать лендинг", procRole: "assignee", roleId: role.id });
+    await vi.waitFor(() => expect(to(300)).toHaveLength(1));
+    expect(to(300)[0]).toContain("Новая заявка на услугу «Вёрстка»");
+
+    // Заявку видят двое; третьему — только счёт.
+    await addUser({ id: "400", name: "Третий", roleId: role.id, addedBy: "100" });
+    const third = await request(app).get("/api/market").set(as(400));
+    expect(third.body.services[0].requests).toEqual([]);
+    expect(third.body.services[0].requestCount).toBe(1);
+
+    const base = `${url}/${req.id}`;
+    expect((await request(app).post(`${base}/chat`).set(as(400)).send({ text: "я" })).status).toBe(403);
+    await request(app).post(`${base}/chat`).set(as(300)).send({ text: "какой макет?" });
+    await vi.waitFor(() => expect(to(200)).toHaveLength(1));
+    expect(to(200)[0]).toContain("Новое сообщение по услуге «Вёрстка»");
+
+    await request(app).put(`${base}/brief`).set(as(200)).send({ gives: [{ name: "Деньги", qty: 5000 }], gets: { name: "лендинг" }, days: 2 });
+    expect((await request(app).post(`${base}/accept`).set(as(200))).status).toBe(400);
+    const acc = await request(app).post(`${base}/accept`).set(as(300));
+    expect(acc.status).toBe(200);
+    expect(acc.body.task).toMatchObject({ title: "Вёрстка", setter: "200", assignee: "300", reviewer: "200",
+      market: { serviceId: svc.id, requestId: req.id } });
+    expect(acc.body.task.body).toContain("Заказчик отдаёт: Деньги × 5000");
+    await vi.waitFor(() => expect(to(200)).toHaveLength(2));
+    expect(to(200)[1]).toContain("принял(а) ваше предложение по услуге «Вёрстка»");
+
+    // После сделки заказчик отдаёт ресурсы; исполнителю — нельзя.
+    expect((await request(app).post(`${base}/deliveries`).set(as(300)).send({ name: "x" })).status).toBe(403);
+    const d = await request(app).post(`${base}/deliveries`).set(as(200)).send({ name: "макет" });
+    expect(d.body.deliveries[0]).toMatchObject({ name: "макет" });
+    // Задача — у заказчика в модели, исполнитель — участник с ролью в сценарии.
+    expect((await readModel()).tasks.map((t) => t.id)).toContain(acc.body.task.id);
+  });
+
+  it("услуга с автоприёмом в рабочее время принимает заявку сама", async () => {
+    await setProfile("300", { days: [0, 1, 2, 3, 4, 5, 6], from: "", to: "", status: "ready" });
+    const svc = (await request(app).post("/api/market/services").set(as(300))
+      .send({ name: "Вёрстка", private: false, gives: [{ name: "макет", qty: 1 }], days: 3, auto: true })).body;
+    const r = await request(app).post(`/api/market/services/${svc.id}/requests`).set(as(200))
+      .send({ text: "сверстать", procRole: "assignee", roleId: role.id });
+    expect(r.body.auto).toBe(true);
+    expect(r.body.requests[0].accepted).toBe(true);
+    await vi.waitFor(() => expect(to(300).some((t) => t.includes("Вас приняли"))).toBe(true));
   });
 });

@@ -117,13 +117,24 @@ describe("ряд барабана", () => {
 });
 
 describe("выбирает середина, а не нажатие", () => {
+  /* При открытии посередине — анкета, и открыта она же (владелец,
+     2026-09-26: «должна быть активна и та вкладка, которая посередине. И
+     это должна быть анкета»). */
+  it("при открытии открыта анкета — та, что посередине", () => {
+    render(<SystemModel />);
+    const me = screen.getByRole("button", { name: "Анкета" });
+    expect(me).toHaveAttribute("aria-current", "page");
+    expect(me.style.transform).toContain("rotateY(0.00deg)");
+    expect(screen.getByRole("button", { name: "Задачи" })).not.toHaveAttribute("aria-current");
+  });
+
   it("нажатие на вкладку не открывает её", () => {
     render(<SystemModel />);
-    const was = screen.getByRole("button", { name: "Задачи" });
+    const was = screen.getByRole("button", { name: "Анкета" });
     expect(was).toHaveAttribute("aria-current", "page");
     const other = screen.getByRole("button", { name: "Схема" });
     other.click();
-    expect(screen.getByRole("button", { name: "Задачи" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Анкета" })).toHaveAttribute("aria-current", "page");
     expect(other).not.toHaveAttribute("aria-current");
   });
 
@@ -143,19 +154,19 @@ describe("выбирает середина, а не нажатие", () => {
     drum.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
     drum.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: short }));
     drum.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: short }));
-    expect(screen.getByRole("button", { name: "Задачи" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Анкета" })).toHaveAttribute("aria-current", "page");
   });
 
   it("вид стоит с самого начала: вкладка на дуге, буквы — каждая на своей точке", () => {
     render(<SystemModel />);
-    const mid = screen.getByRole("button", { name: "Задачи" });
-    const side = screen.getByRole("button", { name: "Маркет" });
+    const mid = screen.getByRole("button", { name: "Анкета" });
+    const side = screen.getByRole("button", { name: "Схема" });
     expect(mid.style.transform).toContain("rotateY(0.00deg)");
     const size = (el) => Number(el.style.transform.match(/scale\(([\d.]+)\)/)[1]);
     expect(size(mid)).toBeGreaterThan(size(side));
     // Буквы — свои элементы, и у каждой свой поворот.
     const letters = [...side.querySelectorAll("[data-letter]")];
-    expect(letters.map((l) => l.textContent).join("")).toBe("Маркет");
+    expect(letters.map((l) => l.textContent).join("")).toBe("Схема");
     expect(letters.every((l) => /rotateY\(/.test(l.style.transform))).toBe(true);
     // Буква дальней вкладки тусклее буквы открытой.
     const op = (el) => Number(el.querySelector("[data-letter]").style.opacity);

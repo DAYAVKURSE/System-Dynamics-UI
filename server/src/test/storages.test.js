@@ -155,12 +155,16 @@ describe("рынок между хранилищами", () => {
     await request(app).get("/api/org/me").set(as(300, "Пётр"));
     const role = await inStorage("200", () => addRole({ name: "верстальщик", tabs: ["tasks"] }));
 
-    // Без роли соискателя заказ не оставить.
+    // Без двух ролей нанятого заказ не оставить.
     const bad = await request(app).post("/api/market/orders").set(as(200, "Иван"))
-      .send({ name: "Сайт", text: "три страницы", price: 100 });
+      .send({ name: "Сайт", text: "три страницы", procRole: "assignee" });
     expect(bad.status).toBe(400);
+    expect(bad.body.error).toBe("Выберите роль в сценарии");
+    const noProc = await request(app).post("/api/market/orders").set(as(200, "Иван"))
+      .send({ name: "Сайт", text: "три страницы", roleId: role.id });
+    expect(noProc.body.error).toBe("Выберите роль в техпроцессе");
     const ord = await request(app).post("/api/market/orders").set(as(200, "Иван"))
-      .send({ name: "Сайт", text: "три страницы", price: 100, roleId: role.id });
+      .send({ name: "Сайт", text: "три страницы", procRole: "assignee", roleId: role.id });
     expect(ord.status).toBe(201);
     expect(ord.body.roleId).toBe(role.id);
     expect(ord.body.storage).toBe("200");
